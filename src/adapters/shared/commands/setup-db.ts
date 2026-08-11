@@ -267,6 +267,8 @@ export function registerSetupDbCommand(deps: RunInteractiveSetupDbDeps = {}): vo
       id: "setup.db",
       category: CommandCategory.INIT,
       name: "setup db",
+      // mt#3924: drift-gated — writes config and runs migrations against a real database.
+      mutating: true,
       description:
         "Configure Postgres persistence: capture a connection string, write config, " +
         "run migrations, and verify connectivity (Docker / Supabase / bring-your-own)",

@@ -23,6 +23,7 @@ import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { hostname } from "os";
 import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
@@ -408,6 +409,13 @@ export class MinskyMCPServer {
    * write path is a no-op (graceful degradation).
    */
   private presenceClaimRepo: PresenceClaimRepository | undefined;
+  /**
+   * Latches once the conflicting-ambient-conversation warning has been emitted
+   * (mt#3945 PR #2847 R1). The check sits on the presence write path, which
+   * fires on every tool call carrying a task or session arg, so an unlatched
+   * warning would repeat thousands of times for one misconfiguration.
+   */
+  private warnedAmbientConversationConflict = false;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -631,7 +639,22 @@ export class MinskyMCPServer {
 
   /**
    * Refuse a mutating tool call when the server source is stale relative to the
-   * workspace. Read-only tools (mutating false or unset) pass through.
+   * workspace. Tools without the flag (false or unset) pass through.
+   *
+   * **This gate is a race-window backstop, not the primary staleness mechanism
+   * (mt#3924).** Detecting staleness already makes the server remove itself:
+   * `triggerStaleSignal` records a `staleness_exit`, sets `pendingStaleExit` and
+   * schedules the process to exit at the first idle gap (mt#2830), after which the
+   * stdio proxy respawns it on the current build (mt#1714 + mt#1740). What this
+   * gate covers is the span between the flag latching and that exit landing —
+   * calls keep being served normally in the meantime, by design.
+   *
+   * That window is why the measured numbers look mismatched and are not: 2,492
+   * staleness exits in the 30 days to 2026-08-11 (89/day) produced 3 gate refusals
+   * in ~70 days of transcripts. Both sides of the refusal set's scope are priced
+   * against the window, not against the exit rate — see mt#3924's `## Outcome` for
+   * the decision and `CommandDefinition.mutating`'s docblock for what the set
+   * covers and what it deliberately leaves out.
    *
    * Public so unit tests can exercise the real check without going through the
    * full MCP transport. The dispatcher in createConfiguredServer's
@@ -651,7 +674,10 @@ export class MinskyMCPServer {
     const head = headMatch ? headMatch[1] : "unknown";
     throw new Error(
       `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
-        `Reconnect via /mcp before retrying mutating operations.`
+        `This call is refused because its effect is irreversible, bulk, or schema-migrating ` +
+        `and this build predates the workspace. Retry in ~30s: the server schedules its own ` +
+        `exit at the next idle gap and the stdio proxy respawns it on the current build. ` +
+        `Only if minsky runs WITHOUT the proxy does this need a manual /mcp reconnect.`
     );
   }
 
@@ -1670,21 +1696,73 @@ export class MinskyMCPServer {
 
     const projectId = await this.resolveProjectIdBestEffort();
 
-    // Capture the caller's CC conversation id (best-effort from environment)
-    const ccConversationId =
-      typeof process.env.CC_CONVERSATION_ID === "string"
-        ? process.env.CC_CONVERSATION_ID
-        : undefined;
-
     await repo.upsertClaim({
       subjectKind: "task",
       subjectId,
       actorId,
-      ccConversationId,
+      ccConversationId: this.resolveCcConversationId(actorId),
       projectId,
     });
 
     log.debug("presence claim written", { taskId, actorId });
+  }
+
+  /**
+   * The conversation a presence claim was written from (mt#3945).
+   *
+   * Derived from the caller's already-resolved `actorId`, which ADR-006 makes
+   * the conversation-grain identity key — the same value the collision probe,
+   * dispatch attribution and the workspace links all join on. Deriving means
+   * `cc_conversation_id` cannot disagree with `actor_id`: for a
+   * conversation-scoped actor the column IS the `conv:` segment, so the two
+   * agree by construction rather than by both being read from the same place at
+   * the same moment.
+   *
+   * Both writers previously read an env var instead, and each read a different
+   * one. `writeTaskClaim` read `CC_CONVERSATION_ID`, which nothing sets — zero
+   * of 6076 task rows ever carried a value. `writeSessionAttachment` read
+   * `CLAUDE_CODE_SESSION_ID`, which Claude Code does set, but only into the
+   * server process's environment AT SPAWN: a `/clear`, resume or fork changes
+   * the conversation without respawning MCP servers, so the value goes stale
+   * and stays stale for the life of the process (mt#3900, the same defect one
+   * field over). Their apparent 88-of-88 agreement was two fields being wrong
+   * together, not a correctness property.
+   *
+   * The env read survives ONLY as a last resort for a Layer-1 (`unknown:hash:`)
+   * actor, where `actorId` names no conversation and this is the sole remaining
+   * signal — 113 rows in prod. It is spawn-frozen there for exactly the reason
+   * above, which is a floor, not a fix: the real remedy is for such callers to
+   * reach Layer 2/3 so `actorId` carries the conversation. Deliberately NOT
+   * consulted otherwise, and deliberately not a second opinion — a per-process
+   * env read is the parallel identity source this change exists to retire, and
+   * under a shared local daemon (ADR-038) it would be one value shared across
+   * every conversation at once.
+   */
+  private resolveCcConversationId(actorId: string): string | undefined {
+    // Ambient precedence, for the Layer-1 path only: CLAUDE_CODE_SESSION_ID
+    // first, CC_CONVERSATION_ID second. Unifying two writers that read
+    // different variables forces a choice, and this one is deliberate rather
+    // than incidental — ADR-006 §Phase 2 names CLAUDE_CODE_SESSION_ID as the
+    // variable Claude Code actually sets, and it is the only one of the two
+    // ever observed populated (201 of 202 session rows; CC_CONVERSATION_ID has
+    // never produced a value in 6076 task rows). A setup exporting both to
+    // DIFFERENT values is a misconfiguration rather than a supported mode, so
+    // it is surfaced once per process rather than silently resolved.
+    const harnessValue = process.env.CLAUDE_CODE_SESSION_ID;
+    const legacyValue = process.env.CC_CONVERSATION_ID;
+    if (
+      !this.warnedAmbientConversationConflict &&
+      harnessValue &&
+      legacyValue &&
+      harnessValue !== legacyValue
+    ) {
+      this.warnedAmbientConversationConflict = true;
+      log.warn("CLAUDE_CODE_SESSION_ID and CC_CONVERSATION_ID disagree", {
+        using: "CLAUDE_CODE_SESSION_ID",
+      });
+    }
+
+    return resolvePresenceConversationId(actorId, harnessValue ?? legacyValue);
   }
 
   /**
@@ -1800,14 +1878,11 @@ export class MinskyMCPServer {
 
     const projectId = await this.resolveProjectIdBestEffort();
 
+    const ccConversationId = this.resolveCcConversationId(actorId);
     // "Where" context — env bag of only-the-keys-present (emulator-agnostic;
     // stores env strings, introspects no terminal app). Claude Code sets
-    // CLAUDE_CODE_SESSION_ID (the conversation UUID) and CLAUDE_CODE_ENTRYPOINT
-    // (e.g. "cli", "sdk-cli") — see packages/domain/src/runtime/harness-detection.ts.
-    const ccConversationId =
-      typeof process.env.CLAUDE_CODE_SESSION_ID === "string"
-        ? process.env.CLAUDE_CODE_SESSION_ID
-        : undefined;
+    // CLAUDE_CODE_ENTRYPOINT (e.g. "cli", "sdk-cli") — see
+    // packages/domain/src/runtime/harness-detection.ts.
     const entrypoint =
       typeof process.env.CLAUDE_CODE_ENTRYPOINT === "string"
         ? process.env.CLAUDE_CODE_ENTRYPOINT

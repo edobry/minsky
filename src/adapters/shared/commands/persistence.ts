@@ -149,6 +149,9 @@ export function registerPersistenceCommands(
     id: "persistence.migrate",
     category: CommandCategory.PERSISTENCE,
     name: "migrate",
+    // mt#3924: drift-gated — runs schema migrations; stale migration code against a
+    // newer database is the corruption path the gate exists for.
+    mutating: true,
     description:
       "Migrate session database between backends, or run schema migrations when no target is provided",
     requiresSetup: false,

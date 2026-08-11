@@ -24,6 +24,7 @@ import { readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 
 import { MCP_COMMAND_EFFECTS, KNOWN_UNCLASSIFIED, classifyTool } from "@minsky/shared/tool-effect";
+import { scanCommandIds, scanMutatingFlaggedIds } from "../../utils/test-utils/command-source-scan";
 
 /**
  * The registered tool surface, captured 2026-08-10.
@@ -319,26 +320,33 @@ describe("tool-effect coverage over the registered tool surface", () => {
 });
 
 /**
- * The drift gate's refusal set must be byte-identical to what it was before this
- * classification existed (mt#3847 AT6).
+ * The drift gate's refusal set is DECIDED, and this pins it (mt#3847 AT6 → mt#3924).
  *
- * Backfilling `mutating: true` across the commands this table now classifies as
- * `mutates` would widen a SAFETY gate's blast radius as a side effect — every
- * newly-flagged tool starts being refused when the MCP server is stale. That is
- * a deliberate decision with its own evidence requirement (mt#3924), not
- * something to inherit from whichever consumer wanted a classification. This
- * test pins the current set so a later accidental widening fails rather than
- * merges.
+ * mt#3847 pinned the set at the 13 session/PR commands that predated the
+ * classification, because backfilling `mutating: true` across everything the table
+ * calls `mutates` would widen a SAFETY gate's blast radius as a side effect of
+ * adding a field. mt#3924 then made that call deliberately and narrowly: 15
+ * commands joined, chosen because their effect is irreversible, bulk, or
+ * schema-migrating — NOT the 116 the table classifies as `mutates`. Ordinary
+ * reversible single-record writes (`tasks.create`, `memory.create`,
+ * `tasks.status.set`, the session file tools) stay out on purpose; they sit on the
+ * hottest agent path, and a gate that fires there is one people route around.
+ *
+ * The test's job is unchanged — an accidental widening should fail here rather
+ * than merge — only its expected set moved, once, with a recorded decision.
  */
-describe("drift-gate refusal set is unchanged by this classification", () => {
+describe("drift-gate refusal set matches the mt#3924 decision", () => {
   /**
-   * The 13 commands carrying `mutating: true`, read off the sources rather than
-   * recalled — an earlier draft of this list guessed `session.approve` and
-   * missed `session.pr.approve` and `session.pr.merge`, and this assertion is
-   * what caught it. All 13 are session/PR operations, which is the distribution
-   * the field's docblock describes and the reason absence carries no signal.
+   * The 28 commands carrying the flag, read off the sources rather than recalled —
+   * an earlier draft of this list guessed `session.approve` and missed
+   * `session.pr.approve` and `session.pr.merge`, and this assertion is what caught
+   * it. The same discipline caught a second error in mt#3924: `session.pr.drive`
+   * was slated for the widening as "creates and merges a PR" and in fact never
+   * merges (it is a review/checks wait that deliberately leaves merging to
+   * `session.pr.merge` so the harness merge gates still fire), so it is absent.
    */
   const MUTATING_FLAGGED_COMMANDS: readonly string[] = [
+    // Pre-mt#3924: session/PR operations.
     "session.apply_post_merge_state_sync",
     "session.bindings.refresh",
     "session.commit",
@@ -352,46 +360,51 @@ describe("drift-gate refusal set is unchanged by this classification", () => {
     "session.pr.review.submit",
     "session.pr.review.thread.resolve",
     "session.update",
+    // mt#3924 — irreversible deletion of a durable record.
+    "memory.delete",
+    "session.delete",
+    "tasks.delete",
+    // mt#3924 — irreversible discard or publication of work.
+    "git.push",
+    "git.reset",
+    "git.restore",
+    "git.stash_drop",
+    // mt#3924 — bulk mutation.
+    "tasks.bulk-edit",
+    // mt#3924 — schema / store migration.
+    "persistence.migrate",
+    "rules.migrate",
+    "session.migrate",
+    "session.migrate-backend",
+    "setup.db",
+    "tasks.migrate-backend",
+    // mt#3924 — shared-repository setting, full-replace semantics.
+    "forge.branch_protection_set",
   ];
 
-  function scanMutatingFlaggedIds(dir: string): string[] {
-    const ids: string[] = [];
-    for (const entry of readdirSync(dir)) {
-      const p = join(dir, entry);
-      if (statSync(p).isDirectory()) {
-        ids.push(...scanMutatingFlaggedIds(p));
-        continue;
-      }
-      if (!p.endsWith(".ts") || p.endsWith(".test.ts")) continue;
-      const lines = String(readFileSync(p, "utf8")).split("\n");
-      lines.forEach((line, index) => {
-        if (!/^\s*mutating:\s*true,?\s*$/.test(line)) return;
-        // Walk back to the registration this flag belongs to.
-        for (let j = index; j >= 0 && j > index - 200; j--) {
-          const m = /^\s*(?:readonly\s+)?id[:=]\s*["'`]([a-z0-9._-]+)["'`]/i.exec(lines[j] ?? "");
-          if (m) {
-            ids.push(m[1] as string);
-            return;
-          }
-        }
-      });
-    }
-    return ids;
-  }
-
-  test("exactly the previously-flagged commands carry mutating: true", () => {
-    const found = [...new Set(scanMutatingFlaggedIds("src/adapters/shared/commands"))].sort();
-    expect(found).toEqual([...MUTATING_FLAGGED_COMMANDS].sort());
+  test("exactly the decided commands carry mutating: true", () => {
+    expect(scanMutatingFlaggedIds()).toEqual([...MUTATING_FLAGGED_COMMANDS].sort());
   });
 
-  test("the classification is far wider than the drift gate's set — deliberately", () => {
-    // The gap this documents IS mt#3924's subject: the gate enforces over a
-    // small fraction of what actually mutates. Recording the ratio here keeps
-    // that visible instead of leaving it as a number in a spec.
+  test("every drift-gated command is one the table also calls a mutator", () => {
+    // A command refused when stale but classified `reads` would mean one of the
+    // two is wrong. This is the cheap cross-check between them; it does NOT
+    // require the converse, which is the whole point of the next test.
+    const misclassified = MUTATING_FLAGGED_COMMANDS.filter(
+      (id) => MCP_COMMAND_EFFECTS[id] !== undefined && MCP_COMMAND_EFFECTS[id] !== "mutates"
+    );
+    expect(misclassified).toEqual([]);
+  });
+
+  test("the classification stays far wider than the gate's set — deliberately", () => {
+    // mt#3924 decided the gate covers irreversible/bulk/migrating effects, not
+    // everything that writes, so this gap is the DECISION rather than a lag to
+    // close. Recording the ratio keeps it visible instead of leaving it in a spec:
+    // a future change that quietly closes it should have to say so here.
     const classifiedMutators = Object.values(MCP_COMMAND_EFFECTS).filter(
       (e) => e === "mutates"
     ).length;
-    expect(classifiedMutators).toBeGreaterThan(MUTATING_FLAGGED_COMMANDS.length * 5);
+    expect(classifiedMutators).toBeGreaterThan(MUTATING_FLAGGED_COMMANDS.length * 3);
   });
 });
 
@@ -401,22 +414,32 @@ describe("drift-gate refusal set is unchanged by this classification", () => {
  * silently sitting outside the coverage measurement.
  */
 describe("snapshot freshness against the command sources", () => {
-  function scanCommandIds(dir: string): string[] {
-    const ids: string[] = [];
-    for (const entry of readdirSync(dir)) {
-      const p = join(dir, entry);
-      if (statSync(p).isDirectory()) {
-        ids.push(...scanCommandIds(p));
-        continue;
-      }
-      if (!p.endsWith(".ts") || p.endsWith(".test.ts")) continue;
-      const text = String(readFileSync(p, "utf8"));
-      for (const m of text.matchAll(/^\s*(?:readonly\s+)?id[:=]\s*["'`]([a-z0-9._-]+)["'`]/gim)) {
-        ids.push(m[1] as string);
-      }
-    }
-    return ids;
-  }
+  /**
+   * Ids the sources DECLARE but nothing registers, so their absence from the
+   * snapshot is correct rather than a gap. Each entry needs a verified reason —
+   * "it looks like a container" is a guess; a zero-call-site factory is a finding.
+   *
+   * - `tasks.status` — `TasksStatusCommand`
+   *   (`commands/tasks/hierarchical-status-command.ts`) is a parameterless parent
+   *   holding the get/set subcommands. Its factory `createTasksStatusCommand` has
+   *   NO call sites outside its own definition (verified by grep over `src` and
+   *   `packages`, excluding tests, 2026-08-11), so it never reaches the registry
+   *   and is not on the tool surface. `MCP_COMMAND_EFFECTS` is right not to carry it.
+   *
+   * This list is deliberately not a free-form skip: the test below fails if an
+   * entry stops being declared, so a stale exclusion cannot outlive its subject.
+   */
+  const DECLARED_BUT_UNREGISTERED: readonly string[] = ["tasks.status"];
+
+  /**
+   * The scan's own floor. Until mt#3966 this scan matched `id:`/`id=` with no
+   * space before the separator, so it saw 200 of the 223 declared ids and was
+   * structurally blind to every class-based command — including `tasks.create`,
+   * `tasks.delete` and `tasks.status.set`. Nothing failed, because a scan that
+   * under-reports agrees with the snapshot instead of contradicting it. Asserting
+   * the COUNT is what makes a future shrink fail rather than pass.
+   */
+  const MINIMUM_DECLARED_IDS = 223;
 
   /**
    * The MCP surface registers tools with `name:` rather than `id:`, in a
@@ -448,11 +471,27 @@ describe("snapshot freshness against the command sources", () => {
   });
 
   test("no command id in the sources is missing from the snapshot", () => {
-    const scanned = new Set(scanCommandIds("src/adapters/shared/commands"));
+    const scanned = new Set(scanCommandIds());
     const snapshot = new Set(REGISTERED_TOOL_IDS);
-    // `tasks.status` is a category container, not an invocable command.
-    scanned.delete("tasks.status");
+    for (const id of DECLARED_BUT_UNREGISTERED) scanned.delete(id);
     const missing = [...scanned].filter((id) => !snapshot.has(id));
     expect(missing).toEqual([]);
+  });
+
+  test("the scan still sees every declared id, including class-based ones", () => {
+    // Guards the mt#3966 regression class directly: the check above passes just as
+    // happily on a scan that sees NOTHING, because an empty set has no missing ids.
+    // This is the assertion that can tell "no gaps" from "no vision".
+    const scanned = scanCommandIds();
+    expect(scanned.length).toBeGreaterThanOrEqual(MINIMUM_DECLARED_IDS);
+    // A class-declared id, present only if the modifier-tolerant pattern is live.
+    expect(scanned).toContain("tasks.delete");
+  });
+
+  test("every declared-but-unregistered exclusion is still declared", () => {
+    // A stale exclusion silently re-opens the hole it was written to close.
+    const scanned = new Set(scanCommandIds());
+    const gone = DECLARED_BUT_UNREGISTERED.filter((id) => !scanned.has(id));
+    expect(gone).toEqual([]);
   });
 });

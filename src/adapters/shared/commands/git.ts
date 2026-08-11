@@ -787,6 +787,8 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     id: "git.push",
     category: CommandCategory.GIT,
     name: "push",
+    // mt#3924: drift-gated — publishes to a shared remote, which no local undo reaches.
+    mutating: true,
     description: "Push changes to the remote repository",
     parameters: pushCommandParams,
     execute: async (params, context) => {
@@ -1349,6 +1351,8 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     id: "git.stash_drop",
     category: CommandCategory.GIT,
     name: "stash_drop",
+    // mt#3924: drift-gated — discards a stash entry irreversibly.
+    mutating: true,
     description:
       "Drop a specific stash entry. Requires confirmDrop: true (irreversible destructive operation).",
     parameters: stashDropCommandParams,
@@ -1377,6 +1381,8 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     id: "git.restore",
     category: CommandCategory.GIT,
     name: "restore",
+    // mt#3924: drift-gated — discards uncommitted working-tree changes.
+    mutating: true,
     description:
       "Discard unstaged working-tree changes for specific paths (git restore). Less destructive than reset --hard.",
     parameters: restoreCommandParams,
@@ -1405,6 +1411,8 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     id: "git.reset",
     category: CommandCategory.GIT,
     name: "reset",
+    // mt#3924: drift-gated — mode=hard discards commits and working-tree state.
+    mutating: true,
     description:
       "Run git reset with explicit mode (soft/mixed/hard). mode=hard requires confirmHard: true.",
     parameters: resetCommandParams,

@@ -320,6 +320,8 @@ sharedCommandRegistry.registerCommand({
   id: "forge.branch_protection_set",
   category: CommandCategory.FORGE,
   name: "branch_protection_set",
+  // mt#3924: drift-gated — full-replace of a shared repository's protection settings.
+  mutating: true,
   description:
     "Replace branch protection settings for a branch. " +
     "This is a full-replace operation — fields not provided are treated as disabled. " +
