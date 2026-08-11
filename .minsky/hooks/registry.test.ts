@@ -322,6 +322,32 @@ describe("GUARD_REGISTRY", () => {
     ).map((r) => r.name);
     expect(denyButTunable).toEqual([]);
   });
+
+  // ---------------------------------------------------------------------------
+  // mt#3981 (thin-hooks RFC rev. 2, phase 1) — `effects` declarations
+  // ---------------------------------------------------------------------------
+
+  test("every registration declares at least one effect (SC1 — runtime backstop for the type)", () => {
+    // `effects` is typed as a non-empty tuple, so an omission fails typecheck
+    // (AT1). This is the same belt-and-suspenders pattern as the
+    // `calibrationLog` empty-list test above: registrations are hand-authored,
+    // so a widened local or a cast could still get past the type.
+    const empty = GUARD_REGISTRY.filter((r) => (r.effects as unknown[]).length === 0).map(
+      (r) => r.name
+    );
+    expect(empty).toEqual([]);
+  });
+
+  test("a denyCapable guard declares at least one validator effect", () => {
+    // The reverse isn't required (a validator-shaped effect doesn't force
+    // denyCapable — see the merge-gate family's standalone declarations,
+    // which are enforcement but not GUARD_REGISTRY-denyCapable), but a guard
+    // that CAN deny should say so somewhere in its effects.
+    const missingValidator = GUARD_REGISTRY.filter(
+      (r) => r.denyCapable && !r.effects.some((e) => e.verdictShape === "validator")
+    ).map((r) => r.name);
+    expect(missingValidator).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
