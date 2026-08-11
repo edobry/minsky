@@ -64,7 +64,12 @@
 // @see mem#623 — the linked-reference-actionability family (R1-R6)
 
 import { elideMarkdownContexts } from "./pre-narration-detector";
-import type { ShortIdKind, ShortIdMap } from "./entity-linkify";
+import {
+  resolveShortId,
+  shortIdPrefixToKind,
+  type ShortIdKind,
+  type ShortIdMap,
+} from "./entity-linkify";
 
 /** A full 36-char canonical UUID, the only legal ask/memory/session target. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -306,8 +311,12 @@ export function scanMessage(text: string, options: ScanOptions = {}): ScanResult
 
   for (const m of elided.matchAll(/\b(ask|mem|ws)#(\d+)\b/gi)) {
     const whole = m[0];
-    const kind = (m[1] ?? "").toLowerCase();
-    const entityType: ShortIdKind = kind === "ask" ? "ask" : kind === "mem" ? "memory" : "session";
+    // Shared with the linkifier (PR #2839 R1): `mem` -> `memory` and
+    // `ws` -> `session` are non-obvious, and a local copy that drifted would
+    // look up the wrong family and silently mis-suppress. The regex above only
+    // admits the three known prefixes, so the fallback is unreachable — it is
+    // there because an exhaustiveness assumption belongs in code, not a comment.
+    const entityType: ShortIdKind = shortIdPrefixToKind(m[1] ?? "") ?? "ask";
     const start = m.index ?? 0;
     const end = start + whole.length;
     const insideMatchingLabel = labelRanges.some(
@@ -326,7 +335,7 @@ export function scanMessage(text: string, options: ScanOptions = {}): ScanResult
     // there is nothing for the author to fix. Recorded rather than dropped —
     // the size of this population is how a later pass measures what mt#3914
     // absorbed, and a silently-discarded finding would make that unmeasurable.
-    if (options.shortIdMap?.[entityType]?.[num] !== undefined) {
+    if (resolveShortId(options.shortIdMap, entityType, num) !== undefined) {
       logged.push({
         kind: "linkable-short-id",
         ref: whole,

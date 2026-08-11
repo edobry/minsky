@@ -96,6 +96,40 @@ export type ShortIdKind = (typeof SHORT_ID_TYPES)[keyof typeof SHORT_ID_TYPES];
  */
 export type ShortIdMap = Partial<Record<ShortIdKind, Record<string, string>>>;
 
+/**
+ * The `ask`/`mem`/`ws` prefix -> URI-type mapping, exported so a consumer does
+ * not re-hand-write it (mt#3960). `mem` -> `memory` and `ws` -> `session` are
+ * both non-obvious, and a second copy that drifts would silently look up the
+ * wrong family.
+ */
+export function shortIdPrefixToKind(prefix: string): ShortIdKind | undefined {
+  return SHORT_ID_TYPES[prefix.toLowerCase() as keyof typeof SHORT_ID_TYPES];
+}
+
+/**
+ * Resolve a short id against the map, or `undefined` if it does not resolve.
+ *
+ * THE predicate for "will the display path link this ref" — deliberately one
+ * function rather than a condition written twice (PR #2839 R1). `replaceRefs`
+ * below uses it to decide whether to rewrite, and `bare-entity-ref-scan` uses
+ * it to decide whether warning about a bare ref is warranted. Those two must
+ * agree exactly: if the scanner is more permissive it suppresses a warning
+ * about a ref that stays bare — a silent miss, the one direction an advisory
+ * guard must never fail in.
+ *
+ * A present-but-empty or non-string entry is NOT a resolution: a malformed
+ * cache must degrade to "bare", never to "linked to nothing".
+ */
+export function resolveShortId(
+  shortIdMap: ShortIdMap | undefined,
+  kind: ShortIdKind,
+  num: string
+): string | undefined {
+  const uuid = shortIdMap?.[kind]?.[num];
+  if (typeof uuid !== "string" || uuid === "") return undefined;
+  return uuid;
+}
+
 /** Rewrite every task/PR/short-id reference in a span already known to be unprotected. */
 function replaceRefs(text: string, shortIdMap?: ShortIdMap): string {
   const withDerivable = text
@@ -111,11 +145,13 @@ function replaceRefs(text: string, shortIdMap?: ShortIdMap): string {
   if (!shortIdMap) return withDerivable;
 
   return withDerivable.replace(SHORT_ID_REF, (match, prefix: string, num: string) => {
-    const kind = SHORT_ID_TYPES[prefix as keyof typeof SHORT_ID_TYPES];
-    const uuid = shortIdMap[kind]?.[num];
+    const kind = shortIdPrefixToKind(prefix);
+    if (kind === undefined) return match;
     // Unmapped stays bare — see the header: a wrong target is worse than none,
-    // and the short id itself is not a legal target (ADR-029).
-    if (typeof uuid !== "string" || uuid === "") return match;
+    // and the short id itself is not a legal target (ADR-029). The condition
+    // lives in `resolveShortId` so the bare-ref scanner can share it verbatim.
+    const uuid = resolveShortId(shortIdMap, kind, num);
+    if (uuid === undefined) return match;
     return `[${match}](${entityToMinskyUri(kind, uuid)})`;
   });
 }
