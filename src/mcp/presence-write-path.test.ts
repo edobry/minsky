@@ -245,6 +245,59 @@ describe("writeTaskClaim per-call repo fallback (mt#2567 regression)", () => {
     });
   });
 
+  /**
+   * mt#3945: the claim records the conversation `actorId` names, not an env var.
+   *
+   * Wiring check, not logic — `presence-conversation.test.ts` owns the
+   * derivation's cases. What this asserts is that the derived value actually
+   * reaches `upsertClaim`, which is the half a pure unit test cannot see and
+   * the half that was broken: the old code read `CC_CONVERSATION_ID`, so every
+   * one of the 6076 task rows in prod carried null.
+   */
+  test("the upserted claim carries the conversation the actorId names (mt#3945)", async () => {
+    const upsertMock = mock(async (_input: unknown) => ({
+      id: "test-id",
+      subjectKind: "task" as const,
+      subjectId: "mt3945",
+      actorId: "test-actor",
+      claimedAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+      lastRefreshedAt: new Date("2026-01-01T00:00:00Z").toISOString(),
+    }));
+
+    const fakeRepo: PresenceClaimRepository = {
+      upsertClaim: upsertMock as unknown as PresenceClaimRepository["upsertClaim"],
+      listClaims: mock(async () => []),
+      reapStale: mock(async () => 0),
+      listAllForKind: mock(async () => []),
+      deleteBySubject: mock(async () => 0),
+      deleteByIds: mock(async () => 0),
+    };
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+    server.setPresenceClaimRepository(fakeRepo);
+
+    const conversationId = "8f3a2d1b-4c5e-4a6f-9b7c-0d1e2f3a4b5c";
+    const writeTaskClaim = (
+      server as unknown as {
+        writeTaskClaim: (args: Record<string, unknown>, actorId: string) => Promise<void>;
+      }
+    ).writeTaskClaim.bind(server);
+
+    await writeTaskClaim({ task: "mt#3945" }, `com.anthropic.claude-code:conv:${conversationId}`);
+
+    expect(upsertMock.mock.calls.length).toBe(1);
+    // Asserted against the actorId's own segment, so this holds whatever
+    // CLAUDE_CODE_SESSION_ID happens to be in the test runner's environment —
+    // which is the point: the derived value wins over the ambient one.
+    const claim = upsertMock.mock.calls[0]?.[0] as { ccConversationId?: string };
+    expect(claim.ccConversationId).toBe(conversationId);
+  });
+
   test("no-ops gracefully when args carry no task or taskId", async () => {
     // Verify that writeTaskClaim resolves without throwing when there is no
     // task to claim — the early-return path after building/resolving the repo.

@@ -114,3 +114,35 @@ export function serializeAgentId(parsed: ParsedAgentId): string | null {
 export function isValidAgentId(input: string): boolean {
   return parseAgentId(input) !== null;
 }
+
+/**
+ * Extract the conversation id an agentId names, or null when it names none.
+ *
+ * Only the `conv` scope carries a conversation: `hash` (the `unknown:hash:<…>`
+ * ascribed fallback), `proc`, `inst`, and `run` all identify something that is
+ * NOT a conversation, so they correctly yield nothing.
+ *
+ * Parsing goes through `parseAgentId` rather than a `:conv:` string split
+ * because the format is richer than it looks: a trailing `@{parent-agentId}`
+ * delegation chain is legal on any id, and a naive split would carry the parent
+ * into the extracted uuid.
+ *
+ * The one compound form deliberately NOT unwrapped is the post-#32514 subagent
+ * id, `com.anthropic.claude-code:conv:<parent>/task:<sub-id>` — `parseAgentId`
+ * yields `<parent>/task:<sub-id>` as the id, which is not a conversation id, so
+ * it is dropped. Taking the segment before the `/` would name the PARENT
+ * conversation, which is a different and unasserted claim.
+ *
+ * Lives here rather than beside any one consumer because it is the single
+ * derivation of "which conversation is this actor in" — mt#3945 made the MCP
+ * server's presence writers its second caller, and a second implementation is
+ * how the two would drift.
+ */
+export function conversationIdFromAgentId(agentId: string | null | undefined): string | null {
+  if (!agentId) return null;
+  const parsed = parseAgentId(agentId);
+  if (!parsed) return null;
+  if (parsed.scope !== "conv") return null;
+  if (parsed.id.includes("/")) return null;
+  return parsed.id;
+}
