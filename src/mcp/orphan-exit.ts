@@ -401,6 +401,21 @@ export function startResidentMemoryCeilingWatcher(
   };
 }
 
+/**
+ * The configured kill ceiling, in bytes.
+ *
+ * Extracted (mt#3973) so the capture watermark can be validated against the
+ * SAME value the kill path uses. Reading `MINSKY_MCP_MEMORY_CEILING_MB` a
+ * second time in the capture module would let the two drift the moment either
+ * side's default or parsing changed, and a watermark silently above the ceiling
+ * is a watcher that can never fire.
+ */
+export function resolveMemoryCeilingBytes(env: NodeJS.ProcessEnv = process.env): number {
+  const ceilingMb =
+    parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_MB) ?? DEFAULT_MEMORY_CEILING_MB;
+  return ceilingMb * BYTES_PER_MB;
+}
+
 export interface MemoryCeilingArmDecision {
   initialPpid: number;
   /** MINSKY_MCP_FORCE_MEMORY_CEILING_EXIT=1 — arm even on the hosted entrypoint. */
@@ -475,11 +490,10 @@ export function wireMemoryCeilingWatcher(
     return { stop: () => {} };
   }
 
-  const ceilingMb =
-    parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_MB) ?? DEFAULT_MEMORY_CEILING_MB;
+  const ceilingBytes = resolveMemoryCeilingBytes(env);
 
   return startResidentMemoryCeilingWatcher({
-    ceilingBytes: ceilingMb * BYTES_PER_MB,
+    ceilingBytes,
     getResidentBytes: options.getResidentBytes ?? getCurrentProcessResidentBytes,
     pollIntervalMs: parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_POLL_MS),
     setIntervalFn: options.setIntervalFn,

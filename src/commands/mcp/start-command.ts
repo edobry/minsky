@@ -1968,7 +1968,10 @@ export function createStartCommand(
           wireMemoryCeilingWatcher,
           getCurrentProcessPpid,
           getCurrentProcessUptimeSeconds,
+          getCurrentProcessResidentBytes,
+          resolveMemoryCeilingBytes,
         } = await import("../../mcp/orphan-exit");
+        const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
 
         if (transportType === "http") {
           wireOrphanExitWatchers({
@@ -1991,6 +1994,23 @@ export function createStartCommand(
           getDiagnostics: () =>
             transportType === "http" ? { everConnected: server.hasEverHadHttpSession() } : {},
           onExit: () => void cleanup(),
+        });
+
+        // mt#3973: the forensic half. A SEPARATE one-shot watcher at a lower
+        // watermark writes what this process was DOING — the MCP tool calls in
+        // flight and their elapsed times — which the ceiling's breach record
+        // does not carry and mt#3885 cannot proceed without. Deliberately not
+        // folded into the ceiling watcher above: the self-terminate is the
+        // machine's protection against a kernel panic and must not be able to
+        // fail, or be delayed, because a diagnostic did.
+        wireMemoryCaptureWatcher({
+          processRole: `mcp start (${transportType})`,
+          ceilingBytes: resolveMemoryCeilingBytes(),
+          getResidentBytes: getCurrentProcessResidentBytes,
+          getUptimeSeconds: getCurrentProcessUptimeSeconds,
+          getInFlightToolCalls: () => server.getInFlightToolCalls(),
+          getDiagnostics: () =>
+            transportType === "http" ? { everConnected: server.hasEverHadHttpSession() } : {},
         });
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),

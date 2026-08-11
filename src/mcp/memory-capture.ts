@@ -1,0 +1,385 @@
+/**
+ * Resident-memory CAPTURE — the forensic half of mt#3886's ceiling (mt#3973).
+ *
+ * mt#3886 bounds a runaway MCP process: at `MINSKY_MCP_MEMORY_CEILING_MB`
+ * (default 2048) the process logs `processRole`/`residentBytes`/`uptimeSeconds`
+ * and self-terminates. That record answers WHICH process class ballooned. It
+ * says nothing about WHAT the process was allocating, which is precisely what
+ * mt#3885 needs and the reason mt#3885 has been unstartable across four
+ * handoffs: its success criterion demands evidence no mechanism produced.
+ *
+ * This module adds a SECOND, INDEPENDENT one-shot watcher at a LOWER
+ * watermark. When crossed it writes a capture artifact naming the MCP tool
+ * calls in flight and how long each has been running, then gets out of the way.
+ *
+ * Three properties this design is built around:
+ *
+ * 1. **The kill path stays unconditional.** This is a separate watcher with its
+ *    own timer; it never calls, blocks, or shares state with the ceiling
+ *    watcher. Every failure mode here is swallowed into a log line, because a
+ *    capture that prevented or delayed the self-terminate would trade a
+ *    diagnostic for the machine-wide kernel panic the ceiling exists to stop.
+ *
+ * 2. **The heap snapshot is OPT-IN, and that is not timidity.** Node documents
+ *    the V8 snapshot mechanism as needing "memory about twice the size of the
+ *    heap at the time the snapshot is created" and as "a synchronous operation
+ *    which blocks the event loop" (https://nodejs.org/api/v8.html). If that
+ *    holds for Bun's JSC-backed implementation — unverified, and what mt#3973's
+ *    AT3 measures — then a snapshot at watermark W transiently needs ~W + 2W,
+ *    so W must sit below a third of the ceiling. The measured idle band for
+ *    these processes is 427-644 MB against a 2048 MB ceiling, which leaves no
+ *    safe room. So the always-on capture is the cheap half (in-flight context),
+ *    and the snapshot is armed deliberately for a measurement run.
+ *
+ * 3. **The in-flight context is the half most likely to name the path.** The
+ *    third giant in the 2026-08-08 stackshot held 15.48 GB against only 33 s of
+ *    CPU — an I/O-and-allocation-bound path, not a compute loop. Knowing which
+ *    tool was running is a stronger lead than a heap histogram.
+ *
+ * @see mt#3973 — this module
+ * @see mt#3885 — the leak this exists to make findable
+ * @see src/mcp/orphan-exit.ts — mt#3886's ceiling, deliberately untouched
+ * @see src/mcp/daemon-state.ts — the state-dir convention followed here
+ */
+
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+
+import { log } from "@minsky/shared/logger";
+
+/** Default watermark (MB) at which a capture is taken. */
+export const DEFAULT_MEMORY_CAPTURE_WATERMARK_MB = 1024;
+
+/** Default poll interval (ms). Mirrors the ceiling watcher's cadence. */
+export const DEFAULT_MEMORY_CAPTURE_POLL_INTERVAL_MS = 30_000;
+
+const BYTES_PER_MB = 1024 * 1024;
+
+/** One MCP tool call in flight at capture time. */
+export interface InFlightToolCall {
+  toolName: string;
+  elapsedMs: number;
+}
+
+/** The artifact written when the watermark is crossed. */
+export interface MemoryCaptureRecord {
+  task: "mt#3973";
+  capturedAt: string;
+  pid: number;
+  processRole: string;
+  residentBytes: number;
+  watermarkBytes: number;
+  uptimeSeconds: number;
+  /** Sorted longest-running first — the likeliest culprit reads at the top. */
+  inFlightToolCalls: InFlightToolCall[];
+  heapSnapshotPath: string | null;
+  /** Why no snapshot, when there is none. Absent when one was written. */
+  heapSnapshotSkippedReason?: string;
+  diagnostics?: Record<string, unknown>;
+}
+
+export interface BuildCaptureRecordInput {
+  capturedAt: Date;
+  pid: number;
+  processRole: string;
+  residentBytes: number;
+  watermarkBytes: number;
+  uptimeSeconds: number;
+  inFlightToolCalls: InFlightToolCall[];
+  heapSnapshotPath: string | null;
+  heapSnapshotSkippedReason?: string;
+  diagnostics?: Record<string, unknown>;
+}
+
+/**
+ * Assemble the capture record. Pure — no clock, no filesystem, no `process`.
+ *
+ * Sorts in-flight calls longest-first: with several calls in flight the one
+ * that has been running longest is the one worth reading first, and a reader
+ * looking at a 40 GB process should not have to sort by hand.
+ */
+export function buildCaptureRecord(input: BuildCaptureRecordInput): MemoryCaptureRecord {
+  const record: MemoryCaptureRecord = {
+    task: "mt#3973",
+    capturedAt: input.capturedAt.toISOString(),
+    pid: input.pid,
+    processRole: input.processRole,
+    residentBytes: input.residentBytes,
+    watermarkBytes: input.watermarkBytes,
+    uptimeSeconds: input.uptimeSeconds,
+    inFlightToolCalls: [...input.inFlightToolCalls].sort((a, b) => b.elapsedMs - a.elapsedMs),
+    heapSnapshotPath: input.heapSnapshotPath,
+  };
+  if (input.heapSnapshotSkippedReason !== undefined) {
+    record.heapSnapshotSkippedReason = input.heapSnapshotSkippedReason;
+  }
+  if (input.diagnostics !== undefined) {
+    record.diagnostics = input.diagnostics;
+  }
+  return record;
+}
+
+/**
+ * Filename stem for a capture, unique per (process, capture instant).
+ *
+ * The role is slugified into the name so an operator can tell at a glance which
+ * process class produced the artifact without opening it — that is the one
+ * question the panic stackshot could not answer (it carries no argv), and the
+ * reason mt#3885's attribution premise is still open.
+ */
+export function buildCaptureFileStem(capturedAt: Date, pid: number, processRole: string): string {
+  const timestamp = capturedAt.toISOString().replace(/[:.]/g, "-");
+  const role = processRole.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+  return `memory-capture-${timestamp}-${role}-pid${pid}`;
+}
+
+/** Directory captures are written to. Honors the shared MINSKY_STATE_DIR override. */
+export function getCaptureDir(env: NodeJS.ProcessEnv = process.env): string {
+  const stateDir = env["MINSKY_STATE_DIR"] ?? path.join(os.homedir(), ".local", "state", "minsky");
+  return path.join(stateDir, "memory-captures");
+}
+
+export interface CaptureArmDecision {
+  watermarkBytes: number;
+  ceilingBytes: number;
+  forceDisable: boolean;
+}
+
+export type CaptureArmVerdict =
+  | { armed: true }
+  | { armed: false; reason: "disabled" | "watermark-not-below-ceiling" };
+
+/**
+ * Whether the capture watcher should arm.
+ *
+ * A watermark at or above the ceiling can never fire before the process
+ * self-terminates, so arming it would burn a timer for the life of every MCP
+ * process to produce nothing. Refusing loudly beats a silent no-op: the
+ * misconfiguration is invisible until the day someone needs the capture.
+ */
+export function decideCaptureArm(decision: CaptureArmDecision): CaptureArmVerdict {
+  if (decision.forceDisable) return { armed: false, reason: "disabled" };
+  if (decision.watermarkBytes >= decision.ceilingBytes) {
+    return { armed: false, reason: "watermark-not-below-ceiling" };
+  }
+  return { armed: true };
+}
+
+export interface StoppableWatcher {
+  stop: () => void;
+}
+
+export interface ResidentMemoryCaptureWatcherOptions {
+  watermarkBytes: number;
+  getResidentBytes: () => number;
+  pollIntervalMs?: number;
+  setIntervalFn?: typeof setInterval;
+  clearIntervalFn?: typeof clearInterval;
+  onWatermarkCrossed: (residentBytes: number) => void;
+}
+
+/**
+ * Poll resident memory; fire once, the first time it is at or above the
+ * watermark. One-shot mirrors `startResidentMemoryCeilingWatcher` — a process
+ * that crosses the watermark and keeps growing would otherwise write an
+ * artifact every poll, and the first one is the one that matters (it is nearest
+ * the growth, and the later ones cost the most to take).
+ */
+export function startResidentMemoryCaptureWatcher(
+  options: ResidentMemoryCaptureWatcherOptions
+): StoppableWatcher {
+  const pollIntervalMs = options.pollIntervalMs ?? DEFAULT_MEMORY_CAPTURE_POLL_INTERVAL_MS;
+  const setIntervalFn = options.setIntervalFn ?? setInterval;
+  const clearIntervalFn = options.clearIntervalFn ?? clearInterval;
+
+  let stopped = false;
+  const timer = setIntervalFn(() => {
+    if (stopped) return;
+    const residentBytes = options.getResidentBytes();
+    if (residentBytes >= options.watermarkBytes) {
+      stopped = true;
+      clearIntervalFn(timer);
+      options.onWatermarkCrossed(residentBytes);
+    }
+  }, pollIntervalMs);
+  if (typeof timer.unref === "function") {
+    timer.unref();
+  }
+
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      clearIntervalFn(timer);
+    },
+  };
+}
+
+type HeapSnapshotGenerator = (format: "v8", encoding: "arraybuffer") => ArrayBuffer;
+
+/**
+ * Bun's V8-format heap snapshot, or null when unavailable.
+ *
+ * `"v8"` (not the default `"jsc"`) because the JSC form is annotated in Bun's
+ * own API reference as something it does not know how to make Chrome or Safari
+ * read — an artifact nobody can open is not evidence. `"arraybuffer"` is Bun's
+ * documented encoding for large snapshots, avoiding the intermediate JS string.
+ *
+ * @see https://bun.com/reference/bun/generateHeapSnapshot
+ */
+function generateHeapSnapshotBytes(): ArrayBuffer | null {
+  const bunGlobal: unknown = Reflect.get(globalThis, "Bun");
+  if (!bunGlobal || typeof bunGlobal !== "object") return null;
+  const generate: unknown = Reflect.get(bunGlobal, "generateHeapSnapshot");
+  if (typeof generate !== "function") return null;
+  return (generate as HeapSnapshotGenerator)("v8", "arraybuffer");
+}
+
+export interface WriteCaptureOptions {
+  captureDir: string;
+  record: MemoryCaptureRecord;
+  fileStem: string;
+  heapSnapshotBytes?: ArrayBuffer | null;
+}
+
+/** Write the capture artifact (and its snapshot, when present). Returns the JSON path. */
+export function writeCaptureArtifact(options: WriteCaptureOptions): string {
+  fs.mkdirSync(options.captureDir, { recursive: true });
+  if (options.heapSnapshotBytes) {
+    fs.writeFileSync(
+      path.join(options.captureDir, `${options.fileStem}.heapsnapshot`),
+      new Uint8Array(options.heapSnapshotBytes)
+    );
+  }
+  const jsonPath = path.join(options.captureDir, `${options.fileStem}.json`);
+  fs.writeFileSync(jsonPath, `${JSON.stringify(options.record, null, 2)}\n`);
+  return jsonPath;
+}
+
+export interface WireMemoryCaptureWatcherOptions {
+  /** Names the process class in the artifact — "mcp start (stdio)", "mcp shim", "cockpit". */
+  processRole: string;
+  /** The kill ceiling in bytes; the watermark must sit below it to be useful. */
+  ceilingBytes: number;
+  getResidentBytes: () => number;
+  getUptimeSeconds: () => number;
+  /** In-flight MCP tool calls at capture time. Absent for classes that serve no tools. */
+  getInFlightToolCalls?: () => InFlightToolCall[];
+  getDiagnostics?: () => Record<string, unknown>;
+  env?: NodeJS.ProcessEnv;
+  setIntervalFn?: typeof setInterval;
+  clearIntervalFn?: typeof clearInterval;
+  /** Injected in tests so the artifact write can be asserted without touching disk. */
+  writeArtifact?: (options: WriteCaptureOptions) => string;
+  now?: () => Date;
+}
+
+function parsePositiveIntEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * Arm the capture watcher per the current env configuration.
+ *
+ * Every failure past this point is swallowed into a log line ON PURPOSE — see
+ * property 1 in the module header. The caller's kill path must not be able to
+ * observe a capture failure.
+ */
+export function wireMemoryCaptureWatcher(
+  options: WireMemoryCaptureWatcherOptions
+): StoppableWatcher {
+  const env = options.env ?? process.env;
+  const now = options.now ?? (() => new Date());
+  const writeArtifact = options.writeArtifact ?? writeCaptureArtifact;
+
+  const watermarkMb =
+    parsePositiveIntEnv(env["MINSKY_MCP_MEMORY_CAPTURE_MB"]) ?? DEFAULT_MEMORY_CAPTURE_WATERMARK_MB;
+  const watermarkBytes = watermarkMb * BYTES_PER_MB;
+
+  const verdict = decideCaptureArm({
+    watermarkBytes,
+    ceilingBytes: options.ceilingBytes,
+    forceDisable: env["MINSKY_MCP_DISABLE_MEMORY_CAPTURE"] === "1",
+  });
+
+  if (!verdict.armed) {
+    if (verdict.reason === "watermark-not-below-ceiling") {
+      log.error(
+        "[mt#3973] Resident-memory capture NOT armed: watermark is not below the kill ceiling, so it could never fire",
+        {
+          processRole: options.processRole,
+          watermarkMb,
+          ceilingMb: Math.round(options.ceilingBytes / BYTES_PER_MB),
+        }
+      );
+    } else {
+      log.debug("[mt#3973] Resident-memory capture disabled by MINSKY_MCP_DISABLE_MEMORY_CAPTURE", {
+        processRole: options.processRole,
+      });
+    }
+    return { stop: () => {} };
+  }
+
+  const snapshotRequested = env["MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT"] === "1";
+
+  return startResidentMemoryCaptureWatcher({
+    watermarkBytes,
+    getResidentBytes: options.getResidentBytes,
+    pollIntervalMs: parsePositiveIntEnv(env["MINSKY_MCP_MEMORY_CAPTURE_POLL_MS"]),
+    setIntervalFn: options.setIntervalFn,
+    clearIntervalFn: options.clearIntervalFn,
+    onWatermarkCrossed: (residentBytes) => {
+      try {
+        let heapSnapshotBytes: ArrayBuffer | null = null;
+        let heapSnapshotSkippedReason: string | undefined;
+
+        if (!snapshotRequested) {
+          heapSnapshotSkippedReason =
+            "not requested (set MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT=1; see mt#3973 on why this is opt-in)";
+        } else {
+          heapSnapshotBytes = generateHeapSnapshotBytes();
+          if (!heapSnapshotBytes) {
+            heapSnapshotSkippedReason = "Bun.generateHeapSnapshot unavailable in this runtime";
+          }
+        }
+
+        const capturedAt = now();
+        const fileStem = buildCaptureFileStem(capturedAt, process.pid, options.processRole);
+        const captureDir = getCaptureDir(env);
+
+        const record = buildCaptureRecord({
+          capturedAt,
+          pid: process.pid,
+          processRole: options.processRole,
+          residentBytes,
+          watermarkBytes,
+          uptimeSeconds: options.getUptimeSeconds(),
+          inFlightToolCalls: options.getInFlightToolCalls?.() ?? [],
+          heapSnapshotPath: heapSnapshotBytes
+            ? path.join(captureDir, `${fileStem}.heapsnapshot`)
+            : null,
+          ...(heapSnapshotSkippedReason !== undefined ? { heapSnapshotSkippedReason } : {}),
+          ...(options.getDiagnostics ? { diagnostics: options.getDiagnostics() } : {}),
+        });
+
+        const jsonPath = writeArtifact({ captureDir, record, fileStem, heapSnapshotBytes });
+
+        log.cli(
+          `[mt#3973] Resident memory ${Math.round(residentBytes / BYTES_PER_MB)}MB crossed the ` +
+            `${watermarkMb}MB capture watermark; wrote ${jsonPath}`
+        );
+      } catch (error) {
+        // Deliberate swallow: the ceiling's self-terminate is the machine's
+        // protection against a kernel panic, and it must not be affected by a
+        // diagnostic that failed. Logged, never rethrown.
+        log.error("[mt#3973] Resident-memory capture failed; the kill ceiling is unaffected", {
+          processRole: options.processRole,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+  });
+}
