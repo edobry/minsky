@@ -1135,6 +1135,11 @@ describe("computeLogResult — watermark handling", () => {
 // advanceWatermarks
 // ---------------------------------------------------------------------------
 
+/** The reviewed-count map these cases advance with (mt#3906). */
+const CAUSAL_COUNTS = { [CAUSAL_PATH]: FIRES_THRESHOLD };
+/** The ack timestamp these cases write. */
+const ACK_AT = "2026-06-10T00:00:00Z";
+
 describe("advanceWatermarks", () => {
   test("advances marks for acked paths only", () => {
     const causalPath = CAUSAL_PATH;
@@ -1161,12 +1166,12 @@ describe("advanceWatermarks", () => {
     ];
 
     const ackedPaths = new Set([causalPath]);
-    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    const updated = advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
 
     // Causal advanced
     expect(updated[causalPath]).toBeDefined();
     expect(updated[causalPath]?.lastReviewedCount).toBe(FIRES_THRESHOLD);
-    expect(updated[causalPath]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+    expect(updated[causalPath]?.lastReviewedAt).toBe(ACK_AT);
 
     // Retro NOT advanced
     expect(updated[retroPath]).toBeUndefined();
@@ -1183,7 +1188,7 @@ describe("advanceWatermarks", () => {
       ),
     ];
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
-    advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
     expect(current).toEqual({});
   });
 
@@ -1202,7 +1207,8 @@ describe("advanceWatermarks", () => {
       current,
       results,
       ackedPaths,
-      "2026-06-10T00:00:00Z",
+      ACK_AT,
+      CAUSAL_COUNTS,
       TEST_ASK_ID
     );
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
@@ -1219,7 +1225,7 @@ describe("advanceWatermarks", () => {
       ),
     ];
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
-    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    const updated = advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
   });
 
@@ -1243,11 +1249,11 @@ describe("advanceWatermarks", () => {
       ),
     ];
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
-    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    const updated = advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
     // lastReviewedCount/At still advance normally.
     expect(updated[CAUSAL_ENTRY.path]?.lastReviewedCount).toBe(FIRES_THRESHOLD);
-    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe(ACK_AT);
   });
 
   test("OVERRIDES a pre-existing openAskId when a new askId is explicitly provided", () => {
@@ -1272,7 +1278,8 @@ describe("advanceWatermarks", () => {
       current,
       results,
       ackedPaths,
-      "2026-06-10T00:00:00Z",
+      ACK_AT,
+      CAUSAL_COUNTS,
       TEST_ASK_ID
     );
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
@@ -1298,7 +1305,7 @@ describe("clearResolvedAskIds", () => {
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
     // Other fields untouched.
     expect(updated[CAUSAL_ENTRY.path]?.lastReviewedCount).toBe(10);
-    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe(ACK_AT);
   });
 
   test("leaves watermarks with a different openAskId untouched", () => {

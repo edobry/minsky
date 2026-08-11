@@ -35,7 +35,7 @@
    ask-form-lint-calibration.test.ts's justification) */
 
 import { describe, test, expect, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sharedCommandRegistry } from "../command-registry";
@@ -56,6 +56,23 @@ function getCommand() {
   }
   if (!command) throw new Error(`${COMMAND_ID} not registered`);
   return command;
+}
+
+/**
+ * Run the read-only sweep and return the receipt it issues (mt#3906).
+ *
+ * Every `ack: true` below goes through this, because that is now the only way
+ * to ack: the token binds the counts the reviewer saw, so the ack cannot write
+ * a count nobody looked at. In these tests the fixture does not grow between
+ * the read and the ack, so the bound count equals the ack-time count and every
+ * pre-existing expectation is unchanged.
+ */
+async function readReviewToken(workspace: string): Promise<string> {
+  const result = (await getCommand().execute(
+    { ack: false, json: true },
+    { workspacePath: workspace }
+  )) as { reviewToken: string };
+  return result.reviewToken;
 }
 
 const tempDirs: string[] = [];
@@ -153,7 +170,7 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 
     const command = getCommand();
     const result = (await command.execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as { success: boolean; watermarkAdvanced: boolean };
 
@@ -276,7 +293,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     expect(before.results.find((r) => r.name === "causal-premise")?.pastThreshold).toBe(false);
 
     const acked = (await command.execute(
-      { ack: true, json: true, askId: ASK_ID },
+      { ack: true, json: true, askId: ASK_ID, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
@@ -315,7 +332,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     expect(before.results.find((r) => r.name === "silent-stretch")?.pastThreshold).toBe(false);
 
     const acked = (await command.execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
@@ -357,7 +374,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
 
     const command = getCommand();
     const acked = (await command.execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
@@ -382,7 +399,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
 
     const command = getCommand();
     const acked = (await command.execute(
-      { ack: true, json: true, askId: ASK_ID },
+      { ack: true, json: true, askId: ASK_ID, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
@@ -436,8 +453,14 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     });
 
     const command = getCommand();
+    // Pass A's receipt is taken BEFORE the pair starts, which is faithful to
+    // the incident: both passes read the world, then both write into it.
+    const passAToken = await readReviewToken(workspace);
     await Promise.all([
-      command.execute({ ack: true, json: true }, { workspacePath: workspace }),
+      command.execute(
+        { ack: true, json: true, reviewToken: passAToken },
+        { workspacePath: workspace }
+      ),
       command.execute({ ack: false, json: true, clearAskId: ASK_ID }, { workspacePath: workspace }),
     ]);
 
@@ -452,13 +475,49 @@ describe("observability.calibration-review — concurrent-write reconciliation (
     writeAgedCausalPremiseLog(workspace, 3);
 
     const acked = (await getCommand().execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
     expect(acked.watermarkAdvanced).toBe(true);
     expect(acked.driftedPaths).toEqual([]);
     expect(readWatermarks(workspace)[CAUSAL_PREMISE_PATH]?.lastReviewedCount).toBe(3);
+  });
+
+  test("ack without a reviewToken is REFUSED and writes nothing (mt#3906)", async () => {
+    // The refusal is the point: with no receipt the command cannot know what
+    // was classified, and the only count available to it is the one that
+    // caused the defect. Failing closed costs one read-only call.
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+
+    const refused = (await getCommand().execute(
+      { ack: true, json: true },
+      { workspacePath: workspace }
+    )) as { success: boolean; error: string };
+
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("reviewToken");
+    // No watermark file was created — the refusal happens before any write.
+    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+  });
+
+  test("ack with a token claiming more records than the log holds is REFUSED (mt#3906)", async () => {
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+    // A receipt taken while the log held 3 records, replayed against a log
+    // that now holds 1 — the shape a rotated log or a foreign tree produces.
+    const token = await readReviewToken(workspace);
+    writeAgedCausalPremiseLog(workspace, 1);
+
+    const refused = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: token },
+      { workspacePath: workspace }
+    )) as { success: boolean; error: string };
+
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("the log holds");
+    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
   });
 
   test("an uncontended clear reports no dropped writes and leaves the counts alone", async () => {

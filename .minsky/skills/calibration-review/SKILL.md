@@ -24,7 +24,9 @@ packaging an enforcement-posture change as an Ask (Step 4's split, mt#3769).
 
 ## Step 1 — Run the sweep (read-only)
 
-Call the command read-only (do NOT pass `--ack` yet):
+Call the command read-only (do NOT pass `--ack` yet). **Keep the `reviewToken`
+it returns** — Step 5's ack is refused without it, and the token from THIS call
+is the one that binds the records you are about to classify (mt#3906):
 
 - MCP: `mcp__minsky__observability_calibration-review` with NO arguments. It
   returns JSON already; the tool declares only `ack`, `askId` and `clearAskId`,
@@ -463,6 +465,38 @@ Ask exists at all, and on whether this pass skipped anything under Step 1a.**
 Check both first — the cases take different arguments and the wrong one destroys
 data.
 
+### Every ack carries `reviewToken` — the receipt from the sweep you classified (mt#3906)
+
+`ack: true` is **REFUSED without `reviewToken`**, and the token to pass is the
+one Step 1's READ-ONLY sweep returned — not one from a later call. Copy it from
+that result's `reviewToken` field (the text output prints it as a trailing
+`reviewToken: <value>` line).
+
+**Why the ack cannot just re-count.** A pass is two invocations and each runs its
+own sweep, so an ack that re-derives the count marks everything that arrived
+while you were reading as reviewed by nobody. Measured on the 2026-08-10
+`bare-entity-ref` pass: 93 records classified at 10:06, 99 acked at 10:15, six
+discarded unseen — 35% of what that ack claimed to review, with
+`watermarkAdvanced: true` as the only signal. The loss scales with the pass's
+duration times the detector's fire rate, so the busiest log — the one most worth
+reviewing — loses the most.
+
+**What the result tells you afterwards**, all of which belong in your pass output:
+
+- **`midPassArrivals`** — records that landed during your review, per log. They
+  stay unreviewed and will be in the next sweep. This is expected, not an error;
+  report the number rather than letting a later sweep reveal it.
+- **`clampedPaths`** — the token's count sat BELOW an existing watermark (a stale
+  token), so the watermark was left where it was rather than moved backwards.
+- **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
+  NOT advanced. Re-run read-only and ack again with the fresh token.
+
+**If you lost the token** (a `/clear`, a context switch, a resumed pass), do not
+work around it: re-run the command read-only, re-read what it shows, and ack with
+the new token. That is one call, and it is honest about what you actually saw.
+Note the consequence — a token taken from a sweep you did NOT classify against
+re-creates the defect by hand, so the re-read is the point, not a formality.
+
 ### Which ack call to make
 
 **First: did this pass emit an Ask at all?** Under Step 4's split a pass whose
@@ -489,14 +523,16 @@ dispositions are all file-it-yourself emits none, and then there is no id to pas
   resolves.
 
   - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
+    `reviewToken: "<token from Step 1's read-only sweep>"`,
     `askId: "<id from asks_create>"`
   - CLI: `minsky observability calibration-review --ack` plus the CLI's
     generated flag for `askId` — check `--help` for the exact flag spelling
 
 - **Yes — this is a MIXED pass.** Pass `ack: true` and **NOT** `askId`.
 
-  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`
-  - CLI: `minsky observability calibration-review --ack`
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
+    `reviewToken: "<token from Step 1's read-only sweep>"`
+  - CLI: `minsky observability calibration-review --ack --review-token <token>`
 
   Confirm afterwards that the result's `skippedOpenAskPaths` names every log you
   skipped, and say in your pass output that you acked without `askId` and why.

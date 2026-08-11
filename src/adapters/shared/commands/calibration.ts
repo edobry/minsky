@@ -36,8 +36,12 @@ import {
   computeReviewDueLogs,
   deriveCalibrationLogEntries,
   advanceWatermarks,
+  buildReviewToken,
   clearResolvedAskIds,
+  InvalidReviewTokenError,
   mergeWatermarkWrite,
+  parseReviewToken,
+  reconcileReviewReceipt,
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogEntry,
@@ -478,6 +482,18 @@ export function registerCalibrationCommands(): void {
         required: false,
         defaultValue: false,
       },
+      reviewToken: {
+        schema: z.string(),
+        description:
+          "The `reviewToken` returned by the READ-ONLY sweep whose records you classified " +
+          "(mt#3906). REQUIRED with ack:true. It carries the per-log fire counts as of that " +
+          "read, so the watermark records what was actually reviewed instead of whatever the " +
+          "log has grown to by ack time — records that arrive mid-pass stay unreviewed and " +
+          "are reported as `midPassArrivals` rather than silently marked seen. A token that " +
+          "is malformed, or that claims more records than the log holds, is REJECTED (no " +
+          "watermark moves); one whose count sits below an existing watermark is raised to it.",
+        required: false,
+      },
       askId: {
         schema: z.string(),
         description:
@@ -622,29 +638,73 @@ export function registerCalibrationCommands(): void {
         // whatever accumulated since. When `askId` IS supplied, the caller is
         // explicitly (re)affirming an ask for every review-due log this
         // call, so no log is skipped on that basis.
+        // mt#3906: the token the READ-ONLY sweep issued is what makes the ack
+        // honest. Issued on every invocation (including this one) so a pass
+        // always leaves with a receipt for its next round.
+        const reviewToken = buildReviewToken(results, new Date().toISOString());
+
         let watermarkAdvanced = false;
         let skippedOpenAskPaths: string[] = [];
+        let midPassArrivals: { path: string; count: number }[] = [];
+        let clampedPaths: string[] = [];
+        let unreceiptedPaths: string[] = [];
         if (params.ack) {
+          // Refuse rather than fall back. An ack with no receipt cannot know
+          // what was classified, and re-deriving the count here is the whole
+          // defect (mt#3906) — so the answer is a one-call remedy, not a
+          // silent write over records nobody looked at.
+          if (!params.reviewToken) {
+            return {
+              success: false,
+              json: params.json ?? false,
+              error:
+                "ack:true requires reviewToken — the token returned by the read-only sweep whose " +
+                "records you classified (mt#3906). Without it the watermark would be advanced to " +
+                "the log's count RIGHT NOW, marking every record that arrived during your review " +
+                "as reviewed by nobody. Re-run this command read-only and pass the `reviewToken` " +
+                "from its result.",
+            };
+          }
           const reviewDuePaths = new Set(reviewDue.map((d) => d.path));
           const reviewDueResults = results.filter((r) => reviewDuePaths.has(r.entry.path));
           const selection = selectAckablePaths(reviewDueResults, params.askId);
           skippedOpenAskPaths = selection.skippedOpenAskPaths;
-          if (selection.ackablePaths.size > 0) {
+
+          let reconciliation;
+          try {
+            reconciliation = reconcileReviewReceipt(
+              parseReviewToken(params.reviewToken),
+              results,
+              selection.ackablePaths,
+              watermarks
+            );
+          } catch (error) {
+            if (error instanceof InvalidReviewTokenError) {
+              return { success: false, json: params.json ?? false, error: error.message };
+            }
+            throw error;
+          }
+          midPassArrivals = reconciliation.midPassArrivals;
+          clampedPaths = reconciliation.clampedPaths;
+          unreceiptedPaths = reconciliation.unreceiptedPaths;
+
+          // Target only the paths the receipt actually covers: an unreceipted
+          // log is left alone, so it must not count toward the write set or
+          // toward `watermarkAdvanced`.
+          const advancedPaths = new Set(Object.keys(reconciliation.reviewedCounts));
+          if (advancedPaths.size > 0) {
             const updated = advanceWatermarks(
               watermarks,
               results,
               selection.ackablePaths,
               new Date().toISOString(),
+              reconciliation.reviewedCounts,
               params.askId
             );
-            const { drifted } = await persistWatermarks(
-              watermarks,
-              updated,
-              selection.ackablePaths
-            );
+            const { drifted } = await persistWatermarks(watermarks, updated, advancedPaths);
             // An ack whose every target drifted advanced nothing. Reporting it
             // as advanced is what makes the race silent (mt#3899).
-            watermarkAdvanced = drifted.length < selection.ackablePaths.size;
+            watermarkAdvanced = drifted.length < advancedPaths.size;
           }
         }
 
@@ -689,6 +749,15 @@ export function registerCalibrationCommands(): void {
             // mt#3899: paths whose intended write was dropped because another
             // pass changed them mid-sweep. Empty on every uncontended run.
             driftedPaths,
+            // mt#3906: the receipt for THIS read — pass it back as
+            // `reviewToken` on the ack that follows.
+            reviewToken,
+            // Records that landed while the reviewer was working. They stay
+            // unreviewed by design; naming them is what lets a reviewer see
+            // the tail rather than infer it from a later sweep.
+            midPassArrivals,
+            clampedPaths,
+            unreceiptedPaths,
           };
         }
 
@@ -713,14 +782,49 @@ export function registerCalibrationCommands(): void {
               `mid-sweep; their values stand: ${driftedPaths.join(", ")}`
             : "";
 
+        // mt#3906: the tail the ack declined to advance over. A reviewer who
+        // cannot see this number has to infer it from a later sweep, which is
+        // how it went unnoticed for as long as it did.
+        const midPassSuffix =
+          midPassArrivals.length > 0
+            ? `\nLeft ${midPassArrivals.reduce((n, a) => n + a.count, 0)} record(s) unreviewed — ` +
+              `they arrived after the read this ack is bound to: ${midPassArrivals
+                .map((a) => `${a.path} (+${a.count})`)
+                .join(", ")}`
+            : "";
+        const clampedSuffix =
+          clampedPaths.length > 0
+            ? `\nRaised ${clampedPaths.length} count(s) to the existing watermark — the token ` +
+              `predates a later review: ${clampedPaths.join(", ")}`
+            : "";
+        const unreceiptedSuffix =
+          unreceiptedPaths.length > 0
+            ? `\nNot advanced (the token does not cover these logs; re-run read-only for a ` +
+              `current token): ${unreceiptedPaths.join(", ")}`
+            : "";
+        const tokenSuffix = `\nreviewToken: ${reviewToken}`;
+
         return {
           success: true,
           json: false,
-          message: text + suffix + clearedSuffix + skippedSuffix + driftedSuffix,
+          message:
+            text +
+            suffix +
+            clearedSuffix +
+            skippedSuffix +
+            driftedSuffix +
+            midPassSuffix +
+            clampedSuffix +
+            unreceiptedSuffix +
+            tokenSuffix,
           watermarkAdvanced,
           clearedAskId,
           skippedOpenAskPaths,
           driftedPaths,
+          reviewToken,
+          midPassArrivals,
+          clampedPaths,
+          unreceiptedPaths,
         };
       } catch (error) {
         return {
