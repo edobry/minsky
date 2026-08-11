@@ -122,12 +122,17 @@ const defaultLogSink: TurnWriterLogSink = { warn: log.warn, error: log.error };
 
 /**
  * Extract per-turn rows from a session's transcript and upsert them into
- * `agent_transcript_turns` (text/metadata columns only — never `embedding`).
+ * `agent_transcript_turns`. This never COMPUTES an embedding — that stays the
+ * backfill's job — but since mt#3883 it does INVALIDATE one (see below).
  *
- * Idempotent: existing rows are upserted on (agent_session_id, turn_index); the
- * `embedding` column is excluded from both the insert and the on-conflict SET,
- * so re-running preserves any embedding already present and re-materializing the
- * full transcript on each incremental append is safe.
+ * Idempotent: existing rows are upserted on (agent_session_id, turn_index). The
+ * `embedding` column is excluded from the INSERT values, so a new row starts
+ * NULL. On conflict it is set conditionally: preserved when the row's
+ * `user_text`/`assistant_text` are unchanged, NULLED when they changed. So
+ * re-materializing the full transcript on each incremental append is still safe
+ * and still cheap — an unchanged row keeps its vector — while a turn whose
+ * boundary MOVED (mt#3883) does not keep a vector describing text it no longer
+ * holds.
  *
  * @param transcript - The session's full `agent_transcripts.transcript` JSONB
  *   (array of raw turn lines). Turn ordering / `turn_index` is assigned over the
@@ -314,7 +319,9 @@ async function writeTurnsLocked(
   while (pending.length > 0) {
     const range = pending.shift() as ChunkRange;
     const chunk = turns.slice(range.start, range.start + range.size);
-    // NOTE: `embedding` is deliberately omitted — capture writes text only.
+    // NOTE: `embedding` is deliberately omitted from the INSERT VALUES — a new
+    // row starts NULL and the backfill fills it. The on-conflict SET below is a
+    // different matter: since mt#3883 it nulls a vector whose text changed.
     // `fts_text` is GENERATED ALWAYS and must not be written either.
     const insertValues = chunk.map((turn) => ({
       agentSessionId,
@@ -769,7 +776,8 @@ export interface ExtractAllTurnsOptions {
  * Extraction reconciliation: ensure every `agent_transcripts` row has its turns
  * materialized into `agent_transcript_turns`. This is the catch-up for sessions
  * that were ingested before extraction-on-capture existed (or whose turn rows
- * were otherwise lost). Idempotent (text-only upsert, embedding-preserving).
+ * were otherwise lost). Idempotent: the upsert never computes an embedding, and
+ * preserves an existing one whenever the row's text is unchanged (mt#3883).
  *
  * Batched/bounded/resumable (mt#2457): rows are fetched in keyset-paginated
  * pages instead of one unbounded full-corpus `SELECT *`, so the sweep's memory
