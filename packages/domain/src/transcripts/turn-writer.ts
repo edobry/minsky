@@ -11,12 +11,14 @@
  * Embedding is the separate, deferred stage owned by PerTurnEmbeddingPipeline,
  * which fills the `embedding` column on rows this module has already written.
  *
- * CRITICAL — embedding preservation: the upsert here writes text/metadata
- * columns only and MUST NOT touch the `embedding` column. A new row gets a NULL
- * embedding (filled later by the backfill); an existing row's embedding is left
- * intact (a capture-path text upsert over an already-embedded turn must not
- * clobber the vector). See ADR-019 §Consequences ("two writers on the same
- * rows").
+ * CRITICAL — embedding preservation, CONDITIONAL since mt#3883: the upsert here
+ * never COMPUTES an embedding. A new row gets a NULL embedding (filled later by
+ * the backfill); an existing row keeps its vector ONLY while its text is
+ * unchanged, and has it NULLED when the text changes — so a turn boundary that
+ * moves cannot leave a vector describing content the row no longer holds. See
+ * ADR-019 §Consequences ("two writers on the same rows"), and the SET clause
+ * below for why unconditional preservation turned into a corruption vector the
+ * moment extraction stopped producing identical boundaries.
  *
  * @see docs/architecture/adr-019-transcript-pipeline-staging.md
  * @see ./turn-extractor.ts — the pure extraction logic this reuses
@@ -342,8 +344,25 @@ async function writeTurnsLocked(
           .values(insertValues)
           .onConflictDoUpdate({
             target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
-            // `embedding` is intentionally NOT in this SET — preserve any vector
-            // the backfill already filled (ADR-019 embedding-preservation invariant).
+            // ADR-019's embedding-preservation invariant, made CONDITIONAL on the
+            // text being unchanged (mt#3883).
+            //
+            // Preserving unconditionally was correct only while turn boundaries
+            // were stable. Once a boundary moves — which is exactly what the
+            // mt#3883 fusion fix does, for 23.3% of conversations — turn N's TEXT
+            // is overwritten by a different turn's content while turn N's VECTOR
+            // is kept. The row then has an embedding describing text it no longer
+            // holds, and semantic search returns it for the wrong query. Nothing
+            // downstream can notice: the row is present, well-formed, and
+            // non-null, so it fails as a confident wrong answer rather than an
+            // error.
+            //
+            // The invariant that was actually meant is "do not clobber a vector
+            // that still describes this row." Comparing the two columns
+            // `buildEmbedText` reads (per-turn-embedding-pipeline.ts: user_text +
+            // assistant_text, NOT tool_calls) expresses that directly: identical
+            // text keeps the vector, changed text nulls it so the embedding
+            // backfill refills it on its next pass.
             set: {
               userText: sql`EXCLUDED.user_text`,
               assistantText: sql`EXCLUDED.assistant_text`,
@@ -351,6 +370,7 @@ async function writeTurnsLocked(
               startedAt: sql`EXCLUDED.started_at`,
               endedAt: sql`EXCLUDED.ended_at`,
               isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
+              embedding: sql`CASE WHEN ${agentTranscriptTurnsTable.userText} IS DISTINCT FROM EXCLUDED.user_text OR ${agentTranscriptTurnsTable.assistantText} IS DISTINCT FROM EXCLUDED.assistant_text THEN NULL ELSE ${agentTranscriptTurnsTable.embedding} END`,
             },
           });
       });
