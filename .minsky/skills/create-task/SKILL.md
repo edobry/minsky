@@ -157,13 +157,83 @@ control is the cheapest thing that separates "the machine was busy" from "this i
 **Enforcement tier: prompt-time prose (this step).** A deterministic version is
 mechanizable — the trigger vocabulary above is a regex, and the evidence shape (a command
 plus pass/fail counts, or the `UNVERIFIED` marker) is a presence check on the spec text,
-exactly like §2a's. It is not shipping here because the surface it would guard,
-`tasks_create`, is the one this repo requires to be calibration-first (the mt#2263 ladder:
-log-only, measure the false-positive rate, then flip) — and that is its own task, not a
-rider on a test fix. Tracked as **mt#3658**.
+exactly like §2a's. It is not shipping here because building it is its own task, not a rider
+on a test fix. Tracked as **mt#3658**.
+
+**Correction (mt#3957, 2026-08-11).** This paragraph previously gave a second reason: that
+the surface it would guard, `tasks_create`, "is the one this repo requires to be
+calibration-first (the mt#2263 ladder)." That reason is **false**, and leaving it standing
+would have let each new sibling inherit it. `.minsky/hooks/require-duplicate-check-record.ts`
+ships `denyCapable: true` on this exact surface, and records why: "a deterministic test on
+text the agent itself authored … ADR-024's ladder governs trigger-phrase guidance hooks with
+recall/precision axes, and a literal-form presence check has neither." Calibration-first is
+**mechanism-scoped, not surface-scoped** — so it never applied to a presence check. The
+scheduling reason above stands on its own; the posture call is the operator's (mt#3769).
 
 **Proportionality (cf. mt#2309):** a presence check on one claim in specs that make it, not
 a new gate battery. Most specs never mention flakiness and this step costs them nothing.
+
+### 2c. Cite the emission site before asserting a root cause (mt#3957)
+
+If the drafted spec reports an **observed symptom** (an error string, a log line, a status,
+a wrong value) and asserts a **cause** for it — the phrases _root cause_, _cause CONFIRMED_,
+_diagnosis (definitive)_, _the reason is_, _caused by_ — that assertion is the single most
+load-bearing sentence in the spec: it decides what gets built. Before Step 3
+finalizes the spec, the causal claim must satisfy ONE of:
+
+- **Emission site cited** — the `path:line` that PRODUCES the observed symptom, plus one
+  sentence stating that the asserted cause's branch can reach that line. Both halves are
+  required; the line alone does not establish reachability.
+- **`UNVERIFIED`** — if the emitting line was not actually read this turn, mark the cause
+  with the literal word `UNVERIFIED` (e.g. "UNVERIFIED as caused by the swallowed refusal —
+  emission site not read") rather than asserting it as settled.
+
+Checkable from the spec text alone: either a `path:line` plus a reachability sentence is
+present, or the literal marker `UNVERIFIED` is.
+
+**Cite the EMISSION site, not the cause's own code.** This is the whole discipline, and it
+is what separates §2c from §2a. Citing the code you believe is at fault confirms only that
+the code exists — it cannot tell you whether that code is what produced the string you saw.
+The emission site can, because reaching it is a branch question with a yes/no answer.
+
+**The adjacent-channel trap.** An observation taken from a DIFFERENT entry point than the
+one that produced the symptom is evidence about THAT entry point, and says nothing about
+the symptom's cause. When both mention the same mechanism, the mismatch is invisible — the
+evidence reads as confirmation precisely because it is topically adjacent. Ask which call
+actually emitted the string you are explaining, and go read the line that emits it.
+
+**Incident this closes (2026-08-11, mt#3955).** `session_start` refused with "session
+appears abandoned … re-run with `--recover`", and re-running WITH `recover: true` returned
+the byte-identical error. The filed spec carried a section headed `## Cause CONFIRMED`: the
+guarded delete refused and the refusal was swallowed. The evidence was a refusal message
+from calling `session_delete` DIRECTLY — a different code path from the one that emitted the
+symptom. Both mention the live-actor gate, so it read as confirmation.
+
+It was wrong. The real cause was `SessionService.start` dropping the `recover` flag
+entirely, so the recover branch was never entered and nothing was ever swallowed. The
+falsifier was one read: `packages/domain/src/session/start-session-operations.ts:481` emits
+that exact string, and it sits in the fall-through beneath
+`if ((liveness === "stale" || liveness === "orphaned") && params.recover)` at `:401` — so it
+is reachable ONLY when `recover` is falsy, which falsifies "the delete refused" immediately.
+
+`/plan-task` gate (o) caught it about 20 minutes later, so nothing shipped wrong. But gate
+(o) runs only at planning: a task dispatched straight to an implementer never meets it, and
+a spec's own confident diagnosis is exactly what a later reader inherits as settled.
+
+**Proportionality (cf. mt#2309):** a presence check on the causal claim in specs that make
+one, not the `/plan-task` gate battery. A feature request, a refactor, or any spec that
+asserts no cause never triggers it.
+
+**Enforcement tier: prompt-time prose (this step), with the deterministic sibling scoped and
+unblocked.** The trigger vocabulary is a regex and the satisfaction condition is a presence
+check on agent-authored spec text — the same shape as
+`.minsky/hooks/require-duplicate-check-record.ts`, which ships **deny-tier** on this exact
+`tasks_create` surface. That guard's own rationale is why the calibration-first objection
+does not apply: "a deterministic test on text the agent itself authored … ADR-024's ladder
+governs trigger-phrase guidance hooks with recall/precision axes, and a literal-form
+presence check has neither." Calibration-first is **mechanism-scoped, not surface-scoped**.
+The remaining question is enforcement POSTURE, which is the operator's call per mt#3769 —
+routed as an ask rather than decided here.
 
 ### 3. Generate the structured spec
 
@@ -223,6 +293,14 @@ If `--parent`, `--tags`, or `--backend` were specified, include those parameters
    candidates with a reconciliation, or the literal line
    `Duplicate check: no candidates found.` Both are mechanical presence checks on
    the spec text; neither is satisfied by having _thought about_ it.
+3. Every flakiness attribution in the drafted spec passes Step 2b — the isolation
+   control's command and observed pass/fail counts, or marked `UNVERIFIED`.
+   (Added by mt#3957: §2b declares itself required but was never listed here, so
+   nothing pointed at it from the gate. The step's own text is unchanged.)
+4. Every causal root-cause claim in the drafted spec passes Step 2c — the EMISSION
+   site cited as `path:line` plus a reachability sentence, or marked `UNVERIFIED`.
+   Citing the code you believe is at fault does not satisfy this; the cited line
+   must be the one that produces the observed symptom.
 
 ### 5. Confirm
 
