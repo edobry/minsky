@@ -48,6 +48,28 @@ describe("extractProvenance", () => {
     });
   });
 
+  test("extracts an Unverifiable spec-verification entry WITHOUT incrementing findings.blocking (mt#3919)", () => {
+    // The single highest-risk detail per mt#3919's gate (h): Unverifiable must
+    // not reproduce the false-BLOCKING defect it exists to fix. extractProvenance
+    // only increments `blocking` from `submit_finding` calls with severity
+    // BLOCKING — a spec-verification entry, whatever its status, never does.
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: {
+          criterion: "mt#3874's spec must be updated to the scoped name",
+          status: "Unverifiable",
+          evidence: "mt#3874's spec could not be fetched: status=not-found",
+        },
+      },
+    ];
+
+    const result = extractProvenance(toolCalls);
+    expect(result.specVerification).toHaveLength(1);
+    expect(result.specVerification[0]?.status).toBe("Unverifiable");
+    expect(result.findings.blocking).toBe(0);
+  });
+
   test("extracts documentation impact (uses last call)", () => {
     const toolCalls: ReviewToolCall[] = [
       {
@@ -331,6 +353,28 @@ describe("parseProvenance", () => {
     expect(result).not.toBeNull();
     if (!result) throw new Error("expected provenance");
     expect(result.specVerification).toHaveLength(1);
+  });
+
+  test("round-trips an Unverifiable spec-verification status (mt#3919)", () => {
+    const provenance: ReviewProvenance = {
+      specVerification: [
+        {
+          criterion: "mt#3874's spec must be updated to the scoped name",
+          status: "Unverifiable",
+          evidence: "mt#3874's spec could not be fetched: status=error",
+        },
+      ],
+      docImpact: { kind: DOC_IMPACT_NO_UPDATE, evidence: "Internal" },
+      findings: { blocking: 0, nonBlocking: 0, synthesizedBlocking: 0 },
+      conclusion: { event: "APPROVE", summary: "Good" },
+      adoptionSweep: null,
+    };
+
+    const body = `## Review\n\n${serializeProvenance(provenance)}`;
+    const result = parseProvenance(body);
+    expect(result).not.toBeNull();
+    if (!result) throw new Error("expected provenance");
+    expect(result.specVerification[0]?.status).toBe("Unverifiable");
     expect(result.docImpact?.kind).toBe(DOC_IMPACT_NO_UPDATE);
     expect(result.conclusion?.event).toBe("APPROVE");
   });

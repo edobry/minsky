@@ -63,7 +63,11 @@ import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import { shouldChunkReview, runChunkedReview } from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
 import { countBlockingFindings } from "./prior-review-summary";
-import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
+import {
+  resolveTaskSpec,
+  resolveReferencedTaskSpecs,
+  type TaskSpecFetchResult,
+} from "./task-spec-fetch";
 import type { TaskServiceInterface } from "@minsky/domain/tasks";
 import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
@@ -542,6 +546,18 @@ async function runReviewBody(
     taskService: deps.taskService ?? null,
   });
 
+  // mt#3919: resolve any mt#NNNN references the bound task's spec makes to
+  // OTHER task specs (e.g. a success criterion whose artifact is "update
+  // task mt#NNNN's spec/ATs") so the reviewer can verify such criteria
+  // against real content instead of reporting them unmet solely because the
+  // artifact is outside this diff. Never blocks — a fetch failure produces a
+  // structured entry the prompt renders as a named failure, not an omission.
+  const referencedTaskSpecs = await resolveReferencedTaskSpecs({
+    taskSpec,
+    boundTaskId: taskSpecFetch.taskId ?? null,
+    taskService: deps.taskService ?? null,
+  });
+
   // Fetch prior bot reviews on this PR (mt#2731: extracted to ingestPriorReviews).
   // Non-blocking — errors produce an empty ingestion with the error logged, and
   // the review continues without prior context. priorFlatFindings feeds the
@@ -671,6 +687,8 @@ async function runReviewBody(
     prTitle: pr.title,
     prBody: pr.body,
     taskSpec,
+    // mt#3919: task specs referenced by mt#NNNN inside taskSpec's own text.
+    referencedTaskSpecs: referencedTaskSpecs.length > 0 ? referencedTaskSpecs : undefined,
     authorshipTier: tier,
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
