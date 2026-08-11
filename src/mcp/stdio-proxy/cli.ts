@@ -16,6 +16,8 @@ import {
   wireMemoryCeilingWatcher,
   getCurrentProcessPpid,
   getCurrentProcessUptimeSeconds,
+  getCurrentProcessResidentBytes,
+  resolveMemoryCeilingBytes,
 } from "../orphan-exit";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "@minsky/domain/errors/index";
@@ -151,6 +153,21 @@ export function createProxyCommand(): Command {
             };
             proc.kill(proc.pid, "SIGTERM");
           },
+        });
+
+        // mt#3973: the proxy gets the capture half too. It has a ceiling for
+        // the reason stated above — which of the two classes ballooned was
+        // never determined — and covering it for the KILL while leaving it
+        // uncovered for the EVIDENCE would answer "which process" and then
+        // discard the answer to "doing what". It serves no tool calls of its
+        // own, so `getInFlightToolCalls` is deliberately absent; the artifact's
+        // value here is the role, size and uptime.
+        const { wireMemoryCaptureWatcher } = await import("../memory-capture");
+        wireMemoryCaptureWatcher({
+          processRole: "mcp proxy",
+          ceilingBytes: resolveMemoryCeilingBytes(),
+          getResidentBytes: getCurrentProcessResidentBytes,
+          getUptimeSeconds: getCurrentProcessUptimeSeconds,
         });
 
         await runProxy({

@@ -37,6 +37,7 @@ import {
 } from "./middleware/wake-enrichment";
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
+import type { InFlightToolCall } from "./memory-capture";
 import type { InitController } from "./init-retry";
 import {
   type PresenceClaimRepository,
@@ -51,6 +52,18 @@ export type MCPTransportType = "stdio" | "http";
 /**
  * HTTP transport configuration
  */
+/**
+ * What the server tracks about a tool call while it runs (mt#3973).
+ *
+ * `startedAtMs` alone was enough for the graceful-drain check that originally
+ * owned this map; `toolName` is what a resident-memory capture needs to be a
+ * lead rather than an observation.
+ */
+interface InFlightRequestState {
+  toolName: string;
+  startedAtMs: number;
+}
+
 export interface MCPHttpTransportConfig {
   /** Port to listen on @default 3000 */
   port?: number;
@@ -429,8 +442,15 @@ export class MinskyMCPServer {
   // never-connected idle-exit watcher in `orphan-exit.ts`.
   private hasEverHadAnyHttpSession = false;
 
-  // Graceful shutdown tracking
-  private inFlightRequests = new Map<number, number>();
+  // Graceful shutdown tracking.
+  //
+  // mt#3973 widened the value from a bare start-timestamp to `{ toolName,
+  // startedAtMs }`. Every other consumer reads `.size` or deletes by key, so
+  // the shape change is confined to the two sites that write and read the
+  // value. The tool name is what makes a resident-memory capture actionable:
+  // "this process was at 40 GB" is an observation, "this process was at 40 GB
+  // 90 seconds into transcripts_search-text" is a lead (mt#3885).
+  private inFlightRequests = new Map<number, InFlightRequestState>();
   // True ONLY during a genuine graceful shutdown initiated by `drain()`
   // (the SIGTERM/SIGINT signal path in start-command.ts). New tool calls are
   // rejected while this is true (see the `tools/call` handler gate) because
@@ -1111,7 +1131,10 @@ export class MinskyMCPServer {
       }
 
       const trackingId = this.nextRequestId++;
-      this.inFlightRequests.set(trackingId, Date.now());
+      this.inFlightRequests.set(trackingId, {
+        toolName: request.params.name,
+        startedAtMs: Date.now(),
+      });
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
       const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
@@ -2397,6 +2420,22 @@ export class MinskyMCPServer {
    */
   getInFlightCount(): number {
     return this.inFlightRequests.size;
+  }
+
+  /**
+   * The tool calls in flight right now, with how long each has been running.
+   *
+   * Read by the mt#3973 resident-memory capture when a process crosses its
+   * watermark, so the artifact names what the process was doing rather than
+   * only how large it had grown. `nowMs` is a parameter rather than a `Date.now()`
+   * call so the elapsed figures are consistent across the set and the method is
+   * testable without patching the clock.
+   */
+  getInFlightToolCalls(nowMs: number = Date.now()): InFlightToolCall[] {
+    return Array.from(this.inFlightRequests.values()).map((state) => ({
+      toolName: state.toolName,
+      elapsedMs: nowMs - state.startedAtMs,
+    }));
   }
 
   /**
