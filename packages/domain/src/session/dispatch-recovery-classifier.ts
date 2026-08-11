@@ -193,6 +193,16 @@ export interface DispatchStalenessResult {
   /** Which signal produced `lastActivityAtMs`. */
   activitySource: DispatchActivitySource;
   /**
+   * `staleForMs >= staleMs` — the pre-mt#3952 staleness verdict on its own,
+   * exposed so a caller (or `describeDispatchStalenessForMessage`) can tell
+   * whether the ACTIVITY check alone already called this dispatch stale, as
+   * opposed to `progressStale` below being the sole reason. This is the
+   * gate that keeps the "active but not progressing" framing honest: it is
+   * only true to say presence "kept this dispatch looking alive" when the
+   * activity check would otherwise have reported healthy.
+   */
+  activityStale: boolean;
+  /**
    * True when neither a commit nor a workspace-mtime write has happened
    * within `progressStaleMs` (mt#3952) — independent of `stale` above.
    * `stale` is `true` when EITHER the activity check OR this one fires, so a
@@ -363,6 +373,7 @@ export function computeDispatchStaleness(
   }
 
   const staleForMs = nowMs - lastActivityAtMs;
+  const activityStale = staleForMs >= staleMs;
 
   // mt#3952: PROGRESS signals — commit and workspace-mtime only. `presence`
   // and `dispatch-start` are deliberately excluded (see docstring's
@@ -384,10 +395,11 @@ export function computeDispatchStaleness(
   const progressStale = progressStaleForMs >= progressStaleMs;
 
   return {
-    stale: staleForMs >= staleMs || progressStale,
+    stale: activityStale || progressStale,
     lastActivityAtMs,
     staleForMs,
     activitySource,
+    activityStale,
     progressStale,
     progressStaleForMs,
     progressSource,
@@ -415,6 +427,26 @@ export function describeDispatchStalenessForMessage(staleness: DispatchStaleness
       `Progress-starved: no commit and no file write has happened since dispatch start ` +
       `(${staleness.progressStaleForMs}ms) — this dispatch has never produced anything on ` +
       `disk, regardless of how recently it made a tool call.`
+    );
+  }
+  // mt#3952 PR #2819 R1 BLOCKING: `activityStale` gates the "active but NOT
+  // progressing" framing below. When the base ACTIVITY check has ALSO
+  // already timed out (activityStale === true), presence is NOT what's
+  // keeping this dispatch looking alive — a past commit or file write can
+  // leave `progressSource` non-"none" while presence is itself long gone
+  // (e.g. a dispatch that committed once, then went fully silent for
+  // hours), and claiming "recent tool-call activity kept it looking alive"
+  // in that case would misattribute recency it does not have. Only when
+  // the activity check alone would have reported healthy — which, given
+  // `progressStale` is also true here, can only happen when `presence` is
+  // the signal propping it up (see this function's docstring reasoning in
+  // the PR body / spec) — is it accurate to describe presence as active.
+  if (staleness.activityStale) {
+    return (
+      `Silent and progress-starved: no activity signal of any kind (commit, tool call, or ` +
+      `file write) has been observed in ${staleness.staleForMs}ms, and no commit or file ` +
+      `write specifically in ${staleness.progressStaleForMs}ms — this reads as fully dead, ` +
+      `not merely quiet.`
     );
   }
   const sourceLabel = staleness.progressSource === "commit" ? "commit" : "file write";

@@ -430,6 +430,31 @@ describe("describeDispatchStalenessForMessage (mt#3952)", () => {
     expect(message).toContain("presence alone is not evidence of progress");
   });
 
+  // PR #2819 R1 BLOCKING: the "active but NOT progressing" framing must NOT fire when the
+  // base ACTIVITY check is ALSO already stale — a past commit can leave `progressSource`
+  // non-"none" while presence itself is long gone, and the message must not misattribute
+  // recency to presence it does not have.
+  test("names 'Silent and progress-starved' (not 'Active but NOT progressing') when activity is ALSO stale, even though a past commit exists", () => {
+    const now = START + 5 * 60 * 60 * 1000; // 5h after dispatch
+    const lastCommit = START + 10 * 60 * 1000; // one commit, ~5h ago — long past BOTH bounds
+    const staleness = computeDispatchStaleness(
+      START,
+      lastCommit,
+      now,
+      DISPATCH_RECOVERY_STALE_MS,
+      null, // no presence activity at all
+      null // no workspace-mtime activity either
+    );
+    expect(staleness.activityStale).toBe(true);
+    expect(staleness.progressStale).toBe(true);
+    expect(staleness.progressSource).toBe("commit");
+
+    const message = describeDispatchStalenessForMessage(staleness);
+    expect(message).toContain("Silent and progress-starved");
+    expect(message).not.toContain("Active but NOT progressing");
+    expect(message).not.toContain("recent tool-call activity");
+  });
+
   test("names 'progress-starved since dispatch start' when neither commit nor write has ever happened", () => {
     const now = START + DISPATCH_PROGRESS_STALE_MS + 1000;
     const staleness = computeDispatchStaleness(
