@@ -1524,6 +1524,18 @@ export function computeLogResult(
  * a fire; they are not evidence for judging one, so they never make a log
  * classifiable on their own.
  */
+/**
+ * mt#3607's capture-schema marker key, named once and used twice.
+ *
+ * It is excluded from evidence (below) AND read as the recoverability signal
+ * (`hasCaptureMarker`). Those are opposite uses of the same key, which is
+ * exactly the pair a duplicated string literal would eventually split apart.
+ * Source of truth for the value is `CAPTURE_SCHEMA_FIELD` in
+ * `.minsky/hooks/judged-input-capture.ts`; it is restated rather than imported
+ * because domain code does not depend on the hooks tree.
+ */
+const CAPTURE_SCHEMA_KEY = "captureSchema";
+
 const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   "timestamp",
   "session_id",
@@ -1532,7 +1544,7 @@ const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   // captured; it is not itself something to judge a fire by. Listing it here
   // keeps a hypothetical record carrying the marker and nothing else from
   // reporting `classifiable` on the strength of its own bookkeeping.
-  "captureSchema",
+  CAPTURE_SCHEMA_KEY,
 ]);
 
 /**
@@ -1564,6 +1576,32 @@ function isVacuousEvidence(value: unknown): boolean {
 /** Whether a log's records carry anything a reviewer could classify a fire from. */
 export type ClassifiabilityVerdict = "classifiable" | "not-classifiable" | "no-records";
 
+/**
+ * Whether the TEXT a detector judged can still be read back (mt#3898).
+ *
+ * A sibling of {@link ClassifiabilityVerdict}, deliberately not folded into it:
+ * they answer different questions and a log can score well on one and badly on
+ * the other. `classifiable` means "these records carry SOMETHING to judge a
+ * fire by" — `matches[].phrase` alone satisfies it. This asks the narrower
+ * question a reviewer actually needs: "can I re-read what the detector was
+ * looking at?"
+ *
+ * The gap between them is not hypothetical. A `/calibration-review` pass on
+ * `bare-entity-ref` (2026-08-10, mem#623 R7) read `classifiable`, correctly,
+ * and could establish WHICH refs were flagged — while the messages those refs
+ * appeared in were gone, so the one question that mattered (was each ref
+ * genuinely un-clickable in context?) could not be answered at all. The pass
+ * had no way to learn that from the sweep's output.
+ */
+export type JudgedTextRecoverability = "recoverable" | "partial" | "unrecoverable" | "no-records";
+
+export interface JudgedTextAssessment {
+  recoverability: JudgedTextRecoverability;
+  /** Records carrying the mt#3607 capture marker. */
+  capturedRecords: number;
+  recordsAssessed: number;
+}
+
 export interface ClassifiabilityAssessment {
   verdict: ClassifiabilityVerdict;
   /**
@@ -1574,6 +1612,11 @@ export interface ClassifiabilityAssessment {
   evidenceFields: string[];
   /** How many records the verdict was computed over. */
   recordsAssessed: number;
+  /**
+   * Whether the judged text is recoverable — see {@link JudgedTextRecoverability}
+   * for why this is reported beside `verdict` rather than merged into it.
+   */
+  judgedText: JudgedTextAssessment;
 }
 
 /**
@@ -1614,9 +1657,63 @@ export interface ClassifiabilityAssessment {
  * them into one boolean is the conflation `coverage-receipt.ts` (mt#3502) was
  * split apart to end, so this does not repeat it.
  */
+/**
+ * The mt#3607 capture marker.
+ *
+ * Read from the PASSTHROUGH only, and that is provably the whole story rather
+ * than an omission: no per-kind parse branch names `captureSchema`, so
+ * `parseDetectorFields` routes it into `detectorFields` for every log kind —
+ * the same mechanism `NON_EVIDENCE_KEYS` documents one screen up ("a key like
+ * `captureSchema` reaches this loop rather than the one above — for every log
+ * at once", PR #2679 R1).
+ *
+ * An earlier draft also read the top level, on the theory that the
+ * execution-evidence parsers hoist it. A staged negative control disproved
+ * that: disabling the top-level read left every test green, including one
+ * written specifically to exercise it. The branch was dead code carrying a
+ * false rationale, so it is gone. If a future per-kind branch ever does name
+ * the marker, this needs a top-level read AND a test that fails without it.
+ *
+ * Marker-only, deliberately. A writer that captures under its own key —
+ * `wall-of-text`'s `textHash`, `retrospective-trigger`'s `transcript_excerpt` —
+ * reads as unrecoverable here, and that is the intended answer rather than a
+ * false negative: `judged-input-capture.ts` defines the marker as the contract
+ * (`hasJudgedInputCapture` is the same one-line predicate), and its own doc
+ * tells readers to treat its absence as "un-auditable". Matching a bespoke-key
+ * allowlist here would be a second list to drift, and would remove the only
+ * incentive to adopt the shared path.
+ */
+function hasCaptureMarker(record: CalibrationRecord): boolean {
+  const passthrough = (record as SharedCalibrationFields).detectorFields;
+  return typeof passthrough?.[CAPTURE_SCHEMA_KEY] === "number";
+}
+
+function assessJudgedText(records: CalibrationRecord[]): JudgedTextAssessment {
+  if (records.length === 0) {
+    return { recoverability: "no-records", capturedRecords: 0, recordsAssessed: 0 };
+  }
+  const capturedRecords = records.filter(hasCaptureMarker).length;
+  // `partial` is its own answer, not a rounding of the other two. Adoption
+  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
+  // shipped — and a reviewer facing a partial log can rate the captured half
+  // while knowing the rest is gone. Collapsing it either way would hide that.
+  const recoverability: JudgedTextRecoverability =
+    capturedRecords === 0
+      ? "unrecoverable"
+      : capturedRecords === records.length
+        ? "recoverable"
+        : "partial";
+  return { recoverability, capturedRecords, recordsAssessed: records.length };
+}
+
 export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
   if (records.length === 0) {
-    return { verdict: "no-records", evidenceFields: [], recordsAssessed: 0 };
+    return {
+      verdict: "no-records",
+      evidenceFields: [],
+      recordsAssessed: 0,
+      judgedText: assessJudgedText(records),
+    };
   }
 
   const fields = new Set<string>();
@@ -1650,6 +1747,7 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
     evidenceFields: [...fields].sort(),
     recordsAssessed: records.length,
+    judgedText: assessJudgedText(records),
   };
 }
 

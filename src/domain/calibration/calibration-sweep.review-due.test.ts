@@ -64,6 +64,14 @@ describe("computeReviewDueLogs (mt#2896)", () => {
         verdict: "no-records" as const,
         evidenceFields: [],
         recordsAssessed: 0,
+        // mt#3898: recoverability rides alongside the verdict. A no-records
+        // fixture is `no-records` on both — an empty log has no judged text to
+        // have lost, which is a different state from one whose text is gone.
+        judgedText: {
+          recoverability: "no-records" as const,
+          capturedRecords: 0,
+          recordsAssessed: 0,
+        },
       },
       ...overrides,
     };
