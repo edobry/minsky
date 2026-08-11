@@ -146,3 +146,130 @@ describe("assessClassifiability (mt#3610)", () => {
     expect(evidenceFields).toEqual(["trigger", "wordCount"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Judged-text recoverability (mt#3898)
+// ---------------------------------------------------------------------------
+
+/**
+ * A `bare-entity-ref` line, verbatim from the production log — the surface whose
+ * un-auditability (mem#623 R7) is why this property exists. It is `classifiable`
+ * on `matches` and carries no capture at all.
+ */
+const FIXTURE_SESSION_ID = "af417af8-816e-48a6-a511-8c2ee0f3b212";
+
+const REAL_BARE_ENTITY_REF_LINE = JSON.stringify({
+  source: "live",
+  channel: "stop",
+  timestamp: "2026-08-10T01:21:02.432Z",
+  session_id: FIXTURE_SESSION_ID,
+  stop_hook_active: true,
+  matches: [{ family: "bare-ref", phrase: "mt#3851" }],
+  logged_only: [],
+  flagged_count: 1,
+  logged_only_count: 0,
+});
+
+/** The same shape once the writer adopts mt#3607's marker. */
+const CAPTURED_LINE = JSON.stringify({
+  source: "live",
+  channel: "stop",
+  timestamp: "2026-08-10T01:21:02.432Z",
+  session_id: FIXTURE_SESSION_ID,
+  captureSchema: 1,
+  matches: [{ family: "bare-ref", phrase: "mt#3851", context: "shipped in mt#3851 today" }],
+});
+
+/**
+ * Parse a fixture line, failing the test loudly if the parser rejects it rather
+ * than silently asserting against a null.
+ */
+const parse = (line: string): CalibrationRecord => {
+  const record = parseCalibrationRecord(line, "bare-entity-ref");
+  if (!record) throw new Error(`fixture line did not parse: ${line}`);
+  return record;
+};
+
+describe("judged-text recoverability", () => {
+  test("an uncaptured log is unrecoverable while still being classifiable", () => {
+    const result = assessClassifiability([parse(REAL_BARE_ENTITY_REF_LINE)]);
+
+    // Both properties are reported, and they disagree — which is the whole
+    // point. Before mt#3898 a reviewer saw only the left-hand answer.
+    expect(result.verdict).toBe(CLASSIFIABLE);
+    expect(result.judgedText.recoverability).toBe("unrecoverable");
+    expect(result.judgedText.capturedRecords).toBe(0);
+  });
+
+  test("a captured log reports recoverable", () => {
+    const result = assessClassifiability([parse(CAPTURED_LINE)]);
+    expect(result.judgedText.recoverability).toBe("recoverable");
+    expect(result.judgedText.capturedRecords).toBe(1);
+  });
+
+  test("mid-adoption reports partial rather than rounding to either end", () => {
+    const result = assessClassifiability([
+      parse(CAPTURED_LINE),
+      parse(REAL_BARE_ENTITY_REF_LINE),
+      parse(REAL_BARE_ENTITY_REF_LINE),
+    ]);
+    expect(result.judgedText.recoverability).toBe("partial");
+    expect(result.judgedText.capturedRecords).toBe(1);
+    expect(result.judgedText.recordsAssessed).toBe(3);
+  });
+
+  test("the marker is found on the detectorFields passthrough, not just the top level", () => {
+    // For most logs the marker arrives here rather than at the top level, since
+    // `parseDetectorFields` routes any key no per-kind branch names into the
+    // passthrough. Reading one level only reports captured logs as unrecoverable.
+    const record = parse(REAL_BARE_ENTITY_REF_LINE);
+    const withPassthroughMarker: CalibrationRecord = {
+      ...record,
+      detectorFields: { ...(record.detectorFields ?? {}), captureSchema: 1 },
+    };
+    expect(assessClassifiability([withPassthroughMarker]).judgedText.recoverability).toBe(
+      "recoverable"
+    );
+  });
+
+  test("a different log kind also routes the marker through the passthrough", () => {
+    // Not a second level — a second KIND. `captureSchema` is named by no
+    // per-kind parse branch, so it reaches `detectorFields` for every log,
+    // including the execution-evidence surfaces whose records carry it at the
+    // top level in the RAW jsonl. A staged negative control established this:
+    // disabling a top-level read left every test green, including one written
+    // specifically to exercise it, which is why that branch no longer exists.
+    // This test pins the actual behavior across kinds so a future per-kind
+    // branch that hoists the marker breaks here rather than silently.
+    const executionEvidenceLine = JSON.stringify({
+      timestamp: "2026-08-08T05:30:22.076Z",
+      task: "mt#3898",
+      prNumber: 2599,
+      surface: "execution-evidence-at-coverage",
+      captureSchema: 1,
+      judgedPrBody: "Execution evidence: 15 pass 0 fail",
+    });
+    const record = parseCalibrationRecord(executionEvidenceLine, "execution-evidence-at-coverage");
+    if (!record) throw new Error("fixture line did not parse");
+    expect(assessClassifiability([record]).judgedText.recoverability).toBe("recoverable");
+  });
+
+  test("an empty log reports no-records on both properties, not unrecoverable", () => {
+    const result = assessClassifiability([]);
+    expect(result.verdict).toBe(NO_RECORDS);
+    expect(result.judgedText.recoverability).toBe("no-records");
+  });
+
+  test("the marker alone never makes a log classifiable", () => {
+    // It is bookkeeping on both axes: it says capture HAPPENED, and is not
+    // itself something to judge a fire by.
+    const markerOnly = JSON.stringify({
+      timestamp: "2026-08-10T01:21:02.432Z",
+      session_id: FIXTURE_SESSION_ID,
+      captureSchema: 1,
+    });
+    const result = assessClassifiability([parse(markerOnly)]);
+    expect(result.verdict).toBe(NOT_CLASSIFIABLE);
+    expect(result.judgedText.recoverability).toBe("recoverable");
+  });
+});
