@@ -8,10 +8,12 @@
  * MCP config — the client talks stdio to the shim, and the shim is the
  * only component that ever attaches it to an outbound HTTP request.
  *
- * Deliberately plain `fs.readFileSync` — no `@minsky/shared` /
- * `@minsky/domain` import — to keep this file's dependency graph at zero
- * beyond Node/Bun builtins, consistent with every other module under
- * src/mcp/shim/.
+ * Deliberately plain `fs.readFileSync` in the production path — no
+ * `@minsky/shared` / `@minsky/domain` import — to keep this file's
+ * dependency graph at zero beyond Node/Bun builtins, consistent with every
+ * other module under src/mcp/shim/. The read is injectable (`TokenFsDeps`)
+ * so tests exercise this module without touching a real filesystem, per
+ * this repo's `custom/no-real-fs-in-tests` convention.
  */
 
 import { readFileSync } from "fs";
@@ -21,6 +23,16 @@ import { join } from "path";
 /** Default token path (ADR-038 §Question 5). */
 export const DEFAULT_TOKEN_PATH = join(homedir(), ".config", "minsky", "local-mcp-token");
 
+export interface TokenFsDeps {
+  readFileSync(path: string): string;
+}
+
+function makeProductionTokenFsDeps(): TokenFsDeps {
+  return {
+    readFileSync: (path: string) => readFileSync(path, "utf8") as string,
+  };
+}
+
 /**
  * Read the static bearer token the shim attaches to every daemon request.
  *
@@ -29,9 +41,12 @@ export const DEFAULT_TOKEN_PATH = join(homedir(), ".config", "minsky", "local-mc
  * function) decides whether a missing token is fatal for a given
  * invocation.
  */
-export function readAuthToken(path: string = DEFAULT_TOKEN_PATH): string | null {
+export function readAuthToken(
+  path: string = DEFAULT_TOKEN_PATH,
+  deps: TokenFsDeps = makeProductionTokenFsDeps()
+): string | null {
   try {
-    const raw = (readFileSync(path, "utf8") as string).trim();
+    const raw = deps.readFileSync(path).trim();
     return raw.length > 0 ? raw : null;
   } catch {
     return null;
