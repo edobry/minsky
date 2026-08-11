@@ -10,6 +10,7 @@ import type { ToolProgressReporter } from "../../mcp/server";
 import {
   sharedCommandRegistry,
   CommandCategory,
+  pickAdapterBehaviorFlags,
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../shared/command-registry";
@@ -521,7 +522,12 @@ export function registerSharedCommandsWithMcp(
         name: command.id,
         description,
         parameters: convertParametersToZodSchema(command.parameters),
-        mutating: command.mutating,
+        // Behavior flags travel as a set, never field-by-field (mt#3989).
+        // This literal used to name `mutating` alone, so `readsPresence` —
+        // declared at the tool and consumed by the server — never arrived, and
+        // the presence-read exemption it exists to trigger was inert on every
+        // shared command. See `pickAdapterBehaviorFlags`.
+        ...pickAdapterBehaviorFlags(command),
         handler: async (
           args: Record<string, unknown>,
           _projectContext,

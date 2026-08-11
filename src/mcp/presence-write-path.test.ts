@@ -240,6 +240,17 @@ describe("writeTaskClaim per-call repo fallback (mt#2567 regression)", () => {
      * declaration survives the trip from the command definition to the tool the
      * server actually reads. A field declared and not threaded is exactly how
      * this class of defect fails silently.
+     *
+     * SCOPE (mt#3989): this covers the MAPPER only, and it hands `addCommand`
+     * the definition itself. Production does not — every shared command reaches
+     * the mapper through `registerSharedCommandsWithMcp`, which builds a fresh
+     * literal, and that literal omitted `readsPresence` for the whole of this
+     * test's green life. So a pass here says the mapper threads what it is
+     * given, and nothing about whether production gives it. The bridge-level
+     * assertion lives in
+     * `src/adapters/mcp/shared-command-integration.test.ts`
+     * ("adapter behavior flags survive registration"); keep both — they cover
+     * different seams.
      */
     test("readsPresence is declared on tasks.claims.list and survives registration", async () => {
       const { createTasksClaimsListCommand } = await import(
