@@ -49,6 +49,34 @@
  *     secondary cockpit-ask path, and the latter is separately broken —
  *     mt#2782 owns it.
  *
+ * ### Covers (P0 resolution, mt#3963)
+ *
+ *   - Retiring an escalated P0 once its failure class is observed RECOVERED —
+ *     the detecting check RAN and found no problem — continuously for at least
+ *     P0_RECOVERY_MIN_SUSTAINED_INTERVAL_MS. All four alert classes, every
+ *     service, including P0s opened before this path existed (they carry no
+ *     recovery marker, so the next run marks them and the one after closes).
+ *   - A service that recovers, is marked, then breaks again inside the window:
+ *     alertViaGitHubIssue CLEARS the recovery marker whenever it updates an open
+ *     issue, so the clock restarts rather than closing a live alert.
+ *   - Not touching issues this monitor did not open: resolution requires both
+ *     the P0 and monitor labels AND the monitor's own body signature.
+ *
+ * ### Does NOT cover (P0 resolution, mt#3963)
+ *
+ *   - Closing a P0 whose class this run could not CHECK. An unrunnable check has
+ *     observed nothing, so it is not evidence of recovery — the P0 stays open
+ *     and a check-failed alert fires alongside it. Intentional, and the reason
+ *     resolution reads per-check outcomes rather than "no alert fired".
+ *   - Reopening. A closed P0 is never reopened; a recurrence opens a NEW issue.
+ *     Deliberate — an issue's close is an operator-visible event, and reusing
+ *     one would erase the boundary between two distinct outages.
+ *   - The secondary cockpit-ask alert channel. Nothing retires an ask raised by
+ *     this monitor; mt#2782 owns that path and it is separately broken.
+ *   - A P0 opened by this monitor whose LABELS were removed by hand. It is
+ *     invisible to the resolver's one bulk lookup and stays open forever. Failing
+ *     closed in the safe direction; no current owner.
+ *
  * ### Covers (check (c), mt#3251)
  *
  *   - A service's deploy pipeline silently failing to ship new images to
@@ -207,6 +235,19 @@ import {
   type CheckOutcome,
   type ServiceCheckSummary,
 } from "../packages/domain/src/deployment/monitor-verdict";
+// mt#3963 — likewise for the resolution side: which classes a run observed as
+// recovered, and whether that recovery has been sustained long enough to close
+// the P0 it opened.
+import {
+  decideP0Resolution,
+  formatP0SubjectMarker,
+  isMonitorAuthoredP0,
+  matchesP0Subject,
+  observedRecoveredClasses,
+  parseP0RecoveryMarker,
+  stripP0RecoveryMarker,
+  withP0RecoveryMarker,
+} from "../packages/domain/src/deployment/monitor-p0-resolution";
 
 // ---------------------------------------------------------------------------
 // Service definitions — discovered at runtime from deploy.config.ts files
@@ -667,6 +708,11 @@ interface GitHubIssue {
   title: string;
   state: string;
   body: string | null;
+  /**
+   * Present ONLY on pull requests. GitHub's issues endpoints return PRs
+   * alongside issues, so this field is how a listing tells them apart.
+   */
+  pull_request?: unknown;
 }
 
 async function githubRequest<T>(
@@ -838,7 +884,11 @@ async function alertViaGitHubIssue(
     "",
     "---",
     "*Auto-opened by [post-deploy-health-monitor](.github/workflows/post-deploy-health-monitor.yml) (mt#1302).*",
-    "*Close this issue when the service is confirmed healthy.*",
+    "*Resolves automatically once the condition clears and stays clear (mt#3963);" +
+      " close by hand to mute it sooner.*",
+    // mt#3963 — stable identity for the resolver, so retitling this issue
+    // cannot strand it open.
+    formatP0SubjectMarker(serviceName, failureClass),
   ].join("\n");
 
   if (dryRun) {
@@ -850,8 +900,37 @@ async function alertViaGitHubIssue(
   // Ensure labels exist before trying to use them (idempotent).
   await ensureLabelsExist(repo, token);
 
+  // Asymmetry with resolveP0IfRecovered, deliberate (mt#3963 R1). This lookup
+  // is still exact-title, so a retitled open P0 is not found here and a NEW one
+  // is opened beside it. That degrades LOUDLY — the operator gets a fresh,
+  // correctly-titled P0 the monitor can manage — whereas the same brittleness
+  // on the closing side degraded SILENTLY, leaving an alert open forever with
+  // nothing to notice. Only the silent direction was worth the added matching.
   const existing = await findOpenIssue(repo, title, token);
   if (existing) {
+    // mt#3963 — the service is failing AGAIN, so any recovery marker left by an
+    // earlier healthy run is stale and must be cleared. Without this, a service
+    // that recovers, is marked, then breaks again inside the sustained-recovery
+    // window would be closed by a later run reading that stale marker — the
+    // alert silently retired while the condition holds.
+    if (parseP0RecoveryMarker(existing.body) !== null) {
+      try {
+        await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
+          body: stripP0RecoveryMarker(existing.body),
+        });
+        console.log(
+          `[github] Cleared stale recovery marker on #${existing.number} — ${serviceName}/${failureClass} is failing again.`
+        );
+      } catch (err) {
+        // Non-fatal for THIS call (the recurrence comment below still lands),
+        // but log loudly: a marker that survives here is the one way a live
+        // failure could be auto-closed.
+        console.error(
+          `[github] ERROR clearing recovery marker on #${existing.number} (a stale marker can auto-close a LIVE alert): ${err}`
+        );
+      }
+    }
+
     // Issue already open — add a comment noting the recurrence.
     const comment = `**Still failing** as of ${timestamp}\n\n${details}`;
     await githubRequest("POST", `/repos/${repo}/issues/${existing.number}/comments`, token, {
@@ -1198,6 +1277,161 @@ async function closeDigestLagPendingTracker(
     console.warn(
       `[${serviceName}] could not close resolved pending tracker #${existing.number}: ${err}`
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// P0 resolution (mt#3963) — the exit this recovery layer did not have
+// ---------------------------------------------------------------------------
+//
+// Everything above can RAISE an alert; until mt#3963 nothing could retire one.
+// `closeDigestLagPendingTracker` closes only the `[pending]` tracker, and that
+// tracker's own body promises the behavior the P0 it escalates INTO lacked:
+// "This issue closes automatically once the state resolves or escalates."
+//
+// The decisions live in packages/domain/src/deployment/monitor-p0-resolution.ts
+// (pure, unit-tested); this is the IO shell.
+
+/**
+ * Every open, labeled P0 CONSIDERED for resolution, fetched ONCE per run.
+ *
+ * Deliberately not a per-(service, class) `findOpenIssue` call: four classes
+ * across five services is 20 lookups per run, each of which can fall back to
+ * three pages of issue listing — an N+1 against a 10-minute cron
+ * (`efficient-database-queries.mdc`). The label filter is an AND, so this
+ * returns only issues carrying BOTH the P0 and monitor labels; anything else is
+ * not ours to close, and an unlabeled monitor issue simply is not auto-resolved
+ * (failing closed, in the direction that leaves an issue open).
+ *
+ * This is a CANDIDATE set, not a verified-authorship set — labels can be
+ * applied by hand. `resolveP0IfRecovered` checks the monitor's body signature
+ * before touching anything.
+ *
+ * Pull requests are dropped: GitHub's issues endpoints return PRs too, and a
+ * labeled PR would otherwise reach the subject match.
+ */
+async function listOpenMonitorP0s(repo: string, token: string): Promise<GitHubIssue[]> {
+  const MAX_PAGES = 3;
+  const collected: GitHubIssue[] = [];
+
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    let issues: GitHubIssue[];
+    try {
+      issues = await githubRequest<GitHubIssue[]>(
+        "GET",
+        `/repos/${repo}/issues?state=open&labels=${encodeURIComponent(`${P0_LABEL},${MONITOR_LABEL}`)}&per_page=100&page=${page}`,
+        token
+      );
+    } catch (err) {
+      // Inconclusive, not empty: log so a persistent lookup failure is visible
+      // rather than reading as "no P0s to resolve".
+      console.warn(`[github] open-P0 listing (page ${page}) failed: ${err}`);
+      break;
+    }
+
+    collected.push(...issues.filter((issue) => issue.pull_request === undefined));
+    // Page size is measured BEFORE the PR filter — a page that was full of PRs
+    // is still a full page, and stopping there would truncate the listing.
+    if (issues.length < 100) break;
+  }
+
+  return collected;
+}
+
+/**
+ * Close the open P0 for (service, failureClass) once this run has observed the
+ * condition recovered for long enough — or record the first such observation.
+ *
+ * Only called for a class `observedRecoveredClasses` reports as recovered with
+ * positive evidence, so "no alert this run" alone can never close an issue.
+ */
+async function resolveP0IfRecovered(
+  repo: string,
+  token: string,
+  openP0s: GitHubIssue[],
+  serviceName: string,
+  failureClass: AlertClass,
+  runRef: string,
+  dryRun: boolean
+): Promise<void> {
+  if (dryRun) return;
+
+  // mt#3963 R1 — identify by the body's subject marker, falling back to a
+  // TOLERANT title match for P0s opened before that marker existed. Exact title
+  // equality would mean an operator who retitles an issue mid-incident strands
+  // it open forever, which is the defect this whole path exists to end.
+  const canonicalTitle = issueTitle(serviceName, failureClass);
+  const existing = openP0s.find((issue) =>
+    matchesP0Subject(issue, { service: serviceName, failureClass, canonicalTitle })
+  );
+  if (!existing) return;
+
+  // SC3 — resolve only issues this monitor opened. The label filter above is
+  // one guard; the body signature is the stronger one, since a label can be
+  // applied by hand to somebody else's incident.
+  if (!isMonitorAuthoredP0(existing.body)) {
+    console.log(
+      `[github] P0 #${existing.number} (${serviceName}/${failureClass}) carries no monitor signature — leaving it alone.`
+    );
+    return;
+  }
+
+  const now = new Date();
+  const decision = decideP0Resolution({
+    recoveryFirstObservedAtIso: parseP0RecoveryMarker(existing.body),
+    nowMs: now.getTime(),
+  });
+
+  if (decision.action === "wait") {
+    console.log(`  P0 #${existing.number} (${failureClass}) recovery: ${decision.note}`);
+    return;
+  }
+
+  if (decision.action === "mark") {
+    try {
+      await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
+        body: withP0RecoveryMarker(existing.body, now.toISOString()),
+      });
+      console.log(`  P0 #${existing.number} (${failureClass}) recovery: ${decision.note}`);
+    } catch (err) {
+      // Best-effort: a failed mark means the close is deferred to a later run,
+      // never that a live alert is closed.
+      console.warn(`[${serviceName}] could not record recovery on P0 #${existing.number}: ${err}`);
+    }
+    return;
+  }
+
+  // action === "close"
+  const comment = [
+    `**Resolved** as of ${now.toISOString()}.`,
+    "",
+    `\`${serviceName}\` / \`${failureClass}\` has been observed healthy by ${runRef}, and ${decision.note}.`,
+    "",
+    "Closed automatically by [post-deploy-health-monitor](.github/workflows/post-deploy-health-monitor.yml) (mt#3963).",
+    "If the condition returns, the monitor opens a new P0 rather than reusing this one.",
+  ].join("\n");
+
+  try {
+    await githubRequest("POST", `/repos/${repo}/issues/${existing.number}/comments`, token, {
+      body: comment,
+    });
+  } catch (err) {
+    // The comment is the audit trail for the close; without it, close anyway —
+    // a silently-closed issue beats a permanently-stale one — but say so.
+    console.warn(
+      `[${serviceName}] could not comment on P0 #${existing.number} before closing: ${err}`
+    );
+  }
+
+  try {
+    await githubRequest("PATCH", `/repos/${repo}/issues/${existing.number}`, token, {
+      state: "closed",
+    });
+    console.log(
+      `[github] Closed resolved P0 #${existing.number} (${serviceName}/${failureClass}) — ${decision.note}.`
+    );
+  } catch (err) {
+    console.warn(`[${serviceName}] could not close resolved P0 #${existing.number}: ${err}`);
   }
 }
 
@@ -1656,6 +1890,20 @@ async function main(): Promise<void> {
 
   let totalAlerts = 0;
 
+  // mt#3963 — resolution state, gathered ONCE per run rather than per
+  // (service, class). `runRef` is named in every close comment so a reader can
+  // go straight to the run that observed the recovery (SC1).
+  const runId = process.env["GITHUB_RUN_ID"] ?? null;
+  const runRef = runId
+    ? `monitor run ${runId} (https://github.com/${githubRepo}/actions/runs/${runId})`
+    : "a local monitor run (GITHUB_RUN_ID not set)";
+  const openMonitorP0s = dryRun ? [] : await listOpenMonitorP0s(githubRepo, githubToken);
+  if (!dryRun) {
+    // "considered", not "eligible": this count is label-filtered only. Each
+    // one still has to pass the monitor-authorship check before it is touched.
+    console.log(`Open labeled P0s considered for resolution: ${openMonitorP0s.length}\n`);
+  }
+
   for (const svc of services) {
     console.log(`--- [${svc.name}] ---`);
 
@@ -1724,6 +1972,23 @@ async function main(): Promise<void> {
     // mt#3921 — a check that could not run alerts here rather than passing
     // silently into a HEALTHY verdict. See monitor-verdict.ts for the rule.
     const score = scoreService(result.summary, digestLagSustained);
+
+    // mt#3963 — retire P0s whose condition this run observed as RECOVERED.
+    // Runs for healthy and degraded services alike: a service that is down on
+    // its health probe can still have a resolved digest-lag P0 to close, and
+    // the classes are independent. Only classes with positive recovery
+    // evidence are passed here, so an unrunnable check closes nothing.
+    for (const recoveredClass of observedRecoveredClasses(result.summary)) {
+      await resolveP0IfRecovered(
+        githubRepo,
+        githubToken,
+        openMonitorP0s,
+        svc.name,
+        recoveredClass,
+        runRef,
+        dryRun
+      );
+    }
 
     const alerts = score.alerts.map((alert) => ({
       class: alert.class,
