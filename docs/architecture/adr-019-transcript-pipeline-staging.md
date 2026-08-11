@@ -100,6 +100,19 @@ We explicitly reject two alternatives:
   the backfill updates only the `embedding` column on existing rows (per-`turn_index` upsert, never
   re-deriving text). The single-writer concurrency guard (mt#1418) remains the soft prerequisite for
   overlapping capture + backfill.
+
+  **Amended 2026-08-11 (mt#3883): extraction also INVALIDATES the embedding when a row's text
+  changes.** The rule as originally written — extraction touches text, the backfill touches the
+  vector — holds only while extraction produces the SAME turn boundaries every run. It does not:
+  mt#3883 corrected a defect that fused two model turns into one row, which shifts `turn_index` by
+  +1 for every later turn in 23.3% of conversations. Under the original rule, re-extraction
+  overwrites turn N's text while preserving turn N's vector, leaving an embedding that describes
+  content the row no longer holds — a wrong semantic-search hit with no error anywhere to surface
+  it. So extraction's upsert now nulls `embedding` when `user_text`/`assistant_text` change and
+  preserves it when they do not, and the backfill refills what was nulled. The composition property
+  the original bullet was protecting — extraction never COMPUTES a vector, and never discards one
+  that still describes its row — is unchanged.
+
 - The backfill must select rows where `embedding IS NULL` (or stale) rather than re-extracting from
   JSONB, so it does not redundantly re-materialize turns.
 - Extraction now runs on the capture hot path. It is cheap (deterministic JSONL→rows), but the capture
