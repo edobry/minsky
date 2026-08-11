@@ -537,8 +537,14 @@ describe("inbound transform — conversation-identity injection (mt#3285)", () =
     (transform as NodeJS.WritableStream).end();
     const output = await readTransformOutput(transform);
 
-    expect(output).toBe(`${line}\n`);
+    // Expectation updated in mt#3986: the frame is no longer passed through
+    // byte-identically, because baggage emission is decided independently of
+    // agent_id — the caller keeps its declared id AND gains the W3C entry. The
+    // mt#2292 property this test exists for (the declared id survives, the
+    // proxy's own conversation-grain id does not replace it) is unchanged and
+    // asserted below.
     expect(output).toContain(declared);
-    expect(output).not.toContain(CONV_AGENT_ID);
+    expect(output).not.toContain(`"${AGENT_ID_META_KEY}":"${CONV_AGENT_ID}"`);
+    expect(output).toContain("baggage");
   });
 });

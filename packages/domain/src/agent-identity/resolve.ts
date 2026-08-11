@@ -3,18 +3,51 @@
  *
  * Priority order (highest wins):
  *   Layer 3 (enforced hook) — reserved slot, not yet implemented
- *   Layer 2 (declared _meta) — wins if present and valid
+ *   Layer 2 (declared `_meta`) — an ORDERED key list; first hit wins (mt#3986)
  *   Layer 1 (ascribed process) — fallback, always produces a value
  *
- * TODO(layer-3): Layer 3 (Claude Code PreToolUse hook that injects session_id
- * into _meta["io.minsky/agent_id"]) is deferred to a separate follow-up task.
- * When implemented, pass it as `layer3Result` to resolveAgentId(). The slot
- * is already accepted as an optional parameter below.
+ * A note on the Layer 2/3 asymmetry, because it reads like a bug and is not.
+ * The stdio proxy and the shim STAMP conversation identity, which ADR-006's
+ * §Layer 3 amendment calls enforced — the writer always fires, with no caller
+ * cooperation. The reader still resolves it at Layer 2, exactly as ADR-006
+ * §Implementation Phase 2 says: a stamped id and a cooperating caller's
+ * declared id are byte-identical at the same key, so nothing downstream can
+ * tell them apart. The reader therefore reports which KEY answered, which does
+ * carry information, alongside the layer, which cannot.
+ *
+ * TODO(layer-3): the `layer3Result` slot below stays reserved for a mechanism
+ * that could distinguish an enforced identity from a declared one.
  */
 
 import { serializeAgentId, type ParsedAgentId } from "./format";
-import { readLayer2, type RequestExtras } from "./layer2";
+import { type RequestExtras } from "./layer2";
+import {
+  readDeclaredIdentity,
+  DEFAULT_DECLARED_IDENTITY_KEYS,
+  type DeclaredIdentityKey,
+} from "./declared";
 import { resolveLayer1, type ClientInfo, type ProcessSignals, type Layer1Config } from "./layer1";
+
+/** Which ADR-006 layer answered. */
+export type IdentityLayer = 1 | 2 | 3;
+
+/**
+ * Emitted when resolution falls through every declared key to Layer 1 — the
+ * moment conversation-scoped attribution stops being conversation-scoped.
+ *
+ * Delivered through an injected sink rather than a logger this module reaches
+ * itself, so the event is observable in tests without patching anything, and so
+ * the log POLICY (rate, level, redaction) belongs to the wiring rather than the
+ * domain.
+ */
+export interface IdentityFallbackEvent {
+  /** Every `_meta` key that was consulted, in order. */
+  readonly keysTried: readonly string[];
+  /** The layer that ultimately answered. */
+  readonly layer: IdentityLayer;
+  /** The resolved id. REDACT before logging — a conversation id is an attribution key. */
+  readonly agentId: string;
+}
 
 /**
  * All inputs the resolver needs to determine the agentId.
@@ -29,11 +62,71 @@ export interface ResolveAgentIdInputs {
   /** Layer 1 hostname-hashing config */
   layer1Config?: Layer1Config;
   /**
+   * The ordered `_meta` key list to resolve declared identity from.
+   * Defaults to `DEFAULT_DECLARED_IDENTITY_KEYS`; pass the result of
+   * `buildDeclaredIdentityKeys(<configured protocol key>)` to extend it.
+   */
+  declaredKeys?: readonly DeclaredIdentityKey[];
+  /** Notified when resolution falls through to Layer 1. */
+  onFallback?: (event: IdentityFallbackEvent) => void;
+  /**
    * Layer 3 pre-resolved value (enforced hook result).
    * Reserved for future use — pass undefined until Layer 3 ships.
-   * TODO(layer-3): populate from PreToolUse hook injection.
    */
   layer3Result?: ParsedAgentId;
+}
+
+/** A resolution plus the provenance a caller needs to log or audit it. */
+export interface AgentIdResolution {
+  readonly agentId: string;
+  readonly parsed: ParsedAgentId;
+  readonly layer: IdentityLayer;
+  /** The `_meta` key that answered, or null when Layer 1 or Layer 3 answered. */
+  readonly keyThatAnswered: string | null;
+  readonly keysTried: readonly string[];
+}
+
+/**
+ * Resolve the agentId for an incoming MCP tool call, reporting where it came
+ * from.
+ *
+ * This is the implementation the other two entry points delegate to; the
+ * fallback sink fires exactly once per call regardless of which one is used.
+ */
+export function resolveAgentIdWithLayer(inputs: ResolveAgentIdInputs): AgentIdResolution {
+  const declaredKeys = inputs.declaredKeys ?? DEFAULT_DECLARED_IDENTITY_KEYS;
+  const keysTried = declaredKeys.map((k) => k.key);
+
+  // Layer 3 — enforced (reserved slot, not yet implemented)
+  if (inputs.layer3Result) {
+    return {
+      agentId: toSerialized(inputs.layer3Result, inputs),
+      parsed: inputs.layer3Result,
+      layer: 3,
+      keyThatAnswered: null,
+      keysTried: [],
+    };
+  }
+
+  // Layer 2 — declared, resolved from the ordered key list
+  const declared = readDeclaredIdentity(inputs.extras, declaredKeys, inputs.clientInfo?.name);
+  if (declared) {
+    return {
+      agentId: toSerialized(declared.parsed, inputs),
+      parsed: declared.parsed,
+      layer: 2,
+      keyThatAnswered: declared.key,
+      keysTried,
+    };
+  }
+
+  // Layer 1 — ascribed fallback (always succeeds)
+  const parsed = resolveLayer1(inputs.clientInfo, inputs.signals, inputs.layer1Config);
+  const agentId = toSerialized(parsed, inputs);
+
+  inputs.onFallback?.({ keysTried, layer: 1, agentId });
+
+  return { agentId, parsed, layer: 1, keyThatAnswered: null, keysTried };
 }
 
 /**
@@ -43,36 +136,24 @@ export interface ResolveAgentIdInputs {
  * produces a value as the last-resort fallback).
  */
 export function resolveAgentId(inputs: ResolveAgentIdInputs): string {
-  const parsed = resolveAgentIdParsed(inputs);
-  // serializeAgentId returns null only for invalid ParsedAgentId — Layer 1 always returns valid
-  return serializeAgentId(parsed) ?? _layer1Fallback(inputs);
+  return resolveAgentIdWithLayer(inputs).agentId;
 }
 
 /**
  * Resolve and return the parsed agentId (for callers that need structured access).
  */
 export function resolveAgentIdParsed(inputs: ResolveAgentIdInputs): ParsedAgentId {
-  // Layer 3 — enforced (reserved slot, not yet implemented)
-  // TODO(layer-3): when the PreToolUse hook ships, layer3Result will be populated
-  if (inputs.layer3Result) {
-    return inputs.layer3Result;
-  }
-
-  // Layer 2 — declared via _meta
-  const layer2 = readLayer2(inputs.extras);
-  if (layer2) {
-    return layer2;
-  }
-
-  // Layer 1 — ascribed fallback (always succeeds)
-  return resolveLayer1(inputs.clientInfo, inputs.signals, inputs.layer1Config);
+  return resolveAgentIdWithLayer(inputs).parsed;
 }
 
 /**
- * Emergency fallback: re-run Layer 1 directly (used only if serialize fails, which
- * should not happen in practice since Layer 1 always returns a valid parsed id).
+ * Serialize, falling back to a direct Layer 1 construction if serialization
+ * fails — which should not happen in practice, since Layer 1 always returns a
+ * valid parsed id.
  */
-function _layer1Fallback(inputs: ResolveAgentIdInputs): string {
-  const parsed = resolveLayer1(inputs.clientInfo, inputs.signals, inputs.layer1Config);
-  return `${parsed.kind}:${parsed.scope}:${parsed.id}`;
+function toSerialized(parsed: ParsedAgentId, inputs: ResolveAgentIdInputs): string {
+  const serialized = serializeAgentId(parsed);
+  if (serialized) return serialized;
+  const layer1 = resolveLayer1(inputs.clientInfo, inputs.signals, inputs.layer1Config);
+  return `${layer1.kind}:${layer1.scope}:${layer1.id}`;
 }

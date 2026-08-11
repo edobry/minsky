@@ -22,7 +22,12 @@ import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { hostname } from "os";
-import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import {
+  resolveAgentIdWithLayer,
+  type IdentityFallbackEvent,
+} from "@minsky/domain/agent-identity/resolve";
+import { buildDeclaredIdentityKeys } from "@minsky/domain/agent-identity/declared";
+import { redactAgentId } from "@minsky/domain/agent-identity/format";
 import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -113,6 +118,17 @@ export interface MinskyMCPServerOptions {
    * Provided by the MCP start command after tool registration.
    */
   container?: AppContainerInterface;
+
+  /**
+   * A protocol-native `_meta` key to consult for conversation identity, after
+   * `io.minsky/agent_id` and W3C `baggage` (mt#3986).
+   *
+   * Configured rather than hardcoded because no such key exists yet: the MCP
+   * 2026-07-28 revision reserves the `io.modelcontextprotocol/` prefix but
+   * defines no conversation identifier under it. Only a key under a
+   * reserved MCP prefix is accepted; anything else is ignored.
+   */
+  protocolConversationIdKey?: string;
 
   /**
    * MCP client capability registry (mt#1457). When provided, each `Server`
@@ -400,6 +416,13 @@ export class MinskyMCPServer {
    * warning would repeat thousands of times for one misconfiguration.
    */
   private warnedAmbientConversationConflict = false;
+
+  /**
+   * Layer 1 agentIds already reported as an identity fallback (mt#3986).
+   * Bounds the warning to one per distinct ascribed id — see
+   * `reportIdentityFallback`.
+   */
+  private reportedIdentityFallbacks = new Set<string>();
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -1605,8 +1628,9 @@ export class MinskyMCPServer {
 
   /**
    * Resolve the caller's agentId from MCP request extras.
-   * Uses the priority resolver: Layer 2 (_meta declared) > Layer 1 (ascribed).
-   * Reads clientInfo from the underlying SDK server for Layer 1 kind normalization.
+   * Uses the priority resolver: Layer 2 (_meta declared, an ordered key list)
+   * > Layer 1 (ascribed). Reads clientInfo from the underlying SDK server for
+   * Layer 1 kind normalization.
    *
    * `server` is the Server instance handling this specific request — for HTTP,
    * each session has its own Server and thus its own clientVersion.
@@ -1619,10 +1643,47 @@ export class MinskyMCPServer {
     } catch {
       // getClientVersion() may throw if called before initialize completes
     }
-    return resolveAgentId({
+    return resolveAgentIdWithLayer({
       extras,
       clientInfo: clientInfoName ? { name: clientInfoName } : undefined,
-    });
+      declaredKeys: buildDeclaredIdentityKeys(this.options.protocolConversationIdKey),
+      onFallback: (event) => this.reportIdentityFallback(event),
+    }).agentId;
+  }
+
+  /**
+   * Log a resolution that fell through every declared key to Layer 1 (mt#3986).
+   *
+   * Layer 1 is a hash of (hostname, user, pid, start-time) — ADR-006 itself
+   * says it is "not a conversation-scoped distinction" — so this line is the
+   * moment presence claims, dispatch attribution and attention accounting stop
+   * being conversation-scoped. Before this existed, that transition was
+   * completely silent and only inferable later from bad attribution data.
+   *
+   * Rate policy lives here rather than in the resolver: a non-cooperating
+   * client falls back on EVERY tool call, so the first occurrence of each
+   * distinct Layer 1 id warns and the rest go to debug. Layer 1 ids are stable
+   * per connection, which makes that one warning per client rather than one per
+   * call.
+   */
+  private reportIdentityFallback(event: IdentityFallbackEvent): void {
+    const isFirst = !this.reportedIdentityFallbacks.has(event.agentId);
+    if (isFirst) this.reportedIdentityFallbacks.add(event.agentId);
+
+    const detail = {
+      keysTried: event.keysTried,
+      layerThatAnswered: event.layer,
+      agentId: redactAgentId(event.agentId),
+    };
+
+    if (isFirst) {
+      log.warn(
+        "Agent identity fell back to Layer 1 (ascribed): no declared conversation identity on this request",
+        detail
+      );
+    } else {
+      log.debug("Agent identity resolved at Layer 1 (ascribed)", detail);
+    }
   }
 
   /**
