@@ -70,14 +70,33 @@ const ABSENT_DIR_IO: CaptureIo = {
 };
 
 describe("selectNewCaptures", () => {
-  test("returns only unseen .json artifacts", () => {
-    expect(selectNewCaptures(["a.json", "b.json", "c.heapsnapshot"], ["a.json"])).toEqual([
-      "b.json",
+  test("returns only unseen capture artifacts", () => {
+    const heapSnapshot = ARTIFACT.replace(/\.json$/, ".heapsnapshot");
+    expect(selectNewCaptures([ARTIFACT, SECOND_ARTIFACT, heapSnapshot], [ARTIFACT])).toEqual([
+      SECOND_ARTIFACT,
     ]);
   });
 
   test("returns nothing when all are seen", () => {
-    expect(selectNewCaptures(["a.json"], ["a.json"])).toEqual([]);
+    expect(selectNewCaptures([ARTIFACT], [ARTIFACT])).toEqual([]);
+  });
+
+  test("rejects .json files that are not capture artifacts (PR #2881 R1)", () => {
+    // The directory is a shared on-disk location. Anything else that lands a
+    // .json beside a capture would otherwise be announced to the principal as
+    // a runaway process.
+    expect(
+      selectNewCaptures(
+        [
+          ARTIFACT,
+          "notes.json",
+          "memory-capture-notice-state.json",
+          "memory-capture-2026-08-11T20-03-39-983Z-mcp-start-stdio-pid48013.json.4242.tmp",
+          "memory-capture-missing-a-pid.json",
+        ],
+        []
+      )
+    ).toEqual([ARTIFACT]);
   });
 });
 
@@ -170,6 +189,31 @@ describe("collectNewCaptureNotice", () => {
     expect(notice).toContain("unreadable artifact");
     // And neither re-fires.
     expect(collectNewCaptureNotice(ENV, fake.io)).toBeNull();
+  });
+
+  test("a watermark-write failure does not throw out of the hook (PR #2881 R1)", () => {
+    // The dispatcher must survive an unwritable state dir. Crashing it because
+    // a diagnostic could not persist its bookkeeping would be mt#3973's AT4
+    // failure one layer up — a diagnostic taking down what it observes.
+    const io: CaptureIo = {
+      listFilenames: () => [ARTIFACT],
+      readRecord: () => RECORD_WITH_TOOL,
+      readSeen: () => [],
+      writeSeen: () => {
+        throw new Error("EROFS: read-only file system");
+      },
+    };
+
+    // The assertion IS that this does not throw, with a genuinely throwing io —
+    // the fake does NOT swallow, so this exercises the CALLER's guard rather
+    // than the fake's politeness. The notice is still produced: an unpersisted
+    // watermark repeats next turn, which is noisy but never wrong.
+    let notice: string | null = null;
+    expect(() => {
+      notice = collectNewCaptureNotice(ENV, io);
+    }).not.toThrow();
+    expect(notice).not.toBeNull();
+    expect(notice).toContain(SLOW_TOOL);
   });
 
   test("the override suppresses the notice", () => {

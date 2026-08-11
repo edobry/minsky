@@ -67,6 +67,19 @@ export const MAX_DESCRIBED_TOOL_CALLS = 3;
 
 const BYTES_PER_MB = 1024 * 1024;
 
+/**
+ * What counts as a capture artifact.
+ *
+ * Deliberately tighter than `*.json` (PR #2881 R1): the directory is a shared
+ * on-disk location, and anything else that ever drops a `.json` beside a
+ * capture — a scratch file, a future sibling mechanism, this hook's own
+ * `.tmp` — would otherwise be announced to the principal as a runaway process.
+ * The shape is fixed by mt#3973's `buildCaptureFileStem`
+ * (`memory-capture-<ISO8601>-<role>-pid<PID>.json`), so requiring the prefix
+ * and the `pid<N>` tail costs nothing and rejects everything else.
+ */
+export const CAPTURE_FILENAME_PATTERN = /^memory-capture-.*-pid\d+\.json$/;
+
 /** The subset of the mt#3973 artifact this notice reads. */
 export interface CaptureRecord {
   capturedAt?: string;
@@ -104,7 +117,7 @@ export function getSeenStatePath(env: NodeJS.ProcessEnv = process.env): string {
 export function selectNewCaptures(filenames: string[], seen: string[]): string[] {
   const seenSet = new Set(seen);
   return filenames
-    .filter((name) => name.endsWith(".json") && !seenSet.has(name))
+    .filter((name) => CAPTURE_FILENAME_PATTERN.test(name) && !seenSet.has(name))
     .sort()
     .reverse();
 }
@@ -172,7 +185,18 @@ export function formatCaptureNotice(
  * Best-effort: a failure here degrades the canary to the silent path, which the
  * runner reports as a MISSING expectation — visible, not silent.
  */
-function primeCanaryFixture(captureDir: string): void {
+function primeCanaryFixture(captureDir: string, env: NodeJS.ProcessEnv): void {
+  // Refuse to prime unless the state dir was actually redirected away from the
+  // real one (PR #2881 R1). `scripts/run-guard-canaries.ts` points
+  // MINSKY_STATE_DIR at a fresh temp dir before importing anything, so this
+  // holds there — but a hand-run `MINSKY_CANARY_MODE=1` without that isolation
+  // would otherwise write a fake capture into real state and announce a
+  // runaway process that never happened. Belt-and-braces, and cheap.
+  const stateDir = env["MINSKY_STATE_DIR"];
+  if (!stateDir || stateDir === path.join(os.homedir(), ".local", "state", "minsky")) {
+    console.error("[mt#3997] canary priming skipped: MINSKY_STATE_DIR is not isolated");
+    return;
+  }
   try {
     fs.mkdirSync(captureDir, { recursive: true });
     fs.writeFileSync(
@@ -245,8 +269,27 @@ export const realCaptureIo: CaptureIo = {
   },
   writeSeen(env, seen) {
     const statePath = getSeenStatePath(env);
-    fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.writeFileSync(statePath, `${JSON.stringify({ seen } satisfies SeenState, null, 2)}\n`);
+    try {
+      fs.mkdirSync(path.dirname(statePath), { recursive: true });
+      // Write-then-rename, because a torn write here breaks SC3 in the worst
+      // direction: `readSeen` cannot distinguish truncated JSON from absent
+      // state, so it returns [] and EVERY artifact re-notifies forever. rename
+      // is atomic within a filesystem, so a reader sees either the old
+      // watermark or the new one and never a half-written one. The pid in the
+      // temp name keeps two concurrent runners from clobbering each other's
+      // scratch file (PR #2881 R1).
+      const tempPath = `${statePath}.${process.pid}.tmp`;
+      fs.writeFileSync(tempPath, `${JSON.stringify({ seen } satisfies SeenState, null, 2)}\n`);
+      fs.renameSync(tempPath, statePath);
+    } catch (error) {
+      // Never rethrow. This hook is a diagnostic on the path that exists to
+      // stop a machine-wide kernel panic; crashing the dispatcher because the
+      // state dir is unwritable would be the mt#3973 AT4 failure one layer up
+      // (a diagnostic taking down the thing it observes). The degradation is
+      // benign and deliberate: an unpersisted watermark means the notice
+      // repeats next turn, which is noisy but never wrong.
+      console.error(`[mt#3997] could not persist the capture watermark: ${String(error)}`);
+    }
   },
 };
 
@@ -269,7 +312,7 @@ export function collectNewCaptureNotice(
   // because `scripts/run-guard-canaries.ts` points MINSKY_STATE_DIR at a fresh
   // temp dir before importing anything, so this never touches real state.
   if (env[CANARY_MODE_ENV] === "1") {
-    primeCanaryFixture(captureDir);
+    primeCanaryFixture(captureDir, env);
   }
 
   const filenames = io.listFilenames(captureDir);
@@ -290,7 +333,17 @@ export function collectNewCaptureNotice(
   // Mark surfaced BEFORE returning: SC3 requires the same artifact not
   // re-notify on a later turn, and a write that happened after a failed
   // injection would be worse than one that happened before a successful one.
-  io.writeSeen(env, [...seen, ...fresh]);
+  //
+  // Guarded here as well as inside `realCaptureIo.writeSeen` (PR #2881 R1).
+  // Two layers on purpose: the inner one produces the better diagnostic, this
+  // one holds for ANY `CaptureIo`, so no future implementation can make a
+  // failed watermark write reach the dispatcher. Losing the watermark costs a
+  // repeated notice; letting it throw costs the whole hook.
+  try {
+    io.writeSeen(env, [...seen, ...fresh]);
+  } catch (error) {
+    console.error(`[mt#3997] could not persist the capture watermark: ${String(error)}`);
+  }
 
   return formatCaptureNotice(entries, captureDir);
 }
