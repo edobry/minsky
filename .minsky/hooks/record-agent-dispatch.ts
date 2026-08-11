@@ -44,7 +44,7 @@
 // stray stdout write here would silently drop the stamp it exists to emit.
 
 import { safeTruncate } from "@minsky/shared/safe-truncate";
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -128,12 +128,16 @@ export async function writeDispatchRow(params: {
     const bootstrap = await ensureHookDomainBootstrap();
     if (!bootstrap.ok) return { ok: false, reason: `domain bootstrap failed: ${bootstrap.error}` };
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
-    const provider = await resolvePersistenceProvider();
-    if (!provider || typeof provider.getDatabaseConnection !== "function") {
-      return { ok: false, reason: "persistence provider unavailable" };
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      return { ok: false, reason: describeProviderResolutionFailure(resolution) };
+    }
+    const provider = resolution.provider;
+    if (typeof provider.getDatabaseConnection !== "function") {
+      return { ok: false, reason: `provider ${provider.constructor.name} is not SQL-capable` };
     }
 
     try {

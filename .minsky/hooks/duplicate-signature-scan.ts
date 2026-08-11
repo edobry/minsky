@@ -56,7 +56,7 @@
 // tune tasks directly but Asks for enforcement-posture changes). Flipping to
 // deny is explicitly NOT in mt#3722.
 
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
@@ -234,14 +234,14 @@ async function runScan(tokens: SignatureToken[], spec: string): Promise<ScanResu
     const bootstrap = await ensureHookDomainBootstrap();
     if (!bootstrap.ok) return { ...empty, failed: `domain bootstrap failed: ${bootstrap.error}` };
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
-    const provider = await resolvePersistenceProvider();
-    if (!provider) {
-      // The same condition the sibling probe reports; see mt#3019 for the class.
-      return { ...empty, failed: "persistence provider unavailable" };
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      return { ...empty, failed: describeProviderResolutionFailure(resolution) };
     }
+    const provider = resolution.provider;
     if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
       return { ...empty, failed: `provider ${provider.constructor.name} is not SQL-capable` };
     }
