@@ -7,7 +7,7 @@
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { setupTestMocks } from "../utils/test-utils/mocking";
-import { scanMutatingFlaggedIds } from "../utils/test-utils/mutating-flag-scan";
+import { scanMutatingFlaggedIds } from "../utils/test-utils/command-source-scan";
 import type { MinskyMCPServer } from "./server";
 
 // Shared import paths extracted to constants to satisfy no-magic-string-duplication
