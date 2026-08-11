@@ -179,7 +179,7 @@ minsky session changeset create --title "Fix login bug" --type fix
 minsky session cs create --title "Fix login bug" --type fix
 
 # Approve and merge
-minsky session approve
+minsky session pr approve
 ```
 
 ### Advanced Configuration

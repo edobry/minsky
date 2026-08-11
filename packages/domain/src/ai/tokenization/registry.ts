@@ -5,7 +5,12 @@
  * Handles preferences, fallbacks, and model-specific tokenizer routing.
  */
 
-import type { LocalTokenizer, TokenizerRegistry, TokenizerConfig } from "./types";
+import type {
+  LocalTokenizer,
+  TokenizerRegistry,
+  TokenizerConfig,
+  TokenizerResolution,
+} from "./types";
 import { GptTokenizer } from "./gpt-tokenizer";
 import { TiktokenTokenizer } from "./tiktoken-tokenizer";
 import { log } from "@minsky/shared/logger";
@@ -62,9 +67,29 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
   }
 
   /**
-   * Get the best tokenizer for a specific model
+   * Get the best tokenizer for a specific model.
+   *
+   * Retained for callers that only need the tokenizer. Anything that reports a
+   * token count to a human should call `resolveForModel` instead — this return
+   * value cannot distinguish "this tokenizer is for that model" from "nothing
+   * matched, here is the default" (mt#3928).
    */
   getForModel(modelId: string): LocalTokenizer | null {
+    return this.resolveForModel(modelId)?.tokenizer ?? null;
+  }
+
+  /**
+   * Resolve a tokenizer for a model, reporting whether it was matched or
+   * substituted.
+   *
+   * Only two tokenizers are registered and both are OpenAI-family, so every
+   * Anthropic and Google model reaches the `defaultLibrary` branch below — as
+   * does any model id that does not exist. Before mt#3928 that outcome was
+   * recorded in a `log.warn` the CLI never surfaces, which is why
+   * `--compare-models` reported identical counts for every model and a typo in
+   * `--model` returned a plausible number.
+   */
+  resolveForModel(modelId: string): TokenizerResolution | null {
     // Check for explicit preference
     const preferredTokenizer = this.preferences.get(modelId);
     if (preferredTokenizer && this.tokenizers.has(preferredTokenizer)) {
@@ -72,7 +97,7 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
       const tokenizer = this.tokenizers.get(preferredTokenizer)!;
       if (tokenizer.supportsModel(modelId)) {
         log.debug(`Using preferred tokenizer for ${modelId}: ${preferredTokenizer}`);
-        return tokenizer;
+        return { tokenizer, source: "config" };
       }
     }
 
@@ -82,7 +107,7 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
       const tokenizer = this.tokenizers.get(override.tokenizer);
       if (tokenizer && tokenizer.supportsModel(modelId)) {
         log.debug(`Using config override tokenizer for ${modelId}: ${override.tokenizer}`);
-        return tokenizer;
+        return { tokenizer, source: "config" };
       }
     }
 
@@ -96,7 +121,7 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
     if (candidates.length > 0) {
       const selected = first(candidates, "tokenizer candidates");
       log.debug(`Selected tokenizer for ${modelId}: ${selected.id}`);
-      return selected;
+      return { tokenizer: selected, source: "config" };
     }
 
     // Fallback to default library
@@ -106,7 +131,7 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
         log.warn(
           `No specific tokenizer found for ${modelId}, using fallback: ${this.config.defaultLibrary}`
         );
-        return fallback;
+        return { tokenizer: fallback, source: "fallback" };
       }
     }
 

@@ -176,3 +176,86 @@ describe("decideDisplay", () => {
     expect(nextState).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Short-id resolution (mt#3914)
+// ---------------------------------------------------------------------------
+
+const ASK_UUID = "b3a3da5f-1a2b-4c3d-8e9f-0a1b2c3d4e5f";
+const MEM_UUID = "1aa78e4a-5148-461c-b3a0-e7bba039d704";
+const WS_UUID = "525dae4d-fd35-48fb-ad5a-d899865a9cb5";
+
+const MAP = {
+  ask: { "6891": ASK_UUID },
+  memory: { "623": MEM_UUID },
+  session: { "12": WS_UUID },
+};
+
+/** The one line used by both the resolution test and its negative control. */
+const ASK_LINE = "see ask#6891 for the decision";
+
+/** Convenience: one complete line through the transform WITH a map. */
+function mapped(text: string, shortIdMap: Record<string, Record<string, string>> = MAP): string {
+  return linkifyDelta(`${text}\n`, { inFence: false }, { shortIdMap }).text.replace(/\n$/, "");
+}
+
+describe("linkifyDelta — short-id resolution", () => {
+  test("links a mapped ask ref to its UUID", () => {
+    expect(mapped(ASK_LINE)).toBe(`see [ask#6891](minsky://ask/${ASK_UUID}) for the decision`);
+  });
+
+  test("maps mem# to the memory type and ws# to the session type", () => {
+    expect(mapped("mem#623 and ws#12")).toBe(
+      `[mem#623](minsky://memory/${MEM_UUID}) and [ws#12](minsky://session/${WS_UUID})`
+    );
+  });
+
+  test("leaves an UNMAPPED short id bare", () => {
+    expect(mapped("mem#999 is not in the map")).toBe("mem#999 is not in the map");
+  });
+
+  test("NEGATIVE CONTROL: the same ref stays bare against an empty map", () => {
+    // The control for the resolution path: with no entries, the assertion above
+    // (a rendered link) is unreachable — so a passing link test cannot be
+    // passing for an unrelated reason.
+    expect(mapped(ASK_LINE, {})).toBe(ASK_LINE);
+  });
+
+  test("leaves every short id bare when no map is supplied at all", () => {
+    expect(line("ask#6891 and mem#623 and ws#12")).toBe("ask#6891 and mem#623 and ws#12");
+  });
+
+  test("never emits the short id itself as the target", () => {
+    const out = mapped("ask#6891 and mem#999");
+    expect(out).not.toContain("minsky://ask/ask%236891");
+    expect(out).not.toContain("minsky://memory/mem%23999");
+  });
+
+  test("emitted target round-trips through parseMinskyUri", () => {
+    const out = mapped("ask#6891");
+    const uri = out.slice(out.indexOf("(") + 1, out.lastIndexOf(")"));
+    expect(parseMinskyUri(uri)).toEqual({ type: "ask", id: ASK_UUID });
+  });
+
+  test("still links task refs on the same line", () => {
+    expect(mapped("mt#3914 tracks ask#6891")).toBe(
+      `[mt#3914](minsky://task/mt%233914) tracks [ask#6891](minsky://ask/${ASK_UUID})`
+    );
+  });
+
+  test("respects fenced code blocks", () => {
+    const out = linkifyDelta("ask#6891\n", { inFence: true }, { shortIdMap: MAP }).text;
+    expect(out).toBe("ask#6891\n");
+  });
+
+  test("respects inline code spans and existing links", () => {
+    expect(mapped("`ask#6891` stays")).toBe("`ask#6891` stays");
+    expect(mapped("[ask#6891](minsky://ask/other) stays")).toBe(
+      "[ask#6891](minsky://ask/other) stays"
+    );
+  });
+
+  test("skips an entry whose UUID is empty rather than emitting an empty target", () => {
+    expect(mapped("ask#5", { ask: { "5": "" } })).toBe("ask#5");
+  });
+});

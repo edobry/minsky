@@ -51,6 +51,7 @@ import {
   resolveWatchdogBudgetMs,
   formatWatchdogTimeout,
   WATCHDOG_BUDGETS_MS,
+  FULL_SUITE_PER_TEST_TIMEOUT_MS,
 } from "./spawn-with-watchdog";
 
 export const MCP_DIR = "./src/mcp";
@@ -190,7 +191,14 @@ if (import.meta.main) {
     // and counted as a failure so the run continues and fails closed.
     const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.MCP_ISOLATED_PER_FILE);
     const result = await spawnWithWatchdog(
-      ["bun", "test", "--preload", "./tests/setup.ts", "--timeout=15000", toBunTestArg(file)],
+      [
+        "bun",
+        "test",
+        "--preload",
+        "./tests/setup.ts",
+        `--timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS}`,
+        toBunTestArg(file),
+      ],
       { budgetMs }
     );
     const stdout = result.stdout;
