@@ -1,5 +1,5 @@
 {
-  "port": 48901,
+  "port": 48911,
   "checks": 10,
   "passed": 10,
   "failed": 0,
@@ -14,13 +14,13 @@
       "id": "AT4",
       "name": "the daemon generated its bearer token at mode 0600",
       "passed": true,
-      "detail": "path=/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/minsky-daemon-verify-JPC21F/local-mcp-token mode=600"
+      "detail": "path=/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/minsky-daemon-verify-XaEuOo/local-mcp-token mode=600"
     },
     {
       "id": "SC6",
       "name": "discovery file reflects the actual bound port and pid",
       "passed": true,
-      "detail": "port=48901 pid=80157 (daemon pid=80157)"
+      "detail": "port=48911 pid=5232 (daemon pid=5232)"
     },
     {
       "id": "AT5",
@@ -38,7 +38,7 @@
       "id": "AT8",
       "name": "above the watermark a NEW session is refused 503 (control: AT5 admitted the same request)",
       "passed": true,
-      "detail": "status=503 body={\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Service unavailable: the shared MCP daemon is above its session-admission watermark (206MB of 1MB) and is not"
+      "detail": "status=503 body={\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Service unavailable: the shared MCP daemon is above its session-admission watermark (210MB of 1MB) and is not"
     },
     {
       "id": "AT3",
@@ -50,7 +50,7 @@
       "id": "AT6",
       "name": "an idle session is reaped and its id stops resolving",
       "passed": true,
-      "detail": "session=d7daba5e… status-after-idle=404"
+      "detail": "session=4d7ef419… status-after-idle=404"
     },
     {
       "id": "AT7",

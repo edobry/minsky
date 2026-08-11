@@ -99,6 +99,22 @@ async function waitForHealth(
   return { ok: false, body: null };
 }
 
+/**
+ * Whether `lsof` is present and runnable.
+ *
+ * Deliberately distinct from "lsof found no listeners": both produce an empty
+ * result from `listenerPids`, and only one of them means the assertions built
+ * on it carry information.
+ */
+function lsofIsAvailable(): boolean {
+  try {
+    execSync("command -v lsof", { timeout: 5000, stdio: ["ignore", "ignore", "ignore"] });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function listenerPids(port: number): number[] {
   try {
     const out = String(
@@ -151,6 +167,20 @@ async function main(): Promise<void> {
   process.stdout.write(
     `Verifying the local MCP daemon on 127.0.0.1:${port}\nState dir: ${stateDir}\n\n`
   );
+
+  // PR #2871 R1 NON-BLOCKING: three checks below assert on listener counts, and
+  // `listenerPids` returns [] when `lsof` is unavailable. For the two
+  // "exactly one listener" assertions that yields a visible FAIL, which is
+  // fine — but the teardown check asserts ZERO listeners, so a missing `lsof`
+  // would make it pass vacuously and report a clean run that verified nothing.
+  // Establish the tool works before trusting any count derived from it.
+  if (!lsofIsAvailable()) {
+    process.stdout.write(
+      "SKIP: `lsof` is unavailable, so listener-count assertions cannot be trusted " +
+        "(the teardown check would pass vacuously). Install lsof or run on a host that has it.\n"
+    );
+    process.exit(0);
+  }
 
   if (listenerPids(port).length > 0) {
     process.stdout.write(`SKIP: port ${port} is already in use — pass --port <free port>\n`);

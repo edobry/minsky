@@ -8,8 +8,10 @@ import {
   removeDiscoveryRecord,
   localDaemonDiscoveryPath,
   findListenerPid,
+  resolveLocalDaemonDefaults,
   TOKEN_FILE_MODE,
   DEFAULT_LOCAL_DAEMON_PORT,
+  LOCAL_DAEMON_IDLE_TIMEOUT_MS,
   type LocalDaemonFsDeps,
 } from "./local-daemon";
 
@@ -61,6 +63,50 @@ function makeMemoryFs(initial: Record<string, { content: string; mode: number }>
   };
   return { deps, files, dirs };
 }
+
+describe("resolveLocalDaemonDefaults", () => {
+  const base = {
+    portFromCli: false,
+    hostFromCli: false,
+    currentPort: "3000",
+    currentHost: "localhost",
+    currentIdleTimeoutMs: undefined,
+  };
+
+  test("supplies the ADR-038 port and host when the caller passed neither", () => {
+    const defaults = resolveLocalDaemonDefaults(base);
+    expect(defaults.port).toBe(String(DEFAULT_LOCAL_DAEMON_PORT));
+    expect(defaults.host).toBe("127.0.0.1");
+  });
+
+  test("an explicitly passed port survives the mode default", () => {
+    // The whole point of threading commander's option SOURCE through: an
+    // operator who types --port 3000 must get 3000, not 48765.
+    const defaults = resolveLocalDaemonDefaults({ ...base, portFromCli: true });
+    expect(defaults.port).toBe("3000");
+  });
+
+  test("an explicitly passed host survives the mode default", () => {
+    const defaults = resolveLocalDaemonDefaults({ ...base, hostFromCli: true });
+    expect(defaults.host).toBe("localhost");
+  });
+
+  test("shortens the idle timeout only when the operator set no value", () => {
+    expect(resolveLocalDaemonDefaults(base).sessionIdleTimeoutMs).toBe(
+      String(LOCAL_DAEMON_IDLE_TIMEOUT_MS)
+    );
+    expect(
+      resolveLocalDaemonDefaults({ ...base, currentIdleTimeoutMs: "999" }).sessionIdleTimeoutMs
+    ).toBe("999");
+  });
+
+  test("the local idle timeout is minutes, not the hosted 2h default", () => {
+    // ADR-038 §Question 6 asks for minutes locally; 2h would leave abandoned
+    // Server+Transport pairs pinned for the rest of the working day.
+    expect(LOCAL_DAEMON_IDLE_TIMEOUT_MS).toBeLessThan(60 * 60 * 1000);
+    expect(LOCAL_DAEMON_IDLE_TIMEOUT_MS).toBeGreaterThanOrEqual(60 * 1000);
+  });
+});
 
 describe("classifyPortConflict", () => {
   test("adopts only when the health body asserts the minsky-mcp identity", () => {

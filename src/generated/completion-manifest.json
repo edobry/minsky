@@ -7147,7 +7147,7 @@
             },
             {
               "flags": ["--local-daemon"],
-              "description": "Run as the shared local MCP daemon (mt#3814, ADR-038): implies --http, defaults to 127.0.0.1:48765, generates and uses the 0600 bearer token, writes a discovery file, and adopts-or-fails on a port conflict"
+              "description": "Run as the shared local MCP daemon (mt#3814, ADR-038): implies --http, defaults to 127.0.0.1:48765, generates and uses the 0600 bearer token, writes a discovery file, adopts-or-fails on a port conflict, and reaps idle sessions after 10 minutes instead of the hosted 2h default (override with MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS)"
             }
           ]
         },

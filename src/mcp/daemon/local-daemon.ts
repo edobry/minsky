@@ -90,6 +90,51 @@ export function localDaemonTokenPath(env: NodeJS.ProcessEnv = process.env): stri
 }
 
 // ---------------------------------------------------------------------------
+// Mode defaults
+// ---------------------------------------------------------------------------
+
+/**
+ * Local idle-session timeout (ADR-038 §Question 6: minutes, not the hosted 2h).
+ *
+ * Safe to keep short for two measured reasons: the shim's exit is a reliable
+ * local disconnect signal, and a session reaped in error costs almost nothing —
+ * mt#3811 measured 6/6 clients re-initializing transparently in 8–14ms.
+ */
+export const LOCAL_DAEMON_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+
+export interface LocalDaemonDefaults {
+  port: string;
+  host: string;
+  sessionIdleTimeoutMs: string;
+}
+
+/**
+ * The values `--local-daemon` supplies for anything the caller did not set.
+ *
+ * Extracted from the command action (PR #2871 R1 NON-BLOCKING) so the
+ * precedence rules are testable without booting a CLI. The rule in every case
+ * is the same: an explicit choice wins, and the mode fills in the rest.
+ *
+ * `portFromCli` / `hostFromCli` come from commander's `getOptionValueSource`,
+ * which is what distinguishes "the user typed `--port 3000`" from "commander
+ * supplied its own default" — without that distinction an explicit port would
+ * be silently overridden.
+ */
+export function resolveLocalDaemonDefaults(input: {
+  portFromCli: boolean;
+  hostFromCli: boolean;
+  currentPort: string;
+  currentHost: string;
+  currentIdleTimeoutMs: string | undefined;
+}): LocalDaemonDefaults {
+  return {
+    port: input.portFromCli ? input.currentPort : String(DEFAULT_LOCAL_DAEMON_PORT),
+    host: input.hostFromCli ? input.currentHost : DEFAULT_LOCAL_DAEMON_HOST,
+    sessionIdleTimeoutMs: input.currentIdleTimeoutMs ?? String(LOCAL_DAEMON_IDLE_TIMEOUT_MS),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Injected IO
 // ---------------------------------------------------------------------------
 

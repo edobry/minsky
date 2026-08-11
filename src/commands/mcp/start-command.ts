@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createServer } from "http";
 import { Command } from "commander";
 // mt#1719 Intervention 2: `express`, `launchInspector`/`isInspectorAvailable`,
 // and `resolveOAuthProvider` were top-level imports. They are HTTP-only
@@ -69,8 +70,10 @@ import {
   classifyPortConflict,
   formatPortConflictFailure,
   findListenerPid,
+  resolveLocalDaemonDefaults,
   DEFAULT_LOCAL_DAEMON_PORT,
   DEFAULT_LOCAL_DAEMON_HOST,
+  LOCAL_DAEMON_IDLE_TIMEOUT_MS,
 } from "../../mcp/daemon/local-daemon";
 import {
   createAdmissionGate,
@@ -828,7 +831,17 @@ async function startHttpServer(
   // / `trust proxy`, so the metadata they emit reflects the externally-
   // observed URL even though these log lines do not.
   const httpPort = parseInt(options.port, 10);
-  const httpServer = app.listen(httpPort, options.host, () => {
+
+  // PR #2871 R1 BLOCKING: construct the server and attach the bind-error
+  // handler BEFORE listening, rather than attaching to what `app.listen()`
+  // returns. Node defers an `EADDRINUSE` to `process.nextTick`, so attaching
+  // afterwards is safe there — but this runs on Bun, and the correctness of
+  // the adopt-or-fail path should not rest on a runtime's emit timing when
+  // ordering the two lines removes the question entirely. An unhandled
+  // 'error' on a server is a process crash, which is the failure mode this
+  // handler exists to replace with a legible message.
+  const httpServer = createServer(app);
+  const onListening = (): void => {
     log.cli("Minsky MCP Server started with HTTP transport");
     log.cli(`Server listening on ${options.host}:${httpPort}`);
     log.cli(`MCP endpoint: http://${options.host}:${httpPort}${options.endpoint}`);
@@ -859,7 +872,7 @@ async function startHttpServer(
         });
       }
     }
-  });
+  };
 
   // mt#3814 / ADR-038 §Question 4: identity-asserting adopt-or-fail.
   //
@@ -907,6 +920,10 @@ async function startHttpServer(
       exit(1);
     })();
   });
+
+  // Bind LAST: every handler above is registered before the socket can produce
+  // an event, so there is no window in which an EADDRINUSE has nowhere to go.
+  httpServer.listen(httpPort, options.host, onListening);
 
   // Initialize the MCP server (without connecting transport since HTTP is on-demand)
   await server.start();
@@ -1301,7 +1318,9 @@ export function createStartCommand(
       "--local-daemon",
       `Run as the shared local MCP daemon (mt#3814, ADR-038): implies --http, defaults to ` +
         `${DEFAULT_LOCAL_DAEMON_HOST}:${DEFAULT_LOCAL_DAEMON_PORT}, generates and uses the 0600 ` +
-        `bearer token, writes a discovery file, and adopts-or-fails on a port conflict`
+        `bearer token, writes a discovery file, adopts-or-fails on a port conflict, and reaps ` +
+        `idle sessions after ${LOCAL_DAEMON_IDLE_TIMEOUT_MS / 60000} minutes instead of the ` +
+        `hosted 2h default (override with MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS)`
     )
     .action(async (options, command) => {
       try {
@@ -1329,22 +1348,19 @@ export function createStartCommand(
         // different port on conflict.
         if (options.localDaemon) {
           options.http = true;
-          if (command.getOptionValueSource("port") !== "cli") {
-            options.port = String(DEFAULT_LOCAL_DAEMON_PORT);
-          }
-          if (command.getOptionValueSource("host") !== "cli") {
-            options.host = DEFAULT_LOCAL_DAEMON_HOST;
-          }
-          // ADR-038 §Question 6: reap idle sessions in minutes locally rather
-          // than the hosted 2h default. Two facts make the short timeout safe:
-          // the shim's exit is a reliable local disconnect signal, and a
-          // session reaped in error costs nothing — mt#3811 measured 6/6
-          // clients re-initializing transparently in 8–14ms. Set here, before
-          // the server is constructed and reads it, and only when the operator
-          // has not chosen a value.
-          if (process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS === undefined) {
-            process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS = String(10 * 60 * 1000);
-          }
+          const defaults = resolveLocalDaemonDefaults({
+            portFromCli: command.getOptionValueSource("port") === "cli",
+            hostFromCli: command.getOptionValueSource("host") === "cli",
+            currentPort: options.port,
+            currentHost: options.host,
+            currentIdleTimeoutMs: process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS,
+          });
+          options.port = defaults.port;
+          options.host = defaults.host;
+          // Assigned before the server is constructed and reads it. Scoped to
+          // this branch, so a plain `--http` server keeps the hosted 2h default
+          // untouched.
+          process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS = defaults.sessionIdleTimeoutMs;
         }
 
         // Determine transport type from --http flag
