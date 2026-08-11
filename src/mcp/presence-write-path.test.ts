@@ -184,7 +184,7 @@ describe("writeTaskClaim per-call repo fallback (mt#2567 regression)", () => {
     async function writeTaskClaimFor(
       fakeRepo: PresenceClaimRepository,
       args: Record<string, unknown>,
-      toolName?: string
+      readsPresence?: boolean
     ) {
       const { MinskyMCPServer } = await import("./server");
       const server = new MinskyMCPServer({
@@ -199,49 +199,74 @@ describe("writeTaskClaim per-call repo fallback (mt#2567 regression)", () => {
           writeTaskClaim: (
             args: Record<string, unknown>,
             actorId: string,
-            toolName?: string
+            readsPresence?: boolean
           ) => Promise<void>;
         }
       ).writeTaskClaim.bind(server);
 
-      await writeTaskClaim(args, "test-actor", toolName);
+      await writeTaskClaim(args, "test-actor", readsPresence);
     }
 
-    test("tasks.claims.list does NOT upsert a claim for the task it reports on", async () => {
+    test("a tool declaring readsPresence does NOT upsert a claim for the task it reports on", async () => {
       const { fakeRepo, upsertMock } = serverWithCountingRepo();
-      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks.claims.list");
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, true);
       expect(upsertMock.mock.calls.length).toBe(0);
     });
 
-    test("the Claude-Desktop underscore alias is exempt too", async () => {
-      // Both spellings are registered, so exempting only the dotted name would
-      // leave the defect live for any client using the alias.
-      const { fakeRepo, upsertMock } = serverWithCountingRepo();
-      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks_claims_list");
-      expect(upsertMock.mock.calls.length).toBe(0);
-    });
-
-    test("a NON-presence-reading tool carrying the same args still writes its claim", async () => {
+    test("a tool that does NOT declare it, carrying the same args, still writes its claim", async () => {
       // Bounds the exemption: presence is touch-based by design, so this must
       // stay a narrow carve-out and not become a general "reads don't claim".
       const { fakeRepo, upsertMock } = serverWithCountingRepo();
-      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks.get");
+      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, false);
       expect(upsertMock.mock.calls.length).toBe(1);
     });
 
-    test("a substring match does not trigger the exemption", async () => {
-      // The name is matched exactly; a hypothetical tool whose name merely
-      // CONTAINS the exempt one must keep writing its claim.
-      const { fakeRepo, upsertMock } = serverWithCountingRepo();
-      await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" }, "tasks.claims.list.export");
-      expect(upsertMock.mock.calls.length).toBe(1);
-    });
-
-    test("an absent tool name preserves the pre-mt#3889 write behavior", async () => {
-      // The param is optional; callers that do not pass it must be unaffected.
+    test("an absent flag preserves the pre-mt#3889 write behavior", async () => {
+      // The param is optional; a caller that does not pass it is unaffected.
       const { fakeRepo, upsertMock } = serverWithCountingRepo();
       await writeTaskClaimFor(fakeRepo, { taskId: "mt#3889" });
       expect(upsertMock.mock.calls.length).toBe(1);
+    });
+
+    /**
+     * mt#3903: the two remaining mt#3889 cases — the Claude-Desktop underscore
+     * alias, and a tool whose name merely CONTAINS an exempt one — are no longer
+     * testable, because they are no longer possible. Both were artifacts of
+     * matching NAMES against a list; the exemption now travels as a flag on the
+     * tool, so there is no name to spell two ways and no string to be a
+     * substring of. Asserting them here would test the test, not the code.
+     *
+     * What replaces them is a check the name list could not express: that the
+     * declaration survives the trip from the command definition to the tool the
+     * server actually reads. A field declared and not threaded is exactly how
+     * this class of defect fails silently.
+     */
+    test("readsPresence is declared on tasks.claims.list and survives registration", async () => {
+      const { createTasksClaimsListCommand } = await import(
+        "../adapters/shared/commands/tasks/claims-command"
+      );
+      const command = createTasksClaimsListCommand(() => undefined);
+      expect(command.readsPresence).toBe(true);
+
+      const { CommandMapper } = await import("./command-mapper");
+      const registered: Array<{ name: string; readsPresence?: boolean }> = [];
+      const mapper = new CommandMapper(
+        {
+          addTool: (tool: { name: string; readsPresence?: boolean }) => {
+            registered.push(tool);
+          },
+        } as never,
+        { repositoryPath: "/mock/test-repo" }
+      );
+      mapper.addCommand({ ...command, handler: async () => ({}) } as never);
+
+      // One command in, one tool out. Asserted on the count rather than by
+      // searching for a name: the registered tool is named from the command's
+      // `name` ("list"), not its `id` ("tasks.claims.list"), and a name-based
+      // lookup that silently found nothing would pass `undefined?.readsPresence`
+      // straight into a vacuous assertion.
+      expect(registered.length).toBe(1);
+      expect(registered[0]?.readsPresence).toBe(true);
     });
   });
 

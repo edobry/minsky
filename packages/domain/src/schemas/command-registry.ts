@@ -73,6 +73,14 @@ export const commandDefinitionSchema = z.object({
   description: z.string(),
   parameters: commandParameterMapSchema,
   execute: z.function(), // Command execution handler
+  // Behavior flags the registry carries through to adapters. Represented here
+  // so a caller that ever consumes the PARSED definition sees them — today
+  // `registerCommand` parses for validation and stores the ORIGINAL object, so
+  // nothing is dropped, and that is a property of one line rather than of the
+  // schema (PR #2857 R1). A flag missing from a stripping schema fails the way
+  // both of these exist to prevent: silently, with the feature simply absent.
+  mutating: z.boolean().optional(),
+  readsPresence: z.boolean().optional(),
 });
 
 /**
