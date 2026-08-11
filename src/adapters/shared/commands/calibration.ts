@@ -33,16 +33,72 @@ import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
   computeReviewDueLogs,
+  deriveCalibrationLogEntries,
   advanceWatermarks,
   clearResolvedAskIds,
   mergeWatermarkWrite,
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
+  type CalibrationLogEntry,
   type CalibrationLogResult,
   type CalibrationRecord,
   type ReviewDueLog,
   type WatermarkStore,
 } from "../../../domain/calibration/calibration-sweep";
+
+// ---------------------------------------------------------------------------
+// Swept-entries resolution (mt#3716 — ADR-028 §D4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the entries to sweep, DERIVED from the three declaration surfaces
+ * (`GUARD_REGISTRY.calibrationLog`, `STANDALONE_GUARD_CANARIES.calibrationLog`,
+ * the enumerated non-guard producers) when reachable, falling back to the
+ * static `CALIBRATION_LOG_REGISTRY` alone otherwise.
+ *
+ * This module lives in `src/` (bundled into the deployed MCP server), which by
+ * established convention does not statically import `.minsky/hooks/registry.ts`
+ * — see `src/domain/calibration/calibration-sweep.ts`'s
+ * `CALIBRATION_NAME_TO_GUARD_NAME` doc comment and `src/mcp/guard-health-tracker.ts`'s
+ * header comment, both of which duplicate-over-cross-import for the same
+ * reason (the hooks tree is a dependency-free tree with no established
+ * precedent for `src/` reaching into it). But this command is the primary
+ * surface the mt#3716 problem statement reproduced against
+ * (`observability_calibration-review` reporting on 16 logs while 25 exist on
+ * disk), and it ALWAYS runs inside a git checkout of this repo (it already
+ * reads/writes `.minsky/calibration-review-watermarks.json` relative to
+ * `workspacePath`), so the declaration-surface source files are present on
+ * disk wherever this command runs in practice.
+ *
+ * Resolved via a RUNTIME dynamic import with a non-literal specifier (built
+ * from path segments rather than one string literal) so it is not eagerly
+ * inlined into the `dist/minsky.js` bundle graph, wrapped in try/catch so a
+ * context where the source tree is unavailable (or the import otherwise
+ * fails) degrades gracefully to the pre-mt#3716 behavior — the static
+ * registry alone — rather than breaking the command.
+ */
+async function buildSweptEntries(): Promise<CalibrationLogEntry[]> {
+  try {
+    const specifier = [
+      "..",
+      "..",
+      "..",
+      "..",
+      "scripts",
+      "lib",
+      "calibration-log-declarations",
+    ].join("/");
+    const mod = (await import(specifier)) as {
+      getDeclaredCalibrationLogNames: () => string[];
+    };
+    return deriveCalibrationLogEntries(
+      mod.getDeclaredCalibrationLogNames(),
+      CALIBRATION_LOG_REGISTRY
+    );
+  } catch {
+    return CALIBRATION_LOG_REGISTRY;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Watermark store path (repo-relative)
@@ -511,7 +567,11 @@ export function registerCalibrationCommands(): void {
           }
         }
 
-        const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+        // mt#3716: sweep the DERIVED set when the declaration surfaces are
+        // reachable (see buildSweptEntries's doc comment); falls back to the
+        // static registry otherwise.
+        const sweptEntries = await buildSweptEntries();
+        const results = await runSweep(sweptEntries, readContent, watermarks);
 
         // Review-due determination (mt#2896) — the SAME domain function the
         // cadence hook uses, so the command surfaces time-stale / never-reviewed

@@ -84,12 +84,18 @@ import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
   computeReviewDueLogs,
+  deriveCalibrationLogEntries,
   STALE_DAYS_MS,
   NEVER_REVIEWED_DAYS,
   type CalibrationLogEntry,
   type WatermarkStore,
   type ReviewDueLog,
 } from "../../src/domain/calibration/calibration-sweep";
+// mt#3716: this hook lives in the `.minsky/hooks/` tree, so — unlike
+// `src/adapters/shared/commands/calibration.ts` — it can safely import the
+// shared declaration accessor (which itself reads `.minsky/hooks/registry.ts`
+// and `scripts/lib/standalone-guard-canaries.ts`) directly.
+import { getDeclaredCalibrationLogNames } from "../../scripts/lib/calibration-log-declarations";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -530,7 +536,15 @@ export async function run(
         return null;
       }
     };
-    const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+    // mt#3716: sweep the DERIVED set (the three declaration surfaces' union,
+    // merged with CALIBRATION_LOG_REGISTRY's hand-typed entries) rather than
+    // the static registry alone, so a newly-declared detector's log is
+    // visited without a human editing calibration-sweep.ts.
+    const entries = deriveCalibrationLogEntries(
+      getDeclaredCalibrationLogNames(),
+      CALIBRATION_LOG_REGISTRY
+    );
+    const results = await runSweep(entries, readContent, watermarks);
 
     const now = Date.now();
     const due = computeReviewDueLogs(results, watermarks, now);
@@ -612,7 +626,15 @@ export async function main(): Promise<void> {
         return null;
       }
     };
-    const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+    // mt#3716: sweep the DERIVED set (the three declaration surfaces' union,
+    // merged with CALIBRATION_LOG_REGISTRY's hand-typed entries) rather than
+    // the static registry alone, so a newly-declared detector's log is
+    // visited without a human editing calibration-sweep.ts.
+    const entries = deriveCalibrationLogEntries(
+      getDeclaredCalibrationLogNames(),
+      CALIBRATION_LOG_REGISTRY
+    );
+    const results = await runSweep(entries, readContent, watermarks);
 
     const now = Date.now();
     const due = computeReviewDueLogs(results, watermarks, now);
