@@ -22,6 +22,17 @@ import { join } from "path";
 export const COMMANDS_DIR = "src/adapters/shared/commands";
 
 /**
+ * Field modifiers a class-based command may carry before the field name. Written
+ * once and shared by both patterns below, because the failure mode this scan keeps
+ * hitting is a modifier the regex did not anticipate: the id pattern originally
+ * allowed none and matched no class at all, and an earlier draft of this file
+ * allowed only `readonly`, so a command declaring `public mutating = true` would
+ * have been dropped silently — the same under-report, one modifier later
+ * (PR #2848 R1, NON-BLOCKING 2).
+ */
+const FIELD_MODIFIERS = /(?:(?:readonly|public|protected|private|declare|static)\s+)*/.source;
+
+/**
  * Matches both declaration shapes in use:
  * - object-literal registration — `mutating: true,`
  * - command class field — `readonly mutating = true;`
@@ -29,7 +40,7 @@ export const COMMANDS_DIR = "src/adapters/shared/commands";
  * Matching only the first under-reports the class-based commands
  * (`tasks.delete`, `tasks.bulk-edit`, `tasks.migrate-backend`).
  */
-const MUTATING_FLAG_LINE = /^\s*(?:readonly\s+)?mutating\s*[:=]\s*true[,;]?\s*$/;
+const MUTATING_FLAG_LINE = new RegExp(`^\\s*${FIELD_MODIFIERS}mutating\\s*[:=]\\s*true[,;]?\\s*$`);
 
 /**
  * Matches `id: "x.y"` and `readonly id = "x.y"`.
@@ -40,7 +51,10 @@ const MUTATING_FLAG_LINE = /^\s*(?:readonly\s+)?mutating\s*[:=]\s*true[,;]?\s*$/
  * That cost nothing while every flagged command was an object literal, and became
  * a silent under-report the moment mt#3924 flagged three class-based ones.
  */
-const COMMAND_ID_LINE = /^\s*(?:readonly\s+)?id\s*[:=]\s*["'`]([a-z0-9._-]+)["'`]/i;
+const COMMAND_ID_LINE = new RegExp(
+  `^\\s*${FIELD_MODIFIERS}id\\s*[:=]\\s*["'\`]([a-z0-9._-]+)["'\`]`,
+  "i"
+);
 
 /** How far back to look for the id the flag belongs to. */
 const ID_LOOKBACK_LINES = 200;
