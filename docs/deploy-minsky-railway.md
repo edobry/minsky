@@ -233,9 +233,13 @@ snapshot-replay half is recorded in mem#700).
 
 **`deploy-minsky-mcp.yml` therefore redeploys every service on the tag**, and
 its `Trigger Railway redeploy` step carries a coverage guard: if any
-`services/*/deploy.config.ts` declares this image and is missing from the
-workflow's `REDEPLOY_SERVICES` list, the deploy FAILS rather than silently
-leaving that service on a stale image. Until 2026-08-11 the step redeployed
+`services/*/deploy.config.ts` declares this image **in this same project and
+environment** and is missing from the workflow's `REDEPLOY_SERVICES` list, the
+deploy FAILS rather than silently leaving that service on a stale image. The
+project/environment half of that test is not incidental — a variant riding the
+same base tag in a different Railway project is outside this job's reach (it
+holds one project+environment), so flagging it would fail a production deploy
+over a service this workflow could not have redeployed anyway. Until 2026-08-11 the step redeployed
 only minsky-mcp, and minsky-ops served one image from 2026-07-31 to 2026-08-10
 — SUCCESS on Railway and 200 on `/health` throughout, visible only to the
 digest comparison in the post-deploy health monitor.

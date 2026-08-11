@@ -72,7 +72,7 @@ interface RunResult {
 }
 
 /** Run the extracted bash with a stub `railway` on PATH. */
-async function runWorkflowBash(script: string): Promise<RunResult> {
+async function runWorkflowBash(script: string, cwd: string = repoRoot): Promise<RunResult> {
   const dir = mkdtempSync(join(tmpdir(), "mt3933-"));
   const callLog = join(dir, "railway-calls.log");
 
@@ -89,7 +89,7 @@ async function runWorkflowBash(script: string): Promise<RunResult> {
   writeFileSync(scriptPath, `set -euo pipefail\n${script}\n`);
 
   const proc = Bun.spawnSync(["bash", scriptPath], {
-    cwd: repoRoot,
+    cwd,
     stdout: "pipe",
     stderr: "pipe",
     env: {
@@ -179,6 +179,74 @@ check(
   "reports the id mismatch against the config",
   stale.output.includes("does not match services/minsky-ops/deploy.config.ts"),
   stale.output
+);
+
+// ---------------------------------------------------------------------------
+console.log("\n[4] Scope — a same-image service in a DIFFERENT Railway project (PR #2836 R1)");
+// ---------------------------------------------------------------------------
+// Regression test for the R1 BLOCKING finding: the guard originally matched on
+// the image alone, so a preview/staging variant riding the same base tag in
+// another project would have failed the production deploy over a service this
+// job cannot redeploy at all. The obligation is image AND project AND
+// environment. Run against a fixture tree so the case can exist without
+// inventing a service in the real repo.
+const fixtureRoot = mkdtempSync(join(tmpdir(), "mt3933-fixture-"));
+await Bun.$`mkdir -p ${join(fixtureRoot, "services")}`.quiet();
+for (const svc of EXPECTED) {
+  const dest = join(fixtureRoot, "services", svc.name);
+  await Bun.$`mkdir -p ${dest}`.quiet();
+  // Copy the real config so the per-service id assert passes on its own terms.
+  writeFileSync(
+    join(dest, "deploy.config.ts"),
+    readFileSync(join(repoRoot, "services", svc.name, "deploy.config.ts"), "utf8")
+  );
+}
+const OTHER_PROJECT_SVC = "preview-variant";
+const otherDir = join(fixtureRoot, "services", OTHER_PROJECT_SVC);
+await Bun.$`mkdir -p ${otherDir}`.quiet();
+writeFileSync(
+  join(otherDir, "deploy.config.ts"),
+  [
+    "export default defineDeployment({",
+    '  platform: "railway",',
+    "  railway: {",
+    // Same base image, DIFFERENT project and environment.
+    '    projectId: "11111111-1111-1111-1111-111111111111",',
+    '    environmentId: "22222222-2222-2222-2222-222222222222",',
+    '    serviceId: "33333333-3333-3333-3333-333333333333",',
+    '    source: { image: "ghcr.io/edobry/minsky:latest" },',
+    "  },",
+    "});",
+    "",
+  ].join("\n")
+);
+
+const otherProject = await runWorkflowBash(script, fixtureRoot);
+check(
+  "does not flag a same-image service in another project",
+  otherProject.exitCode === 0 && !otherProject.output.includes(OTHER_PROJECT_SVC),
+  `exit=${otherProject.exitCode}\n${otherProject.output}`
+);
+check(
+  "still redeploys both in-scope services",
+  EXPECTED.every((s) => otherProject.railwayCalls.some((c) => c.includes(s.serviceId))),
+  `railway calls:\n        ${otherProject.railwayCalls.join("\n        ")}`
+);
+
+// And the same fixture with the project/environment CHANGED to match this
+// workflow's — proving the exclusion above is the project/environment check
+// doing its job, not the guard having gone blind to the fixture entirely.
+writeFileSync(
+  join(otherDir, "deploy.config.ts"),
+  readFileSync(join(otherDir, "deploy.config.ts"), "utf8")
+    .replace("11111111-1111-1111-1111-111111111111", "0e054318-7e19-4489-8e1e-de787965161d")
+    .replace("22222222-2222-2222-2222-222222222222", "0289b171-1514-4540-ac93-19b30da3e2c0")
+);
+const sameProject = await runWorkflowBash(script, fixtureRoot);
+check(
+  "DOES flag a same-image service in THIS project",
+  sameProject.exitCode !== 0 && sameProject.output.includes(OTHER_PROJECT_SVC),
+  `exit=${sameProject.exitCode}\n${sameProject.output}`
 );
 
 // ---------------------------------------------------------------------------

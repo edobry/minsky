@@ -354,7 +354,7 @@ jobs:
             [ -n "${svc}" ] || continue
             CFG="services/${svc}/deploy.config.ts"
             if [ ! -f "${CFG}" ]; then
-              echo "::error::${CFG} does not exist, but this workflow redeploys ${svc}. The service was renamed or removed — update REDEPLOY_SERVICES."
+              echo "::error::${CFG} does not exist, but this workflow redeploys ${svc}. The service was renamed or removed — update REDEPLOY_SERVICES, then run 'bun scripts/verify-deploy-redeploy-coverage.ts' to confirm the list and the configs agree end to end (PR #2836 R1 NON-BLOCKING)."
               exit 1
             fi
             for pair in "projectId:${PROJECT_ID}" "environmentId:${ENVIRONMENT_ID}" "serviceId:${service_id}"; do
@@ -376,10 +376,22 @@ jobs:
           # unnoticed for 10.5 days, and a third would repeat it. Adding a
           # service on this tag without adding it here now fails the deploy
           # instead of silently shipping it a stale image forever.
+          #
+          # PR #2836 R1 (BLOCKING) — the guard scopes on THREE fields, not just
+          # the image. A service riding the same base tag in a DIFFERENT Railway
+          # project or environment (a preview or staging variant, say) is
+          # outside this workflow's reach: this job holds one project+
+          # environment and could not correctly redeploy it even if listed. So
+          # matching on the image alone would fail the production deploy over a
+          # service this job was never responsible for. The obligation is
+          # "same image AND same project AND same environment" — the same
+          # triple the prose above states — so the check enforces the triple.
           SHARED_IMAGE="ghcr.io/edobry/minsky:latest"
           uncovered=""
           for cfg in services/*/deploy.config.ts; do
             grep -q "image: \"${SHARED_IMAGE}\"" "${cfg}" || continue
+            grep -q "projectId: \"${PROJECT_ID}\"" "${cfg}" || continue
+            grep -q "environmentId: \"${ENVIRONMENT_ID}\"" "${cfg}" || continue
             cfg_svc="$(basename "$(dirname "${cfg}")")"
             if ! printf '%s\n' "${REDEPLOY_SERVICES}" | grep -qE "(^|[[:space:]])${cfg_svc}[[:space:]]"; then
               uncovered="${uncovered} ${cfg_svc}"
