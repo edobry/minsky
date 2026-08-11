@@ -178,8 +178,15 @@ export function parseShortIdMap(raw: string): ShortIdMap | null {
  * WRONG — only incomplete, which degrades to bare. That is the opposite of
  * `inject-prod-state`, whose snapshot goes stale in the sense that matters and
  * therefore has to render its own age.
+ *
+ * EXPORTED for `turn-end-bare-ref-scan` (mt#3960), which must decide whether a
+ * bare short id will be repaired downstream. That question is only answerable
+ * against the map THIS path reads, so the guard calls this function rather than
+ * re-deriving the filename and the degradation policy — the third copy of a
+ * literal whose second copy already carries a "keep the two in sync" comment.
+ * Importing this module runs nothing: its entry point is `import.meta.main`.
  */
-function readShortIdMap(): ShortIdMap | undefined {
+export function readShortIdMap(): ShortIdMap | undefined {
   try {
     return parseShortIdMap(fs.readFileSync(getShortIdMapPath(), "utf8")) ?? undefined;
   } catch {

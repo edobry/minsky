@@ -5,6 +5,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { scanMessage } from "./bare-entity-ref-scan";
+import { linkifyLine, type ShortIdMap } from "./entity-linkify";
 
 const kinds = (r: ReturnType<typeof scanMessage>) => r.flagged.map((f) => f.kind);
 const refs = (r: ReturnType<typeof scanMessage>) => r.flagged.map((f) => f.ref);
@@ -205,5 +206,119 @@ describe("bare-entity-ref scanner — the R6 message shape", () => {
     // click. A regression here would re-introduce the 13-of-13 false-warning
     // rate ask#7639 was filed about.
     expect(kinds(scanMessage(r6))).not.toContain("bare-ref");
+  });
+});
+
+describe("bare-entity-ref scanner — short ids the display map resolves (mt#3960)", () => {
+  // mt#3914 gave the display linkifier a short-id -> UUID map, so a mapped ref
+  // is already clickable when the reader sees it. Flagging it asks the author
+  // to fix something that is not broken — 5 of the first 6 injected phrases
+  // after mt#3914 were exactly that.
+  const MEM_928_UUID = "33855c14-a2b5-4b03-9b5d-7726f8f15e33";
+  const MEM_552_UUID = "b0b294ab-69cc-45fd-9f05-031bfb910d9c";
+  const MAP: ShortIdMap = { memory: { "928": MEM_928_UUID } };
+
+  test("a mapped short id is recorded, not flagged", () => {
+    const r = scanMessage("Continues mem#928 from yesterday.", { shortIdMap: MAP });
+    expect(r.flagged).toHaveLength(0);
+    expect(r.logged).toEqual([
+      {
+        kind: "linkable-short-id",
+        ref: "mem#928",
+        reason: "resolved by the short-id map (auto-linked at display time)",
+      },
+    ]);
+  });
+
+  test("an unmapped short id still flags", () => {
+    const r = scanMessage("Continues mem#944 from yesterday.", { shortIdMap: MAP });
+    expect(refs(r)).toEqual(["mem#944"]);
+    expect(kinds(r)).toEqual(["bare-short-id"]);
+  });
+
+  test("a mixed message flags only the unmapped id", () => {
+    const r = scanMessage("Continues mem#928; see also mem#944.", { shortIdMap: MAP });
+    expect(refs(r)).toEqual(["mem#944"]);
+    expect(r.logged.map((f) => f.ref)).toEqual(["mem#928"]);
+  });
+
+  test("the map is per-family — a memory entry does not resolve the same number as an ask", () => {
+    // The map is keyed by URI type then number, so `ask#928` and `mem#928` are
+    // different entities that happen to share a numeral. Collapsing the two
+    // would suppress a real finding on the strength of an unrelated id.
+    const r = scanMessage("Pending: ask#928.", { shortIdMap: MAP });
+    expect(refs(r)).toEqual(["ask#928"]);
+  });
+
+  test("no map flags every short id — the pre-mt#3914 behavior", () => {
+    // The degradation an absent or unreadable cache must produce. Silence here
+    // would be the ADR-024 "silent-skip" failure: under-linking costs the
+    // reader a lookup, a suppressed finding costs them the ref entirely.
+    const text = "Continues mem#928 and mem#944.";
+    expect(refs(scanMessage(text))).toEqual(["mem#928", "mem#944"]);
+    expect(refs(scanMessage(text, {}))).toEqual(["mem#928", "mem#944"]);
+    expect(refs(scanMessage(text, { shortIdMap: {} }))).toEqual(["mem#928", "mem#944"]);
+    expect(refs(scanMessage(text, { shortIdMap: { ask: {} } }))).toEqual(["mem#928", "mem#944"]);
+  });
+
+  test("a malformed map entry does not suppress — it is not a resolution (PR #2839 R1)", () => {
+    // The scanner's suppression must match the linkifier's rewrite condition
+    // EXACTLY. `replaceRefs` refuses to link a non-string or empty entry, so a
+    // scanner that accepted "any defined value" would go quiet about a ref that
+    // stays bare on screen — a silent miss, the one direction this guard must
+    // never fail in. Both now call `resolveShortId`, so they cannot diverge.
+    const broken = {
+      memory: { "928": "", "944": null as unknown as string, "552": 12345 as unknown as string },
+    };
+    const r = scanMessage("mem#928, mem#944 and mem#552.", { shortIdMap: broken });
+    expect(refs(r)).toEqual(["mem#928", "mem#944", "mem#552"]);
+    expect(r.logged).toHaveLength(0);
+  });
+
+  test("a mapped id written INSIDE a correct link is still not double-counted", () => {
+    // `[mem#928](minsky://memory/<uuid>)` contains the literal `mem#928`, and
+    // the positional check (mt#3897) is what stops it flagging. That check runs
+    // BEFORE the map lookup, so a correctly-linked ref must not now appear in
+    // the logged population either — it is neither a finding nor a suppression.
+    const r = scanMessage(`See [mem#928](minsky://memory/${MEM_928_UUID}).`, { shortIdMap: MAP });
+    expect(r.flagged).toHaveLength(0);
+    expect(r.logged).toHaveLength(0);
+  });
+
+  test("negative control: the 2026-08-11 window replays to exactly one finding", () => {
+    // The three phrases this guard actually injected on 2026-08-11, against a
+    // map snapshot holding the two ids that existed before the fires and not
+    // the one minted 15 seconds before its own. Only mem#944 should survive.
+    const snapshot: ShortIdMap = { memory: { "552": MEM_552_UUID, "928": MEM_928_UUID } };
+    const window = "Continues mem#928 (mem#944 supersedes it); background in mem#552.";
+    const r = scanMessage(window, { shortIdMap: snapshot });
+    expect(refs(r)).toEqual(["mem#944"]);
+    expect(r.logged.map((f) => f.ref)).toEqual(["mem#928", "mem#552"]);
+    // Without the map every one of the three flags — which is what the guard
+    // did on the day, and the 2-of-3 false-positive rate that produced mt#3960.
+    expect(refs(scanMessage(window))).toEqual(["mem#928", "mem#944", "mem#552"]);
+  });
+
+  test("suppression and display-time linking agree on every entry shape (PR #2839 R1)", () => {
+    // The coupling itself, asserted rather than described. This guard's whole
+    // claim is "the reader will already see a link here", so the two decisions
+    // must be the same decision. Sharing `resolveShortId` makes that true by
+    // construction; this pins it against a future edit to either side.
+    const entries: Array<[string, unknown]> = [
+      ["good", MEM_928_UUID],
+      ["empty", ""],
+      ["null", null],
+      ["number", 12345],
+      ["absent", undefined],
+    ];
+    const text = "See mem#928.";
+    for (const [label, value] of entries) {
+      const byNumber: Record<string, string> = {};
+      if (value !== undefined) byNumber["928"] = value as string;
+      const map: ShortIdMap = { memory: byNumber };
+      const suppressed = scanMessage(text, { shortIdMap: map }).flagged.length === 0;
+      const linked = linkifyLine(text, map).includes("minsky://memory/");
+      expect(`${label}:${suppressed}`).toBe(`${label}:${linked}`);
+    }
   });
 });
