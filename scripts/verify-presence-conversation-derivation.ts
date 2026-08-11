@@ -36,7 +36,8 @@
  *
  * Read-only: issues SELECTs and nothing else.
  *
- * Exit codes: 0 = pass (or SKIP when no DB is configured), 1 = fail.
+ * Exit codes: 0 = pass (or SKIP when no DB is configured), 1 = fail, 2 = a SKIP
+ * that `MINSKY_REQUIRE_PRESENCE_DERIVATION_PROBE=1` demanded be a real run.
  *
  * Usage: bun scripts/verify-presence-conversation-derivation.ts [--since <ISO-8601>]
  */
@@ -111,6 +112,61 @@ function resolveCutover(): string | null {
   return new Date(raw).toISOString();
 }
 
+/**
+ * The instant a row's checked value was written, or a hard failure.
+ *
+ * Deliberately throws rather than degrading. An unparseable timestamp coerced
+ * through `new Date(...)` yields `Invalid Date`, whose every comparison is
+ * false — so the row would land silently in BEFORE and be excluded from the
+ * arm that can actually fail. That is the same shape as the defect this probe
+ * was written to catch and the one mt#3970 fixed in it: a verification that
+ * quietly counts the wrong thing. A probe may report nothing; it may not report
+ * a number it cannot stand behind.
+ *
+ * The string branch is the LIVE path, not a fallback: `db.execute` hands these
+ * rows back with `last_refreshed_at` as a Postgres timestamptz literal
+ * (`2026-07-07 03:58:53.168+00`), verified by running this probe. It requires an
+ * explicit zone, because a zone-less string is parsed as LOCAL time and would
+ * shift every row's arm by the machine's UTC offset — a silent, uniform
+ * miscount. The `Date` branch is kept for the typed-query path, where drizzle
+ * does return `Date` objects.
+ */
+function parseWrittenAt(value: unknown): Date {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new Error("presence_claims.last_refreshed_at is an invalid Date");
+    }
+    return value;
+  }
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(
+      `presence_claims.last_refreshed_at is not a timestamp: ${JSON.stringify(value)}`
+    );
+  }
+  const zone = value.match(/(Z|[+-]\d{2}(?::?\d{2})?)$/i);
+  if (!zone?.[1]) {
+    throw new Error(
+      `presence_claims.last_refreshed_at carries no time zone, so it cannot be compared to the cutover: ${value}`
+    );
+  }
+
+  // Postgres renders `timestamptz` as `2026-07-07 03:58:53.168+00` — a space
+  // separator and a bare-hour offset, neither of which the ECMAScript Date
+  // grammar accepts. Normalize both rather than trusting an engine's lenient
+  // fallback parser, which is implementation-defined and could differ between
+  // bun versions.
+  const offset = zone[1].toUpperCase();
+  const normalizedZone =
+    offset === "Z" ? "Z" : offset.length === 3 ? `${offset}:00` : offset.replace(/(\d{2})$/, ":$1");
+  const parsed = new Date(
+    `${value.slice(0, value.length - zone[1].length).replace(" ", "T")}${normalizedZone}`
+  );
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`presence_claims.last_refreshed_at is unparseable: ${value}`);
+  }
+  return parsed;
+}
+
 interface ArmCounts {
   arm: string;
   subject_kind: string;
@@ -141,16 +197,17 @@ async function main(): Promise<number> {
     from presence_claims
   `);
 
+  // Parsed once: `resolveCutover` already validated it, and re-parsing per row
+  // would be the only place a bad value could reappear.
+  const cutoverDate = cutover ? new Date(cutover) : new Date(0);
+
   const buckets = new Map<string, ArmCounts>();
   for (const r of raw) {
     // `last_refreshed_at`, NOT `claimed_at` — see the module doc comment: the
     // upsert rewrites the value while preserving the original claim time, so
     // only this column dates the thing being checked.
-    const valueWrittenAt =
-      r.last_refreshed_at instanceof Date
-        ? r.last_refreshed_at
-        : new Date(String(r.last_refreshed_at));
-    const arm = !cutover ? "ALL" : valueWrittenAt >= new Date(cutover) ? "AFTER" : "BEFORE";
+    const valueWrittenAt = parseWrittenAt(r.last_refreshed_at);
+    const arm = !cutover ? "ALL" : valueWrittenAt >= cutoverDate ? "AFTER" : "BEFORE";
     const subjectKind = String(r.subject_kind);
 
     // `arm` is one of ALL/AFTER/BEFORE, so the separator cannot collide.
