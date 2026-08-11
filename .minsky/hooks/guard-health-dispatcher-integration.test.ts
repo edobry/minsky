@@ -81,6 +81,13 @@ describe("guard-health end-to-end: real dispatcher -> real recording -> real agg
             }),
           timeoutMs: 5000,
           denyCapable: true,
+          effects: [
+            {
+              effect: "deny",
+              verdictShape: "validator",
+              failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+            },
+          ],
         },
       ];
 
@@ -140,6 +147,13 @@ describe("guard-health end-to-end: real dispatcher -> real recording -> real agg
             }),
           timeoutMs: 5000,
           denyCapable: false,
+          effects: [
+            {
+              effect: "deny",
+              verdictShape: "validator",
+              failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+            },
+          ],
         },
       ];
 
@@ -193,6 +207,13 @@ describe("guard-health end-to-end: real dispatcher -> real recording -> real agg
             }),
           timeoutMs: 5000,
           denyCapable: false,
+          effects: [
+            {
+              effect: "deny",
+              verdictShape: "validator",
+              failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+            },
+          ],
         },
       ];
       await expect(
