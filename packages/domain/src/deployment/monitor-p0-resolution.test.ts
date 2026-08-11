@@ -13,9 +13,12 @@ import {
   P0_RECOVERY_MIN_SUSTAINED_INTERVAL_MS,
   decideP0Resolution,
   formatP0RecoveryMarker,
+  formatP0SubjectMarker,
   isMonitorAuthoredP0,
+  matchesP0Subject,
   observedRecoveredClasses,
   parseP0RecoveryMarker,
+  parseP0SubjectMarker,
   stripP0RecoveryMarker,
   withP0RecoveryMarker,
 } from "./monitor-p0-resolution";
@@ -181,6 +184,14 @@ describe("recovery marker", () => {
   // The one non-obvious correctness requirement: a service that recovers, is
   // marked, then breaks again inside the window must not be closed by a later
   // run reading a stale marker.
+  test("stripping a marker an operator moved inline leaves no double blank line behind", () => {
+    const inline = ["## P0", "", formatP0RecoveryMarker("2026-08-11T17:00:00.000Z"), "", "tail"]
+      .join("\n")
+      .concat("\n");
+
+    expect(stripP0RecoveryMarker(inline)).toBe("## P0\n\ntail\n");
+  });
+
   test("stripping the marker restores an unmarked body, so a re-broken service starts over", () => {
     const marked = withP0RecoveryMarker(MONITOR_AUTHORED_BODY, "2026-08-11T17:00:00.000Z");
     const stripped = stripP0RecoveryMarker(marked);
@@ -193,6 +204,68 @@ describe("recovery marker", () => {
         nowMs: Date.parse("2026-08-11T23:00:00.000Z"),
       }).action
     ).toBe("mark");
+  });
+});
+
+describe("matchesP0Subject (PR #2845 R1 — a retitled P0 must still be found)", () => {
+  const subject = {
+    service: "reviewer",
+    failureClass: "health-down" as AlertClass,
+    canonicalTitle: "[P0] reviewer: Health check DOWN",
+  };
+
+  test("an untouched pre-marker P0 matches on its canonical title", () => {
+    expect(
+      matchesP0Subject({ title: subject.canonicalTitle, body: MONITOR_AUTHORED_BODY }, subject)
+    ).toBe(true);
+  });
+
+  // The blocking finding: an operator adds context to the title mid-incident.
+  // Under exact-title equality this issue was never found again, so it stayed
+  // open forever — the exact defect this module exists to end.
+  test("a pre-marker P0 retitled with operator context still matches", () => {
+    const retitled = {
+      title: "[P0] reviewer: Health check DOWN — investigating, see #1234",
+      body: MONITOR_AUTHORED_BODY,
+    };
+
+    expect(matchesP0Subject(retitled, subject)).toBe(true);
+  });
+
+  test("a P0 carrying the subject marker matches even when the title is rewritten entirely", () => {
+    const renamed = {
+      title: "reviewer is down (rewritten by hand)",
+      body: `${MONITOR_AUTHORED_BODY}\n\n${formatP0SubjectMarker("reviewer", "health-down")}\n`,
+    };
+
+    expect(matchesP0Subject(renamed, subject)).toBe(true);
+  });
+
+  test("the marker is authoritative — a marker for another subject does not fall back to the title", () => {
+    const wrongSubject = {
+      title: subject.canonicalTitle,
+      body: `${MONITOR_AUTHORED_BODY}\n\n${formatP0SubjectMarker("site", "health-down")}\n`,
+    };
+
+    expect(matchesP0Subject(wrongSubject, subject)).toBe(false);
+  });
+
+  test("a different service's P0 does not match", () => {
+    expect(
+      matchesP0Subject(
+        { title: "[P0] site: Health check DOWN", body: MONITOR_AUTHORED_BODY },
+        subject
+      )
+    ).toBe(false);
+  });
+
+  test("the subject marker round-trips, and an unknown class is rejected", () => {
+    expect(parseP0SubjectMarker(formatP0SubjectMarker("minsky-mcp", "digest-lag"))).toEqual({
+      service: "minsky-mcp",
+      failureClass: "digest-lag",
+    });
+    expect(parseP0SubjectMarker("P0_SUBJECT: minsky-mcp|not-a-class")).toBeNull();
+    expect(parseP0SubjectMarker(MONITOR_AUTHORED_BODY)).toBeNull();
   });
 });
 

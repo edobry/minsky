@@ -240,7 +240,9 @@ import {
 // the P0 it opened.
 import {
   decideP0Resolution,
+  formatP0SubjectMarker,
   isMonitorAuthoredP0,
+  matchesP0Subject,
   observedRecoveredClasses,
   parseP0RecoveryMarker,
   stripP0RecoveryMarker,
@@ -706,6 +708,11 @@ interface GitHubIssue {
   title: string;
   state: string;
   body: string | null;
+  /**
+   * Present ONLY on pull requests. GitHub's issues endpoints return PRs
+   * alongside issues, so this field is how a listing tells them apart.
+   */
+  pull_request?: unknown;
 }
 
 async function githubRequest<T>(
@@ -877,7 +884,11 @@ async function alertViaGitHubIssue(
     "",
     "---",
     "*Auto-opened by [post-deploy-health-monitor](.github/workflows/post-deploy-health-monitor.yml) (mt#1302).*",
-    "*Close this issue when the service is confirmed healthy.*",
+    "*Resolves automatically once the condition clears and stays clear (mt#3963);" +
+      " close by hand to mute it sooner.*",
+    // mt#3963 — stable identity for the resolver, so retitling this issue
+    // cannot strand it open.
+    formatP0SubjectMarker(serviceName, failureClass),
   ].join("\n");
 
   if (dryRun) {
@@ -889,6 +900,12 @@ async function alertViaGitHubIssue(
   // Ensure labels exist before trying to use them (idempotent).
   await ensureLabelsExist(repo, token);
 
+  // Asymmetry with resolveP0IfRecovered, deliberate (mt#3963 R1). This lookup
+  // is still exact-title, so a retitled open P0 is not found here and a NEW one
+  // is opened beside it. That degrades LOUDLY — the operator gets a fresh,
+  // correctly-titled P0 the monitor can manage — whereas the same brittleness
+  // on the closing side degraded SILENTLY, leaving an alert open forever with
+  // nothing to notice. Only the silent direction was worth the added matching.
   const existing = await findOpenIssue(repo, title, token);
   if (existing) {
     // mt#3963 — the service is failing AGAIN, so any recovery marker left by an
@@ -1276,7 +1293,7 @@ async function closeDigestLagPendingTracker(
 // (pure, unit-tested); this is the IO shell.
 
 /**
- * Every open P0 this monitor may resolve, fetched ONCE per run.
+ * Every open, labeled P0 CONSIDERED for resolution, fetched ONCE per run.
  *
  * Deliberately not a per-(service, class) `findOpenIssue` call: four classes
  * across five services is 20 lookups per run, each of which can fall back to
@@ -1285,6 +1302,13 @@ async function closeDigestLagPendingTracker(
  * returns only issues carrying BOTH the P0 and monitor labels; anything else is
  * not ours to close, and an unlabeled monitor issue simply is not auto-resolved
  * (failing closed, in the direction that leaves an issue open).
+ *
+ * This is a CANDIDATE set, not a verified-authorship set — labels can be
+ * applied by hand. `resolveP0IfRecovered` checks the monitor's body signature
+ * before touching anything.
+ *
+ * Pull requests are dropped: GitHub's issues endpoints return PRs too, and a
+ * labeled PR would otherwise reach the subject match.
  */
 async function listOpenMonitorP0s(repo: string, token: string): Promise<GitHubIssue[]> {
   const MAX_PAGES = 3;
@@ -1305,7 +1329,9 @@ async function listOpenMonitorP0s(repo: string, token: string): Promise<GitHubIs
       break;
     }
 
-    collected.push(...issues);
+    collected.push(...issues.filter((issue) => issue.pull_request === undefined));
+    // Page size is measured BEFORE the PR filter — a page that was full of PRs
+    // is still a full page, and stopping there would truncate the listing.
     if (issues.length < 100) break;
   }
 
@@ -1330,8 +1356,14 @@ async function resolveP0IfRecovered(
 ): Promise<void> {
   if (dryRun) return;
 
-  const title = issueTitle(serviceName, failureClass);
-  const existing = openP0s.find((issue) => issue.title === title);
+  // mt#3963 R1 — identify by the body's subject marker, falling back to a
+  // TOLERANT title match for P0s opened before that marker existed. Exact title
+  // equality would mean an operator who retitles an issue mid-incident strands
+  // it open forever, which is the defect this whole path exists to end.
+  const canonicalTitle = issueTitle(serviceName, failureClass);
+  const existing = openP0s.find((issue) =>
+    matchesP0Subject(issue, { service: serviceName, failureClass, canonicalTitle })
+  );
   if (!existing) return;
 
   // SC3 — resolve only issues this monitor opened. The label filter above is
@@ -1867,7 +1899,9 @@ async function main(): Promise<void> {
     : "a local monitor run (GITHUB_RUN_ID not set)";
   const openMonitorP0s = dryRun ? [] : await listOpenMonitorP0s(githubRepo, githubToken);
   if (!dryRun) {
-    console.log(`Open monitor-authored P0s eligible for resolution: ${openMonitorP0s.length}\n`);
+    // "considered", not "eligible": this count is label-filtered only. Each
+    // one still has to pass the monitor-authorship check before it is touched.
+    console.log(`Open labeled P0s considered for resolution: ${openMonitorP0s.length}\n`);
   }
 
   for (const svc of services) {

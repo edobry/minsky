@@ -672,6 +672,12 @@ automatically on the next run.
      both labels AND the `Auto-opened by [post-deploy-health-monitor]` signature
      in the body, so a hand-filed `p0-outage` issue is never touched.
 
+   - **Retitling a P0 is safe.** Identity comes from a `P0_SUBJECT: <service>|<class>`
+     marker in the body, so adding context to the title mid-incident does not
+     strand the issue open. Issues opened before that marker existed are matched
+     on their canonical title as a substring, which tolerates an added prefix or
+     suffix. Do not hand-edit either marker line.
+
 2. **Secondary (best-effort):** when `MINSKY_MCP_AUTH_TOKEN` is set and the MCP service
    is reachable, a `coordination.notify` ask is created over hosted MCP so it surfaces
    on the cockpit AsksPage. Failure of this path never suppresses the primary alert.

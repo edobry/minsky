@@ -101,14 +101,24 @@ export function parseP0RecoveryMarker(body: string | null | undefined): string |
   return isoString;
 }
 
-/** Body with the recovery marker line (and any blank line it left) removed. */
+/**
+ * Body with the recovery marker line removed, and the blank space it leaves
+ * behind normalized.
+ *
+ * Bodies are rewritten repeatedly (mark on recovery, clear on re-failure), so a
+ * strip that only collapsed TRAILING blank runs would accumulate a double blank
+ * line in the middle of the body every time an operator had moved the marker
+ * inline. Collapse any run of 3+ newlines anywhere, then end the body with
+ * exactly one newline.
+ */
 export function stripP0RecoveryMarker(body: string | null | undefined): string {
   if (!body) return "";
   return body
     .split("\n")
     .filter((line) => !line.startsWith(P0_RECOVERY_MARKER_PREFIX))
     .join("\n")
-    .replace(/\n{3,}$/, "\n");
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+$/, "\n");
 }
 
 /** Body with a fresh recovery marker, replacing any marker already present. */
@@ -127,6 +137,72 @@ export function withP0RecoveryMarker(
  */
 export function isMonitorAuthoredP0(body: string | null | undefined): boolean {
   return Boolean(body && body.includes(MONITOR_AUTHORED_SIGNATURE));
+}
+
+/**
+ * Machine-parseable marker naming WHICH (service, failure class) a P0 belongs
+ * to, written into the body when the issue is opened.
+ *
+ * The issue's title already encodes both, but a title is operator-editable:
+ * adding context during an incident ("… — investigating") would make an exact
+ * title comparison miss, and the issue would then never be auto-closed — the
+ * exact stale-P0 outcome this module exists to end. The body marker is the
+ * stable identity; the title is a fallback for issues opened before it existed.
+ */
+export function formatP0SubjectMarker(service: string, failureClass: AlertClass): string {
+  return `${P0_SUBJECT_MARKER_PREFIX} ${service}|${failureClass}`;
+}
+
+const P0_SUBJECT_MARKER_PREFIX = "P0_SUBJECT:";
+
+const P0_SUBJECT_RE = /^P0_SUBJECT:\s*(\S+)\|(\S+)\s*$/m;
+
+const ALERT_CLASSES: readonly AlertClass[] = [
+  "deploy-failed",
+  "health-down",
+  "digest-lag",
+  "check-failed",
+];
+
+export function parseP0SubjectMarker(
+  body: string | null | undefined
+): { service: string; failureClass: AlertClass } | null {
+  if (!body) return null;
+  const match = P0_SUBJECT_RE.exec(body);
+  if (!match) return null;
+  const [, service, failureClass] = match;
+  if (!service || !failureClass) return null;
+  if (!ALERT_CLASSES.includes(failureClass as AlertClass)) return null;
+  return { service, failureClass: failureClass as AlertClass };
+}
+
+export interface P0IssueLike {
+  title: string;
+  body: string | null;
+}
+
+/**
+ * Whether this open issue is the P0 for (service, failureClass).
+ *
+ * The subject marker wins when present — it survives any title edit. When it is
+ * absent (a P0 opened before the marker shipped), fall back to finding the
+ * canonical title as a SUBSTRING rather than requiring equality, so an
+ * operator-added prefix or suffix does not strand the issue. Substring matching
+ * cannot collide across subjects: every canonical title carries both the
+ * service name and the class label, so no canonical title contains another.
+ *
+ * Callers must still check `isMonitorAuthoredP0` — this answers "which subject",
+ * not "may I close it".
+ */
+export function matchesP0Subject(
+  issue: P0IssueLike,
+  subject: { service: string; failureClass: AlertClass; canonicalTitle: string }
+): boolean {
+  const marker = parseP0SubjectMarker(issue.body);
+  if (marker) {
+    return marker.service === subject.service && marker.failureClass === subject.failureClass;
+  }
+  return issue.title.includes(subject.canonicalTitle);
 }
 
 /**
