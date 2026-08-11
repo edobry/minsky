@@ -9,6 +9,7 @@
 
 import type { ReviewThread } from "./github-client";
 import type { ReferencedTaskSpecResult } from "./task-spec-fetch";
+import type { ReferencedShortIdResult } from "./short-id-fetch";
 
 /**
  * Prompt-injection defense section (mt#2961, OWASP LLM01). The review request
@@ -370,6 +371,7 @@ If a task spec is provided, call \`submit_spec_verifications\` ONCE with one ent
 - evidence: the file:line or diff reference that supports the verdict.
 - When any criterion is "Not Met", the review must explicitly list what was deferred and why. Indicate that either the task spec must be updated to reflect actual scope OR follow-up tasks must be created for deferred items. An unmet criterion without a documented deferral path is a BLOCKING gap.
 - **"Unverifiable" is for a criterion whose artifact lives outside this diff and could not be fetched — never a guess at "Not Met" (mt#3919).** Some criteria name an artifact that is not a repo file — most commonly "update task mt#NNNN's spec/ATs". The diff cannot carry a change to another task's spec, so such a criterion is not verifiable from the diff alone. When the bound task's spec references another task by \`mt#NNNN\`, that referenced task's spec content is fetched for you and provided below under "## Referenced Task Specs" (when the fetch succeeded) — verify the criterion against THAT content, exactly as you would verify anything else, and report "Met" or "Not Met" accordingly. Use "Unverifiable" ONLY when the "## Referenced Task Specs" section shows the fetch itself failed (task missing, service disabled, or a transport error) for a reference the criterion depends on — evidence must name that fetch status. Never report "Met" for a criterion whose referenced spec you could not read, and never omit the criterion from your \`submit_spec_verifications\` call. **"Unverifiable" does not by itself force REQUEST_CHANGES, and you must NOT also emit a \`submit_finding\` with severity BLOCKING for it** — being unable to fetch a spec is not evidence the criterion is unmet; that would reintroduce the exact false-BLOCKING defect this mechanism exists to fix. This is different from a criterion whose artifact IS the diff (or a repo file the diff didn't touch) — those remain "Not Met" when absent, per the rule above.
+- **The same "Unverifiable" contract extends to \`mem#N\` / \`ask#N\` / \`ws#N\` short-id references (mt#3964).** A criterion can equally name a memory, an ask, or a workspace/session record as its artifact (e.g. "mem#648's CORRECTION 1 is amended: ..."). Per ADR-029 these are short ids for a uuid-keyed record, not repo content — the diff cannot carry a change to one, exactly like an \`mt#NNNN\` reference. When the bound task's spec contains one of these references, the referenced record's content is fetched for you and provided below under "## Referenced Memories, Asks & Workspaces" (when the fetch succeeded) — verify the criterion against THAT content and report "Met" or "Not Met". Use "Unverifiable" ONLY when that section shows the reference could not be resolved (not found, ambiguous, service disabled, or a transport error) or was cut short by the size budget — evidence must name that fetch status, exactly as for a referenced task spec. Never report "Met" for a reference you could not read, never guess "Not Met" for one, and never omit the criterion. Do NOT emit a \`submit_finding\` with severity BLOCKING for an "Unverifiable" short-id criterion for the same reason as above.
 
 If the task spec contains a \`### Does NOT cover\` or \`## Does NOT cover\` section (recovery-layer carve-out entries, per \`work-completion.mdc §Recovery layer spec discipline\`), include one entry per carve-out entry in that SAME \`submit_spec_verifications\` call, in addition to the success criteria above.
 - status: "Met" when the diff's actual behavior leaves that case alone (the carve-out is honored); "Not Met" when the diff's actual behavior violates it; "N/A" when the entry does not apply to this diff.
@@ -663,6 +665,17 @@ export interface ReviewPromptInput {
    * Undefined or empty array → section omitted.
    */
   referencedTaskSpecs?: ReferencedTaskSpecResult[];
+  /**
+   * `mem#N` / `ask#N` / `ws#N` references appearing inside `taskSpec`'s text
+   * (mt#3964) — e.g. a success criterion naming a memory record as its
+   * artifact, the sibling gap mt#3919 left for the three ADR-029 short-id
+   * families it didn't cover. When present and non-empty, injected as a
+   * "## Referenced Memories, Asks & Workspaces" section so the model can
+   * verify such criteria against the referenced record's actual content
+   * instead of the diff, which cannot carry it. Undefined or empty array →
+   * section omitted.
+   */
+  referencedShortIds?: ReferencedShortIdResult[];
 }
 
 /**
@@ -759,6 +772,88 @@ export function buildReferencedTaskSpecsSection(specs: ReferencedTaskSpecResult[
   return lines.join("\n");
 }
 
+const SHORT_ID_KIND_LABEL: Record<ReferencedShortIdResult["kind"], string> = {
+  memory: "memory",
+  ask: "ask",
+  workspace: "workspace/session",
+};
+
+/**
+ * Render the "## Referenced Memories, Asks & Workspaces" section (mt#3964).
+ *
+ * Sibling of `buildReferencedTaskSpecsSection` above for the three ADR-029
+ * short-id families `mt#NNNN` handling doesn't cover — same three-state
+ * shape (content shown complete / content shown truncated / content
+ * unavailable), same instruction: an unresolvable or cut-short reference
+ * means `Unverifiable`, never `Not Met`, never `Met`, never silently dropped.
+ *
+ * Exported for tests.
+ */
+export function buildReferencedShortIdsSection(refs: ReferencedShortIdResult[]): string | null {
+  if (refs.length === 0) return null;
+
+  const lines: string[] = [
+    "## Referenced Memories, Asks & Workspaces",
+    "",
+    "One or more success criteria in the Task Specification above name a `mem#N` (memory), " +
+      "`ask#N` (ask), or `ws#N` (workspace/session) record as their artifact — a short id per " +
+      "ADR-029. The diff cannot carry a change to one of these records — verify such criteria " +
+      "against the ACTUAL referenced content below, not against the diff.",
+    "",
+    "When an entry is marked TRUNCATED or OMITTED below, its evidence may be incomplete — if the " +
+      "criterion could plausibly be satisfied by content that was cut, report it `Unverifiable`, " +
+      "NEVER `Not Met`. `Not Met` means you read the relevant evidence and it does not carry the " +
+      "change — a cut you cannot see past is not evidence of anything.",
+    "",
+    "For a reference that could not be resolved at all — including an id that does not exist, or " +
+      "one that is genuinely ambiguous — its entry states the fetch status. Report any criterion " +
+      "depending on it as `Unverifiable` (never `Met`, never silently omitted) with evidence " +
+      "naming that status. Do NOT also emit a `submit_finding` with severity BLOCKING for an " +
+      "`Unverifiable` criterion — an unresolvable or cut-short reference is not evidence the " +
+      "criterion is unmet.",
+    "",
+  ];
+
+  for (const ref of refs) {
+    const kindLabel = SHORT_ID_KIND_LABEL[ref.kind];
+    if (ref.content !== null) {
+      const updatedSuffix = ref.updatedAt ? ` (last updated ${ref.updatedAt})` : "";
+      lines.push(`### ${ref.ref} (${kindLabel})${updatedSuffix}`, "");
+      if (ref.truncated) {
+        lines.push(
+          `⚠️ TRUNCATED — ${ref.omittedChars} additional char(s) were cut and are NOT shown ` +
+            `below. If the criterion's evidence might be in the cut portion, report ` +
+            `\`Unverifiable\`, not \`Not Met\`.`,
+          ""
+        );
+      }
+      lines.push(ref.content, "");
+    } else if (ref.truncated) {
+      // Fetch succeeded but the TOTAL budget across all references was
+      // already exhausted before this one's turn.
+      lines.push(
+        `### ${ref.ref} (${kindLabel}) — omitted (context budget)`,
+        "",
+        `This ${kindLabel} was fetched successfully (${ref.omittedChars} char(s)) but is not ` +
+          `shown here — the total budget for this section was already used by earlier ` +
+          `references. Any criterion depending on it must be reported \`Unverifiable\`.`,
+        ""
+      );
+    } else {
+      const errorSuffix = ref.fetchResult.error ? ` — ${ref.fetchResult.error}` : "";
+      lines.push(
+        `### ${ref.ref} (${kindLabel}) — could not be resolved`,
+        "",
+        `Fetch status: \`${ref.fetchResult.status}\`${errorSuffix}. Any criterion depending on ` +
+          `this ${kindLabel} must be reported \`Unverifiable\`.`,
+        ""
+      );
+    }
+  }
+
+  return lines.join("\n");
+}
+
 /**
  * Appended to the "## Diff" heading when the diff is narrowed to the commits
  * since the last review (mt#3471). Deliberately placed OUTSIDE the untrusted
@@ -803,6 +898,13 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     ? `\n\n${referencedTaskSpecsSection}`
     : "";
 
+  const referencedShortIdsSection = input.referencedShortIds
+    ? buildReferencedShortIdsSection(input.referencedShortIds)
+    : null;
+  const referencedShortIdsBlock = referencedShortIdsSection
+    ? `\n\n${referencedShortIdsSection}`
+    : "";
+
   const outOfRepoSection = buildOutOfRepoSection(input.prBody, input.taskSpec);
   const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
 
@@ -837,7 +939,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${fenceUntrusted(input.prBody || "(empty)")}
 
-${specSection}${referencedTaskSpecsBlock}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
+${specSection}${referencedTaskSpecsBlock}${referencedShortIdsBlock}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
 
 ## Diff${input.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""}
 
