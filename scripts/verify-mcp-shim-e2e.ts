@@ -59,8 +59,12 @@ import { fileURLToPath } from "url";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 const AGENT_ID_META_KEY = "io.minsky/agent_id";
+/** The unprefixed `_meta` key MCP reserves for W3C Baggage (mt#3986). */
+const BAGGAGE_META_KEY = "baggage";
+const GEN_AI_CONVERSATION_ID_KEY = "gen_ai.conversation.id";
 const TEST_UUID = "e2e0f1d2-3c4b-4a5d-9e8f-0123456789ab";
 const EXPECTED_AGENT_ID = `com.anthropic.claude-code:conv:${TEST_UUID}`;
+const EXPECTED_BAGGAGE = `${GEN_AI_CONVERSATION_ID_KEY}=${TEST_UUID}`;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const CLI_ENTRY = join(SCRIPT_DIR, "cli-entry.ts");
 
@@ -295,13 +299,18 @@ async function runAlreadySetCase(): Promise<CaseResult> {
     }
     const receivedMeta = (toolResp.result as { receivedMeta?: Record<string, unknown> } | undefined)
       ?.receivedMeta;
-    const pass = receivedMeta?.[AGENT_ID_META_KEY] === preDeclaredAgentId;
+    // mt#3986: the agent_id is still preserved, but the frame is no longer
+    // byte-identical — baggage is decided independently, so the caller keeps
+    // its declared grain AND the conversation crosses the wire as well.
+    const agentIdPreserved = receivedMeta?.[AGENT_ID_META_KEY] === preDeclaredAgentId;
+    const baggageAdded = receivedMeta?.[BAGGAGE_META_KEY] === EXPECTED_BAGGAGE;
+    const pass = agentIdPreserved && baggageAdded;
     return {
-      name: "already-set: pre-declared agent_id passes through unchanged (AT2)",
+      name: "already-set: pre-declared agent_id preserved, baggage still added (AT2)",
       pass,
       detail: pass
         ? "ok"
-        : `expected unchanged ${preDeclaredAgentId}, got: ${JSON.stringify(receivedMeta)}`,
+        : `expected agent_id unchanged (${preDeclaredAgentId}) and baggage ${EXPECTED_BAGGAGE}, got: ${JSON.stringify(receivedMeta)}`,
     };
   } finally {
     shim.child.kill("SIGTERM");
@@ -392,6 +401,12 @@ async function main(): Promise<void> {
         )?.receivedMeta;
         if (!receivedMeta || receivedMeta[AGENT_ID_META_KEY] !== EXPECTED_AGENT_ID) {
           return `expected _meta[${AGENT_ID_META_KEY}] === ${EXPECTED_AGENT_ID}, got: ${JSON.stringify(receivedMeta)}`;
+        }
+        // mt#3986: the same conversation id must ALSO cross the wire as the
+        // W3C baggage entry, so a server reading either key resolves the same
+        // identity. Asserted on the bytes the daemon actually received.
+        if (receivedMeta[BAGGAGE_META_KEY] !== EXPECTED_BAGGAGE) {
+          return `expected _meta[${BAGGAGE_META_KEY}] === ${EXPECTED_BAGGAGE}, got: ${JSON.stringify(receivedMeta)}`;
         }
         return null;
       },

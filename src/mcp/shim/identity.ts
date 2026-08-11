@@ -12,20 +12,35 @@
  * only the `CLAUDE_CODE_SESSION_ID` env-var path — and importing that
  * module anyway would tie this file's footprint to a dependency it doesn't
  * use, exactly the class of "one careless import restores the weight"
- * regression the spec's BLOCKING section warns about. `identity.test.ts`
- * asserts behavioral parity against the stdio-proxy semantics so drift is
- * caught mechanically rather than trusted to review.
+ * regression the spec's BLOCKING section warns about.
+ *
+ * `identity.test.ts`'s `parity with the stdio proxy writer` block asserts
+ * behavioral parity against the stdio-proxy semantics so drift is caught
+ * mechanically rather than trusted to review. That block is new in mt#3986:
+ * this docblock claimed it existed from mt#3812 onward, but nothing in the
+ * test file referenced the proxy until the two writers gained a second shared
+ * behavior (`baggage` emission) and the claim had to become true.
+ *
+ * The W3C Baggage codec is IMPORTED rather than duplicated — unlike the
+ * conversation-id resolution above, `@minsky/domain/agent-identity/baggage` is
+ * a leaf module with no imports of its own, so it costs the bundle its own
+ * ~1.3KB and nothing else.
  *
  * @see src/mcp/stdio-proxy/conversation-identity.ts — the semantics source
  * @see docs/architecture/adr-006-agent-identity.md §Layer 3
  */
 
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
-import { isValidAgentId } from "@minsky/domain/agent-identity/format";
+import { isValidAgentId, parseAgentId } from "@minsky/domain/agent-identity/format";
 import { KNOWN_KINDS } from "@minsky/domain/agent-identity/kinds";
+import {
+  BAGGAGE_META_KEY,
+  GEN_AI_CONVERSATION_ID_KEY,
+  appendBaggageEntry,
+} from "@minsky/domain/agent-identity/baggage";
 import type { JsonRpcMessage } from "./protocol";
 
-export { AGENT_ID_META_KEY };
+export { AGENT_ID_META_KEY, BAGGAGE_META_KEY };
 
 /** Env var Claude Code sets on every spawned MCP server process. */
 export const CLAUDE_CODE_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID";
@@ -62,10 +77,30 @@ export function resolveConversationAgentId(
 }
 
 /**
- * Inject the agentId into a `tools/call` request's `_meta`.
+ * Extract the conversation id an agentId names, or null when it names
+ * something else.
  *
- * Returns a NEW message object when injection applies, or null when it
- * does not — the caller then forwards the original message untouched.
+ * Only a `conv`-scoped id is a conversation id. A `run`-scoped subagent id or a
+ * `proc`-scoped Layer 1 hash must never be emitted as `gen_ai.conversation.id`
+ * — the attribute means one specific thing, and filling it with a different
+ * grain would make baggage-resolved identity silently wrong rather than absent.
+ */
+export function conversationIdFromAgentId(agentId: string): string | null {
+  const parsed = parseAgentId(agentId);
+  if (!parsed || parsed.scope !== "conv") return null;
+  return parsed.id;
+}
+
+/**
+ * Inject conversation identity into a `tools/call` request's `_meta`, under
+ * BOTH keys: `io.minsky/agent_id` and the W3C `baggage` entry
+ * `gen_ai.conversation.id` (mt#3986).
+ *
+ * Returns a NEW message object when either key is written, or null when
+ * neither is — the caller then forwards the original message untouched.
+ *
+ * The two keys are decided INDEPENDENTLY, so a caller that declared its own
+ * `agent_id` still gets baggage added, and vice versa.
  *
  * No-injection cases:
  * - not a `tools/call` request (responses, notifications, initialize, ping)
@@ -73,7 +108,10 @@ export function resolveConversationAgentId(
  * - `_meta["io.minsky/agent_id"]` already present: an upstream caller that
  *   declares its own identity is more specific than the shim's conversation
  *   grain — preserve it rather than overwrite (mirrors
- *   conversation-identity.ts's injectAgentIdMeta exactly).
+ *   conversation-identity.ts's injectAgentIdMeta exactly)
+ * - `_meta.baggage` already carries `gen_ai.conversation.id`, is unparseable,
+ *   or cannot fit the new entry within the W3C limits (see
+ *   `@minsky/domain/agent-identity/baggage`)
  */
 export function injectAgentIdMeta(msg: JsonRpcMessage, agentId: string): JsonRpcMessage | null {
   if (msg.method !== "tools/call") return null;
@@ -83,17 +121,25 @@ export function injectAgentIdMeta(msg: JsonRpcMessage, agentId: string): JsonRpc
   const existingMeta = params["_meta"];
   const metaIsObject =
     existingMeta !== null && typeof existingMeta === "object" && !Array.isArray(existingMeta);
-  if (metaIsObject && (existingMeta as Record<string, unknown>)[AGENT_ID_META_KEY] !== undefined) {
-    return null;
-  }
+  const meta = metaIsObject ? (existingMeta as Record<string, unknown>) : {};
+
+  const agentIdApplies = meta[AGENT_ID_META_KEY] === undefined;
+
+  const conversationId = conversationIdFromAgentId(agentId);
+  const nextBaggage = conversationId
+    ? appendBaggageEntry(meta[BAGGAGE_META_KEY], GEN_AI_CONVERSATION_ID_KEY, conversationId)
+    : null;
+
+  if (!agentIdApplies && nextBaggage === null) return null;
 
   return {
     ...msg,
     params: {
       ...params,
       _meta: {
-        ...(metaIsObject ? (existingMeta as Record<string, unknown>) : {}),
-        [AGENT_ID_META_KEY]: agentId,
+        ...meta,
+        ...(agentIdApplies ? { [AGENT_ID_META_KEY]: agentId } : {}),
+        ...(nextBaggage !== null ? { [BAGGAGE_META_KEY]: nextBaggage } : {}),
       },
     },
   };
