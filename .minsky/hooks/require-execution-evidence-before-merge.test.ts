@@ -1,3 +1,7 @@
+/* eslint-disable max-lines -- comprehensive merge-gate test suite covering every accepted/
+   rejected marker-form permutation across several review rounds (mt#2648, mt#3033, mt#3350,
+   mt#3530, mt#3968); the file sits at the repo's line-count ceiling from legitimate coverage
+   growth, not bloat, and splitting it is a separate refactor, out of scope for a review round. */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 /* eslint-disable custom/no-real-fs-in-tests -- the `runAtCoverageCalibration` /
    `appendAtCoverageCalibration` regression tests below exercise the real, unmocked
@@ -294,6 +298,26 @@ describe("hasExecutionEvidence — fence awareness (mt#3530)", () => {
       "  bun test ./y -> 3 pass, 0 fail",
     ].join("\n");
     expect(hasExecutionEvidence(body)).toBe(true);
+  });
+});
+
+// mt#3968: bold/bullet label widening -- mirrors the sibling negative-control matcher
+// (mt#3778). Cases map 1:1 to the spec's numbered ATs; negatives are what must NOT flip.
+// PR #2854 R2: added AT1b (colon outside bold) and the `*`/`+` bullet forms -- the code
+// already accepted all three bullet markers (see BULLET_PREFIX), this locks them in.
+describe("hasExecutionEvidence — bolded / bulleted label forms (mt#3968)", () => {
+  const cases: [string, string, boolean][] = [
+    ["AT1: colon inside bold", "**Execution evidence:**\n\n```\n5 pass\n```", true],
+    ["AT1b: colon outside bold", "**Execution evidence**: 5 pass", true],
+    ["AT2: bolded + bulleted (-)", "- **Execution evidence:** 5 pass", true],
+    ["bulleted (*)", "* **Execution evidence:** 5 pass", true],
+    ["bulleted (+)", "+ **Execution evidence:** 5 pass", true],
+    ["AT3: bare prose (colon rule)", "we should add execution evidence here", false],
+    ["AT4: bolded negation (negation guard)", "**No execution evidence:**\n\ncontent", false],
+    ["AT5: bolded marker in a fence (mt#3530)", "## S\n\n```\n**Execution evidence:**\n```", false],
+  ];
+  it.each(cases)("%s", (_label, body, expected) => {
+    expect(hasExecutionEvidence(body)).toBe(expected);
   });
 });
 

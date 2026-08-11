@@ -113,22 +113,24 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 2.  Capture the full output (pass/fail counts, any errors).
 3.  Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example (passing run):
 
-    **Test Plan**
+        **Test Plan**
 
-    Execution evidence:
+        Execution evidence:
 
-        bun test src/domain/new-feature.test.ts
-        5 pass, 0 fail
+            bun test src/domain/new-feature.test.ts
+            5 pass, 0 fail
 
-    If tests fail, paste the failing output instead — do not hide failures behind a summary. Example (failing run):
+        If tests fail, paste the failing output instead — do not hide failures behind a summary. Example (failing run):
 
-        bun test src/domain/new-feature.test.ts
-        ✗ should handle edge case [src/domain/new-feature.test.ts:42]
-          AssertionError: expected "actual" to equal "expected"
-        4 pass, 1 fail
-        exit code: 1
+            bun test src/domain/new-feature.test.ts
+            ✗ should handle edge case [src/domain/new-feature.test.ts:42]
+              AssertionError: expected "actual" to equal "expected"
+            4 pass, 1 fail
+            exit code: 1
 
-    Note: redact absolute paths in failure output if they leak system info (e.g., replace `/Users/yourname/...` with `<project-root>/...`).
+        Note: redact absolute paths in failure output if they leak system info (e.g., replace `/Users/yourname/...` with `<project-root>/...`).
+
+        Accepted marker forms (case-insensitive; mt#2648, widened mt#3968): a Markdown heading of any level with an optional trailing colon (`## Execution evidence`, `### Execution evidence:`), or a plain label line `Execution evidence: <content>` — the colon is REQUIRED on the non-heading form so bare prose doesn't false-positive. The label may also be bolded (`**Execution evidence:**` or `**Execution evidence**:`) and/or preceded by a leading Markdown bullet (`-`, `*`, or `+`), mirroring the negative-control marker's accepted decoration above — the colon is still required either way.
 
 **If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
 

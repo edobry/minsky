@@ -686,7 +686,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
           options.session,
           options.draft || false,
           () => this.getSessionDB(),
-          options.authorshipTier
+          options.authorshipTier,
+          { pushTimeoutMs: options.pushTimeoutMs }
         );
       },
 
