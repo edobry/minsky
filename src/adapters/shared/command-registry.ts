@@ -179,15 +179,20 @@ export interface CommandDefinition<
    * "refuse this call when the server build is stale." Two consequences a reader
    * has to know, because the type signature shows neither:
    *
-   * - **Unset does NOT mean "reads".** 13 of 225 registered commands set this,
-   *   all of them session/PR operations, and none sets it `false`. `tasks.delete`,
-   *   `memory.create`, `git.push` and `persistence.migrate` all write and all
-   *   leave it unset. A consumer reading absence as "read-only" gets a confident
-   *   wrong answer for ~212 commands — mt#3845 nearly shipped exactly that.
+   * - **Unset does NOT mean "reads".** 28 of 225 registered commands set this and
+   *   none sets it `false`. `memory.create`, `tasks.create`, `tasks.status.set`
+   *   and `session.write_file` all write and all leave it unset. A consumer
+   *   reading absence as "read-only" gets a confident wrong answer for ~197
+   *   commands — mt#3845 nearly shipped exactly that.
    * - **Do not backfill it to fix that.** Adding the flag to more commands widens
    *   what a stale server REFUSES, which is a change to a safety gate's blast
-   *   radius and belongs to a deliberate decision (mt#3924), not to whichever
-   *   consumer wanted a classification next.
+   *   radius. mt#3924 made that decision once, deliberately and on measured
+   *   evidence: the set covers operations whose effect is irreversible, bulk, or
+   *   schema-migrating — not everything that writes. `tasks.create` and
+   *   `memory.create` are deliberately OUT: they are reversible single-record
+   *   writes on the hottest agent path, and refusing them would buy little while
+   *   making the gate worth working around. Extending the set is another such
+   *   decision, not a consumer's convenience.
    *
    * For "does invoking this tool change state?", use `@minsky/shared/tool-effect`
    * — three-state, browser-reachable, and coverage-tested.

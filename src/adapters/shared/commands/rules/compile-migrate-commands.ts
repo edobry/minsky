@@ -220,6 +220,8 @@ export function registerCompileMigrateCommands(targetRegistry: {
     id: "rules.migrate",
     category: CommandCategory.RULES,
     name: "migrate",
+    // mt#3924: drift-gated — rewrites the rule corpus in place.
+    mutating: true,
     description: "Migrate rules from .cursor/rules/ to .minsky/rules/",
     parameters: rulesMigrateCommandParams,
     execute: async (params) => {
