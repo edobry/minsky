@@ -297,6 +297,21 @@ describe("hasExecutionEvidence — fence awareness (mt#3530)", () => {
   });
 });
 
+// mt#3968: bold/bullet label widening -- mirrors the sibling negative-control matcher
+// (mt#3778). Cases map 1:1 to the spec's numbered ATs; negatives are what must NOT flip.
+describe("hasExecutionEvidence — bolded / bulleted label forms (mt#3968)", () => {
+  const cases: [string, string, boolean][] = [
+    ["AT1: colon inside bold", "**Execution evidence:**\n\n```\n5 pass\n```", true],
+    ["AT2: bolded + bulleted", "- **Execution evidence:** 5 pass", true],
+    ["AT3: bare prose (colon rule)", "we should add execution evidence here", false],
+    ["AT4: bolded negation (negation guard)", "**No execution evidence:**\n\ncontent", false],
+    ["AT5: bolded marker in a fence (mt#3530)", "## S\n\n```\n**Execution evidence:**\n```", false],
+  ];
+  it.each(cases)("%s", (_label, body, expected) => {
+    expect(hasExecutionEvidence(body)).toBe(expected);
+  });
+});
+
 describe("hasExecutionEvidence", () => {
   it("detects '## Execution evidence:' heading with content on next line", () => {
     const body = `## Summary\nSome PR.\n\n## Execution evidence:\nbun test passed\n`;

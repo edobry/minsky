@@ -221,18 +221,26 @@ export function findNewOperationalScripts(files: PrFile[]): string[] {
  * Returns true when the PR body contains an "Execution evidence" block with
  * non-empty content following the marker.
  *
- * Acceptance criteria (mt#2648 — accepted marker forms, case-insensitive):
+ * Accepted marker forms (case-insensitive; mt#2648, widened mt#3968):
  *   - A Markdown heading, any level 1-6, with an OPTIONAL trailing colon
  *     (e.g. `## Execution evidence`, `### Execution evidence:`).
  *   - A standalone label line WITH a colon (`Execution evidence: <content>`) —
  *     the colon is REQUIRED for the non-heading form so bare prose containing
  *     the phrase doesn't false-positive.
+ *   - The label form may be wrapped in `**bold**` / `__bold__` — either around
+ *     the whole `Execution evidence:` including the colon, or around just the
+ *     phrase with the colon outside (`**Execution evidence**:`) — and may be
+ *     preceded by a leading `-`/`*`/`+` bullet marker. This mirrors the
+ *     negative-control matcher's documented allowance (mt#3778) on the sibling
+ *     hook, which already accepted this exact shape while this one did not.
+ *     The colon is still REQUIRED either way — only the decoration around the
+ *     label widened, not the delimiter that keeps bare prose out.
  *   - Negation phrases like "No Execution evidence:" do NOT qualify.
  *   - The marker must be followed by non-whitespace content (inline or on a
  *     subsequent line before the next heading).
  *
  * Detection strategy:
- *   1. Find a line that matches one of the two accepted marker forms above.
+ *   1. Find a line that matches one of the accepted marker forms above.
  *   2. Verify the heading line itself does NOT start with "No " (negation guard).
  *   3. Require that there is at least one non-empty line of content after the
  *      heading and before the next Markdown heading or end-of-string.
@@ -242,19 +250,31 @@ export function hasExecutionEvidence(prBody: string): boolean {
   // in rendered Markdown and must not count as evidence.
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
 
-  // Matches lines in one of two forms (mt#2648):
+  // Matches lines in one of two forms (mt#2648, widened mt#3968):
   //   A. Markdown heading (any level 1-6) + "execution evidence" with an
   //      OPTIONAL trailing colon — e.g. "## Execution evidence",
   //      "### Execution evidence:".
   //   B. Plain label line — "execution evidence:" with a REQUIRED colon (no
   //      heading marker). Keeping the colon required here preserves the
-  //      original true-negative behavior for bare prose mentions.
-  // Anchored at start-of-line via the `m` flag. Group 1 (heading hashes, form
-  // A only) is unused downstream; group 2 captures trailing inline content.
-  // Up to 3 leading spaces before a heading marker, per CommonMark (spaces
-  // only — not \s, which would let the match skip across blank lines).
-  const headingPattern =
-    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+  //      original true-negative behavior for bare prose mentions. The label
+  //      may carry an optional leading `-`/`*`/`+` bullet and optional
+  //      `**`/`__` emphasis wrapping either the whole "phrase:" span (mt#3968
+  //      AT1: `**Execution evidence:**`) or just the phrase with the colon
+  //      outside (mt#3968 AT2 shape: `**Execution evidence**:`).
+  // Anchored at start-of-line via the `m` flag — the bullet/emphasis
+  // decoration is adjacency-anchored immediately before "execution evidence",
+  // so a negation like "**No execution evidence:**" still cannot match: "No "
+  // sits where the pattern requires the literal phrase, same as the plain
+  // "No execution evidence:" case already did. Group 1 (heading hashes, form
+  // A only) is unused downstream; the final group captures trailing inline
+  // content. Up to 3 leading spaces before a heading marker, per CommonMark
+  // (spaces only — not \s, which would let the match skip across blank lines).
+  const BULLET_PREFIX = "(?: {0,3}[-*+]\\s+)?";
+  const EMPHASIS = "(?:\\*\\*|__)?";
+  const headingPattern = new RegExp(
+    `^(?: {0,3}(#{1,6})\\s+execution evidence\\s*:?|${BULLET_PREFIX}${EMPHASIS}execution evidence${EMPHASIS}\\s*:${EMPHASIS})\\s*(.*)$`,
+    "im"
+  );
 
   const lines = strippedBody.split("\n");
   // Fence-aware (mt#3530). A marker whose only occurrence is inside a code fence is
@@ -388,7 +408,9 @@ export function checkExecutionEvidence(
     `execution-evidence block.${scriptNote}\n\n` +
     `Accepted marker forms (case-insensitive): \`Execution evidence:\` (plain label, colon ` +
     `required) OR a Markdown heading of any level with an optional trailing colon ` +
-    `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
+    `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`). The label may also be ` +
+    `\`**bold**\` (\`**Execution evidence:**\` or \`**Execution evidence**:\`) and/or preceded ` +
+    `by a leading \`-\` bullet — the colon is still required either way.\n\n` +
     `Evidence-requiring files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
     `  1. Run the artifact and paste output under an \`Execution evidence\` section ` +
