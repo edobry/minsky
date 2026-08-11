@@ -686,8 +686,27 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * gained a `contested` status branch, raising its measured worst case (and its
  * annotation) 1550 -> 1750. It is the heaviest conditional detector, so it sits in
  * the top-five bucket this derivation sums — the budget moves with it, +200.
+ *
+ * **Why it went UP a third time, 6156 -> 7206 (mt#3533).** `operator-deferral-detector`
+ * was annotated 600 and its saturated render measures **1609** — a correction of
+ * an understatement, not a growth in what it emits. Two thirds of the gap
+ * predates the change that found it: the guard's TWO-prose-match worst case
+ * already measured 1049 before mt#3533 added a fourth surface. It went unseen
+ * because `guard-feedback-shape.test.ts` measures a guard's live
+ * `additionalContext`, and a calibration-first guard (`INJECTION_ENABLED =
+ * false`) returns none — so its ceiling has been enforced against an empty
+ * string since it shipped. That blind spot is **mt#4002**; until it closes,
+ * `operator-deferral-detector.test.ts` pins this guard's render directly.
+ *
+ * The annotation is now 1650 and the top-five sum moves 4950 -> 6000, so the
+ * budget moves by exactly the same +1050. This is the mt#3705 pattern again:
+ * not a bigger budget for the same corpus, but the same corpus with one member
+ * finally counted. It should come back DOWN when the advisory's per-match
+ * evidence lines are trimmed — three of them at the 240-char `context` cap are
+ * ~750 of the 1609, and that trimming belongs with mt#3865, which owns this
+ * detector's text.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 6156;
+export const MERGED_CONTEXT_BUDGET_CHARS = 7206;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";
