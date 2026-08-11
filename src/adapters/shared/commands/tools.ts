@@ -7,6 +7,7 @@
 import {
   sharedCommandRegistry,
   CommandCategory,
+  pickAdapterBehaviorFlags,
   type CommandExecutionContext,
 } from "../command-registry";
 import { createToolsIndexEmbeddingsCommand } from "./tools/index-embeddings-command";
@@ -35,6 +36,12 @@ export function registerToolsCommands(container?: AppContainerInterface): void {
     name: indexEmbeddingsCommand.name,
     description: indexEmbeddingsCommand.description,
     parameters: indexEmbeddingsCommand.parameters,
+    // mt#3993: these re-projections rebuild the definition field-by-field, so a
+    // behavior flag not named here is dropped before any adapter can read it —
+    // the defect that made mt#3889's presence-read exemption inert. None of the
+    // three commands below declares one today; the spread is what keeps that
+    // true if one ever does.
+    ...pickAdapterBehaviorFlags(indexEmbeddingsCommand),
     execute: async (params, ctx: CommandExecutionContext) => {
       return await indexEmbeddingsCommand.execute(
         params as Parameters<typeof indexEmbeddingsCommand.execute>[0],
@@ -52,6 +59,7 @@ export function registerToolsCommands(container?: AppContainerInterface): void {
     name: searchCommand.name,
     description: searchCommand.description,
     parameters: searchCommand.parameters,
+    ...pickAdapterBehaviorFlags(searchCommand),
     execute: async (params, ctx: CommandExecutionContext) => {
       return await searchCommand.execute(
         params as Parameters<typeof searchCommand.execute>[0],
@@ -69,6 +77,7 @@ export function registerToolsCommands(container?: AppContainerInterface): void {
     name: similarCommand.name,
     description: similarCommand.description,
     parameters: similarCommand.parameters,
+    ...pickAdapterBehaviorFlags(similarCommand),
     execute: async (params, ctx: CommandExecutionContext) => {
       return await similarCommand.execute(
         params as Parameters<typeof similarCommand.execute>[0],

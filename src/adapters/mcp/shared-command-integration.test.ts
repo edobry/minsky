@@ -13,11 +13,13 @@ import { z } from "zod";
 import { registerSharedCommandsWithMcp } from "./shared-command-integration";
 import {
   sharedCommandRegistry,
+  createSharedCommandRegistry,
   CommandCategory,
   ADAPTER_BEHAVIOR_FLAG_KEYS,
   type CommandExecutionContext,
 } from "../shared/command-registry";
 import { createTasksClaimsListCommand } from "../shared/commands/tasks/claims-command";
+import { registerTasksCommands } from "../shared/commands/tasks-modular";
 import { redact } from "../../utils/redaction";
 
 type CapturedCall = {
@@ -1436,6 +1438,45 @@ describe("MCP shared-command bridge", () => {
       const { mapper, captured } = makeToolCapturingMapper(command.id);
       registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
 
+      expect(captured.tool).toBeDefined();
+      expect(captured.tool?.readsPresence).toBe(true);
+    });
+
+    /**
+     * mt#3993: the test above still starts at a seam — it puts the definition
+     * into the registry itself, which production does not. Production calls
+     * `registerTasksCommands()`, and THAT re-projects every task command
+     * field-by-field; the projection named `mutating` and not `readsPresence`,
+     * so the flag was gone one layer before the bridge could carry it and the
+     * bridge-level test above stayed green while the probe kept refreshing the
+     * claims it reported.
+     *
+     * The lesson is about assertion SHAPE, not about which layer is at fault: a
+     * test that constructs its own input cannot see a field dropped by the real
+     * constructor. So this one starts where production starts — the factory —
+     * and asserts at the far end, on the registered tool.
+     */
+    test("readsPresence survives the FULL production chain: factory → registerTasksCommands → bridge → tool", () => {
+      // Both halves of the chain run against an ISOLATED registry, so this test
+      // neither reads nor writes the process-wide singleton. An earlier revision
+      // cleared and restored the global TASKS category instead; it passed alone
+      // and failed under the full suite, because another file had already
+      // registered task commands and `registerAllCommands` wraps its whole loop
+      // in one try/catch — the first duplicate-id throw aborts the rest, and
+      // `tasks.claims.list` is the LAST entry in `createAllTaskCommands`, i.e.
+      // exactly the one that goes missing.
+      const registry = createSharedCommandRegistry();
+
+      registerTasksCommands(undefined, registry);
+
+      const { mapper, captured } = makeToolCapturingMapper("tasks.claims.list");
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        registry,
+      });
+
+      // Fails loudly rather than vacuously if registration itself broke:
+      // registerTasksCommands swallows its errors into a log warning.
       expect(captured.tool).toBeDefined();
       expect(captured.tool?.readsPresence).toBe(true);
     });
