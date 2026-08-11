@@ -2,9 +2,9 @@
 
 ## Status
 
-**Proposed** — 2026-08-06. Decided under mt#3808, the Phase-2 design step of mt#1713. The build
-decision itself is already made (ask#7151, 2026-08-06 — operator chose the full build); this
-record decides the architecture, not whether to build.
+**Accepted** — 2026-08-06. Decided under mt#3808, the Phase-2 design step of mt#1713. Approved by
+the operator twice (ask#7151 — full build; ask#7273 — build it, measure a compiled shim first),
+and its first component has shipped and merged (mt#3812, PR #2820 — `minsky mcp shim`).
 
 **Update, 2026-08-09 (mt#3884):** the ~38MB shim figure below was measured against a Bun-based
 prototype; mt#3884 measured a minimal Rust equivalent of the same job at ~2.9–3.4MB — ≈12x
