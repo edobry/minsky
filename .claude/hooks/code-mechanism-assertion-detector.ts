@@ -169,7 +169,34 @@ export const PREDICATE_PATTERNS: RegExp[] = [
   /\b(overrides?|overwrites?|shadows?)\b/i,
   /\b(returns?|yields?|resolves?\s+to)\b/i,
   /\b(throws?|raises?|rejects?|aborts?)\b/i,
-  /\b(enforces?|validates?|guards?|requires?)\b/i,
+  /\b(enforces?|validates?|requires?)\b/i,
+  // `guard` is split out of the alternation above because it is the only member
+  // whose bare form is a common NOUN in this corpus — "the `tasks_create`
+  // guard", "a guard that denies", "guard-health", "the deny-tier sibling
+  // guard". Its siblings have distinct noun forms (enforcement, validation,
+  // requirement), so none of them collides this way. Matching `guards?` read
+  // "the X guard" as the mechanism claim "X guards", and that drove 6 of the 10
+  // injected fires in the 2026-08-09 calibration pass (mt#3876).
+  //
+  // Two changes, both verb-morphology requirements (SC1's third option):
+  //
+  //   1. The bare `guard` is gone. A behavioral claim about a single named
+  //      symbol takes the third-person singular — "`X` guards against Y" — so
+  //      bare `guard` in this corpus is a noun essentially without exception.
+  //      This alone kills all four observed noun forms.
+  //   2. `guards` survives only OUTSIDE noun position. The lookbehind rejects a
+  //      preceding determiner, possessive, quantifier or the adjectives this
+  //      corpus actually uses, which is what separates the plural noun ("the
+  //      two guards", "sibling guards") from the verb ("`X` guards against Y",
+  //      "the parallel-work hook guards the merge"). In the verb case the token
+  //      before `guards` is the SUBJECT, not a determiner — which is why a
+  //      lookbehind discriminates here and a following-context test does not.
+  //
+  // NOT widened to the other noun-ambiguous predicates above (`caps?`,
+  // `limits?`, `drops?`) — mt#3876 SC2 requires each non-`guard` fire to be
+  // re-examined on its own evidence first, and none of those appeared in the
+  // injected set. Recorded in that task rather than fixed on suspicion.
+  /(?<!\b(?:the|a|an|this|that|these|those|its|their|our|his|her|two|three|several|many|sibling|deny-tier|per-detector)\s)\bguards\b/i,
   /\b(ignores?|drops?|swallows?|discards?|skips?)\b/i,
   /\b(truncates?|trims?|strips?)\b/i,
   /\b(falls?\s+back|short[- ]circuits?|no-?ops?)\b/i,

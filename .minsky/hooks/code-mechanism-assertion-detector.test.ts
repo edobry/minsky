@@ -1837,3 +1837,81 @@ describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", (
     expect(ctx).toContain("code-mechanism-assertion-detector");
   });
 });
+
+describe("mt#3876 — `guard` is a noun in this corpus", () => {
+  // The 2026-08-09 calibration pass: 6 of 10 injected fires matched the
+  // predicate `guard`/`Guard`. This corpus writes "the X guard" constantly —
+  // every hook, rule and task spec is in that register — and the old
+  // `guards?` alternative read it as the mechanism claim "X guards".
+  //
+  // These sentences are modeled on the (symbol, predicate) pairs the pass
+  // logged. They are RECONSTRUCTIONS, not verbatim log text: 0 of 553 records
+  // carry `captureSchema`, so the judged sentence is unrecoverable (mt#3649).
+  // The reconstruction is faithful to the pair and to the register, which is
+  // what the fix turns on; it is not evidence about the original wording, and
+  // the spec's 6-of-10 figure stays `inferred` rather than `verified`.
+  //
+  // Each avoids every OTHER predicate pattern, so a fire can only come from
+  // the `guard` rule under test.
+  const NOUN_USES = [
+    "the `tasks_create` guard denies the call when no duplicate-check line is present",
+    "a guard that blocks `ensureHookDomainBootstrap` from running twice",
+    "guard-health tracks `standalone-duplicate-matcher` streaks across sessions",
+    "the deny-tier sibling guard covers `observability.calibration-review` too",
+    "`DISABLE_AUTOUPDATER` — the Guard for the tray auto-update path",
+    "the two guards around `registry.test.ts` are independent of each other",
+  ];
+
+  test("AT1: no noun use of `guard` produces a claim", () => {
+    const fired = NOUN_USES.filter((text) => detectCodeMechanismAssertion(text, "").matched);
+    expect(fired).toEqual([]);
+  });
+
+  // The tune must NARROW, not disable — a detector that stops firing is
+  // indistinguishable from one that was deleted, and the verb form is the
+  // whole reason the predicate exists.
+  const VERB_USES = [
+    "`tasks_create` guards against duplicate specs by matching signature tokens",
+    "the parallel-work hook guards the merge path for `session_pr_merge`",
+  ];
+
+  test("negative control: the verb form still fires", () => {
+    const missed = VERB_USES.filter((text) => !detectCodeMechanismAssertion(text, "").matched);
+    expect(missed).toEqual([]);
+  });
+
+  test("the verb form is still suppressed by a same-turn read", () => {
+    // The tune changes WHAT matches, never the suppression legs — this pins
+    // that the narrowed predicate still flows through them.
+    const result = detectCodeMechanismAssertion(
+      VERB_USES[0] as string,
+      "export async function tasks_create() { /* read this turn */ }"
+    );
+    expect(result.matched).toBe(false);
+    expect(result.hadSameTurnRead).toBe(true);
+  });
+
+  test("AT2: a genuine mechanism claim on an untouched predicate still fires", () => {
+    // mt#3876 SC2 names `UserPromptSubmit`/`skips` as a probable TRUE positive
+    // that a tune must not silence. It matches a different pattern entirely,
+    // so this is the check that the edit stayed inside its own alternation.
+    const result = detectCodeMechanismAssertion(
+      "`UserPromptSubmit` skips prompts under 50 characters",
+      ""
+    );
+    expect(result.matched).toBe(true);
+    expect(result.claims.map((c) => c.symbol)).toContain("UserPromptSubmit");
+  });
+
+  test("the sibling predicates in the old alternation are untouched", () => {
+    // `enforces`/`validates`/`requires` were split away from `guard` but not
+    // changed. Their noun forms are distinct words (enforcement, validation,
+    // requirement), which is why they never had this collision.
+    const stillFire = [
+      "`sessionSchema` validates the incoming payload",
+      "`requireReviewBeforeMerge` enforces the approval check",
+    ];
+    const missed = stillFire.filter((text) => !detectCodeMechanismAssertion(text, "").matched);
+    expect(missed).toEqual([]);
+  });
+});
