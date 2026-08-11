@@ -131,12 +131,21 @@ export function leadingTokenOf(command: string): string {
 }
 
 /**
- * Whether the command chains two or more top-level segments — the property that
- * takes a command OUT of reach of a prefix allow-rule and hands it to the
- * permission classifier instead.
+ * Whether the command is more than one command — two or more top-level segments
+ * (`;`, `&&`, `||`), or a pipeline (`|`).
+ *
+ * The pipeline is included deliberately, and it is the one debatable member: a
+ * pipeline's FIRST stage is still its leading command, so unlike a `;` chain it
+ * does not obviously escape a prefix allow-rule. It counts anyway because of how
+ * the result is USED — {@link isReshapedRetry} only consults this when a retry
+ * already happened, so counting a dropped pipe as a reshape means "the agent
+ * simplified and tried again", which is precisely the behaviour the caller
+ * exists to credit. Excluding it would keep firing at an agent that did the
+ * right thing.
  */
 export function isCompoundCommand(command: string): boolean {
-  return splitTopLevel(command).length > 1;
+  const segments = splitTopLevel(command);
+  return segments.length > 1 || segments.some((segment) => splitPipeline(segment).length > 1);
 }
 
 /**

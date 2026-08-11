@@ -853,6 +853,30 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     expect(matches).toEqual([]);
   });
 
+  test("the rejection string in a SUCCESSFUL result is not a denial", () => {
+    // The false-positive vector `is_error` closes: a tool that echoes prior
+    // conversation back — reading a transcript, grepping a calibration log —
+    // returns the canonical rejection text in a result that did not fail.
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", "grep -r 'proceed with this tool use' ~/.claude/projects"),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [{ type: "text", text: DENIAL_NO_REASON }],
+            },
+          ],
+        },
+      },
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
   test("a turn with no denial at all is untouched", () => {
     expect(detectDenialAnchoredDeferral([assistantText("All green."), asksCreate()])).toEqual([]);
   });

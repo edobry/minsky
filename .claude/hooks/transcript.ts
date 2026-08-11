@@ -1076,6 +1076,12 @@ export function findDeniedToolCalls(lines: TranscriptLine[]): DeniedToolCall[] {
       if (!block || block["type"] !== "tool_result") continue;
       const useId = block["tool_use_id"];
       if (typeof useId !== "string") continue;
+      // BOTH conjuncts, not just the marker. Every one of the 73 denials in the
+      // measured corpus carries `is_error: true`, and requiring it closes an
+      // obvious false-positive vector: a SUCCESSFUL result whose body merely
+      // CONTAINS the rejection string — reading a transcript file, grepping a
+      // calibration log, or any tool that echoes prior conversation back.
+      if (block["is_error"] !== true) continue;
       const text = extractToolResultText(block["content"]);
       if (TOOL_DENIAL_MARKER.test(text)) denials.push({ index: i, useId, text });
     }

@@ -41,9 +41,14 @@ describe("isCompoundCommand", () => {
     expect(isCompoundCommand("a || b")).toBe(true);
   });
 
-  test("is false for a single command, including a pipeline", () => {
+  test("is false for a single command", () => {
     expect(isCompoundCommand(RESHAPED)).toBe(false);
-    expect(isCompoundCommand("bun test | tail -5")).toBe(false);
+    expect(isCompoundCommand("curl https://example.com")).toBe(false);
+  });
+
+  test("is true for a pipeline — a dropped pipe counts as a simplification", () => {
+    expect(isCompoundCommand("bun test | tail -5")).toBe(true);
+    expect(isReshapedRetry("curl https://a.example | jq .x", "curl https://a.example")).toBe(true);
   });
 
   test("is false when the separator is quoted", () => {
