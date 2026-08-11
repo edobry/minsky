@@ -8,7 +8,7 @@ memory. They are deliberately independent.
 | Fires at | `MINSKY_MCP_MEMORY_CEILING_MB`, default **2048** | `MINSKY_MCP_MEMORY_CAPTURE_MB`, default **1024**     |
 | Does     | logs the breach, then `process.exit`             | writes an artifact to disk, then gets out of the way |
 | Answers  | _which process class_ ballooned                  | _what it was doing_                                  |
-| Covers   | `mcp start` (all transports), `mcp proxy`        | `mcp start`, `cockpit start` (watermark 2048)        |
+| Covers   | `mcp start` (all transports), `mcp proxy`        | `mcp start`, `mcp proxy`, `cockpit start` (2048)     |
 
 The capture watermark must sit **below** the ceiling or it could never fire; a misconfiguration
 that puts it at or above the ceiling refuses to arm and logs an error rather than burning a timer
@@ -64,8 +64,14 @@ at retained state instead.
 
 ## The heap snapshot is opt-in, and there is a measured reason
 
-Set `MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT=1` to request one. It is **not** on by default and the code
-will **refuse** it when taking it would breach the ceiling.
+Set `MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT=1` to request one. It is **not** on by default, and the code
+will **refuse** a requested snapshot whose projected peak exceeds its budget — the **stricter of
+the kill ceiling and 1/8 of physical memory**.
+
+Both halves of that budget are load-bearing. A ceiling-only test silently stops guarding on a class
+that has no self-terminate (`ceilingBytes: Infinity`, the cockpit daemon), because nothing is ever
+greater than `Infinity` — caught by the reviewer on PR #2864, where an un-fixed build was observed
+taking a snapshot of a 1.34 GB process that would have peaked near 13 GB.
 
 Node documents V8's snapshot as needing "memory about twice the size of the heap" and as "a
 synchronous operation which blocks the event loop"

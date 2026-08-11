@@ -47,6 +47,9 @@ import * as os from "os";
 import * as path from "path";
 
 import { log } from "@minsky/shared/logger";
+import { parsePositiveIntEnv, type StoppableWatcher } from "./orphan-exit";
+
+export type { StoppableWatcher };
 
 /** Default watermark (MB) at which a capture is taken. */
 export const DEFAULT_MEMORY_CAPTURE_WATERMARK_MB = 1024;
@@ -76,6 +79,35 @@ const BYTES_PER_MB = 1024 * 1024;
  * choice, and 10 is already far above anything a caller would guess.
  */
 export const HEAP_SNAPSHOT_RSS_MULTIPLIER = 10;
+
+/**
+ * Fraction of total system memory a snapshot's projected peak may reach.
+ *
+ * The kill ceiling alone is NOT a sufficient bound, because a class with no
+ * self-terminate passes `ceilingBytes: Infinity` — and `projected > Infinity`
+ * is never true, so a ceiling-only guard silently stops guarding exactly where
+ * the process is least protected (PR #2864 R1, caught by the reviewer). The
+ * cockpit daemon is that class and idles at 1.31 GB: at the measured ~10x it
+ * would snapshot to ~13 GB, which is the memory-exhaustion path that panics the
+ * machine — a diagnostic causing the incident it exists to explain.
+ *
+ * 1/8 of physical memory: 8 GB on this 64 GB workstation, which refuses the
+ * cockpit's ~13 GB projection while still permitting a snapshot of a process in
+ * the measured 427-644 MB `mcp start` band (~6 GB projected). Derived from
+ * `os.totalmem()` rather than hardcoded so it holds on a smaller machine, where
+ * the absolute headroom is what actually matters.
+ */
+export const HEAP_SNAPSHOT_MAX_TOTAL_MEMORY_FRACTION = 1 / 8;
+
+/**
+ * The bound a projected snapshot peak must stay under.
+ *
+ * The STRICTER of the kill ceiling and the system-memory cap, so neither an
+ * absent ceiling nor a generously-raised one can leave the snapshot unguarded.
+ */
+export function resolveSnapshotBudgetBytes(ceilingBytes: number, totalMemoryBytes: number): number {
+  return Math.min(ceilingBytes, totalMemoryBytes * HEAP_SNAPSHOT_MAX_TOTAL_MEMORY_FRACTION);
+}
 
 /** One MCP tool call in flight at capture time. */
 export interface InFlightToolCall {
@@ -185,10 +217,6 @@ export function decideCaptureArm(decision: CaptureArmDecision): CaptureArmVerdic
     return { armed: false, reason: "watermark-not-below-ceiling" };
   }
   return { armed: true };
-}
-
-export interface StoppableWatcher {
-  stop: () => void;
 }
 
 export interface ResidentMemoryCaptureWatcherOptions {
@@ -301,18 +329,14 @@ export interface WireMemoryCaptureWatcherOptions {
   /** In-flight MCP tool calls at capture time. Absent for classes that serve no tools. */
   getInFlightToolCalls?: () => InFlightToolCall[];
   getDiagnostics?: () => Record<string, unknown>;
+  /** Injected in tests so the snapshot budget can be asserted on a known machine size. */
+  getTotalMemoryBytes?: () => number;
   env?: NodeJS.ProcessEnv;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
   /** Injected in tests so the artifact write can be asserted without touching disk. */
   writeArtifact?: (options: WriteCaptureOptions) => string;
   now?: () => Date;
-}
-
-function parsePositiveIntEnv(raw: string | undefined): number | undefined {
-  if (raw === undefined) return undefined;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 /**
@@ -373,11 +397,15 @@ export function wireMemoryCaptureWatcher(
         let heapSnapshotSkippedReason: string | undefined;
 
         const projectedPeakBytes = residentBytes * HEAP_SNAPSHOT_RSS_MULTIPLIER;
+        const snapshotBudgetBytes = resolveSnapshotBudgetBytes(
+          options.ceilingBytes,
+          (options.getTotalMemoryBytes ?? os.totalmem)()
+        );
 
         if (!snapshotRequested) {
           heapSnapshotSkippedReason =
             "not requested (set MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT=1; see mt#3973 on why this is opt-in)";
-        } else if (projectedPeakBytes > options.ceilingBytes) {
+        } else if (projectedPeakBytes > snapshotBudgetBytes) {
           // Refuse even when explicitly requested. Taking the snapshot here
           // would push the process past the very ceiling that exists to stop it
           // panicking the machine — the diagnostic would CAUSE the incident it
@@ -387,7 +415,8 @@ export function wireMemoryCaptureWatcher(
           heapSnapshotSkippedReason =
             `refused: a snapshot at ${Math.round(residentBytes / BYTES_PER_MB)}MB would transiently ` +
             `reach ~${Math.round(projectedPeakBytes / BYTES_PER_MB)}MB (measured ${HEAP_SNAPSHOT_RSS_MULTIPLIER}x, mt#3973 AT3), ` +
-            `above the ${Math.round(options.ceilingBytes / BYTES_PER_MB)}MB ceiling. ` +
+            `above the ${Math.round(snapshotBudgetBytes / BYTES_PER_MB)}MB budget ` +
+            `(the stricter of the kill ceiling and 1/8 of system memory). ` +
             `Lower MINSKY_MCP_MEMORY_CAPTURE_MB or raise MINSKY_MCP_MEMORY_CEILING_MB.`;
         } else {
           heapSnapshotBytes = generateHeapSnapshotBytes();

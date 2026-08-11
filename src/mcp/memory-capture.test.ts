@@ -10,7 +10,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_MEMORY_CAPTURE_WATERMARK_MB,
+  HEAP_SNAPSHOT_MAX_TOTAL_MEMORY_FRACTION,
   HEAP_SNAPSHOT_RSS_MULTIPLIER,
+  resolveSnapshotBudgetBytes,
   buildCaptureFileStem,
   buildCaptureRecord,
   decideCaptureArm,
@@ -405,6 +407,80 @@ describe("wireMemoryCaptureWatcher", () => {
 
   test("HEAP_SNAPSHOT_RSS_MULTIPLIER reflects the measured cost, not Node's documented 2x", () => {
     expect(HEAP_SNAPSHOT_RSS_MULTIPLIER).toBeGreaterThan(2);
+  });
+
+  test("refuses a snapshot on a class with NO kill ceiling (PR #2864 R1)", () => {
+    // The regression the reviewer caught: with ceilingBytes = Infinity, the
+    // original `projected > ceiling` test is never true, so the guard silently
+    // stopped guarding exactly where the process is least protected. The
+    // cockpit daemon is that class, and at 1.31 GB it would snapshot to ~13 GB.
+    const timers = createFakeTimers();
+    const written: WriteCaptureOptions[] = [];
+    wireMemoryCaptureWatcher({
+      processRole: "cockpit start",
+      ceilingBytes: Number.POSITIVE_INFINITY,
+      defaultWatermarkMb: 1024,
+      getResidentBytes: () => 1340 * MB,
+      getUptimeSeconds: () => 1,
+      getTotalMemoryBytes: () => 64 * 1024 * MB,
+      env: { MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT: "1" } as NodeJS.ProcessEnv,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      writeArtifact: (options) => {
+        written.push(options);
+        return STUB_JSON_PATH;
+      },
+    });
+    timers.tick();
+
+    const record = only(written).record as MemoryCaptureRecord;
+    expect(record.heapSnapshotPath).toBeNull();
+    expect(record.heapSnapshotSkippedReason).toContain("refused");
+    expect(only(written).heapSnapshotBytes).toBeFalsy();
+  });
+
+  test("allows a snapshot that fits both the ceiling and the system-memory budget", () => {
+    // A process in the measured 427-644MB band projects to ~6GB, under the 8GB
+    // budget on a 64GB machine — the guard must not be so strict that it
+    // refuses the case it was built to serve.
+    const timers = createFakeTimers();
+    const written: WriteCaptureOptions[] = [];
+    wireMemoryCaptureWatcher({
+      processRole: ROLE,
+      ceilingBytes: 16 * 1024 * MB,
+      defaultWatermarkMb: 512,
+      getResidentBytes: () => 600 * MB,
+      getUptimeSeconds: () => 1,
+      getTotalMemoryBytes: () => 64 * 1024 * MB,
+      env: { MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT: "1" } as NodeJS.ProcessEnv,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      writeArtifact: (options) => {
+        written.push(options);
+        return STUB_JSON_PATH;
+      },
+    });
+    timers.tick();
+
+    const record = only(written).record as MemoryCaptureRecord;
+    // Bun's generateHeapSnapshot is unavailable under the test runner's
+    // globals in some configurations; either it was taken, or it was skipped
+    // for RUNTIME absence — never for the budget.
+    expect(record.heapSnapshotSkippedReason ?? "").not.toContain("refused");
+  });
+
+  test("resolveSnapshotBudgetBytes takes the stricter of ceiling and system memory", () => {
+    const totalMemory = 64 * 1024 * MB;
+    // Ceiling is stricter.
+    expect(resolveSnapshotBudgetBytes(2048 * MB, totalMemory)).toBe(2048 * MB);
+    // System-memory cap is stricter (no ceiling at all).
+    expect(resolveSnapshotBudgetBytes(Number.POSITIVE_INFINITY, totalMemory)).toBe(
+      totalMemory * HEAP_SNAPSHOT_MAX_TOTAL_MEMORY_FRACTION
+    );
+    // And a generously-raised ceiling does not escape the system-memory cap.
+    expect(resolveSnapshotBudgetBytes(60 * 1024 * MB, totalMemory)).toBe(
+      totalMemory * HEAP_SNAPSHOT_MAX_TOTAL_MEMORY_FRACTION
+    );
   });
 
   test("the default watermark leaves room below the shipped 2048MB ceiling", () => {
