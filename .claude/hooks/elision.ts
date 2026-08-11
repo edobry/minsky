@@ -65,3 +65,87 @@ export function elideDoubleQuotedSpans(text: string): string {
 export function elideQuotedAndCodeContexts(text: string): string {
   return elideDoubleQuotedSpans(elideQuotedContexts(text));
 }
+
+// ---------------------------------------------------------------------------
+// Whole-turn meta-discussion suppression (moved here by mt#3983)
+// ---------------------------------------------------------------------------
+
+/**
+ * ⚠️ NOT PORTABLE AS-IS. Read this before applying it to another detector.
+ *
+ * This lives in the shared module because ADR-024's Rung 1 has two halves —
+ * "prose-quoted spans and explicit discussion-framing" — and keeping one of
+ * them private to a single detector is what made the family's missing coverage
+ * invisible: nothing else could reach it, so nobody noticed nothing did. Being
+ * here makes the gap legible. It does NOT make this function the right
+ * instrument for the rest of the family, for two reasons:
+ *
+ * 1. **It is WHOLE-TURN suppression, not span-level elision.** Its caller
+ *    returns NO matches for the entire turn. Everything else in this module
+ *    blanks a span and lets the rest of the text be scanned.
+ * 2. **Its patterns are tuned to ONE detector's subject matter.** Bare
+ *    `calibration` and `false positives` sit beside retro-specific headings.
+ *    For `retrospective-trigger-scanner` that reasoning holds and its tradeoff
+ *    is deliberate (below). It inverts elsewhere: a calibration-review turn is
+ *    exactly when an agent makes many real unread-code-symbol claims, so
+ *    applying this to `code-mechanism-assertion` would silence it where it is
+ *    most likely to be right.
+ *
+ * The per-detector mechanism question is **mt#3987**. Do not answer it by
+ * importing this.
+ *
+ * ---
+ *
+ * Meta-discussion context markers (mt#2672): when the assistant turn's
+ * SUBJECT is the retrospective-trigger detector or the calibration system
+ * itself, trigger-phrase mentions are overwhelmingly quotations of the
+ * detector's own patterns — 5 of 8 fires in the 2026-07-08 review window
+ * were exactly this shape (62% FP rate), and 0 real positives occurred in
+ * such turns.
+ *
+ * The narrow marker set (this is the "documented, narrow heuristic" from the
+ * approved disposition on ask 0147caa5):
+ *   - the detector's own name,
+ *   - calibration vocabulary (log/data/review),
+ *   - "false positive(s)" — the FP-triage register itself.
+ *
+ * Documented tradeoff: a live failure admission inside a
+ * calibration-discussion turn is suppressed (a false negative). Accepted
+ * because every such turn in the review window was an FP, a deliberate
+ * `/retrospective` invocation is unaffected, and the FP/FN balance is
+ * re-measured at the next calibration review (mt#2483 loop).
+ */
+export const META_CONTEXT_PATTERNS: RegExp[] = [
+  /retrospective[- ]trigger/i,
+  /\bcalibration\b/i,
+  /\bfalse[- ]positives?\b/i,
+  /\/calibration-review\b/,
+  // mt#3036: retrospective structured-output shape. The `/retrospective`
+  // skill's own output format REQUIRES the R-family taxonomy vocabulary
+  // (`### Agent error (cognitive)` → "Assumption Error", "I conflated",
+  // "I should have caught"), which the scanner would then match on. When
+  // the assistant turn IS that output — recognizable by these headings —
+  // trigger phrases in it are describing the analyzed failure, not asserting
+  // a fresh one. Whole-turn suppression here mirrors the existing
+  // meta-discussion tradeoff (a live admission mixed into a retro-output
+  // turn is a documented FN; the widened invocation look-back is the
+  // primary defense, this pattern set is defense-in-depth).
+  //
+  // PR #2169 R1 (narrowed): patterns are limited to headings distinctive
+  // to `/retrospective`'s Step 2a output. Generic RCA/design-doc headings
+  // (`### Root cause`, `### Failure mode:`) were dropped — they appear in
+  // ordinary specs, ADRs, and incident memos, and their broad match risks
+  // suppressing R-family scanning on unrelated content. The retained set
+  // requires the retro-specific `## Retrospective:` header OR one of the
+  // taxonomy sub-headings that is essentially a retro-only phrase.
+  /^##\s+Retrospective:/m,
+  /^###\s+Agent error\s*\(cognitive\)/m,
+  /^###\s+Recurrence check\b/m,
+  /^###\s+Recurrence-after-DONE\b/m,
+  /^\*\*Correction noted\*\*\s*:/m,
+];
+
+/** True when the raw turn text is meta-discussion of the detector/calibration system. */
+export function isDetectorMetaDiscussion(text: string): boolean {
+  return META_CONTEXT_PATTERNS.some((p) => p.test(text));
+}
