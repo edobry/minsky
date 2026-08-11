@@ -23,6 +23,7 @@
  */
 
 import { z } from "zod";
+import { log } from "@minsky/shared/logger";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -95,7 +96,18 @@ async function buildSweptEntries(): Promise<CalibrationLogEntry[]> {
       mod.getDeclaredCalibrationLogNames(),
       CALIBRATION_LOG_REGISTRY
     );
-  } catch {
+  } catch (err) {
+    // mt#3716 PR #2822 review: a silent catch here would hide a genuine
+    // regression (e.g. the declaration module moved) behind the SAME output
+    // shape as the legitimate degraded-context case (a deployed bundle with
+    // no source tree on disk) — logging makes the fallback observable
+    // without changing the fail-open behavior itself, since calibration
+    // review must never hard-fail on this.
+    log.warn(
+      "[calibration] falling back to static CALIBRATION_LOG_REGISTRY — could not load the " +
+        "shared declaration accessor (scripts/lib/calibration-log-declarations)",
+      { error: err instanceof Error ? err.message : String(err) }
+    );
     return CALIBRATION_LOG_REGISTRY;
   }
 }

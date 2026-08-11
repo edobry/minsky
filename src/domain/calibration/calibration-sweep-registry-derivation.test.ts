@@ -68,6 +68,31 @@ describe("deriveCalibrationLogEntries", () => {
     const entries = deriveCalibrationLogEntries(["b", "a"], known);
     expect(entries.map((e) => e.name)).toEqual(["a", "b"]);
   });
+
+  // PR #2822 review (BLOCKING): a declared name that is NOT one of the
+  // recognized `CalibrationLogEntry["kind"]` literals must NOT be cast
+  // unchecked — it must get the safe `generic-matches` catch-all instead, so
+  // a genuinely new detector's log is still swept even before a human gives
+  // it its own kind + KIND_FIXTURES entry.
+  test("a declared name that is NOT a known kind literal gets the generic-matches catch-all, not an unchecked cast", () => {
+    const [entry] = deriveCalibrationLogEntries(
+      ["some-brand-new-detector-nobody-classified-yet"],
+      []
+    );
+    if (!entry) throw new Error("expected one derived entry");
+    expect(entry.kind).toBe("generic-matches");
+    expect(entry.name).toBe("some-brand-new-detector-nobody-classified-yet");
+  });
+
+  test("an UNRECOGNIZED declared name's synthesized entry still parses via the shared fallback, never returning null", () => {
+    const [entry] = deriveCalibrationLogEntries(["totally-unclassified-name"], []);
+    if (!entry) throw new Error("expected one derived entry");
+    const record = parseCalibrationRecord(
+      JSON.stringify({ timestamp: "2026-08-11T00:00:00Z", session_id: "s1" }),
+      entry.kind
+    );
+    expect(record).not.toBeNull();
+  });
 });
 
 describe("findUnsweptCalibrationLogs", () => {
@@ -131,6 +156,7 @@ const UNESCALATED_INCIDENT_KIND = "unescalated-incident";
 const OPERATOR_INSTRUCTION_TRIGGER_KIND = "operator-instruction-trigger";
 const CHAINED_VERIFICATION_COMMANDS_KIND = "chained-verification-commands";
 const DUPLICATE_SIGNATURE_SCAN_KIND = "duplicate-signature-scan";
+const GENERIC_MATCHES_KIND = "generic-matches";
 
 const NEW_KIND_SAMPLES: Record<string, string> = {
   [BARE_PROHIBITION_KIND]: JSON.stringify({
@@ -197,6 +223,10 @@ const NEW_KIND_SAMPLES: Record<string, string> = {
       { taskId: "mt#123", status: "TODO", token: "sweeps.test.ts", rule: "path", excerpt: "…" },
     ],
   }),
+  [GENERIC_MATCHES_KIND]: JSON.stringify({
+    timestamp: "2026-08-11T00:00:00Z",
+    session_id: "s1",
+  }),
 };
 
 describe("mt#3716 new kinds parse to non-null records (SC4)", () => {
@@ -219,6 +249,7 @@ describe("mt#3716 new kinds parse to non-null records (SC4)", () => {
       AGENT_DISPATCH_RECORD_KIND,
       CHAINED_VERIFICATION_COMMANDS_KIND,
       DUPLICATE_SIGNATURE_SCAN_KIND,
+      GENERIC_MATCHES_KIND,
     ];
     for (const kind of newKinds) {
       expect(NEW_KIND_SAMPLES[kind]).toBeDefined();
