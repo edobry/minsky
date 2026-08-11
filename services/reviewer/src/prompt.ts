@@ -668,10 +668,22 @@ export interface ReviewPromptInput {
 /**
  * Render the "## Referenced Task Specs" section (mt#3919).
  *
- * For each resolved reference: the full spec content (when the fetch
- * succeeded) or the fetch-failure status (when it did not). Either way the
- * reference is named explicitly — a criterion depending on it must be
- * reported via `submit_spec_verification`, never silently dropped.
+ * For each resolved reference, one of three shapes (mt#3919 PR #2841 R1
+ * BLOCKING widened this from two to three — see `ReferencedTaskSpecResult`'s
+ * doc comment):
+ *   1. Content shown, complete (`content !== null`, `truncated === false`).
+ *   2. Content shown, but CUT SHORT by the per-task or total budget
+ *      (`content !== null`, `truncated === true`) — a visible warning is
+ *      attached naming how much was cut.
+ *   3. Content entirely unavailable, either because the fetch failed
+ *      (`content === null`, `truncated === false`) or because the total
+ *      budget was exhausted before this reference's turn (`content === null`,
+ *      `truncated === true`) — these two are distinguished in the rendered
+ *      text (a real fetch failure vs. a context-budget decision), but both
+ *      end in the same instruction: report `Unverifiable`.
+ *
+ * Either way the reference is named explicitly — a criterion depending on it
+ * must be reported via `submit_spec_verification`, never silently dropped.
  *
  * Exported for tests.
  */
@@ -686,18 +698,52 @@ export function buildReferencedTaskSpecsSection(specs: ReferencedTaskSpecResult[
       "change to another task's spec — verify such criteria against the ACTUAL referenced spec " +
       "content below, not against the diff.",
     "",
-    "For a reference that could not be fetched, its entry states the fetch status. Report any " +
-      "criterion depending on it as `Unverifiable` (never `Met`, never silently omitted) with " +
-      "evidence naming that status. Do NOT also emit a `submit_finding` with severity BLOCKING " +
-      "for an `Unverifiable` criterion — an unfetchable spec is not evidence the criterion is " +
-      "unmet.",
+    "Each reference below is bounded — a section targeted by the criterion's own wording when one " +
+      'was found (plus any "## AMENDED"/"## Correction"/"## Update" section, which this repo\'s ' +
+      "own spec-authoring convention uses to record overrides), otherwise the whole spec, capped " +
+      "in size. When an entry is marked TRUNCATED or OMITTED below, its evidence may be incomplete " +
+      "— if the criterion could plausibly be satisfied by content that was cut, report it " +
+      "`Unverifiable`, NEVER `Not Met`. `Not Met` means you read the relevant evidence and it does " +
+      "not carry the change — a cut you cannot see past is not evidence of anything.",
+    "",
+    "For a reference that could not be fetched at all, its entry states the fetch status. Report " +
+      "any criterion depending on it as `Unverifiable` (never `Met`, never silently omitted) with " +
+      "evidence naming that status. Do NOT also emit a `submit_finding` with severity BLOCKING for " +
+      "an `Unverifiable` criterion — an unfetchable or cut-short spec is not evidence the criterion " +
+      "is unmet.",
     "",
   ];
 
   for (const spec of specs) {
     if (spec.content !== null) {
       const updatedSuffix = spec.updatedAt ? ` (spec last updated ${spec.updatedAt})` : "";
-      lines.push(`### ${spec.taskId}${updatedSuffix}`, "", spec.content, "");
+      const scopeSuffix = spec.sectionsInjected
+        ? ` — section(s): ${spec.sectionsInjected.join(", ")}`
+        : "";
+      lines.push(`### ${spec.taskId}${updatedSuffix}${scopeSuffix}`, "");
+      if (spec.truncated) {
+        lines.push(
+          `⚠️ TRUNCATED — ${spec.omittedChars} additional char(s) of this ${
+            spec.sectionsInjected ? "section" : "spec"
+          } were cut and are NOT shown below. If the criterion's evidence might be in the cut ` +
+            `portion, report \`Unverifiable\`, not \`Not Met\`.`,
+          ""
+        );
+      }
+      lines.push(spec.content, "");
+    } else if (spec.truncated) {
+      // Fetch succeeded but the TOTAL budget across all references was
+      // already exhausted before this one's turn — distinct from a genuine
+      // fetch failure below.
+      lines.push(
+        `### ${spec.taskId} — omitted (context budget)`,
+        "",
+        `This task's spec was fetched successfully (${spec.omittedChars} char(s)) but is not ` +
+          `shown here — the total budget for this section was already used by earlier ` +
+          `references. Any criterion depending on this task's spec must be reported ` +
+          `\`Unverifiable\`.`,
+        ""
+      );
     } else {
       const errorSuffix = spec.fetchResult.error ? ` — ${spec.fetchResult.error}` : "";
       lines.push(

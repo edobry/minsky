@@ -37,9 +37,17 @@
  *   bun services/reviewer/scripts/replay-referenced-spec-verification.ts
  */
 
-import type { TaskServiceInterface, Task } from "@minsky/domain/tasks";
+import type { TaskServiceInterface } from "@minsky/domain/tasks";
 import { resolveReferencedTaskSpecs } from "../src/task-spec-fetch";
 import { buildReferencedTaskSpecsSection } from "../src/prompt";
+
+/**
+ * `Task` itself is not re-exported from `@minsky/domain/tasks`'s barrel
+ * (only `TaskServiceInterface` is) — derive the exact same nominal type from
+ * the interface's own method signature instead of adding a second import
+ * path for one fixture field.
+ */
+type SpecFetchResult = Awaited<ReturnType<TaskServiceInterface["getTaskSpecContent"]>>;
 
 // ---------------------------------------------------------------------------
 // Fixture: PR #2761's actual six success criteria (mt#3915's spec, verbatim)
@@ -118,7 +126,11 @@ function makeTaskService(specByTaskId: Record<string, string>): TaskServiceInter
     getTaskSpecContent: async (taskId: string) => {
       const content = specByTaskId[taskId];
       if (content === undefined) throw new Error(`task ${taskId} not found`);
-      const task: Task = { id: taskId, title: `Replay fixture for ${taskId}`, status: "DONE" };
+      const task: SpecFetchResult["task"] = {
+        id: taskId,
+        title: `Replay fixture for ${taskId}`,
+        status: "DONE",
+      };
       return { task, specPath: `/fake/${taskId}.md`, content };
     },
   };

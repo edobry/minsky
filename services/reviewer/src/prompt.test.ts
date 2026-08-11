@@ -615,6 +615,8 @@ describe("buildReferencedTaskSpecsSection (mt#3919)", () => {
           content: "## Success Criteria\n\n- [ ] scoped package name.",
           updatedAt: "2026-08-10T17:53:58.889Z",
           fetchResult: { status: "found", taskId: "mt#3874", specLength: 42 },
+          truncated: false,
+          omittedChars: 0,
         },
       ],
     });
@@ -637,6 +639,8 @@ describe("buildReferencedTaskSpecsSection (mt#3919)", () => {
           content: null,
           updatedAt: null,
           fetchResult: { status: "not-found", taskId: "mt#9999" },
+          truncated: false,
+          omittedChars: 0,
         },
       ],
     });
@@ -655,11 +659,75 @@ describe("buildReferencedTaskSpecsSection (mt#3919)", () => {
           content: null,
           updatedAt: null,
           fetchResult: { status: "disabled", taskId: "mt#9999" },
+          truncated: false,
+          omittedChars: 0,
         },
       ],
     });
 
     expect(prompt).toContain("Do NOT also emit a `submit_finding` with severity BLOCKING");
+  });
+
+  test("renders a visible TRUNCATED warning + Unverifiable instruction when content was cut (mt#3919 R1 BLOCKING)", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#3874",
+          content: "partial content shown here",
+          updatedAt: "2026-08-10T17:53:58.889Z",
+          fetchResult: { status: "found", taskId: "mt#3874", specLength: 50_000 },
+          truncated: true,
+          omittedChars: 42_000,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("⚠️ TRUNCATED");
+    expect(prompt).toContain("42000 additional char(s)");
+    expect(prompt).toContain("report `Unverifiable`, not `Not Met`");
+    expect(prompt).toContain("partial content shown here");
+  });
+
+  test("renders a distinct context-budget-omitted block, never confused with a fetch failure (mt#3919 R1 BLOCKING)", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#4001",
+          content: null,
+          updatedAt: null,
+          fetchResult: { status: "found", taskId: "mt#4001", specLength: 9_000 },
+          truncated: true,
+          omittedChars: 9_000,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("### mt#4001 — omitted (context budget)");
+    expect(prompt).toContain("fetched successfully");
+    expect(prompt).toContain("must be reported `Unverifiable`");
+    // Must NOT read as a genuine fetch failure — those two are distinct causes.
+    expect(prompt).not.toContain("mt#4001 — could not be fetched");
+  });
+
+  test("annotates the heading with the targeted section(s) when section-targeted injection fired", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#3874",
+          content: "- [ ] scoped package name.",
+          updatedAt: null,
+          fetchResult: { status: "found", taskId: "mt#3874", specLength: 27 },
+          truncated: false,
+          omittedChars: 0,
+          sectionsInjected: ["Success Criteria"],
+        },
+      ],
+    });
+
+    expect(prompt).toContain("### mt#3874 — section(s): Success Criteria");
   });
 });
 
