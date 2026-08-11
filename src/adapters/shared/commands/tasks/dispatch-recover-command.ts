@@ -157,7 +157,9 @@ import {
   computeDispatchStaleness,
   classifyDispatchRecoveryState,
   buildDispatchRecoveryContinuationPrompt,
+  describeDispatchStalenessForMessage,
   DISPATCH_RECOVERY_STALE_MS,
+  DISPATCH_PROGRESS_STALE_MS,
 } from "@minsky/domain/session/dispatch-recovery-classifier";
 import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
 import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
@@ -569,6 +571,8 @@ export function createTasksDispatchRecoverCommand(
     activityOps?: DispatchRecoveryActivityOps;
     now?: () => Date;
     staleMs?: number;
+    /** mt#3952: bound beyond which presence/dispatch-start activity alone no longer counts as healthy. */
+    progressStaleMs?: number;
   } = {}
 ) {
   const gitOps = deps.gitOps ?? createRealDispatchRecoveryGitOps();
@@ -576,6 +580,7 @@ export function createTasksDispatchRecoverCommand(
     deps.activityOps ?? createRealDispatchRecoveryActivityOps(getPersistenceProvider);
   const now = deps.now ?? (() => new Date());
   const staleMs = deps.staleMs ?? DISPATCH_RECOVERY_STALE_MS;
+  const progressStaleMs = deps.progressStaleMs ?? DISPATCH_PROGRESS_STALE_MS;
 
   return {
     id: "tasks.dispatch-recover",
@@ -589,7 +594,7 @@ export function createTasksDispatchRecoverCommand(
       "presence-claim (session-scoped MCP tool-call) activity, not just commits, so a " +
       "dispatch that is quietly working (reading code, running tests, no commit yet) is " +
       "no longer misclassified as dead; see the activitySource field on a healthy result " +
-      '("commit" | "presence" | "dispatch-start") for which signal decided it. Refuses a ' +
+      '("commit" | "presence" | "dispatch-start") for which signal decided it. mt#3952: presence alone no longer holds a healthy verdict indefinitely; see progressNote on a recover/escalate result. Refuses a ' +
       '3rd attempt for the same dispatch chain (returns status: "escalate"). mt#3121: if a ' +
       "DIFFERENT actor holds a fresh TASK-grain presence claim (a peer conversation actively " +
       'working the task), returns status: "contested" WITHOUT consuming an attempt, since ' +
@@ -751,7 +756,8 @@ export function createTasksDispatchRecoverCommand(
         now().getTime(),
         staleMs,
         lastPresenceActivityAtMs,
-        lastWorkspaceMtimeAtMs
+        lastWorkspaceMtimeAtMs,
+        progressStaleMs
       );
 
       if (!staleness.stale) {
@@ -969,26 +975,34 @@ export function createTasksDispatchRecoverCommand(
           `"working locally with uncommitted changes" from "dead" — do not decide on ` +
           `those alone. Messaging the agent directly (SendMessage) is also definitive.`;
 
-        const message = hasLivenessEvidence
-          ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
-            `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
-            `This is NOT confirmed death: the dispatch has ${
-              hasOpenPr && probe.pr.number
-                ? `an open PR (#${probe.pr.number})`
-                : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
-            }, positive evidence it produced real output. ${workspaceSummary} ` +
-            `Do NOT redispatch the continuation prompt into this session on the strength ` +
-            `of this escalation alone — doing so risks running two agents against the same ` +
-            `workspace/branch at once. ${verifyGuidance}`
-          : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
-            `(attempt ${attemptNumber}) — no PR and no commits were observed in ` +
-            `the stale window. This reflects an absence of observed output, not a confirmed ` +
-            `process crash. ${workspaceSummary} The 2-attempt bound is reached — no further ` +
-            `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
-            `diagnose why this dispatch keeps stalling (repeated infra failure? a task that ` +
-            `genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
-            `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
-            `manually. ${verifyGuidance}`;
+        // mt#3952: names which signal starved the dispatch — "silent" (no activity signal
+        // at all) vs "active but not progressing" (presence kept it looking alive while
+        // no commit/file-write happened) — so a caller reading only `message` still gets
+        // the distinction, not just the workspace snapshot above.
+        const progressNote = describeDispatchStalenessForMessage(staleness);
+
+        const message = (
+          hasLivenessEvidence
+            ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
+              `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
+              `This is NOT confirmed death: the dispatch has ${
+                hasOpenPr && probe.pr.number
+                  ? `an open PR (#${probe.pr.number})`
+                  : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
+              }, positive evidence it produced real output. ${workspaceSummary} ` +
+              `Do NOT redispatch the continuation prompt into this session on the strength ` +
+              `of this escalation alone — doing so risks running two agents against the same ` +
+              `workspace/branch at once. ${verifyGuidance}`
+            : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
+              `(attempt ${attemptNumber}) — no PR and no commits were observed in ` +
+              `the stale window. This reflects an absence of observed output, not a confirmed ` +
+              `process crash. ${workspaceSummary} The 2-attempt bound is reached — no further ` +
+              `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
+              `diagnose why this dispatch keeps stalling (repeated infra failure? a task that ` +
+              `genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
+              `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
+              `manually. ${verifyGuidance}`
+        ).concat(progressNote ? ` ${progressNote}` : "");
 
         return {
           success: true,
@@ -1000,6 +1014,7 @@ export function createTasksDispatchRecoverCommand(
             attempts,
             hasLivenessEvidence,
             message,
+            progressNote,
             // mt#3204: the probe the caller needs in order to perform the
             // "verify independently" step the message asks for.
             probe,
@@ -1165,6 +1180,11 @@ export function createTasksDispatchRecoverCommand(
         newInvocationId,
         stateSummary: probe,
         continuationPrompt,
+        // mt#3952: "" when this dispatch was recovered for the ordinary "no activity at
+        // all" reason; non-empty when presence alone had been keeping it `healthy` while
+        // no commit/file-write happened — names which case this is for a caller reading
+        // only the top-level result, without having to re-derive it from `probe`.
+        progressNote: describeDispatchStalenessForMessage(staleness),
       };
     },
   };
