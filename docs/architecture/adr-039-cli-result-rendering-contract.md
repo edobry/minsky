@@ -10,8 +10,13 @@ Proposed
 
 Minsky commands are defined once in the shared registry and adapted to CLI and MCP. On the CLI
 side, a command that registers no `outputFormatter` and matches no case in `formatObjectResult`'s
-switch reaches a generic fallback, `formatGenericObject`. That is not a rare path: of 225
-registered commands, 23 have a formatter and 13 are switch-cased, so **189 reach the fallback**.
+switch reaches a generic fallback, `formatGenericObject`. That is not a rare path. Measured at
+mt#3961's merge (`65ff7931c`, 2026-08-11): of 225 registered commands, 23 have a formatter and 13
+are switch-cased, so **189 reach the fallback**.
+
+Every count in this ADR is a snapshot at that commit. They are kept because the ORDER OF MAGNITUDE
+is what the decision rests on, and they drift with every command added —
+`scripts/audit-cli-output-coverage.ts` is the live enumeration and supersedes any figure here.
 
 Until mt#3870 the fallback discarded what it could not project. Given a result carrying `success`
 but neither `message` nor `output`, it printed the boolean as `✅ Success` and dropped every other
