@@ -5,7 +5,7 @@
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
 import { Command } from "commander";
-import { log } from "@minsky/shared/logger";
+import { getCliOutputLineCount, log } from "@minsky/shared/logger";
 import { handleCliError } from "../../../cli/utils/error-handler";
 import { outputResult } from "../../../cli/utils/index";
 import {
@@ -19,7 +19,7 @@ import {
   type CommandCustomizationManager,
 } from "./command-customization-manager";
 import { type ParameterProcessor } from "./parameter-processor";
-import { type CommandResultFormatter } from "./result-formatter";
+import { type CommandResultFormatter, type ResultRenderOptions } from "./result-formatter";
 import { guardProjectSetup } from "@minsky/domain/configuration/guard";
 
 /**
@@ -175,12 +175,19 @@ export class CommandGeneratorCore {
           validatedCtx = await commandDef.validate(normalizedParams, context);
         }
 
-        // Execute the command with parameters and context
+        // Execute the command with parameters and context.
+        // The surrounding count of operator-visible CLI output lines tells the
+        // result formatter whether this command printed its own report
+        // (mt#3870) — see ResultRenderOptions.
+        const cliLinesBeforeExecute = getCliOutputLineCount();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await commandDef.execute(normalizedParams, context, validatedCtx as any);
+        const commandEmittedOutput = getCliOutputLineCount() > cliLinesBeforeExecute;
 
         // Handle output
-        this.handleCommandOutput(result, commandDef, options, context);
+        this.handleCommandOutput(result, commandDef, options, context, {
+          commandEmittedOutput,
+        });
       } catch (error) {
         // Handle any errors using the CLI error handler
         handleCliError(error);
@@ -195,7 +202,8 @@ export class CommandGeneratorCore {
     result: unknown,
     commandDef: SharedCommand,
     options: CliCommandOptions,
-    context: CliExecutionContext
+    context: CliExecutionContext,
+    renderOptions?: ResultRenderOptions
   ): void {
     if (options.outputFormatter) {
       // Use custom formatter if provided
@@ -209,7 +217,7 @@ export class CommandGeneratorCore {
         });
       } else {
         // Use result formatter for text output
-        const formatter = this.deps.resultFormatter.getDefaultFormatter(commandDef);
+        const formatter = this.deps.resultFormatter.getDefaultFormatter(commandDef, renderOptions);
         outputResult(result, {
           json: false,
           formatter,
