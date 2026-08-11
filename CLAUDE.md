@@ -212,6 +212,19 @@ the principal) to **reports** (status pushed at the principal). Source: [RFC: Co
 altitude](https://www.notion.so/39e937f03cb481febdeae249014e356f) (Accepted 2026-07-15) — Phase 1
 channel contract (`mt#2713`) plus Phase 2 altitude register (`mt#2867`).
 
+## Scope: every turn, not only report boundaries (mt#3985)
+
+The report shapes below describe artifacts, but the norm is not artifact-scoped: it governs any
+turn touching a dependency, blocker, or adjacent concern — including a direct conversational
+answer, not only a turn-end report. State what **this thread** needs from it and stop; its
+substance belongs to whoever owns it (R6, mem#664).
+
+**Tier decision:** no generation-time mechanism enforces this — recognizing "substance owned
+elsewhere" takes conversational-scope judgment no detector can check. Deliberately prose, not a
+default; reasoning:
+`docs/rules-rationale/communication-contract.md §Generation-time enforcement for scope-boundary
+answers (mt#3985)`.
+
 ## The channel model
 
 Chat is a management interface, not an engineering record; each channel carries a slice of "what
