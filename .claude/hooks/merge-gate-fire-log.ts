@@ -87,19 +87,29 @@ export interface MergeGateFireLogContext {
 /**
  * Whether this exit point is clean-run evidence (mt#3920).
  *
- * DEFAULTS TO `"decided"` here, which is the opposite of the default
- * `parallel-work-guard-standalone.ts` takes — and the difference is structural, not a
- * relaxation. There, `guardOutcome` is a mutable local initialised before a `try`, so every
- * path that skips the inner call falls through to the initial value; `"crashed"` is the safe
- * initial value because absence of evidence must not read as clean. Here, `recordAndExit` is
- * only ever CALLED from an exit point the gate deliberately reached — a guard that actually
- * crashes never calls it at all — so a call is itself evidence a verdict was reached.
+ * **The field is UNSET unless an exit point names it, and that is the safe direction.**
+ * `guardOutcome` answers one question for guard-health: did this guard's CHECK actually run
+ * cleanly? So only an exit downstream of the check may answer it.
  *
- * The exception the factory's own convention already names: *"a transport/fetch failure logged
- * only to stderr/console.error … → `allow`"*. That is a FAIL-OPEN on a failed probe, and it
- * arrives here indistinguishable from a real allow, because both are `decision: "allow"`. Those
- * exit points MUST pass `"crashed"` explicitly. Marking one `"decided"` would report a guard
- * whose probe is broken as recovered — strictly worse than the `dormant` mt#3920 exists to fix.
+ * A first draft of this defaulted to `"decided"` on the reasoning that `recordAndExit` is
+ * only called from an exit the gate deliberately reached. That reasoning is true and it
+ * answers the wrong question. A merge gate exits early on every unrelated tool call, on a
+ * command that is not a merge, and on a branch with no PR — all deliberate, none of them
+ * evidence the gate's probe works. Defaulting those to `"decided"` would let a guard reach
+ * `liveness: "recovered"` purely on traffic it never inspected, which is a WORSE signal than
+ * the `dormant` this task exists to remove. It is also exactly mt#3892's own R2 lesson
+ * (PR #2762): a short-circuit that never exercised the probe is not clean-run evidence.
+ *
+ * The three values, per mt#3920 criterion 1:
+ *
+ * - **`"decided"`** — the gate exercised its check and reached a verdict. Pass it explicitly.
+ * - **`"crashed"`** — the record stands in for a FAILED evaluation: the fail-open the
+ *   factory's own convention names (*"a transport/fetch failure logged only to
+ *   stderr/console.error … → `allow`"*), which arrives indistinguishable from a real allow
+ *   because both are `decision: "allow"`. Marking one `"decided"` would report a guard whose
+ *   probe is broken as recovered.
+ * - **UNSET** (omit) — the gate did not run: an override, or a short-circuit before the path
+ *   that can fail.
  */
 export type MergeGateOutcome = "decided" | "crashed";
 
@@ -162,9 +172,9 @@ export function makeMergeGateDecider(
       guardName,
       event: "PreToolUse",
       decision,
-      // mt#3920: see {@link MergeGateOutcome} for why the default here is `"decided"` and
-      // not `"crashed"`, and which exit points owe an explicit `"crashed"`.
-      guardOutcome: outcome ?? "decided",
+      // mt#3920: UNSET by default — see {@link MergeGateOutcome}. Only an exit point that
+      // actually EXERCISED the gate's check may claim `"decided"`, and it must say so.
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: nowMs() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,

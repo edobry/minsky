@@ -130,23 +130,27 @@ describe("makeMergeGateDecider (pure)", () => {
       guardName: REVIEW_GATE,
       event: "PreToolUse",
       decision: "allow",
-      // mt#3920: default outcome. An exact-shape assertion is what makes this test the
-      // regression guard for the default — a change to it fails HERE, not silently in
-      // guard-health weeks later.
-      guardOutcome: "decided",
+      // mt#3920: no `guardOutcome` — the field is UNSET unless an exit point names it. This
+      // exact-shape assertion is what makes this test the regression guard for that default:
+      // a change to it fails HERE, not silently in guard-health weeks later.
       durationMs: 12,
       toolName: SESSION_PR_MERGE_TOOL,
       sessionId: "sess-abc",
     });
   });
 
-  test("mt#3920: the outcome defaults to `decided` and is overridable to `crashed`", () => {
+  test("mt#3920: the outcome is UNSET unless the exit point names it", () => {
     const decide = makeMergeGateDecider(REVIEW_GATE, Date.now(), input("s"));
 
-    // Default: an exit point the gate reached is clean-run evidence.
-    expect(decide("allow").record.guardOutcome).toBe("decided");
-    expect(decide("deny").record.guardOutcome).toBe("decided");
-    expect(decide("warn").record.guardOutcome).toBe("decided");
+    // Unset by default, for EVERY decision value. A merge gate exits early on unrelated
+    // tool calls and on non-merge commands; none of that is evidence its probe works, and
+    // counting it would let the guard read `recovered` on traffic it never inspected.
+    expect(decide("allow").record.guardOutcome).toBeUndefined();
+    expect(decide("deny").record.guardOutcome).toBeUndefined();
+    expect(decide("warn").record.guardOutcome).toBeUndefined();
+
+    // An exit downstream of the check claims it explicitly.
+    expect(decide("deny", undefined, "decided").record.guardOutcome).toBe("decided");
 
     // A fail-open exit passes `crashed` explicitly. This is the one that matters: an
     // `allow` emitted because the probe BROKE must not read as a clean run, or
