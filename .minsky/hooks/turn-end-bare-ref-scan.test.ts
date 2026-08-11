@@ -139,3 +139,65 @@ describe("formatBareRefAdvisory directive (mt#3860)", () => {
     expect(rendered.length).toBeLessThanOrEqual(700);
   });
 });
+
+describe("pre-cap disclosure (mt#3937)", () => {
+  const finding = (ref: string): ScanFinding =>
+    ({
+      ref,
+      reason: "no minsky:// link for this ref in this message",
+      kind: "bare-short-id",
+    }) as ScanFinding;
+
+  it("stays out of the advisory when no cap is imminent", () => {
+    const rendered = formatBareRefAdvisory([finding("ask#7415")]);
+
+    expect(rendered).not.toContain("goes silent");
+  });
+
+  it("warns that the next continuation will be silent", () => {
+    const rendered = formatBareRefAdvisory([finding("ask#7415")], { warnNextIsCapped: true });
+
+    expect(rendered).toContain("goes silent");
+    // It must say what to do about it, not merely announce the silence.
+    expect(rendered).toContain("clear every ref now");
+  });
+
+  it("still names the findings and stays within the declared budget when warning", () => {
+    // The render is greedily bounded against the registry ceiling, so the extra
+    // line costs listed findings rather than breaching the budget. Posed with
+    // BOTH axes saturated at once — a long finding list AND the notice present
+    // (mem#865: a canary posed on one axis hides the real worst case).
+    const many = Array.from({ length: 12 }, (_, i) => finding(`ask#${7000 + i}`));
+    const rendered = formatBareRefAdvisory(many, { warnNextIsCapped: true });
+
+    expect(rendered).toContain("ask#7000");
+    expect(rendered).toContain("goes silent");
+    expect(rendered.length).toBeLessThanOrEqual(700);
+  });
+
+  it("replays a three-turn chain: warn on turn two, silent on turn three", () => {
+    // AT3. Walks the same state the guard walks: turn 1 ordinary, turns 2 and 3
+    // consecutive continuations. `warnNextIsCapped` mirrors run()'s wiring —
+    // this fire is a continuation AND was not itself capped.
+    const log: PriorFireRecord[] = [];
+    const emitted: boolean[] = [];
+    const warned: boolean[] = [];
+
+    for (let turn = 1; turn <= 3; turn += 1) {
+      const isContinuation = turn > 1;
+      const capped = isContinuation && advisoryIsChainCapped(log, "chain-session");
+      emitted.push(!capped);
+      warned.push(isContinuation && !capped);
+      log.push({
+        session_id: "chain-session",
+        stop_hook_active: isContinuation,
+        advisory_emitted: !capped,
+      });
+    }
+
+    expect(emitted).toEqual([true, true, false]);
+    // Turn 2 is the last one that renders, so it is the only place the notice
+    // can reach the reader before turn 3's silence.
+    expect(warned).toEqual([false, true, false]);
+  });
+});

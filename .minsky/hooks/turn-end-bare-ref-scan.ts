@@ -102,7 +102,10 @@ export interface StopHookInput extends ClaudeHookInput {
  * summarizing the remainder as one "…and K more" line so a truncated list is
  * never mistaken for a complete one.
  */
-export function formatBareRefAdvisory(findings: ScanFinding[]): string {
+export function formatBareRefAdvisory(
+  findings: ScanFinding[],
+  options: { warnNextIsCapped?: boolean } = {}
+): string {
   const header =
     "[turn-end-bare-ref-scan] The closing message carries entity refs the reader cannot click (mt#3286).";
   // "AND any ref you name while doing so" is the cheap half of the mt#3860 fix:
@@ -123,10 +126,22 @@ export function formatBareRefAdvisory(findings: ScanFinding[]): string {
 
   const line = (f: ScanFinding): string => `  - ${f.ref}: ${f.reason}`;
 
+  // mt#3937: the chain cap makes the guard go SILENT on the next consecutive
+  // continuation — and a silent turn is indistinguishable from a clean one, so
+  // the reader gets a false all-clear about refs they genuinely cannot click.
+  // The disclosure cannot ride on the capped turn itself: `run()` returns before
+  // producing any text there, and attaching it would re-enter the very loop
+  // mt#3860 closed. So it is PRE-EMPTIVE — carried by the last advisory that
+  // still renders, one turn before the silence.
+  const capNotice =
+    "If you continue again without an operator turn, this check goes silent — " +
+    "clear every ref now, not next message.";
+
   const render = (listed: string[], omitted: number): string => {
     const lines = [header, "", ...listed];
     if (omitted > 0) lines.push(`  …and ${omitted} more`);
     lines.push("", action);
+    if (options.warnNextIsCapped) lines.push("", capNotice);
     return lines.join("\n");
   };
 
@@ -318,5 +333,15 @@ export async function run(
   // make the cap invisible to the very log that measured the loop.
   if (chainCapped) return { calibration };
 
-  return { calibration, additionalContext: formatBareRefAdvisory(flagged) };
+  // mt#3937: this fire is the pre-cap moment exactly when it is ITSELF a
+  // continuation that was not capped — `advisoryIsChainCapped` keys on the
+  // previous fire's `stop_hook_active`, so the next consecutive continuation
+  // will see THIS record and be capped. On an ordinary turn the next
+  // continuation is the first one, which is not capped, so no warning is due.
+  const warnNextIsCapped = input.stop_hook_active === true && !chainCapped;
+
+  return {
+    calibration,
+    additionalContext: formatBareRefAdvisory(flagged, { warnNextIsCapped }),
+  };
 }
