@@ -17,6 +17,7 @@ import {
   _resetSweepLivenessRegistryForTest,
   REINIT_FAILURE_THRESHOLD,
   runProdStateRefreshTick,
+  runAskStateRefreshTick,
 } from "./sweepers";
 
 /** Poll `condition` until it's true, or throw after `timeoutMs`. */
@@ -874,5 +875,137 @@ describe("runProdStateRefreshTick failure paths (mt#3684)", () => {
     expect(result).toEqual({ ok: true });
     expect(tracker.calls.runs).toBe(0);
     expect(tracker.calls.failures).toBe(0);
+  });
+});
+
+/**
+ * The ask-state tick (mt#3744) — the producer half of the calibration-review
+ * cadence detector's disposition lookup.
+ *
+ * Same injected-IO shape as the prod-state tick above and for the same reason:
+ * the sweeper reaches `./shared-persistence` and `./ask-state-cache` through
+ * dynamic imports, and ADR-036 bans patching them in place.
+ */
+describe("runAskStateRefreshTick (mt#3744)", () => {
+  const ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
+  const REPO_ROOT = "/mock/repo";
+  const TICK_ISO = "2026-08-11T12:00:00.000Z";
+
+  const neverCalled = async (): Promise<boolean> => {
+    throw new Error("refresh should not have been reached");
+  };
+
+  test("a sweep run passes the watermark's ask ids and the stamped clock to the refresh", async () => {
+    // AT "Unit (producer)": the tick asks about exactly the ids the watermark store names,
+    // and stamps the record with the injected time.
+    const seen: Array<{ askIds: string[]; nowIso: string }> = [];
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: (root) => (root === REPO_ROOT ? [ASK_ID] : []),
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async (_sql, askIds, nowIso) => {
+        seen.push({ askIds, nowIso });
+        return true;
+      },
+      now: () => TICK_ISO,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(seen).toEqual([{ askIds: [ASK_ID], nowIso: TICK_ISO }]);
+  });
+
+  test("no pending asks still refreshes — an empty snapshot is a successful sweep", async () => {
+    // Load-bearing: skipping the write here would leave the previous snapshot to age into
+    // "stale" even though the producer is healthy, and would make a covered-but-empty
+    // snapshot indistinguishable from a producer that has never run.
+    const seen: string[][] = [];
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: () => [],
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async (_sql, askIds) => {
+        seen.push(askIds);
+        return true;
+      },
+      now: () => TICK_ISO,
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(seen).toEqual([[]]);
+  });
+
+  test("a provider exposing no raw SQL reports a failure and warns", async () => {
+    const warnings: string[] = [];
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: () => [ASK_ID],
+      resolveRawSql: async () => null,
+      refresh: neverCalled,
+      logWarn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("no raw SQL connection");
+  });
+
+  test("resolving the connection throwing reports a failure carrying the driver message", async () => {
+    const warnings: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: () => [ASK_ID],
+      resolveRawSql: async () => {
+        throw new Error("write CONNECT_TIMEOUT db.example.com:6543");
+      },
+      refresh: neverCalled,
+      logWarn: (message, meta) => warnings.push({ message, meta }),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings[0]?.meta?.message).toContain("CONNECT_TIMEOUT");
+  });
+
+  test("a refresh that writes nothing is a failure, not a success", async () => {
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: () => [ASK_ID],
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async () => false,
+      now: () => TICK_ISO,
+    });
+    expect(result).toEqual({ ok: false });
+  });
+
+  test("an unreadable watermark store is a failure, not a silent empty sweep", async () => {
+    // If reading the ids throws, the tick must not go on to write an empty snapshot — that
+    // would report every pending ask as `not-in-snapshot` while looking perfectly healthy.
+    const warnings: string[] = [];
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: () => {
+        throw new Error("EACCES: permission denied");
+      },
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: neverCalled,
+      logWarn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({ ok: false });
+    expect(warnings).toHaveLength(1);
+  });
+
+  test("the happy path emits no warning", async () => {
+    const warnings: string[] = [];
+    const result = await runAskStateRefreshTick({
+      resolveRepoRoot: () => REPO_ROOT,
+      readAskIds: () => [ASK_ID],
+      resolveRawSql: async () => async () => ({ sql: true }),
+      refresh: async () => true,
+      now: () => TICK_ISO,
+      logWarn: (message) => warnings.push(message),
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(warnings).toEqual([]);
   });
 });
