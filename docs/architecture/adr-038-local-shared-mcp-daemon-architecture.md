@@ -302,13 +302,17 @@ small in absolute terms (≈1.5–1.8GB total at ~40 conversations, already a �
 ships in the same bundle and language as the rest of the project, and needs no new distribution
 pipeline — the "command/args swap" migration path the Decision below describes stays exactly that
 simple. This is a genuinely close call, not a lopsided one, and the condition under which it
-flips is nameable: **if the daemon topology ever centralizes** (a shared multi-tenant daemon
-serving many more than ~40 concurrent conversations, rather than one developer's own local
-daemon), the per-conversation shim cost multiplies at a much larger N and the ~35MB/conversation
-difference stops being 1.4GB and starts being the dominant term. That is not this architecture —
-ADR-038 §Question 2 keeps the daemon local and per-developer — so the condition does not apply
-today, but it is worth naming so a future re-litigation of this call starts from evidence instead
-of re-running the same measurement.
+flips is nameable — ~~if the daemon topology ever centralizes~~ **(superseded 2026-08-11, see
+`## Amendment (2026-08-11)` below: shims are client-side, one per conversation, wherever
+conversations run; daemon centralization does not concentrate their cost)**. The corrected
+trigger is **conversation-host consolidation** — a hosted fleet running many conversations on one
+machine, or a customer footprint complaint attributable to the shims: the per-conversation shim
+cost multiplies at a much larger N of co-located conversations, and the ~35MB/conversation
+difference stops being 1.4GB and starts being the dominant term. That is not this architecture
+today — ADR-038 §Question 2 keeps the daemon local and per-developer, and no hosted
+conversation-host consolidation is planned — so the condition does not apply today, but it is
+worth naming so a future re-litigation of this call starts from evidence instead of re-running the
+same measurement.
 
 ### Decision
 
@@ -610,6 +614,144 @@ identity.
 and auth postures to save one process baseline.
 
 **Unix domain sockets.** Ruled out upstream: the client rejects the scheme (mt#3766).
+
+## Amendment (2026-08-11)
+
+This amendment records three corrections identified by an independent review dated 2026-08-10 and
+verified against primary sources by the dispatching agent (mt#3974). It does not change the
+architecture — the design decided above is unchanged and shipped (mt#3812, merged, PR #2820). It
+corrects the durable record so a future reader inherits accurate reasoning rather than re-deriving
+it.
+
+### 1. The MCP 2026-07-28 statelessness revision — absent from the original record, and it cuts both ways
+
+The MCP specification's [2026-07-28
+revision](https://modelcontextprotocol.io/specification/2026-07-28/basic/index) (read directly,
+not paraphrased) declares MCP a stateless protocol. Its `## Statelessness` section reads,
+verbatim:
+
+> The Model Context Protocol (MCP) is a **stateless protocol**: all the information needed to
+> process a request is contained in the request itself. A server processes each request
+> independently; no state should be inferred from previous requests, even those on the same
+> connection or stream.
+>
+> Specifically:
+>
+> - Servers **MUST NOT** rely on prior requests over the same connection to establish context
+>   (e.g., capabilities, protocol version, client identity). Every request supplies this metadata
+>   in its `_meta` field.
+> - Servers **SHOULD** be prepared to handle requests associated with multiple tasks, threads, or
+>   conversations.
+> - Servers **SHOULD NOT** require that a client reuse the same connection or process to perform
+>   related operations.
+> - Clients **SHOULD NOT** use an individual task, thread, or conversation as the lifetime
+>   boundary for the stdio process.
+> - State that needs to span multiple requests (e.g., long-running tasks, application-level
+>   handles) **MUST** be referenced by an explicit identifier the client passes on each request.
+
+and, in a `<Note>` callout immediately beneath the bullets:
+
+> This implies that an open connection, such as a STDIO process, is not a conversation or
+> session: clients may interleave unrelated requests on the same transport, and a server must not
+> treat connection or process identity as a proxy for conversation or session continuity.
+
+**Both halves matter, and they point in opposite directions for this ADR.**
+
+The last bullet — state spanning multiple requests "MUST be referenced by an explicit identifier
+the client passes on each request" — is exactly what the shim does. `_meta["io.minsky/agent_id"]`
+is precisely that explicit, per-request identifier. This is a _stronger_ argument for the shim's
+**mechanism** than anything in the original record: the design is not merely compatible with the
+protocol, it is the pattern the protocol's own normative text prescribes for exactly this
+problem.
+
+The `<Note>` is the opposite argument, and it targets the shim's **justification**, not its
+mechanism. The original decision text (§Question 1) derives conversation identity from process
+lifetime: Claude Code spawns one stdio process per conversation, so `CLAUDE_CODE_SESSION_ID` on
+that process names the conversation, therefore the shim can trust it. The Note says a server
+"must not treat connection or process identity as a proxy for conversation or session
+continuity" — which is exactly that inference, made client-side rather than server-side, but the
+same inference the revision tells implementations to stop relying on. The shim works today
+because Claude Code's _current_ spawn behavior — literally one process per conversation — is a
+real, observed fact (§Question 1, Observation F), not a protocol guarantee the spec extends to
+implementations. The 2026-07-28 revision does not forbid the shim from working; it forbids
+treating _why_ it works as durable.
+
+**Right answer, expiring reason.** The mechanism the shim uses (an explicit per-request
+identifier) is the direction the protocol is moving toward. The premise the shim's design rests
+on (process identity ≈ conversation identity) is the direction the protocol is moving away from.
+Nothing in this ADR needs to change today — Claude Code's current sdk-cli behavior still holds,
+as measured in §Question 1 — but the day it stops holding, this should not be a surprise: the
+Follow-ups already on file (identity-reader ordering, `baggage` emission, fallback logging — see
+Context in the originating task spec, mt#3974) are exactly the mitigation for this expiring
+premise, not incidental hardening.
+
+### 2. Rewrite trigger corrected
+
+§Question 1's "Runtime recommendation to mt#3812" named the rewrite trigger as daemon
+centralization. That was wrong: shims are client-side, spawned one per conversation regardless of
+what the daemon looks like, so daemon topology does not change their aggregate cost. The
+correction is now inline at that location, with the original wording left visible and marked
+superseded rather than silently rewritten — this ADR is already amended once (2026-08-09,
+above) and readers need the sequence. The actual trigger is **conversation-host consolidation** —
+a hosted fleet running many conversations on one machine, or a customer footprint complaint
+attributable to the shims. (This correction was first recorded on mt#3812's spec; this amendment
+propagates it to the durable record.)
+
+### 3. The resource framing was misleading; identity + consolidation is the operative motivation
+
+With a Bun shim, the shim fleet is now measured at **~34MB per conversation on the shipped
+`minsky mcp shim` invocation** (mt#3812, merged, PR #2820 — the entry-point split), against
+today's 55.5MB proxy (§Question 1's live census, above). At the ADR's own ~40-conversation census
+scale, the shim fleet alone is ~1.36GB of the new topology's total footprint — roughly 85% of it,
+once the single shared daemon (measured ~84–257MB, §Question 1's N-scale table) is added. The
+original record's resource win was already computed on the shim's per-conversation cost, not the
+daemon's, and this shipped number confirms that: shrinking the daemon further would not move the
+topology's footprint much, because the daemon was never where the mass is.
+
+That means "resource usage" has quietly stopped being this architecture's motivation. This was
+already true in the original record's own numbers (§Question 1: "the daemon was never the reason
+the shim topology gives up roughly half of direct HTTP's win — the shim's own ~38MB/conversation
+floor... is what accounts for that gap"). What has changed since then is that the shipped
+invocation confirms the shim's floor at the number that matters — the actual binary mt#3812 built
+and merged — rather than a standalone prototype's.
+
+**The shipped-invocation figure is a different measurement from the standalone-prototype figures
+already in the resource table above, and the two should not be conflated:**
+
+| Figure                          | What it measures                                                                                                                         | Source                           |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| ~38MB (Bun) / ~2.9–3.4MB (Rust) | A minimal standalone prototype: no Minsky imports, no command registry, no DB — built to answer "what is the runtime floor," not shipped | §Question 1 above; mt#3884       |
+| **~34MB**                       | The real `minsky mcp shim` binary as merged and shipped, after mt#3812's entry-point split                                               | mt#3812, merged, PR #2820        |
+| 55.5MB                          | Today's `minsky mcp proxy` — the full Minsky bundle, the process the shim replaces                                                       | §Question 1's live census, above |
+
+The shipped figure lands close to the Bun prototype's floor (~34MB vs ~38MB), which is itself
+confirmation that the entry-point split did its job: the real shim did not drag in the bundle the
+way the 55.5MB proxy does.
+
+**What this ADR's motivation actually is.** Not resource reclamation — the shim gives back
+roughly a third of a proxy process, and it is now the majority of the new topology's own
+footprint. The actual case for this design, restated plainly: **identity preservation** (ADR-006
+Layer-3 conversation identity has no other route over HTTP — §Question 1's Decision) and
+**consolidation** (one daemon instead of N inner-server processes; one place to attach a
+debugger, one log stream, one DB pool — §Question 1's Decision, §Question 2's Consequences). The
+resource case is real but secondary, and the original record's headline framing overstated it.
+
+### Forward-looking note: the terminology already matches the field's units, but the key is misnamed
+
+ADR-022's workspace / conversation / transport-session split does not need new vocabulary to
+describe what this ADR's `_meta` field carries — the field's own units already match
+OpenTelemetry's GenAI semantic conventions: `mcp.session.id`, `gen_ai.conversation.id`, and
+`gen_ai.agent.id` name exactly the three concepts ADR-022 already distinguishes (transport
+session, conversation, and agent, respectively).
+
+What is worth recording is a naming inversion, not a missing concept: Minsky's `_meta` key is
+named `agent_id` (`_meta["io.minsky/agent_id"]`) while the value it carries is a **conversation**
+id — the inverse of OTel's usage, where `gen_ai.conversation.id` names the conversation and
+`gen_ai.agent.id` names something else entirely (the agent definition/persona, not a
+conversation). Anyone integrating Minsky's identity scheme with OTel-instrumented tooling should
+expect this inversion rather than assume the key names line up with what they hold. This is an
+observation for future integration work, not a rename — `agent_id` is ADR-006's own established
+key and changing it is out of scope here.
 
 ## References
 
