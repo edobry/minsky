@@ -48,6 +48,8 @@ export const SENSITIVE_KEY_PATTERNS: readonly string[] = [
   "encryption_key",
   "api_key",
   "secret_key",
+  "serviceRoleKey",
+  "service_role_key",
 ];
 
 // Generic words: matched only as exact key OR after separator. R6 finding —
@@ -78,6 +80,9 @@ const COMPOUND_CAMEL = [
   "authtoken",
   "sessiontoken",
   "csrftoken",
+  // Supabase service-role secret (mt#2680) — `serviceRoleKey` lowercases to
+  // "servicerolekey", which none of the generic patterns match.
+  "servicerolekey",
 ];
 
 // Compound separator terms with [-_] support: matches both snake_case and
@@ -93,6 +98,7 @@ const COMPOUND_SEP = [
   "encryption[-_]key",
   "api[-_]key",
   "secret[-_]key",
+  "service[-_]role[-_]key",
 ];
 
 // Authorization variants — whole-segment anchored; "authorizationmode" is NOT matched.
