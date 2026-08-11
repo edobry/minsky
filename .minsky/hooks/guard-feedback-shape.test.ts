@@ -200,6 +200,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "inject-current-time",
         "inject-dispatch-watchdog",
         "inject-git-state",
+        "inject-memory-capture",
         "inject-prod-state",
         "mcp-daemon-staleness-detector",
         "memory-search",
@@ -270,6 +271,7 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "inject-current-time": "fixed",
   "inject-dispatch-watchdog": "capped", // MAX_ENUMERATED_FLAGS (mt#3485)
   "inject-git-state": "fixed",
+  "inject-memory-capture": "capped", // MAX_DESCRIBED_CAPTURES x MAX_DESCRIBED_TOOL_CALLS (mt#3997)
   "inject-prod-state": "fixed",
   "mcp-daemon-staleness-detector": "capped", // MAX_PATHS_LISTED
   "memory-search": "capped", // bounded by its own token budget
