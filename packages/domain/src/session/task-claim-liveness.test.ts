@@ -8,7 +8,8 @@
  * seam in dispatch-recover-command.test.ts.
  */
 import { describe, test, expect } from "bun:test";
-import { classifyFreshPeerClaim } from "./task-claim-liveness";
+import { classifyFreshPeerClaim, resolveTaskClaimLiveness } from "./task-claim-liveness";
+import type { TaskClaimProvider } from "./task-claim-liveness";
 import type { AnnotatedPresenceClaim } from "../presence/types";
 
 const CALLER = "com.anthropic.claude-code:conv:caller-aaaa";
@@ -65,5 +66,61 @@ describe("classifyFreshPeerClaim", () => {
     const result = classifyFreshPeerClaim([claim({ actorId: PEER, stale: false })], null);
     expect(result.cause).toBe("contested");
     expect(result.peerActorId).toBe(PEER);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveTaskClaimLiveness (I/O shell) — mt#3958
+//
+// Before mt#3958, every one of these "could not look" conditions returned the
+// SAME value a genuinely-empty read returns (`no-fresh-claim`), so a caller
+// could not fail closed even if it wanted to (dispatch-recover-command.ts's
+// mt#3812 double-dispatch). These tests pin the corrected `unavailable` +
+// `unavailableReason` shape directly on the I/O shell, one level below the
+// command's injected `taskClaimLiveness` seam that dispatch-recover-command.
+// test.ts exercises.
+// ---------------------------------------------------------------------------
+describe("resolveTaskClaimLiveness (I/O shell, mt#3958)", () => {
+  const LOG_CONTEXT = { source: "test" };
+
+  test("no provider at all -> unavailable/no-provider (the ROUTINE persistence-less case)", async () => {
+    const result = await resolveTaskClaimLiveness("mt#3958", CALLER, undefined, LOG_CONTEXT);
+    expect(result.cause).toBe("unavailable");
+    expect(result.unavailableReason).toBe("no-provider");
+  });
+
+  test("a provider with no getDatabaseConnection accessor -> unavailable/no-provider", async () => {
+    const provider = {} as TaskClaimProvider;
+    const result = await resolveTaskClaimLiveness("mt#3958", CALLER, provider, LOG_CONTEXT);
+    expect(result.cause).toBe("unavailable");
+    expect(result.unavailableReason).toBe("no-provider");
+  });
+
+  test("getDatabaseConnection() resolves no connection -> unavailable/no-connection", async () => {
+    const provider: TaskClaimProvider = { getDatabaseConnection: async () => null };
+    const result = await resolveTaskClaimLiveness("mt#3958", CALLER, provider, LOG_CONTEXT);
+    expect(result.cause).toBe("unavailable");
+    expect(result.unavailableReason).toBe("no-connection");
+  });
+
+  test("an unnormalizable task id -> unavailable/invalid-subject, without querying the repo", async () => {
+    // A truthy db is enough to pass buildPresenceClaimRepository (it only
+    // guards `!db`) — normalizeTaskSubjectId("") short-circuits before any
+    // repo method is ever called, so this db stub is never touched.
+    const provider: TaskClaimProvider = { getDatabaseConnection: async () => ({}) };
+    const result = await resolveTaskClaimLiveness("", CALLER, provider, LOG_CONTEXT);
+    expect(result.cause).toBe("unavailable");
+    expect(result.unavailableReason).toBe("invalid-subject");
+  });
+
+  test("getDatabaseConnection() throwing -> read-failure (fail-closed, unchanged by mt#3958)", async () => {
+    const provider: TaskClaimProvider = {
+      getDatabaseConnection: async () => {
+        throw new Error("connection refused");
+      },
+    };
+    const result = await resolveTaskClaimLiveness("mt#3958", CALLER, provider, LOG_CONTEXT);
+    expect(result.cause).toBe("read-failure");
+    expect(result.unavailableReason).toBeUndefined();
   });
 });

@@ -11,7 +11,7 @@
  * collision; the originating mt#3112/3113 incident). This module is the
  * task-grain read that closes it.
  *
- * ## Four-branch verdict (adapts ask#6273 / mem#749 to task grain)
+ * ## Verdict shape (adapts ask#6273 / mem#749 to task grain; revised mt#3958)
  *
  * mem#749 records the operator's ask#6273 ruling for the SESSION-grain
  * delete/cleanup/recover liveness gates. This module transports its shape to
@@ -22,16 +22,39 @@
  *     (a live peer owns the task; surface its actorId + last-refresh and route
  *     the caller to the operator, not to a redispatch).
  *   - the claim store READ FAILS (a provider/db/repo existed and then threw)
- *     -> `read-failure`, which the caller treats as FAIL-CLOSED (do not
- *     green-light recovery on an unreadable store). This is the deliberate
- *     inverse of the session-grain presence signal, which fails OPEN: that
- *     signal informs a "healthy, keep waiting" decision (fail-open is safe),
- *     whereas THIS signal gates the destructive redispatch decision (an
- *     unreadable store must not read as "nobody's here").
- *   - NO claim exists, or only the CALLER's own claim(s) exist -> `no-fresh-claim`
- *     (abstain — the session-grain classification decides recover/escalate as
- *     before). A persistence-less context (CLI / test) is this branch too, not
- *     `read-failure`: absence of a provider is routine, not an anomaly.
+ *     -> `read-failure`. Always FAIL-CLOSED — an unreadable store must not
+ *     read as "nobody's here". This is the deliberate inverse of the
+ *     session-grain presence signal, which fails OPEN: that signal informs a
+ *     "healthy, keep waiting" decision (fail-open is safe), whereas THIS
+ *     signal gates the destructive redispatch decision.
+ *   - the claim store could not be QUERIED AT ALL (no provider, no connection,
+ *     no repo, or a task id that would not normalize) -> `unavailable`,
+ *     carrying `unavailableReason` naming which of the four. **mt#3958**: this
+ *     used to share a return value with a genuinely empty read
+ *     (`no-fresh-claim`), which let a "could not look" condition silently
+ *     green-light a destructive redispatch — the mt#3812 double-dispatch this
+ *     module's mt#3958 revision exists to close. `unavailable` is NOT itself
+ *     fail-open or fail-closed; the CALLER decides, because one of its four
+ *     reasons (`no-provider`) is routine — a CLI/test context legitimately
+ *     running without persistence — while the other three represent a genuine
+ *     failed attempt to look. `dispatch-recover-command.ts`'s contested gate
+ *     fails closed on every `unavailableReason` except `no-provider`.
+ *   - the read SUCCEEDED and found no fresh peer (or only the caller's own
+ *     claim) -> `no-fresh-claim`. This is the ONLY cause that means "looked,
+ *     nobody's here" — every other non-`contested` cause means the lookup
+ *     itself did not complete.
+ *
+ * ## `unavailableReason` values
+ *
+ *   - `no-provider`     — no persistence provider / `getDatabaseConnection`
+ *                          accessor at all. Routine: a CLI/test context that
+ *                          legitimately runs without persistence.
+ *   - `no-connection`   — a provider existed but `getDatabaseConnection()`
+ *                          resolved no connection.
+ *   - `no-repo`         — a connection existed but `buildPresenceClaimRepository`
+ *                          could not build a repo from it.
+ *   - `invalid-subject` — `normalizeTaskSubjectId(taskId)` returned "" (a
+ *                          non-string / empty / unnormalizable task id).
  *
  * ## Self-exclusion (mt#3121 SC4)
  *
@@ -57,7 +80,25 @@ import type { AnnotatedPresenceClaim } from "../presence/types";
  * Structured outcome of the task-grain claim read. `cause` is the load-bearing
  * discriminant — callers branch on it, never on a parsed message string.
  */
-export type TaskClaimLivenessCause = "contested" | "read-failure" | "no-fresh-claim";
+export type TaskClaimLivenessCause =
+  | "contested"
+  | "read-failure"
+  | "no-fresh-claim"
+  | "unavailable";
+
+/**
+ * Why a claim lookup could not even be attempted/completed (`cause === "unavailable"`).
+ * `no-provider` is the ONLY reason a caller may legitimately treat as it treats
+ * `no-fresh-claim` (abstain, proceed) — see the module docstring's
+ * `unavailableReason` values section. The other three represent a failed
+ * attempt to look, not a routine absence, and the destructive dispatch-recover
+ * path fails closed on them (mt#3958).
+ */
+export type TaskClaimUnavailableReason =
+  | "no-provider"
+  | "no-connection"
+  | "no-repo"
+  | "invalid-subject";
 
 export interface TaskClaimLivenessResult {
   cause: TaskClaimLivenessCause;
@@ -65,6 +106,8 @@ export interface TaskClaimLivenessResult {
   peerActorId?: string;
   /** The live peer's last-refresh time (ISO-8601) — present only when `cause === "contested"`. */
   peerLastRefreshedAt?: string;
+  /** Present only when `cause === "unavailable"` — see the module docstring. */
+  unavailableReason?: TaskClaimUnavailableReason;
 }
 
 /**
@@ -108,7 +151,7 @@ export function classifyFreshPeerClaim(
 
 /**
  * Read the task-grain presence claims for `taskId`, exclude the caller's own,
- * and classify the result into the four-branch verdict above.
+ * and classify the result into the verdict shape documented above the module.
  *
  * `staleThresholdMs` bounds "fresh": a claim whose `lastRefreshedAt` is within
  * this window counts as a live peer. Defaults to `PRESENCE_CLAIM_TTL_MS` (15m),
@@ -122,15 +165,19 @@ export async function resolveTaskClaimLiveness(
   logContext: TaskClaimLogContext,
   staleThresholdMs: number = PRESENCE_CLAIM_TTL_MS
 ): Promise<TaskClaimLivenessResult> {
-  // No provider / no connection / no repo is the ABSTAIN branch (no-fresh-claim),
-  // not read-failure: a persistence-less context is routine, not an anomaly.
+  // mt#3958: no provider / no connection / no repo / an unnormalizable subject
+  // id are all "could not look" — `unavailable`, NOT the same value a
+  // genuinely empty read returns (`no-fresh-claim`). This first branch is the
+  // one routine case (`no-provider`, a persistence-less CLI/test context) —
+  // still not an anomaly, but the caller now gets to see that it's ABSTAINING
+  // rather than reporting "looked, nobody's here".
   if (!provider?.getDatabaseConnection) {
     log.debug(
       `[${logContext.source}] resolveTaskClaimLiveness: no persistence provider / ` +
-        "getDatabaseConnection — abstaining (no task-claim signal)",
+        "getDatabaseConnection — could not check for a peer task-grain claim",
       { taskId }
     );
-    return { cause: "no-fresh-claim" };
+    return { cause: "unavailable", unavailableReason: "no-provider" };
   }
 
   let db: unknown;
@@ -148,10 +195,10 @@ export async function resolveTaskClaimLiveness(
   if (!db) {
     log.debug(
       `[${logContext.source}] resolveTaskClaimLiveness: getDatabaseConnection() resolved no ` +
-        "connection — abstaining (no task-claim signal)",
+        "connection — could not check for a peer task-grain claim",
       { taskId }
     );
-    return { cause: "no-fresh-claim" };
+    return { cause: "unavailable", unavailableReason: "no-connection" };
   }
 
   try {
@@ -160,14 +207,21 @@ export async function resolveTaskClaimLiveness(
     if (!repo) {
       log.debug(
         `[${logContext.source}] resolveTaskClaimLiveness: buildPresenceClaimRepository returned ` +
-          "null — abstaining (no task-claim signal)",
+          "null — could not check for a peer task-grain claim",
         { taskId }
       );
-      return { cause: "no-fresh-claim" };
+      return { cause: "unavailable", unavailableReason: "no-repo" };
     }
     const { normalizeTaskSubjectId } = await import("../presence/normalize");
     const subjectId = normalizeTaskSubjectId(taskId);
-    if (!subjectId) return { cause: "no-fresh-claim" };
+    if (!subjectId) {
+      log.debug(
+        `[${logContext.source}] resolveTaskClaimLiveness: normalizeTaskSubjectId returned "" — ` +
+          "could not check for a peer task-grain claim",
+        { taskId }
+      );
+      return { cause: "unavailable", unavailableReason: "invalid-subject" };
+    }
 
     // Ordered desc by lastRefreshedAt, each annotated with `stale` against the
     // threshold. The freshest non-caller, non-stale claim is the live peer.

@@ -606,6 +606,11 @@ export function createTasksDispatchRecoverCommand(
       "workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus " +
       "`workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing " +
       "uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). " +
+      "CAUTION (mt#3958): `workspaceMtimeAgoMs` only advances on a DIRTY-FILE WRITE — an " +
+      "agent that is reading code, running tests, or otherwise working without touching the " +
+      "working tree produces no write, so this clock reads 'no recent writes,' NOT 'no " +
+      "agent.' Do not treat a large `workspaceMtimeAgoMs` alone as evidence of death; it is " +
+      "silent in exactly the state a live-but-reading agent produces. " +
       "DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually " +
       "still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive " +
       "or a hasty manual override) puts TWO agents in the SAME Minsky session workspace " +
@@ -783,30 +788,51 @@ export function createTasksDispatchRecoverCommand(
         };
       }
 
-      // ── Contested gate (mt#3121): a live PEER holds a fresh task-grain claim. ───────
+      // ── Contested gate (mt#3121, revised mt#3958): a live PEER holds a fresh
+      // task-grain claim, OR the claim store could not be checked. ───────────────────
       // The dispatch is silent (past the stale window), but "silent subagent in THIS
       // session" is not "nobody is working this TASK". Consult task-grain claims, excluding
       // the caller's own, and refuse to green-light recover/redispatch when another actor is
       // live — the double-dispatch collision this task prevents (mt#3718). A claim-store READ
       // FAILURE fails CLOSED here (contested), unlike the session-grain presence signal above
       // which fails open, because this gate protects the destructive redispatch decision.
+      //
+      // mt#3958: `taskClaimLiveness` can also come back `unavailable` — the store was never
+      // successfully QUERIED at all (no provider, no connection, no repo, or an unnormalizable
+      // task id), which used to collapse into the SAME value a genuinely empty read returns
+      // (`no-fresh-claim`) and so silently green-lit recovery. This was the mt#3812
+      // double-dispatch's mechanism. `unavailableReason: "no-provider"` is the one case that
+      // keeps the old abstain-and-proceed behavior — a CLI/test context legitimately running
+      // without persistence is not evidence of a peer, live or dead. Every other reason
+      // ("no-connection", "no-repo", "invalid-subject") means an attempt to look was made and
+      // did not complete, so it fails closed exactly like "read-failure".
+      //
       // Checked BEFORE the probe and the attempt logic so the attempt counter is NOT consumed
       // on the contested path (SC3).
       const taskClaim = await activityOps.taskClaimLiveness(taskId, params.callerActorId ?? null);
-      if (taskClaim.cause === "contested" || taskClaim.cause === "read-failure") {
+      const taskClaimFailsClosed =
+        taskClaim.cause === "contested" ||
+        taskClaim.cause === "read-failure" ||
+        (taskClaim.cause === "unavailable" && taskClaim.unavailableReason !== "no-provider");
+      if (taskClaimFailsClosed) {
         const peerNote =
           taskClaim.cause === "contested"
             ? `Another actor (${taskClaim.peerActorId}) holds a fresh task-grain presence claim ` +
               `(last refreshed ${taskClaim.peerLastRefreshedAt}) — a peer conversation is actively ` +
               `working this task.`
-            : `The task-grain presence store could not be read, so peer activity cannot be ruled ` +
-              `out; failing closed rather than risk a redispatch collision.`;
+            : taskClaim.cause === "read-failure"
+              ? `The task-grain presence store could not be read, so peer activity cannot be ruled ` +
+                `out; failing closed rather than risk a redispatch collision.`
+              : `The task-grain presence store could not be checked (${taskClaim.unavailableReason}), ` +
+                `so peer activity cannot be ruled out; failing closed rather than risk a redispatch ` +
+                `collision.`;
         return {
           success: true,
           status: "contested" as const,
           taskId,
           sessionId: subagentSessionId,
           cause: taskClaim.cause,
+          unavailableReason: taskClaim.unavailableReason ?? null,
           peerActorId: taskClaim.peerActorId ?? null,
           peerLastRefreshedAt: taskClaim.peerLastRefreshedAt ?? null,
           message:
@@ -966,14 +992,26 @@ export function createTasksDispatchRecoverCommand(
             : `The workspace tree is clean (no uncommitted files)${
                 workspaceMtimeAgoMs === null
                   ? "."
-                  : `; last file-write ${workspaceMtimeAgoMs}ms ago.`
+                  : // mt#3958 SC4: a clean tree with a large workspaceMtimeAgoMs is NOT
+                    // evidence of death — the clock only moves on a dirty-file write, so
+                    // an agent that is reading, planning, or running tests without
+                    // writing produces no signal here and reads identically to dead.
+                    `; last file-write ${workspaceMtimeAgoMs}ms ago (this is a NO-WRITES-` +
+                    `RECENTLY signal, not a no-agent signal — a dispatch that is reading ` +
+                    `code or running tests writes no dirty file and looks identical here).`
               }`;
         const verifyGuidance =
           `To decide whether it is still alive, read the \`probe\` field on this result: ` +
           `\`dirtyFileCount\` / \`gitStatus\` and \`workspaceMtimeAgoMs\` are the ` +
-          `DISCRIMINATING signals. Push, PR and review activity CANNOT distinguish ` +
-          `"working locally with uncommitted changes" from "dead" — do not decide on ` +
-          `those alone. Messaging the agent directly (SendMessage) is also definitive.`;
+          `DISCRIMINATING signals — but \`workspaceMtimeAgoMs\` only advances on a dirty-file ` +
+          `WRITE (mt#3958); a dispatch that is reading, planning, or testing writes nothing and ` +
+          `so reads as "no recent writes," which is NOT the same claim as "no agent." Push, PR ` +
+          `and review activity CANNOT distinguish "working locally with uncommitted changes" ` +
+          `from "dead" — do not decide on those alone. Messaging the agent directly ` +
+          `(SendMessage) is also definitive; a parent conversation's OWN transcript mtime is ` +
+          `NOT evidence either way for a dispatched subagent — check ` +
+          `<session-dir>/subagents/agent-*.jsonl instead (see user-preferences.mdc §Probe ` +
+          `before claiming a shared resource).`;
 
         // mt#3952: names which signal starved the dispatch — "silent" (no activity signal
         // at all) vs "active but not progressing" (presence kept it looking alive while
