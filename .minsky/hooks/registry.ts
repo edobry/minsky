@@ -1140,6 +1140,15 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // because being dropped returns it to the state this hook exists to end:
     // an artifact on disk that nobody is told about.
     contextPriority: 10,
+    // MEASURED, not estimated (PR #2881 R1). The first declaration said 400
+    // against a 407-char render, which the mt#3479 size-ceiling test caught;
+    // the honest worst case was then 889, which pushed this guard into the
+    // top-five conditional bucket `MERGED_CONTEXT_BUDGET_CHARS` is derived from
+    // and broke the mt#3394 budget test. Rather than grow a shared per-turn
+    // budget for a RARE notice, the guard's own caps came down
+    // (MAX_DESCRIBED_CAPTURES 3 -> 1, tool calls 3 -> 2, footer 3 lines -> 1).
+    // Worst case is now 326 chars, a single capture 292. 400 leaves headroom
+    // without re-entering that bucket.
     attentionCost: { denialMessageSizeChars: 400, optionCount: 0 },
     // mt#2889: the hook PRIMES a synthetic capture when MINSKY_CANARY_MODE=1
     // (into the runner's isolated MINSKY_STATE_DIR), so the canary exercises

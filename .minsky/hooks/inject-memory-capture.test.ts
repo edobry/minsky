@@ -183,11 +183,21 @@ describe("collectNewCaptureNotice", () => {
 
     const notice = collectNewCaptureNotice(ENV, fake.io);
     expect(notice).not.toBeNull();
-    // The good one still reports its tool...
+    // The newest readable one is described, tool and all — a corrupt sibling
+    // does not suppress it.
     expect(notice).toContain(SLOW_TOOL);
-    // ...and the bad one is named rather than silently skipped.
+    // The corrupt one is COUNTED, not silently dropped (MAX_DESCRIBED_CAPTURES
+    // is 1, so it lands in the remainder rather than being named).
+    expect(notice).toContain("+1 more capture(s) not listed");
+    // And neither re-fires — the corrupt one is marked seen too, so it cannot
+    // re-announce itself every turn forever.
+    expect(collectNewCaptureNotice(ENV, fake.io)).toBeNull();
+  });
+
+  test("a corrupt artifact is NAMED when it is the only one", () => {
+    const fake = createFakeIo({ [ARTIFACT]: null });
+    const notice = collectNewCaptureNotice(ENV, fake.io);
     expect(notice).toContain("unreadable artifact");
-    // And neither re-fires.
     expect(collectNewCaptureNotice(ENV, fake.io)).toBeNull();
   });
 

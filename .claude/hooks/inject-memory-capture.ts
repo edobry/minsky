@@ -58,15 +58,20 @@ export const MEMORY_CAPTURE_NOTICE_OVERRIDE_ENV = "MINSKY_SKIP_MEMORY_CAPTURE_NO
 /**
  * Most captures to describe in one notice.
  *
- * A notice is a pointer, not a report — and the realistic case is one artifact,
- * since each process captures at most once. The cap bounds the injected size if
- * a fleet-wide event ever produces many at once; the remainder is counted, not
- * dropped silently.
+ * ONE, deliberately (PR #2881 R1). A notice is a pointer, not a report, and the
+ * realistic case is a single artifact since each process captures at most once.
+ * Describing three pushed the worst case to 889 chars, which put this guard
+ * into the top-five conditional bucket that `MERGED_CONTEXT_BUDGET_CHARS` is
+ * derived from — so a RARE notice would have permanently enlarged the shared
+ * per-turn context budget for every turn. `dispatcher.ts`'s own derivation says
+ * that number "should keep coming DOWN as more guard text is trimmed"; trimming
+ * here was the cheaper side of that trade. Any remainder is COUNTED, never
+ * dropped silently, and the directory path is always given.
  */
-export const MAX_DESCRIBED_CAPTURES = 3;
+export const MAX_DESCRIBED_CAPTURES = 1;
 
 /** Most in-flight tool calls to name per capture. They are sorted longest-first. */
-export const MAX_DESCRIBED_TOOL_CALLS = 3;
+export const MAX_DESCRIBED_TOOL_CALLS = 2;
 
 const BYTES_PER_MB = 1024 * 1024;
 
@@ -168,11 +173,10 @@ export function formatCaptureNotice(
       ? "A resident-memory capture was written (mt#3973)."
       : `${entries.length} resident-memory captures were written (mt#3973).`;
 
-  const footer = [
-    `Artifacts: ${captureDir}`,
-    "This is the evidence mt#3885 has been blocked on — the leak that kernel-panicked the machine.",
-    "Read the artifact, then act on it: the named tool is the allocation-path lead.",
-  ];
+  // One footer line, not three (PR #2881 R1 — see MAX_DESCRIBED_CAPTURES on why
+  // this guard's size is held down). The path is what the reader acts on; the
+  // rest is available in the artifact and in docs/mcp-memory-forensics.md.
+  const footer = [`Evidence for mt#3885 (the leak). Artifacts: ${captureDir}`];
 
   return [
     header,
