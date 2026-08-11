@@ -301,7 +301,7 @@ jobs:
           # immutable sha tag goes first so a failure cannot leave the mutable
           # :latest pointer promoted while the run goes red.
           ./scripts/ci/docker-push-with-retry.sh "$IMAGE:sha-${SHORT_SHA}" "$IMAGE:latest"
-          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+          echo "Pushed (in this order): $IMAGE:sha-${SHORT_SHA}, $IMAGE:latest"
 
       # mt#3180 (2026-07-25) — this step is the ACTUAL deploy trigger for
       # minsky-reviewer-webhook, not a backstop (Railway's image-source

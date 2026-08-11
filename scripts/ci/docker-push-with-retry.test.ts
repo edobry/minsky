@@ -55,13 +55,13 @@ case "$FAKE_DOCKER_MODE" in
   fail-once)
     if [ "$n" -eq 1 ]; then
       echo "$FAKE_DOCKER_ERROR"
-      exit 1
+      exit "$FAKE_DOCKER_EXIT"
     fi
     exit 0
     ;;
   fail-always)
     echo "$FAKE_DOCKER_ERROR"
-    exit 1
+    exit "$FAKE_DOCKER_EXIT"
     ;;
   *)
     echo "fake docker: unknown mode" >&2
@@ -107,7 +107,7 @@ function readState(name: string): string {
 
 async function runPush(
   refs: string[],
-  opts: { mode: string; error?: string; attempts?: number }
+  opts: { mode: string; error?: string; attempts?: number; dockerExit?: number }
 ): Promise<RunResult> {
   const proc = Bun.spawn([SCRIPT_PATH, ...refs], {
     env: {
@@ -120,6 +120,7 @@ async function runPush(
       FAKE_DOCKER_STATE: workDir,
       FAKE_DOCKER_MODE: opts.mode,
       FAKE_DOCKER_ERROR: opts.error ?? "",
+      FAKE_DOCKER_EXIT: String(opts.dockerExit ?? 1),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -205,6 +206,27 @@ describe("docker-push-with-retry.sh (mt#3979)", () => {
     expect(result.pushedRefs).toEqual([SHA_REF]);
   });
 
+  it("propagates docker's own exit code rather than collapsing every failure to 1", async () => {
+    const result = await runPush([SHA_REF], {
+      mode: "fail-always",
+      error: "denied: permission_denied",
+      dockerExit: 7,
+    });
+
+    expect(result.exitCode).toBe(7);
+  });
+
+  it("propagates docker's exit code after retry exhaustion too", async () => {
+    const result = await runPush([SHA_REF], {
+      mode: "fail-always",
+      error: "unknown blob",
+      dockerExit: 5,
+    });
+
+    expect(result.exitCode).toBe(5);
+    expect(result.attempts).toBe(3);
+  });
+
   it("exits 2 with a usage message when given no refs", async () => {
     const result = await runPush([], { mode: "ok" });
 
@@ -217,6 +239,10 @@ describe("docker-push-with-retry.sh (mt#3979)", () => {
     "blob upload unknown",
     "BLOB_UPLOAD_UNKNOWN: blob upload unknown to registry",
     "unexpected EOF",
+    // The registry emits a BARE `EOF` too, which is the form mt#3979's SC2
+    // names; matching only `unexpected EOF` would fail-fast on it.
+    "error: EOF",
+    'failed commit on ref "layer-sha256:9f3e": unexpected status: EOF',
     "write tcp 10.1.0.4:52134->140.82.113.33:443: write: connection reset by peer",
     "dial tcp 140.82.113.33:443: i/o timeout",
     "net/http: TLS handshake timeout",
@@ -244,6 +270,9 @@ describe("docker-push-with-retry.sh (mt#3979)", () => {
     "toomanyrequests: You have reached your pull rate limit",
     // An unrecognised message must fail closed, not be absorbed.
     "some brand new registry error nobody has classified",
+    // `EOF` is matched as a standalone word, so it must NOT fire on a token
+    // that merely starts with those letters.
+    "unauthorized: token is missing the EOFCACHE scope",
   ];
 
   for (const error of NON_TRANSIENT_CASES) {

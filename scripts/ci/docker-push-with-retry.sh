@@ -44,7 +44,13 @@ DOCKER_PUSH_RETRY_BASE_DELAY="${DOCKER_PUSH_RETRY_BASE_DELAY:-5}"
 # Retried. Extend this list only with conditions that are genuinely
 # registry-side and genuinely transient — every addition widens what a red
 # deploy is allowed to absorb silently.
-TRANSIENT_PATTERN='unknown blob|blob upload unknown|BLOB_UPLOAD_UNKNOWN|unexpected EOF|connection reset by peer|i/o timeout|TLS handshake timeout|cannot reuse body, request must be retried|received unexpected HTTP status: 5[0-9][0-9]|error parsing HTTP 5[0-9][0-9] response body'
+#
+# `EOF` is matched as a STANDALONE WORD, not as a substring: the registry emits
+# it bare (`error: EOF`) as well as inside `unexpected EOF`, and mt#3979's SC2
+# names the bare form. Anchoring on word boundaries keeps it from matching
+# inside an unrelated identifier. Written as explicit character classes rather
+# than `\b` so the pattern behaves identically under BSD and GNU grep.
+TRANSIENT_PATTERN='unknown blob|blob upload unknown|BLOB_UPLOAD_UNKNOWN|(^|[^[:alnum:]_])EOF([^[:alnum:]_]|$)|connection reset by peer|i/o timeout|TLS handshake timeout|cannot reuse body, request must be retried|received unexpected HTTP status: 5[0-9][0-9]|error parsing HTTP 5[0-9][0-9] response body'
 
 if [ "$#" -eq 0 ]; then
   echo "usage: $(basename "$0") <image-ref> [<image-ref> ...]" >&2
@@ -55,8 +61,10 @@ OUTPUT_FILE="$(mktemp)"
 trap 'rm -f "$OUTPUT_FILE"' EXIT
 
 push_with_retry() {
-  ref="$1"
-  attempt=1
+  local ref="$1"
+  local attempt=1
+  local rc
+  local delay
 
   while : ; do
     # `tee` keeps the push output streaming into the job log (so a human reading
@@ -64,6 +72,9 @@ push_with_retry() {
     # for classification. PIPESTATUS[0] is docker's exit code, not tee's.
     "$DOCKER_BIN" push "$ref" 2>&1 | tee "$OUTPUT_FILE"
     rc="${PIPESTATUS[0]}"
+    # PIPESTATUS[0] is docker's exit code, not tee's, and it is carried all the
+    # way out to the caller's exit status below — a registry that exits 7 must
+    # not be reported to CI as a generic 1.
 
     if [ "$rc" -eq 0 ]; then
       # Emitted on EVERY success, including a first-attempt one: the flake rate
@@ -91,7 +102,12 @@ push_with_retry() {
 }
 
 for image_ref in "$@"; do
-  if ! push_with_retry "$image_ref"; then
-    exit 1
+  push_with_retry "$image_ref"
+  push_rc=$?
+  if [ "$push_rc" -ne 0 ]; then
+    # Propagate docker's OWN exit code rather than collapsing every failure to
+    # 1: the code is diagnostic, and the step is the last thing standing
+    # between a failed push and a silently-not-deployed service.
+    exit "$push_rc"
   fi
 done

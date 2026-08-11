@@ -229,7 +229,7 @@ jobs:
           # immutable sha tag goes first so a failure cannot leave the mutable
           # :latest pointer promoted while the run goes red.
           ./scripts/ci/docker-push-with-retry.sh "$IMAGE:sha-${SHORT_SHA}" "$IMAGE:latest"
-          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+          echo "Pushed (in this order): $IMAGE:sha-${SHORT_SHA}, $IMAGE:latest"
 
       - name: Trigger Railway redeploy
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
