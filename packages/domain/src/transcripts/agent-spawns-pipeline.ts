@@ -339,7 +339,14 @@ export class AgentSpawnsPipeline {
 
         // Attempt to resolve child session ID.
         let childAgentSessionId: string | null = null;
-        let linkSource: "metadata" | "heuristic" | "unresolved" = "unresolved";
+        // "refused-sibling" is a FOURTH outcome, not a flavour of "unresolved"
+        // (PR #2842 R1). Without it the refusal below falls through to the
+        // `else result.childUnresolved++` at the end of this block and every
+        // refused call is counted twice — which is precisely what
+        // `childRefusedSiblingSpawn`'s own doc comment says the separate counter
+        // exists to prevent, and it would make the counters sum to more than
+        // `spawnsWritten`.
+        let linkSource: "metadata" | "heuristic" | "refused-sibling" | "unresolved" = "unresolved";
 
         // Primary: extract from tool-call metadata (tool result carries session ID).
         // This is populated when the tool_calls JSONB includes a session_id field
@@ -367,7 +374,7 @@ export class AgentSpawnsPipeline {
           // CWD_TIME_MARGIN_MS separates two agents dispatched from one cwd at
           // one instant. Resolving these needs a per-call signal, which is
           // mt#3962's job (the Agent result's `agentId`, dropped at ingest today).
-          result.childRefusedSiblingSpawn++;
+          linkSource = "refused-sibling";
         } else if (parentCwd && spawnedAt) {
           // Fallback: cwd-time-window heuristic.
           const heuristicId = await this.resolveChildByCwdTimeWindow(
@@ -421,6 +428,7 @@ export class AgentSpawnsPipeline {
         result.spawnsWritten++;
         if (linkSource === "metadata") result.childLinkedFromMetadata++;
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
+        else if (linkSource === "refused-sibling") result.childRefusedSiblingSpawn++;
         else result.childUnresolved++;
 
         // mt#2756: write the subagent_spawn minsky_session_links row using

@@ -236,6 +236,18 @@ async function main(): Promise<void> {
 
   let cleared = 0;
   for (const row of targets) {
+    // The predicate is EXACTLY the table's unique key — the upsert's conflict
+    // target is `[parentAgentSessionId, parentToolUseId]`
+    // (agent-spawns-pipeline.ts), so these two columns identify one row and
+    // cannot over-match.
+    //
+    // `parent_turn_index` is deliberately NOT in the predicate (PR #2842 R1
+    // suggested adding it). It is not part of the key, and the same upsert
+    // REFRESHES it — "re-extraction can move a spawn to a different index, and
+    // the row should follow it". So a concurrent re-extraction between the
+    // SELECT above and this UPDATE would move the index and the extra clause
+    // would match zero rows, silently clearing nothing. Narrowing on a mutable
+    // non-key column would make this less safe, not more.
     const result = await db.execute(sql`
       UPDATE agent_spawns
       SET child_agent_session_id = NULL

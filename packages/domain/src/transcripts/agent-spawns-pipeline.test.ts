@@ -522,6 +522,27 @@ describe("AgentSpawnsPipeline", () => {
       expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_2`)?.childAgentSessionId).toBeNull();
     });
 
+    test("a refusal is NOT also counted as unresolved — the outcomes partition (PR #2842 R1)", () => {
+      // The counters have to partition `spawnsWritten`, or the split that
+      // `childRefusedSiblingSpawn` exists to provide is worse than useless: a
+      // reader sees a refusal population AND an inflated miss rate describing
+      // the same calls, and the four numbers sum to more than the rows written.
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({ turnRows: [TWO_CALL_TURN], transcriptRows: ONE_CANDIDATE, spawnsStore });
+
+      return makePipeline(db)
+        .run()
+        .then((result) => {
+          expect(result.childUnresolved).toBe(0);
+          expect(
+            result.childLinkedFromMetadata +
+              result.childLinkedFromHeuristic +
+              result.childRefusedSiblingSpawn +
+              result.childUnresolved
+          ).toBe(result.spawnsWritten);
+        });
+    });
+
     test("AT2: a single-call turn with one candidate still resolves — the refusal is scoped, not blanket", async () => {
       // The case the heuristic genuinely handles. A fix that silenced this too
       // would trade a wrong-link bug for a coverage regression, and the rate is
