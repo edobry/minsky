@@ -412,7 +412,8 @@ export function registerRefsCommands(container?: AppContainerInterface): void {
       const results = await resolveRefs(refs, resolvers);
       const found = results.filter((r) => r.found).length;
 
-      if (!params.json && ctx?.format !== "json") {
+      const rendersOwnReport = !params.json && ctx?.format !== "json";
+      if (rendersOwnReport) {
         for (const result of results) {
           const label = result.found
             ? `${result.status}${result.title ? `  ${result.title}` : ""}`
@@ -422,6 +423,11 @@ export function registerRefsCommands(container?: AppContainerInterface): void {
       }
 
       return {
+        // One line per ref was just printed above, so the CLI formatter has
+        // nothing left to say; without this it appends a bare "✅ Success"
+        // under the table (mt#3961). Set only on the branch that actually
+        // printed — the json branch still needs the payload rendered.
+        ...(rendersOwnReport ? { printed: true } : {}),
         success: true,
         total: results.length,
         found,

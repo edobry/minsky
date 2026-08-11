@@ -468,6 +468,11 @@ export function registerPersistenceCommands(
         }
 
         return {
+          // Every check above printed its own ✅/❌ line, so the CLI formatter
+          // would otherwise append a bare "✅ Success" under a report that
+          // already said so (mt#3961). Unconditional because this command
+          // prints its report regardless of output format.
+          printed: true,
           success: validationResult.success,
           backend: targetBackend,
           sourceInfo,

@@ -102,8 +102,35 @@ describe("generic fallback rendering", () => {
     ).toEqual(["✅ Success"]);
   });
 
-  test("stays silent for a result flagged as already printed", () => {
+  test("stays silent for a result that DECLARES its report complete", () => {
+    // mt#3961: `printed` suppresses everything, including the status line the
+    // command's own report already conveyed.
     expect(render({ printed: true, success: true, cwd: "/tmp/x" })).toEqual([]);
+  });
+
+  test("declaring printed also suppresses the trailing status line with no payload", () => {
+    expect(render({ printed: true, success: true })).toEqual([]);
+  });
+
+  /**
+   * mt#3961's originating near-miss, kept as a regression guard.
+   *
+   * The task set out to suppress the status line whenever the command emitted
+   * ANY output, inferring "already reported" from the line counter. This shape
+   * falsified it: `authorship.recompute` prints one incidental line ("Running
+   * in dry-run mode…") and returns a `RecomputeSummary` — no `success` key, so
+   * it renders through the JSON-dump branch. Inferring suppression would have
+   * swallowed the entire summary the operator ran the command to get.
+   *
+   * A command that emitted output must still have a no-status payload rendered.
+   */
+  test("still renders a no-status payload even when the command emitted output", () => {
+    const emitted = render(
+      { total: 1880, recomputed: 5, tierChanged: 2 },
+      { commandEmittedOutput: true }
+    );
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toContain('"recomputed": 5');
   });
 
   test("prefers an explicit message and does not also dump the payload", () => {
