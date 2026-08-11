@@ -19,9 +19,13 @@ import {
   buildPendingAskRecord,
   formatCadenceWarning,
   formatPendingAskLines,
+  parseAskStateCache,
+  resolveAskStates,
   selectPendingAskLogs,
   shouldReWarn,
+  ASK_STATE_STALENESS_MS,
   COOLDOWN_MS,
+  type AskStateCacheRead,
   type LastWarnedRecord,
   type LastWarnedStore,
   type AskLookup,
@@ -43,6 +47,8 @@ const POLICY_COVERAGE = "policy-coverage";
 const POLICY_COVERAGE_PATH = ".minsky/policy-coverage-calibration.jsonl";
 const TEST_ASK_ID = "483dbcb0-788a-4159-9d8a-ba718ba1f2b0";
 const TEST_NOT_A_DATE = "not-a-date";
+/** `checkedAt` for ask-state snapshot fixtures (mt#3744); equals NOW so they read as fresh. */
+const CHECKED_AT_FIXTURE = "2026-07-06T00:00:00.000Z";
 const TEST_SESSION_A = "session-aaaa";
 const TEST_SESSION_B = "session-bbbb";
 
@@ -608,7 +614,9 @@ describe("formatPendingAskLines", () => {
   const NO_ACTION_NEEDED = "no action needed";
   const NEEDS_DISPOSITION = "still needs a disposition";
   const UNKNOWN_STATE = "disposition state unknown";
-  const STORE_UNREACHABLE = "ask store unreachable";
+  // mt#3744 retired "ask store unreachable": the hook no longer reaches a store, so the only
+  // honest remaining `unavailable` is a snapshot that exists and cannot be parsed.
+  const SNAPSHOT_UNREADABLE = "snapshot could not be read";
 
   test("an OPEN ask still renders the pending line, without demanding action", () => {
     // mt#3270: the fixture states the ask state LITERALLY. Binding this to a live ask id
@@ -644,24 +652,76 @@ describe("formatPendingAskLines", () => {
     expect(msg).toContain(UNKNOWN_STATE);
   });
 
-  test("an UNREACHABLE store is distinguishable from a not-found ask", () => {
+  test("an UNREADABLE snapshot is distinguishable from a not-found ask", () => {
     // Without this distinction a dead lookup renders exactly like a healthy one that found
     // nothing — the mt#3019 / mt#3046 shape, and the same shape as this detector's own bug.
     const notFound = formatPendingAskLines([pendingLog()], lookups({ kind: "not-found" }));
-    const unreachable = formatPendingAskLines(
+    const unreadable = formatPendingAskLines(
       [pendingLog()],
-      lookups({ kind: "unavailable", reason: "Configuration not initialized" })
+      lookups({ kind: "unavailable", reason: "unexpected token in JSON" })
     );
-    expect(unreachable).not.toBe(notFound);
-    expect(unreachable).toContain(STORE_UNREACHABLE);
-    expect(unreachable).toContain("Configuration not initialized");
-    expect(unreachable).not.toContain(AWAITING);
+    expect(unreadable).not.toBe(notFound);
+    expect(unreadable).toContain(SNAPSHOT_UNREADABLE);
+    expect(unreadable).toContain("unexpected token in JSON");
+    expect(unreadable).not.toContain(AWAITING);
   });
 
   test("a missing lookup never silently reads as an open ask", () => {
     const msg = formatPendingAskLines([pendingLog()], new Map());
     expect(msg).not.toContain(AWAITING);
-    expect(msg).toContain(STORE_UNREACHABLE);
+    expect(msg).toContain(SNAPSHOT_UNREADABLE);
+  });
+
+  // mt#3744 — the four snapshot-fault branches. Each names a DIFFERENT thing to fix, so the
+  // load-bearing assertion in each is that its line is distinguishable from the others'.
+  test("a STALE snapshot names its age and asserts no disposition state", () => {
+    const msg = formatPendingAskLines(
+      [pendingLog()],
+      lookups({ kind: "stale", checkedAt: "2026-08-11T09:00:00.000Z", ageMs: 90 * 60 * 1000 })
+    );
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).not.toContain(NO_ACTION_NEEDED);
+    expect(msg).toContain("snapshot is 1h old");
+    expect(msg).toContain("2026-08-11T09:00:00.000Z");
+    expect(msg).toContain("no disposition state is asserted");
+  });
+
+  test("an ABSENT snapshot says no snapshot exists — not that a lookup failed", () => {
+    const msg = formatPendingAskLines([pendingLog()], lookups({ kind: "absent" }));
+    expect(msg).not.toContain(AWAITING);
+    expect(msg).toContain("no ask-state snapshot exists");
+    expect(msg).toContain(UNKNOWN_STATE);
+    // The distinction SC3 asks for: never read as a failed read.
+    expect(msg).not.toContain(SNAPSHOT_UNREADABLE);
+  });
+
+  test("an id the producer never asked about is distinct from an absent snapshot", () => {
+    const notInSnapshot = formatPendingAskLines(
+      [pendingLog()],
+      lookups({
+        kind: "not-in-snapshot",
+        checkedAt: "2026-08-11T12:00:00.000Z",
+        ageMs: 4 * 60 * 1000,
+      })
+    );
+    const absent = formatPendingAskLines([pendingLog()], lookups({ kind: "absent" }));
+    expect(notInSnapshot).not.toBe(absent);
+    expect(notInSnapshot).toContain("not covered by the current");
+    expect(notInSnapshot).toContain("4m old");
+    expect(notInSnapshot).not.toContain(AWAITING);
+  });
+
+  test("all four snapshot-fault renderings are mutually distinguishable", () => {
+    // A regression guard on the SC4 requirement itself: collapsing any two of these back into
+    // one message is the defect this task exists to remove, and a per-branch test would not
+    // catch two branches that quietly converge on the same wording.
+    const rendered = [
+      lookups({ kind: "absent" }),
+      lookups({ kind: "unavailable", reason: "bad json" }),
+      lookups({ kind: "stale", checkedAt: "2026-08-11T09:00:00.000Z", ageMs: 3600000 }),
+      lookups({ kind: "not-in-snapshot", checkedAt: "2026-08-11T12:00:00.000Z", ageMs: 60000 }),
+    ].map((l) => formatPendingAskLines([pendingLog()], l));
+    expect(new Set(rendered).size).toBe(rendered.length);
   });
 
   test("the ask id renders as a clickable minsky://ask deeplink", () => {
@@ -778,5 +838,201 @@ describe("acceptance: ask-aware suppression end-to-end (mt#2659)", () => {
     // ...instead normal shouldReWarn cadence applies (policy-coverage kind:
     // time-only re-warn, so a never-warned log still warns).
     expect(shouldReWarn(due[0] as ReviewDueLog, {}, NOW)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAskStates — the cached-snapshot consumer (mt#3744)
+// ---------------------------------------------------------------------------
+
+describe("resolveAskStates (mt#3744)", () => {
+  const OTHER_ASK_ID = "9f1d2c33-0000-4000-8000-abcdefabcdef";
+
+  const okRead = (
+    asks: Record<string, { found: true; state: string; open: boolean } | { found: false }>,
+    checkedAt: string = CHECKED_AT_FIXTURE
+  ): AskStateCacheRead => ({ kind: "ok", record: { checkedAt, asks } });
+
+  test("FRESH: an open ask resolves to `open`, carrying the producer's state", () => {
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "suspended", open: true } }),
+      [TEST_ASK_ID],
+      NOW
+    );
+    expect(out.get(TEST_ASK_ID)).toEqual({ kind: "open", state: "suspended" });
+  });
+
+  test("FRESH: a settled ask resolves to `settled` — never to unavailable", () => {
+    // The mt#3270 regression in its post-mt#3744 form: this is the case the whole mechanism
+    // exists to deliver, and the one that read "ask store unreachable" for weeks.
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "closed", open: false } }),
+      [TEST_ASK_ID],
+      NOW
+    );
+    expect(out.get(TEST_ASK_ID)).toEqual({ kind: "settled", state: "closed" });
+  });
+
+  test("`open` is read from the snapshot, not recomputed from the state string", () => {
+    // The producer owns OPEN_ASK_STATES. If the consumer re-derived it, the two would drift
+    // silently the first time a state is added — so an entry whose `open` disagrees with what
+    // the consumer would have guessed must still follow the record.
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "suspended", open: false } }),
+      [TEST_ASK_ID],
+      NOW
+    );
+    expect(out.get(TEST_ASK_ID)?.kind).toBe("settled");
+  });
+
+  test("FRESH: an id the producer looked up and did not find resolves to `not-found`", () => {
+    const out = resolveAskStates(okRead({ [TEST_ASK_ID]: { found: false } }), [TEST_ASK_ID], NOW);
+    expect(out.get(TEST_ASK_ID)).toEqual({ kind: "not-found" });
+  });
+
+  test("STALE: a snapshot past the threshold asserts no state for ANY id", () => {
+    const staleAt = new Date(NOW - ASK_STATE_STALENESS_MS - 60_000).toISOString();
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "suspended", open: true } }, staleAt),
+      [TEST_ASK_ID],
+      NOW
+    );
+    const lookup = out.get(TEST_ASK_ID);
+    expect(lookup?.kind).toBe("stale");
+    // Load-bearing: a stale snapshot that still said "open" would be the exact defect
+    // mt#3270 fixed, re-introduced through the cache.
+    expect(lookup?.kind).not.toBe("open");
+  });
+
+  test("a snapshot just INSIDE the threshold is still fresh", () => {
+    const freshAt = new Date(NOW - ASK_STATE_STALENESS_MS + 60_000).toISOString();
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "suspended", open: true } }, freshAt),
+      [TEST_ASK_ID],
+      NOW
+    );
+    expect(out.get(TEST_ASK_ID)?.kind).toBe("open");
+  });
+
+  test("an unparseable checkedAt is treated as infinitely old, never as fresh", () => {
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "suspended", open: true } }, TEST_NOT_A_DATE),
+      [TEST_ASK_ID],
+      NOW
+    );
+    expect(out.get(TEST_ASK_ID)?.kind).toBe("stale");
+  });
+
+  test("ABSENT: no snapshot file resolves every id to `absent`", () => {
+    const out = resolveAskStates({ kind: "absent" }, [TEST_ASK_ID, OTHER_ASK_ID], NOW);
+    expect(out.get(TEST_ASK_ID)).toEqual({ kind: "absent" });
+    expect(out.get(OTHER_ASK_ID)).toEqual({ kind: "absent" });
+  });
+
+  test("NOT-IN-SNAPSHOT applies per id — a covered sibling still resolves normally", () => {
+    // The distinction that makes this kind worth having: one uncovered id must not degrade
+    // the whole render, which a snapshot-wide fallback would do.
+    const out = resolveAskStates(
+      okRead({ [TEST_ASK_ID]: { found: true, state: "routed", open: true } }),
+      [TEST_ASK_ID, OTHER_ASK_ID],
+      NOW
+    );
+    expect(out.get(TEST_ASK_ID)?.kind).toBe("open");
+    expect(out.get(OTHER_ASK_ID)?.kind).toBe("not-in-snapshot");
+  });
+
+  test("UNREADABLE: a corrupt snapshot resolves to `unavailable`, carrying the reason", () => {
+    const out = resolveAskStates({ kind: "unreadable", reason: "bad json" }, [TEST_ASK_ID], NOW);
+    expect(out.get(TEST_ASK_ID)).toEqual({ kind: "unavailable", reason: "bad json" });
+  });
+
+  test("an empty id list resolves nothing and reads no snapshot", () => {
+    expect(resolveAskStates({ kind: "absent" }, [], NOW).size).toBe(0);
+  });
+});
+
+describe("parseAskStateCache (mt#3744)", () => {
+  test("rejects a record with no checkedAt rather than treating it as fresh", () => {
+    expect(parseAskStateCache(JSON.stringify({ asks: {} }))).toBeNull();
+  });
+
+  test("rejects malformed JSON", () => {
+    expect(parseAskStateCache("{not json")).toBeNull();
+  });
+
+  test("accepts a well-formed record, including an empty ask set", () => {
+    // An empty snapshot is a SUCCESSFUL refresh that covered no pending asks — it must parse,
+    // or a producer that correctly found nothing to do would read as a corrupt file.
+    const parsed = parseAskStateCache(JSON.stringify({ checkedAt: CHECKED_AT_FIXTURE, asks: {} }));
+    expect(parsed).toEqual({ checkedAt: CHECKED_AT_FIXTURE, asks: {} });
+  });
+
+  test("drops entries that are malformed without discarding their well-formed siblings", () => {
+    const parsed = parseAskStateCache(
+      JSON.stringify({
+        checkedAt: CHECKED_AT_FIXTURE,
+        asks: {
+          good: { found: true, state: "closed", open: false, shortId: "ask#5425" },
+          missingState: { found: true, open: false },
+          notFound: { found: false },
+          garbage: "nope",
+        },
+      })
+    );
+    expect(Object.keys(parsed?.asks ?? {}).sort()).toEqual(["good", "notFound"]);
+    expect(parsed?.asks.good).toEqual({
+      found: true,
+      state: "closed",
+      open: false,
+      shortId: "ask#5425",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Structural regression (mt#3744): the per-turn ask-state path cannot perform a
+// live database read.
+//
+// Asserted on CONSTRUCTION, not latency — the spec's own note is that a timing
+// assertion cannot distinguish a cache hit from a fast database.
+//
+// The construction asserted here is SYNCHRONY, and it is decisive rather than
+// indicative: every step of the removed path is unavoidably async in this
+// codebase (`ensureHookDomainBootstrap`, `resolvePersistenceProvider`,
+// `getDatabaseConnection` and `DrizzleAskRepository.getById` all return
+// promises), so a synchronous function provably cannot await any of them. The
+// old `resolveAskStates` was `async` for exactly that reason.
+//
+// The complementary source-level scan — "the module names no persistence
+// symbol at all" — lives in `scripts/verify-calibration-cadence-ask-lookup.ts`
+// rather than here, because `custom/no-real-fs-in-tests` forbids a test file
+// from reading source off disk. That script runs the scan unconditionally,
+// including on its no-database SKIP path.
+// ---------------------------------------------------------------------------
+
+describe("per-turn path cannot perform a live database read (mt#3744)", () => {
+  test("resolveAskStates is synchronous, so it can await no connection", () => {
+    expect(resolveAskStates.constructor.name).toBe("Function");
+    expect(resolveAskStates.constructor.name).not.toBe("AsyncFunction");
+  });
+
+  test("resolveAskStates returns a resolved Map, not a promise", () => {
+    const out = resolveAskStates({ kind: "absent" }, [TEST_ASK_ID], NOW);
+    expect(out).toBeInstanceOf(Map);
+    expect(out).not.toBeInstanceOf(Promise);
+  });
+
+  test("parseAskStateCache is synchronous too — the whole path is", () => {
+    // The only other half of the per-turn lookup. `readAskStateCache` is deliberately not
+    // called here: invoking it would read the real cache path off disk, which is the very
+    // thing the rule above forbids a test from doing.
+    expect(parseAskStateCache.constructor.name).toBe("Function");
+  });
+
+  test("the guard is still registered, so this is a removed read and not a removed guard", () => {
+    // Without this, deleting the whole detector would satisfy every assertion above.
+    const entry = GUARD_REGISTRY.find((g) => g.name === "calibration-review-cadence-detector");
+    expect(entry).toBeDefined();
+    expect(entry?.event).toBe("UserPromptSubmit");
   });
 });
