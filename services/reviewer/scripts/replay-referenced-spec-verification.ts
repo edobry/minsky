@@ -33,6 +33,27 @@
  * Fixtures below are the REAL mt#3915 (PR #2761) and mt#3874 spec text,
  * fetched via `tasks_spec_get` on 2026-08-11 — not synthesized.
  *
+ * ## Fixture provenance and refresh (PR #2841 R1 non-blocking)
+ *
+ * - `PR_2761_CRITERIA`: the exact `## Success Criteria` list from mt#3915's
+ *   spec, `tasks_spec_get({ taskId: "mt#3915" })`, read 2026-08-11 (task
+ *   `updatedAt` at read time: `2026-08-10T11:12:17.656Z`).
+ * - `MT_3874_AMENDED_SPEC`: the `## Success Criteria` + `## AMENDED
+ *   2026-08-10` sections from mt#3874's spec, `tasks_spec_get({ taskId:
+ *   "mt#3874" })`, read 2026-08-11 (task `updatedAt` at read time:
+ *   `2026-08-10T17:53:58.889Z`).
+ * - `MT_3874_PRE_AMENDMENT_SPEC` is DERIVED, not independently fetched: it is
+ *   `MT_3874_AMENDED_SPEC` sliced at the `AMENDMENT_MARKER`, reconstructing
+ *   the pre-2026-08-10 state (mt#3874's spec has no earlier version fetchable
+ *   via `tasks_spec_get` — task specs are mutated in place, not versioned).
+ *
+ * Both source tasks are DONE and unlikely to change further, but if either
+ * spec IS edited again, these fixtures drift from the live record. To
+ * refresh: re-run `tasks_spec_get` for the task in question, paste its
+ * current `## Success Criteria` (and any relevant amendment section) in
+ * place of the corresponding constant below, and re-run this script to
+ * confirm the PASS/FAIL verdict is unchanged.
+ *
  * Usage:
  *   bun services/reviewer/scripts/replay-referenced-spec-verification.ts
  */
