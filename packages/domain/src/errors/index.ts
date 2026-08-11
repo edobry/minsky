@@ -106,6 +106,33 @@ export class GitOperationError extends MinskyError {
 }
 
 /**
+ * Thrown when a git subprocess exceeded its timeout and was killed (mt#3939).
+ *
+ * Carries the bound that was actually applied, so a caller can report WHICH
+ * bound expired without parsing it back out of the rendered message — the
+ * ambiguity that made mt#3939 hard to diagnose was exactly "I passed 180000
+ * and the message said 60". Callers that wrap this error should read
+ * `timeoutMs` rather than the prose.
+ *
+ * The message is unchanged from what `execGitWithTimeout` produced before this
+ * class existed, and `instanceof MinskyError` still holds, so existing
+ * catch-and-report paths are unaffected.
+ */
+export class GitOperationTimeoutError extends GitOperationError {
+  constructor(
+    message: string,
+    public readonly operation: string,
+    public readonly timeoutMs: number,
+    command?: string,
+    public readonly workdir?: string,
+    public readonly executionTimeMs?: number
+  ) {
+    super(message, command);
+    this.name = "GitOperationTimeoutError";
+  }
+}
+
+/**
  * Thrown when there is nothing to commit (working tree clean).
  */
 export class NothingToCommitError extends GitOperationError {

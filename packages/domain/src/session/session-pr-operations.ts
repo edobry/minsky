@@ -438,6 +438,12 @@ Please provide a title for your pull request:
       session: sessionId,
       draft: params.draft || false,
       authorshipTier,
+      // mt#3939: the SECOND push this command runs. STEP 6 above forwards the
+      // same bound to the session update's push; before this line the backend's
+      // pre-PR push carried a hardcoded 60s no caller could reach, so the
+      // operator's `pushTimeoutMs` silently did not apply to the push that
+      // actually failed.
+      pushTimeoutMs: params.pushTimeoutMs,
     });
 
     log.cli(`✅ Pull request created successfully!`);

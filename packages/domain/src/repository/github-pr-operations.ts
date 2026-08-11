@@ -11,7 +11,7 @@
 
 import { Octokit } from "@octokit/rest";
 import { createTimeoutFetch } from "../github/octokit-timeout";
-import { MinskyError, getErrorMessage } from "../errors/index";
+import { GitOperationTimeoutError, MinskyError, getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { execGitWithTimeout } from "../utils/git-exec";
 import type { TokenRole } from "../auth/token-provider";
@@ -160,6 +160,123 @@ export async function findPRNumberForBranch(
   }
 }
 
+// ── Pre-PR push (mt#3939) ───────────────────────────────────────────────
+
+/**
+ * Bound applied to the pre-PR push when the caller supplies none.
+ *
+ * mt#3939: this used to be a bare `timeout: 60000` literal at the call site,
+ * which made it invisible from the outside. `session_pr_create` runs TWO
+ * pushes — the pre-PR session update's push (bounded by the caller's
+ * `pushTimeoutMs`, reported as "Failed to push changes to remote during
+ * session update") and THIS one. Only the first honored `pushTimeoutMs`, so an
+ * operator who passed 180000 and then read "timed out after 60 seconds" had no
+ * way to tell that the two numbers described different pushes.
+ */
+export const DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS = 60_000;
+
+/** Human-readable name of the step, used in the failure message. */
+export const PR_CREATE_PUSH_STEP = "ensure branch pushed before PR creation";
+
+export interface EnsureBranchPushedParams {
+  workdir: string;
+  sourceBranch: string;
+  /** Caller-supplied bound; falls back to DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS. */
+  pushTimeoutMs?: number;
+}
+
+export interface EnsureBranchPushedDeps {
+  execGit: typeof execGitWithTimeout;
+}
+
+/**
+ * Render the failure message for a pre-PR push that exceeded its bound.
+ *
+ * Deliberately does NOT reuse `createGitTimeoutErrorMessage`'s generic
+ * remedies. Those are network-oriented (`ping github.com`, `git count-objects`,
+ * "consider shallow clone"), and this push normally has nothing to send — on
+ * the `session_pr_create` path STEP 6 has already pushed the branch. Sending a
+ * reader at the network for a push with no payload is what cost mt#3939's
+ * originating session its diagnosis time.
+ */
+export function buildPrCreatePushTimeoutMessage(params: {
+  sourceBranch: string;
+  workdir: string;
+  timeoutMs: number;
+  boundSource: string;
+}): string {
+  const seconds = Math.round(params.timeoutMs / 1000);
+  return [
+    `⚠️ Pre-PR push timed out — step: ${PR_CREATE_PUSH_STEP}`,
+    "",
+    `The push that timed out is the one PR creation runs to make sure the branch exists on`,
+    `the remote. It is NOT the pre-PR session update's push — that one fails with`,
+    `"Failed to push changes to remote during session update".`,
+    "",
+    `Branch: ${params.sourceBranch}`,
+    `Working directory: ${params.workdir}`,
+    `Timeout: ${seconds} seconds (source: ${params.boundSource})`,
+    "",
+    "What to check, in order:",
+    `  1. Is another operation still running against this workspace? A push left running by`,
+    `     an earlier session operation blocks this one (mt#3881).`,
+    `  2. Is the branch already on the remote? 'git ls-remote --heads origin ${params.sourceBranch}'`,
+    `     — if it reports the same commit as HEAD, this push had nothing to send and the`,
+    `     network is not the problem.`,
+    `  3. Retry with a larger bound: pass pushTimeoutMs to session_pr_create.`,
+  ].join("\n");
+}
+
+/**
+ * Push the source branch so the PR has something to open against.
+ *
+ * Dependencies are injected (mt#3632 testable-design) so the bound actually
+ * applied and the message actually produced can be observed without patching
+ * the git-exec module.
+ */
+export async function ensureBranchPushedForPr(
+  params: EnsureBranchPushedParams,
+  deps: EnsureBranchPushedDeps = { execGit: execGitWithTimeout }
+): Promise<void> {
+  const timeoutMs = params.pushTimeoutMs ?? DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS;
+  const boundSource =
+    params.pushTimeoutMs !== undefined
+      ? "caller-supplied pushTimeoutMs"
+      : "DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS (no pushTimeoutMs supplied)";
+
+  try {
+    await deps.execGit("push", `push origin ${params.sourceBranch}`, {
+      workdir: params.workdir,
+      timeout: timeoutMs,
+      context: [
+        { label: "Step", value: PR_CREATE_PUSH_STEP },
+        { label: "Timeout source", value: boundSource },
+      ],
+    });
+  } catch (error) {
+    if (error instanceof GitOperationTimeoutError) {
+      throw new MinskyError(
+        buildPrCreatePushTimeoutMessage({
+          sourceBranch: params.sourceBranch,
+          workdir: params.workdir,
+          // Report the bound the subprocess actually ran under, read off the
+          // error rather than re-derived here — if those ever disagree, the
+          // error is the one that describes what happened.
+          timeoutMs: error.timeoutMs,
+          boundSource,
+        }),
+        error
+      );
+    }
+    // Non-timeout failures (rejected push, auth, protected branch) keep their
+    // original detail — it is the useful part — and gain the step label.
+    throw new MinskyError(
+      `Pre-PR push failed — step: ${PR_CREATE_PUSH_STEP}\n\n${getErrorMessage(error)}`,
+      error
+    );
+  }
+}
+
 // ── PR lifecycle operations ─────────────────────────────────────────────
 
 /**
@@ -175,13 +292,19 @@ export async function createPullRequest(
   session: string | undefined,
   draft: boolean,
   getSessionDB: () => Promise<SessionProviderInterface>,
-  authorshipTier?: AuthorshipTier
+  authorshipTier?: AuthorshipTier,
+  options: { pushTimeoutMs?: number } = {}
 ): Promise<PRInfo> {
   try {
-    // Ensure the source branch is pushed to the remote
-    await execGitWithTimeout("push", `push origin ${sourceBranch}`, {
+    // Ensure the source branch is pushed to the remote. Kept unconditional:
+    // `session_pr_create` has already pushed by the time it reaches here, but
+    // the changeset adapter (changeset/adapters/github-adapter.ts) calls
+    // pr.create with no prior push, so skipping would break that caller
+    // (mt#3939 success criterion 5 — enumerated, decided, kept).
+    await ensureBranchPushedForPr({
       workdir,
-      timeout: 60000,
+      sourceBranch,
+      pushTimeoutMs: options.pushTimeoutMs,
     });
 
     const githubToken = await gh.getToken();
