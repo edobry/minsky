@@ -28,6 +28,17 @@ import {
 } from "@minsky/domain/agent-identity/resolve";
 import { buildDeclaredIdentityKeys } from "@minsky/domain/agent-identity/declared";
 import { redactAgentId } from "@minsky/domain/agent-identity/format";
+
+/**
+ * How many distinct Layer 1 agentIds the identity-fallback reporter remembers
+ * before resetting (mt#3986, PR #2877 R1).
+ *
+ * Sized against the observed fleet rather than a round number: mt#3811 measured
+ * this daemon at 1–10 concurrent clients, and each client PROCESS contributes
+ * one id, so 256 is roughly an order of magnitude above any observed
+ * simultaneous population while staying trivially small in memory.
+ */
+const IDENTITY_FALLBACK_REPORT_CAP = 256;
 import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -420,7 +431,11 @@ export class MinskyMCPServer {
   /**
    * Layer 1 agentIds already reported as an identity fallback (mt#3986).
    * Bounds the warning to one per distinct ascribed id — see
-   * `reportIdentityFallback`.
+   * `reportIdentityFallback`. Capped at
+   * {@link IDENTITY_FALLBACK_REPORT_CAP}; a Layer 1 id is derived from
+   * (hostname, user, pid, start-time), so a long-lived shared daemon meets a
+   * new one per client PROCESS and this would otherwise grow without bound
+   * (PR #2877 R1).
    */
   private reportedIdentityFallbacks = new Set<string>();
 
@@ -1668,7 +1683,18 @@ export class MinskyMCPServer {
    */
   private reportIdentityFallback(event: IdentityFallbackEvent): void {
     const isFirst = !this.reportedIdentityFallbacks.has(event.agentId);
-    if (isFirst) this.reportedIdentityFallbacks.add(event.agentId);
+    if (isFirst) {
+      // Clear rather than stop adding when the cap is reached. Both bound the
+      // memory; only this one keeps the mechanism alive — a set that fills and
+      // then refuses new entries would warn about the FIRST N clients a daemon
+      // ever saw and go permanently silent about every one after, which is the
+      // silent degradation this whole task exists to end. Clearing costs a
+      // periodic repeat warning for a still-connected client instead.
+      if (this.reportedIdentityFallbacks.size >= IDENTITY_FALLBACK_REPORT_CAP) {
+        this.reportedIdentityFallbacks.clear();
+      }
+      this.reportedIdentityFallbacks.add(event.agentId);
+    }
 
     const detail = {
       keysTried: event.keysTried,

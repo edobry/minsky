@@ -7,6 +7,7 @@
  * past either bound.
  */
 import { describe, test, expect } from "bun:test";
+import { fileURLToPath } from "url";
 import {
   MAX_BAGGAGE_BYTES,
   MAX_BAGGAGE_MEMBERS,
@@ -18,6 +19,28 @@ import {
 } from "./baggage";
 
 const UUID = "2154425b-1c30-4f0e-9d51-0b73b9a2f5a1";
+
+describe("leaf-module discipline (PR #2877 R1)", () => {
+  test("baggage.ts pulls in nothing, so the shim can import it cheaply", async () => {
+    // `src/mcp/shim/identity.ts` DUPLICATES the conversation-id resolution
+    // rather than importing it, because that module pulls in a `ps`-shelling
+    // dependency. It IMPORTS this one instead, on the stated grounds that this
+    // module is a leaf. The shim's 50KB bundle gate (mt#3812) is what that
+    // claim protects, and prose is not what should be protecting it.
+    //
+    // Asserted against the parsed import GRAPH, not a regex over the source
+    // and not a bundle-size ceiling. Both of those were tried and rejected: a
+    // regex is fooled by any import shape it does not match, and a size bound
+    // does not discriminate — measured, this module bundles to 1,467 bytes
+    // while `declared.ts`, which DOES import three siblings, is only 2,655.
+    // Any ceiling loose enough to be maintenance-free is loose enough to let a
+    // real import through. The import list is the property; assert it.
+    const source = await Bun.file(fileURLToPath(new URL("./baggage.ts", import.meta.url))).text();
+    const imports = new Bun.Transpiler({ loader: "ts" }).scanImports(source);
+
+    expect(imports).toEqual([]);
+  });
+});
 
 describe("parseBaggage", () => {
   test("parses a single member", () => {

@@ -222,6 +222,36 @@ describe("resolveAgentIdWithLayer (provenance output, mt#3986)", () => {
     expect(events.length).toBe(2);
   });
 
+  test("never reports a layer its agentId did not come from (PR #2877 R1)", () => {
+    // A `parsed` id that will not serialize used to yield a Layer 1 STRING
+    // paired with `layer: 2` and the Layer 2 `parsed` — three fields
+    // disagreeing about where the identity came from, and no fallback event.
+    // An invalid scope is the cheapest way to make serialization fail.
+    const events: IdentityFallbackEvent[] = [];
+    const unserializable = {
+      kind: KNOWN_KINDS.CLAUDE_CODE,
+      scope: "not-a-scope",
+      id: "x",
+    } as unknown as Parameters<typeof resolveAgentIdWithLayer>[0]["layer3Result"];
+
+    const resolution = resolveAgentIdWithLayer({
+      clientInfo: { name: "claude-code" },
+      signals: BASE_SIGNALS,
+      layer3Result: unserializable,
+      onFallback: (event) => events.push(event),
+    });
+
+    // Falls all the way through to a coherent Layer 1 resolution...
+    expect(resolution.layer).toBe(1);
+    expect(resolution.parsed.scope).not.toBe("not-a-scope");
+    expect(resolution.agentId).toBe(
+      `${resolution.parsed.kind}:${resolution.parsed.scope}:${resolution.parsed.id}`
+    );
+    // ...and the degradation is REPORTED rather than swallowed.
+    expect(events.length).toBe(1);
+    expect(events[0]?.layer).toBe(1);
+  });
+
   test("keeps resolveAgentId and resolveAgentIdParsed consistent with the resolution", () => {
     const inputs = {
       clientInfo: { name: "claude-code" },

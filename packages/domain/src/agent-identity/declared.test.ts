@@ -5,6 +5,7 @@ import { describe, test, expect } from "bun:test";
 import {
   DEFAULT_DECLARED_IDENTITY_KEYS,
   buildDeclaredIdentityKeys,
+  isReservedMcpKey,
   readDeclaredIdentity,
 } from "./declared";
 import { AGENT_ID_META_KEY } from "./layer2";
@@ -49,6 +50,37 @@ describe("buildDeclaredIdentityKeys", () => {
     // Accepting an arbitrary key would let a caller-controlled `_meta` field
     // name identity — a different threat model from the reserved-prefix one.
     expect(buildDeclaredIdentityKeys("com.evil/agent_id")).toEqual(DEFAULT_DECLARED_IDENTITY_KEYS);
+  });
+
+  test("accepts every prefix form the MCP spec names as reserved (PR #2877 R1)", () => {
+    // The spec's rule is "the SECOND label is `modelcontextprotocol` or `mcp`",
+    // not a list of two literal prefixes. These four are its own examples.
+    for (const key of [
+      "io.modelcontextprotocol/conversationId",
+      "dev.mcp/conversationId",
+      "org.modelcontextprotocol.api/conversationId",
+      "com.mcp.tools/conversationId",
+    ]) {
+      expect(isReservedMcpKey(key)).toBe(true);
+      expect(buildDeclaredIdentityKeys(key).map((k) => k.key)).toContain(key);
+    }
+  });
+
+  test("rejects the spec's own counter-example and other near-misses", () => {
+    for (const key of [
+      // The spec names this one explicitly: second label is `example`.
+      "com.example.mcp/conversationId",
+      // A single label is not a prefix.
+      "mcp/conversationId",
+      // Merely PREFIXED by a reserved string is not the same as reserved.
+      "io.modelcontextprotocol.evil.com/conversationId".replace("io.", "com.evil."),
+      // No prefix at all.
+      "conversationId",
+      "/conversationId",
+    ]) {
+      expect(isReservedMcpKey(key)).toBe(false);
+      expect(buildDeclaredIdentityKeys(key)).toEqual(DEFAULT_DECLARED_IDENTITY_KEYS);
+    }
   });
 
   test("returns the default list when no key is configured", () => {

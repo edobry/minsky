@@ -99,30 +99,43 @@ export function resolveAgentIdWithLayer(inputs: ResolveAgentIdInputs): AgentIdRe
 
   // Layer 3 — enforced (reserved slot, not yet implemented)
   if (inputs.layer3Result) {
-    return {
-      agentId: toSerialized(inputs.layer3Result, inputs),
-      parsed: inputs.layer3Result,
-      layer: 3,
-      keyThatAnswered: null,
-      keysTried: [],
-    };
+    const agentId = serializeAgentId(inputs.layer3Result);
+    if (agentId) {
+      return {
+        agentId,
+        parsed: inputs.layer3Result,
+        layer: 3,
+        keyThatAnswered: null,
+        keysTried: [],
+      };
+    }
   }
 
   // Layer 2 — declared, resolved from the ordered key list
   const declared = readDeclaredIdentity(inputs.extras, declaredKeys, inputs.clientInfo?.name);
   if (declared) {
-    return {
-      agentId: toSerialized(declared.parsed, inputs),
-      parsed: declared.parsed,
-      layer: 2,
-      keyThatAnswered: declared.key,
-      keysTried,
-    };
+    const agentId = serializeAgentId(declared.parsed);
+    if (agentId) {
+      return {
+        agentId,
+        parsed: declared.parsed,
+        layer: 2,
+        keyThatAnswered: declared.key,
+        keysTried,
+      };
+    }
   }
 
-  // Layer 1 — ascribed fallback (always succeeds)
+  // Layer 1 — ascribed fallback (always succeeds).
+  //
+  // Reached three ways: no declared key answered, OR a higher layer produced a
+  // parsed id that would not serialize. The second case falls through here
+  // rather than pairing a Layer 1 STRING with a Layer 2 `parsed` and
+  // `layer: 2` — a resolution whose three fields disagree is exactly the
+  // silent-misattribution shape this task exists to eliminate, and it would
+  // also skip the fallback notification (PR #2877 R1).
   const parsed = resolveLayer1(inputs.clientInfo, inputs.signals, inputs.layer1Config);
-  const agentId = toSerialized(parsed, inputs);
+  const agentId = serializeAgentId(parsed) ?? `${parsed.kind}:${parsed.scope}:${parsed.id}`;
 
   inputs.onFallback?.({ keysTried, layer: 1, agentId });
 
@@ -144,16 +157,4 @@ export function resolveAgentId(inputs: ResolveAgentIdInputs): string {
  */
 export function resolveAgentIdParsed(inputs: ResolveAgentIdInputs): ParsedAgentId {
   return resolveAgentIdWithLayer(inputs).parsed;
-}
-
-/**
- * Serialize, falling back to a direct Layer 1 construction if serialization
- * fails — which should not happen in practice, since Layer 1 always returns a
- * valid parsed id.
- */
-function toSerialized(parsed: ParsedAgentId, inputs: ResolveAgentIdInputs): string {
-  const serialized = serializeAgentId(parsed);
-  if (serialized) return serialized;
-  const layer1 = resolveLayer1(inputs.clientInfo, inputs.signals, inputs.layer1Config);
-  return `${layer1.kind}:${layer1.scope}:${layer1.id}`;
 }

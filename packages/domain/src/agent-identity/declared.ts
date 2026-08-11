@@ -63,8 +63,32 @@ export const DEFAULT_DECLARED_IDENTITY_KEYS: readonly DeclaredIdentityKey[] = [
   { key: BAGGAGE_META_KEY, form: "baggage", entry: GEN_AI_CONVERSATION_ID_KEY },
 ];
 
-/** Prefixes the MCP spec reserves for its own use. */
-const RESERVED_MCP_PREFIXES = ["io.modelcontextprotocol/", "dev.mcp/"];
+/** The labels MCP reserves when they appear as a prefix's SECOND label. */
+const RESERVED_SECOND_LABELS = new Set(["modelcontextprotocol", "mcp"]);
+
+/**
+ * Is this `_meta` key under a prefix the MCP spec reserves for itself?
+ *
+ * Implements the spec's actual rule rather than a list of the examples it
+ * gives: *"Any prefix where the second label is `modelcontextprotocol` or `mcp`
+ * is reserved for MCP use. For example: `io.modelcontextprotocol/`, `dev.mcp/`,
+ * `org.modelcontextprotocol.api/`, and `com.mcp.tools/` are all reserved.
+ * However, `com.example.mcp/` is NOT reserved, as the second label is
+ * `example`."* Matching the two literal examples instead would wrongly reject
+ * `org.modelcontextprotocol.api/` and `com.mcp.tools/`, and wrongly accept
+ * anything merely PREFIXED by a reserved string.
+ *
+ * @see https://modelcontextprotocol.io/specification/2026-07-28/basic/index
+ */
+export function isReservedMcpKey(key: string): boolean {
+  const slash = key.indexOf("/");
+  if (slash <= 0) return false;
+
+  const labels = key.slice(0, slash).split(".");
+  if (labels.length < 2) return false;
+
+  return RESERVED_SECOND_LABELS.has(labels[1] ?? "");
+}
 
 /**
  * Build the key list, optionally appending a protocol-native key.
@@ -78,8 +102,7 @@ export function buildDeclaredIdentityKeys(protocolKey?: string): readonly Declar
   if (!protocolKey) return DEFAULT_DECLARED_IDENTITY_KEYS;
 
   const trimmed = protocolKey.trim();
-  const isReserved = RESERVED_MCP_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
-  if (!isReserved) return DEFAULT_DECLARED_IDENTITY_KEYS;
+  if (!isReservedMcpKey(trimmed)) return DEFAULT_DECLARED_IDENTITY_KEYS;
 
   return [...DEFAULT_DECLARED_IDENTITY_KEYS, { key: trimmed, form: "conversation-id" }];
 }
