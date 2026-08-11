@@ -53,7 +53,19 @@
 // costs one already-resolved module and removes a whole class of ordering
 // dependency from this file, so the redundancy is deliberate rather than
 // oversight. mt#3735's `tests/scripts/cli-entry.test.ts` pins it in place.
-import "reflect-metadata";
+//
+// mt#3812 R1: moved from a STATIC top-level `import "reflect-metadata";` to a
+// dynamic, AWAITED import scoped inside the non-shim branch below (right
+// before `await import(bundlePath)`/`sourcePath`). A static top-level import
+// runs unconditionally for every invocation of this file, including
+// `mcp shim` — which never touches tsyringe/DI at all and whose entire
+// resource case rests on staying off every import this normal-CLI path
+// needs. Awaiting the dynamic import immediately before the bundle/source
+// import preserves the SAME ordering guarantee the static form gave
+// (mt#3735: fully evaluated before the dynamic bundle import runs) — `await`
+// makes that deterministic regardless of import form, since a dynamic
+// import's promise does not resolve until the target module (and its own
+// static imports) has finished evaluating.
 
 import { realpathSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, basename } from "path";
@@ -354,6 +366,12 @@ if (import.meta.main) {
     process.env.MINSKY_LOADED_COMMIT = loadedCommit;
     process.env.MINSKY_RUN_MODE = runMode;
     process.env.MINSKY_PACKAGE_ROOT = packageRoot;
+
+    // mt#3735 / mt#3812 R1: must precede the bundle/source import below, and
+    // be AWAITED so it is fully evaluated first — see the docblock above this
+    // file's imports for why this moved from a static top-level import to a
+    // dynamic one scoped to this (non-shim) branch.
+    await import("reflect-metadata");
 
     if (decision.bundlePresent) {
       // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.

@@ -20,7 +20,7 @@
 import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
 import { DaemonClient } from "./client";
-import type { JsonRpcMessage } from "./protocol";
+import { makeErrorResponse, type JsonRpcMessage } from "./protocol";
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:48765/mcp";
@@ -157,11 +157,9 @@ export async function handleLine(
     ctx.stderr.write(`[shim] daemon request failed: ${detail}\n`);
     if (msg.id !== undefined && msg.id !== null) {
       ctx.stdout.write(
-        `${JSON.stringify({
-          jsonrpc: "2.0",
-          id: msg.id,
-          error: { code: -32000, message: `minsky mcp shim: daemon request failed: ${detail}` },
-        })}\n`
+        `${JSON.stringify(
+          makeErrorResponse(msg.id, -32000, `minsky mcp shim: daemon request failed: ${detail}`)
+        )}\n`
       );
     }
   }

@@ -164,6 +164,21 @@ describe("DaemonClient.send — cold-start retry (mt#3811 acceptance test)", () 
 
     await expect(client.send(TOOL_CALL)).rejects.toThrow(DaemonRequestError);
   });
+
+  test("isConnectionRefused override: a classifier returning false skips the retry and fails immediately", async () => {
+    const { fetchImpl, calls } = makeFakeFetch([new TypeError(ECONNREFUSED_MESSAGE)]);
+    const client = new DaemonClient({
+      url: "http://d/mcp",
+      authToken: null,
+      fetchImpl,
+      sleep: noSleep(),
+      isConnectionRefused: () => false,
+    });
+
+    await expect(client.send(TOOL_CALL)).rejects.toThrow(DaemonRequestError);
+    // No retry happened — exactly one call was made.
+    expect(calls).toHaveLength(1);
+  });
 });
 
 describe("DaemonClient.send — transparent session re-initialization (Scope: restart handling)", () => {

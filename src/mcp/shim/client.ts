@@ -64,6 +64,32 @@ export interface DaemonClientOptions {
   retryWindowMs?: number;
   /** Injected for tests. Defaults to RETRY_INTERVAL_MS. */
   retryIntervalMs?: number;
+  /**
+   * Classifies a network-level `fetch()` throw as connection-refused-class
+   * (retryable within the cold-start window) or not. Defaults to
+   * `DEFAULT_IS_CONNECTION_REFUSED`, which treats EVERY network-level throw
+   * as connection-refused-class — see that function's docstring for why.
+   * Override to narrow the retry to specific error shapes (e.g. only
+   * `ECONNREFUSED`) if a deployment's failure modes warrant distinguishing
+   * "daemon not listening yet" from other network errors.
+   */
+  isConnectionRefused?: (err: unknown) => boolean;
+}
+
+/**
+ * Default connection-refused classifier: treats ANY network-level `fetch()`
+ * throw (connection refused, DNS failure, connection reset) as
+ * connection-refused-class for retry purposes. From the shim's perspective
+ * during a daemon restart, "nothing is listening yet" and "the listener just
+ * reset the connection mid-handshake" call for the same response — keep
+ * retrying inside the window rather than trying to distinguish error shapes
+ * that vary across Bun/undici versions and platforms. Exposed as a named,
+ * overridable default (`DaemonClientOptions.isConnectionRefused`) rather than
+ * inlined so a caller with a narrower failure model can opt into stricter
+ * classification without forking this file.
+ */
+export function DEFAULT_IS_CONNECTION_REFUSED(_err: unknown): boolean {
+  return true;
 }
 
 /**
@@ -82,6 +108,7 @@ export class DaemonClient {
   private readonly log: (line: string) => void;
   private readonly retryWindowMs: number;
   private readonly retryIntervalMs: number;
+  private readonly isConnectionRefused: (err: unknown) => boolean;
 
   constructor(private readonly opts: DaemonClientOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -89,6 +116,7 @@ export class DaemonClient {
     this.log = opts.onLog ?? ((line) => process.stderr.write(`${line}\n`));
     this.retryWindowMs = opts.retryWindowMs ?? RETRY_WINDOW_MS;
     this.retryIntervalMs = opts.retryIntervalMs ?? RETRY_INTERVAL_MS;
+    this.isConnectionRefused = opts.isConnectionRefused ?? DEFAULT_IS_CONNECTION_REFUSED;
   }
 
   /** Currently-tracked Mcp-Session-Id, or null before the first initialize. */
@@ -241,11 +269,14 @@ export class DaemonClient {
       });
     } catch (err) {
       // fetch() throws for any network-level failure (connection refused,
-      // DNS failure, reset). We treat all of them as connection-refused-
-      // class for retry purposes: from the shim's perspective during a
-      // daemon restart, "nothing is listening yet" and "the listener just
-      // reset the connection" call for the same response — keep retrying
-      // inside the window.
+      // DNS failure, reset). `this.isConnectionRefused` decides whether this
+      // throw is retryable within the cold-start window — see
+      // DEFAULT_IS_CONNECTION_REFUSED's docstring for the default's
+      // rationale, and DaemonClientOptions.isConnectionRefused for how to
+      // narrow it.
+      if (!this.isConnectionRefused(err)) {
+        throw new DaemonRequestError(`daemon request failed: ${errorMessage(err)}`);
+      }
       throw new ConnectionRefusedError(errorMessage(err));
     }
 
