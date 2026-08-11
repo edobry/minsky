@@ -369,6 +369,80 @@ describe("buildChunkedReviewPrompt — migration baseline section (mt#2655)", ()
   });
 });
 
+describe("buildChunkedReviewPrompt — referenced task specs section parity (mt#3919)", () => {
+  const REFERENCED_SPECS_HEADING = "## Referenced Task Specs";
+
+  const baseInput: Omit<ReviewPromptInput, "diff"> = {
+    prNumber: 2761,
+    prTitle: "Scope the npm package",
+    prBody: "",
+    taskSpec: "## Success Criteria\n\n- [ ] mt#3874's spec must be updated.",
+    authorshipTier: 3,
+    branchName: "task/mt-3915",
+    baseBranch: "main",
+  };
+
+  const chunk: ChunkInfo = {
+    index: 0,
+    totalChunks: 2,
+    files: [makeFile("package.json", 10)],
+  };
+
+  test("injects the referenced-task-specs section when referencedTaskSpecs is populated — a chunked PR gets the same context as the single-pass path", () => {
+    const prompt = buildChunkedReviewPrompt(
+      {
+        ...baseInput,
+        referencedTaskSpecs: [
+          {
+            taskId: "mt#3874",
+            content: "## Success Criteria\n\n- [ ] scoped package name.",
+            updatedAt: "2026-08-10T17:53:58.889Z",
+            fetchResult: { status: "found", taskId: "mt#3874", specLength: 42 },
+            truncated: false,
+            omittedChars: 0,
+          },
+        ],
+      },
+      chunk,
+      "some chunk diff"
+    );
+
+    expect(prompt).toContain(REFERENCED_SPECS_HEADING);
+    expect(prompt).toContain("scoped package name.");
+  });
+
+  test("omits the section when referencedTaskSpecs is undefined", () => {
+    const prompt = buildChunkedReviewPrompt(baseInput, chunk, "some chunk diff");
+    expect(prompt).not.toContain(REFERENCED_SPECS_HEADING);
+  });
+
+  test("section appears between Task Specification and the chunk Diff heading", () => {
+    const prompt = buildChunkedReviewPrompt(
+      {
+        ...baseInput,
+        referencedTaskSpecs: [
+          {
+            taskId: "mt#3874",
+            content: "content",
+            updatedAt: null,
+            fetchResult: { status: "found", taskId: "mt#3874", specLength: 7 },
+            truncated: false,
+            omittedChars: 0,
+          },
+        ],
+      },
+      chunk,
+      "some chunk diff"
+    );
+    const specIdx = prompt.indexOf("## Task Specification");
+    const referencedIdx = prompt.indexOf(REFERENCED_SPECS_HEADING);
+    const diffIdx = prompt.indexOf(`## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})`);
+    expect(specIdx).toBeGreaterThan(-1);
+    expect(referencedIdx).toBeGreaterThan(specIdx);
+    expect(diffIdx).toBeGreaterThan(referencedIdx);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // runChunkedReview — output.text aggregation across chunks (mt#2739)
 //

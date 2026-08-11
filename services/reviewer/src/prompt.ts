@@ -8,6 +8,7 @@
  */
 
 import type { ReviewThread } from "./github-client";
+import type { ReferencedTaskSpecResult } from "./task-spec-fetch";
 
 /**
  * Prompt-injection defense section (mt#2961, OWASP LLM01). The review request
@@ -339,7 +340,7 @@ Format all prose in your review using GitHub-flavored Markdown. Apply inline cod
 
 Multi-line code, diff snippets, or command sequences must use fenced code blocks with the appropriate language tag (\`\`\`ts, \`\`\`bash, \`\`\`diff, etc.).
 
-Conclude with an event: APPROVE, REQUEST_CHANGES, or COMMENT. If you are the same App identity as the PR author, use COMMENT only (GitHub blocks self-approval). Otherwise: use REQUEST_CHANGES if any finding is BLOCKING or if spec criteria are unmet. Use APPROVE if you have no BLOCKING findings — this includes reviews with only non-blocking observations, or no findings at all. **A zero-BLOCKING-findings review clears automatically regardless of which event you write here** — a COMMENT you write with zero blocking findings is treated identically to APPROVE. So if you hold a genuine reservation about the change, it must show up as an actual BLOCKING finding (or a REQUEST_CHANGES verdict naming the blocker); writing COMMENT and describing the concern only in prose will NOT hold the review back. As the value YOU write, reserve COMMENT for the self-review case above — do not write COMMENT to hedge on a reservation. (Separately, a posted review can also show event COMMENT because the service demoted your own REQUEST_CHANGES verdict after a later structural pass determined your BLOCKING finding no longer applies; that service-driven COMMENT is not something you write and does NOT auto-promote to APPROVE — it is a different mechanism than the COMMENT you author here.)
+Conclude with an event: APPROVE, REQUEST_CHANGES, or COMMENT. If you are the same App identity as the PR author, use COMMENT only (GitHub blocks self-approval). Otherwise: use REQUEST_CHANGES if any finding is BLOCKING or if a spec criterion is Not Met. A criterion reported \`Unverifiable\` is NOT the same as Not Met — it means the criterion's artifact (e.g. another task's spec) could not be fetched, not that it is unsatisfied — and does not by itself require REQUEST_CHANGES. Use APPROVE if you have no BLOCKING findings — this includes reviews with only non-blocking observations, or no findings at all. **A zero-BLOCKING-findings review clears automatically regardless of which event you write here** — a COMMENT you write with zero blocking findings is treated identically to APPROVE. So if you hold a genuine reservation about the change, it must show up as an actual BLOCKING finding (or a REQUEST_CHANGES verdict naming the blocker); writing COMMENT and describing the concern only in prose will NOT hold the review back. As the value YOU write, reserve COMMENT for the self-review case above — do not write COMMENT to hedge on a reservation. (Separately, a posted review can also show event COMMENT because the service demoted your own REQUEST_CHANGES verdict after a later structural pass determined your BLOCKING finding no longer applies; that service-driven COMMENT is not something you write and does NOT auto-promote to APPROVE — it is a different mechanism than the COMMENT you author here.)
 
 Your goal is high-signal review, not high approval rate. A reviewer that approves 100% of PRs is a rubber stamp with extra steps.`;
 
@@ -365,9 +366,10 @@ For each issue you find, call submit_finding(severity, file, line, lineEnd?, sid
 For non-severity inline annotations, call submit_inline_comment(file, line, body).
 
 If a task spec is provided, call \`submit_spec_verifications\` ONCE with one entry per success criterion in the spec — not \`submit_spec_verification\` repeatedly. Each entry takes the same criterion/status/evidence fields and is validated identically; batching them costs you one tool round instead of one per criterion, leaving budget for verification and for concluding the review. (The singular \`submit_spec_verification\` remains valid for a single late correction.)
-- status: "Met", "Not Met", or "N/A".
+- status: "Met", "Not Met", "N/A", or "Unverifiable".
 - evidence: the file:line or diff reference that supports the verdict.
 - When any criterion is "Not Met", the review must explicitly list what was deferred and why. Indicate that either the task spec must be updated to reflect actual scope OR follow-up tasks must be created for deferred items. An unmet criterion without a documented deferral path is a BLOCKING gap.
+- **"Unverifiable" is for a criterion whose artifact lives outside this diff and could not be fetched — never a guess at "Not Met" (mt#3919).** Some criteria name an artifact that is not a repo file — most commonly "update task mt#NNNN's spec/ATs". The diff cannot carry a change to another task's spec, so such a criterion is not verifiable from the diff alone. When the bound task's spec references another task by \`mt#NNNN\`, that referenced task's spec content is fetched for you and provided below under "## Referenced Task Specs" (when the fetch succeeded) — verify the criterion against THAT content, exactly as you would verify anything else, and report "Met" or "Not Met" accordingly. Use "Unverifiable" ONLY when the "## Referenced Task Specs" section shows the fetch itself failed (task missing, service disabled, or a transport error) for a reference the criterion depends on — evidence must name that fetch status. Never report "Met" for a criterion whose referenced spec you could not read, and never omit the criterion from your \`submit_spec_verifications\` call. **"Unverifiable" does not by itself force REQUEST_CHANGES, and you must NOT also emit a \`submit_finding\` with severity BLOCKING for it** — being unable to fetch a spec is not evidence the criterion is unmet; that would reintroduce the exact false-BLOCKING defect this mechanism exists to fix. This is different from a criterion whose artifact IS the diff (or a repo file the diff didn't touch) — those remain "Not Met" when absent, per the rule above.
 
 If the task spec contains a \`### Does NOT cover\` or \`## Does NOT cover\` section (recovery-layer carve-out entries, per \`work-completion.mdc §Recovery layer spec discipline\`), include one entry per carve-out entry in that SAME \`submit_spec_verifications\` call, in addition to the success criteria above.
 - status: "Met" when the diff's actual behavior leaves that case alone (the carve-out is honored); "Not Met" when the diff's actual behavior violates it; "N/A" when the entry does not apply to this diff.
@@ -396,7 +398,7 @@ Your review is INCOMPLETE without a \`submit_documentation_impact\` call. Call s
 - affectedDocs: optional. List doc file paths for "updated-in-pr" (what the PR updated) or "blocking-needs-update" (what needs updating). Omit for "no-update-needed". IMPORTANT: only list a doc if you have verified it actually references the symbols, routes, commands, or behavior changed by this PR. That verification bar INCLUDES the invalidation case: a doc qualifies when it describes the OLD behavior this PR changes, even if it never mentions a single identifier the diff adds — the reason it needs updating is that its existing prose is now false, not that it is missing a name. What it excludes is topic-area speculation: a doc about CLI configuration is not affected by a cockpit UI change unless it specifically describes the changed surface. When in doubt, use the readFile tool to check the doc's content before listing it.
 
 Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` / \`submit_adoption_sweep\` / \`submit_documentation_impact\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
-- event: REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met; APPROVE if you have no BLOCKING findings (whether or not you have NON-BLOCKING/PRE-EXISTING findings, or no findings at all); COMMENT only if you are the same App identity as the PR author (GitHub blocks self-approval) — that is the only case where YOU should write COMMENT.
+- event: REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met (an \`Unverifiable\` criterion does NOT by itself require REQUEST_CHANGES — see the spec-verification instructions above); APPROVE if you have no BLOCKING findings (whether or not you have NON-BLOCKING/PRE-EXISTING findings, or no findings at all); COMMENT only if you are the same App identity as the PR author (GitHub blocks self-approval) — that is the only case where YOU should write COMMENT.
 - **Zero BLOCKING findings clears the review automatically, no matter what you write for \`event\`** — a COMMENT conclusion you write with zero BLOCKING findings is treated identically to APPROVE. A concern you hold but do not express as a BLOCKING \`submit_finding\` (or a REQUEST_CHANGES verdict naming it) will NOT hold the review back. If the concern is real and merge-blocking, call \`submit_finding(severity="BLOCKING", ...)\` for it before concluding.
 - Separately: a review you can observe posted elsewhere (e.g. a prior round) may show event COMMENT for a reason you never authored — the service demotes a REQUEST_CHANGES conclusion to COMMENT when a later structural pass determines the BLOCKING finding backing it no longer applies. That service-demoted COMMENT does NOT auto-promote to APPROVE (unlike the COMMENT rule above); it is a distinct mechanism from what you write here.
 - summary: 2-5 sentence executive summary describing overall quality, key findings, and verdict.
@@ -652,6 +654,109 @@ export interface ReviewPromptInput {
    * absence with `read_file` at HEAD instead of treating it as evidence.
    */
   incrementalScope?: boolean;
+  /**
+   * Task specs referenced by `mt#NNNN` inside `taskSpec`'s text (mt#3919) —
+   * e.g. a success criterion naming another task's spec as its artifact.
+   * When present and non-empty, injected as a "## Referenced Task Specs"
+   * section so the model can verify such criteria against the referenced
+   * spec's actual content instead of the diff, which cannot carry it.
+   * Undefined or empty array → section omitted.
+   */
+  referencedTaskSpecs?: ReferencedTaskSpecResult[];
+}
+
+/**
+ * Render the "## Referenced Task Specs" section (mt#3919).
+ *
+ * For each resolved reference, one of three shapes (mt#3919 PR #2841 R1
+ * BLOCKING widened this from two to three — see `ReferencedTaskSpecResult`'s
+ * doc comment):
+ *   1. Content shown, complete (`content !== null`, `truncated === false`).
+ *   2. Content shown, but CUT SHORT by the per-task or total budget
+ *      (`content !== null`, `truncated === true`) — a visible warning is
+ *      attached naming how much was cut.
+ *   3. Content entirely unavailable, either because the fetch failed
+ *      (`content === null`, `truncated === false`) or because the total
+ *      budget was exhausted before this reference's turn (`content === null`,
+ *      `truncated === true`) — these two are distinguished in the rendered
+ *      text (a real fetch failure vs. a context-budget decision), but both
+ *      end in the same instruction: report `Unverifiable`.
+ *
+ * Either way the reference is named explicitly — a criterion depending on it
+ * must be reported via `submit_spec_verification`, never silently dropped.
+ *
+ * Exported for tests.
+ */
+export function buildReferencedTaskSpecsSection(specs: ReferencedTaskSpecResult[]): string | null {
+  if (specs.length === 0) return null;
+
+  const lines: string[] = [
+    "## Referenced Task Specs",
+    "",
+    "One or more success criteria (or carve-out entries) in the Task Specification above name " +
+      "another task's spec as their artifact (an `mt#NNNN` reference). The diff cannot carry a " +
+      "change to another task's spec — verify such criteria against the ACTUAL referenced spec " +
+      "content below, not against the diff.",
+    "",
+    "Each reference below is bounded — a section targeted by the criterion's own wording when one " +
+      'was found (plus any "## AMENDED"/"## Correction"/"## Update" section, which this repo\'s ' +
+      "own spec-authoring convention uses to record overrides), otherwise the whole spec, capped " +
+      "in size. When an entry is marked TRUNCATED or OMITTED below, its evidence may be incomplete " +
+      "— if the criterion could plausibly be satisfied by content that was cut, report it " +
+      "`Unverifiable`, NEVER `Not Met`. `Not Met` means you read the relevant evidence and it does " +
+      "not carry the change — a cut you cannot see past is not evidence of anything.",
+    "",
+    "For a reference that could not be fetched at all, its entry states the fetch status. Report " +
+      "any criterion depending on it as `Unverifiable` (never `Met`, never silently omitted) with " +
+      "evidence naming that status. Do NOT also emit a `submit_finding` with severity BLOCKING for " +
+      "an `Unverifiable` criterion — an unfetchable or cut-short spec is not evidence the criterion " +
+      "is unmet.",
+    "",
+  ];
+
+  for (const spec of specs) {
+    if (spec.content !== null) {
+      const updatedSuffix = spec.updatedAt ? ` (spec last updated ${spec.updatedAt})` : "";
+      const scopeSuffix = spec.sectionsInjected
+        ? ` — section(s): ${spec.sectionsInjected.join(", ")}`
+        : "";
+      lines.push(`### ${spec.taskId}${updatedSuffix}${scopeSuffix}`, "");
+      if (spec.truncated) {
+        lines.push(
+          `⚠️ TRUNCATED — ${spec.omittedChars} additional char(s) of this ${
+            spec.sectionsInjected ? "section" : "spec"
+          } were cut and are NOT shown below. If the criterion's evidence might be in the cut ` +
+            `portion, report \`Unverifiable\`, not \`Not Met\`.`,
+          ""
+        );
+      }
+      lines.push(spec.content, "");
+    } else if (spec.truncated) {
+      // Fetch succeeded but the TOTAL budget across all references was
+      // already exhausted before this one's turn — distinct from a genuine
+      // fetch failure below.
+      lines.push(
+        `### ${spec.taskId} — omitted (context budget)`,
+        "",
+        `This task's spec was fetched successfully (${spec.omittedChars} char(s)) but is not ` +
+          `shown here — the total budget for this section was already used by earlier ` +
+          `references. Any criterion depending on this task's spec must be reported ` +
+          `\`Unverifiable\`.`,
+        ""
+      );
+    } else {
+      const errorSuffix = spec.fetchResult.error ? ` — ${spec.fetchResult.error}` : "";
+      lines.push(
+        `### ${spec.taskId} — could not be fetched`,
+        "",
+        `Fetch status: \`${spec.fetchResult.status}\`${errorSuffix}. Any criterion depending on ` +
+          `this task's spec must be reported \`Unverifiable\`.`,
+        ""
+      );
+    }
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -691,6 +796,13 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     ? `## Task Specification\n\n${input.taskSpec}`
     : `## Task Specification\n\n(No task spec was found. The PR description above is your only source of intent.)`;
 
+  const referencedTaskSpecsSection = input.referencedTaskSpecs
+    ? buildReferencedTaskSpecsSection(input.referencedTaskSpecs)
+    : null;
+  const referencedTaskSpecsBlock = referencedTaskSpecsSection
+    ? `\n\n${referencedTaskSpecsSection}`
+    : "";
+
   const outOfRepoSection = buildOutOfRepoSection(input.prBody, input.taskSpec);
   const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
 
@@ -725,7 +837,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${fenceUntrusted(input.prBody || "(empty)")}
 
-${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
+${specSection}${referencedTaskSpecsBlock}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${authorCommitsSection}${reviewThreadsSection}
 
 ## Diff${input.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""}
 

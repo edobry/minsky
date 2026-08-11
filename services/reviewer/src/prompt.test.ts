@@ -42,6 +42,11 @@ const VERIFICATION_PREAMBLE_TASK_PHRASE = "verification, not fresh adversarial d
 // input objects across multiple describe blocks.
 const SAMPLE_DIFF = "diff --git a/foo b/foo";
 
+// Section headings referenced across multiple describe blocks (section-order
+// assertions in particular need the same literal in two or more places).
+const TASK_SPECIFICATION_HEADING = "## Task Specification";
+const REFERENCED_TASK_SPECS_HEADING = "## Referenced Task Specs";
+
 // mt#2655 SC2 failure-modes phrase — referenced across multiple test cases.
 const PRE_EXISTING_MOVE_MIGRATION_PHRASE =
   "Pre-existing content resurfaced by a verbatim move/migration";
@@ -579,6 +584,153 @@ describe("buildReviewPrompt incremental-scope notice (mt#3471)", () => {
   });
 });
 
+describe("buildReferencedTaskSpecsSection (mt#3919)", () => {
+  const baseInput: ReviewPromptInput = {
+    prNumber: 999,
+    prTitle: "Test PR",
+    prBody: "",
+    taskSpec: "## Success Criteria\n\n- [ ] mt#3874's spec must be updated.",
+    diff: SAMPLE_DIFF,
+    authorshipTier: 3,
+    branchName: "task/test",
+    baseBranch: "main",
+  };
+
+  test("omits the section when referencedTaskSpecs is undefined", () => {
+    const prompt = buildReviewPrompt(baseInput);
+    expect(prompt).not.toContain(REFERENCED_TASK_SPECS_HEADING);
+  });
+
+  test("omits the section when referencedTaskSpecs is an empty array", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, referencedTaskSpecs: [] });
+    expect(prompt).not.toContain(REFERENCED_TASK_SPECS_HEADING);
+  });
+
+  test("renders fetched content under the referenced task's heading", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#3874",
+          content: "## Success Criteria\n\n- [ ] scoped package name.",
+          updatedAt: "2026-08-10T17:53:58.889Z",
+          fetchResult: { status: "found", taskId: "mt#3874", specLength: 42 },
+          truncated: false,
+          omittedChars: 0,
+        },
+      ],
+    });
+
+    expect(prompt).toContain(REFERENCED_TASK_SPECS_HEADING);
+    expect(prompt).toContain("### mt#3874 (spec last updated 2026-08-10T17:53:58.889Z)");
+    expect(prompt).toContain("scoped package name.");
+    // Placed after the primary Task Specification section, before out-of-repo.
+    expect(prompt.indexOf(TASK_SPECIFICATION_HEADING)).toBeLessThan(
+      prompt.indexOf(REFERENCED_TASK_SPECS_HEADING)
+    );
+  });
+
+  test("renders a fetch-failure entry naming the status, not the content", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#9999",
+          content: null,
+          updatedAt: null,
+          fetchResult: { status: "not-found", taskId: "mt#9999" },
+          truncated: false,
+          omittedChars: 0,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("### mt#9999 — could not be fetched");
+    expect(prompt).toContain("Fetch status: `not-found`");
+    expect(prompt).toContain("must be reported `Unverifiable`");
+  });
+
+  test("instructs the model not to escalate Unverifiable to a BLOCKING finding", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#9999",
+          content: null,
+          updatedAt: null,
+          fetchResult: { status: "disabled", taskId: "mt#9999" },
+          truncated: false,
+          omittedChars: 0,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("Do NOT also emit a `submit_finding` with severity BLOCKING");
+  });
+
+  test("renders a visible TRUNCATED warning + Unverifiable instruction when content was cut (mt#3919 R1 BLOCKING)", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#3874",
+          content: "partial content shown here",
+          updatedAt: "2026-08-10T17:53:58.889Z",
+          fetchResult: { status: "found", taskId: "mt#3874", specLength: 50_000 },
+          truncated: true,
+          omittedChars: 42_000,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("⚠️ TRUNCATED");
+    expect(prompt).toContain("42000 additional char(s)");
+    expect(prompt).toContain("report `Unverifiable`, not `Not Met`");
+    expect(prompt).toContain("partial content shown here");
+  });
+
+  test("renders a distinct context-budget-omitted block, never confused with a fetch failure (mt#3919 R1 BLOCKING)", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#4001",
+          content: null,
+          updatedAt: null,
+          fetchResult: { status: "found", taskId: "mt#4001", specLength: 9_000 },
+          truncated: true,
+          omittedChars: 9_000,
+        },
+      ],
+    });
+
+    expect(prompt).toContain("### mt#4001 — omitted (context budget)");
+    expect(prompt).toContain("fetched successfully");
+    expect(prompt).toContain("must be reported `Unverifiable`");
+    // Must NOT read as a genuine fetch failure — those two are distinct causes.
+    expect(prompt).not.toContain("mt#4001 — could not be fetched");
+  });
+
+  test("annotates the heading with the targeted section(s) when section-targeted injection fired", () => {
+    const prompt = buildReviewPrompt({
+      ...baseInput,
+      referencedTaskSpecs: [
+        {
+          taskId: "mt#3874",
+          content: "- [ ] scoped package name.",
+          updatedAt: null,
+          fetchResult: { status: "found", taskId: "mt#3874", specLength: 27 },
+          truncated: false,
+          omittedChars: 0,
+          sectionsInjected: ["Success Criteria"],
+        },
+      ],
+    });
+
+    expect(prompt).toContain("### mt#3874 — section(s): Success Criteria");
+  });
+});
+
 describe("buildReviewPrompt out-of-repo section", () => {
   const OUT_OF_REPO_HEADING = "## Out-of-repo references observed";
   const baseInput: ReviewPromptInput = {
@@ -628,7 +780,7 @@ describe("buildReviewPrompt out-of-repo section", () => {
       prBody: "Touches ~/.claude/notes.md",
       taskSpec: "Spec content.",
     });
-    const specIdx = prompt.indexOf("## Task Specification");
+    const specIdx = prompt.indexOf(TASK_SPECIFICATION_HEADING);
     const outOfRepoIdx = prompt.indexOf(OUT_OF_REPO_HEADING);
     const diffIdx = prompt.indexOf("## Diff");
     expect(specIdx).toBeGreaterThan(0);
@@ -1562,7 +1714,7 @@ describe("buildReviewPrompt migration baseline section", () => {
       taskSpec: "Spec content.",
       priorReviews: "## Prior Reviews\n\nSome prior review text.",
     });
-    const specIdx = prompt.indexOf("## Task Specification");
+    const specIdx = prompt.indexOf(TASK_SPECIFICATION_HEADING);
     const migrationIdx = prompt.indexOf(MIGRATION_BASELINE_HEADING);
     const priorReviewsIdx = prompt.indexOf("## Prior Reviews");
     const diffIdx = prompt.indexOf("## Diff");

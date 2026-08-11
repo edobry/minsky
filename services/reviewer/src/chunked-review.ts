@@ -13,6 +13,7 @@ import {
   buildReviewThreadsSection,
   buildMigrationBaselineSection,
   buildOutOfRepoSection,
+  buildReferencedTaskSpecsSection,
   INCREMENTAL_DIFF_SCOPE_NOTICE,
 } from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
@@ -293,6 +294,17 @@ export function buildChunkedReviewPrompt(
   const outOfRepoSection = buildOutOfRepoSection(baseInput.prBody, baseInput.taskSpec);
   const outOfRepoBlock = outOfRepoSection ? `\n\n${outOfRepoSection}` : "";
 
+  // mt#3919: same parity argument as the two blocks above — each chunk needs
+  // any referenced-task-spec context independently, not just the single-pass
+  // path, or a chunked PR's spec-verification criteria silently lose the
+  // referenced-spec content the single-pass path would have shown them.
+  const referencedTaskSpecsSection = baseInput.referencedTaskSpecs
+    ? buildReferencedTaskSpecsSection(baseInput.referencedTaskSpecs)
+    : null;
+  const referencedTaskSpecsBlock = referencedTaskSpecsSection
+    ? `\n\n${referencedTaskSpecsSection}`
+    : "";
+
   const priorReviewsSection =
     baseInput.priorReviews && baseInput.priorReviews.trim() ? `\n\n${baseInput.priorReviews}` : "";
 
@@ -321,7 +333,7 @@ ${fileList}
 
 ${baseInput.prBody || "(empty)"}
 
-${specSection}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
+${specSection}${referencedTaskSpecsBlock}${outOfRepoBlock}${migrationBaselineBlock}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})${
     baseInput.incrementalScope === true ? INCREMENTAL_DIFF_SCOPE_NOTICE : ""
