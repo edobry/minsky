@@ -1,5 +1,5 @@
 /**
- * RSS merge gate for `minsky mcp shim` (mt#3812 BLOCKING section).
+ * Thinness merge gate for `minsky mcp shim` (mt#3812 BLOCKING section).
  *
  * This is NOT a decorative test — it is the mechanical backstop the spec
  * requires: "Treat the RSS assertion as a merge gate, not a test. The
@@ -7,25 +7,37 @@
  * import from pulling the bundle back in. A single careless import silently
  * restores the 24MB."
  *
- * It spawns the REAL SHIPPED invocation — `bun scripts/cli-entry.ts mcp
- * shim ...`, the exact command Claude Code's MCP config would run — not a
- * standalone prototype and not `src/mcp/shim/entry.ts` directly. That
- * distinguishes this from the mistake the spec's BLOCKING section warns
- * about: a re-measured standalone binary proves nothing about the thing
- * that ships. If `dist/mcp-shim.js` exists (post `bun run build`),
- * cli-entry.ts's own intercept picks it; otherwise it falls back to
- * `src/mcp/shim/entry.ts` — either way this measures the actual code path
- * a Claude Code conversation would launch.
+ * Two independent checks, deliberately given DIFFERENT weight:
  *
- * Measured baseline (2026-08-10, this task): ~34MB RSS via the bundle path
- * (`dist/mcp-shim.js`, 9 modules, 6.95KB minified) — within the ~36-39MB
- * "Bun floor" the ADR-038 standalone prototype measured, and a small
- * fraction of today's `minsky mcp proxy` (~55.5MB mean) which imports the
- * full CLI bundle. THRESHOLD_MB below is set with headroom above the
- * measured baseline but well below the proxy figure, so genuine minor
- * variance (Bun version, OS) doesn't flake the gate while a real regression
- * (an accidental `@minsky/domain` barrel import, a `src/commands/*` import)
- * still fails it loudly.
+ *   1. **Bundle-size (PRIMARY, deterministic).** Builds
+ *      `src/mcp/shim/entry.ts` in-process via `Bun.build()` — no spawn, no
+ *      dependency on a prior `bun run build:mcp-shim`, no OS/allocator
+ *      involvement — and asserts the output stays small. A module graph is
+ *      the same graph on every platform; this cannot drift with runner
+ *      architecture the way a live RSS reading can, and it is the assertion
+ *      that should be trusted first when this gate fires.
+ *   2. **RSS (SECONDARY, loose sanity bound).** Spawns the real shipped
+ *      invocation and samples live RSS via `ps`. Kept because it is the one
+ *      check that observes the ACTUAL running process rather than its
+ *      source graph, but the threshold below carries real headroom for
+ *      cross-platform variance — see the calibration note.
+ *
+ * Calibration note (PR #2820 R2, 2026-08-10): the RSS threshold was
+ * originally set at 45MB from a single macOS measurement (~34MB healthy).
+ * CI's Linux runner measured a HEALTHY shim at 45.54MB on the exact same
+ * code — the platforms differ by ~11-12MB in baseline RSS for identical
+ * work, apparently allocator/libc accounting, not a defect. A deliberate
+ * regression (see `client.ts`'s history / PR #2820 body's "Negative
+ * control" section — routing the shim through a heavy `@minsky/domain`
+ * import) measured ~67MB on macOS. The threshold below sits between the
+ * highest known-healthy reading (45.54MB, Linux CI) and the lowest known
+ * regressed reading (67MB, macOS) with margin on both sides, so a healthy
+ * shim passes on every platform actually observed while the measured
+ * regression still trips it comfortably. If a THIRD platform's healthy
+ * baseline is ever measured above this threshold, the deterministic
+ * bundle-size check above still catches the regression class this gate
+ * exists for — RSS is not the only backstop, which is why it is allowed to
+ * carry a loose bound instead of a tight one.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -34,13 +46,15 @@ import { execSync } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
+/** PRIMARY gate: the shim's own bundle must stay small in absolute terms. */
+const BUNDLE_SIZE_THRESHOLD_BYTES = 50 * 1024;
+
 /**
- * Threshold set at ~1.3x the measured 34MB baseline, still far below the
- * ~55.5MB `minsky mcp proxy` figure the whole ADR-038 resource case exists
- * to beat. A genuine bundle-import regression (24MB dist/minsky.js pulled
- * in) blows well past this; ordinary Bun-runtime variance does not.
+ * SECONDARY gate: loose cross-platform RSS sanity bound. See the file
+ * docblock's "Calibration note" for the two reference points this sits
+ * between (45.54MB healthy on Linux CI; 67MB regressed on macOS).
  */
-const THRESHOLD_MB = 45;
+const RSS_THRESHOLD_MB = 60;
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
@@ -61,8 +75,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-describe("minsky mcp shim RSS budget (merge gate, mt#3812)", () => {
-  test("the shipped `minsky mcp shim` invocation stays under the committed threshold", async () => {
+describe("minsky mcp shim bundle-size budget (PRIMARY merge gate, mt#3812)", () => {
+  test("the shim's own build stays under the committed size threshold", async () => {
+    // Self-contained: builds src/mcp/shim/entry.ts directly via the Bun.build()
+    // API, independent of whether `bun run build:mcp-shim` has run in this
+    // environment. Same source graph in, same byte count out, on every
+    // platform — the deterministic half of this gate.
+    const result = await Bun.build({
+      entrypoints: [join(REPO_ROOT, "src", "mcp", "shim", "entry.ts")],
+      target: "bun",
+      minify: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.outputs.length).toBeGreaterThan(0);
+
+    const entryOutput = result.outputs.find((o) => o.kind === "entry-point") ?? result.outputs[0];
+    expect(entryOutput).toBeDefined();
+
+    // Fails LOUDLY with the actual measured size — a regression that pulls
+    // in the full command registry balloons this from ~7.5KB to hundreds of
+    // KB / megabytes (measured: 915,833 bytes under the mt#3812 PR #2820
+    // negative control), two-plus orders of magnitude past this threshold.
+    expect(entryOutput?.size).toBeLessThan(BUNDLE_SIZE_THRESHOLD_BYTES);
+  });
+});
+
+describe("minsky mcp shim RSS budget (SECONDARY sanity bound, mt#3812)", () => {
+  test("the shipped `minsky mcp shim` invocation stays under the loose cross-platform threshold", async () => {
     // Bind nothing, talk to no real daemon: the RSS defect class this
     // guards against (an accidental heavy import) is visible at idle
     // startup, before any request is ever sent. `--url` points at a
@@ -103,30 +143,9 @@ describe("minsky mcp shim RSS budget (merge gate, mt#3812)", () => {
       const meanMb = meanKb / 1024;
 
       // Fails LOUDLY with the actual measured value — never a silent skip.
-      expect(meanMb).toBeLessThan(THRESHOLD_MB);
+      expect(meanMb).toBeLessThan(RSS_THRESHOLD_MB);
     } finally {
       child.kill("SIGTERM");
     }
   }, 20_000);
-
-  test("dist/mcp-shim.js, when built, is a separate artifact from dist/minsky.js", async () => {
-    // Cheap, always-on companion check: if a build has run, assert the shim
-    // bundle exists as its OWN small artifact rather than silently aliasing
-    // the main CLI bundle (e.g. via a build-script typo that points both
-    // entries at the same outfile). Uses Bun.file()'s own existence check
-    // (not node:fs) so this stays a pure read of the build's OUTPUT rather
-    // than a real-filesystem dependency the test rule flags.
-    const shimBundle = Bun.file(join(REPO_ROOT, "dist", "mcp-shim.js"));
-    const mainBundle = Bun.file(join(REPO_ROOT, "dist", "minsky.js"));
-    if (!(await shimBundle.exists()) || !(await mainBundle.exists())) {
-      // No build has run in this environment — the RSS test above already
-      // covers the source-fallback path; nothing further to assert here.
-      return;
-    }
-    expect(shimBundle.size).toBeLessThan(mainBundle.size);
-    // The shim bundle should be small in absolute terms — a regression that
-    // pulls in the full command registry would balloon this from ~7KB to
-    // hundreds of KB / several MB even before RSS is measured.
-    expect(shimBundle.size).toBeLessThan(500 * 1024);
-  });
 });
