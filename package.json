@@ -37,7 +37,7 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "bun run build:completion-manifest && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
+    "build": "rm -rf dist && bun run build:completion-manifest && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
     "build:mcp-shim": "bun build --target=bun --outdir=dist --entry-naming mcp-shim.js --sourcemap=external --minify src/mcp/shim/entry.ts",
     "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
     "build:copy-migrations": "mkdir -p dist/storage/migrations && rm -rf dist/storage/migrations/pg && cp -r packages/domain/src/storage/migrations/pg dist/storage/migrations/pg",
@@ -102,6 +102,8 @@
   "files": [
     "dist/",
     "!dist/*.map",
+    "!dist/tsconfig.tsbuildinfo",
+    "!dist/storage/migrations/pg/meta/*_snapshot.json",
     "scripts/cli-entry.ts",
     "package.json",
     "README.md",
