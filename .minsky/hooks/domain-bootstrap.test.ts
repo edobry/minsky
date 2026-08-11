@@ -143,6 +143,214 @@ describe("describeProviderResolutionFailure (mt#3869)", () => {
   });
 });
 
+/**
+ * One hook source, as the scans below consume it. Taking the corpus as a
+ * PARAMETER rather than reading it inside each assertion is what lets the
+ * matchers be exercised against cases that do not exist in the tree — including
+ * the two false negatives PR #2863 R1 found in them (a suffixed literal, and a
+ * second unmarked occurrence in an already-marked file). Reading the real
+ * corpus is then just supplying the argument.
+ */
+type HookSource = { file: string; text: string };
+
+/**
+ * A hardcoded cause, in any string form.
+ *
+ * Matching the exact literal `"persistence provider unavailable"` was a false
+ * negative (PR #2863 R1): `"persistence provider unavailable — skipping DB
+ * write"` is the same defect and slipped straight through, and that exact
+ * spelling is one this codebase had already used. The delimiter is captured and
+ * back-referenced so single-quoted and template forms are covered too, and a
+ * template that interpolates the real cause is still an offense outside
+ * `domain-bootstrap.ts` — the helper is the one place this phrase is built.
+ *
+ * A prose mention in a comment does not match: the phrase must be delimited.
+ */
+const HARDCODED_CAUSE = /(["'`])persistence provider unavailable[^"'`]*\1/;
+
+/** The module that OWNS the phrase, and the only file allowed to contain it. */
+const FORMATTER_MODULE = "domain-bootstrap.ts";
+
+/** The `| null` variant — kept at sites whose degraded path has no channel. */
+const NULL_RESOLVE = /await resolvePersistenceProvider\(\)/;
+
+/** The marker a deliberate `| null` site must carry, verbatim. */
+const DELIBERATE_MARKER = "Deliberately still the `| null` resolve (mt#3869)";
+
+/** How far above a `| null` resolve its marker may sit. */
+const MARKER_LOOKBACK_LINES = 12;
+
+export function findHardcodedCauses(sources: readonly HookSource[]): string[] {
+  return sources
+    .filter((s) => s.file !== FORMATTER_MODULE)
+    .filter((s) => HARDCODED_CAUSE.test(s.text))
+    .map((s) => s.file);
+}
+
+/**
+ * Report each UNMARKED `| null` resolve, by `file:line`.
+ *
+ * Per-occurrence, not per-file. The per-file form was a false negative
+ * (PR #2863 R1): `record-subagent-invocation.ts` holds two deliberate sites, so
+ * a file-level `text.includes(marker)` stayed true when either one lost its
+ * marker — the other site's marker vouched for it. That is precisely the case
+ * this assertion exists to catch, since the two sites are the only ones there
+ * are.
+ */
+export function findUnmarkedNullResolves(sources: readonly HookSource[]): string[] {
+  const offenders: string[] = [];
+
+  for (const source of sources) {
+    const lines = source.text.split("\n");
+    let lastMarkerLine = Number.NEGATIVE_INFINITY;
+    let lastResolveLine = Number.NEGATIVE_INFINITY;
+
+    lines.forEach((line, index) => {
+      if (line.includes(DELIBERATE_MARKER)) lastMarkerLine = index;
+      if (!NULL_RESOLVE.test(line)) return;
+
+      // Markers pair to occurrences 1:1, in order. A plain "is there a marker
+      // within N lines above?" is not enough: two sites close together let one
+      // marker vouch for both, which is the same false negative as the
+      // per-file check one level down. Requiring the marker to be NEWER than
+      // the previous occurrence consumes it.
+      const marked =
+        lastMarkerLine > lastResolveLine && index - lastMarkerLine <= MARKER_LOOKBACK_LINES;
+      if (!marked) offenders.push(`${source.file}:${index + 1}`);
+      lastResolveLine = index;
+    });
+  }
+
+  return offenders;
+}
+
+/**
+ * Report each named hook that does not resolve with the error-carrying variant
+ * AND report the resolved cause through the shared helper — once per site.
+ *
+ * Counted, not merely present. A file-level "does it appear at all?" is the
+ * same false negative PR #2863 R1 found twice elsewhere in this file, one level
+ * up: a file with two converted sites would pass with only one of them
+ * reporting, because the other's call vouched for it. Every converted file
+ * happens to hold exactly one site today, which is exactly the condition under
+ * which the weaker check looks correct.
+ *
+ * Both patterns tolerate the line breaks prettier introduces inside the call —
+ * matching the exact one-line spelling made this fail on formatting rather than
+ * on behavior.
+ */
+export function findUnconvertedHooks(
+  sources: readonly HookSource[],
+  expected: readonly string[]
+): string[] {
+  const RESOLVES = /resolvePersistenceProviderOrError\(\s*\)/g;
+  const REPORTS = /describeProviderResolutionFailure\(\s*resolution\s*\)/g;
+
+  return expected.filter((file) => {
+    const source = sources.find((s) => s.file === file);
+    if (!source) return true;
+
+    const resolves = source.text.match(RESOLVES)?.length ?? 0;
+    const reports = source.text.match(REPORTS)?.length ?? 0;
+    return resolves === 0 || reports < resolves;
+  });
+}
+
+/** The hooks converted by mt#3869. */
+const CONVERTED_HOOKS = [
+  "duplicate-signature-scan.ts",
+  "post-merge-unasked-direction-scan.ts",
+  "record-agent-dispatch.ts",
+  "record-subagent-invocation.ts",
+  "stamp-pr-author-link.ts",
+  "stamp-session-creator-link.ts",
+];
+
+// These run against synthetic sources, so each matcher is shown failing on the
+// case it is meant to catch — including cases absent from the real tree, which
+// the corpus scan below therefore cannot demonstrate. Without them, a matcher
+// that silently matches nothing reports a clean corpus.
+describe("hook diagnosis scans, against constructed sources (mt#3869)", () => {
+  test("a hardcoded cause is caught in every string form, suffixed or not", () => {
+    const sources: HookSource[] = [
+      { file: "bare.ts", text: 'return { failed: "persistence provider unavailable" };' },
+      {
+        // PR #2863 R1: the exact false negative — a suffix defeated the old check.
+        file: "suffixed.ts",
+        text: 'warn("persistence provider unavailable — skipping DB write");',
+      },
+      { file: "single-quoted.ts", text: "throw new Error('persistence provider unavailable');" },
+      { file: "clean.ts", text: "return describeProviderResolutionFailure(resolution);" },
+      {
+        // Prose is not a claim; only a delimited string is.
+        file: "commented.ts",
+        text: "// used to report persistence provider unavailable with no cause\n",
+      },
+      { file: FORMATTER_MODULE, text: "return `persistence provider unavailable: ${cls}`;" },
+    ];
+
+    expect(findHardcodedCauses(sources).sort()).toEqual([
+      "bare.ts",
+      "single-quoted.ts",
+      "suffixed.ts",
+    ]);
+  });
+
+  test("an unmarked `| null` resolve is caught even beside a marked one", () => {
+    // PR #2863 R1: the exact false negative. One file, two sites, one marker —
+    // the per-file check passed because the surviving marker vouched for both.
+    const text = [
+      `    // ${DELIBERATE_MARKER}. This one has a reason.`,
+      "    const provider = await resolvePersistenceProvider();",
+      "",
+      "    // no marker here",
+      "    const other = await resolvePersistenceProvider();",
+    ].join("\n");
+
+    expect(findUnmarkedNullResolves([{ file: "two-sites.ts", text }])).toEqual(["two-sites.ts:5"]);
+  });
+
+  test("a marked `| null` resolve is accepted, and a converted file has none", () => {
+    const marked = [`  // ${DELIBERATE_MARKER}`, "  const p = await resolvePersistenceProvider();"];
+
+    expect(findUnmarkedNullResolves([{ file: "marked.ts", text: marked.join("\n") }])).toEqual([]);
+    expect(
+      findUnmarkedNullResolves([
+        { file: "converted.ts", text: "const r = await resolvePersistenceProviderOrError();" },
+      ])
+    ).toEqual([]);
+  });
+
+  test("a hook that resolves but discards the cause is caught", () => {
+    const sources: HookSource[] = [
+      {
+        file: "discards.ts",
+        text: "const resolution = await resolvePersistenceProviderOrError();\nif (!resolution.ok) return null;",
+      },
+      {
+        file: "reports.ts",
+        text: "const resolution = await resolvePersistenceProviderOrError();\nif (!resolution.ok) warn(describeProviderResolutionFailure(resolution));",
+      },
+    ];
+
+    expect(findUnconvertedHooks(sources, ["discards.ts", "reports.ts"])).toEqual(["discards.ts"]);
+    expect(findUnconvertedHooks(sources, ["absent.ts"])).toEqual(["absent.ts"]);
+  });
+
+  test("a file with two sites is caught when only one of them reports", () => {
+    // The same shape as the other two false negatives, one level up: the
+    // reporting site would vouch for the silent one under a presence check.
+    const text = [
+      "const a = await resolvePersistenceProviderOrError();",
+      "if (!a.ok) warn(describeProviderResolutionFailure(resolution));",
+      "const b = await resolvePersistenceProviderOrError();",
+      "if (!b.ok) return null;",
+    ].join("\n");
+
+    expect(findUnconvertedHooks([{ file: "half.ts", text }], ["half.ts"])).toEqual(["half.ts"]);
+  });
+});
+
 // STRUCTURAL, not behavioral, and deliberately so. The property this task
 // establishes is "no hook reports a cause it did not obtain from the
 // resolution" — an invariant over the corpus, which a per-site behavioral test
@@ -181,12 +389,7 @@ describe("hook persistence-resolution diagnosis (mt#3869)", () => {
     // originating site, a class the control flow had already excluded. Only
     // `domain-bootstrap.ts` may contain the phrase, and there it is a template
     // interpolating the real cause rather than a literal.
-    const offenders = hookSources
-      .filter((s) => s.file !== "domain-bootstrap.ts")
-      .filter((s) => s.text.includes('"persistence provider unavailable"'))
-      .map((s) => s.file);
-
-    expect(offenders).toEqual([]);
+    expect(findHardcodedCauses(hookSources)).toEqual([]);
   });
 
   test("every remaining `| null` resolve is marked deliberate", () => {
@@ -195,40 +398,13 @@ describe("hook persistence-resolution diagnosis (mt#3869)", () => {
     // path has no channel to report into. What must not happen is a site
     // keeping it by omission, which is indistinguishable from a converted one
     // at a glance. The marker is the difference.
-    const unmarked = hookSources
-      .filter((s) => /await resolvePersistenceProvider\(\)/.test(s.text))
-      .filter((s) => !s.text.includes("Deliberately still the `| null` resolve (mt#3869)"))
-      .map((s) => s.file);
-
-    expect(unmarked).toEqual([]);
+    expect(findUnmarkedNullResolves(hookSources)).toEqual([]);
   });
 
   test("each converted hook formats its failure through the shared helper", () => {
     // Pinned by name: a site that resolves with the error-carrying variant and
     // then throws the resolution away would satisfy the two checks above while
     // reporting nothing.
-    //
-    // Both patterns tolerate the line breaks prettier introduces inside the
-    // call — matching the exact one-line spelling made this assertion fail on
-    // formatting rather than on behavior, and reported it by printing the
-    // entire source file.
-    const RESOLVES = /resolvePersistenceProviderOrError\(\s*\)/;
-    const REPORTS = /describeProviderResolutionFailure\(\s*resolution\s*\)/;
-
-    const converted = [
-      "duplicate-signature-scan.ts",
-      "post-merge-unasked-direction-scan.ts",
-      "record-agent-dispatch.ts",
-      "record-subagent-invocation.ts",
-      "stamp-pr-author-link.ts",
-      "stamp-session-creator-link.ts",
-    ];
-
-    const missing = converted.filter((file) => {
-      const source = hookSources.find((s) => s.file === file);
-      return !source || !RESOLVES.test(source.text) || !REPORTS.test(source.text);
-    });
-
-    expect(missing).toEqual([]);
+    expect(findUnconvertedHooks(hookSources, CONVERTED_HOOKS)).toEqual([]);
   });
 });
