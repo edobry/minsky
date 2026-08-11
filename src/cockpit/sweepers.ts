@@ -36,6 +36,10 @@ import {
   refreshSchemaReadinessFromDb,
 } from "./schema-readiness";
 import { createPresenceSweepState } from "./conversation-presence-sweep";
+// mt#3744: the ask-state sweeper's two cheap, pure-fs halves are imported
+// statically (the DB half stays a dynamic import, like every sibling sweeper's).
+import { readWatermarkAskIds } from "./ask-state-cache";
+import { findRepoRoot } from "./web-dist";
 
 // ---------------------------------------------------------------------------
 // Shared sweeper timer helper (mt#2602 R1 review) — centralizes the
@@ -906,6 +910,130 @@ export function startShortIdMapSweeper(intervalMs?: number): () => void {
         Date.now()
       );
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Ask-state refresh sweeper (mt#3744)
+// ---------------------------------------------------------------------------
+
+/**
+ * Refresh interval for the ask-state snapshot the calibration-review cadence
+ * detector reads.
+ *
+ * Grounded in what the snapshot is used to decide, not a round number
+ * (`decision-defaults.mdc §Thresholds`): the state it tracks changes when the
+ * OPERATOR answers a calibration disposition ask, and the failure this task's
+ * parent (mt#3270) exists to prevent is reporting an answered ask as still
+ * pending. Five minutes matches `startShortIdMapSweeper`'s cadence in the same
+ * process — a second tick against the same warm pool is close to free — and
+ * bounds "answered but still reported pending" to one sweep interval.
+ */
+const ASK_STATE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * The ask-state tick's decision, with its IO injected (the mt#3684 shape).
+ *
+ * Extracted from the sweeper below so each failure path can be exercised without
+ * patching `./shared-persistence` or `./ask-state-cache` in place, which ADR-036
+ * bans — the tick reaches both through dynamic imports, so there is no other
+ * seam.
+ *
+ * **Every exit reports a domain outcome** via {@link SweepTickResult}, so a
+ * persistently failing tick is visible at `GET /api/sweeps` instead of looking
+ * like a healthy sweep that had nothing to do — the mt#3684 gap that let ~130
+ * consecutive prod-state failures read as clean.
+ *
+ * A repo with no watermark file, or one with no pending disposition asks, is a
+ * SUCCESS that writes an empty snapshot — not a skip. That write is what lets
+ * the consumer tell "the producer is running and this ask is not pending" from
+ * "the producer has never run", which is the distinction SC3 asks for.
+ */
+export async function runAskStateRefreshTick(deps: {
+  /** Resolve the producer's repo root (where the watermark store lives). */
+  resolveRepoRoot: () => string;
+  /** Read the watermark store's `openAskId` set for that repo root. */
+  readAskIds: (repoRoot: string) => string[];
+  /** Resolve the provider's raw-SQL accessor, or null when it exposes none. */
+  resolveRawSql: () => Promise<(() => Promise<unknown>) | null>;
+  /** Refresh the cache; returns whether it actually wrote. */
+  refresh: (sql: unknown, askIds: string[], nowIso: string) => Promise<boolean>;
+  /** Injectable clock so a test need not depend on wall time. */
+  now?: () => string;
+  /**
+   * Warning sink, defaulting to the real logger. Injected rather than patched
+   * because on the no-raw-SQL path the log IS the behavior under test
+   * (`testing-boundaries.mdc` §support vs diagnostic; ADR-036 bans patching the
+   * logger to observe it).
+   */
+  logWarn?: (message: string, meta?: Record<string, unknown>) => void;
+}): Promise<SweepTickResult> {
+  const warn = deps.logWarn ?? ((message, meta) => log.warn(message, meta));
+  try {
+    const askIds = deps.readAskIds(deps.resolveRepoRoot());
+    const getRawSql = await deps.resolveRawSql();
+    if (!getRawSql) {
+      // A provider without raw SQL cannot refresh the snapshot, so this is a
+      // failure rather than a quiet no-op — the consumer will go on rendering
+      // the previous snapshot as it ages into "stale".
+      warn("cockpit: ask-state refresh sweep skipped — provider exposes no raw SQL connection");
+      return { ok: false };
+    }
+    const sql = await getRawSql();
+    const nowIso = (deps.now ?? (() => new Date().toISOString()))();
+    return { ok: await deps.refresh(sql, askIds, nowIso) };
+  } catch (err) {
+    warn("cockpit: ask-state refresh sweep failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+    return { ok: false };
+  }
+}
+
+/**
+ * Start the periodic ask-state refresh in this cockpit process (mt#3744).
+ *
+ * The PRODUCER half: reads the state of every ask the calibration watermark
+ * store names as an open disposition and writes them to a local cache the
+ * `calibration-review-cadence-detector` hook reads. The hook cannot do this read
+ * itself — ADR-028 D7(5) routes unbounded-latency network I/O out of the
+ * synchronous dispatcher budget, and a measured cold connect from a hook-shaped
+ * process is 2.5-5.5s against that guard's 10s allowance (mt#3879).
+ *
+ * Fail-open: no DB / a failed read logs and waits for the next tick, leaving the
+ * last-good snapshot in place. Overlapping ticks skip.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startAskStateRefreshSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "ask-state refresh",
+    intervalMs: intervalMs ?? ASK_STATE_REFRESH_INTERVAL_MS,
+    tick: () =>
+      runAskStateRefreshTick({
+        resolveRepoRoot: () => findRepoRoot([process.cwd()]) ?? process.cwd(),
+        readAskIds: (repoRoot) => readWatermarkAskIds(repoRoot),
+        resolveRawSql: async () => {
+          const { getSharedPersistenceService } = await import("./shared-persistence");
+          const svc = await getSharedPersistenceService();
+          const provider = svc.getProvider();
+          return "getRawSqlConnection" in provider &&
+            typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection ===
+              "function"
+            ? (
+                provider as { getRawSqlConnection: () => Promise<unknown> }
+              ).getRawSqlConnection.bind(provider)
+            : null;
+        },
+        refresh: async (sql, askIds, nowIso) => {
+          const { refreshAskStateCache } = await import("./ask-state-cache");
+          return refreshAskStateCache(
+            sql as import("./ask-state-cache").UnsafeSql | null | undefined,
+            askIds,
+            nowIso
+          );
+        },
+      }),
   });
 }
 
