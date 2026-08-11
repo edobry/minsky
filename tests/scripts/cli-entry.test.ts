@@ -513,7 +513,7 @@ describe("bunBuildArgs / bunBuildCommand (mt#3091)", () => {
   });
 });
 
-describe("reflect-metadata polyfill ordering (mt#3735)", () => {
+describe("reflect-metadata polyfill ordering (mt#3735, reshaped mt#3812 R1)", () => {
   /**
    * Reads the file's SOURCE rather than importing it, because the thing under
    * test is import ORDER within this module — and by the time the test module
@@ -523,13 +523,23 @@ describe("reflect-metadata polyfill ordering (mt#3735)", () => {
    * is never loaded here (the entry point is guarded by `import.meta.main`).
    *
    * So this is a presence check, and it is honest about being one: it pins the
-   * INTENT (the polyfill is imported, and imported statically ahead of the
-   * dynamic bundle import) and will catch a refactor that drops the line or
-   * converts it to a lazy import. It cannot catch a runtime regression where
-   * the import is present and no longer sufficient. The behavioral gate for
-   * that is the `Boot via the installed-CLI shim` step in
+   * INTENT (the polyfill is imported, AWAITED ahead of the dynamic bundle
+   * import) and will catch a refactor that drops the line or reorders it.
+   * It cannot catch a runtime regression where the import is present and no
+   * longer sufficient. The behavioral gate for that is the
+   * `Boot via the installed-CLI shim` step in
    * `.github/workflows/bundle-boot-smoke.yml`, which actually runs the shim
    * against a freshly built bundle.
+   *
+   * mt#3812 R1: the polyfill import moved from a STATIC top-level import to a
+   * dynamic, AWAITED import scoped inside the non-shim (`else`) branch — a
+   * static top-level import ran unconditionally even for `mcp shim`, which
+   * never touches tsyringe/DI and whose entire resource case rests on
+   * staying off every import the normal CLI path needs. `await` on the
+   * dynamic import preserves the same "fully evaluated before the dynamic
+   * bundle import runs" guarantee the static form gave, since a dynamic
+   * import's promise does not resolve until the target module has finished
+   * evaluating.
    */
   // `.toString()` on the Buffer rather than the "utf8" encoding argument: Bun's
   // overloads for the latter resolve to `string & Buffer` here, which makes
@@ -537,18 +547,24 @@ describe("reflect-metadata polyfill ordering (mt#3735)", () => {
   // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import above: the committed source IS the subject under test here
   const source = readFileSync(join(import.meta.dir, "../../scripts/cli-entry.ts")).toString();
 
-  test("imports reflect-metadata statically", () => {
-    expect(source).toMatch(/^import "reflect-metadata";$/m);
+  test("awaits a dynamic reflect-metadata import (not a static top-level import)", () => {
+    expect(source).toMatch(/^\s*await import\("reflect-metadata"\);$/m);
+    expect(source).not.toMatch(/^import "reflect-metadata";$/m);
   });
 
-  test("the polyfill import precedes the dynamic bundle import", () => {
-    // Both patterns are anchored to the start of a line so they match the CODE
-    // and not the docblock, which discusses `await import(bundlePath)` in prose
-    // ~1.7k characters ahead of the statement it describes.
-    const polyfillAt = source.search(/^import "reflect-metadata";$/m);
+  test("the polyfill import precedes the dynamic bundle import, and is scoped inside the non-shim branch", () => {
+    // All three patterns are anchored to the start of a line so they match
+    // the CODE and not the docblocks, which discuss these statements in
+    // prose well ahead of where they actually appear.
+    const shimBranchAt = source.search(/^\s*if \(isShimInvocation\) \{$/m);
+    const polyfillAt = source.search(/^\s*await import\("reflect-metadata"\);$/m);
     const dynamicImportAt = source.search(/^\s*await import\(bundlePath\);$/m);
+    expect(shimBranchAt).toBeGreaterThanOrEqual(0);
     expect(polyfillAt).toBeGreaterThanOrEqual(0);
     expect(dynamicImportAt).toBeGreaterThanOrEqual(0);
+    // The polyfill import must come AFTER the shim branch is decided (so the
+    // shim path never reaches it) and BEFORE the bundle import it protects.
+    expect(polyfillAt).toBeGreaterThan(shimBranchAt);
     expect(polyfillAt).toBeLessThan(dynamicImportAt);
   });
 });

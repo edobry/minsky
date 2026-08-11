@@ -356,6 +356,55 @@ available for non-default setups (e.g., pointing at a dev build or a different b
 The CLI registration lives in `src/mcp/stdio-proxy/cli.ts` (`createProxyCommand()`).
 It is mounted as `mcp proxy` in `src/commands/mcp/index.ts` alongside `mcp start`.
 
+## `minsky mcp shim` — the HTTP-daemon transport's stdio bridge (mt#3812)
+
+ADR-038 replaces the child-process-respawn model this doc otherwise describes with a
+**shared HTTP daemon**: one long-lived `minsky mcp start --http` process per machine,
+fronted by one thin stdio-to-HTTP bridge per conversation. `minsky mcp shim` is that
+bridge — it is NOT `minsky mcp proxy` with a new name; it does not spawn or supervise a
+child process at all. It reads newline-delimited JSON-RPC from stdin, forwards each
+message to the daemon over HTTP, and writes the daemon's response back to stdout.
+
+**Usage:**
+
+```
+minsky mcp shim --url <daemon-url> [--token-file <path>]
+```
+
+| Flag / env var                                 | Default                                         | Purpose                                                                                                  |
+| ---------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `--url` / `MINSKY_SHIM_DAEMON_URL`             | `http://127.0.0.1:48765/mcp` (ADR-038 §4)       | The daemon's Streamable-HTTP MCP endpoint.                                                               |
+| `--token-file` / `MINSKY_LOCAL_MCP_TOKEN_PATH` | `~/.config/minsky/local-mcp-token` (ADR-038 §5) | Static bearer token file the shim attaches to every request; absent file → unauthenticated (dev daemon). |
+
+**What it preserves from the proxy:** the exact conversation-identity injection semantics
+(`_meta["io.minsky/agent_id"]` stamped on `tools/call` from `CLAUDE_CODE_SESSION_ID`, never
+overwriting an already-declared value) — see `src/mcp/shim/identity.ts`'s docblock for why
+that logic is duplicated rather than imported from this doc's `conversation-identity.ts`.
+
+**What it does NOT do:** spawn a child process, augment `tools/list`, or expose
+`__proxy_restart_server` — none of those apply to a shared daemon a shim merely bridges to.
+It DOES track `Mcp-Session-Id` across requests, transparently re-initialize the session
+after a daemon restart invalidates it, retry with backoff across a daemon's cold-start
+window (so a restart is never surfaced as a tool-call error), and send an explicit `DELETE`
+on the session at shutdown.
+
+**Thinness is load-bearing, not incidental.** The entire resource case for the shared-daemon
+topology rests on this process staying near the Bun runtime floor (~34MB shipped, vs. ~55MB
+for `minsky mcp proxy`, which imports the full CLI bundle). `scripts/cli-entry.ts` — the
+`minsky` bin script — intercepts `mcp shim` before any of the normal CLI's bundle-import
+logic runs, and imports a SEPARATE build artifact (`dist/mcp-shim.js`, built via the
+`build:mcp-shim` package.json script) instead. `src/mcp/shim/rss-budget.test.ts` is a
+committed merge gate, not a decorative test, for exactly this reason.
+
+**Status:** built (mt#3812); not yet wired into the Claude Code config by default — that
+swap, plus one-command revert, is `minsky setup local-http` (mt#3816). The daemon itself
+(fixed port, conflict detection, bearer-token generation) is mt#3814. `minsky mcp proxy`
+is unaffected and keeps working during coexistence.
+
+**Full design/rationale:** `docs/architecture/adr-038-local-shared-mcp-daemon-architecture.md`.
+**Implementation:** `src/mcp/shim/{entry,main,client,identity,sse,token,protocol}.ts`.
+**E2E verification:** `scripts/verify-mcp-shim-e2e.ts`.
+
 ## What this is NOT
 
 **Not a generic MCP proxy.** The proxy is Minsky-specific. It injects one Minsky-defined

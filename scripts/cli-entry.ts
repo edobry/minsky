@@ -53,7 +53,19 @@
 // costs one already-resolved module and removes a whole class of ordering
 // dependency from this file, so the redundancy is deliberate rather than
 // oversight. mt#3735's `tests/scripts/cli-entry.test.ts` pins it in place.
-import "reflect-metadata";
+//
+// mt#3812 R1: moved from a STATIC top-level `import "reflect-metadata";` to a
+// dynamic, AWAITED import scoped inside the non-shim branch below (right
+// before `await import(bundlePath)`/`sourcePath`). A static top-level import
+// runs unconditionally for every invocation of this file, including
+// `mcp shim` — which never touches tsyringe/DI at all and whose entire
+// resource case rests on staying off every import this normal-CLI path
+// needs. Awaiting the dynamic import immediately before the bundle/source
+// import preserves the SAME ordering guarantee the static form gave
+// (mt#3735: fully evaluated before the dynamic bundle import runs) — `await`
+// makes that deterministic regardless of import form, since a dynamic
+// import's promise does not resolve until the target module (and its own
+// static imports) has finished evaluating.
 
 import { realpathSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, basename } from "path";
@@ -284,57 +296,91 @@ if (import.meta.main) {
   // resolves it to the actual file location in the package root.
   const launcherPath = realpathSync(fileURLToPath(import.meta.url));
   const packageRoot = join(dirname(launcherPath), "..");
-  const bundlePath = join(packageRoot, "dist", "minsky.js");
-  const stampPath = join(packageRoot, "dist", ".build-stamp");
-  const sourcePath = join(packageRoot, "src", "cli.ts");
 
-  const stderrDeps: StderrDeps = {
-    write: (msg) => process.stderr.write(msg),
-  };
+  // mt#3812 BLOCKING requirement: `minsky mcp shim` must NEVER go through
+  // the bundle-or-source-fallback import below — both branches pull in the
+  // entire CLI (tsyringe DI, the full command registry), which is exactly
+  // why today's `minsky mcp proxy` sits at ~55MB mean instead of the ~38MB
+  // a byte-pipe-only process measures. Intercept before ANY bundle-decision
+  // logic runs (freshness check, rebuild, MINSKY_LOADED_COMMIT bookkeeping)
+  // so this path touches nothing the normal CLI path touches.
+  //
+  // `dist/mcp-shim.js` is this package's OWN separate build artifact (see
+  // package.json's `build:mcp-shim` script and its `files` entry) — never
+  // dist/minsky.js. The source fallback mirrors the existing
+  // bundle-present/bundle-absent pattern below for a fresh source-install
+  // clone with no dist/ built yet.
+  const argv = process.argv.slice(2);
+  const isShimInvocation = argv[0] === "mcp" && argv[1] === "shim";
 
-  const fsDeps = makeProductionFsDeps();
-  const execDeps = makeProductionExecDeps();
+  if (isShimInvocation) {
+    // NOTE: no top-level `return` here — illegal in an ES module (this file
+    // is loaded as ESM, not CommonJS, so there is no enclosing function body
+    // for `return` to exit). The `else` below is what keeps this branch from
+    // falling through into the bundle-decision logic.
+    const shimBundlePath = join(packageRoot, "dist", "mcp-shim.js");
+    const shimSourcePath = join(packageRoot, "src", "mcp", "shim", "entry.ts");
+    const shimEntry = existsSync(shimBundlePath) ? shimBundlePath : shimSourcePath;
+    await import(shimEntry);
+  } else {
+    const bundlePath = join(packageRoot, "dist", "minsky.js");
+    const stampPath = join(packageRoot, "dist", ".build-stamp");
+    const sourcePath = join(packageRoot, "src", "cli.ts");
 
-  const decision = computeBundleDecision(
-    packageRoot,
-    bundlePath,
-    stampPath,
-    sourcePath,
-    fsDeps,
-    execDeps,
-    stderrDeps
-  );
+    const stderrDeps: StderrDeps = {
+      write: (msg) => process.stderr.write(msg),
+    };
 
-  // mt#2335: record loaded-source freshness facts into process env BEFORE the
-  // import so src/mcp/source-freshness.ts (surfaced in debug.systemInfo) can
-  // report whether the running code is current with HEAD. Must be set before
-  // import(): the freshness module lives inside the bundle and cannot be called
-  // from here. For a bundle run, the loaded commit is the build stamp (the
-  // commit the imported bundle reflects, post-rebuild-attempt); for a
-  // source-fallback run, it is the live HEAD. All three vars are registered in
-  // HOOK_ONLY_ENV_VARS so the config parser skips them at boot (mt#1785 class).
-  const runMode = decision.bundlePresent ? "bundle" : "source-fallback";
-  let loadedCommit = "";
-  if (runMode === "bundle") {
-    try {
-      loadedCommit = fsDeps.readFileSync(stampPath).trim();
-    } catch {
-      loadedCommit = "";
+    const fsDeps = makeProductionFsDeps();
+    const execDeps = makeProductionExecDeps();
+
+    const decision = computeBundleDecision(
+      packageRoot,
+      bundlePath,
+      stampPath,
+      sourcePath,
+      fsDeps,
+      execDeps,
+      stderrDeps
+    );
+
+    // mt#2335: record loaded-source freshness facts into process env BEFORE the
+    // import so src/mcp/source-freshness.ts (surfaced in debug.systemInfo) can
+    // report whether the running code is current with HEAD. Must be set before
+    // import(): the freshness module lives inside the bundle and cannot be called
+    // from here. For a bundle run, the loaded commit is the build stamp (the
+    // commit the imported bundle reflects, post-rebuild-attempt); for a
+    // source-fallback run, it is the live HEAD. All three vars are registered in
+    // HOOK_ONLY_ENV_VARS so the config parser skips them at boot (mt#1785 class).
+    const runMode = decision.bundlePresent ? "bundle" : "source-fallback";
+    let loadedCommit = "";
+    if (runMode === "bundle") {
+      try {
+        loadedCommit = fsDeps.readFileSync(stampPath).trim();
+      } catch {
+        loadedCommit = "";
+      }
+    } else {
+      loadedCommit = execDeps.gitRevParseHead(packageRoot);
     }
-  } else {
-    loadedCommit = execDeps.gitRevParseHead(packageRoot);
-  }
-  process.env.MINSKY_LOADED_COMMIT = loadedCommit;
-  process.env.MINSKY_RUN_MODE = runMode;
-  process.env.MINSKY_PACKAGE_ROOT = packageRoot;
+    process.env.MINSKY_LOADED_COMMIT = loadedCommit;
+    process.env.MINSKY_RUN_MODE = runMode;
+    process.env.MINSKY_PACKAGE_ROOT = packageRoot;
 
-  if (decision.bundlePresent) {
-    // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.
-    // Spawning a subprocess would double the Bun-startup cost and defeat the optimization.
-    await import(bundlePath);
-  } else {
-    // Fallback: fresh clone with no bundle yet, or build failure.
-    // Works for Profile A (source install) only — Profile D has no src/cli.ts.
-    await import(sourcePath);
+    // mt#3735 / mt#3812 R1: must precede the bundle/source import below, and
+    // be AWAITED so it is fully evaluated first — see the docblock above this
+    // file's imports for why this moved from a static top-level import to a
+    // dynamic one scoped to this (non-shim) branch.
+    await import("reflect-metadata");
+
+    if (decision.bundlePresent) {
+      // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.
+      // Spawning a subprocess would double the Bun-startup cost and defeat the optimization.
+      await import(bundlePath);
+    } else {
+      // Fallback: fresh clone with no bundle yet, or build failure.
+      // Works for Profile A (source install) only — Profile D has no src/cli.ts.
+      await import(sourcePath);
+    }
   }
 }
