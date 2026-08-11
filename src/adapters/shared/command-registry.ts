@@ -268,16 +268,24 @@ export type AdapterBehaviorFlagKey = (typeof ADAPTER_BEHAVIOR_FLAG_KEYS)[number]
 export type AdapterBehaviorFlags = Pick<AnyCommandDefinition, AdapterBehaviorFlagKey>;
 
 /**
- * Project a command definition down to the behavior flags an adapter must
- * carry through. Derived from {@link ADAPTER_BEHAVIOR_FLAG_KEYS} rather than
- * written out, so the key list is the single place a flag is named.
+ * Project a command down to the behavior flags an adapter must carry through.
+ * Derived from {@link ADAPTER_BEHAVIOR_FLAG_KEYS} rather than written out, so
+ * the key list is the single place a flag is named.
+ *
+ * The parameter is a bare object rather than `Partial<AdapterBehaviorFlags>`
+ * (mt#3993). `AdapterBehaviorFlags` is all-optional, so under that signature
+ * TypeScript's weak-type check REJECTS any command that currently declares no
+ * flag — which is most of them, including the class-based `tools.*` and
+ * `principal-corpus.*` commands. The rejection lands exactly where the spread
+ * is being adopted defensively, and the path of least resistance out of it is
+ * to go back to naming fields by hand: the defect this helper exists to
+ * prevent. The return type stays exact, so callers gain nothing loose.
  */
-export function pickAdapterBehaviorFlags(
-  command: Partial<AdapterBehaviorFlags>
-): AdapterBehaviorFlags {
+export function pickAdapterBehaviorFlags<T extends object>(command: T): AdapterBehaviorFlags {
+  const source = command as Partial<AdapterBehaviorFlags>;
   const flags: AdapterBehaviorFlags = {};
   for (const key of ADAPTER_BEHAVIOR_FLAG_KEYS) {
-    const value = command[key];
+    const value = source[key];
     if (value !== undefined) {
       flags[key] = value;
     }

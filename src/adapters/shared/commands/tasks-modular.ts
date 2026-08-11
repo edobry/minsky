@@ -5,7 +5,7 @@
  * Uses createAllTaskCommands() from registry-setup as the single source of truth,
  * eliminating dual-registration bugs where a command is added to CLI but not MCP.
  */
-import { sharedCommandRegistry } from "../command-registry";
+import { sharedCommandRegistry, pickAdapterBehaviorFlags } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -42,7 +42,13 @@ export class ModularTasksCommandManager {
           // silently re-enables the project-setup guard for commands that
           // opted out (mt#1428) and drops staleness-gating for mutating ones.
           requiresSetup: command.requiresSetup,
-          mutating: command.mutating,
+          // mt#3993: behavior flags travel as a SET. This literal named
+          // `mutating` alone, so `readsPresence` was gone before any adapter
+          // could carry it — which is why fixing the MCP bridge alone (mt#3989)
+          // left the probe still refreshing the claims it reports. The comment
+          // above already warned that an omission here is silent; a third field
+          // was missed anyway, so the field list is no longer written out.
+          ...pickAdapterBehaviorFlags(command),
           execute: (params, ctx) => command.execute(params, ctx),
         });
       }

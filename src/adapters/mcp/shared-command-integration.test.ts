@@ -18,6 +18,7 @@ import {
   type CommandExecutionContext,
 } from "../shared/command-registry";
 import { createTasksClaimsListCommand } from "../shared/commands/tasks/claims-command";
+import { registerTasksCommands } from "../shared/commands/tasks-modular";
 import { redact } from "../../utils/redaction";
 
 type CapturedCall = {
@@ -1438,6 +1439,52 @@ describe("MCP shared-command bridge", () => {
 
       expect(captured.tool).toBeDefined();
       expect(captured.tool?.readsPresence).toBe(true);
+    });
+
+    /**
+     * mt#3993: the test above still starts at a seam — it puts the definition
+     * into the registry itself, which production does not. Production calls
+     * `registerTasksCommands()`, and THAT re-projects every task command
+     * field-by-field; the projection named `mutating` and not `readsPresence`,
+     * so the flag was gone one layer before the bridge could carry it and the
+     * bridge-level test above stayed green while the probe kept refreshing the
+     * claims it reported.
+     *
+     * The lesson is about assertion SHAPE, not about which layer is at fault: a
+     * test that constructs its own input cannot see a field dropped by the real
+     * constructor. So this one starts where production starts — the factory —
+     * and asserts at the far end, on the registered tool.
+     */
+    test("readsPresence survives the FULL production chain: factory → registerTasksCommands → bridge → tool", () => {
+      // The registry is global and another file in the same bun process may
+      // already hold TASKS commands. `registerAllCommands` wraps its whole loop
+      // in one try/catch, so a single duplicate-id throw aborts the rest —
+      // and `tasks.claims.list` is the LAST entry in `createAllTaskCommands`,
+      // i.e. exactly the one that would go missing. Clear the category first and
+      // put it back afterward, so this test neither inherits nor leaves state.
+      const preexisting = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
+      for (const command of preexisting) {
+        sharedCommandRegistry.unregisterCommand(command.id);
+      }
+
+      try {
+        registerTasksCommands();
+
+        const { mapper, captured } = makeToolCapturingMapper("tasks.claims.list");
+        registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+
+        // Fails loudly rather than vacuously if registration itself broke:
+        // registerTasksCommands swallows its errors into a log warning.
+        expect(captured.tool).toBeDefined();
+        expect(captured.tool?.readsPresence).toBe(true);
+      } finally {
+        for (const command of sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS)) {
+          sharedCommandRegistry.unregisterCommand(command.id);
+        }
+        for (const command of preexisting) {
+          sharedCommandRegistry.registerCommand(command, { allowOverwrite: true });
+        }
+      }
     });
   });
 });
