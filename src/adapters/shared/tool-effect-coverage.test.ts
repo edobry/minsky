@@ -24,7 +24,7 @@ import { readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 
 import { MCP_COMMAND_EFFECTS, KNOWN_UNCLASSIFIED, classifyTool } from "@minsky/shared/tool-effect";
-import { scanMutatingFlaggedIds } from "../../utils/test-utils/mutating-flag-scan";
+import { scanCommandIds, scanMutatingFlaggedIds } from "../../utils/test-utils/command-source-scan";
 
 /**
  * The registered tool surface, captured 2026-08-10.
@@ -414,22 +414,32 @@ describe("drift-gate refusal set matches the mt#3924 decision", () => {
  * silently sitting outside the coverage measurement.
  */
 describe("snapshot freshness against the command sources", () => {
-  function scanCommandIds(dir: string): string[] {
-    const ids: string[] = [];
-    for (const entry of readdirSync(dir)) {
-      const p = join(dir, entry);
-      if (statSync(p).isDirectory()) {
-        ids.push(...scanCommandIds(p));
-        continue;
-      }
-      if (!p.endsWith(".ts") || p.endsWith(".test.ts")) continue;
-      const text = String(readFileSync(p, "utf8"));
-      for (const m of text.matchAll(/^\s*(?:readonly\s+)?id[:=]\s*["'`]([a-z0-9._-]+)["'`]/gim)) {
-        ids.push(m[1] as string);
-      }
-    }
-    return ids;
-  }
+  /**
+   * Ids the sources DECLARE but nothing registers, so their absence from the
+   * snapshot is correct rather than a gap. Each entry needs a verified reason —
+   * "it looks like a container" is a guess; a zero-call-site factory is a finding.
+   *
+   * - `tasks.status` — `TasksStatusCommand`
+   *   (`commands/tasks/hierarchical-status-command.ts`) is a parameterless parent
+   *   holding the get/set subcommands. Its factory `createTasksStatusCommand` has
+   *   NO call sites outside its own definition (verified by grep over `src` and
+   *   `packages`, excluding tests, 2026-08-11), so it never reaches the registry
+   *   and is not on the tool surface. `MCP_COMMAND_EFFECTS` is right not to carry it.
+   *
+   * This list is deliberately not a free-form skip: the test below fails if an
+   * entry stops being declared, so a stale exclusion cannot outlive its subject.
+   */
+  const DECLARED_BUT_UNREGISTERED: readonly string[] = ["tasks.status"];
+
+  /**
+   * The scan's own floor. Until mt#3966 this scan matched `id:`/`id=` with no
+   * space before the separator, so it saw 200 of the 223 declared ids and was
+   * structurally blind to every class-based command — including `tasks.create`,
+   * `tasks.delete` and `tasks.status.set`. Nothing failed, because a scan that
+   * under-reports agrees with the snapshot instead of contradicting it. Asserting
+   * the COUNT is what makes a future shrink fail rather than pass.
+   */
+  const MINIMUM_DECLARED_IDS = 223;
 
   /**
    * The MCP surface registers tools with `name:` rather than `id:`, in a
@@ -461,11 +471,27 @@ describe("snapshot freshness against the command sources", () => {
   });
 
   test("no command id in the sources is missing from the snapshot", () => {
-    const scanned = new Set(scanCommandIds("src/adapters/shared/commands"));
+    const scanned = new Set(scanCommandIds());
     const snapshot = new Set(REGISTERED_TOOL_IDS);
-    // `tasks.status` is a category container, not an invocable command.
-    scanned.delete("tasks.status");
+    for (const id of DECLARED_BUT_UNREGISTERED) scanned.delete(id);
     const missing = [...scanned].filter((id) => !snapshot.has(id));
     expect(missing).toEqual([]);
+  });
+
+  test("the scan still sees every declared id, including class-based ones", () => {
+    // Guards the mt#3966 regression class directly: the check above passes just as
+    // happily on a scan that sees NOTHING, because an empty set has no missing ids.
+    // This is the assertion that can tell "no gaps" from "no vision".
+    const scanned = scanCommandIds();
+    expect(scanned.length).toBeGreaterThanOrEqual(MINIMUM_DECLARED_IDS);
+    // A class-declared id, present only if the modifier-tolerant pattern is live.
+    expect(scanned).toContain("tasks.delete");
+  });
+
+  test("every declared-but-unregistered exclusion is still declared", () => {
+    // A stale exclusion silently re-opens the hole it was written to close.
+    const scanned = new Set(scanCommandIds());
+    const gone = DECLARED_BUT_UNREGISTERED.filter((id) => !scanned.has(id));
+    expect(gone).toEqual([]);
   });
 });
