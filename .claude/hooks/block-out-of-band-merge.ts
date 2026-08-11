@@ -465,7 +465,10 @@ if (import.meta.main) {
     // mt#2617 R1 BLOCKING #1: fail-open WITH an audit signal, matching the
     // transport-error fail-open paths below, instead of a silent exit.
     console.error(buildRepoDerivationFailureWarning(input.cwd));
-    recordAndExit("allow");
+    // mt#3920: `crashed`, not `decided` — the gate did not run. An `allow` here is a
+    // fail-open, and counting it as clean-run evidence would let guard-health report a
+    // guard that cannot resolve its own repo as recovered.
+    recordAndExit("allow", undefined, "crashed");
   }
 
   // Single gh call per invocation (unchanged from PR #1020 R1 BLOCKING #1
@@ -505,7 +508,8 @@ if (import.meta.main) {
         `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
           `Reason: ${resolved.error}`
       );
-      recordAndExit("allow");
+      // mt#3920: the message says it — "gate did not run". Fail-open, so `crashed`.
+      recordAndExit("allow", undefined, "crashed");
     }
     prNumber = resolved.prNumber;
     body = resolved.body;
@@ -520,7 +524,8 @@ if (import.meta.main) {
         `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
           `Reason: ${resolved.error}`
       );
-      recordAndExit("allow");
+      // mt#3920: same fail-open as the sibling branch above — `crashed`.
+      recordAndExit("allow", undefined, "crashed");
     }
     prNumber = extractedPrNumber;
     body = resolved.body;

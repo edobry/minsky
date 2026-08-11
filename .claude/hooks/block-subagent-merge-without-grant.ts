@@ -213,7 +213,8 @@ if (import.meta.main) {
       `[block-subagent-merge-without-grant] warn: grant store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    recordAndExit("allow");
+    // mt#3920: `crashed` — this allow is a fail-open on a broken store read, not a verdict.
+    recordAndExit("allow", undefined, "crashed");
   }
 
   const decision = decideMergeGrant(taskId, agentId, storeResult.grants, Date.now());

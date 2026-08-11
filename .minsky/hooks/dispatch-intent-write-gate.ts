@@ -273,7 +273,8 @@ if (import.meta.main) {
       `[dispatch-intent-write-gate] warn: dispatch-intent store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    recordAndExit("allow");
+    // mt#3920: `crashed` — this allow is a fail-open on a broken store read, not a verdict.
+    recordAndExit("allow", undefined, "crashed");
   }
 
   const decision = decideDispatchIntentGate(sessionId, storeResult.declarations, Date.now());

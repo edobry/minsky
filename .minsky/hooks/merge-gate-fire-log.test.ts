@@ -130,10 +130,35 @@ describe("makeMergeGateDecider (pure)", () => {
       guardName: REVIEW_GATE,
       event: "PreToolUse",
       decision: "allow",
+      // mt#3920: default outcome. An exact-shape assertion is what makes this test the
+      // regression guard for the default — a change to it fails HERE, not silently in
+      // guard-health weeks later.
+      guardOutcome: "decided",
       durationMs: 12,
       toolName: SESSION_PR_MERGE_TOOL,
       sessionId: "sess-abc",
     });
+  });
+
+  test("mt#3920: the outcome defaults to `decided` and is overridable to `crashed`", () => {
+    const decide = makeMergeGateDecider(REVIEW_GATE, Date.now(), input("s"));
+
+    // Default: an exit point the gate reached is clean-run evidence.
+    expect(decide("allow").record.guardOutcome).toBe("decided");
+    expect(decide("deny").record.guardOutcome).toBe("decided");
+    expect(decide("warn").record.guardOutcome).toBe("decided");
+
+    // A fail-open exit passes `crashed` explicitly. This is the one that matters: an
+    // `allow` emitted because the probe BROKE must not read as a clean run, or
+    // guard-health reports a guard whose probe is dead as recovered.
+    expect(decide("allow", undefined, "crashed").record.guardOutcome).toBe("crashed");
+
+    // The outcome is independent of the override fields — a guard can fail open while
+    // an override is also present.
+    expect(
+      decide("allow", { overrideClassification: "authorized_exception" }, "crashed").record
+        .guardOutcome
+    ).toBe("crashed");
   });
 
   test("builds deny and warn records, both still exiting 0", () => {
