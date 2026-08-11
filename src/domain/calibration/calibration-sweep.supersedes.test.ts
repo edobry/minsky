@@ -29,11 +29,11 @@ const CAUSAL_ENTRY: CalibrationLogEntry = {
  */
 function makeRevisableRecord(
   timestamp: string,
-  opts: { supersedes?: string; suppressionReasons?: string[] } = {}
+  opts: { supersedes?: string; suppressionReasons?: string[]; sessionId?: string } = {}
 ): string {
   return JSON.stringify({
     timestamp,
-    session_id: "revised-session",
+    session_id: opts.sessionId ?? "revised-session",
     matchedPhrases: [`phrase-at-${timestamp}`],
     hadSameTurnVerification: false,
     suppressionReasons: opts.suppressionReasons ?? [],
@@ -92,6 +92,52 @@ describe("supersedes accounting (mt#3740)", () => {
 
     expect(result.firesSinceLastReview).toBe(1);
     expect(result.injectedFiresSinceLastReview).toBe(1);
+  });
+
+  test("a revision never drops ANOTHER session's record on a timestamp collision", () => {
+    // PR #2873 R1 (BLOCKING). Timestamps are only unique WITHIN a session, so
+    // keying supersession on the bare timestamp let one session's revision
+    // silently delete an unrelated session's fire from the counts.
+    const COLLIDING = "2026-08-11T01:00:00.000Z";
+    const mineFirst = makeRevisableRecord(COLLIDING, { sessionId: "session-a" });
+    const mineRevision = makeRevisableRecord("2026-08-11T02:00:00.000Z", {
+      sessionId: "session-a",
+      supersedes: COLLIDING,
+    });
+    // Same timestamp, different session — must survive.
+    const theirs = makeRevisableRecord(COLLIDING, { sessionId: "session-b" });
+
+    const result = computeLogResult(
+      CAUSAL_ENTRY,
+      `${mineFirst}\n${mineRevision}\n${theirs}`,
+      true,
+      undefined
+    );
+
+    expect(result.firesSinceLastReview).toBe(3);
+    // session-a contributes one outcome (its revision), session-b contributes
+    // its own. Only session-a's superseded record drops out.
+    expect(result.injectedFiresSinceLastReview).toBe(2);
+  });
+
+  test("a marker on a record with no session_id drops nothing", () => {
+    // Unscopable marker → fail-safe: it must not delete a fire by guessing.
+    const orphanRevision = JSON.stringify({
+      timestamp: "2026-08-11T02:00:00.000Z",
+      matchedPhrases: ["phrase"],
+      hadSameTurnVerification: false,
+      suppressionReasons: [],
+      supersedes: "2026-08-11T01:00:00.000Z",
+    });
+    const target = JSON.stringify({
+      timestamp: "2026-08-11T01:00:00.000Z",
+      matchedPhrases: ["phrase"],
+      hadSameTurnVerification: false,
+      suppressionReasons: [],
+    });
+    const result = computeLogResult(CAUSAL_ENTRY, `${target}\n${orphanRevision}`, true, undefined);
+
+    expect(result.injectedFiresSinceLastReview).toBe(2);
   });
 
   test("a non-string supersedes is ignored rather than coerced", () => {

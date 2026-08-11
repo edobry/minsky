@@ -1070,7 +1070,7 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 }
 
 /** What this session already has in the calibration log (mt#3740). */
-interface LoggedSessionState {
+export interface LoggedSessionState {
   /** Every `dedupeKey` already logged THIS session. */
   keys: Set<string>;
   /** The session's most recent recorded verdict, or null if it has none. */
@@ -1088,42 +1088,59 @@ interface LoggedSessionState {
  * freeze-the-first-answer behavior back.
  */
 function loadLoggedSessionState(cwd: string, sessionId: string | undefined): LoggedSessionState {
-  const keys = new Set<string>();
-  let priorVerdict: PriorSessionVerdict | null = null;
-  if (!sessionId) return { keys, priorVerdict };
+  if (!sessionId) return { keys: new Set<string>(), priorVerdict: null };
   try {
     const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const text = readLogTailText(logPath);
-    if (!text) return { keys, priorVerdict };
-    for (const raw of text.split("\n")) {
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      try {
-        const rec = JSON.parse(trimmed) as Record<string, unknown>;
-        if (rec["session_id"] !== sessionId) continue;
-        if (typeof rec["dedupeKey"] === "string") {
-          keys.add(rec["dedupeKey"] as string);
-        }
-        // Last one wins: the tail is append-ordered, so the final matching
-        // record is this session's CURRENT verdict — including one that already
-        // superseded an earlier record. Comparing against anything else would
-        // let a session oscillate against a stale baseline.
-        if (
-          rec["dedupeKey"] === SESSION_VERDICT_DEDUPE_KEY &&
-          typeof rec["hadPropagation"] === "boolean" &&
-          typeof rec["timestamp"] === "string"
-        ) {
-          priorVerdict = {
-            hadPropagation: rec["hadPropagation"] as boolean,
-            timestamp: rec["timestamp"] as string,
-          };
-        }
-      } catch {
-        continue;
-      }
-    }
+    if (!text) return { keys: new Set<string>(), priorVerdict: null };
+    return parseLoggedSessionState(text, sessionId);
   } catch {
     // ignore — fail-open, treat as "nothing logged yet"
+    return { keys: new Set<string>(), priorVerdict: null };
+  }
+}
+
+/**
+ * The pure half of {@link loadLoggedSessionState}: parse log-tail TEXT into
+ * this session's logged state.
+ *
+ * Split out (PR #2873 R1) so the loader seam — the thing that actually wires
+ * revision into production — is testable without touching disk. Testing it via
+ * the disk-reading wrapper would need a real temp file, which
+ * `custom/no-real-fs-in-tests` forbids; the wrapper is now thin enough that
+ * reading it IS the review.
+ */
+export function parseLoggedSessionState(text: string, sessionId: string): LoggedSessionState {
+  const keys = new Set<string>();
+  let priorVerdict: PriorSessionVerdict | null = null;
+  for (const raw of text.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      const rec = JSON.parse(trimmed) as Record<string, unknown>;
+      if (rec["session_id"] !== sessionId) continue;
+      if (typeof rec["dedupeKey"] === "string") {
+        keys.add(rec["dedupeKey"] as string);
+      }
+      // Last one wins: the tail is append-ordered, so the final matching
+      // record is this session's CURRENT verdict — including one that already
+      // superseded an earlier record. Comparing against anything else would
+      // let a session oscillate against a stale baseline.
+      if (
+        rec["dedupeKey"] === SESSION_VERDICT_DEDUPE_KEY &&
+        typeof rec["hadPropagation"] === "boolean" &&
+        typeof rec["timestamp"] === "string"
+      ) {
+        priorVerdict = {
+          hadPropagation: rec["hadPropagation"] as boolean,
+          timestamp: rec["timestamp"] as string,
+        };
+      }
+    } catch {
+      // A malformed line is skipped, never fatal — the log is append-only
+      // and a partial write must not blind the whole read.
+      continue;
+    }
   }
   return { keys, priorVerdict };
 }

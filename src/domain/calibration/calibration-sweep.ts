@@ -1454,10 +1454,22 @@ export function computeLogResult(
   // a suppression reason, and a later re-research supersedes it); two
   // independent subtractions would remove it twice and under-report the
   // injected count.
-  const supersededTimestamps = new Set(
-    newRecords.map((r) => r.supersedes).filter((ts): ts is string => typeof ts === "string")
+  // Scoped to (session_id, timestamp), NOT to the timestamp alone (PR #2873 R1).
+  // A timestamp is only unique WITHIN a session — two detectors' records, or two
+  // sessions writing in the same millisecond, can collide — and supersession is
+  // by definition a within-session relation. Keying on the bare timestamp would
+  // let one session's revision silently delete an unrelated session's fire from
+  // the counts.
+  //
+  // A marker on a record with no `session_id` scopes to nothing, so it drops
+  // nothing: same fail-safe direction as a dangling marker.
+  const supersededKeys = new Set(
+    newRecords
+      .filter((r) => typeof r.supersedes === "string" && r.session_id !== undefined)
+      .map((r) => `${r.session_id}::${r.supersedes}`)
   );
-  const isRevisedAway = (r: CalibrationRecord): boolean => supersededTimestamps.has(r.timestamp);
+  const isRevisedAway = (r: CalibrationRecord): boolean =>
+    r.session_id !== undefined && supersededKeys.has(`${r.session_id}::${r.timestamp}`);
   const injectedFiresSinceLastReview = newRecords.filter(
     (r) => !isSuppressedRecord(r) && !isRevisedAway(r)
   ).length;

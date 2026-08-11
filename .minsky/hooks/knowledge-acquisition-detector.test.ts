@@ -43,6 +43,7 @@ import {
   TRAILING_WINDOW_TURNS,
   RESEARCH_TOOL_NAMES,
   SESSION_VERDICT_DEDUPE_KEY,
+  parseLoggedSessionState,
   SUPPRESSION_PROPAGATION_IN_WINDOW,
   run,
 } from "./knowledge-acquisition-detector";
@@ -653,6 +654,68 @@ describe("detectKnowledgeAcquisition — session grain (mt#3720)", () => {
       );
       expect(detection).toBeNull();
     }
+  });
+
+  // PR #2873 R1: the loader seam is what actually wires revision into
+  // production — the detector's own tests pass `priorVerdict` by construction,
+  // which proves the decision logic and says nothing about whether anything
+  // supplies it. These cover the parse half; the disk half is a `readLogTailText`
+  // call and a try/catch above it.
+  test("the loader seam reads this session's prior verdict out of the log (mt#3740)", () => {
+    const log = [
+      JSON.stringify({
+        session_id: "other-session",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: true,
+        timestamp: "2026-08-11T00:00:00.000Z",
+      }),
+      JSON.stringify({
+        session_id: "mine",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: false,
+        timestamp: "2026-08-11T01:00:00.000Z",
+      }),
+    ].join("\n");
+
+    const state = parseLoggedSessionState(log, "mine");
+    expect(state.keys.has(SESSION_VERDICT_DEDUPE_KEY)).toBe(true);
+    // Another session's verdict must not leak into mine.
+    expect(state.priorVerdict).toEqual({
+      hadPropagation: false,
+      timestamp: "2026-08-11T01:00:00.000Z",
+    });
+  });
+
+  test("the loader seam takes the LAST verdict, so a revision becomes the baseline (mt#3740)", () => {
+    const log = [
+      JSON.stringify({
+        session_id: "mine",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: false,
+        timestamp: "2026-08-11T01:00:00.000Z",
+      }),
+      JSON.stringify({
+        session_id: "mine",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: true,
+        timestamp: "2026-08-11T02:00:00.000Z",
+        supersedes: "2026-08-11T01:00:00.000Z",
+      }),
+    ].join("\n");
+
+    // Comparing against the FIRST record would let the session oscillate
+    // against a stale baseline and re-record a verdict it already holds.
+    expect(parseLoggedSessionState(log, "mine").priorVerdict).toEqual({
+      hadPropagation: true,
+      timestamp: "2026-08-11T02:00:00.000Z",
+    });
+  });
+
+  test("the loader seam survives a malformed line and an unknown session (mt#3740)", () => {
+    const log = ['{"not json', JSON.stringify({ session_id: "someone-else" })].join("\n");
+    const state = parseLoggedSessionState(log, "mine");
+    expect(state.keys.size).toBe(0);
+    expect(state.priorVerdict).toBeNull();
   });
 
   test("a propagated verdict flips BACK to a miss when research resumes (mt#3740)", async () => {
