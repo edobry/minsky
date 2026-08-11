@@ -1319,6 +1319,40 @@ export interface RunDeps {
  * signature (always computed, for the calibration record) so callers don't
  * need to recompute it.
  */
+/**
+ * The suppression labels for the two NON-CHAT claim surfaces.
+ *
+ * Extracted from `run()`/`main()` (mt#3876) so both label strings can be
+ * pinned by a test. `computeSuppressionReasons` below owns the other three
+ * (`same-turn-read`, `write-echo-backed`, `deduped`) and never saw these two,
+ * because it is not passed the per-surface results — so until this extraction
+ * nothing asserted either string anywhere, and a typo in one would have been
+ * caught by no test and noticed only as a gap in a calibration sweep.
+ *
+ * The labels matter more than they look. `isSuppressedRecord`
+ * (`calibration-sweep.ts`) is `suppressionReasons.length > 0`, and treats a
+ * record with NO reason as injected — "unknown is treated as operator-facing so
+ * a missing outcome can never hide a real fire." So an unlabeled surface-only
+ * record would inflate the injected count AND drive the review cadence, which
+ * keys off `injectedFiresSinceLastReview`.
+ *
+ * Only reached when the CHAT surface did not match: a chat match is a real
+ * injection, and the non-chat surfaces are log-only riders on it. Since mt#3642
+ * there are three surfaces, so each non-chat one labels itself rather than
+ * relying on `!matched` to imply which fired.
+ */
+export function surfaceOnlyReasons(
+  chatMatched: boolean,
+  commentMatched: boolean,
+  artifactMatched: boolean
+): string[] {
+  if (chatMatched) return [];
+  const reasons: string[] = [];
+  if (commentMatched) reasons.push("comment-surface-only");
+  if (artifactMatched) reasons.push("artifact-surface-only");
+  return reasons;
+}
+
 export function computeSuppressionReasons(
   result: CodeMechanismDetectionResult,
   relay: RelayDetectionResult,
@@ -1503,10 +1537,9 @@ export function run(
   // itself. Leaving the unconditional push would have mislabeled an
   // artifact-only record as comment-only; leaving no label at all is the worse
   // failure the paragraph above describes.
-  if (!result.matched) {
-    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
-    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
-  }
+  suppressionReasons.push(
+    ...surfaceOnlyReasons(result.matched, commentResult.matched, artifactResult.matched)
+  );
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -1646,10 +1679,9 @@ export async function main(): Promise<void> {
   // itself. Leaving the unconditional push would have mislabeled an
   // artifact-only record as comment-only; leaving no label at all is the worse
   // failure the paragraph above describes.
-  if (!result.matched) {
-    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
-    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
-  }
+  suppressionReasons.push(
+    ...surfaceOnlyReasons(result.matched, commentResult.matched, artifactResult.matched)
+  );
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
