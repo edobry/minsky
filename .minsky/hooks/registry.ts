@@ -618,24 +618,40 @@ export interface GuardEffectDeclaration {
   rationale?: string;
 }
 
+/**
+ * SC5-default effect-declaration factories + posture constants. Exported
+ * (mt#3981) so both `GUARD_REGISTRY` below AND
+ * `scripts/lib/standalone-guard-canaries.ts`'s `STANDALONE_GUARD_CANARIES`
+ * build their `effects` declarations from the SAME defaults — the mt#3586
+ * constraint against hand-copied mirrors applies to these too, so the
+ * standalone-canary population imports them rather than redefining the SC5
+ * posture triad a second time.
+ */
+
 /** SC5 default: enforcement effects (deny/allow decisions) fail closed on both axes. */
-const ENFORCEMENT_POSTURE: EffectFailurePosture = {
+export const ENFORCEMENT_POSTURE: EffectFailurePosture = {
   failurePolicy: "closed",
   degradedPolicy: "closed",
 };
 /** SC5 default: advisory injector effects fail open on both axes — a thinner turn, never a blocked one. */
-const ADVISORY_POSTURE: EffectFailurePosture = { failurePolicy: "open", degradedPolicy: "open" };
+export const ADVISORY_POSTURE: EffectFailurePosture = {
+  failurePolicy: "open",
+  degradedPolicy: "open",
+};
 /** SC5 default: recorder effects spool locally on both axes — today's JSONL calibration pattern. */
-const RECORDER_POSTURE: EffectFailurePosture = { failurePolicy: "spool", degradedPolicy: "spool" };
+export const RECORDER_POSTURE: EffectFailurePosture = {
+  failurePolicy: "spool",
+  degradedPolicy: "spool",
+};
 
 /** A `"deny"` validator effect at the SC5 enforcement default (closed/closed). */
-function enforcementEffect(
+export function enforcementEffect(
   effect: GuardEffectDeclaration["effect"] = "deny"
 ): GuardEffectDeclaration {
   return { effect, verdictShape: "validator", failurePolicy: ENFORCEMENT_POSTURE };
 }
 /** An `"additionalContext"`/`"sessionTitle"` injector effect at the SC5 advisory default (open/open). */
-function advisoryEffect(
+export function advisoryEffect(
   effect: GuardEffectDeclaration["effect"] = "additionalContext",
   rationale?: string
 ): GuardEffectDeclaration {
@@ -647,7 +663,7 @@ function advisoryEffect(
   };
 }
 /** A `"calibration"`/out-of-band-write recorder effect at the SC5 default (spool/spool). */
-function recorderEffect(
+export function recorderEffect(
   effect: GuardEffectDeclaration["effect"] = "calibration",
   rationale?: string
 ): GuardEffectDeclaration {
@@ -659,7 +675,7 @@ function recorderEffect(
   };
 }
 /** A payload-transform (`updatedInput`) mutator effect — no SC5 default; posture is always explicit. */
-function mutatorEffect(
+export function mutatorEffect(
   effect: GuardEffectDeclaration["effect"],
   posture: EffectFailurePosture,
   rationale?: string
