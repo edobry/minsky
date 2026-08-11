@@ -100,6 +100,73 @@ export interface CalibrationLogEntry {
    *   matched-phrase record: diversity is measured over distinct target task
    *   ids — the signal is "how many different decision-owning tasks got
    *   silently stopped at," mirroring knowledge-acquisition's non-phrase axis.
+   *
+   * mt#3716 — ten kinds added for logs that were declared (on one of the three
+   * declaration surfaces — see `deriveCalibrationLogEntries` below) but never
+   * visited by `runSweep`, because nothing outside this file's hand-maintained
+   * `CALIBRATION_LOG_REGISTRY` could add an entry for them. Each parses via the
+   * shared "matches"-shape fallback branch below (no dedicated `kind === ...`
+   * case) — the fallback never returns `null`, so every line still produces a
+   * record even where the raw shape carries no `family`/`phrase` keys; in that
+   * case the record's real fields ride through as `detectorFields` instead of
+   * populating `matches[].phrase`, which means the diversity signal
+   * (`extractDistinctPhrases`) reads as low/flat for these logs until a
+   * dedicated branch or a diversity-signal declaration (mt#3789, the sibling
+   * ADR-028 §D4 half) gives them a real axis. That is a review-QUALITY gap,
+   * not a reachability gap — SC4's bar ("no log silently parsing to zero
+   * records") is met by the fallback alone.
+   *   "bare-prohibition"              → matches: {category, phrase, excerpt, hasBasis}[]
+   *     (mem#702 / mt#3162 `warn-bare-prohibition-dispatch.ts`) — already
+   *     matches-shaped (`category` is the recognized label key), so this one
+   *     gets a real diversity signal from the fallback with no changes needed.
+   *   "execution-evidence-at-coverage" → {timestamp, task, prNumber, surface,
+   *     captureSchema, judgedPrBody, ...} (mt#3033 `require-execution-evidence-before-merge.ts`'s
+   *     `appendAtCoverageCalibration`) — a "judged input capture" shape, no
+   *     `matches` array at all; falls through with `matches: []`.
+   *   "execution-evidence-test-first" → {timestamp, task, prNumber, decision,
+   *     captureSchema, prTitle, judgedPrBody, judgedSpec, modifiedTestFiles, ...}
+   *     (mt#3244 `test-first-evidence.ts`) — same capture-shape family as
+   *     execution-evidence-at-coverage; no `matches` array.
+   *   "ask-form-lint"                 → {timestamp, askId?, kind, matches:
+   *     {class, phrase}[], acknowledged?} (mt#2798
+   *     `ask-form-lint-calibration.ts`) — already matches-shaped (`class` is a
+   *     recognized label key); SC2 resolution — see `NON_GUARD_CALIBRATION_PRODUCERS`
+   *     in `scripts/lib/calibration-log-declarations.ts`.
+   *   "unwalked-task"                 → {source, channel, timestamp, session_id,
+   *     stop_hook_active, unwalkedTaskIds: string[], ...} (mt#3536
+   *     `turn-end-unwalked-task-scan.ts`) — no `matches` array.
+   *   "unescalated-incident"          → {source, channel, timestamp, session_id,
+   *     stop_hook_active, incidentFamilies: string[]} (mt#3593
+   *     `turn-end-unescalated-incident-scan.ts`) — no `matches` array.
+   *   "operator-instruction-trigger"  → written by `substrate-bypass-detector.ts`
+   *     — no `matches` array.
+   *   "agent-dispatch-record"         → {ts/timestamp, sessionId, outcome,
+   *     reason?} (mt#2292 `record-agent-dispatch.ts`, via the ADR-028 §D4
+   *     dispatcher's `logCalibrationRecord`) — an outcome-status record, no
+   *     `matches` array.
+   *   "chained-verification-commands" → {timestamp, session_id, outcome}
+   *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
+   *     path) — an outcome-status record, no `matches` array.
+   *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
+   *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
+   *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
+   *     array, but its per-match keys (`taskId`/`token`/`rule`/`excerpt`) are
+   *     none of the recognized `family|class|category`/`phrase` labels, so
+   *     every match's real content rides through as `detectorFields` rather
+   *     than `phrase`.
+   *
+   * "generic-matches" (PR #2822 review) — the SAFE catch-all `deriveCalibrationLogEntries`
+   *   assigns a runtime-derived declared name that is not already one of the
+   *   literal members above. It exists so that cast is never `as` past a
+   *   membership check: casting an unrecognized string directly to this union
+   *   would silently admit it as though it had been consciously classified,
+   *   defeating the exhaustiveness `KNOWN_KIND_MEMBERSHIP` (below) and
+   *   `KIND_FIXTURES` (in the test file) rely on. A future detector's log
+   *   therefore parses safely (shared fallback, same as every other
+   *   unclassified-shape kind above) the moment it declares `calibrationLog`
+   *   — giving it its OWN kind (and a `KIND_FIXTURES` entry) remains a
+   *   deliberate follow-up for real diversity signal, not a blocker to being
+   *   swept at all.
    */
   kind:
     | "causal-premise"
@@ -117,7 +184,18 @@ export interface CalibrationLogEntry {
     | "untaken-action"
     | "retrospective-completeness"
     | "stop-at-decision"
-    | "bare-entity-ref";
+    | "bare-entity-ref"
+    | "bare-prohibition"
+    | "execution-evidence-at-coverage"
+    | "execution-evidence-test-first"
+    | "ask-form-lint"
+    | "unwalked-task"
+    | "unescalated-incident"
+    | "operator-instruction-trigger"
+    | "agent-dispatch-record"
+    | "chained-verification-commands"
+    | "duplicate-signature-scan"
+    | "generic-matches";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -1524,10 +1602,146 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
   };
 }
 
+// ---------------------------------------------------------------------------
+// Registry derivation (mt#3716 — ADR-028 §D4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Exhaustive runtime membership check for `CalibrationLogEntry["kind"]` (PR #2822
+ * review). `Record<CalibrationLogEntry["kind"], true>` forces this object literal
+ * to have EXACTLY one property per union member — the same idiom the test
+ * file's `KIND_FIXTURES` already uses for the same purpose — so adding a kind
+ * to the union without adding it here fails to compile, and this object can
+ * never silently fall out of sync with the type it mirrors.
+ *
+ * `deriveCalibrationLogEntries` uses this to validate a runtime-derived
+ * declared name BEFORE casting it to `kind`: an unchecked `as` would silently
+ * admit any string as though it had been consciously classified, defeating
+ * the exhaustiveness this object (and `KIND_FIXTURES`) exist to guarantee.
+ */
+const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
+  "causal-premise": true,
+  "retrospective-trigger": true,
+  "ask-routing-deferral": true,
+  "code-mechanism-assertion": true,
+  "pre-narration": true,
+  "policy-coverage": true,
+  "silent-stretch": true,
+  "wall-of-text": true,
+  "build-claim-injection": true,
+  "knowledge-acquisition": true,
+  "constructed-identifier-batch": true,
+  "operator-deferral": true,
+  "untaken-action": true,
+  "retrospective-completeness": true,
+  "stop-at-decision": true,
+  "bare-entity-ref": true,
+  "bare-prohibition": true,
+  "execution-evidence-at-coverage": true,
+  "execution-evidence-test-first": true,
+  "ask-form-lint": true,
+  "unwalked-task": true,
+  "unescalated-incident": true,
+  "operator-instruction-trigger": true,
+  "agent-dispatch-record": true,
+  "chained-verification-commands": true,
+  "duplicate-signature-scan": true,
+  "generic-matches": true,
+};
+
+/** The safe catch-all kind — see its doc comment on `CalibrationLogEntry["kind"]` above. */
+const GENERIC_MATCHES_KIND: CalibrationLogEntry["kind"] = "generic-matches";
+
+/**
+ * Build the sweep entries `runSweep` should actually visit, from a set of
+ * DECLARED log names (the union of the three declaration surfaces — see
+ * `scripts/lib/calibration-log-declarations.ts`'s `getDeclaredCalibrationLogNames`)
+ * plus the pre-existing hand-typed `knownEntries` (default: `CALIBRATION_LOG_REGISTRY`).
+ *
+ * This function is PURE and takes `declaredNames` as data rather than importing
+ * `GUARD_REGISTRY`/`STANDALONE_GUARD_CANARIES` itself — this module (`src/`) does
+ * not cross into `.minsky/hooks/` (see this file's own `CALIBRATION_NAME_TO_GUARD_NAME`
+ * doc comment for the established precedent). Callers that CAN reach the
+ * declaration surfaces (`.minsky/hooks/calibration-review-cadence-detector.ts`,
+ * `src/adapters/shared/commands/calibration.ts`) supply `declaredNames` and get
+ * back a full `CalibrationLogEntry[]` to pass into `runSweep`.
+ *
+ * For a declared name that already has a `knownEntries` entry, that entry is
+ * reused UNCHANGED (preserving its `kind`, `reviewByDays`, `liveSinceDate`).
+ * For a declared name with no existing entry, a generic one is synthesized:
+ * `{ path: ".minsky/<name>-calibration.jsonl", name, kind }` — relying on the
+ * file-naming convention every registry entry already follows. `kind` is
+ * `name` itself ONLY when `name` is a KNOWN kind literal (checked against
+ * `KNOWN_KIND_MEMBERSHIP` above — the `kind === name` convention every
+ * hand-typed entry follows); a genuinely new declared name — one no PR has
+ * yet added to the `kind` union — gets `GENERIC_MATCHES_KIND` instead of an
+ * unchecked cast (PR #2822 review), so the type system's exhaustiveness
+ * guarantee is never silently bypassed at the boundary where a runtime string
+ * becomes a `kind`. Either way the result parses via the shared matches-shape
+ * fallback — see the ten mt#3716 kinds' doc comments above.
+ *
+ * `knownEntries` not present in `declaredNames` are ALSO included (union, not
+ * intersection) — a registry entry whose declaration surface a caller does not
+ * (yet) enumerate must not silently drop out of the sweep.
+ */
+export function deriveCalibrationLogEntries(
+  declaredNames: Iterable<string>,
+  knownEntries: readonly CalibrationLogEntry[] = CALIBRATION_LOG_REGISTRY
+): CalibrationLogEntry[] {
+  const byName = new Map(knownEntries.map((e) => [e.name, e]));
+  const names = new Set<string>([...declaredNames, ...byName.keys()]);
+  const entries: CalibrationLogEntry[] = [];
+  for (const name of [...names].sort()) {
+    const existing = byName.get(name);
+    if (existing) {
+      entries.push(existing);
+      continue;
+    }
+    entries.push({
+      path: `.minsky/${name}-calibration.jsonl`,
+      name,
+      // Only cast `name` to `kind` when it is a KNOWN kind literal (the
+      // `kind === name` convention every hand-typed entry follows) — an
+      // unrecognized declared name gets the safe generic-matches catch-all
+      // instead of an unchecked `as` (PR #2822 review).
+      kind:
+        name in KNOWN_KIND_MEMBERSHIP
+          ? (name as CalibrationLogEntry["kind"])
+          : GENERIC_MATCHES_KIND,
+    });
+  }
+  return entries;
+}
+
+/**
+ * SC3/SC5 drift check (mt#3716): given the calibration-log stems actually found
+ * on disk (`.minsky/*-calibration.jsonl`, minus the `-calibration.jsonl` suffix)
+ * and the set of names `runSweep` will actually visit (typically
+ * `deriveCalibrationLogEntries(...).map(e => e.name)`), return the on-disk
+ * stems that are NOT in the swept set — i.e. a producer writing a log no sweep
+ * will ever read.
+ *
+ * Pure and reachability-keyed rather than declaration-surface-keyed, per this
+ * task's amendment: a log declared ONLY as a `GuardRegistration.calibrationLog`
+ * (write side) used to pass a presence-in-declaration check while still never
+ * being swept. Once `sweptNames` is built via `deriveCalibrationLogEntries`
+ * over the derived declared-name union, that class is naturally covered — this
+ * function's residual job is catching a log whose producer is declared on NO
+ * surface at all.
+ */
+export function findUnsweptCalibrationLogs(
+  onDiskStems: readonly string[],
+  sweptNames: ReadonlySet<string> | readonly string[]
+): string[] {
+  const swept = sweptNames instanceof Set ? sweptNames : new Set(sweptNames);
+  return onDiskStems.filter((stem) => !swept.has(stem)).sort();
+}
+
 /**
  * Compute results for all entries in the registry.
  *
- * @param entries      - registry (defaults to CALIBRATION_LOG_REGISTRY)
+ * @param entries      - the entries to sweep (typically `CALIBRATION_LOG_REGISTRY`
+ *                       or `deriveCalibrationLogEntries(declaredNames)`)
  * @param readContent  - function to read a log file; returns null if absent
  * @param watermarks   - current watermark store
  */
