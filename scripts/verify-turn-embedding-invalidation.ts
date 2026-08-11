@@ -73,6 +73,28 @@ function transcriptWith(assistantText: string): RawTurnLine[] {
   ];
 }
 
+/** A three-turn transcript, for the re-ingest ordering check (mt#3883 AT3). */
+function multiTurnTranscript(): RawTurnLine[] {
+  const lines: RawTurnLine[] = [];
+  for (const [i, prompt] of ["alpha", "beta", "gamma"].entries()) {
+    lines.push({
+      type: "user",
+      timestamp: `2026-01-01T10:0${i}:00.000Z`,
+      message: { role: "user", content: prompt },
+    });
+    lines.push({
+      type: "assistant",
+      timestamp: `2026-01-01T10:0${i}:01.000Z`,
+      message: {
+        role: "assistant",
+        id: `msg_${prompt}`,
+        content: [{ type: "text", text: `reply ${prompt}` }],
+      },
+    });
+  }
+  return lines;
+}
+
 async function bootstrapDb(): Promise<PostgresJsDatabase | null> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
     "@minsky/domain/configuration"
@@ -114,6 +136,18 @@ async function readEmbeddingIsNull(db: PostgresJsDatabase): Promise<boolean> {
   const row = rows[0];
   if (!row) throw new Error("scratch turn row 0 not found — the write did not land");
   return row["is_null"] === true;
+}
+
+/** `turn_index:user_text` for every row, in index order — the AT3 ordering probe. */
+async function readTurnOrder(db: PostgresJsDatabase): Promise<string[]> {
+  const rows = (await db.execute(
+    sql`SELECT turn_index, user_text
+        FROM agent_transcript_turns
+        WHERE agent_session_id = ${SCRATCH_SESSION}
+        ORDER BY turn_index`
+  )) as Array<Record<string, unknown>>;
+
+  return rows.map((r) => `${String(r["turn_index"])}:${String(r["user_text"])}`);
 }
 
 async function main(): Promise<number> {
@@ -180,7 +214,29 @@ async function main(): Promise<number> {
     }
     console.log("PASS: changed text invalidated the embedding.");
 
-    console.log("\nverify-turn-embedding-invalidation: PASS (2/2)");
+    // 5. mt#3883 AT3 — re-ingest idempotency: no duplicate rows AND no reordered
+    //    turns. mt#3514's orphan removal covers the no-duplicate half; ORDERING
+    //    is what this adds, over a multi-turn transcript where it can actually
+    //    differ.
+    await writeTurnsForTranscript(db, SCRATCH_SESSION, multiTurnTranscript());
+    const firstOrder = await readTurnOrder(db);
+    await writeTurnsForTranscript(db, SCRATCH_SESSION, multiTurnTranscript());
+    const secondOrder = await readTurnOrder(db);
+
+    if (firstOrder.length !== 3) {
+      console.error(`FAIL: expected 3 turns, got ${firstOrder.length}: ${firstOrder.join(", ")}`);
+      return 1;
+    }
+    if (firstOrder.join("|") !== secondOrder.join("|")) {
+      console.error(
+        `FAIL: re-ingest reordered turns.\n  before: ${firstOrder.join(", ")}\n` +
+          `  after:  ${secondOrder.join(", ")}`
+      );
+      return 1;
+    }
+    console.log(`PASS: re-ingest preserved turn count and ordering (${firstOrder.join(", ")}).`);
+
+    console.log("\nverify-turn-embedding-invalidation: PASS (3/3)");
     return 0;
   } finally {
     await removeScratchRows(db);
