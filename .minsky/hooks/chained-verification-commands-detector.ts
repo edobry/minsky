@@ -39,6 +39,14 @@
 import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { leadingCommandOf, splitPipeline, splitTopLevel } from "./command-shape";
+
+// These three were defined here first (mt#3910) and moved to `./command-shape`
+// (mt#3533) when the operator-deferral detector needed the same quote-aware
+// splitting to compare a denied command's shape against a retry's. Re-exported
+// so this module's public surface — and its tests, which import them from here —
+// are unchanged.
+export { leadingCommandOf, splitPipeline, splitTopLevel };
 
 export const OVERRIDE_ENV = "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN";
 
@@ -80,113 +88,6 @@ const CHAIN_THRESHOLD = 2;
 
 export function isOverridden(): boolean {
   return process.env[OVERRIDE_ENV] === "1";
-}
-
-/**
- * Split a command string on top-level `;`, `&&`, `||`, ignoring separators inside single or
- * double quotes. Quote handling matters: `echo 'a; b'` is ONE command, and treating it as two
- * would let a quoted separator manufacture a phantom segment.
- *
- * Deliberately not a full shell parser — no subshells, no heredocs, no escaped-quote handling
- * beyond backslash. Those shapes are rare in agent-composed verification commands, and the
- * failure mode of under-parsing is a miss, not a false fire.
- *
- * Exported for testing: the split IS the load-bearing decision, and testing it directly beats
- * asserting on a fire/no-fire outcome that could be right for the wrong reason.
- */
-export function splitTopLevel(command: string): string[] {
-  return splitOutsideQuotes(command, (ch, next) => {
-    if (ch === ";") return 1;
-    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) return 2;
-    return 0;
-  });
-}
-
-/**
- * Split on unquoted pipe (`|`), NOT on the `||` operator — that one is a command separator and is
- * already handled by `splitTopLevel` upstream.
- *
- * Shares `splitOutsideQuotes` with the separator split rather than using `String.split("|")`
- * (PR #2765 R1). The naive version truncates on a `|` inside quotes — `bun test --filter 'a|b'`
- * became `bun test --filter 'a` — which is the exact defect class the separator split already
- * guarded against, left unfixed one function over. The classification usually survived the
- * truncation, so the visible symptom was a mangled command in the advisory rather than a wrong
- * verdict; consistency here is what stops it becoming a wrong verdict later.
- */
-export function splitPipeline(segment: string): string[] {
-  return splitOutsideQuotes(segment, (ch, next) => (ch === "|" && next !== "|" ? 1 : 0));
-}
-
-/**
- * Split `input` wherever `separatorAt` reports a separator OUTSIDE quotes, returning the trimmed
- * non-empty parts. `separatorAt` returns the separator's length (0 = not a separator), so a
- * caller can match one- or two-character operators.
- *
- * Deliberately not a full shell parser — no subshells, no heredocs, backslash-escape handling only.
- * Those shapes are rare in agent-composed verification commands, and under-parsing produces a
- * MISS rather than a false fire.
- */
-function splitOutsideQuotes(
-  input: string,
-  separatorAt: (ch: string, next: string | undefined) => number
-): string[] {
-  const parts: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-
-  for (let i = 0; i < input.length; i++) {
-    const ch = input[i] as string;
-    const next = input[i + 1];
-
-    if (ch === "\\") {
-      current += ch + (next ?? "");
-      i++;
-      continue;
-    }
-
-    if (quote) {
-      current += ch;
-      if (ch === quote) quote = null;
-      continue;
-    }
-
-    if (ch === '"' || ch === "'") {
-      quote = ch;
-      current += ch;
-      continue;
-    }
-
-    const sepLen = separatorAt(ch, next);
-    if (sepLen > 0) {
-      parts.push(current);
-      current = "";
-      i += sepLen - 1;
-      continue;
-    }
-
-    current += ch;
-  }
-
-  parts.push(current);
-  return parts.map((s) => s.trim()).filter((s) => s.length > 0);
-}
-
-/**
- * Reduce a segment to the command whose exit status the segment reports.
- *
- * Two normalizations, both of which would otherwise cause misses:
- *   - a pipeline (`bun test | tail -5`) — take the FIRST stage; that is the command being
- *     verified, and the one whose status the author cares about;
- *   - environment-variable prefixes (`FOO=1 bun test`) — strip them.
- */
-export function leadingCommandOf(segment: string): string {
-  const firstStage = splitPipeline(segment)[0] ?? "";
-  const words = firstStage.split(/\s+/);
-  let start = 0;
-  while (start < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[start] ?? "")) {
-    start++;
-  }
-  return words.slice(start).join(" ");
 }
 
 /** Whether a segment runs a command whose pass/fail is the reason for running it. */

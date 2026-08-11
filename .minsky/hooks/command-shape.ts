@@ -1,0 +1,154 @@
+// Shell-command SHAPE primitives, shared across hooks (mt#3533).
+//
+// Quote-aware splitting and leading-command normalization were written for
+// `chained-verification-commands-detector.ts` (mt#3910) and are now needed by a
+// second consumer — `operator-deferral-detector.ts`'s denial-anchored surface,
+// which compares the shape of a denied command against the shape of a retry.
+// ADR-024's decision clause requires the guidance-hook family to consume "one
+// mechanism instead of divergent regex copies", so the primitives moved HERE
+// rather than being copied. The original module re-exports them, so its public
+// surface and its tests are unchanged.
+//
+// Deliberately NOT a shell parser — no subshells, no heredocs, backslash-escape
+// handling only. Under-parsing yields a MISS rather than a false fire, which is
+// the safe direction for both consumers.
+
+/**
+ * Split `input` wherever `separatorAt` reports a separator OUTSIDE quotes, returning the trimmed
+ * non-empty parts. `separatorAt` returns the separator's length (0 = not a separator), so a
+ * caller can match one- or two-character operators.
+ */
+function splitOutsideQuotes(
+  input: string,
+  separatorAt: (ch: string, next: string | undefined) => number
+): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i] as string;
+    const next = input[i + 1];
+
+    if (ch === "\\") {
+      current += ch + (next ?? "");
+      i++;
+      continue;
+    }
+
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
+    const sepLen = separatorAt(ch, next);
+    if (sepLen > 0) {
+      parts.push(current);
+      current = "";
+      i += sepLen - 1;
+      continue;
+    }
+
+    current += ch;
+  }
+
+  parts.push(current);
+  return parts.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
+ * Split a command string on top-level `;`, `&&`, `||`, ignoring separators inside single or
+ * double quotes. Quote handling matters: `echo 'a; b'` is ONE command, and treating it as two
+ * would let a quoted separator manufacture a phantom segment.
+ *
+ * Exported for testing: the split IS the load-bearing decision, and testing it directly beats
+ * asserting on a fire/no-fire outcome that could be right for the wrong reason.
+ */
+export function splitTopLevel(command: string): string[] {
+  return splitOutsideQuotes(command, (ch, next) => {
+    if (ch === ";") return 1;
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) return 2;
+    return 0;
+  });
+}
+
+/**
+ * Split on unquoted pipe (`|`), NOT on the `||` operator — that one is a command separator and is
+ * already handled by `splitTopLevel` upstream.
+ *
+ * Shares `splitOutsideQuotes` with the separator split rather than using `String.split("|")`
+ * (PR #2765 R1). The naive version truncates on a `|` inside quotes — `bun test --filter 'a|b'`
+ * became `bun test --filter 'a` — which is the exact defect class the separator split already
+ * guarded against, left unfixed one function over.
+ */
+export function splitPipeline(segment: string): string[] {
+  return splitOutsideQuotes(segment, (ch, next) => (ch === "|" && next !== "|" ? 1 : 0));
+}
+
+/**
+ * Reduce a segment to the command whose exit status the segment reports.
+ *
+ * Two normalizations, both of which would otherwise cause misses:
+ *   - a pipeline (`bun test | tail -5`) — take the FIRST stage; that is the command being
+ *     verified, and the one whose status the author cares about;
+ *   - environment-variable prefixes (`FOO=1 bun test`) — strip them.
+ */
+export function leadingCommandOf(segment: string): string {
+  const firstStage = splitPipeline(segment)[0] ?? "";
+  const words = firstStage.split(/\s+/);
+  let start = 0;
+  while (start < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[start] ?? "")) {
+    start++;
+  }
+  return words.slice(start).join(" ");
+}
+
+/**
+ * The single program a command string invokes FIRST, with env-var prefixes and
+ * pipeline tails removed — `railway` for
+ * `railway whoami >/dev/null; TOKEN=$(...); curl ...`, `curl` for
+ * `curl -s -H "Authorization: Bearer $(...)" https://...`.
+ *
+ * This is the axis {@link isReshapedRetry} compares on, because it is what a
+ * prefix-based permission allow-rule matches on: a rule granting `curl:*`
+ * applies when `curl` is the leading token and does not apply when `curl` is
+ * the third segment of a compound command.
+ */
+export function leadingTokenOf(command: string): string {
+  const firstSegment = splitTopLevel(command)[0] ?? "";
+  return (leadingCommandOf(firstSegment).split(/\s+/)[0] ?? "").trim();
+}
+
+/**
+ * Whether the command chains two or more top-level segments — the property that
+ * takes a command OUT of reach of a prefix allow-rule and hands it to the
+ * permission classifier instead.
+ */
+export function isCompoundCommand(command: string): boolean {
+  return splitTopLevel(command).length > 1;
+}
+
+/**
+ * Whether `retry` is a genuinely RESHAPED re-issue of `denied` rather than the
+ * same invocation again.
+ *
+ * Two disjunct tests, both mechanical (mt#3533 SC#2) — no judgment about intent:
+ *   - the leading token differs, so a different program is now first; or
+ *   - `denied` was compound and `retry` is not, so what fell through to the
+ *     classifier now presents as a single command a prefix rule can match.
+ *
+ * The second test is the one the originating incident needed: both denied
+ * attempts and the successful one all ran `curl` against the same endpoint with
+ * the same credential — only the compound wrapper differed.
+ */
+export function isReshapedRetry(denied: string, retry: string): boolean {
+  if (leadingTokenOf(denied) !== leadingTokenOf(retry)) return true;
+  return isCompoundCommand(denied) && !isCompoundCommand(retry);
+}

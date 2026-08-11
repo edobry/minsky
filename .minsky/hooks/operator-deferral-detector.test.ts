@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   detectCapabilityDeferral,
   detectPermissionDeferral,
+  detectDenialAnchoredDeferral,
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
@@ -15,9 +16,11 @@ import {
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
 } from "./operator-deferral-detector";
+import type { DeferralMatch } from "./operator-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { GUARD_REGISTRY } from "./registry";
 import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
 
 // ---------------------------------------------------------------------------
@@ -677,5 +680,248 @@ describe("calibration-first posture", () => {
       ctxWith([userPrompt("go"), assistantText("Merged and verified."), userPrompt("next")])
     );
     expect(outcome).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface D — denial-anchored deferral (mt#3533)
+// ---------------------------------------------------------------------------
+
+const DENIAL_ANCHORED = "denial-anchored";
+
+/**
+ * The two canned denial bodies Claude Code actually emits. Established by
+ * measurement over this project's 460 local transcripts on 2026-08-11 (73 denial
+ * results, no other continuation observed), NOT from vendor documentation, which
+ * does not specify the shape.
+ */
+const DENIAL_PREFIX =
+  "The user doesn't want to proceed with this tool use. The tool use was rejected " +
+  "(eg. if it was a file edit, the new_string was NOT written to the file). ";
+const DENIAL_NO_REASON = `${DENIAL_PREFIX}STOP what you are doing and wait for the user to tell you how to proceed.`;
+const DENIAL_WITH_ECHOED_REASON =
+  `${DENIAL_PREFIX}To tell you how to proceed, the user said:\n` +
+  "The user doesn't want to proceed with this tool use.";
+
+/**
+ * SYNTHETIC — deliberately not drawn from the corpus, because the corpus has no
+ * such record: zero of the 73 observed denials carried a security framing. The
+ * reason string is mem#276's verbatim 2026-04-23 denial, which is the only
+ * recorded instance of this shape anywhere. Labeled synthetic per mt#3533 SC#4
+ * so a reader does not mistake it for a replay.
+ */
+const DENIAL_SECURITY_FRAMED_SYNTHETIC =
+  `${DENIAL_PREFIX}To tell you how to proceed, the user said:\n` +
+  "credential/permission exploration to work around a merge block — not a user-authorized action.";
+
+/** The 2026-08-08 Railway incident's two command shapes, verbatim in structure. */
+const DENIED_COMPOUND_CURL =
+  "railway whoami >/dev/null; TOKEN=$(jq -r .token ~/.railway/config.json); " +
+  'curl -s -X POST https://backboard.railway.com/graphql/v2 -H "Authorization: Bearer $TOKEN" -d @p.json';
+const RESHAPED_CURL =
+  'curl -s -X POST https://backboard.railway.com/graphql/v2 -H "Authorization: Bearer $(jq -r .token ~/.railway/config.json)" -d @p.json';
+
+const bashCall = (id: string, command: string): TranscriptLine => ({
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [{ type: "tool_use", id, name: "Bash", input: { command } }],
+  },
+});
+
+/** A denial result correlated to `id` — role "user", per mem#528. */
+const denialResult = (id: string, text: string = DENIAL_NO_REASON): TranscriptLine => ({
+  type: "user",
+  message: {
+    role: "user",
+    content: [
+      { type: "tool_result", tool_use_id: id, is_error: true, content: [{ type: "text", text }] },
+    ],
+  },
+});
+
+const asksCreate = (): TranscriptLine =>
+  assistantToolUse("mcp__minsky__asks_create", {
+    title: "The harness blocks the Railway write; please add a Bash permission rule.",
+  });
+
+describe("Surface D — denial-anchored deferral (mt#3533)", () => {
+  test("AT1: fires on the 2026-08-08 Railway shape — denial, then an ask, no reshaped retry", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      assistantText("The harness blocks the mutating call, so this needs an operator decision."),
+      asksCreate(),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(DENIAL_ANCHORED);
+    // The phrase is the denied CHANNEL, recovered from the tool_use — which is
+    // also the assertion that the tool_use_id join worked, since the denial
+    // result itself carries no command.
+    expect(matches[0]?.matchedPhrase).toBe("railway");
+    expect(matches[0]?.context).toContain("backboard.railway.com");
+  });
+
+  test("AT2: a same-turn retry in a different command shape suppresses the fire", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      bashCall("toolu_2", RESHAPED_CURL),
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("AT2b: compound-to-simple counts as reshaped even with the same leading token", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", "curl https://a.example; curl https://b.example"),
+      denialResult("toolu_1"),
+      bashCall("toolu_2", "curl https://b.example"),
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("AT2c: re-running the SAME command is not a reshape, so the fire stands", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      bashCall("toolu_2", DENIED_COMPOUND_CURL),
+      asksCreate(),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("AT3 (SYNTHETIC fixture): a security-framed denial never fires — mem#276's carve-out", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", "gh api /repos/o/r/installation/tokens"),
+      denialResult("toolu_1", DENIAL_SECURITY_FRAMED_SYNTHETIC),
+      assistantText("This is deferred to the operator: it requires admin credentials."),
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("AT4: a denial with no escalation and no deferral prose does not fire", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      assistantText("Understood — moving on to the next item."),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("deferral PROSE alone escalates the denial, with no ask tool call", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1", DENIAL_WITH_ECHOED_REASON),
+      assistantText("Deferred to operator: requires Railway access."),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(DENIAL_ANCHORED);
+  });
+
+  test("an ask raised BEFORE the denial does not count — ordering is checked", () => {
+    const matches = detectDenialAnchoredDeferral([
+      asksCreate(),
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      assistantText("Moving on."),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("an ordinary tool ERROR is not a denial", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              is_error: true,
+              content: [{ type: "text", text: "curl: (6) Could not resolve host" }],
+            },
+          ],
+        },
+      },
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("a turn with no denial at all is untouched", () => {
+    expect(detectDenialAnchoredDeferral([assistantText("All green."), asksCreate()])).toEqual([]);
+  });
+
+  test("run() reports the surface through the calibration record", () => {
+    const outcome = run(
+      { session_id: "s-d", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([
+        userPrompt("apply the setting"),
+        bashCall("toolu_1", DENIED_COMPOUND_CURL),
+        denialResult("toolu_1"),
+        asksCreate(),
+        userPrompt("next"),
+      ])
+    );
+    const matches = outcome?.calibration?.["matches"] as Array<Record<string, unknown>> | undefined;
+    expect(matches?.some((m) => m["category"] === DENIAL_ANCHORED)).toBe(true);
+  });
+
+  test("the advisory carries the reshape directive, not the probe directive", () => {
+    const reminder = buildReminder([
+      { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
+    ]);
+    expect(reminder).toContain("simpler shape");
+    expect(reminder).toContain("security concern");
+    // The probe sentence belongs to the other three surfaces; handing it to this
+    // one would name the wrong next action (`guard-feedback-authoring.mdc`).
+    // Asserted on the directive's own wording, NOT on a token like "whoami":
+    // that string also appears inside the quoted denied command, so it would
+    // pass or fail for a reason unrelated to the directive.
+    expect(reminder).not.toContain("Run the capability probe");
+  });
+
+  test("the saturated render stays within the guard's DECLARED attentionCost", () => {
+    // A stopgap for mt#4002. `guard-feedback-shape.test.ts` enforces every
+    // guard's `denialMessageSizeChars` against its rendered `additionalContext`
+    // — but this guard is calibration-first, so `toOutcome` returns no
+    // `additionalContext` at all and that check has always measured an empty
+    // string here. The consequence was live: the annotation read 600 while the
+    // two-prose-match render already measured 1049.
+    //
+    // Saturating input on EVERY axis at once, per `guard-feedback-authoring.mdc`
+    // — all three surfaces `run()` can return, each `context` at the 240-char
+    // cap `extractMatchContext` enforces, so both directive branches render.
+    const saturated = [
+      "capability-deferral-prose",
+      "permission-deferral-prose",
+      DENIAL_ANCHORED,
+    ].map((surface, i) => ({
+      surface: surface as DeferralMatch["surface"],
+      matchedPhrase: `p${i}`,
+      context: "x".repeat(240),
+    }));
+    const declared = GUARD_REGISTRY.find((r) => r.name === "operator-deferral-detector")
+      ?.attentionCost?.denialMessageSizeChars;
+    expect(declared).toBeGreaterThan(0);
+    expect(buildReminder(saturated).length).toBeLessThanOrEqual(declared as number);
+  });
+
+  test("a turn tripping both shapes gets both directives — the guard's worst case", () => {
+    const reminder = buildReminder([
+      {
+        surface: CAPABILITY_PROSE,
+        matchedPhrase: "requires Railway access",
+        context: DEFERRAL_PROSE,
+      },
+      { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
+    ]);
+    expect(reminder).toContain("simpler shape");
+    expect(reminder).toContain("Run the capability probe");
   });
 });

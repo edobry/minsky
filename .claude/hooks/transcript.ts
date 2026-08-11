@@ -1022,6 +1022,143 @@ export function findCreatedResourceIds(
 }
 
 /**
+ * The canned opening Claude Code writes into a `tool_result` when a tool call is
+ * REFUSED — by the interactive prompt or by auto-mode's permission classifier.
+ *
+ * Established empirically, not from vendor documentation, which does not specify
+ * the shape (mt#3533). Measured over the 460 local transcripts of this project on
+ * 2026-08-11: 73 denial results, every one of them carrying `is_error: true` and
+ * one of exactly two continuations — `"STOP what you are doing and wait for the
+ * user to tell you how to proceed."` or `"To tell you how to proceed, the user
+ * said:"` plus a free-text tail. The prefix below is the part common to both.
+ *
+ * The apostrophe alternation is deliberate: the corpus carries the straight form,
+ * and a harness that ever emits the typographic one would otherwise silently stop
+ * matching.
+ */
+export const TOOL_DENIAL_MARKER = /The user doesn[’']t want to proceed with this tool use/;
+
+/** Opens the free-text tail carrying the refusal's stated reason, when one was given. */
+const DENIAL_REASON_MARKER = /To tell you how to proceed, the user said:\s*/;
+
+/** A tool call that was refused before it ran, paired with what it would have run. */
+export interface DeniedToolCall {
+  /** Transcript-line index of the DENIAL — callers order against this. */
+  index: number;
+  toolName: string | undefined;
+  input: Record<string, unknown>;
+  /** The `command` input, for the shell-running tools; undefined for every other tool. */
+  command: string | undefined;
+  /**
+   * The refusal's stated reason — the tail after {@link DENIAL_REASON_MARKER} —
+   * or "" when the denial gave none. Note that in the observed corpus this tail
+   * is usually the canned message echoed back rather than a human-written
+   * reason, so an empty-ish value is the norm and carries no information.
+   */
+  reason: string;
+}
+
+/**
+ * Every tool call in `lines` that was DENIED, correlated back to its originating
+ * `tool_use` block so the caller can see what was refused, not merely that
+ * something was.
+ *
+ * The correlation is the same `tool_use_id` join {@link findCreatedResourceIds}
+ * uses; it is required here because the denial result carries only the id, and
+ * the command — the thing a caller actually needs — lives on the call.
+ */
+export function findDeniedToolCalls(lines: TranscriptLine[]): DeniedToolCall[] {
+  const denials: Array<{ index: number; useId: string; text: string }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const content = lines[i]?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const useId = block["tool_use_id"];
+      if (typeof useId !== "string") continue;
+      const text = extractToolResultText(block["content"]);
+      if (TOOL_DENIAL_MARKER.test(text)) denials.push({ index: i, useId, text });
+    }
+  }
+  if (denials.length === 0) return [];
+
+  const callsById = new Map<string, { name: string | undefined; input: Record<string, unknown> }>();
+  const remember = (id: unknown, name: unknown, rawInput: unknown): void => {
+    if (typeof id !== "string") return;
+    callsById.set(id, {
+      name: typeof name === "string" ? name : undefined,
+      input: rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {},
+    });
+  };
+  for (const line of lines) {
+    if (line.type === "tool_use") {
+      remember(
+        (line as Record<string, unknown>)["id"],
+        line.name ?? line.tool_name,
+        (line as Record<string, unknown>)["input"]
+      );
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block && block["type"] === "tool_use") {
+        remember(block["id"], block["name"], block["input"]);
+      }
+    }
+  }
+
+  return denials.map(({ index, useId, text }) => {
+    const call = callsById.get(useId);
+    const input = call?.input ?? {};
+    const command = typeof input["command"] === "string" ? (input["command"] as string) : undefined;
+    const reasonMatch = DENIAL_REASON_MARKER.exec(text);
+    const reason = reasonMatch ? text.slice(reasonMatch.index + reasonMatch[0].length).trim() : "";
+    return { index, toolName: call?.name, input, command, reason };
+  });
+}
+
+/** A tool call paired with the transcript-line index that orders it. */
+export interface IndexedToolUse {
+  index: number;
+  toolName: string;
+  input: Record<string, unknown>;
+}
+
+/**
+ * Every `tool_use` in `lines`, in transcript order, each with its line index.
+ *
+ * {@link findToolUseInputs} returns inputs without position and
+ * {@link extractToolUseNames} returns names without inputs; neither can answer
+ * "did THIS happen after THAT", which is what any ordering-sensitive suppression
+ * rule turns on (mt#3533: was there a reshaped retry AFTER the denial, and did
+ * the escalation come AFTER it).
+ */
+export function findIndexedToolUses(lines: TranscriptLine[]): IndexedToolUse[] {
+  const calls: IndexedToolUse[] = [];
+  const consider = (index: number, name: unknown, rawInput: unknown): void => {
+    if (typeof name !== "string" || !name) return;
+    calls.push({
+      index,
+      toolName: name,
+      input: rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {},
+    });
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (line.type === "tool_use") {
+      consider(i, line.name ?? line.tool_name, (line as Record<string, unknown>)["input"]);
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block && block["type"] === "tool_use") consider(i, block["name"], block["input"]);
+    }
+  }
+  return calls;
+}
+
+/**
  * Extract the text of the most-recent REAL user prompt (the current prompt
  * that fired the hook). Skips trailing `tool_result` user-role lines so it
  * never returns tool-result content as if it were the user's message.
