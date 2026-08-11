@@ -176,6 +176,19 @@ export async function countDistinctChildTurns(db: PostgresJsDatabase): Promise<n
   return Array.from(rows as Iterable<{ turns: number }>)[0]?.turns ?? 0;
 }
 
+/**
+ * The `LIMIT` clause, or nothing at all when the run is unbounded.
+ *
+ * PR #2878 R1: an earlier shape passed the limit as a bound parameter and relied
+ * on `LIMIT NULL` meaning "no limit". That is documented SQL behavior, but it
+ * makes the unbounded case — the one that mutates the whole population — depend
+ * on a driver faithfully sending an untyped NULL into a clause whose semantics
+ * flip on it. Omitting the clause needs no such guarantee from anyone.
+ */
+function limitClause(limit: number | null) {
+  return limit === null ? sql`` : sql`LIMIT ${limit}::bigint`;
+}
+
 /** The rows an `--execute` run would clear, in the order it would clear them. */
 export async function selectSweepTargets(
   db: PostgresJsDatabase,
@@ -200,7 +213,7 @@ export async function selectSweepTargets(
     WHERE s.child_agent_session_id IS NOT NULL
     ORDER BY s.parent_agent_session_id, s.parent_turn_index,
              s.parent_tool_use_id NULLS LAST
-    LIMIT ${limit}::bigint
+    ${limitClause(limit)}
   `);
   return Array.from(rows as Iterable<SweepTargetRow>);
 }
@@ -237,7 +250,7 @@ export async function clearSweepTargets(
       WHERE s.child_agent_session_id IS NOT NULL
       ORDER BY s.parent_agent_session_id, s.parent_turn_index,
                s.parent_tool_use_id NULLS LAST
-      LIMIT ${limit}::bigint
+      ${limitClause(limit)}
     )
     UPDATE agent_spawns s
        SET child_agent_session_id = NULL
@@ -439,11 +452,18 @@ async function main(): Promise<void> {
   try {
     db = await getDb();
   } catch (err) {
+    // Exits NON-ZERO (PR #2878 R1). The previous shape exited 0 with a "SKIP"
+    // notice, which is this file's own defect one layer up: a run that never
+    // reached the database reported success, indistinguishable from a run that
+    // reached it and found nothing to do. Nothing in CI or package.json invokes
+    // this script — verified — so there is no suite depending on the soft exit,
+    // and an operator running a corrective sweep needs a connection failure to
+    // be loud.
     console.error(
-      "SKIP: failed to initialize DB connection — Postgres not available in this environment."
+      "FAILED: could not initialize the DB connection — no rows were examined or changed."
     );
     console.error(err instanceof Error ? err.message : String(err));
-    process.exit(0);
+    process.exit(1);
   }
 
   const outcome = await runSweep(db, options);
