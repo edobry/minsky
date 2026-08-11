@@ -74,6 +74,22 @@ export interface ToolCallProjectionRunResult {
    * query/insert failure.
    */
   skippedNonArray: number;
+  /**
+   * Projection rows removed because the current derivation does not emit them
+   * (mt#3978) — a turn that no longer exists, or an `ordinal` past the turn's
+   * current tool-call count.
+   *
+   * Always reported, including at zero, for the same reason mt#3514 reports
+   * `orphansDeleted`: an operator must be able to tell "the delete ran and
+   * found nothing" from "the delete never ran" without querying the database.
+   */
+  orphansDeleted: number;
+  /**
+   * True when the orphan DELETE itself threw. An ERROR outcome, not folded
+   * into success: the session is left holding stale rows the upsert cannot
+   * reach, which is the exact state this mechanism exists to remove.
+   */
+  orphanDeleteFailed: boolean;
 }
 
 const emptyRunResult = (): ToolCallProjectionRunResult => ({
@@ -81,6 +97,8 @@ const emptyRunResult = (): ToolCallProjectionRunResult => ({
   toolCallsProjected: 0,
   turnsErrored: 0,
   skippedNonArray: 0,
+  orphansDeleted: 0,
+  orphanDeleteFailed: false,
 });
 
 // ── Pipeline ──────────────────────────────────────────────────────────────────
@@ -164,7 +182,112 @@ export class ToolCallProjectionPipeline {
       }
     }
 
+    // ── Orphan removal (mt#3978) ──────────────────────────────────────────
+    // Skipped when any turn failed: the upsert half is already known-degraded,
+    // and compounding it with a delete makes the session harder to reason
+    // about, not easier. A later clean run removes the orphans. Same posture as
+    // mt#3514's `erroredChunks > 0` skip.
+    if (result.turnsErrored === 0 && (await this.hasAnyTurnRows(agentSessionId))) {
+      const outcome = await this.removeOrphanedRows(agentSessionId);
+      result.orphansDeleted = outcome.deleted;
+      result.orphanDeleteFailed = outcome.failed;
+      if (outcome.deleted > 0) {
+        log.warn(
+          `ToolCallProjectionPipeline: removed ${outcome.deleted} orphaned projection row(s) for ` +
+            `${agentSessionId} — left by an earlier derivation whose turn boundaries or ` +
+            `tool-call counts differed from this one`,
+          { agentSessionId, orphansDeleted: outcome.deleted }
+        );
+      }
+    }
+
     return result;
+  }
+
+  /**
+   * Does this session have ANY turn rows at all?
+   *
+   * The zero-yield safety guard (mt#3978), and the analogue of mt#3514's
+   * early return on a non-empty transcript that extracts to zero turns. A
+   * session with turns but none carrying tool calls SHOULD have its projection
+   * emptied — that is a correct derivation. A session with NO turn rows is a
+   * different thing entirely: turns have not been extracted yet, or were wiped,
+   * and deleting the projection there would destroy history on the strength of
+   * an upstream gap rather than a derivation result.
+   *
+   * Fails CLOSED (returns false, skipping the delete) rather than open: if this
+   * probe cannot answer, the delete must not run.
+   */
+  private async hasAnyTurnRows(agentSessionId: string): Promise<boolean> {
+    try {
+      const rows = await this.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(agentTranscriptTurnsTable)
+        .where(eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId));
+      return Number((rows as Array<{ n: number }>)?.[0]?.n ?? 0) > 0;
+    } catch (err) {
+      log.warn(
+        `ToolCallProjectionPipeline: failed to check turn-row presence for ${agentSessionId} — ` +
+          `skipping orphan removal rather than risking a delete on an unknown state`,
+        { error: getLoggableErrorSummary(err) }
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Delete this session's projection rows that the CURRENT derivation does not
+   * emit (mt#3978).
+   *
+   * **Why an anti-join and not mt#3514's index bound.** Turn rows are
+   * contiguous `0..N-1`, so `turn_index >= N` identifies every orphan there.
+   * Projection rows are SPARSE — only turns carrying tool calls have any — so
+   * no single bound describes them. The predicate instead asks, per row,
+   * whether a live turn still has a tool-call slot at that `(turn_index,
+   * ordinal)`. That covers both orphan classes in one statement: a turn that
+   * vanished entirely (measured 2026-08-11: 17,044 such rows across 199
+   * conversations, all left behind when mt#3902 deleted stale turn rows), and
+   * an `ordinal` past a surviving turn's current tool-call count — which the
+   * corpus measurement could not even see.
+   *
+   * **Why no advisory lock, unlike mt#3514.** That fix compared against a
+   * SNAPSHOT count (`turns.length` read before the write), so a concurrent run
+   * that extracted more turns could have its rows deleted as false orphans —
+   * hence the lock. This predicate is evaluated by Postgres against the source
+   * table AT DELETE TIME, so a row a concurrent writer just wrote for a live
+   * turn satisfies the EXISTS and survives. The race the lock existed to
+   * prevent is not reachable here.
+   */
+  private async removeOrphanedRows(
+    agentSessionId: string
+  ): Promise<{ deleted: number; failed: boolean }> {
+    try {
+      const deleted = await this.db
+        .delete(agentToolCallProjectionTable)
+        .where(
+          and(
+            eq(agentToolCallProjectionTable.agentSessionId, agentSessionId),
+            sql`NOT EXISTS (
+              SELECT 1
+              FROM ${agentTranscriptTurnsTable} t
+              WHERE t.agent_session_id = ${agentToolCallProjectionTable.agentSessionId}
+                AND t.turn_index = ${agentToolCallProjectionTable.turnIndex}
+                AND t.tool_calls IS NOT NULL
+                AND jsonb_typeof(t.tool_calls) = 'array'
+                AND ${agentToolCallProjectionTable.ordinal} < jsonb_array_length(t.tool_calls)
+            )`
+          )
+        )
+        .returning({ turnIndex: agentToolCallProjectionTable.turnIndex });
+
+      return { deleted: deleted.length, failed: false };
+    } catch (err) {
+      log.warn(
+        `ToolCallProjectionPipeline: failed to remove orphaned projection rows for ${agentSessionId}`,
+        { error: getLoggableErrorSummary(err) }
+      );
+      return { deleted: 0, failed: true };
+    }
   }
 
   /**
