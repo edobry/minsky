@@ -57,11 +57,7 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logEvaluationRecord } from "./dispatcher";
-import {
-  elideQuotedAndCodeContexts,
-  isDetectorMetaDiscussion,
-  META_CONTEXT_PATTERNS,
-} from "./elision";
+import { elideQuotedAndCodeContexts, isDetectorMetaDiscussion } from "./elision";
 import {
   nominate,
   type DegradedReason,
@@ -419,7 +415,12 @@ export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): bo
 // detector: it is WHOLE-TURN suppression and its patterns are tuned to THIS
 // detector's subject matter. Being in the shared module does not make it
 // portable (mt#3987).
-export { META_CONTEXT_PATTERNS, isDetectorMetaDiscussion };
+// PR #2872 R1: `META_CONTEXT_PATTERNS` is re-exported directly, since nothing
+// here reads it — a local binding for it was dead. `isDetectorMetaDiscussion`
+// keeps the import + named re-export because it IS called locally (twice), and
+// `export … from` creates no local binding.
+export { META_CONTEXT_PATTERNS } from "./elision";
+export { isDetectorMetaDiscussion };
 
 export function detectTriggerPhrases(text: string): TriggerMatch[] {
   // Meta-discussion suppression (mt#2672, layer 2): quoting shapes that
