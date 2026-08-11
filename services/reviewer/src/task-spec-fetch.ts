@@ -219,8 +219,16 @@ const SECTION_HINT_WINDOW_CHARS = 300;
  * criterion satisfied entirely by an amendment section is not invisible to
  * targeted injection just because nothing in the criterion text happened to
  * name it explicitly.
+ *
+ * Exported for reuse by short-id-fetch.ts (mt#3964): memory bodies follow the
+ * SAME "## Correction N" / "## AMENDED" convention (mem#648's own
+ * "## CORRECTION 1/2/3" headings are a live example) — a live replay found
+ * that without heading-targeted extraction, a large memory body truncates
+ * from the head before reaching a late "## CORRECTION" section, making a
+ * criterion depending on it render Unverifiable regardless of whether the
+ * memory actually carries the change (see extractAmendmentSections there).
  */
-const AMENDMENT_HEADING_RE = /^(amend|correction|update)/i;
+export const AMENDMENT_HEADING_RE = /^(amend|correction|update)/i;
 
 /** One resolved `mt#NNNN` reference, plus any section names its local context hinted at. */
 export interface ReferencedTaskRef {

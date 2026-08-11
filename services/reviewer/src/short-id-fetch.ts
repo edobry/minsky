@@ -36,7 +36,7 @@
 import type { MemoryRecord } from "@minsky/domain/memory";
 import type { Ask } from "@minsky/domain/ask/types";
 import type { SessionRecord } from "@minsky/domain/session";
-import { capContent, type CappedContent } from "./task-spec-fetch";
+import { capContent, AMENDMENT_HEADING_RE, type CappedContent } from "./task-spec-fetch";
 
 // ---------------------------------------------------------------------------
 // Injected-lookup seams (mt#3964)
@@ -181,9 +181,62 @@ function isoOrNull(value: Date | string | null | undefined): string | null {
   return value;
 }
 
-/** Render a memory record's injected content: the body verbatim. */
+/**
+ * Extract every "## <heading>" section of a memory body whose heading matches
+ * `AMENDMENT_HEADING_RE` ("## Correction N", "## AMENDED ...", "## Update
+ * ..."), concatenated in the order they appear. Returns `null` when none
+ * match, so the caller falls back to the whole body.
+ *
+ * Mirrors task-spec-fetch.ts's `extractHintedSections`, narrowed to ONLY the
+ * amendment-heading union (that function requires a non-empty `sectionHints`
+ * array before it even checks `AMENDMENT_HEADING_RE`, which this module has
+ * no equivalent hint source for — a short-id reference is a bare `mem#N`
+ * token with no section-hint keywords the way an `mt#NNNN` reference's
+ * surrounding text can carry "Success Criteria"/"Scope"/etc.).
+ *
+ * Load-bearing, not cosmetic (mt#3964 live replay finding): mem#648, this
+ * task's own live acceptance-test fixture, is ~7.6KB — well over
+ * `MAX_REFERENCED_SHORT_ID_CHARS_PER_ITEM` — and its relevant content
+ * ("## CORRECTION 3", the section mt#3729's criterion 4 depends on) sits near
+ * the END. Head-truncating the whole body (this file's `capContent`) cuts
+ * CORRECTION 3 before it is ever shown, so a criterion naming CORRECTION 1's
+ * amendment would render `Unverifiable` regardless of whether the memory
+ * actually carries the amendment — the SAME evidence for the met and unmet
+ * case, which is exactly the suppression this task's negative-control
+ * Success Criterion exists to catch. Extracting by heading rather than by
+ * position sidesteps this: all three "## CORRECTION N" sections match
+ * `AMENDMENT_HEADING_RE` and are pulled in regardless of where they sit in
+ * the body.
+ */
+export function extractAmendmentSections(content: string): string | null {
+  const lines = content.split("\n");
+  const matches: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line !== undefined && line.startsWith("## ")) {
+      const heading = line.slice(3).trim();
+      if (AMENDMENT_HEADING_RE.test(heading)) {
+        let end = i + 1;
+        while (end < lines.length && !(lines[end]?.startsWith("## ") ?? false)) end++;
+        matches.push(lines.slice(i, end).join("\n").trim());
+        i = end;
+        continue;
+      }
+    }
+    i++;
+  }
+  return matches.length > 0 ? matches.join("\n\n") : null;
+}
+
+/**
+ * Render a memory record's injected content: the amendment sections
+ * (`## Correction N` / `## AMENDED` / `## Update`) when the body has any,
+ * otherwise the body verbatim.
+ */
 function renderMemoryContent(record: MemoryRecord): { content: string; updatedAt: string | null } {
-  return { content: record.content, updatedAt: isoOrNull(record.updatedAt) };
+  const targeted = extractAmendmentSections(record.content);
+  return { content: targeted ?? record.content, updatedAt: isoOrNull(record.updatedAt) };
 }
 
 /** Render an ask's injected content: the question plus its response, when resolved. */

@@ -4,6 +4,7 @@ import type { Ask } from "@minsky/domain/ask/types";
 import type { SessionRecord } from "@minsky/domain/session";
 import {
   extractReferencedShortIdRefs,
+  extractAmendmentSections,
   resolveReferencedShortIds,
   MAX_REFERENCED_SHORT_IDS,
   MAX_REFERENCED_SHORT_ID_CHARS_PER_ITEM,
@@ -122,6 +123,53 @@ describe("extractReferencedShortIdRefs (mt#3964)", () => {
       (_, i) => `mem#${i + 1}`
     ).join(" ");
     expect(extractReferencedShortIdRefs(many)).toHaveLength(MAX_REFERENCED_SHORT_IDS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractAmendmentSections
+// ---------------------------------------------------------------------------
+
+describe("extractAmendmentSections (mt#3964)", () => {
+  test("returns null when the body has no ## headings", () => {
+    expect(extractAmendmentSections("just prose, no headings")).toBeNull();
+  });
+
+  test("returns null when headings exist but none match the amendment convention", () => {
+    const body = "## Summary\n\nbody text\n\n## Context\n\nmore text";
+    expect(extractAmendmentSections(body)).toBeNull();
+  });
+
+  test("extracts a single ## CORRECTION N section", () => {
+    const body = "## Incident\n\nbase text\n\n## CORRECTION 1 (2026-08-01) — fixed\n\nthe fix.";
+    const result = extractAmendmentSections(body);
+    expect(result).toContain("## CORRECTION 1 (2026-08-01) — fixed");
+    expect(result).toContain("the fix.");
+    expect(result).not.toContain("base text");
+  });
+
+  test("extracts MULTIPLE ## CORRECTION N sections in order, even when a late one holds the answer", () => {
+    // Regression fixture for the mt#3964 live-replay finding: mem#648 is
+    // ~7.6KB with the relevant section (CORRECTION 3) near the END — a
+    // head-truncating cap alone would never reach it.
+    const body =
+      `## Incident\n\n${"x".repeat(
+        5_000
+      )}\n\n## CORRECTION 1 (2026-08-01) — first\n\nfirst fix.\n\n` +
+      `## CORRECTION 3 (2026-08-04) — the answer\n\nthe late answer.`;
+    const result = extractAmendmentSections(body);
+    expect(result).not.toBeNull();
+    expect(result).toContain("## CORRECTION 1 (2026-08-01) — first");
+    expect(result).toContain("## CORRECTION 3 (2026-08-04) — the answer");
+    expect(result).toContain("the late answer.");
+    expect(result?.length).toBeLessThan(1_000); // the 5,000-char filler is excluded
+  });
+
+  test("matches AMENDED and Update headings too, case-insensitively", () => {
+    const body = "## amended 2026-08-01\n\nchange A.\n\n## Update: scope\n\nchange B.";
+    const result = extractAmendmentSections(body);
+    expect(result).toContain("change A.");
+    expect(result).toContain("change B.");
   });
 });
 
@@ -272,6 +320,24 @@ describe("resolveReferencedShortIds (mt#3964)", () => {
     expect(results[0]?.content).toContain("mt#3964");
     expect(results[0]?.content).toContain("IN-PROGRESS");
     expect(results[0]?.content).toContain("task/mt-3964");
+  });
+
+  test("section-targeted extraction (end-to-end): a large memory with a late CORRECTION section resolves WITHOUT losing it to head-truncation", async () => {
+    const body = `## Incident\n\n${
+      "x".repeat(MAX_REFERENCED_SHORT_ID_CHARS_PER_ITEM) // filler alone exceeds the cap
+    }\n\n## CORRECTION 3 (2026-08-04) — the answer\n\nthe late answer that matters.`;
+    const memoryLookup: MemoryLookup = { get: async () => makeMemoryRecord({ content: body }) };
+    const results = await resolveReferencedShortIds({
+      taskSpec: "- [ ] mem#648's correction is applied.",
+      memoryLookup,
+    });
+
+    expect(results).toHaveLength(1);
+    // Without section-targeting, the filler alone would exhaust the per-item
+    // cap and cut the answer entirely — asserting it IS present, un-truncated,
+    // pins that the extraction ran before the cap, not after.
+    expect(results[0]?.content).toContain("the late answer that matters.");
+    expect(results[0]?.truncated).toBe(false);
   });
 
   test("truncates content exceeding the per-item cap and reports omittedChars", async () => {
