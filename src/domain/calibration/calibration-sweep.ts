@@ -23,6 +23,11 @@
  * @see mt#2216 — causal-premise calibration log origin
  */
 
+// The one import this module carries: hashing the review receipt (mt#3906) is
+// pure computation, not I/O, so it does not break the module's testability
+// contract above.
+import { createHash } from "node:crypto";
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -1937,6 +1942,219 @@ export function computeReviewDueLogs(
   return due;
 }
 
+// ---------------------------------------------------------------------------
+// Review receipts (mt#3906)
+// ---------------------------------------------------------------------------
+
+/**
+ * The per-log fire counts a READ-ONLY sweep observed, carried forward into the
+ * later `--ack` invocation.
+ *
+ * Why this exists: a review pass is TWO command invocations — a read-only sweep
+ * the reviewer classifies against, then an `--ack` minutes later. Each runs its
+ * own sweep, so re-deriving the count at ack time records whatever the log has
+ * grown to, marking every record that arrived mid-pass as reviewed by nobody.
+ * Measured on the 2026-08-10 `bare-entity-ref` pass: 93 records classified, 99
+ * acked, six discarded unseen. The gap is the pass's duration times the
+ * detector's fire rate, so the busiest log — the one most worth reviewing —
+ * loses the most.
+ *
+ * The receipt is the fix: the read sweep says what it showed, and the ack
+ * honors that rather than re-measuring. Same shape as `computeDryRunToken` in
+ * `packages/domain/src/tasks/bulk-edit.ts`, with one deliberate difference —
+ * bulk-edit ABORTS on drift because drift means the world moved under an
+ * approval, whereas records arriving mid-pass here are expected and benign, so
+ * the ack advances to the bound count and REPORTS the tail instead of refusing.
+ *
+ * NOT a security boundary. The checksum detects truncation and corruption, not
+ * forgery: a caller who hand-writes counts is lying to its own audit trail. The
+ * bounds in `reconcileReviewReceipt` (never above the log, never below the
+ * existing watermark) are what keep a wrong token from destroying data.
+ */
+export interface ReviewReceipt {
+  /** ISO timestamp of the read-only sweep that issued this receipt. */
+  issuedAt: string;
+  /** Log path → the log's total fire count at read time. */
+  counts: Record<string, number>;
+}
+
+/** Thrown when a supplied review token is malformed, corrupt, or impossible. */
+export class InvalidReviewTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidReviewTokenError";
+  }
+}
+
+/** Length of the truncated checksum appended to a token. */
+const REVIEW_TOKEN_CHECKSUM_CHARS = 16;
+
+/** Canonical JSON for the receipt payload: keys sorted, so the hash is stable. */
+function canonicalReceiptJson(receipt: ReviewReceipt): string {
+  const sortedPaths = Object.keys(receipt.counts).sort();
+  const counts: Record<string, number> = {};
+  for (const path of sortedPaths) {
+    counts[path] = receipt.counts[path] as number;
+  }
+  return JSON.stringify({ issuedAt: receipt.issuedAt, counts });
+}
+
+function receiptChecksum(payloadJson: string): string {
+  return createHash("sha256")
+    .update(payloadJson)
+    .digest("hex")
+    .slice(0, REVIEW_TOKEN_CHECKSUM_CHARS);
+}
+
+/**
+ * Issue a receipt token over what THIS sweep observed, for every log that
+ * exists (not only the review-due ones — which logs are due can change between
+ * the read and the ack, and a receipt that omits a log cannot ack it).
+ */
+export function buildReviewToken(results: CalibrationLogResult[], issuedAt: string): string {
+  const counts: Record<string, number> = {};
+  for (const r of results) {
+    counts[r.entry.path] = r.totalFires;
+  }
+  const payloadJson = canonicalReceiptJson({ issuedAt, counts });
+  const payload = Buffer.from(payloadJson, "utf8").toString("base64url");
+  return `${payload}.${receiptChecksum(payloadJson)}`;
+}
+
+/**
+ * Decode a token back into its receipt, or throw `InvalidReviewTokenError`.
+ *
+ * Every rejection here is a REFUSAL to advance, never a silent fallback to the
+ * ack-time count: falling back would restore the exact defect the receipt
+ * exists to close, and would do it on the path where the caller believed it was
+ * protected.
+ */
+export function parseReviewToken(token: string): ReviewReceipt {
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new InvalidReviewTokenError(
+      "Review token is malformed (expected `<payload>.<checksum>`). Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  const [payload, checksum] = parts as [string, string];
+  let payloadJson: string;
+  try {
+    payloadJson = Buffer.from(payload, "base64url").toString("utf8");
+  } catch {
+    throw new InvalidReviewTokenError(
+      "Review token payload is not valid base64url. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  if (receiptChecksum(payloadJson) !== checksum) {
+    throw new InvalidReviewTokenError(
+      "Review token checksum does not match its payload — the token was truncated or edited. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadJson);
+  } catch {
+    throw new InvalidReviewTokenError(
+      "Review token payload is not valid JSON. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new InvalidReviewTokenError("Review token payload is not an object.");
+  }
+  const { issuedAt, counts } = parsed as { issuedAt?: unknown; counts?: unknown };
+  if (typeof issuedAt !== "string" || typeof counts !== "object" || counts === null) {
+    throw new InvalidReviewTokenError(
+      "Review token payload is missing `issuedAt` or `counts`. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  const validated: Record<string, number> = {};
+  for (const [path, count] of Object.entries(counts as Record<string, unknown>)) {
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      throw new InvalidReviewTokenError(
+        `Review token carries a non-integer count for ${path}. Re-run the read-only sweep and pass the token it returns.`
+      );
+    }
+    validated[path] = count;
+  }
+  return { issuedAt, counts: validated };
+}
+
+/** Outcome of checking a receipt against the log state at ack time. */
+export interface ReceiptReconciliation {
+  /** Log path → the count to write, taken from the receipt (never re-derived). */
+  reviewedCounts: Record<string, number>;
+  /** Records that arrived between the read sweep and the ack, per log. */
+  midPassArrivals: { path: string; count: number }[];
+  /** Paths whose receipt count sat BELOW the existing watermark, raised to it. */
+  clampedPaths: string[];
+  /** Ackable paths the receipt does not cover, so they cannot be advanced. */
+  unreceiptedPaths: string[];
+}
+
+/**
+ * Reconcile a receipt against the current sweep, producing the counts to write.
+ *
+ * The three failure modes SC3 asks to be stated, and what each does:
+ *
+ *   - **Count ABOVE the log's current total** — impossible for a receipt this
+ *     log issued (a JSONL only grows), so the token belongs to a different
+ *     tree or the log was rotated. REJECTED outright: writing it would mark
+ *     records reviewed that do not exist yet, and every future sweep would
+ *     read them as already-seen the moment they land.
+ *   - **Count BELOW the existing watermark** — a stale token from an earlier
+ *     pass. CLAMPED UP to the watermark and named in `clampedPaths`: a
+ *     watermark that moves backwards would re-open records a prior pass
+ *     legitimately reviewed, which is the same data loss in the other
+ *     direction.
+ *   - **Path absent from the receipt** — the read sweep never showed this log,
+ *     so nothing is known about what was classified. NOT advanced, and named
+ *     in `unreceiptedPaths`. Advancing on a guess is the defect.
+ */
+export function reconcileReviewReceipt(
+  receipt: ReviewReceipt,
+  results: CalibrationLogResult[],
+  ackablePaths: Set<string>,
+  watermarks: WatermarkStore
+): ReceiptReconciliation {
+  const reviewedCounts: Record<string, number> = {};
+  const midPassArrivals: { path: string; count: number }[] = [];
+  const clampedPaths: string[] = [];
+  const unreceiptedPaths: string[] = [];
+
+  for (const result of results) {
+    const path = result.entry.path;
+    if (!ackablePaths.has(path)) continue;
+
+    const receiptCount = receipt.counts[path];
+    if (receiptCount === undefined) {
+      unreceiptedPaths.push(path);
+      continue;
+    }
+    if (receiptCount > result.totalFires) {
+      throw new InvalidReviewTokenError(
+        `Review token claims ${receiptCount} reviewed record(s) for ${path}, but the log holds ${result.totalFires}. ` +
+          "A calibration log only grows, so this token was issued against a different tree or a rotated log. " +
+          "Re-run the read-only sweep and pass the token it returns."
+      );
+    }
+
+    const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
+    if (receiptCount < watermarkCount) {
+      clampedPaths.push(path);
+      reviewedCounts[path] = watermarkCount;
+    } else {
+      reviewedCounts[path] = receiptCount;
+    }
+
+    const arrived = result.totalFires - (reviewedCounts[path] as number);
+    if (arrived > 0) {
+      midPassArrivals.push({ path, count: arrived });
+    }
+  }
+
+  return { reviewedCounts, midPassArrivals, clampedPaths, unreceiptedPaths };
+}
+
 /**
  * Produce an updated watermark store by advancing marks for all logs that
  * have been acknowledged (acked).
@@ -1945,8 +2163,15 @@ export function computeReviewDueLogs(
  * Returns a new store (does not mutate the input).
  *
  * @param current    - current watermark store
- * @param results    - sweep results (used to read current total counts)
+ * @param results    - sweep results (the entries to walk; the COUNT written
+ *                     comes from `reviewedCounts`, never from a result — see
+ *                     mt#3906 and `reconcileReviewReceipt` above)
  * @param ackedPaths - set of log paths whose watermarks should be advanced
+ * @param reviewedCounts - log path → the count the reviewer actually
+ *                     classified, carried from the read-only sweep's receipt.
+ *                     A path absent here is NOT advanced: this function has no
+ *                     defensible count to write for it, and defaulting to the
+ *                     ack-time total is precisely the mt#3906 defect.
  * @param now        - timestamp string to use for lastReviewedAt
  * @param askId      - optional ID of the disposition Ask the /calibration-review
  *                     skill just filed covering ALL acked logs in this pass
@@ -1969,19 +2194,22 @@ export function advanceWatermarks(
   results: CalibrationLogResult[],
   ackedPaths: Set<string>,
   now: string,
+  reviewedCounts: Record<string, number>,
   askId?: string
 ): WatermarkStore {
   const updated: WatermarkStore = { ...current };
   for (const result of results) {
-    if (ackedPaths.has(result.entry.path)) {
-      const priorOpenAskId = current[result.entry.path]?.openAskId;
-      const nextOpenAskId = askId ?? priorOpenAskId;
-      updated[result.entry.path] = {
-        lastReviewedCount: result.totalFires,
-        lastReviewedAt: now,
-        ...(nextOpenAskId ? { openAskId: nextOpenAskId } : {}),
-      };
-    }
+    const path = result.entry.path;
+    if (!ackedPaths.has(path)) continue;
+    const reviewedCount = reviewedCounts[path];
+    if (reviewedCount === undefined) continue;
+    const priorOpenAskId = current[path]?.openAskId;
+    const nextOpenAskId = askId ?? priorOpenAskId;
+    updated[path] = {
+      lastReviewedCount: reviewedCount,
+      lastReviewedAt: now,
+      ...(nextOpenAskId ? { openAskId: nextOpenAskId } : {}),
+    };
   }
   return updated;
 }
