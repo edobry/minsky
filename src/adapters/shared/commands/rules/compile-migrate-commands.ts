@@ -194,7 +194,15 @@ export function registerCompileMigrateCommands(targetRegistry: {
             "[rules compile] No legacy compile targets remain — nothing to regenerate. " +
               "CLAUDE.md / AGENTS.md / .claude/rules are compiled by `minsky compile` (mt#3058)."
           );
-          return result;
+          // The line above IS this branch's whole report, so the CLI formatter
+          // would otherwise print a bare "✅ Success" under it (mt#3961).
+          //
+          // Only this branch is flagged. The other two `return result` sites
+          // report via `reportSingleTargetCompile`, which prints its size line
+          // only `if (result.sizeChars !== undefined)` — flagging those
+          // unconditionally would silence the command entirely on the branch
+          // where it printed nothing.
+          return { ...result, printed: true };
         }
 
         // Single-target path (explicit --target, or a bare invocation that

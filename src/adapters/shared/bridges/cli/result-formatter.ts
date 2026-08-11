@@ -474,7 +474,25 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   ): void {
     // Try to find meaningful fields to display
     if (result.printed) {
-      // Command already printed a verbose report; avoid redundant summary
+      // The command DECLARES that its own report is complete, so the fallback
+      // adds nothing — not the status line, not the payload.
+      //
+      // Deliberately NOT extended to `options.commandEmittedOutput` (mt#3961).
+      // That signal answers "did anything print?", which is not the same
+      // question as "was what printed the complete report?", and the gap is not
+      // cosmetic. `refs.status` prints its table and returns that same table as
+      // a payload — suppressing is right. `authorship.recompute` prints one
+      // incidental line ("Running in dry-run mode…") and returns a
+      // `RecomputeSummary` that is nothing like it — suppressing would discard
+      // the entire finding the operator ran the command to get. Both are
+      // "emitted output"; only the command knows which it is, which is why the
+      // suppression stays declared here rather than inferred.
+      //
+      // The inference is still correct for the NARROWER decision it was built
+      // for in mt#3870 — whether to re-render payload keys under a report — and
+      // that use survives below. The asymmetry is in the failure modes: guessing
+      // wrong there leaves the pre-mt#3870 status line, while guessing wrong
+      // here prints nothing at all.
       return;
     }
     if (result.message) {
