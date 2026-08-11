@@ -28,6 +28,8 @@ export function createSessionDeleteCommand(
     id: "session.delete",
     category: CommandCategory.SESSION,
     name: "delete",
+    // mt#3924: drift-gated — removes a workspace and its record irreversibly.
+    mutating: true,
     description: "Delete a session",
     parameters: sessionDeleteCommandParams,
     validate: async (params: Record<string, unknown>) => {
@@ -146,6 +148,8 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
     id: "session.migrate-backend",
     category: CommandCategory.SESSION,
     name: "migrate-backend",
+    // mt#3924: drift-gated — rewrites a session's backend binding.
+    mutating: true,
     description: "Migrate a session's repository backend to GitHub by following origin remote",
     requiresSetup: false,
     parameters: sessionMigrateBackendCommandParams,
@@ -329,6 +333,8 @@ export function createSessionMigrateCommand(getDeps: LazySessionDeps): CommandDe
     id: "session.migrate",
     category: CommandCategory.SESSION,
     name: "migrate",
+    // mt#3924: drift-gated — rewrites session ids across the store.
+    mutating: true,
     description: "Migrate legacy session IDs to UUID format",
     requiresSetup: false,
     parameters: sessionMigrateCommandParams,

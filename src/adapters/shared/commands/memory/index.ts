@@ -1008,6 +1008,8 @@ export function registerMemoryCommands(
     id: "memory.delete",
     category: CommandCategory.MEMORY,
     name: "delete",
+    // mt#3924: drift-gated — irreversible deletion of a durable record.
+    mutating: true,
     description:
       "Delete a memory record by its identifier. Accepts a full UUID, an " +
       "unambiguous prefix (>=8 hex chars, mt#2696), or a mem#N short id " +

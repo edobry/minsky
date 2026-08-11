@@ -123,6 +123,9 @@ type ServiceWithBackendAccess = TaskServiceInterface & {
 export class TasksBulkEditCommand extends BaseTaskCommand<typeof tasksBulkEditParams> {
   readonly id = "tasks.bulk-edit";
   readonly name = "bulk-edit";
+  // mt#3924: drift-gated — mutates many records in one call, and the execute path
+  // aborts on state drift anyway, so a stale build cannot honour its own token.
+  readonly mutating = true;
   readonly description =
     "Bulk-edit tasks (kind, tag add/remove) with a mandatory dry-run: the dry-run returns the " +
     "full change set and a token; execute requires the token and aborts on any state drift " +

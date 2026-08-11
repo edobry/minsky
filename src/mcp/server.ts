@@ -639,7 +639,22 @@ export class MinskyMCPServer {
 
   /**
    * Refuse a mutating tool call when the server source is stale relative to the
-   * workspace. Read-only tools (mutating false or unset) pass through.
+   * workspace. Tools without the flag (false or unset) pass through.
+   *
+   * **This gate is a race-window backstop, not the primary staleness mechanism
+   * (mt#3924).** Detecting staleness already makes the server remove itself:
+   * `triggerStaleSignal` records a `staleness_exit`, sets `pendingStaleExit` and
+   * schedules the process to exit at the first idle gap (mt#2830), after which the
+   * stdio proxy respawns it on the current build (mt#1714 + mt#1740). What this
+   * gate covers is the span between the flag latching and that exit landing —
+   * calls keep being served normally in the meantime, by design.
+   *
+   * That window is why the measured numbers look mismatched and are not: 2,492
+   * staleness exits in the 30 days to 2026-08-11 (89/day) produced 3 gate refusals
+   * in ~70 days of transcripts. Both sides of the refusal set's scope are priced
+   * against the window, not against the exit rate — see mt#3924's `## Outcome` for
+   * the decision and `CommandDefinition.mutating`'s docblock for what the set
+   * covers and what it deliberately leaves out.
    *
    * Public so unit tests can exercise the real check without going through the
    * full MCP transport. The dispatcher in createConfiguredServer's
@@ -659,7 +674,10 @@ export class MinskyMCPServer {
     const head = headMatch ? headMatch[1] : "unknown";
     throw new Error(
       `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
-        `Reconnect via /mcp before retrying mutating operations.`
+        `This call is refused because its effect is irreversible, bulk, or schema-migrating ` +
+        `and this build predates the workspace. Retry in ~30s: the server schedules its own ` +
+        `exit at the next idle gap and the stdio proxy respawns it on the current build. ` +
+        `Only if minsky runs WITHOUT the proxy does this need a manual /mcp reconnect.`
     );
   }
 

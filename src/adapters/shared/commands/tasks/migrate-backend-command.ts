@@ -120,6 +120,8 @@ const migrateBackendParamsSchema = z.object({
 export class TasksMigrateBackendCommand extends BaseTaskCommand<typeof migrateBackendParams> {
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
+  // mt#3924: drift-gated — moves records between backends.
+  readonly mutating = true;
   readonly description = `Migrate tasks between different backends (${MIGRATION_BACKENDS.join(", ")})`;
   readonly parameters = migrateBackendParams;
 
