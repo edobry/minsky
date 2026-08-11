@@ -221,8 +221,9 @@ substance belongs to whoever owns it (R6, mem#664).
 
 **Tier decision:** no generation-time mechanism enforces this — recognizing "substance owned
 elsewhere" takes conversational-scope judgment no detector can check. Deliberately prose, not a
-default; reasoning: `docs/rules-rationale/communication-contract.md §Generation-time enforcement
-for scope-boundary answers`.
+default; reasoning:
+`docs/rules-rationale/communication-contract.md §Generation-time enforcement for scope-boundary
+answers (mt#3985)`.
 
 ## The channel model
 
