@@ -31,10 +31,17 @@
  */
 
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
-import { isValidAgentId } from "@minsky/domain/agent-identity/format";
+import { isValidAgentId, parseAgentId } from "@minsky/domain/agent-identity/format";
 import { KNOWN_KINDS } from "@minsky/domain/agent-identity/kinds";
+import {
+  BAGGAGE_META_KEY,
+  GEN_AI_CONVERSATION_ID_KEY,
+  appendBaggageEntry,
+} from "@minsky/domain/agent-identity/baggage";
 import { readConversationMapping } from "@minsky/shared/conversation-pid-map";
 import type { JsonRpcMessage } from "./tools";
+
+export { BAGGAGE_META_KEY };
 
 /** Env var Claude Code sets on spawned MCP server processes. */
 export const CLAUDE_CODE_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID";
@@ -177,11 +184,31 @@ export function redactAgentId(agentId: string): string {
 }
 
 /**
- * Inject the agentId into a `tools/call` request's `_meta`.
+ * Extract the conversation id an agentId names, or null when it names
+ * something else.
  *
- * Returns a NEW message object when injection applies, or null when it does
- * not — the caller then forwards the original raw line untouched, preserving
- * byte-fidelity for all non-injected traffic.
+ * Only a `conv`-scoped id is a conversation id. A `run`-scoped subagent id or a
+ * `proc`-scoped Layer 1 hash must never be emitted as `gen_ai.conversation.id`
+ * — the attribute means one specific thing, and filling it with a different
+ * grain would make baggage-resolved identity silently wrong rather than absent.
+ */
+export function conversationIdFromAgentId(agentId: string): string | null {
+  const parsed = parseAgentId(agentId);
+  if (!parsed || parsed.scope !== "conv") return null;
+  return parsed.id;
+}
+
+/**
+ * Inject conversation identity into a `tools/call` request's `_meta`, under
+ * BOTH keys: `io.minsky/agent_id` and the W3C `baggage` entry
+ * `gen_ai.conversation.id` (mt#3986).
+ *
+ * Returns a NEW message object when either key is written, or null when
+ * neither is — the caller then forwards the original raw line untouched,
+ * preserving byte-fidelity for all non-injected traffic.
+ *
+ * The two keys are decided INDEPENDENTLY, so a caller that declared its own
+ * `agent_id` still gets baggage added, and vice versa.
  *
  * No-injection cases:
  * - not a `tools/call` request (responses, notifications, initialize, ping)
@@ -189,7 +216,10 @@ export function redactAgentId(agentId: string): string {
  * - `_meta["io.minsky/agent_id"]` already present: an upstream caller that
  *   declares its own identity (e.g. a future subagent-grain declaration,
  *   mt#2292) is more specific than the proxy's conversation grain — preserve
- *   it rather than overwrite.
+ *   it rather than overwrite
+ * - `_meta.baggage` already carries `gen_ai.conversation.id`, is unparseable,
+ *   or cannot fit the new entry within the W3C limits (see
+ *   `@minsky/domain/agent-identity/baggage`)
  */
 export function injectAgentIdMeta(msg: JsonRpcMessage, agentId: string): JsonRpcMessage | null {
   if (msg.method !== "tools/call") return null;
@@ -198,17 +228,25 @@ export function injectAgentIdMeta(msg: JsonRpcMessage, agentId: string): JsonRpc
   const existingMeta = msg.params["_meta"];
   const metaIsObject =
     existingMeta !== null && typeof existingMeta === "object" && !Array.isArray(existingMeta);
-  if (metaIsObject && (existingMeta as Record<string, unknown>)[AGENT_ID_META_KEY] !== undefined) {
-    return null;
-  }
+  const meta = metaIsObject ? (existingMeta as Record<string, unknown>) : {};
+
+  const agentIdApplies = meta[AGENT_ID_META_KEY] === undefined;
+
+  const conversationId = conversationIdFromAgentId(agentId);
+  const nextBaggage = conversationId
+    ? appendBaggageEntry(meta[BAGGAGE_META_KEY], GEN_AI_CONVERSATION_ID_KEY, conversationId)
+    : null;
+
+  if (!agentIdApplies && nextBaggage === null) return null;
 
   return {
     ...msg,
     params: {
       ...msg.params,
       _meta: {
-        ...(metaIsObject ? (existingMeta as Record<string, unknown>) : {}),
-        [AGENT_ID_META_KEY]: agentId,
+        ...meta,
+        ...(agentIdApplies ? { [AGENT_ID_META_KEY]: agentId } : {}),
+        ...(nextBaggage !== null ? { [BAGGAGE_META_KEY]: nextBaggage } : {}),
       },
     },
   };

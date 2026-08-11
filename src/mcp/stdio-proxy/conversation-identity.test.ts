@@ -11,12 +11,14 @@ import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 import {
   CLAUDE_CODE_SESSION_ID_ENV,
   CONVERSATION_MAPPING_TTL_MS,
+  BAGGAGE_META_KEY,
   resolveConversationAgentId,
   resolveLiveConversationAgentId,
   resetConversationMappingCache,
   injectAgentIdMeta,
   redactAgentId,
 } from "./conversation-identity";
+import { GEN_AI_CONVERSATION_ID_KEY } from "@minsky/domain/agent-identity/baggage";
 import type { JsonRpcMessage } from "./tools";
 
 const CONV_UUID = "6c6fdc74-d1b5-424f-a854-6f875b977dd2";
@@ -219,9 +221,35 @@ describe("injectAgentIdMeta", () => {
   });
 
   test("does NOT overwrite an already-declared agent_id (mt#2292 forward-compat)", () => {
+    // Expectation updated in mt#3986: the proxy now writes BOTH keys, decided
+    // independently, so a caller-declared agent_id survives while baggage is
+    // still added. Previously this returned null (nothing written at all) —
+    // the agent_id half of that assertion is what mt#2292 actually cares about
+    // and it is asserted directly below.
     const declared = "minsky.native-subagent:run:mt#99@com.anthropic.claude-code:conv:abc";
     const msg = toolsCall({ name: "t", arguments: {}, _meta: { [AGENT_ID_META_KEY]: declared } });
-    expect(injectAgentIdMeta(msg, EXPECTED_AGENT_ID)).toBeNull();
+    const injected = expectInjected(injectAgentIdMeta(msg, EXPECTED_AGENT_ID));
+
+    const meta = (injected.params as Record<string, unknown>)["_meta"] as Record<string, unknown>;
+    expect(meta[AGENT_ID_META_KEY]).toBe(declared);
+    expect(meta[BAGGAGE_META_KEY]).toBe(`${GEN_AI_CONVERSATION_ID_KEY}=${CONV_UUID}`);
+  });
+
+  test("stamps the W3C baggage entry alongside agent_id (mt#3986)", () => {
+    const msg = toolsCall({ name: "t", arguments: {} });
+    const injected = expectInjected(injectAgentIdMeta(msg, EXPECTED_AGENT_ID));
+
+    const meta = (injected.params as Record<string, unknown>)["_meta"] as Record<string, unknown>;
+    expect(meta[BAGGAGE_META_KEY]).toBe(`${GEN_AI_CONVERSATION_ID_KEY}=${CONV_UUID}`);
+  });
+
+  test("MERGES into a caller's existing baggage rather than clobbering it (mt#3986)", () => {
+    const existing = "userId=alice,tenant=acme";
+    const msg = toolsCall({ name: "t", arguments: {}, _meta: { [BAGGAGE_META_KEY]: existing } });
+    const injected = expectInjected(injectAgentIdMeta(msg, EXPECTED_AGENT_ID));
+
+    const meta = (injected.params as Record<string, unknown>)["_meta"] as Record<string, unknown>;
+    expect(meta[BAGGAGE_META_KEY]).toBe(`${existing},${GEN_AI_CONVERSATION_ID_KEY}=${CONV_UUID}`);
   });
 
   test("returns null for non-tools/call frames", () => {

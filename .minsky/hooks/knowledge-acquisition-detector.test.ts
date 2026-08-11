@@ -43,6 +43,7 @@ import {
   TRAILING_WINDOW_TURNS,
   RESEARCH_TOOL_NAMES,
   SESSION_VERDICT_DEDUPE_KEY,
+  parseLoggedSessionState,
   SUPPRESSION_PROPAGATION_IN_WINDOW,
   run,
 } from "./knowledge-acquisition-detector";
@@ -584,15 +585,15 @@ describe("detectKnowledgeAcquisition — session grain (mt#3720)", () => {
   });
 
   // Stop fires once per TURN, so the detector sees a GROWING transcript, not
-  // the finished one. These two tests pin what that costs — the residual this
-  // re-grain accepts rather than removes, and the reason mt#3740 exists. The
-  // first asserts the CURRENT wrong behavior deliberately: mt#3740 must invert
-  // it, not delete it.
-  test("known limitation: a miss recorded before a late propagation stays permanent", async () => {
+  // the finished one. This test used to pin the cost of that as a KNOWN
+  // LIMITATION — a miss recorded early stayed permanent — and asserted the
+  // wrong behavior deliberately so mt#3740 would have to invert it rather than
+  // delete it. mt#3740 inverted it: the verdict is now revisable.
+  test("a miss recorded before a late propagation is REVISED, not frozen (mt#3740)", async () => {
     const full: SessionEvent[] = ["research", ...filler(18), "propagate", ...filler(2)];
 
     // Stop invocation at turn ~8: grace has elapsed, the save does not exist
-    // yet, so the session records a miss and burns its one dedupe key.
+    // yet, so the session records a miss.
     const early = await detectKnowledgeAcquisition(
       buildSession(full.slice(0, 8)),
       [SKILL],
@@ -601,10 +602,29 @@ describe("detectKnowledgeAcquisition — session grain (mt#3720)", () => {
     );
     expect(early?.result.hadPropagation).toBe(false);
     expect(early?.suppressionReasons).toEqual([]);
+    expect(early?.supersedes).toBeUndefined();
 
     // A later Stop invocation, now seeing the memory_create. The verdict it
-    // would produce is correct — but the burned key means it is never recorded,
-    // so the log keeps the earlier wrong answer.
+    // produces is correct AND it is recorded, naming the record it replaces.
+    const late = await detectKnowledgeAcquisition(
+      buildSession(full),
+      [SKILL],
+      KEYWORDS,
+      new Set([SESSION_VERDICT_DEDUPE_KEY]),
+      undefined,
+      undefined,
+      { hadPropagation: false, timestamp: "2026-08-11T00:00:00.000Z" }
+    );
+    expect(late?.result.hadPropagation).toBe(true);
+    expect(late?.supersedes).toBe("2026-08-11T00:00:00.000Z");
+  });
+
+  test("a caller that supplies no prior verdict keeps mt#3720's freeze (mt#3740)", async () => {
+    // The revision path is opt-in at the seam: without a prior verdict there is
+    // nothing to compare against, so the detector must not record a second time
+    // on a guess. This is what keeps every pre-mt#3740 caller behaviorally
+    // identical.
+    const full: SessionEvent[] = ["research", ...filler(18), "propagate", ...filler(2)];
     const late = await detectKnowledgeAcquisition(
       buildSession(full),
       [SKILL],
@@ -612,6 +632,110 @@ describe("detectKnowledgeAcquisition — session grain (mt#3720)", () => {
       new Set([SESSION_VERDICT_DEDUPE_KEY])
     );
     expect(late).toBeNull();
+  });
+
+  test("an UNCHANGED verdict records nothing, however many turns pass (mt#3740)", async () => {
+    // The bound mt#3720 bought is preserved: revision is per verdict CHANGE, so
+    // a session whose answer is stable stays at one record no matter how many
+    // times Stop fires.
+    // Turns 12..19 all sit BEFORE the propagate at index 19, so every one of
+    // them yields the same verdict (a miss) as the prior record. Nothing is
+    // written across the whole stretch.
+    const full: SessionEvent[] = ["research", ...filler(18), "propagate", ...filler(2)];
+    for (let turn = 12; turn <= 19; turn++) {
+      const detection = await detectKnowledgeAcquisition(
+        buildSession(full.slice(0, turn)),
+        [SKILL],
+        KEYWORDS,
+        new Set([SESSION_VERDICT_DEDUPE_KEY]),
+        undefined,
+        undefined,
+        { hadPropagation: false, timestamp: "2026-08-11T00:00:00.000Z" }
+      );
+      expect(detection).toBeNull();
+    }
+  });
+
+  // PR #2873 R1: the loader seam is what actually wires revision into
+  // production — the detector's own tests pass `priorVerdict` by construction,
+  // which proves the decision logic and says nothing about whether anything
+  // supplies it. These cover the parse half; the disk half is a `readLogTailText`
+  // call and a try/catch above it.
+  test("the loader seam reads this session's prior verdict out of the log (mt#3740)", () => {
+    const log = [
+      JSON.stringify({
+        session_id: "other-session",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: true,
+        timestamp: "2026-08-11T00:00:00.000Z",
+      }),
+      JSON.stringify({
+        session_id: "mine",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: false,
+        timestamp: "2026-08-11T01:00:00.000Z",
+      }),
+    ].join("\n");
+
+    const state = parseLoggedSessionState(log, "mine");
+    expect(state.keys.has(SESSION_VERDICT_DEDUPE_KEY)).toBe(true);
+    // Another session's verdict must not leak into mine.
+    expect(state.priorVerdict).toEqual({
+      hadPropagation: false,
+      timestamp: "2026-08-11T01:00:00.000Z",
+    });
+  });
+
+  test("the loader seam takes the LAST verdict, so a revision becomes the baseline (mt#3740)", () => {
+    const log = [
+      JSON.stringify({
+        session_id: "mine",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: false,
+        timestamp: "2026-08-11T01:00:00.000Z",
+      }),
+      JSON.stringify({
+        session_id: "mine",
+        dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+        hadPropagation: true,
+        timestamp: "2026-08-11T02:00:00.000Z",
+        supersedes: "2026-08-11T01:00:00.000Z",
+      }),
+    ].join("\n");
+
+    // Comparing against the FIRST record would let the session oscillate
+    // against a stale baseline and re-record a verdict it already holds.
+    expect(parseLoggedSessionState(log, "mine").priorVerdict).toEqual({
+      hadPropagation: true,
+      timestamp: "2026-08-11T02:00:00.000Z",
+    });
+  });
+
+  test("the loader seam survives a malformed line and an unknown session (mt#3740)", () => {
+    const log = ['{"not json', JSON.stringify({ session_id: "someone-else" })].join("\n");
+    const state = parseLoggedSessionState(log, "mine");
+    expect(state.keys.size).toBe(0);
+    expect(state.priorVerdict).toBeNull();
+  });
+
+  test("a propagated verdict flips BACK to a miss when research resumes (mt#3740)", async () => {
+    // Revision is bidirectional. The verdict is "was there a capture after the
+    // LAST research occurrence", so researching again after a capture re-opens
+    // the question — a scheme keyed on the verdict VALUE could not record this.
+    const full: SessionEvent[] = ["research", ...filler(4), "propagate", "research", ...filler(8)];
+
+    const flipped = await detectKnowledgeAcquisition(
+      buildSession(full),
+      [SKILL],
+      KEYWORDS,
+      new Set([SESSION_VERDICT_DEDUPE_KEY]),
+      undefined,
+      undefined,
+      { hadPropagation: true, timestamp: "2026-08-11T00:00:00.000Z" }
+    );
+
+    expect(flipped?.result.hadPropagation).toBe(false);
+    expect(flipped?.supersedes).toBe("2026-08-11T00:00:00.000Z");
   });
 
   test("a session that goes quiet before propagating is still bounded to ONE record", async () => {
