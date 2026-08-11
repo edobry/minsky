@@ -4,7 +4,11 @@
 
 ## Status
 
-Proposed
+**Proposed** — 2026-08-11. Decided under mt#3870 and mt#3961; recorded under mt#3980. Awaiting
+principal ratification; the contract sets the CLI rendering default for every command added from
+here, which is an architectural move affecting the product surface per `principal-context.mdc
+§Decisions Eugene reserves`. The behavior it records is merged and live; what is unratified is
+elevating it to an accepted record that binds future commands.
 
 ## Context
 
