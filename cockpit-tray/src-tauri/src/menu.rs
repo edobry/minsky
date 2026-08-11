@@ -22,10 +22,37 @@ const BUILD_MENU_ID: &str = "build_status";
 /// Dropdown line showing daemon uptime + the source mtime it was started against (mt#2299).
 const UPTIME_MENU_ID: &str = "uptime";
 
-pub(crate) const COCKPIT_URL: &str = "http://localhost:3737";
-/// The port in COCKPIT_URL, typed for the on_navigation same-origin check
-/// (mt#2942). Must stay in sync with COCKPIT_URL's port.
-const COCKPIT_PORT: u16 = 3737;
+/// The cockpit origin: what the in-app webview loads and what "Open Cockpit"
+/// hands to the OS browser.
+///
+/// Was a pair of constants (mt#3988): `COCKPIT_URL` plus a separately-declared
+/// `COCKPIT_PORT` copy of its port for the `on_navigation` same-origin check,
+/// with a doc comment asking a human to *"stay in sync with COCKPIT_URL's
+/// port."* Both now derive from one resolved value, so the invariant is
+/// structural rather than maintained by hand — and the pair follows a
+/// configured port instead of pinning the webview to 3737.
+pub(crate) fn cockpit_url() -> String {
+    crate::port::cockpit_url(crate::port::cockpit_port())
+}
+
+/// Whether a navigation target is the cockpit SPA's own origin — the decision
+/// `on_navigation` makes between "load in place" and "hand to the OS browser".
+///
+/// Split out of that closure so it is unit-testable at a configured port
+/// without a live webview (mt#3988). The caller has ALREADY restricted the
+/// scheme to http/https; this deliberately does not re-check it, preserving the
+/// pre-mt#3988 behavior in which `https://localhost:<port>` also counted as the
+/// cockpit origin.
+///
+/// `port_or_known_default` rather than `port`: a URL at a scheme's default port
+/// (`http://localhost/`) reports no explicit port, so a tray configured to 80
+/// would otherwise never recognize its own origin. Identical for every other
+/// port, including 3737.
+fn is_cockpit_origin(url: &tauri::Url, port: u16) -> bool {
+    matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"))
+        && url.port_or_known_default() == Some(port)
+}
+
 pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
 
 /// Init script injected into the cockpit webview so external-link clicks reach
@@ -111,8 +138,7 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     } else {
         "Open Cockpit".to_string()
     };
-    let open_window_item =
-        MenuItemBuilder::with_id("open_window", open_window_label).build(app)?;
+    let open_window_item = MenuItemBuilder::with_id("open_window", open_window_label).build(app)?;
     let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let start_item = MenuItemBuilder::with_id("start", "Start Daemon").build(app)?;
@@ -323,7 +349,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             }
         }
         "open" => {
-            let _ = open::that(COCKPIT_URL);
+            let _ = open::that(cockpit_url());
         }
         "start" => send_cmd(app, SupervisorCmd::Start),
         "stop" => send_cmd(app, SupervisorCmd::Stop),
@@ -444,10 +470,15 @@ pub(crate) fn open_cockpit_window(app: &AppHandle) {
 /// this with a recovery watch; the deep-link loop calls it via
 /// `ensure_cockpit_window_visible` and runs its own loop (mt#2688).
 fn create_cockpit_window(app: &AppHandle) {
-    let url: tauri::Url = match COCKPIT_URL.parse() {
+    // Resolved once here and used for BOTH the window's URL and the
+    // same-origin check below (mt#3988) — the window can no longer load one
+    // port while the navigation guard admits another.
+    let port = crate::port::cockpit_port();
+    let cockpit = crate::port::cockpit_url(port);
+    let url: tauri::Url = match cockpit.parse() {
         Ok(url) => url,
         Err(e) => {
-            eprintln!("[cockpit-tray] invalid cockpit URL {COCKPIT_URL:?}: {e}");
+            eprintln!("[cockpit-tray] invalid cockpit URL {cockpit:?}: {e}");
             return;
         }
     };
@@ -466,18 +497,18 @@ fn create_cockpit_window(app: &AppHandle) {
         // EXTERNAL_LINK_SHIM, which funnels new-window (target="_blank") clicks
         // here. Canonical Tauri pattern (on_navigation -> cancel -> opener); see
         // https://v2.tauri.app/plugin/opener/ and tauri-apps/tauri#4756.
-        .on_navigation(|url| {
+        .on_navigation(move |url| {
             match url.scheme() {
                 "http" | "https" => {
-                    // The cockpit SPA's own origin (localhost:3737) loads in
-                    // place (initial load, Cmd+R reload, deep-link recovery
-                    // navigate); react-router nav is client-side and never
-                    // reaches here. The port is pinned so a nav to any OTHER
-                    // localhost port is treated as external, not loaded in the
-                    // cockpit webview (review R2).
-                    if matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"))
-                        && url.port() == Some(COCKPIT_PORT)
-                    {
+                    // The cockpit SPA's own origin loads in place (initial
+                    // load, Cmd+R reload, deep-link recovery navigate);
+                    // react-router nav is client-side and never reaches here.
+                    // The port is pinned so a nav to any OTHER localhost port
+                    // is treated as external, not loaded in the cockpit webview
+                    // (review R2) — and since mt#3988 it is pinned to the
+                    // RESOLVED port captured above, the same one this window
+                    // was built on, rather than to a second constant.
+                    if is_cockpit_origin(url, port) {
                         return true;
                     }
                     // Any other web origin is external: open in the OS default
@@ -487,7 +518,9 @@ fn create_cockpit_window(app: &AppHandle) {
                     // cancel -- navigating the webview to the external site
                     // would lose the cockpit, which is worse than a no-op.
                     if let Err(e) = open::that(url.as_str()) {
-                        eprintln!("[cockpit-tray] failed to open external URL {url} in browser: {e}");
+                        eprintln!(
+                            "[cockpit-tray] failed to open external URL {url} in browser: {e}"
+                        );
                     }
                     false
                 }
@@ -539,5 +572,84 @@ fn create_cockpit_window(app: &AppHandle) {
             }
         }
         Err(e) => eprintln!("[cockpit-tray] failed to create cockpit window: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::port::DEFAULT_COCKPIT_PORT;
+
+    /// The port from the 2026-06-04 incident this task fixes.
+    const CONFIGURED_PORT: u16 = 4317;
+
+    fn url(s: &str) -> tauri::Url {
+        s.parse().expect("test URL must parse")
+    }
+
+    /// mt#3988 AT6. This is the security-relevant half of the change: before
+    /// it, `on_navigation` compared against its own `COCKPIT_PORT` constant, so
+    /// a tray configured to 4317 would have loaded its own SPA and then treated
+    /// every subsequent in-app navigation as external — handing cockpit URLs to
+    /// the OS browser instead of the webview.
+    #[test]
+    fn same_origin_check_follows_the_configured_port() {
+        assert!(
+            is_cockpit_origin(&url("http://localhost:4317/tasks"), CONFIGURED_PORT),
+            "a cockpit navigation at the configured port must stay in the webview"
+        );
+        assert!(
+            !is_cockpit_origin(&url("http://localhost:3737/tasks"), CONFIGURED_PORT),
+            "the OLD default is external once another port is configured"
+        );
+    }
+
+    /// The unconfigured case is unchanged — the half that proves this refactor
+    /// preserved behavior rather than merely moving it.
+    #[test]
+    fn same_origin_check_at_the_default_port_is_unchanged() {
+        assert!(is_cockpit_origin(
+            &url("http://localhost:3737/tasks"),
+            DEFAULT_COCKPIT_PORT
+        ));
+        assert!(is_cockpit_origin(
+            &url("http://127.0.0.1:3737/"),
+            DEFAULT_COCKPIT_PORT
+        ));
+        assert!(!is_cockpit_origin(
+            &url("http://localhost:4317/"),
+            DEFAULT_COCKPIT_PORT
+        ));
+    }
+
+    /// The check must not widen: a different HOST on the right port, and the
+    /// port-prefix case `:37370` that `deeplink.rs` also pins, stay external.
+    #[test]
+    fn same_origin_check_does_not_widen() {
+        assert!(!is_cockpit_origin(
+            &url("http://evil.example.com:4317/"),
+            CONFIGURED_PORT
+        ));
+        assert!(
+            !is_cockpit_origin(&url("http://localhost:43170/"), CONFIGURED_PORT),
+            "a port with the configured port as a PREFIX is a different origin"
+        );
+        assert!(!is_cockpit_origin(
+            &url("http://localhost/"),
+            CONFIGURED_PORT
+        ));
+    }
+
+    /// `cockpit_url()` and the check it is paired with read the SAME resolved
+    /// value — the invariant the deleted "must stay in sync" comment used to
+    /// ask a human for.
+    #[test]
+    fn the_window_url_and_the_navigation_check_agree() {
+        let rendered = cockpit_url();
+        let parsed = url(&rendered);
+        assert!(
+            is_cockpit_origin(&parsed, crate::port::cockpit_port()),
+            "the origin the window loads ({rendered}) must pass its own same-origin check"
+        );
     }
 }

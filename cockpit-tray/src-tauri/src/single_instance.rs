@@ -100,7 +100,9 @@ mod tests {
         // The originating incident: LaunchServices at 15:37:01, the autostart
         // LaunchAgent at 15:37:16. Fronting a window here would pop the cockpit
         // open on every login.
-        assert!(!should_front_on_second_launch(Some(Duration::from_secs(15))));
+        assert!(!should_front_on_second_launch(Some(Duration::from_secs(
+            15
+        ))));
         assert!(!should_front_on_second_launch(Some(Duration::ZERO)));
     }
 

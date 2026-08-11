@@ -207,11 +207,30 @@ Tailscale MagicDNS name while staying bound to loopback (Tailscale's own recomme
 
 ```yaml
 cockpit:
+  # TCP port the daemon serves on AND the port the menu-bar tray supervises.
+  port: 4317
+
   # Extra Host-header names the daemon accepts, beyond the loopback aliases
   # and any --host bind value. Typically a Tailscale MagicDNS name.
   allowedHosts:
     - "my-node.tail1234.ts.net"
 ```
+
+- `cockpit.port` (mt#3988) — optional, defaults to `3737`. Environment override:
+  `MINSKY_COCKPIT_PORT`. An explicit `--port` on `cockpit start` / `status` / `install` outranks
+  both.
+
+  This is the **one** place the port is decided. The macOS tray reads this same value at startup
+  (via `config get cockpit.port`, run against the tree it spawns the daemon from) and uses it for
+  every probe, adoption decision, conflict label, the in-app webview URL, and the webview's
+  same-origin navigation check. Before it, the tray hardcoded 3737 in four separate constants, so
+  a daemon on any other port was invisible to it: not adopted, not controlled by
+  Start/Stop/Restart, and liable to have a second daemon spawned beside it — which happened on
+  2026-06-04, with the browser reading the stale one.
+
+  **A tray already running does not pick up a change to this key**; it resolves once at launch.
+  Quit and relaunch the tray after changing it. A tray whose Minsky checkout predates this key
+  falls back to 3737 and logs that it did.
 
 - `cockpit.allowedHosts` — optional, defaults to `[]` (no extra hosts; the pre-mt#3641
   loopback-only behavior). Environment override: `MINSKY_COCKPIT_ALLOWED_HOSTS` → comma-separated
