@@ -57,7 +57,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { logEvaluationRecord } from "./dispatcher";
-import { elideQuotedAndCodeContexts } from "./elision";
+import {
+  elideQuotedAndCodeContexts,
+  isDetectorMetaDiscussion,
+  META_CONTEXT_PATTERNS,
+} from "./elision";
 import {
   nominate,
   type DegradedReason,
@@ -405,60 +409,17 @@ export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): bo
 // Detection functions (exported for testing)
 // ---------------------------------------------------------------------------
 
-/**
- * Meta-discussion context markers (mt#2672): when the assistant turn's
- * SUBJECT is the retrospective-trigger detector or the calibration system
- * itself, trigger-phrase mentions are overwhelmingly quotations of the
- * detector's own patterns — 5 of 8 fires in the 2026-07-08 review window
- * were exactly this shape (62% FP rate), and 0 real positives occurred in
- * such turns.
- *
- * The narrow marker set (this is the "documented, narrow heuristic" from the
- * approved disposition on ask 0147caa5):
- *   - the detector's own name,
- *   - calibration vocabulary (log/data/review),
- *   - "false positive(s)" — the FP-triage register itself.
- *
- * Documented tradeoff: a live failure admission inside a
- * calibration-discussion turn is suppressed (a false negative). Accepted
- * because every such turn in the review window was an FP, a deliberate
- * `/retrospective` invocation is unaffected, and the FP/FN balance is
- * re-measured at the next calibration review (mt#2483 loop).
- */
-export const META_CONTEXT_PATTERNS: RegExp[] = [
-  /retrospective[- ]trigger/i,
-  /\bcalibration\b/i,
-  /\bfalse[- ]positives?\b/i,
-  /\/calibration-review\b/,
-  // mt#3036: retrospective structured-output shape. The `/retrospective`
-  // skill's own output format REQUIRES the R-family taxonomy vocabulary
-  // (`### Agent error (cognitive)` → "Assumption Error", "I conflated",
-  // "I should have caught"), which the scanner would then match on. When
-  // the assistant turn IS that output — recognizable by these headings —
-  // trigger phrases in it are describing the analyzed failure, not asserting
-  // a fresh one. Whole-turn suppression here mirrors the existing
-  // meta-discussion tradeoff (a live admission mixed into a retro-output
-  // turn is a documented FN; the widened invocation look-back is the
-  // primary defense, this pattern set is defense-in-depth).
-  //
-  // PR #2169 R1 (narrowed): patterns are limited to headings distinctive
-  // to `/retrospective`'s Step 2a output. Generic RCA/design-doc headings
-  // (`### Root cause`, `### Failure mode:`) were dropped — they appear in
-  // ordinary specs, ADRs, and incident memos, and their broad match risks
-  // suppressing R-family scanning on unrelated content. The retained set
-  // requires the retro-specific `## Retrospective:` header OR one of the
-  // taxonomy sub-headings that is essentially a retro-only phrase.
-  /^##\s+Retrospective:/m,
-  /^###\s+Agent error\s*\(cognitive\)/m,
-  /^###\s+Recurrence check\b/m,
-  /^###\s+Recurrence-after-DONE\b/m,
-  /^\*\*Correction noted\*\*\s*:/m,
-];
-
-/** True when the raw turn text is meta-discussion of the detector/calibration system. */
-export function isDetectorMetaDiscussion(text: string): boolean {
-  return META_CONTEXT_PATTERNS.some((p) => p.test(text));
-}
+// `META_CONTEXT_PATTERNS` + `isDetectorMetaDiscussion` moved to `./elision.ts`
+// (mt#3983), beside `elideQuotedAndCodeContexts` — the two halves of ADR-024's
+// Rung-1 prefilter now live in one module instead of one being private to this
+// detector. Re-exported here for API stability, matching the precedent
+// `elision.ts`'s own header records for `elideQuotedContexts`.
+//
+// Read the warning on the moved function before applying it to another
+// detector: it is WHOLE-TURN suppression and its patterns are tuned to THIS
+// detector's subject matter. Being in the shared module does not make it
+// portable (mt#3987).
+export { META_CONTEXT_PATTERNS, isDetectorMetaDiscussion };
 
 export function detectTriggerPhrases(text: string): TriggerMatch[] {
   // Meta-discussion suppression (mt#2672, layer 2): quoting shapes that
