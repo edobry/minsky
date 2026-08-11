@@ -30,7 +30,7 @@ import type { ToolHookInput } from "./types";
 // mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
 // module loads. The dynamic persistence import below needs it, and a dynamic
 // import cannot install it retroactively.
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 const COVERED_TOOL_NAME = "mcp__minsky__session_pr_create";
 const LOG_PREFIX = "[stamp-pr-author-link]";
@@ -135,16 +135,25 @@ if (import.meta.main) {
       process.exit(0);
     }
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
     const { writePrAuthorLink } = await import(
       "../../packages/domain/src/transcripts/pr-author-link-writer"
     );
 
-    const provider = await resolvePersistenceProvider();
-    if (!provider || !("getDatabaseConnection" in provider)) {
-      process.stderr.write(`${LOG_PREFIX} warn: no SQL-capable persistence provider\n`);
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      process.stderr.write(
+        `${LOG_PREFIX} warn: ${describeProviderResolutionFailure(resolution)}\n`
+      );
+      process.exit(0);
+    }
+    const provider = resolution.provider;
+    if (!("getDatabaseConnection" in provider)) {
+      process.stderr.write(
+        `${LOG_PREFIX} warn: provider ${provider.constructor.name} is not SQL-capable\n`
+      );
       process.exit(0);
     }
 

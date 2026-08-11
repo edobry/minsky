@@ -67,7 +67,7 @@
 // before any decorated domain class is imported) and exposes the config
 // bootstrap used below. Extracted from this file into a shared module by
 // mt#3019, which found record-subagent-invocation.ts missing BOTH halves.
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 import type { TaskSearchResult } from "./parallel-work-guard-standalone";
 import type {
@@ -334,32 +334,12 @@ async function resolveProbeProjectScope(provider: PersistenceProvider): Promise<
   }
 }
 
-/**
- * Render a provider-resolution failure for the guard-health check-skip event.
- *
- * The caller threads this into `guardHealth.lastEvent.message` (mt#2958 SC2),
- * where it is the ONLY account of the failure a reader gets — a hook process
- * exits immediately after the decision, so its stderr, and anything the domain
- * layer logs at debug level, is discarded unread.
- *
- * What this replaced named mt#3019's config-init class, which is excluded by
- * construction at the only call site: `runProbe` reaches provider resolution
- * only after `ensureHookDomainBootstrap()` returns ok, i.e. after configuration
- * DID initialize. So the one explanation the message offered was the one the
- * control flow had already ruled out, and the real error was unavailable
- * anywhere a reader would look. A 22-invocation critical-escalation streak was
- * read that way for three days (mt#3750).
- *
- * Both fields come from `resolvePersistenceProviderOrError`, which
- * credential-scrubs `error` before returning it — guard-health records are
- * persisted and rendered into an operator-facing banner.
- */
-export function describeProviderResolutionFailure(failure: {
-  error: string;
-  errorClass: string;
-}): string {
-  return `persistence provider unavailable: ${failure.errorClass}: ${failure.error}`;
-}
+// `describeProviderResolutionFailure` moved to `./domain-bootstrap` (mt#3869):
+// six more hooks now report the same failure, and the formatter they share does
+// not belong inside this one. Re-exported so this module's own public surface —
+// and `standalone-dup-probe.test.ts`, which covers the guard-health message
+// this call site threads it into — is unchanged.
+export { describeProviderResolutionFailure };
 
 /**
  * Write the GUARD DEGRADED stderr line and build the structured failure.

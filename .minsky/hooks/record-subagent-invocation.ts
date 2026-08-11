@@ -31,7 +31,7 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 // mt#3019: STATIC — importing this module installs the tsyringe reflect
 // polyfill, which must be resolved before ANY domain module loads. Every
 // domain import below stays dynamic; this one cannot be.
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 /**
  * Overall deadline for the whole Stop-time recording path (mt#3019).
@@ -531,13 +531,22 @@ async function classifyAndRecord(params: {
   //    rather than opening a connection nothing will close.
   if (deadlineState.exceeded) return;
 
-  const { resolvePersistenceProvider } = await import(
+  const { resolvePersistenceProviderOrError } = await import(
     "../../packages/domain/src/persistence/factory"
   );
-  const provider = await resolvePersistenceProvider();
-  if (!provider || !("getDatabaseConnection" in provider)) {
+  const resolution = await resolvePersistenceProviderOrError();
+  if (!resolution.ok) {
     process.stderr.write(
-      `[record-subagent-invocation] warn: persistence provider unavailable — skipping DB write\n`
+      `[record-subagent-invocation] warn: ${describeProviderResolutionFailure(
+        resolution
+      )} — skipping DB write\n`
+    );
+    return;
+  }
+  const provider = resolution.provider;
+  if (!("getDatabaseConnection" in provider)) {
+    process.stderr.write(
+      `[record-subagent-invocation] warn: provider ${provider.constructor.name} is not SQL-capable — skipping DB write\n`
     );
     return;
   }
@@ -689,6 +698,11 @@ export async function recordFailureBestEffort(
 ): Promise<void> {
   if ((!subagentSessionId && !dispatchStamp) || deadlineState.exceeded) return;
   try {
+    // Deliberately still the `| null` resolve (mt#3869). This is
+    // `recordFailureBestEffort`, the last-resort failure recorder, running
+    // under a hard deadline: its degraded path has no channel to report into,
+    // so carrying a cause here would be dead information. Silent by design, not
+    // by omission — the sibling sites in this file DO carry the cause.
     const { resolvePersistenceProvider } = await import(
       "../../packages/domain/src/persistence/factory"
     );
@@ -776,6 +790,10 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
   // Strategy 1: Try to load the session record by session directory path.
   // Session workspaces are stored in ~/.local/state/minsky/sessions/<sessionId>.
   try {
+    // Deliberately still the `| null` resolve (mt#3869). A null provider here
+    // is not a report-worthy degradation: this is one of several task-id
+    // resolution strategies, and falling through to the next one is the correct
+    // response. mt#3893 demoted the whole function to last-resort.
     const { resolvePersistenceProvider } = await import(
       "../../packages/domain/src/persistence/factory"
     );
