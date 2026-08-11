@@ -102,8 +102,9 @@ export interface ResultRenderOptions {
    *
    * When it did, the generic fallback must not also render the payload's keys:
    * a command that already printed a report would print its findings twice. The
-   * bridge derives this from the `log.cli` line counter rather than from the
-   * result, because most self-printing commands set no `printed` flag.
+   * bridge derives this from the visible-CLI-output line counter (`log.cli`,
+   * `cliWarn`, `cliError`) rather than from the result, because most
+   * self-printing commands set no `printed` flag.
    */
   commandEmittedOutput?: boolean;
 }

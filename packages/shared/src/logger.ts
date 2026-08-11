@@ -363,7 +363,8 @@ function getDefaultLogger() {
 type DefaultLogger = ReturnType<typeof createLogger>;
 
 /**
- * Lines emitted through `log.cli` since process start.
+ * Lines of operator-visible CLI output emitted since process start —
+ * `log.cli`, `log.cliWarn`, and `log.cliError`.
  *
  * Read by the CLI bridge to tell "this command printed its own report" from
  * "this command returned a payload and printed nothing" — the distinction that
@@ -372,13 +373,19 @@ type DefaultLogger = ReturnType<typeof createLogger>;
  * `printed` flag, and a shared formatter that guessed wrong would either double-
  * print a self-rendered report or keep swallowing findings.
  *
+ * `cliDebug` is deliberately EXCLUDED. It logs at debug level, so at normal
+ * verbosity it emits nothing the operator sees; counting it would mark a command
+ * as having reported when the terminal stayed empty, and the payload would be
+ * suppressed — reinstating the very defect this counter exists to fix. The three
+ * counted channels all write unconditionally.
+ *
  * This is a process-wide counter, so it is only meaningful where one command
  * runs per process — which is exactly the CLI, its sole consumer. The MCP
  * server increments it too and never reads it.
  */
 let cliOutputLineCount = 0;
 
-/** Current value of the `log.cli` line counter. See `cliOutputLineCount`. */
+/** Current value of the visible-CLI-output line counter. See `cliOutputLineCount`. */
 export function getCliOutputLineCount(): number {
   return cliOutputLineCount;
 }
@@ -397,8 +404,14 @@ export const log: DefaultLogger = {
     cliOutputLineCount++;
     return getDefaultLogger().cli(message);
   },
-  cliWarn: (message) => getDefaultLogger().cliWarn(message),
-  cliError: (message) => getDefaultLogger().cliError(message),
+  cliWarn: (message) => {
+    cliOutputLineCount++;
+    return getDefaultLogger().cliWarn(message);
+  },
+  cliError: (message) => {
+    cliOutputLineCount++;
+    return getDefaultLogger().cliError(message);
+  },
   setLevel: (level) => getDefaultLogger().setLevel(level),
   cliDebug: (message) => getDefaultLogger().cliDebug(message),
   systemDebug: (message) => getDefaultLogger().systemDebug(message),

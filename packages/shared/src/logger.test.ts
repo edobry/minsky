@@ -25,7 +25,12 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import * as winston from "winston";
-import { createLogger, TEST_LOGGER_SILENCED_FLAG } from "@minsky/shared/logger";
+import {
+  createLogger,
+  getCliOutputLineCount,
+  log,
+  TEST_LOGGER_SILENCED_FLAG,
+} from "@minsky/shared/logger";
 
 const flagHolder = globalThis as Record<string, unknown>;
 
@@ -64,5 +69,40 @@ describe("logger console silence under the test harness (mt#2975)", () => {
 
     expect(transports.length).toBeGreaterThan(0);
     expect(transports.some((t) => t.silent === true)).toBe(false);
+  });
+});
+
+/**
+ * Visible-CLI-output line counter (mt#3870).
+ *
+ * The CLI bridge reads this counter around `execute` to tell "this command
+ * printed its own report" from "this command printed nothing", which decides
+ * whether the generic result formatter renders the payload's keys. Both
+ * directions matter and fail differently:
+ *
+ * - Miss a channel a command actually reports through, and the formatter dumps
+ *   the payload underneath the report — printing the findings twice. PR #2840
+ *   R1 caught exactly that for `cliWarn` / `cliError`.
+ * - Count a channel the operator never sees, and the formatter suppresses the
+ *   payload for output nobody read — reinstating the discard the counter exists
+ *   to fix. That is why `cliDebug` must stay uncounted.
+ */
+describe("visible-CLI-output line counter", () => {
+  test("counts every channel that writes unconditionally", () => {
+    const before = getCliOutputLineCount();
+
+    log.cli("a report line");
+    log.cliWarn("a warning line");
+    log.cliError("an error line");
+
+    expect(getCliOutputLineCount() - before).toBe(3);
+  });
+
+  test("does not count cliDebug, which is filtered out at normal verbosity", () => {
+    const before = getCliOutputLineCount();
+
+    log.cliDebug("a debug line");
+
+    expect(getCliOutputLineCount() - before).toBe(0);
   });
 });

@@ -176,8 +176,9 @@ export class CommandGeneratorCore {
         }
 
         // Execute the command with parameters and context.
-        // The surrounding line count tells the result formatter whether this
-        // command printed its own report (mt#3870) — see ResultRenderOptions.
+        // The surrounding count of operator-visible CLI output lines tells the
+        // result formatter whether this command printed its own report
+        // (mt#3870) — see ResultRenderOptions.
         const cliLinesBeforeExecute = getCliOutputLineCount();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await commandDef.execute(normalizedParams, context, validatedCtx as any);

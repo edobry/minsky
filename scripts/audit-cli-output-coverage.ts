@@ -62,17 +62,17 @@ interface Classification {
   keysBehindSpread: boolean;
 }
 
-/**
- * A command whose `execute` is a thin wrapper delegating to a class method
- * (`(params, ctx) => command.execute(params, ctx)`) exposes nothing useful via
- * `Function.prototype.toString`. Anything shorter than this with no object
- * literal in it is treated as a wrapper and resolved through its defining file
- * instead.
- */
-const DELEGATING_WRAPPER_MAX_LENGTH = 200;
-
-const SELF_PRINT_RE = /log\.cli\(/;
+/** Any of the three operator-visible CLI output channels — see the logger's line counter. */
+const SELF_PRINT_RE = /log\.(cli|cliWarn|cliError)\(/;
 const RETURN_LITERAL = "return {";
+
+/**
+ * Longest `execute` body still treated as a thin delegation when it contains no
+ * return literal. Above this the body is substantial enough that its own text
+ * is the better reading even without a literal — see `readCommandSource` for
+ * the measurements behind keeping this narrow.
+ */
+const THIN_BODY_MAX_LENGTH = 200;
 
 /**
  * Top-level keys of every `return { … }` object literal in `text`.
@@ -147,11 +147,29 @@ async function indexSources(): Promise<Map<string, string>> {
  * The source text to classify a command from.
  *
  * `execute.toString()` is preferred because it is exact — it is the function
- * actually registered, with no name-collision risk. It falls down only for
- * delegating wrappers, where the whole implementation lives in a class the
- * closure captures and `toString` cannot reach; there the defining file (the
- * one declaring `id: "<the id>"`) is the next best whole-file approximation,
- * and is marked as such so a reader can weigh it accordingly.
+ * actually registered, with no name-collision risk. It falls down for a thin
+ * body that delegates elsewhere, where the registered function's own text says
+ * nothing about the payload: `(p, c) => command.execute(p, c)`, or
+ * `async () => getRulesPresets()`.
+ *
+ * The fallback is the file declaring `id: "<the id>"`, scanned WHOLE — a
+ * deliberately coarse reading, since one file often defines several commands
+ * and their text bleeds together. That coarseness is why the trigger is kept
+ * narrow rather than widened to every body lacking a return literal. Both
+ * wider alternatives were tried and measured against this tree:
+ *
+ * - Matching only the `x.execute(…)` forwarding shape misses a delegation to a
+ *   plain function; `rules.config`, `rules.presets`, and `reviewer.retrigger`
+ *   all fell through to `json-dump` on an empty reading.
+ * - Falling back whenever no return literal is present — which also catches a
+ *   body returning an already-built variable — puts 80 of 189 commands on the
+ *   whole-file scan, and inflates `renders-own-report` from 13 to 23 as one
+ *   command's `log.cli` is attributed to every command sharing its file.
+ *
+ * So the trigger stays "thin AND no return literal", which leaves 13 of 189 on
+ * the coarse path. Those are marked `basis: "defining-file"` and reported as
+ * such, because the honest handling of an approximate reading is to label it,
+ * not to hide it behind a wider one.
  */
 function readCommandSource(
   id: string,
@@ -159,9 +177,10 @@ function readCommandSource(
   sources: Map<string, string>
 ): { text: string; basis: Classification["basis"] } {
   const executeSource = String(execute);
-  const isDelegatingWrapper =
-    executeSource.length < DELEGATING_WRAPPER_MAX_LENGTH && !executeSource.includes("return {");
-  if (!isDelegatingWrapper) {
+  const isThinDelegation =
+    executeSource.length < THIN_BODY_MAX_LENGTH &&
+    topLevelReturnKeys(executeSource).keys.size === 0;
+  if (!isThinDelegation) {
     return { text: executeSource, basis: "execute-source" };
   }
   for (const [, text] of sources) {
