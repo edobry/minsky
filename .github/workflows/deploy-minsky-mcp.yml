@@ -316,11 +316,25 @@ jobs:
             sleep 5
           done
 
-          # Railway identifier from services/minsky-mcp/deploy.config.ts, kept
+          # Railway identifiers from services/<svc>/deploy.config.ts, kept
           # inline to match the convention in this file and deploy-reviewer.yml.
           # No `railway link` is needed: a project-scoped RAILWAY_TOKEN carries
           # its own project+environment context (mt#3251).
-          SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
+          #
+          # mt#3933 — this was ONE id (minsky-mcp's) until 2026-08-11. But
+          # minsky-ops is configured for the SAME `ghcr.io/edobry/minsky:latest`
+          # tag the push step above just moved, in the same project and the same
+          # environment, and NOTHING redeployed it: it served one image from
+          # 2026-07-31 to 2026-08-10 while minsky-mcp deployed dozens of times —
+          # HEALTHY and FROZEN the whole way, which is the exact class the
+          # digest check (mt#3251) exists to catch. Every service on the shared
+          # tag is redeployed here, and the coverage guard below fails the
+          # deploy if that stops being true.
+          #
+          # Format: "<service-dir> <serviceId>", one per line. Leading
+          # indentation is stripped by `read`, so the lines may stay aligned.
+          REDEPLOY_SERVICES="minsky-mcp a7c5195f-55de-472a-87e4-34e921a15171
+          minsky-ops f6e3f285-8075-4845-934b-8e9bed15ab12"
           # PROJECT_ID / ENVIRONMENT_ID are needed for the account-token path
           # (mt#3927). ENVIRONMENT_ID was present in the pre-mt#3907 curl and
           # was dropped in the CLI migration, because a PROJECT token does not
@@ -328,23 +342,54 @@ jobs:
           PROJECT_ID="0e054318-7e19-4489-8e1e-de787965161d"
           ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
 
-          # These three are copies of values that live in
-          # services/minsky-mcp/deploy.config.ts (PR #2776 R1 NON-BLOCKING:
+          # These ids are copies of values that live in
+          # services/<svc>/deploy.config.ts (PR #2776 R1 NON-BLOCKING:
           # inline ids duplicate the source of truth). This job has no bun
           # step, so the .ts cannot simply be imported — instead the copies are
           # ASSERTED against the source, so drift fails the deploy loudly
           # instead of silently redeploying the wrong service. A duplicate that
-          # is checked is not a second source of truth.
-          CFG="services/minsky-mcp/deploy.config.ts"
-          for pair in "projectId:${PROJECT_ID}" "environmentId:${ENVIRONMENT_ID}" "serviceId:${SERVICE_ID}"; do
-            field="${pair%%:*}"
-            value="${pair#*:}"
-            if ! grep -q "${field}: \"${value}\"" "${CFG}"; then
-              echo "::error::${field} in this workflow (${value}) does not match ${CFG}. Update the workflow, or the id changed upstream — do not deploy against a stale id."
+          # is checked is not a second source of truth. Each listed service is
+          # checked against ITS OWN config, not just the first one's.
+          while read -r svc service_id; do
+            [ -n "${svc}" ] || continue
+            CFG="services/${svc}/deploy.config.ts"
+            if [ ! -f "${CFG}" ]; then
+              echo "::error::${CFG} does not exist, but this workflow redeploys ${svc}. The service was renamed or removed — update REDEPLOY_SERVICES."
               exit 1
             fi
+            for pair in "projectId:${PROJECT_ID}" "environmentId:${ENVIRONMENT_ID}" "serviceId:${service_id}"; do
+              field="${pair%%:*}"
+              value="${pair#*:}"
+              if ! grep -q "${field}: \"${value}\"" "${CFG}"; then
+                echo "::error::${field} in this workflow (${value}) does not match ${CFG}. Update the workflow, or the id changed upstream — do not deploy against a stale id."
+                exit 1
+              fi
+            done
+            echo "Railway ids verified against ${CFG}."
+          done <<< "${REDEPLOY_SERVICES}"
+
+          # mt#3933 — the assert above proves every LISTED service is real; this
+          # proves the LIST IS COMPLETE, which is the half that was missing.
+          # The health monitor derives its service set from
+          # services/*/deploy.config.ts; this deployer hardcoded one id. That
+          # asymmetry is what let a second service on the shared tag go
+          # unnoticed for 10.5 days, and a third would repeat it. Adding a
+          # service on this tag without adding it here now fails the deploy
+          # instead of silently shipping it a stale image forever.
+          SHARED_IMAGE="ghcr.io/edobry/minsky:latest"
+          uncovered=""
+          for cfg in services/*/deploy.config.ts; do
+            grep -q "image: \"${SHARED_IMAGE}\"" "${cfg}" || continue
+            cfg_svc="$(basename "$(dirname "${cfg}")")"
+            if ! printf '%s\n' "${REDEPLOY_SERVICES}" | grep -qE "(^|[[:space:]])${cfg_svc}[[:space:]]"; then
+              uncovered="${uncovered} ${cfg_svc}"
+            fi
           done
-          echo "Railway ids verified against ${CFG}."
+          if [ -n "${uncovered}" ]; then
+            echo "::error::These services declare ${SHARED_IMAGE} but are not in this job's redeploy list:${uncovered}. Add each to REDEPLOY_SERVICES with the serviceId from its deploy.config.ts, or give it its own image tag. A service on a shared mutable tag that nothing redeploys serves a stale image indefinitely, while reporting SUCCESS and answering /health 200 (mt#3933)."
+            exit 1
+          fi
+          echo "Shared-tag coverage verified: every services/*/deploy.config.ts on ${SHARED_IMAGE} is in the redeploy list."
 
           # mt#3925 — the CLI takes the token in a DIFFERENT env var depending
           # on the token's scope, per Railway's CLI docs:
@@ -410,20 +455,24 @@ jobs:
           # on `link` is therefore about ORDER (do not attempt a redeploy after
           # a failed link), not about errexit.
           redeploy_with() {
-            # $1 = env var name to carry the token
-            # $2 = "link" to establish project context first (account scope)
+            # $1 = the Railway service id to redeploy (mt#3933 — was the
+            #      workflow-global SERVICE_ID; now per-service, because more
+            #      than one service rides the tag this job pushes)
+            # $2 = env var name to carry the token
+            # $3 = "link" to establish project context first (account scope)
+            local service_id="$1"
             local attempt_dir
             attempt_dir="$(mktemp -d)"
             (
               cd "${attempt_dir}" || exit 1
-              if [ "${2:-}" = "link" ]; then
-                env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
+              if [ "${3:-}" = "link" ]; then
+                env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$2=${DEPLOY_TOKEN}" \
                   railway link --project "${PROJECT_ID}" \
                                --environment "${ENVIRONMENT_ID}" \
-                               --service "${SERVICE_ID}" || exit 1
+                               --service "${service_id}" || exit 1
               fi
-              env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$1=${DEPLOY_TOKEN}" \
-                railway redeploy --from-source --service "${SERVICE_ID}" -y
+              env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$2=${DEPLOY_TOKEN}" \
+                railway redeploy --from-source --service "${service_id}" -y
             )
           }
 
@@ -440,16 +489,30 @@ jobs:
             railway whoami 2>&1 | sed -E 's/([A-Za-z0-9._%+-]+)@/***@/g' \
             || echo "note: whoami reported no identity — expected for a project token, see below."
 
-          echo "Attempt 1/2: treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN + railway link)."
-          if redeploy_with RAILWAY_API_TOKEN link; then
-            echo "Railway redeploy triggered successfully via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
-          else
-            echo "Attempt 1 failed — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
-            if redeploy_with RAILWAY_TOKEN; then
-              echo "Railway redeploy triggered successfully via the CLI (${DEPLOY_TOKEN_SOURCE}, project scope)."
-            else
-              rc=$?
-              echo "::error::railway redeploy failed under BOTH token scopes (exit ${rc}). The token from the ${DEPLOY_TOKEN_SOURCE} secret is not valid for this service as either an account/workspace token or a project token — re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
-              exit "$rc"
+          # mt#3933 — every service on the shared tag is redeployed, and the
+          # loop does NOT short-circuit on the first failure: a run where
+          # minsky-mcp succeeds and minsky-ops fails must report BOTH, because
+          # the whole point of this task is that a service failing to redeploy
+          # is invisible from the outside. Failures are collected and the job
+          # exits non-zero at the end.
+          failed_services=""
+          while read -r svc service_id; do
+            [ -n "${svc}" ] || continue
+            echo "Attempt 1/2 for ${svc} (${service_id}): treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN + railway link)."
+            if redeploy_with "${service_id}" RAILWAY_API_TOKEN link; then
+              echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
+              continue
             fi
+            echo "Attempt 1 failed for ${svc} — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
+            if redeploy_with "${service_id}" RAILWAY_TOKEN; then
+              echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, project scope)."
+              continue
+            fi
+            echo "::error::railway redeploy failed under BOTH token scopes for ${svc} (${service_id})."
+            failed_services="${failed_services} ${svc}"
+          done <<< "${REDEPLOY_SERVICES}"
+
+          if [ -n "${failed_services}" ]; then
+            echo "::error::railway redeploy failed for:${failed_services}. The token from the ${DEPLOY_TOKEN_SOURCE} secret is not valid for those services as either an account/workspace token or a project token — re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
+            exit 1
           fi

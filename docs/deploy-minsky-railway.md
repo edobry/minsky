@@ -214,6 +214,50 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
 
+### Two services ride `ghcr.io/edobry/minsky:latest` — both must be redeployed (mt#3933)
+
+`services/minsky-mcp/deploy.config.ts` and `services/minsky-ops/deploy.config.ts`
+declare the **same** image tag, in the same Railway project and environment.
+They differ only by a start-command override (minsky-ops runs `ops start`;
+minsky-mcp runs the image's own `CMD`), which lives in dashboard-only state
+(mt#3848). `services/reviewer` is on a separate tag
+(`ghcr.io/edobry/minsky-reviewer:latest`) and is deployed by
+`deploy-reviewer.yml`.
+
+Pushing the tag does not deploy anything by itself — a redeploy has to be
+triggered per service, and `railway redeploy` alone replays the existing
+deployment snapshot. Only `railway redeploy --from-source` re-resolves the tag
+(`railway redeploy --help`: "Pull and deploy the latest commit or image from the
+configured source, instead of redeploying the existing deployment"; the
+snapshot-replay half is recorded in mem#700).
+
+**`deploy-minsky-mcp.yml` therefore redeploys every service on the tag**, and
+its `Trigger Railway redeploy` step carries a coverage guard: if any
+`services/*/deploy.config.ts` declares this image and is missing from the
+workflow's `REDEPLOY_SERVICES` list, the deploy FAILS rather than silently
+leaving that service on a stale image. Until 2026-08-11 the step redeployed
+only minsky-mcp, and minsky-ops served one image from 2026-07-31 to 2026-08-10
+— SUCCESS on Railway and 200 on `/health` throughout, visible only to the
+digest comparison in the post-deploy health monitor.
+
+Re-verify the wiring without a deploy:
+
+```bash
+bun scripts/verify-deploy-redeploy-coverage.ts
+```
+
+That script extracts the workflow's actual bash and runs it against a stub
+`railway` binary, so it checks the shipping code rather than a copy of it.
+
+**Railway's native "Image Auto Updates" is the vendor-canonical alternative and
+was deliberately not used.** It supports `ghcr.io` and watches non-semver tags
+for new pushes, but enablement is dashboard-only (no API or config-as-code
+path), and its detection is cached "up to a few hours"
+(`docs.railway.com/deployments/image-auto-updates`). Both are disqualifying
+here: this repo deploys on every merge to main, and dashboard-only state is the
+standing problem in this service pair (mt#3848), not an acceptable home for new
+deploy behavior.
+
 ## Standing deployment triggers vs `sourceImage` (mt#3142)
 
 A Railway service can hold `source.image` (an explicit image-source deploy) **and** a standing
@@ -510,10 +554,21 @@ Concretely, every Minsky service emits a `service` field in its health body:
 | ---------- | ------------- | ----------------- |
 | cockpit    | `/api/health` | `minsky-cockpit`  |
 | minsky-mcp | `/health`     | `minsky-mcp`      |
+| minsky-ops | `/health`     | `minsky-ops`      |
 | reviewer   | `/health`     | `minsky-reviewer` |
 | site       | `/health`     | `minsky-site`     |
 
-`minsky-ops` has no application source and therefore no health endpoint.
+`minsky-ops` used to be listed here as having "no application source and
+therefore no health endpoint." That has been false since 2026-07-29 (mt#2132),
+which gave it `source.image` and a start command; it answers `/health` 200 with
+`"service": "minsky-ops"` plus a per-loop status array (read live 2026-08-11).
+mt#3921 corrected three other copies of the same stale claim; mt#3933 found
+these. The identity assertion matters MORE for this service than for the
+others, not less: it runs the SAME `ghcr.io/edobry/minsky:latest` image as
+minsky-mcp and differs only by a start-command override held in dashboard-only
+state (mt#3848). If that override is ever lost it boots a second MCP server and
+answers 200 from the wrong application — the mt#3142 failure mode, with both
+candidate identities baked into one image.
 
 `minsky-mcp` **also** retains its pre-existing `server: "Minsky MCP Server"`
 key. That key is what mt#3142's own diagnosis read to identify the wrong app,
@@ -582,7 +637,7 @@ automatically on the next run.
 | `reviewer`   | yes                                | `https://minsky-reviewer-webhook-production.up.railway.app/health` |
 | `cockpit`    | yes                                | `https://cockpit-preview-production.up.railway.app/api/health`     |
 | `site`       | yes                                | `https://minsky-site-production.up.railway.app/health`             |
-| `minsky-ops` | no (empty serviceId) — skipped     | `null` — no health check                                           |
+| `minsky-ops` | yes (`f6e3f285-…`, since mt#2132)  | `https://minsky-ops-production.up.railway.app/health`              |
 
 **Alerts:**
 
