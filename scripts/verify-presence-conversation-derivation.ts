@@ -40,6 +40,8 @@ import "reflect-metadata";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
+import { conversationIdFromAgentId } from "@minsky/domain/agent-identity/format";
+
 interface SqlCapablePersistence {
   getDatabaseConnection: () => Promise<PostgresJsDatabase | null>;
 }
@@ -116,42 +118,59 @@ async function main(): Promise<number> {
   const db = await connect();
   if (!db) return skip("no SQL-capable Postgres connection in this environment");
 
-  // The `conv:` segment is the substring after the LAST `:` for a
-  // conversation-scoped id; `actor_id LIKE '%:conv:%'` bounds the rows this
-  // compares to exactly the ones where a comparison is meaningful.
+  // Classification happens in TypeScript, through the SAME
+  // `conversationIdFromAgentId` the write path uses — NOT in SQL. A
+  // `LIKE '%:conv:%'` predicate cannot do this job: the agentId format allows a
+  // trailing `@{parent-agentId}` delegation chain, so a task-scoped actor
+  // delegating from a conversation matches the pattern on its PARENT and gets
+  // counted as conversation-scoped, and the same pattern can register a false
+  // agreement against the parent's uuid. The `conv:<parent>/task:<sub>`
+  // subagent form is a second case SQL string-matching gets wrong. Deriving the
+  // probe's own classification from the production parser also means the two
+  // cannot drift: if the parser's carve-outs change, this follows.
   const raw = await db.execute(sql`
-    select
-      case when ${cutover}::timestamptz is null then 'ALL'
-           when claimed_at >= ${cutover}::timestamptz then 'AFTER'
-           else 'BEFORE' end                                            as arm,
-      subject_kind,
-      count(*) filter (where actor_id like '%:conv:%')                  as conv_scoped,
-      count(*) filter (where actor_id like '%:conv:%'
-                         and cc_conversation_id is not null
-                         and actor_id like '%conv:' || cc_conversation_id) as agrees,
-      count(*) filter (where actor_id like '%:conv:%'
-                         and cc_conversation_id is not null
-                         and actor_id not like '%conv:' || cc_conversation_id) as disagrees,
-      count(*) filter (where actor_id like '%:conv:%'
-                         and cc_conversation_id is null)                as missing,
-      count(*) filter (where actor_id not like '%:conv:%')              as layer1
+    select subject_kind, actor_id, cc_conversation_id, claimed_at
     from presence_claims
-    group by 1, 2
-    order by 1, 2
   `);
 
-  // Postgres returns `count(*)` as bigint, which the driver hands back as a
-  // string. Coerce once here rather than at each comparison, where a forgotten
-  // Number() would silently compare "0" > 0 as false and report a pass.
-  const rows: ArmCounts[] = raw.map((r) => ({
-    arm: String(r.arm),
-    subject_kind: String(r.subject_kind),
-    conv_scoped: Number(r.conv_scoped),
-    agrees: Number(r.agrees),
-    disagrees: Number(r.disagrees),
-    missing: Number(r.missing),
-    layer1: Number(r.layer1),
-  }));
+  const buckets = new Map<string, ArmCounts>();
+  for (const r of raw) {
+    const claimedAt = r.claimed_at instanceof Date ? r.claimed_at : new Date(String(r.claimed_at));
+    const arm = !cutover ? "ALL" : claimedAt >= new Date(cutover) ? "AFTER" : "BEFORE";
+    const subjectKind = String(r.subject_kind);
+
+    // `arm` is one of ALL/AFTER/BEFORE, so the separator cannot collide.
+    const key = `${arm}|${subjectKind}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = {
+        arm,
+        subject_kind: subjectKind,
+        conv_scoped: 0,
+        agrees: 0,
+        disagrees: 0,
+        missing: 0,
+        layer1: 0,
+      };
+      buckets.set(key, bucket);
+    }
+
+    const expected = conversationIdFromAgentId(typeof r.actor_id === "string" ? r.actor_id : null);
+    if (expected === null) {
+      bucket.layer1 += 1;
+      continue;
+    }
+
+    bucket.conv_scoped += 1;
+    const stored = typeof r.cc_conversation_id === "string" ? r.cc_conversation_id : null;
+    if (stored === null) bucket.missing += 1;
+    else if (stored === expected) bucket.agrees += 1;
+    else bucket.disagrees += 1;
+  }
+
+  const rows = Array.from(buckets.values()).sort(
+    (a, b) => a.arm.localeCompare(b.arm) || a.subject_kind.localeCompare(b.subject_kind)
+  );
 
   if (rows.length === 0) return skip("presence_claims is empty — nothing to verify");
 

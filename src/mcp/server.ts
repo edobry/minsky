@@ -409,6 +409,13 @@ export class MinskyMCPServer {
    * write path is a no-op (graceful degradation).
    */
   private presenceClaimRepo: PresenceClaimRepository | undefined;
+  /**
+   * Latches once the conflicting-ambient-conversation warning has been emitted
+   * (mt#3945 PR #2847 R1). The check sits on the presence write path, which
+   * fires on every tool call carrying a task or session arg, so an unlatched
+   * warning would repeat thousands of times for one misconfiguration.
+   */
+  private warnedAmbientConversationConflict = false;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -1714,10 +1721,30 @@ export class MinskyMCPServer {
    * every conversation at once.
    */
   private resolveCcConversationId(actorId: string): string | undefined {
-    return resolvePresenceConversationId(
-      actorId,
-      process.env.CLAUDE_CODE_SESSION_ID ?? process.env.CC_CONVERSATION_ID
-    );
+    // Ambient precedence, for the Layer-1 path only: CLAUDE_CODE_SESSION_ID
+    // first, CC_CONVERSATION_ID second. Unifying two writers that read
+    // different variables forces a choice, and this one is deliberate rather
+    // than incidental — ADR-006 §Phase 2 names CLAUDE_CODE_SESSION_ID as the
+    // variable Claude Code actually sets, and it is the only one of the two
+    // ever observed populated (201 of 202 session rows; CC_CONVERSATION_ID has
+    // never produced a value in 6076 task rows). A setup exporting both to
+    // DIFFERENT values is a misconfiguration rather than a supported mode, so
+    // it is surfaced once per process rather than silently resolved.
+    const harnessValue = process.env.CLAUDE_CODE_SESSION_ID;
+    const legacyValue = process.env.CC_CONVERSATION_ID;
+    if (
+      !this.warnedAmbientConversationConflict &&
+      harnessValue &&
+      legacyValue &&
+      harnessValue !== legacyValue
+    ) {
+      this.warnedAmbientConversationConflict = true;
+      log.warn("CLAUDE_CODE_SESSION_ID and CC_CONVERSATION_ID disagree", {
+        using: "CLAUDE_CODE_SESSION_ID",
+      });
+    }
+
+    return resolvePresenceConversationId(actorId, harnessValue ?? legacyValue);
   }
 
   /**
