@@ -1,0 +1,68 @@
+{
+  "port": 48901,
+  "checks": 10,
+  "passed": 10,
+  "failed": 0,
+  "results": [
+    {
+      "id": "AT1",
+      "name": "daemon answers /health with the asserted minsky-mcp identity",
+      "passed": true,
+      "detail": "reachable=true service=minsky-mcp"
+    },
+    {
+      "id": "AT4",
+      "name": "the daemon generated its bearer token at mode 0600",
+      "passed": true,
+      "detail": "path=/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/minsky-daemon-verify-JPC21F/local-mcp-token mode=600"
+    },
+    {
+      "id": "SC6",
+      "name": "discovery file reflects the actual bound port and pid",
+      "passed": true,
+      "detail": "port=48901 pid=80157 (daemon pid=80157)"
+    },
+    {
+      "id": "AT5",
+      "name": "initialize is rejected without the token and accepted with it",
+      "passed": true,
+      "detail": "without=401 with=200"
+    },
+    {
+      "id": "AT2",
+      "name": "a second daemon on the same port adopts the incumbent and leaves one listener",
+      "passed": true,
+      "detail": "exit=0 listeners=1"
+    },
+    {
+      "id": "AT8",
+      "name": "above the watermark a NEW session is refused 503 (control: AT5 admitted the same request)",
+      "passed": true,
+      "detail": "status=503 body={\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Service unavailable: the shared MCP daemon is above its session-admission watermark (206MB of 1MB) and is not"
+    },
+    {
+      "id": "AT3",
+      "name": "a non-Minsky listener causes a loud failure naming the port, and no listener elsewhere",
+      "passed": true,
+      "detail": "exit=1 listeners-on-port=1"
+    },
+    {
+      "id": "AT6",
+      "name": "an idle session is reaped and its id stops resolving",
+      "passed": true,
+      "detail": "session=d7daba5e… status-after-idle=404"
+    },
+    {
+      "id": "AT7",
+      "name": "a resident-memory ceiling breach exits through the graceful cleanup path",
+      "passed": true,
+      "detail": "exit=0 role-logged=true"
+    },
+    {
+      "id": "teardown",
+      "name": "no listener left behind on any verification port",
+      "passed": true,
+      "detail": "none"
+    }
+  ]
+}

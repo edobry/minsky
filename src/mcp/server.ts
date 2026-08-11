@@ -441,7 +441,13 @@ export class MinskyMCPServer {
   private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
   private readonly SESSION_IDLE_TIMEOUT_MS: number =
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
-  private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
+  // mt#3814: made env-configurable alongside the timeout above. With a fixed
+  // 60s sweep, setting the idle timeout to seconds changes nothing observable
+  // for up to a minute — so the local tuning ADR-038 §Question 6 asks for was
+  // only half-tunable, and no bounded test could witness a reap at all. The
+  // default is unchanged, so no existing deployment is affected.
+  private readonly SESSION_REAPER_INTERVAL_MS: number =
+    Number.parseInt(process.env.MINSKY_MCP_SESSION_REAPER_INTERVAL_MS ?? "", 10) || 60 * 1000;
 
   // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
   // ever registered. Deliberately distinct from `httpSessions.size > 0`,

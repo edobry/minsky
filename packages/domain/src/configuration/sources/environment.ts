@@ -252,6 +252,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
   "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
   "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
+  "MINSKY_MCP_SESSION_REAPER_INTERVAL_MS", // src/mcp/server.ts (mt#3814 — sweep interval; pairs with the idle timeout above, which was untunable without it)
+  "MINSKY_MCP_SESSION_ADMISSION_WATERMARK_MB", // src/mcp/daemon/memory-admission.ts (mt#3814 — resident-memory watermark above which the shared daemon refuses NEW sessions)
   "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
   "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS", // src/mcp/command-mapper.ts (mt#2778 — escape hatch: downgrade undeclared-param rejection to a warn log; promote to mcp.allowUnknownParams if it grows)
   "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES", // src/adapters/mcp/shared-command-integration.ts (mt#3155 — escape hatch: downgrade wrong-typed provided-value rejection to a warn log; promote to mcp.allowInvalidParamValues if it grows)
