@@ -1,9 +1,17 @@
 {
   "name": "@edobry/minsky",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edobry/minsky.git"
+  },
+  "homepage": "https://github.com/edobry/minsky#readme",
+  "bugs": {
+    "url": "https://github.com/edobry/minsky/issues"
   },
   "description": "The engineering organization around your AI agents — tasks, isolated sessions, adversarial review, memory, and decision routing, built as environment.",
   "icon": "assets/icon/minsky-icon.svg",
@@ -153,8 +161,6 @@
     "@clack/prompts": "^0.11.0",
     "@dotenvx/dotenvx": "^1.45.2",
     "@hpcc-js/wasm": "^2.26.1",
-    "@minsky/domain": "workspace:*",
-    "@minsky/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^22.0.0",
     "@pnpm/tabtab": "^0.5.4",

@@ -260,11 +260,65 @@ routine half was approved as recommended 3 for 3.
 - **Ask — always.** Anything that changes **enforcement posture**: log-only →
   live, live → blocking, retiring a detector or one of its match categories, or
   changing a threshold. These change whether a detector interrupts agents, which
-  is the thing the principal reserves.
+  is the thing the principal reserves. **One narrow exception**, below.
 
 The line is _whether a detector interrupts agents_, not _whether someone writes a
 task about one_. When a pass produces only file-it-yourself dispositions, it emits
 NO Ask — go straight to Step 5 and read its no-Ask case.
+
+#### The one exception: a match category a shipped change made provably dead (mt#3946)
+
+The axis the split is really drawn on is **preference-bound vs determinate**, not
+posture-vs-not. Posture changes are almost always preference-bound, which is why
+the two coincide — but not always, and the gap costs the principal a round-trip
+for a foregone conclusion.
+
+Originating incident (2026-08-10, ask#7639): `mt#2565` shipped a display
+linkifier that auto-links bare `mt#N` / `PR #N` refs, and the next pass measured
+**13 of 13** injected warnings for that class as false BY CONSTRUCTION. The pass
+filed an operator Ask anyway, because "retire a match category" is on the
+always-Ask list. The operator answered with the recommended option and then said:
+_"i dont think you needed me for that one."_ They were right — there was no
+preference to express.
+
+**Retire the category yourself, with no Ask, when ALL SIX hold:**
+
+1. **A specific shipped change is named** — task id plus verified-DONE status —
+   that is the reason the category's fires are now false. Read the status; do not
+   infer it.
+2. **The evidence is TOTAL, not merely lopsided:** 100% of the injected fires in
+   the review window fall in the superseded class. A high-but-partial rate is a
+   TUNE (already file-it-yourself) or an Ask — never this.
+3. **The retirement is scoped to that ONE category.** The detector keeps firing on
+   everything else. Retiring a whole detector stays always-Ask.
+4. **No other OPEN Ask covers the same detector's posture.** If one is open, fold
+   this into it rather than acting underneath it. ("Open," not "live" — this
+   skill uses LIVE for a detector's enforcement posture, and an Ask has no
+   posture; the two words must not blur here.)
+5. **At least one live category remains on the detector.** Retiring the last one
+   IS whole-detector retirement, and a detector with no live category is
+   indistinguishable from a dead one — the failure `coverage-receipt.ts` exists to
+   catch, which would FLAG it rather than recognize it as deliberate. Per
+   **ADR-032**: _"a guard tuned into permanent silence is indistinguishable from a
+   dead one."_
+6. **The pass output names what it did NOT ask about** — the shipped change and
+   its status, the fire counts, the detector's remaining live categories, and an
+   explicit note that no Ask was filed. A wrong call must be visible.
+
+**Why this does not reach the principal-reserved attention model.** ADR-031 makes
+the attention model principal-reserved: anything changing _when and how the
+principal receives guidance_ routes through an ask. A `Stop`-event advisory IS
+rendered in the principal's scroll, so this is not automatically outside that.
+Condition 2 is what settles it — a class whose every fire is provably false
+carries no information, so retiring it strictly REMOVES noise and removes nothing
+else. That is the direction ADR-031's attention model protects. It also satisfies
+ADR-032's _"a move may never silence a fire the operator acted on"_: there is no
+such fire in a provably-false class. **Weaken condition 2 and both arguments fail
+with it** — which is why "obviously correct" is not a substitute for measuring.
+
+If ANY of the six fails, the disposition is an Ask, exactly as before. When in
+doubt, ask: this exception is for the case where asking is demonstrably a
+formality, not for the case where you are confident.
 
 A disposition that is BOTH (e.g. "flip to live, and file a tune for the phrases
 driving the remaining FPs") files the task AND asks about the flip; do not fold
@@ -277,20 +331,22 @@ Emit a single operator-routed Ask via `mcp__minsky__asks_create` with
 "Why `direction.decide`, not `quality.review`" below). Do not flip anything
 yourself — the Ask decides it, not you.
 
-**Acceptance bar (mt#3326): the ask must pass the cold-reader test.** Before
-calling `asks_create`, read your drafted body as a fresh, minimal-context
-evaluator who has never seen this skill, this codebase, or these detector
-names would read it. That reader must be able to, from the body alone:
+**Acceptance bar: the ask must pass the cold-reader test.** The bar itself is
+stated once, in **`/escalation-packaging` §The cold-reader bar** — read it
+there rather than from a copy here. It applies to every operator-facing ask,
+not only this skill's; mt#3326 originally installed it here alone, and
+ask#7591 (2026-08-10) was the recurrence that reached the principal through a
+path this skill does not touch, which is why the canonical text moved
+(mt#3929).
 
-1. State in one sentence what decision is being asked.
-2. Predict what each option does if clicked — including any downstream
-   consequence (like a flip creating a double-injection risk).
-
-If you can't answer both from the body text, rewrite before creating — don't
-ship and hope the operator infers it. (Originating incident: ask#6448,
-2026-07-29, filed by this skill, failed exactly this test: seven undefined
-detector names, "live vs log-only" never defined, and a recommended option
-that bundled a flip whose precondition — dedup — was not yet satisfied.)
+What is specific to THIS skill: a disposition ask carries detector names and
+`live` vs `log-only`, which are exactly the terms a cold reader cannot
+resolve — so it clears the bar's "dispatch a real cold reader" trigger nearly
+every time. Assume you need the subagent pass here rather than deciding you
+don't. (Originating incident: ask#6448, 2026-07-29, filed by this skill,
+failed exactly this test: seven undefined detector names, "live vs log-only"
+never defined, and a recommended option that bundled a flip whose
+precondition — dedup — was not yet satisfied.)
 
 ### Step 4a — Plain-language lead, THEN stats
 

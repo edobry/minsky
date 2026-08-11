@@ -5474,6 +5474,10 @@
                   "flags": ["--editor"],
                   "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--acknowledge-form-warnings"],
+                  "description": "When true, bypass the form-lint hard-reject (mt#3929) for this edit call. The same escape asks_create offers: use it when the ask is genuinely long/complex and the violation is warranted, or when repairing one field of an ask whose pre-existing body already violates. Without it, an edit whose RESULTING question/options fail any form-lint check is rejected."
                 }
               ],
               "arguments": [

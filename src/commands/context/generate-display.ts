@@ -5,7 +5,12 @@
  */
 
 import { log } from "@minsky/shared/logger";
-import { formatContextWindowSize, formatContextWindowUtilization } from "./generate-analysis";
+import {
+  formatApproximationNote,
+  formatAssembledContextLine,
+  formatContextWindowSize,
+  formatContextWindowUtilization,
+} from "./generate-analysis";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -25,9 +30,19 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
     log.cli(`Model: ${analysis.metadata.model}`);
     log.cli(`Interface Mode: ${analysis.metadata.interface}`);
     if (analysis.metadata.tokenizer) {
+      // Naming the approximation here is the whole point: an unlabelled
+      // `o200k_base` beside an Anthropic model reads as that model's
+      // tokenizer, which it is not (mt#3928).
       log.cli(
         `Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`
       );
+      const approximationNote = formatApproximationNote(
+        analysis.metadata.tokenizer,
+        analysis.metadata.model
+      );
+      if (approximationNote) {
+        log.cli(approximationNote);
+      }
     }
     log.cli(`Context Window: ${formatContextWindowSize(analysis.metadata.contextWindowSize)}`);
     log.cli(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);
@@ -36,6 +51,16 @@ export function displayAnalysisResults(analysis: AnalysisResult, options: Genera
 
   // Summary
   log.cli(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
+  /**
+   * The assembly header belongs to no component, so it is absent from the
+   * breakdown's denominator. Naming the difference is what keeps `Total Tokens`
+   * from silently disagreeing with the context an operator actually sends
+   * (mt#3458) — the breakdown below sums to `Total Tokens`, not to this.
+   */
+  const assembledLine = formatAssembledContextLine(analysis.summary);
+  if (assembledLine) {
+    log.cli(assembledLine);
+  }
   log.cli(`Total Components: ${analysis.summary.totalComponents}`);
   log.cli(
     `Context Window Utilization: ${formatContextWindowUtilization(analysis.summary.contextWindowUtilization)}`

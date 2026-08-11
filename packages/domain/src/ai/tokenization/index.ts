@@ -10,6 +10,9 @@ export type {
   LocalTokenizer,
   TokenizerRegistry,
   TokenizerMetadata,
+  // `TokenizerRegistry.resolveForModel` returns this, so a consumer importing
+  // the interface from this index needs to be able to name it (PR #2801 R2).
+  TokenizerResolution,
   TokenizationService,
   TokenizerComparison,
   TokenizerConfig,

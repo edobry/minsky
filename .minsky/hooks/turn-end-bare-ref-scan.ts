@@ -16,14 +16,30 @@
 //
 // Posture is PER FINDING CLASS, and `run()`'s return paths below are the
 // authority on it:
-//   - `bare-ref` / `malformed-target` / `raw-uuid-label` are LIVE. A fire
+//   - `bare-short-id` / `malformed-target` / `raw-uuid-label` are LIVE. A fire
 //     returns `additionalContext`, which the dispatcher MERGES into the Stop
 //     event's `hookSpecificOutput` — subject to that merge's char budget, so a
 //     lower-priority fragment can be dropped (named in a trailing notice,
 //     never silently).
-//   - `bare-short-id` is RECORD-ONLY, per the v0 carve-out documented on the
-//     scanner. A message carrying only those findings writes a calibration
-//     record and no text.
+//   - `bare-ref` (`mt#N` / `PR #N`) is RECORD-ONLY. A message carrying only
+//     those findings writes a calibration record and no text.
+//
+// mt#3897 SWAPPED those two classes; the scanner's header carries the full
+// rationale. In short: the display linkifier (mt#2565) now repairs `mt#N` and
+// `PR #N` at render time, so warning about them was measured false 13 times out
+// of 13, while the short-id families it cannot derive a target for are the ones
+// still costing the reader a lookup.
+//
+// EXPIRY CONDITION — FIRED 2026-08-10, posture deliberately UNCHANGED. mt#3914
+// shipped the cached short-id → UUID map, so the linkifier now repairs
+// `ask#N` / `mem#N` / `ws#N` — but only when the id is IN the map. An id minted
+// since the last sweep, or any id at all when no cockpit is running to refresh
+// the cache, still reaches the reader bare. So this is a narrowing of the
+// flagged population, not the clean auto-repair `bare-ref` got, and the right
+// input to the decision is the post-mt#3914 fire rate rather than the ship
+// event. This is a posture change and therefore an operator decision — it is
+// surfaced, not flipped, and a `/calibration-review` pass over the fires
+// recorded from here on is the vehicle (ask#7639 is the precedent).
 //
 // Neither class is gated on the other — whichever fires, a calibration record
 // is written, and that log is what a `/calibration-review` pass rates. The one
@@ -41,8 +57,11 @@
 // @see mt#3459 — the display-surface linkifier decision; until that ships the
 //      authoring burden is real and unenforced, which is what this measures
 
+import { readFileSync } from "node:fs";
+
 import type { ClaudeHookInput } from "./types";
 import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
+import { calibrationLogPath } from "./dispatcher";
 import { extractAssistantText, extractFinalTurn } from "./transcript";
 import { scanMessage, type ScanFinding } from "./bare-entity-ref-scan";
 
@@ -83,19 +102,46 @@ export interface StopHookInput extends ClaudeHookInput {
  * summarizing the remainder as one "…and K more" line so a truncated list is
  * never mistaken for a complete one.
  */
-export function formatBareRefAdvisory(findings: ScanFinding[]): string {
+export function formatBareRefAdvisory(
+  findings: ScanFinding[],
+  options: { warnNextIsCapped?: boolean } = {}
+): string {
   const header =
     "[turn-end-bare-ref-scan] The closing message carries entity refs the reader cannot click (mt#3286).";
+  // "AND any ref you name while doing so" is the cheap half of the mt#3860 fix:
+  // the loop is fed by remedy messages that name a ref in order to explain
+  // which ones they are linking. Asking for both in one pass would have
+  // collapsed the originating five-turn chain into two.
+  // The examples must name the classes that actually fire (mt#3897). They used
+  // to show `[mt#N](…)` / `[PR #N](…)` — now record-only, since the display
+  // linkifier repairs those — which would hand the agent a remedy for a defect
+  // it was not being told about.
   const action =
-    "Link them before ending the turn: [mt#N](minsky://task/mt%23N), [PR #N](minsky://changeset/N). " +
-    "The obligation is per MESSAGE — the closing message is where the operator acts.";
+    "Link them — and any ref you name while doing so — before ending the turn: " +
+    "[ask#N](minsky://ask/<uuid>), [mem#N](minsky://memory/<uuid>). " +
+    "The target is the full UUID, not the short id (ADR-029); one refs_status " +
+    "call resolves it. If it genuinely cannot be resolved, leave the ref bare " +
+    "and say so. The obligation is per MESSAGE; the closing message is where " +
+    "the operator acts.";
 
   const line = (f: ScanFinding): string => `  - ${f.ref}: ${f.reason}`;
+
+  // mt#3937: the chain cap makes the guard go SILENT on the next consecutive
+  // continuation — and a silent turn is indistinguishable from a clean one, so
+  // the reader gets a false all-clear about refs they genuinely cannot click.
+  // The disclosure cannot ride on the capped turn itself: `run()` returns before
+  // producing any text there, and attaching it would re-enter the very loop
+  // mt#3860 closed. So it is PRE-EMPTIVE — carried by the last advisory that
+  // still renders, one turn before the silence.
+  const capNotice =
+    "If you continue again without an operator turn, this check goes silent — " +
+    "clear every ref now, not next message.";
 
   const render = (listed: string[], omitted: number): string => {
     const lines = [header, "", ...listed];
     if (omitted > 0) lines.push(`  …and ${omitted} more`);
     lines.push("", action);
+    if (options.warnNextIsCapped) lines.push("", capNotice);
     return lines.join("\n");
   };
 
@@ -108,6 +154,106 @@ export function formatBareRefAdvisory(findings: ScanFinding[]): string {
     listed.push(line(f));
   }
   return render(listed, findings.length - listed.length);
+}
+
+/**
+ * The slice of a prior calibration record this guard reads back to bound its
+ * own chain (mt#3860).
+ */
+export interface PriorFireRecord {
+  session_id?: string;
+  stop_hook_active?: boolean;
+  advisory_emitted?: boolean;
+}
+
+/**
+ * Decide whether THIS continuation's advisory is capped — the pure half, so
+ * the decision is testable without a filesystem.
+ *
+ * The defect (mt#3860): this guard's remedy is to write a short message linking
+ * the flagged refs, and that message is itself a closing message. Explaining
+ * WHICH refs you are linking, or naming an adjacent task while doing so,
+ * mentions refs — and a one-line linking message has no room to link every ref
+ * it must name without naming more. Measured over the guard's own log: 42% of
+ * all fires are Stop-hook continuations, and the longest observed chain ran
+ * three turns with no operator turn between them.
+ *
+ * The rule: a chain gets ONE follow-up. Fire normally on an ordinary turn; fire
+ * once more on the first continuation (that one is usually a real miss — 26 of
+ * 63 measured continuations named refs the previous message had not); go silent
+ * from the second consecutive continuation on, because past that point the
+ * guard is reacting to text it caused.
+ *
+ * Deliberately NOT a length or ref-density threshold. `stop_hook_active` is a
+ * structural signal already present on every record, so this needs no tuned
+ * number — which is what `decision-defaults.mdc §Thresholds` asks for. It is
+ * also NOT a blanket continuation exemption: that would suppress the 26
+ * genuine misses above, which is the case Success Criterion 2 protects.
+ *
+ * Only the most recent fire for this session is consulted, and only its
+ * `stop_hook_active` flag. A chain is by definition consecutive — an ordinary
+ * fire between two continuations breaks it, and the reader below returns on the
+ * first same-session record it finds.
+ *
+ * **It deliberately does NOT consult `advisory_emitted`,** which an earlier
+ * draft did and which its own replay test falsified: suppressing turn 3 then
+ * made turn 4 look like a fresh chain, so the guard alternated
+ * emit/emit/silent/emit/silent instead of stopping. That halves a chain rather
+ * than bounding it. Once the chain is in continuation territory it stays
+ * capped, whether or not the previous turn was itself the one suppressed.
+ * `advisory_emitted` is still recorded — a calibration pass needs to see which
+ * fires were silenced — it just is not an input to this decision.
+ */
+export function advisoryIsChainCapped(
+  priorFires: PriorFireRecord[],
+  sessionId: string | undefined
+): boolean {
+  if (!sessionId) return false;
+  for (let i = priorFires.length - 1; i >= 0; i -= 1) {
+    const record = priorFires[i];
+    if (!record || record.session_id !== sessionId) continue;
+    return record.stop_hook_active === true;
+  }
+  return false;
+}
+
+/** How many trailing log lines to consider — a chain is consecutive and short. */
+const PRIOR_FIRE_SCAN_LINES = 200;
+
+/**
+ * Read the tail of this guard's OWN calibration log — the store it already
+ * writes on every fire, so the cap needs no new state of its own.
+ *
+ * The path comes from `calibrationLogPath` rather than a local literal, for the
+ * same reason `ADVISORY_BUDGET_CHARS` reads the registry: a duplicated
+ * convention drifts silently. Static import is safe here — `dispatcher.ts`
+ * reaches guard modules only through a lazy `import()` at dispatch time, so
+ * this direction closes no cycle at module-eval time.
+ */
+function readPriorFires(): PriorFireRecord[] {
+  try {
+    const lines = readFileSync(calibrationLogPath("bare-entity-ref"), "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .slice(-PRIOR_FIRE_SCAN_LINES);
+    const records: PriorFireRecord[] = [];
+    for (const line of lines) {
+      try {
+        records.push(JSON.parse(line) as PriorFireRecord);
+      } catch {
+        // intentional-swallow: one malformed line must not blind the cap to the
+        // rest of the tail. A partially-written trailing record is normal for an
+        // append-only log read concurrently with a write.
+        continue;
+      }
+    }
+    return records;
+  } catch {
+    // intentional-swallow: no log yet (first fire on a fresh checkout), or it is
+    // unreadable. Failing OPEN is correct for an advisory guard — the cost is
+    // one extra advisory, where failing closed would silence a real finding.
+    return [];
+  }
 }
 
 /** Guard-dispatcher entry point (GuardModule contract). */
@@ -139,6 +285,14 @@ export async function run(
   const { flagged, logged } = scanMessage(text);
   if (flagged.length === 0 && logged.length === 0) return null;
 
+  // mt#3860: only a continuation can be capped, and only a fire that would
+  // actually emit needs the check — so the log read is skipped entirely on an
+  // ordinary turn and on a log-only fire.
+  const chainCapped =
+    input.stop_hook_active === true && flagged.length > 0
+      ? advisoryIsChainCapped(readPriorFires(), input.session_id)
+      : false;
+
   const calibration = {
     source: "live" as const,
     channel: "stop" as const,
@@ -156,6 +310,17 @@ export async function run(
     logged_only: logged.map((f) => ({ family: f.kind, phrase: f.ref })),
     flagged_count: flagged.length,
     logged_only_count: logged.length,
+    // mt#3860: whether the advisory was SUPPRESSED as the second consecutive
+    // continuation, and whether it was actually EMITTED.
+    //
+    // Both are RECORDED ONLY — neither is read back. `advisoryIsChainCapped`
+    // consults `stop_hook_active` alone, deliberately: an earlier draft keyed on
+    // `advisory_emitted` and its replay test showed that made a suppressed turn
+    // read as a fresh chain, so the guard alternated rather than stopping. These
+    // fields exist so a `/calibration-review` pass can see which fires the cap
+    // silenced, which is otherwise invisible in the log.
+    advisory_chain_capped: chainCapped,
+    advisory_emitted: flagged.length > 0 && !chainCapped,
   };
 
   // Calibration-first (ADR-024): a record is written on every fire, but the
@@ -163,5 +328,20 @@ export async function run(
   // log-only findings produces a record and no text.
   if (flagged.length === 0) return { calibration };
 
-  return { calibration, additionalContext: formatBareRefAdvisory(flagged) };
+  // mt#3860: the chain is capped at one follow-up. The record is still written
+  // — a suppressed fire is data a calibration pass needs, and dropping it would
+  // make the cap invisible to the very log that measured the loop.
+  if (chainCapped) return { calibration };
+
+  // mt#3937: this fire is the pre-cap moment exactly when it is ITSELF a
+  // continuation that was not capped — `advisoryIsChainCapped` keys on the
+  // previous fire's `stop_hook_active`, so the next consecutive continuation
+  // will see THIS record and be capped. On an ordinary turn the next
+  // continuation is the first one, which is not capped, so no warning is due.
+  const warnNextIsCapped = input.stop_hook_active === true && !chainCapped;
+
+  return {
+    calibration,
+    additionalContext: formatBareRefAdvisory(flagged, { warnNextIsCapped }),
+  };
 }

@@ -44,6 +44,13 @@ export interface TokenizerRegistry {
   /** Get the best tokenizer for a specific model */
   getForModel(modelId: string): LocalTokenizer | null;
 
+  /**
+   * Resolve a tokenizer for a model, reporting whether it was matched or
+   * substituted. Prefer this over `getForModel`, which cannot express the
+   * difference (mt#3928).
+   */
+  resolveForModel(modelId: string): TokenizerResolution | null;
+
   /** Get all available tokenizers */
   listAvailable(): LocalTokenizer[];
 
@@ -58,6 +65,25 @@ export interface TokenizerRegistry {
 }
 
 /**
+ * The outcome of resolving a tokenizer for a model.
+ *
+ * `getForModel` collapses two different outcomes into one return value: a
+ * tokenizer that DECLARES support for this model, and the default library
+ * handed back because nothing matched. Only a `log.warn` distinguished them,
+ * so every caller presented an OpenAI-BPE approximation of an Anthropic model
+ * as a measurement (mt#3928). This carries the distinction to the caller.
+ */
+export interface TokenizerResolution {
+  tokenizer: LocalTokenizer;
+
+  /**
+   * `"config"` when a registered tokenizer declares support for this model;
+   * `"fallback"` when none did and the default library was substituted.
+   */
+  source: "config" | "fallback";
+}
+
+/**
  * Tokenizer metadata for model information
  */
 export interface TokenizerMetadata {
@@ -67,8 +93,23 @@ export interface TokenizerMetadata {
   /** Tokenizer type (e.g., "bpe", "sentencepiece") */
   type: string;
 
-  /** Source of tokenizer information */
+  /**
+   * Source of tokenizer information.
+   *
+   * Was hardcoded to `"config"` at the one site that produced it, so the field
+   * could not distinguish a matched tokenizer from a substituted one (mt#3928).
+   */
   source: "api" | "config" | "fallback";
+
+  /**
+   * True when no registered tokenizer declares support for this model, so the
+   * counts it produces approximate the model rather than measure it.
+   *
+   * Equivalent to `source === "fallback"`; named separately because it is what
+   * display code branches on, and "is this number an approximation?" should not
+   * require knowing that one enum member implies it.
+   */
+  approximated: boolean;
 
   /** Preferred library for this tokenizer */
   library?: string;

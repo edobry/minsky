@@ -9,14 +9,20 @@
 // WHAT IS REWRITTEN
 //   `mt#NNNN` -> [mt#NNNN](minsky://task/mt%23NNNN)
 //   `PR #N`   -> [PR #N](minsky://changeset/N)
+//   `ask#N` / `mem#N` / `ws#N` -> [<label>](minsky://<type>/<uuid>), and ONLY
+//     when the caller supplies a map containing that id (mt#3914)
 //
-// Both targets are DERIVABLE from the visible label by pure string transform,
-// which is the whole reason they are the v1 scope. `mem#N` / `ask#N` / `ws#N`
-// are deliberately absent: ADR-029 makes the full UUID the sole deeplink target
-// for those types, so linkifying one requires resolving a short id against an
-// id-set — an IO this hook cannot afford (see the header of the shell for the
-// per-delta cost model). A bare short id therefore stays bare, which is exactly
-// today's behavior, not a regression.
+// The first two targets are DERIVABLE from the visible label by pure string
+// transform, which is why they were the v1 scope. The short ids are not: ADR-029
+// makes the full UUID the sole deeplink target for those types, so linkifying
+// one needs a short-id -> UUID resolution. That resolution stays OUT of this
+// module and out of the hot path — the caller passes an already-resolved map,
+// produced out-of-band by a sweep (ADR-028 D7(5)). This module never does IO.
+//
+// A short id absent from the map stays bare, which is the pre-mt#3914 behavior
+// for every short id. The invariant that matters is narrower than "link them":
+// a WRONG target is worse than a missing one, so an unmapped id is never
+// guessed at and the short id is never itself used as a target.
 //
 // WHAT IS LEFT ALONE
 //   - anything inside a fenced code block, including a fence that OPENED in an
@@ -70,10 +76,29 @@ const PROTECTED_SPAN =
 
 const TASK_REF = /\bmt#(\d+)\b/g;
 const PR_REF = /\bPR #(\d+)\b/g;
+const SHORT_ID_REF = /\b(ask|mem|ws)#(\d+)\b/g;
 
-/** Rewrite every task/PR reference in a span already known to be unprotected. */
-function replaceRefs(text: string): string {
-  return text
+/**
+ * Short-id prefix -> the `minsky://` URI type. `ws` maps to `session`, matching
+ * the URI-type table in `cockpit-deeplinks.mdc`: the workspace deeplink type is
+ * `session`, deliberately NOT renamed by ADR-022 stage 1.
+ */
+const SHORT_ID_TYPES = { ask: "ask", mem: "memory", ws: "session" } as const;
+
+export type ShortIdKind = (typeof SHORT_ID_TYPES)[keyof typeof SHORT_ID_TYPES];
+
+/**
+ * Resolved short-id -> UUID lookup, keyed by URI type then by the id's NUMERIC
+ * part (`"7415"`, not `"ask#7415"`) so a lookup is one property read with no
+ * string building in the hot path.
+ *
+ * Supplied by the caller; this module neither builds nor refreshes it.
+ */
+export type ShortIdMap = Partial<Record<ShortIdKind, Record<string, string>>>;
+
+/** Rewrite every task/PR/short-id reference in a span already known to be unprotected. */
+function replaceRefs(text: string, shortIdMap?: ShortIdMap): string {
+  const withDerivable = text
     .replace(TASK_REF, (_match, num: string) => {
       const id = `mt#${num}`;
       return `[${id}](${entityToMinskyUri("task", id)})`;
@@ -82,6 +107,17 @@ function replaceRefs(text: string): string {
       PR_REF,
       (_match, num: string) => `[PR #${num}](${entityToMinskyUri("changeset", num)})`
     );
+
+  if (!shortIdMap) return withDerivable;
+
+  return withDerivable.replace(SHORT_ID_REF, (match, prefix: string, num: string) => {
+    const kind = SHORT_ID_TYPES[prefix as keyof typeof SHORT_ID_TYPES];
+    const uuid = shortIdMap[kind]?.[num];
+    // Unmapped stays bare — see the header: a wrong target is worse than none,
+    // and the short id itself is not a legal target (ADR-029).
+    if (typeof uuid !== "string" || uuid === "") return match;
+    return `[${match}](${entityToMinskyUri(kind, uuid)})`;
+  });
 }
 
 /**
@@ -90,17 +126,17 @@ function replaceRefs(text: string): string {
  * authoring economy, and at the display surface a repeat costs the reader
  * nothing.
  */
-export function linkifyLine(line: string): string {
+export function linkifyLine(line: string, shortIdMap?: ShortIdMap): string {
   let out = "";
   let cursor = 0;
   PROTECTED_SPAN.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = PROTECTED_SPAN.exec(line)) !== null) {
-    out += replaceRefs(line.slice(cursor, match.index));
+    out += replaceRefs(line.slice(cursor, match.index), shortIdMap);
     out += match[0];
     cursor = match.index + match[0].length;
   }
-  return out + replaceRefs(line.slice(cursor));
+  return out + replaceRefs(line.slice(cursor), shortIdMap);
 }
 
 /**
@@ -116,7 +152,7 @@ export function linkifyLine(line: string): string {
 export function linkifyDelta(
   delta: string,
   state: FenceState,
-  options: { final?: boolean } = {}
+  options: { final?: boolean; shortIdMap?: ShortIdMap } = {}
 ): LinkifyResult {
   const segments = delta.split("\n");
   // `split` always yields one more segment than there are newlines, so the last
@@ -137,7 +173,7 @@ export function linkifyDelta(
       rewritten.push(line);
       continue;
     }
-    rewritten.push(linkifyLine(line));
+    rewritten.push(linkifyLine(line, options.shortIdMap));
   }
 
   let trailingOut = trailing;
@@ -145,7 +181,7 @@ export function linkifyDelta(
     if (FENCE_LINE.test(trailing)) {
       inFence = !inFence;
     } else if (!inFence && !BLOCKQUOTE_LINE.test(trailing)) {
-      trailingOut = linkifyLine(trailing);
+      trailingOut = linkifyLine(trailing, options.shortIdMap);
     }
   }
 

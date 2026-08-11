@@ -56,11 +56,19 @@ import * as path from "path";
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { linkifyDelta } from "./entity-linkify";
-import type { FenceState } from "./entity-linkify";
+import type { FenceState, ShortIdMap } from "./entity-linkify";
 
 export const TERMINAL_LINKIFY_OVERRIDE_ENV = "MINSKY_SKIP_TERMINAL_LINKIFY";
 
 const STATE_FILENAME = "message-display-fence-state.json";
+
+/**
+ * Short-id map filename under the state dir (mt#3914). MUST match the PRODUCER's
+ * literal in `src/cockpit/short-id-map-cache.ts` — this module lives in a
+ * separate module graph and cannot import that constant, the same split
+ * `inject-prod-state.ts` already carries. Keep the two in sync.
+ */
+const SHORT_ID_MAP_FILENAME = "short-id-map.json";
 
 export interface MessageDisplayInput extends ClaudeHookInput {
   turn_id?: string;
@@ -144,6 +152,46 @@ function writeStoredState(next: StoredFenceState | null): void {
   }
 }
 
+export function getShortIdMapPath(): string {
+  return path.join(getStateDir(), SHORT_ID_MAP_FILENAME);
+}
+
+/** The on-disk record written by the producer (mirrors `ShortIdMapRecord` there). */
+interface StoredShortIdMap {
+  refreshedAt: number;
+  entries: ShortIdMap;
+}
+
+/**
+ * Parse the map record. Exported so the shape contract is testable without a
+ * file; returns null on anything unexpected so the caller degrades to "no map",
+ * which leaves every short id bare rather than risking a wrong target.
+ */
+export function parseShortIdMap(raw: string): ShortIdMap | null {
+  const parsed = JSON.parse(raw) as Partial<StoredShortIdMap>;
+  const entries = parsed.entries;
+  if (typeof entries !== "object" || entries === null) return null;
+  return entries;
+}
+
+/**
+ * Read the short-id map. This is the ONLY IO mt#3914 adds to the hot path, and
+ * it is deliberately unconditional rather than staleness-gated: an entry's
+ * short-id -> UUID binding is immutable once minted, so an OLD map is never
+ * WRONG — only incomplete, which degrades to bare. That is the opposite of
+ * `inject-prod-state`, whose snapshot goes stale in the sense that matters and
+ * therefore has to render its own age.
+ */
+function readShortIdMap(): ShortIdMap | undefined {
+  try {
+    return parseShortIdMap(fs.readFileSync(getShortIdMapPath(), "utf8")) ?? undefined;
+  } catch {
+    // intentional-swallow: absent or unreadable means "resolve nothing", which
+    // is the pre-mt#3914 behavior for every short id. Never fail the display.
+    return undefined;
+  }
+}
+
 function isOverrideTruthy(value: string | undefined): boolean {
   if (!value) return false;
   const normalized = value.toLowerCase();
@@ -160,7 +208,8 @@ function isOverrideTruthy(value: string | undefined): boolean {
  */
 export function decideDisplay(
   input: MessageDisplayInput,
-  stored: StoredFenceState | null
+  stored: StoredFenceState | null,
+  shortIdMap?: ShortIdMap
 ): { display: string | null; nextState: StoredFenceState | null } {
   const delta = input.delta ?? "";
   const messageId = input.message_id ?? "";
@@ -175,7 +224,7 @@ export function decideDisplay(
     return { display: null, nextState: input.final === true ? null : stored };
   }
 
-  const result = linkifyDelta(delta, carried, { final: input.final === true });
+  const result = linkifyDelta(delta, carried, { final: input.final === true, shortIdMap });
   const nextState: StoredFenceState | null =
     input.final === true ? null : { messageId, inFence: result.state.inFence };
 
@@ -194,7 +243,7 @@ async function main(): Promise<void> {
   }
   if (input.hook_event_name !== "MessageDisplay") return;
 
-  const { display, nextState } = decideDisplay(input, readStoredState());
+  const { display, nextState } = decideDisplay(input, readStoredState(), readShortIdMap());
   writeStoredState(nextState);
   if (display === null) return;
 

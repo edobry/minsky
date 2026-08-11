@@ -488,3 +488,129 @@ describe("detectReservedCategoryHalt (mt#3768)", () => {
     expect(detectReservedCategoryHalt("")).toEqual([]);
   });
 });
+
+// mt#3917: precision fixes from the 2026-08-10 calibration pass. Each case is a
+// VERBATIM tail from `.minsky/untaken-action-calibration.jsonl`, not an invented
+// example — the file's own tuning discipline.
+describe("mt#3917 precision fixes", () => {
+  describe("durable-default preference is reserved; a one-off is not (ask#7587)", () => {
+    test("suppresses the 2026-08-09T00:09Z fire", () => {
+      const real =
+        "picking the replacement myself because which model becomes your default is your " +
+        "preference, not a capability gap. Say the word and a model and it's done.";
+      expect(detectReservedCategoryHalt(real).length).toBeGreaterThan(0);
+    });
+
+    test("a ONE-OFF preference still fires — the discriminator is durability, not taste", () => {
+      // The operator chose C: reserve a preference only once it sets a durable
+      // default. A bare "your preference" must NOT suppress, or the fix inverts
+      // the decision it is implementing.
+      const oneOff =
+        "Which shade of blue do you want for this one diagram? It's your preference. " +
+        "Say the word and it's done.";
+      expect(detectReservedCategoryHalt(oneOff)).toEqual([]);
+    });
+
+    test("durability alone, with no preference framing, does not suppress", () => {
+      const durableOnly = "This becomes the default timeout for every retry. I'll wire it up.";
+      expect(detectReservedCategoryHalt(durableOnly)).toEqual([]);
+    });
+  });
+
+  describe("a delegated watcher is not an untaken action", () => {
+    test("suppresses the 2026-08-09T04:18Z fire", () => {
+      const real =
+        "Decision and its basis are recorded in the spec. Blocked only on CI now — " +
+        "I'll merge when the checks task reports back.";
+      expect(detectUntakenAction(real)).toEqual([]);
+    });
+
+    test("an unarmed commitment with no watcher still fires", () => {
+      expect(detectUntakenAction("I'll merge it once I get to it.").length).toBeGreaterThan(0);
+    });
+
+    test("delegating the wait to the PRINCIPAL still fires (PR #2784 R3)", () => {
+      // "when you report back" is operator-delegation, which
+      // `work-completion.mdc` names as the anti-pattern ("Ping me when GitHub's
+      // back"). Suppressing it inverted the rule the suppression exists to
+      // serve. The subject has to be a mechanism, not a person.
+      //
+      // Each fixture carries an OBJECT (`the PR`). Written without one —
+      // "I'll merge when you report back" — nothing fires at all, because no
+      // commitment family matches, and the test then passes or fails for a
+      // reason unrelated to suppression. That is the third fixture-choice slip
+      // in this block: verify a fixture against the matcher before asserting on
+      // it, rather than writing what the sentence ought to trip.
+      for (const delegated of [
+        "I'll merge the PR when you report back.",
+        "I'll merge the PR when the operator reports back.",
+      ]) {
+        expect(detectUntakenAction(delegated).length).toBeGreaterThan(0);
+      }
+      // Positive control on the same shape: a MECHANISM subject still suppresses.
+      expect(detectUntakenAction("I'll merge the PR when the checks task reports back.")).toEqual(
+        []
+      );
+    });
+
+    test("naming CI as the blocker, with no watcher, still fires (PR #2784 R1)", () => {
+      // The first draft suppressed on `blocked only on ci` too. Naming a blocker
+      // is not evidence a watcher was armed — it is the announce-and-stop turn
+      // this guard exists to catch, so the suppression keys on the report-back
+      // clause instead.
+      const announceAndStop = "Blocked only on CI now — I'll merge the PR.";
+      expect(detectUntakenAction(announceAndStop).length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("an attributed next step is a description, not a commitment", () => {
+    test("suppresses the 2026-08-10T10:09Z fire", () => {
+      const real =
+        "every rung reported absent while the service was actively 422ing, and the " +
+        "documented next step is bypass merge.";
+      expect(detectUntakenAction(real)).toEqual([]);
+    });
+
+    test("attribution to a PERSON does not suppress (PR #2784 R3)", () => {
+      // A next step the principal named is still one the agent owes an action
+      // or an ask on — suppressing it hides a true positive, which is the
+      // opposite of citing a runbook.
+      for (const personal of [
+        "According to you, next step is the migration.",
+        "Per your last message, next step is to rerun it.",
+      ]) {
+        expect(detectUntakenAction(personal).length).toBeGreaterThan(0);
+      }
+    });
+
+    test("the agent's OWN next step still fires", () => {
+      expect(detectUntakenAction("Next step is to rerun the migration.").length).toBeGreaterThan(0);
+    });
+
+    test("attribution ADJACENT to a first-person commitment does not suppress it (PR #2784 R2)", () => {
+      // The first draft ran the attribution filter on every family, so this
+      // sentence was silenced entirely.
+      //
+      // The fixture is chosen, not guessed. "Per the plan, I'll implement the
+      // fix" reads like the right control and is NOT one: the comma falls
+      // outside `[\w\s.'-]`, so the attribution pattern never matches and the
+      // case passes with or without the fix. Verified against
+      // `isAttributedStep` directly before writing this — the form below
+      // returns true at the match index, so it is the one that exercises the
+      // condition. Same trap as the bug: a test can agree with a defect by
+      // accidentally avoiding it.
+      const adjacent = "According to the runbook I'll implement the fix.";
+      expect(detectUntakenAction(adjacent).map((m) => m.family)).toContain("ill-action");
+    });
+
+    test("attribution suppresses only its own match, not a real commitment beside it", () => {
+      // Per-match, not global: the quoted procedure must not silence the
+      // commitment that follows it.
+      const mixed =
+        "The documented next step is bypass merge. I'll implement the fix in this session.";
+      const families = detectUntakenAction(mixed).map((m) => m.family);
+      expect(families).toContain("ill-action");
+      expect(families).not.toContain("next-up");
+    });
+  });
+});

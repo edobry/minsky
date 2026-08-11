@@ -10,6 +10,7 @@ import { describe, test, expect } from "bun:test";
 import {
   findSecretReads,
   findInToolInput,
+  filePathCandidates,
   isSecretPath,
   isEmittingInvocation,
   splitSegments,
@@ -28,6 +29,9 @@ const R3_COMMAND =
   "grep -rn 'connectionString\\|postgres://' ~/.config/minsky/config.yaml | sed 's/postgres:\\/\\/.*/postgres:\\/\\/<redacted>/'";
 
 const CTX = {} as DispatchContext;
+
+/** The canonical emitting read of Minsky's own config — used by several suites. */
+const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
 
 describe("R3 — the command that actually leaked", () => {
   test("denies the verbatim incident command", () => {
@@ -171,7 +175,7 @@ describe("segment + token parsing", () => {
 });
 
 describe("denial message", () => {
-  const hits = findSecretReads("cat ~/.config/minsky/config.yaml");
+  const hits = findSecretReads(CAT_MINSKY_CONFIG);
 
   test("names the blocked read", () => {
     expect(buildDenialReason(hits)).toContain("config.yaml");
@@ -286,5 +290,166 @@ describe("findInToolInput dedupes repeated hits", () => {
       command: "cat .env && cat .env",
     });
     expect(hits.length).toBe(1);
+  });
+});
+
+describe("mt#3703 — the two false-positive classes", () => {
+  // Every command here is a REAL denial, not a constructed one. The first two are
+  // the ones mt#3703 was filed for; the second two happened while fixing it, on
+  // this guard's own files.
+  describe("a grep PATTERN is not a file path", () => {
+    test("AT1: grepping a source file for a credential-shaped identifier is allowed", () => {
+      expect(
+        findSecretReads("grep -n 'CredentialRead' packages/domain/src/notify/principal-channel.ts")
+      ).toEqual([]);
+    });
+
+    test("a pattern naming the guard's own vocabulary is allowed", () => {
+      // Denied live on 2026-08-10 while planning this task: the guard blocked a
+      // grep over its OWN source because the search pattern said "credential"
+      // and "SECRET".
+      expect(
+        findSecretReads(
+          "grep -n 'credential\\|Credential\\|SECRET' .minsky/hooks/block-secret-file-read.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("but a secret path as the FILE argument is still denied", () => {
+      const hits = findSecretReads("grep -n 'anything' ~/.aws/credentials");
+      expect(hits.length).toBe(1);
+      expect(hits[0]?.path).toContain("credentials");
+    });
+
+    test("-e supplies the pattern and the FILE is still checked", () => {
+      const hits = findSecretReads("grep -e 'anything' ~/.aws/credentials");
+      expect(hits.length).toBe(1);
+    });
+
+    test("a credential-shaped pattern passed via -e is allowed (PR #2778 R1)", () => {
+      // R1 found the first version returning every argument when -e was present,
+      // which reinstated the pattern-as-path false positive through the flag form.
+      expect(
+        findSecretReads("grep -e 'CredentialRead' packages/domain/src/notify/principal-channel.ts")
+      ).toEqual([]);
+      expect(
+        findSecretReads(
+          "grep --regexp='CredentialRead' packages/domain/src/notify/principal-channel.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("a directory argument is still checked when the pattern is skipped", () => {
+      // The pattern is dropped, the remaining positional is not.
+      expect(findSecretReads("grep -r anything ~/.config/minsky/config.yaml").length).toBe(1);
+    });
+
+    test("a non-grep reader has no pattern argument, so every token is a file", () => {
+      expect(findSecretReads("cat credentials").length).toBe(1);
+    });
+  });
+
+  describe("a credentials/ DIRECTORY does not condemn the source file inside it", () => {
+    test("AT2: a provider implementation under credentials/ is allowed", () => {
+      expect(
+        findSecretReads(
+          "grep -n 'resolveInfraDir' packages/domain/src/credentials/providers/telegram.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("this guard's own test file is readable", () => {
+      // Also denied live on 2026-08-10 — here the FILENAME matched, not the
+      // pattern, so it is a distinct class from the block above.
+      expect(findSecretReads("cat .minsky/hooks/block-secret-file-read.test.ts")).toEqual([]);
+    });
+
+    test("a data file under a secrets/ directory is still denied", () => {
+      // The carve-out is about the FILE's extension, not the directory: this is
+      // what keeps the narrowing from becoming a coverage hole.
+      expect(findSecretReads("cat secrets/prod.yaml").length).toBe(1);
+    });
+
+    test("a credential-named data file is still denied", () => {
+      expect(findSecretReads("cat my-credentials.json").length).toBe(1);
+    });
+  });
+
+  describe("AT3/AT4 — the known-secret set still denies", () => {
+    test.each([
+      [CAT_MINSKY_CONFIG, "config.yaml"],
+      ["cat .env", ".env"],
+      ["cat .env.production", ".env.production"],
+      ["cat ~/.aws/credentials", "credentials"],
+      ["cat ~/.netrc", ".netrc"],
+      ["cat ~/.npmrc", ".npmrc"],
+      ["cat ~/.pgpass", ".pgpass"],
+      ["cat ~/.ssh/id_rsa", "id_rsa"],
+      ["cat server.pem", ".pem"],
+    ])("%s is still denied", (command, expectedPath) => {
+      const hits = findSecretReads(command);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]?.path).toContain(expectedPath);
+    });
+
+    test("an explicit pattern denies even with a source-code extension", () => {
+      // The carve-out is scoped to the GENERIC name-resemblance pattern only.
+      // A `.pem` is matched explicitly and is unaffected by extension logic.
+      expect(findSecretReads("cat key.pem").length).toBe(1);
+    });
+  });
+
+  describe("isSecretPath — the discriminator in isolation", () => {
+    test("source extensions escape only the generic pattern", () => {
+      expect(isSecretPath("src/credentials/providers/telegram.ts")).toBe(false);
+      expect(isSecretPath("src/credentials/providers/telegram.js")).toBe(false);
+      expect(isSecretPath("secrets/prod.yaml")).toBe(true);
+      expect(isSecretPath("credentials")).toBe(true);
+    });
+
+    test("a bare identifier that merely mentions credentials is not a path", () => {
+      expect(isSecretPath("CredentialRead.ts")).toBe(false);
+    });
+  });
+
+  describe("filePathCandidates", () => {
+    test("drops the pattern for grep-family readers", () => {
+      expect(filePathCandidates("grep", ["grep", "-n", "pattern", "file.ts"])).toEqual([
+        "-n",
+        "file.ts",
+      ]);
+    });
+
+    test("keeps every argument for non-conditional readers", () => {
+      expect(filePathCandidates("cat", ["cat", "a", "b"])).toEqual(["a", "b"]);
+    });
+
+    test("drops -e and its VALUE, keeping the file (PR #2778 R1)", () => {
+      expect(filePathCandidates("grep", ["grep", "-e", "p", "file.ts"])).toEqual(["file.ts"]);
+    });
+
+    test("drops an attached --regexp= pattern", () => {
+      expect(filePathCandidates("grep", ["grep", "--regexp=p", "file.ts"])).toEqual(["file.ts"]);
+    });
+
+    test("keeps a non-pattern flag token", () => {
+      // Flags are NOT dropped wholesale: `--include=<glob>` selects which files
+      // grep reads, so its value must stay reachable by the path matcher.
+      expect(filePathCandidates("grep", ["grep", "-r", "--include=x", "p", "dir"])).toContain(
+        "--include=x"
+      );
+    });
+
+    test("with -e present, the first positional is a FILE, not the pattern", () => {
+      // The positional-skip must not also fire, or the real file is dropped.
+      expect(filePathCandidates("grep", ["grep", "-e", "p", "a.ts", "b.ts"])).toEqual([
+        "a.ts",
+        "b.ts",
+      ]);
+    });
+
+    test("a pattern-only grep (reading stdin) drops it and finds no file", () => {
+      expect(filePathCandidates("grep", ["grep", "credentials"])).toEqual([]);
+    });
   });
 });

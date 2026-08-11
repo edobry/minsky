@@ -9,16 +9,22 @@ import { scanMessage } from "./bare-entity-ref-scan";
 const kinds = (r: ReturnType<typeof scanMessage>) => r.flagged.map((f) => f.kind);
 const refs = (r: ReturnType<typeof scanMessage>) => r.flagged.map((f) => f.ref);
 
-describe("bare-entity-ref scanner — flagged v0 classes", () => {
-  test("bare mt#N with no link fires", () => {
+describe("bare-entity-ref scanner — flagged classes", () => {
+  // Updated expectation (mt#3897): bare `mt#N` / `PR #N` are RECORDED, not
+  // flagged. `entity-linkify.ts` (mt#2565) rewrites both into deeplinks at
+  // display time, so warning about them asks the agent to hand-fix something
+  // already fixed downstream. Operator decision: ask#7639.
+  test("bare mt#N with no link is recorded, not flagged", () => {
     const r = scanMessage("I finished mt#1234 and it looks good.");
-    expect(refs(r)).toEqual(["mt#1234"]);
-    expect(kinds(r)).toEqual(["bare-ref"]);
+    expect(r.flagged).toHaveLength(0);
+    expect(r.logged.map((f) => f.ref)).toEqual(["mt#1234"]);
+    expect(r.logged.map((f) => f.kind)).toEqual(["bare-ref"]);
   });
 
-  test("bare PR #N with no link fires", () => {
+  test("bare PR #N with no link is recorded, not flagged", () => {
     const r = scanMessage("Merged PR #2633 this morning.");
-    expect(refs(r)).toEqual(["PR #2633"]);
+    expect(r.flagged).toHaveLength(0);
+    expect(r.logged.map((f) => f.ref)).toEqual(["PR #2633"]);
   });
 
   test("malformed ask target (8-hex prefix) fires — ADR-029", () => {
@@ -85,23 +91,52 @@ describe("bare-entity-ref scanner — must NOT flag", () => {
   });
 });
 
-describe("bare-entity-ref scanner — log-only carve-out (v0)", () => {
-  test("bare ask#N is logged, never flagged", () => {
+describe("bare-entity-ref scanner — short-id families (mt#3897)", () => {
+  // Updated expectation (mt#3897): these are now the FLAGGED classes. Their
+  // deeplink target is a UUID (ADR-029), which the display linkifier cannot
+  // derive from the label without an id-set lookup it does not do — so a bare
+  // one still costs the reader a lookup. Operator decision: ask#7415.
+  test("bare ask#N is flagged", () => {
     const r = scanMessage("Pending: ask#6891, ask#6916 and ask#6932.");
-    expect(r.flagged).toHaveLength(0);
-    expect(r.logged.map((f) => f.ref)).toEqual(["ask#6891", "ask#6916", "ask#6932"]);
+    expect(refs(r)).toEqual(["ask#6891", "ask#6916", "ask#6932"]);
+    expect(kinds(r)).toEqual(["bare-short-id", "bare-short-id", "bare-short-id"]);
   });
 
-  test("bare mem#N and ws#N are logged, never flagged", () => {
+  test("bare mem#N and ws#N are flagged", () => {
     const r = scanMessage("Recorded in mem#623; workspace ws#12 holds the session.");
-    expect(r.flagged).toHaveLength(0);
-    expect(r.logged.map((f) => f.ref)).toEqual(["mem#623", "ws#12"]);
+    expect(refs(r)).toEqual(["mem#623", "ws#12"]);
   });
 
-  test("a bare short id inside a code fence is not even logged", () => {
+  test("a bare short id inside a code fence is neither flagged nor logged", () => {
     const r = scanMessage(["```", "ask#6891", "```"].join("\n"));
     expect(r.flagged).toHaveLength(0);
     expect(r.logged).toHaveLength(0);
+  });
+
+  // The precision the flip makes load-bearing. A correctly-linked short id
+  // still contains the literal text `ask#7415` inside its label, so a scan that
+  // ignores POSITION would flag every properly-linked ref in the corpus — the
+  // v0 code could use a coarse type-level check precisely because it never
+  // flagged. These pin the positional check (`collectLinkLabelRanges`).
+  test("a linked short id does not fire, even beside an unrelated bare one", () => {
+    const r = scanMessage(
+      "See [ask#7415](minsky://ask/639b443a-411e-4e88-a03a-beac836cd8aa); also mem#623."
+    );
+    expect(refs(r)).toEqual(["mem#623"]);
+  });
+
+  test("linked at first mention, bare on repetition — compliant, mirroring the mt# rule", () => {
+    const r = scanMessage(
+      "See [ask#7415](minsky://ask/639b443a-411e-4e88-a03a-beac836cd8aa). Later, ask#7415 again."
+    );
+    expect(r.flagged).toHaveLength(0);
+  });
+
+  test("a short id linked under the WRONG entity type still fires", () => {
+    // `[mem#623](minsky://ask/…)` links an ask, not a memory — the label is not
+    // made clickable-to-the-right-place by a mismatched target.
+    const r = scanMessage("See [mem#623](minsky://ask/639b443a-411e-4e88-a03a-beac836cd8aa).");
+    expect(refs(r)).toContain("mem#623");
   });
 });
 
@@ -115,9 +150,11 @@ describe("bare-entity-ref scanner — PR #2717 R1 findings", () => {
 
   test("an undecodable task link does not count as linking the ref", () => {
     // Degrades to "the ref looks bare" — the conservative direction for an
-    // advisory — rather than silently treating the entity as linked.
+    // advisory — rather than silently treating the entity as linked. The
+    // finding now lands in `logged` rather than `flagged` (mt#3897), but the
+    // degradation direction under test is unchanged.
     const r = scanMessage("See [mt#1234](minsky://task/mt%2) for context.");
-    expect(refs(r)).toContain("mt#1234");
+    expect(r.logged.map((f) => f.ref)).toContain("mt#1234");
   });
 
   test("a long DECIMAL short-id label is never flagged as a UUID fragment", () => {
@@ -138,10 +175,18 @@ describe("bare-entity-ref scanner — PR #2717 R1 findings", () => {
 
 describe("bare-entity-ref scanner — the R6 message shape", () => {
   // The closing report that produced R6: task and PR refs correctly linked,
-  // ask refs bare. v0 must stay silent on the asks (carve-out) and must not
-  // fire on the linked entities either — i.e. on R6 itself, v0 reports
-  // nothing. That is the measured gap R6 recorded, pinned here so the
-  // carve-out's cost is visible rather than asserted in prose.
+  // ask refs bare.
+  //
+  // This fixture is the whole point of the detector, and it is where the v0
+  // posture was self-defeating: R6 is a message that handed the operator three
+  // asks they could not open, and v0 reported NOTHING on it — every class it
+  // enforced was compliant, and the one class that was not was carved out. The
+  // old tests pinned that silence deliberately, "so the carve-out's cost is
+  // visible rather than asserted in prose."
+  //
+  // mt#3897 pays that cost down: the three bare asks now flag, and the linked
+  // task/PR refs still do not. R6 is exactly the shape the flip was approved
+  // for, so it is the strongest single check that the new posture works.
   const r6 = [
     "Both handoff items are merged and DONE.",
     "Fixed and merged ([mt#2878](minsky://task/mt%232878), [PR #2633](minsky://changeset/2633)).",
@@ -150,11 +195,15 @@ describe("bare-entity-ref scanner — the R6 message shape", () => {
     "The nag will keep firing until ask#6891, ask#6916 and ask#6932 clear your inbox.",
   ].join("\n");
 
-  test("v0 flags nothing on R6 — the enforced classes were all compliant", () => {
-    expect(scanMessage(r6).flagged).toHaveLength(0);
+  test("R6's three unclickable asks now flag — the gap the detector exists to close", () => {
+    expect(refs(scanMessage(r6))).toEqual(["ask#6891", "ask#6916", "ask#6932"]);
   });
 
-  test("v0 still records the three bare asks for calibration", () => {
-    expect(scanMessage(r6).logged.map((f) => f.ref)).toEqual(["ask#6891", "ask#6916", "ask#6932"]);
+  test("R6's correctly-linked task and PR refs still do not flag", () => {
+    // The other half of the posture: the classes the linkifier handles must
+    // stay quiet, so the advisory names only what the reader actually cannot
+    // click. A regression here would re-introduce the 13-of-13 false-warning
+    // rate ask#7639 was filed about.
+    expect(kinds(scanMessage(r6))).not.toContain("bare-ref");
   });
 });
