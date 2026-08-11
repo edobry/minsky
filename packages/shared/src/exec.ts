@@ -92,6 +92,43 @@ export function markKilledByTimeout<T>(error: T): T {
 }
 
 /**
+ * Is this parent kill attributable to the `timeout` option ELAPSING?
+ *
+ * PR #2817 R1: the first cut of this stamped a timeout whenever a `timeout`
+ * option was set and the child came back killed — which is the same inference
+ * this task exists to remove, moved one layer down. Setting a budget is not the
+ * same fact as the budget running out.
+ *
+ * The load-bearing condition is **that the budget actually ran out**. Node kills
+ * on timeout only after the full duration, so an elapsed time short of it rules
+ * the timeout out. Measured from before the spawn, so the reading errs long —
+ * the safe direction, since it can only ever fail to claim a timeout, never
+ * invent one.
+ *
+ * The `aborted` condition is defensive, and deliberately narrower than it looks.
+ * Node's own `AbortSignal` path does NOT reach here: an aborted `exec` rejects
+ * with `code: "ABORT_ERR"` and no `killed` flag at all (verified by probe, not
+ * read from the docs), so `classifyExecFailure` returns on the string-code
+ * branch long before the kill branch. This guard covers a caller that runs its
+ * own cancellation and kills the child itself while a timeout is also set.
+ *
+ * Pure so the boundary can be tested at the millisecond without spawning
+ * anything, which is the half a real-process test cannot pin reliably.
+ */
+export function isTimeoutAttributableKill(input: {
+  killed: boolean;
+  timeoutMs: number | undefined;
+  elapsedMs: number;
+  aborted: boolean;
+}): boolean {
+  if (!input.killed) return false;
+  // An abort is its own reason, reported by the caller. It wins.
+  if (input.aborted) return false;
+  if (typeof input.timeoutMs !== "number" || input.timeoutMs <= 0) return false;
+  return input.elapsedMs >= input.timeoutMs;
+}
+
+/**
  * Classify a caught `exec` error by HOW the command ended.
  *
  * Pure over the error's shape so it can be tested without spawning anything;
@@ -196,6 +233,10 @@ export async function executeCommand(
     killSignal: "SIGTERM" as const,
   };
 
+  // Read before the spawn so the elapsed time can only ever over-report, which
+  // is the direction that fails to claim a timeout rather than inventing one.
+  const startedAt = Date.now();
+
   try {
     const result = await promisifiedExec(command, execOptions as ExecOptions);
     return {
@@ -206,8 +247,14 @@ export async function executeCommand(
     // This function set the `timeout` option, so it is the only place that can
     // say a parent kill was a TIMEOUT kill rather than some other kill. Stamp
     // it here; `classifyExecFailure` reports `killed` without it (mt#3923).
-    const killedByParent = (error as { killed?: boolean } | null)?.killed === true;
-    if (killedByParent && typeof execOptions.timeout === "number" && execOptions.timeout > 0) {
+    const abortSignal = (execOptions as { signal?: { aborted?: boolean } }).signal;
+    const attributable = isTimeoutAttributableKill({
+      killed: (error as { killed?: boolean } | null)?.killed === true,
+      timeoutMs: typeof execOptions.timeout === "number" ? execOptions.timeout : undefined,
+      elapsedMs: Date.now() - startedAt,
+      aborted: abortSignal?.aborted === true,
+    });
+    if (attributable) {
       markKilledByTimeout(error);
     }
 
