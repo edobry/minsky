@@ -166,6 +166,11 @@ four branches:
 | not found                                                  | `referenced ask <link> could not be found — disposition state unknown.`                                 |
 | store unreachable                                          | `could not read the state of ask <link> — ask store unreachable (<reason>); disposition state unknown.` |
 
+> The `store unreachable` row above describes the mt#3270 shape. mt#3744 replaced the live
+> lookup with a cached snapshot and split that single row into four — see
+> [Where the ask state comes from](#where-the-ask-state-comes-from-mt3744) below, which
+> supersedes it.
+
 The header's "no action needed" is emitted only when EVERY referenced ask is genuinely open;
 otherwise it reads "Calibration disposition status". Ask ids render as
 `[<shortId>](minsky://ask/<uuid>)` so the line is openable (`cockpit-deeplinks.mdc`).
@@ -186,3 +191,96 @@ bootstrap's own CONNECT phase is capped at 2s (`ensureHookDomainBootstrap`).
 closes; this change stops the detector from misreporting it, but clearing it remains the
 disposition flow's job (`clearResolvedAskIds`). A write-side refresh would be the complementary
 fix and is not in this task's scope.
+
+## Where the ask state comes from (mt#3744)
+
+mt#3270 (above) resolved each ask by opening a Postgres connection **from hook context**.
+mt#3744 moved that read out of the hook and behind a cached snapshot. The rendering contract is
+unchanged for the two states that matter — an open ask still reads "awaiting operator response",
+a settled one still reads "the ask is spent" — but where those facts come from, and what the
+line says when they are unavailable, both changed.
+
+### Why the live read had to go
+
+ADR-028 D7(5) routes "unbounded-latency network I/O inside a synchronous dispatcher budget" to
+the cache-plus-sweep precedent rather than into a guard. The lookup was exactly that. Two
+measurements make it concrete:
+
+- A cold Postgres connect from a hook-shaped process takes **2.5-5.5s** (mt#3879), against this
+  guard's declared `timeoutMs: 10000` — so one lookup could consume most of the guard's budget.
+- The dispatcher writes every guard's `additionalContext` in ONE end-of-loop write (mt#3757), so
+  a guard that stalls does not just lose its own line; it can cost the whole turn's injections.
+
+Note what did NOT motivate this. Before mt#3879 the connect was capped at 2s and the provider
+resolved to null deterministically, so every line read "ask store unreachable" — a correctness
+bug. mt#3879 removed the cap, which fixed the symptom and made the read _expensive_ instead of
+_broken_. mt#3744 is therefore a latency-and-legibility fix, not a correctness one.
+
+**Frequency, stated precisely.** The read was never per-turn. `resolveAskStates` is reached only
+when `selectPendingAskLogs` returns something, which requires a past-threshold log carrying an
+`openAskId` AND no prior turn in the same session having shown its line. In practice that is at
+most once per conversation, and only while a calibration disposition ask is outstanding. Earlier
+drafts of the mt#3744 spec described it as a per-turn cost; that overstates it.
+
+### The producer/consumer split
+
+| Half         | Where                                                                                                                   | Does                                                                                                                                                                        |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Producer** | `src/cockpit/ask-state-cache.ts`, driven by `startAskStateRefreshSweeper` (`src/cockpit/sweepers.ts`, 5-minute cadence) | Reads the `openAskId` set out of `.minsky/calibration-review-watermarks.json`, resolves each ask's state over raw SQL, writes `<state-dir>/ask-state-cache.json` atomically |
+| **Consumer** | `readAskStateCache` + `resolveAskStates` in this hook                                                                   | Reads that one local file. No domain bootstrap, no provider, no connection                                                                                                  |
+
+Same shape as `inject-prod-state.ts` / `prod-state-cache.ts` (mt#2506) and the short-id map
+(mt#3914). As with those, the cache filename and the state-dir resolution are **duplicated** in
+both halves rather than imported: the hook is a separate module graph. Keep them in sync.
+
+**Why the ask ids come from the watermark file.** Caching "all open asks" cannot work — the
+detector's whole job is to notice an ask that has become _settled_, so a settled ask must be
+present in the snapshot **with its state**, not absent from it. Caching all ~7.8k asks to
+guarantee that would trade a bounded ~14-entry file for a ~600KB one. The watermark store names
+exactly the ids the consumer will ask about, so the producer reads that.
+
+**`open` is precomputed by the producer.** `OPEN_ASK_STATES` lives in the producer and the
+snapshot carries a boolean, so the consumer needs no policy knowledge and the two cannot drift.
+
+### The four unavailable branches
+
+mt#3270 collapsed every failure into one `unavailable` reason, which is what made its own
+original diagnosis point at configuration instead of at the connect timeout. These are now
+distinct, because each names a different thing to fix:
+
+| Lookup            | Means                                                      | Rendered as                                                                                            |
+| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `stale`           | Snapshot older than 30m — the cockpit sweep may be stopped | `the ask-state snapshot is <age> old (last refreshed <ts>); ... no disposition state is asserted.`     |
+| `absent`          | No snapshot file at all — the refresh has never run here   | `no ask-state snapshot exists yet (the cockpit refresh has not run here); disposition state unknown.`  |
+| `not-in-snapshot` | Fresh snapshot that does not cover this id                 | `not covered by the current ask-state snapshot (<age> old); the refresh did not ask about this id ...` |
+| `unavailable`     | Snapshot present and unparseable — a real producer fault   | `the ask-state snapshot could not be read (<reason>); disposition state unknown.`                      |
+
+`stale` and `absent` are snapshot-wide; `not-in-snapshot` is per id, so one uncovered ask never
+degrades the rendering of its covered siblings. The staleness threshold (`ASK_STATE_STALENESS_MS`,
+30m) is six ticks of the producer's 5-minute cadence, so only a stopped or failing producer trips
+it. An unparseable `checkedAt` counts as infinitely old — erring toward `stale` is the only
+direction that cannot re-introduce the mt#3270 defect of asserting an answered ask is still open.
+
+### Fail-open, in both halves
+
+The producer leaves the last-good snapshot in place on a failed read rather than blanking it, so
+a transient outage degrades to `stale` rather than to `absent`. An id it looked up and did not
+find is written as `{ found: false }` rather than omitted — omission is reserved for "never
+asked", which the consumer renders as `not-in-snapshot`. Every tick reports a domain outcome via
+`SweepTickResult`, so a persistently failing producer is visible at `GET /api/sweeps` instead of
+looking like a healthy sweep with nothing to do (the mt#3684 lesson).
+
+### How this is verified
+
+- **Unit** — the four rendering branches, the fresh/stale boundary, per-id `not-in-snapshot`,
+  and the producer's snapshot shape.
+- **Structural regression** — the per-turn functions are **synchronous**, so they can await none
+  of the (necessarily async) persistence calls. The complementary source scan, asserting the
+  module names no persistence symbol, lives in
+  `scripts/verify-calibration-cadence-ask-lookup.ts` because `custom/no-real-fs-in-tests`
+  forbids a test from reading source off disk. Both are construction checks: a timing assertion
+  cannot distinguish a cache hit from a fast database.
+- **Live** — that same script runs the real producer against the real ask store and reads the
+  snapshot back through the consumer. Measured 2026-08-11: a real closed ask resolved `settled`
+  / `closed` / `ask#5425`, a nonexistent uuid resolved `not-found`, and the **consumer read took
+  0.342 ms** — against the 2.5-5.5s cold connect the removed path paid.

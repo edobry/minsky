@@ -580,6 +580,7 @@ const NOOP_SPAWNS_RESULT: SpawnsPipelineRunResult = {
   childLinkedFromMetadata: 0,
   childLinkedFromHeuristic: 0,
   childUnresolved: 0,
+  childRefusedSiblingSpawn: 0,
   spawnsErrored: 0,
   spawnLinksWritten: 0,
   spawnLinksSkippedNoPromptMatch: 0,

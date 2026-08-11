@@ -11,6 +11,7 @@ import {
   startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
   startShortIdMapSweeper,
+  startAskStateRefreshSweeper,
   startConversationTitleSweeper,
   startConversationSummarySweeper,
   startTopologySweeper,
@@ -396,6 +397,12 @@ export function createStartCommand(): Command {
       // itself — a hook process's Postgres connect is capped below the measured
       // cold-connect time (mt#3744/mt#3879), so it resolves null every time.
       const stopShortIdMapSweeper = startShortIdMapSweeper();
+      // Ask-state sweep (mt#3744): read the state of every ask the calibration
+      // watermark store names as an open disposition into a local cache the
+      // calibration-review-cadence-detector hook reads. Same reason as the
+      // short-id map above — ADR-028 D7(5) keeps unbounded-latency network I/O
+      // out of the synchronous dispatcher budget.
+      const stopAskStateSweeper = startAskStateRefreshSweeper();
       // Slow-clock topology sweep (mt#2602): periodically re-derive the
       // guard-hook registry + interlock history (git log + retrospective.fired
       // correlation) so the plant board's S2 valve inventory and
@@ -469,6 +476,7 @@ export function createStartCommand(): Command {
         stopStaleAskCloseSweeper();
         stopProdStateSweeper();
         stopShortIdMapSweeper();
+        stopAskStateSweeper();
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
