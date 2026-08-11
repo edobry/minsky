@@ -12,6 +12,7 @@
 import {
   sharedCommandRegistry,
   CommandCategory,
+  pickAdapterBehaviorFlags,
   type CommandExecutionContext,
 } from "../command-registry";
 import { createPrincipalCorpusSearchCommand } from "./principal-corpus/search-command";
@@ -47,6 +48,11 @@ export function registerPrincipalCorpusCommands(): void {
     name: searchCommand.name,
     description: searchCommand.description,
     parameters: searchCommand.parameters,
+    // mt#3993: a behavior flag not named in a re-projection like this one is
+    // dropped before any adapter can read it — the defect that made mt#3889's
+    // presence-read exemption inert. None of the three commands here declares
+    // one today; the spread keeps that true if one ever does.
+    ...pickAdapterBehaviorFlags(searchCommand),
     execute: async (params, ctx: CommandExecutionContext) => {
       return searchCommand.execute(params as Parameters<typeof searchCommand.execute>[0], ctx);
     },
@@ -59,6 +65,7 @@ export function registerPrincipalCorpusCommands(): void {
     name: similarCommand.name,
     description: similarCommand.description,
     parameters: similarCommand.parameters,
+    ...pickAdapterBehaviorFlags(similarCommand),
     execute: async (params, ctx: CommandExecutionContext) => {
       return similarCommand.execute(params as Parameters<typeof similarCommand.execute>[0], ctx);
     },
@@ -71,6 +78,7 @@ export function registerPrincipalCorpusCommands(): void {
     name: indexCommand.name,
     description: indexCommand.description,
     parameters: indexCommand.parameters,
+    ...pickAdapterBehaviorFlags(indexCommand),
     execute: async (params, ctx: CommandExecutionContext) => {
       return indexCommand.execute(params as Parameters<typeof indexCommand.execute>[0], ctx);
     },
