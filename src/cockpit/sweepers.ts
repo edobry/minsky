@@ -852,6 +852,64 @@ export function startProdStateRefreshSweeper(intervalMs?: number): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// Short-id map refresh sweeper (mt#3914)
+// ---------------------------------------------------------------------------
+
+/**
+ * Refresh interval for the short-id -> UUID map the display linkifier reads.
+ *
+ * Grounded in observed mint cadence rather than a round number
+ * (`decision-defaults.mdc §Thresholds`): asks are the fastest-growing family at
+ * ~135/day measured 2026-08-10 (947 over 7 days), i.e. one roughly every 11
+ * minutes. A 5-minute sweep therefore lands a newly-minted id in the map before
+ * the next one typically exists.
+ *
+ * Freshness is the SMALL half of the value here — every recurrence mem#623
+ * measured (R3, R4, R6, R7) referenced an id that already existed, most of them
+ * days old and carried in a handoff. The window matters for the just-minted
+ * edge case only; a miss there degrades to a bare ref, never a wrong one.
+ */
+const SHORT_ID_MAP_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Start the periodic short-id map refresh in this cockpit process (mt#3914).
+ *
+ * The PRODUCER half: reads `(short_id, id)` for asks, memories, and workspaces
+ * and writes them to a local cache the MessageDisplay hook reads. The hook
+ * cannot do this read itself — a hook process's Postgres connect is capped at
+ * 2s against a measured 4.3-5.5s cold connect (mt#3744 / mt#3879), so the
+ * provider resolves to null deterministically there.
+ *
+ * Fail-open: no DB / a failed read logs and waits for the next tick, leaving the
+ * last-good map in place. Overlapping ticks skip.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startShortIdMapSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "short-id map refresh",
+    intervalMs: intervalMs ?? SHORT_ID_MAP_REFRESH_INTERVAL_MS,
+    tick: async () => {
+      const { getSharedPersistenceService } = await import("./shared-persistence");
+      const svc = await getSharedPersistenceService();
+      const provider = svc.getProvider();
+      const hasRawSql =
+        "getRawSqlConnection" in provider &&
+        typeof (provider as { getRawSqlConnection?: unknown }).getRawSqlConnection === "function";
+      if (!hasRawSql) return;
+      const sql = await (
+        provider as { getRawSqlConnection: () => Promise<unknown> }
+      ).getRawSqlConnection();
+      const { refreshShortIdMapCache } = await import("./short-id-map-cache");
+      await refreshShortIdMapCache(
+        sql as import("./short-id-map-cache").UnsafeSql | null | undefined,
+        Date.now()
+      );
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch watchdog refresh sweeper (mt#2646)
 // ---------------------------------------------------------------------------
 

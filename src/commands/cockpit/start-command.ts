@@ -10,6 +10,7 @@ import {
   startAskAdvancementSweeper,
   startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
+  startShortIdMapSweeper,
   startConversationTitleSweeper,
   startConversationSummarySweeper,
   startTopologySweeper,
@@ -389,6 +390,12 @@ export function createStartCommand(): Command {
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
+      // Short-id map sweep (mt#3914): read (short_id, id) for asks, memories and
+      // workspaces into a local cache the MessageDisplay linkifier reads, so a
+      // bare ask#N/mem#N/ws#N renders clickable. The hook cannot do this read
+      // itself — a hook process's Postgres connect is capped below the measured
+      // cold-connect time (mt#3744/mt#3879), so it resolves null every time.
+      const stopShortIdMapSweeper = startShortIdMapSweeper();
       // Slow-clock topology sweep (mt#2602): periodically re-derive the
       // guard-hook registry + interlock history (git log + retrospective.fired
       // correlation) so the plant board's S2 valve inventory and
@@ -461,6 +468,7 @@ export function createStartCommand(): Command {
         stopAskSweeper();
         stopStaleAskCloseSweeper();
         stopProdStateSweeper();
+        stopShortIdMapSweeper();
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();

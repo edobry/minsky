@@ -1181,6 +1181,20 @@ export const sessionPrCheckRunSubmitCommandParams = {
  * Session exec command parameters
  * Executes a shell command in a session's working directory
  */
+/**
+ * Default and ceiling for `session_exec`'s command timeout — the ONE definition
+ * (mt#3923).
+ *
+ * The schema below and the handler's clamp in `basic-commands.ts` both read
+ * these, and the parameter description interpolates them, so the three
+ * statements of the bound cannot drift apart. They could before: the handler
+ * carried its own copies, and because the schema REJECTS an over-cap request
+ * before the clamp is ever reached, a divergent clamp would never have been
+ * exercised — the drift would have been silent.
+ */
+export const SESSION_EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+export const SESSION_EXEC_MAX_TIMEOUT_MS = 120_000;
+
 export const sessionExecCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
@@ -1191,8 +1205,8 @@ export const sessionExecCommandParams = {
     required: true,
   },
   timeout: {
-    schema: z.number().int().positive().max(120000).optional(),
-    description: "Timeout in milliseconds (default: 30000, max: 120000)",
+    schema: z.number().int().positive().max(SESSION_EXEC_MAX_TIMEOUT_MS).optional(),
+    description: `Timeout in milliseconds (default: ${SESSION_EXEC_DEFAULT_TIMEOUT_MS}, max: ${SESSION_EXEC_MAX_TIMEOUT_MS})`,
     required: false,
   },
 };
