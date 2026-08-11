@@ -85,6 +85,55 @@ describe("writeSessionAttachment (mt#2284)", () => {
     expect(upsertValues.actorId).toBe("test-actor");
   });
 
+  /**
+   * mt#3945: the attachment records the conversation `actorId` names.
+   *
+   * This writer is where the 199 populated `cc_conversation_id` rows came from,
+   * and it read `CLAUDE_CODE_SESSION_ID` — captured at process spawn, never
+   * re-read. It agreed with `actor_id` 88 times out of 88 only because both
+   * were stale from that same spawn; mt#3900 made `actor_id` live and left this
+   * one frozen, so the two were about to diverge on the first `/clear`.
+   */
+  test("the attachment carries the conversation the actorId names (mt#3945)", async () => {
+    const CONVERSATION_ID = "8f3a2d1b-4c5e-4a6f-9b7c-0d1e2f3a4b5c";
+
+    const returningMock = mock(async () => [{ id: "attach-3945" }]);
+    const onConflictDoUpdateMock = mock(() => ({ returning: returningMock }));
+    const valuesMock = mock((_v: Record<string, unknown>) => ({
+      onConflictDoUpdate: onConflictDoUpdateMock,
+    }));
+    const insertMock = mock(() => ({ values: valuesMock }));
+
+    const mockContainer = {
+      has: (key: string) => key === "persistence",
+      get: (_key: string) => ({
+        getDatabaseConnection: mock(async () => ({
+          insert: insertMock,
+          select: mock(() => undefined),
+        })),
+      }),
+    };
+
+    const { MinskyMCPServer } = await import("./server");
+    const server = new MinskyMCPServer({
+      name: "Test Server",
+      version: "1.0.0",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+      container: mockContainer as any,
+    });
+
+    await getWriteSessionAttachment(server)(
+      { session: "session-3945" },
+      `com.anthropic.claude-code:conv:${CONVERSATION_ID}`
+    );
+
+    // Asserted against the actorId's own segment, so the expectation holds
+    // whatever CLAUDE_CODE_SESSION_ID the test runner inherited — which is
+    // exactly the property the fix adds.
+    const upsertValues = valuesMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(upsertValues.ccConversationId).toBe(CONVERSATION_ID);
+  });
+
   test("resolves the session via task lookup when args.session is absent", async () => {
     const RESOLVED_SESSION_ID = "session-from-task";
     const mockRow = {

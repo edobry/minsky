@@ -23,6 +23,7 @@ import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { hostname } from "os";
 import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
@@ -1670,21 +1671,53 @@ export class MinskyMCPServer {
 
     const projectId = await this.resolveProjectIdBestEffort();
 
-    // Capture the caller's CC conversation id (best-effort from environment)
-    const ccConversationId =
-      typeof process.env.CC_CONVERSATION_ID === "string"
-        ? process.env.CC_CONVERSATION_ID
-        : undefined;
-
     await repo.upsertClaim({
       subjectKind: "task",
       subjectId,
       actorId,
-      ccConversationId,
+      ccConversationId: this.resolveCcConversationId(actorId),
       projectId,
     });
 
     log.debug("presence claim written", { taskId, actorId });
+  }
+
+  /**
+   * The conversation a presence claim was written from (mt#3945).
+   *
+   * Derived from the caller's already-resolved `actorId`, which ADR-006 makes
+   * the conversation-grain identity key — the same value the collision probe,
+   * dispatch attribution and the workspace links all join on. Deriving means
+   * `cc_conversation_id` cannot disagree with `actor_id`: for a
+   * conversation-scoped actor the column IS the `conv:` segment, so the two
+   * agree by construction rather than by both being read from the same place at
+   * the same moment.
+   *
+   * Both writers previously read an env var instead, and each read a different
+   * one. `writeTaskClaim` read `CC_CONVERSATION_ID`, which nothing sets — zero
+   * of 6076 task rows ever carried a value. `writeSessionAttachment` read
+   * `CLAUDE_CODE_SESSION_ID`, which Claude Code does set, but only into the
+   * server process's environment AT SPAWN: a `/clear`, resume or fork changes
+   * the conversation without respawning MCP servers, so the value goes stale
+   * and stays stale for the life of the process (mt#3900, the same defect one
+   * field over). Their apparent 88-of-88 agreement was two fields being wrong
+   * together, not a correctness property.
+   *
+   * The env read survives ONLY as a last resort for a Layer-1 (`unknown:hash:`)
+   * actor, where `actorId` names no conversation and this is the sole remaining
+   * signal — 113 rows in prod. It is spawn-frozen there for exactly the reason
+   * above, which is a floor, not a fix: the real remedy is for such callers to
+   * reach Layer 2/3 so `actorId` carries the conversation. Deliberately NOT
+   * consulted otherwise, and deliberately not a second opinion — a per-process
+   * env read is the parallel identity source this change exists to retire, and
+   * under a shared local daemon (ADR-038) it would be one value shared across
+   * every conversation at once.
+   */
+  private resolveCcConversationId(actorId: string): string | undefined {
+    return resolvePresenceConversationId(
+      actorId,
+      process.env.CLAUDE_CODE_SESSION_ID ?? process.env.CC_CONVERSATION_ID
+    );
   }
 
   /**
@@ -1800,14 +1833,11 @@ export class MinskyMCPServer {
 
     const projectId = await this.resolveProjectIdBestEffort();
 
+    const ccConversationId = this.resolveCcConversationId(actorId);
     // "Where" context — env bag of only-the-keys-present (emulator-agnostic;
     // stores env strings, introspects no terminal app). Claude Code sets
-    // CLAUDE_CODE_SESSION_ID (the conversation UUID) and CLAUDE_CODE_ENTRYPOINT
-    // (e.g. "cli", "sdk-cli") — see packages/domain/src/runtime/harness-detection.ts.
-    const ccConversationId =
-      typeof process.env.CLAUDE_CODE_SESSION_ID === "string"
-        ? process.env.CLAUDE_CODE_SESSION_ID
-        : undefined;
+    // CLAUDE_CODE_ENTRYPOINT (e.g. "cli", "sdk-cli") — see
+    // packages/domain/src/runtime/harness-detection.ts.
     const entrypoint =
       typeof process.env.CLAUDE_CODE_ENTRYPOINT === "string"
         ? process.env.CLAUDE_CODE_ENTRYPOINT
