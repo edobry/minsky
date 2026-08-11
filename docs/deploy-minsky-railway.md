@@ -649,8 +649,28 @@ automatically on the next run.
    open) per service+failure-class. De-duplicated so a sustained outage produces one
    issue, not N. Issues are labelled `p0-outage` and `post-deploy-monitor`.
 
-   - To mute during a planned redeploy: close the issue manually or let it
-     auto-resolve (close the issue once the service is confirmed healthy).
+   - **Resolution is automatic (mt#3963).** Once a run observes the failure class
+     RECOVERED — the check that detects it RAN and found no problem — the monitor
+     stamps a `P0_RECOVERY_FIRST_OBSERVED_AT` marker in the issue body; once that
+     recovery has held for 8 minutes (mirroring the escalation side's sustained
+     threshold, so an issue cannot flap open/closed across a rolling deploy) it
+     comments with the run that observed the recovery and closes the issue. A
+     check that could not RUN is not a recovery: an unrunnable check leaves the
+     P0 open, exactly as it raises one (mt#3921).
+
+     This bullet used to read "or let it auto-resolve (close the issue once the
+     service is confirmed healthy)," which described behavior that did not
+     exist — nothing closed an escalated P0. Four were open when mt#3963
+     shipped, the oldest for 54 days, every one for a condition the same monitor
+     run reported OK.
+
+   - To mute during a planned redeploy: close the issue manually. A manually
+     closed issue is not reopened; the monitor opens a NEW issue if the
+     condition is still there on a later run.
+
+   - Only issues this monitor opened are auto-closed — the resolver requires
+     both labels AND the `Auto-opened by [post-deploy-health-monitor]` signature
+     in the body, so a hand-filed `p0-outage` issue is never touched.
 
 2. **Secondary (best-effort):** when `MINSKY_MCP_AUTH_TOKEN` is set and the MCP service
    is reachable, a `coordination.notify` ask is created over hosted MCP so it surfaces
