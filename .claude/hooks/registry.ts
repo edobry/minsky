@@ -1131,6 +1131,28 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     canary: { input: {}, expects: "warn" },
   },
   {
+    name: "inject-memory-capture",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-memory-capture").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3997: fires only when a process has actually crossed a resident-memory
+    // watermark — rare by construction (nothing since 2026-08-08), and when it
+    // does fire it carries the evidence mt#3885 is blocked on. High priority
+    // because being dropped returns it to the state this hook exists to end:
+    // an artifact on disk that nobody is told about.
+    contextPriority: 10,
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 0 },
+    // mt#2889: the hook PRIMES a synthetic capture when MINSKY_CANARY_MODE=1
+    // (into the runner's isolated MINSKY_STATE_DIR), so the canary exercises
+    // the FIRING path — read, format, watermark — and not the silent one. A
+    // canary that can only observe silence cannot distinguish a broken guard
+    // from a dormant one, which is what this mechanism exists to detect.
+    canary: { input: {}, expects: "warn" },
+  },
+  {
     name: "inject-dispatch-watchdog",
     effects: [advisoryEffect()],
     tuningOwnership: "advisory",
