@@ -194,8 +194,6 @@ export async function selectSweepTargets(
   db: PostgresJsDatabase,
   limit: number | null
 ): Promise<SweepTargetRow[]> {
-  // `LIMIT NULL` is Postgres's own spelling of "no limit" (same as LIMIT ALL),
-  // so the unbounded case needs no separate statement.
   const rows = await db.execute(sql`
     WITH multi_spawn_turns AS (
       SELECT parent_agent_session_id, parent_turn_index
