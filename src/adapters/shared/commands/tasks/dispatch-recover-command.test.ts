@@ -58,6 +58,8 @@ const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
 const DO_NOT_REDISPATCH_WARNING = "Do NOT redispatch";
 /** mt#3193: the IN-REVIEW+open-PR gate's activitySource value, asserted from multiple tests. */
 const IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE = "in-review-open-pr";
+/** mt#3952: the progress-starvation note's leading token, asserted from multiple tests. */
+const PROGRESS_STARVED_MARKER = "Progress-starved";
 
 // ---------------------------------------------------------------------------
 // Fake tracker — duck-typed, implements only what the command calls.
@@ -232,6 +234,8 @@ function makeCommand(opts: {
   gitOps?: DispatchRecoveryGitOps;
   activityOps?: DispatchRecoveryActivityOps;
   staleMs?: number;
+  /** mt#3952: override the progress-starvation bound (default DISPATCH_PROGRESS_STALE_MS). */
+  progressStaleMs?: number;
   taskService?: TaskServiceInterface;
 }) {
   return createTasksDispatchRecoverCommand(
@@ -244,6 +248,7 @@ function makeCommand(opts: {
       activityOps: opts.activityOps ?? makeActivityOps(),
       now: () => NOW,
       staleMs: opts.staleMs,
+      progressStaleMs: opts.progressStaleMs,
     }
   );
 }
@@ -486,6 +491,94 @@ describe("tasks.dispatch-recover", () => {
     expect(result.success).toBe(true);
     expect(result.status).toBe("recover");
     expect(result.resumedFromInvocationId).toBe(original.id);
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3952: progress bound — a dispatch emitting tool calls (refreshing
+  // presence) but writing nothing no longer holds `healthy` forever.
+  // mt#3812 is the standing instance this closes: presence refreshed every
+  // ~10 minutes for 8+ hours while the workspace was never touched, and
+  // `tasks.dispatch-recover` kept reporting `healthy`.
+  // ---------------------------------------------------------------------------
+
+  test("mt#3812-shaped: presence pings for 8h+ but no commit and no file write ever -> NOT healthy, recovers with a progressNote naming the starvation (mt#3952 AT4)", async () => {
+    const tracker = new FakeTracker();
+    const original = tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 8 * 60 * 60 * 1000), // dispatched 8h ago
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null }); // no commits, ever
+    const activityOps = makeActivityOps({
+      // presence keeps refreshing right up to "now" — this is exactly what
+      // held the pre-mt#3952 classifier at `healthy` indefinitely.
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 3 * 60 * 1000,
+      // the workspace has never been touched
+      lastWorkspaceMtimeAtMs: async () => null,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    // The pre-mt#3952 bug: this used to be "healthy" here.
+    expect(result.status).not.toBe("healthy");
+    expect(result.status).toBe("recover"); // attempt 1 -> auto-resume, not yet escalated
+    expect(result.resumedFromInvocationId).toBe(original.id);
+    expect(typeof result.progressNote).toBe("string");
+    expect(result.progressNote as string).toContain(PROGRESS_STARVED_MARKER);
+  });
+
+  test("progress-starved dispatch on its 3rd stale classification -> escalate, with progressNote naming the starvation", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 8 * 60 * 60 * 1000),
+      attemptNumber: 2, // already auto-resumed once; this call is the 3rd classification
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 3 * 60 * 1000,
+      lastWorkspaceMtimeAtMs: async () => null,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.status).toBe("escalate");
+    const escalation = result.escalation as { message: string; progressNote: string };
+    expect(escalation.progressNote).toContain(PROGRESS_STARVED_MARKER);
+    expect(escalation.message).toContain(PROGRESS_STARVED_MARKER);
+  });
+
+  test("a custom progressStaleMs override is honored", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 20 * 60 * 1000), // dispatched 20 min ago
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 1000, // presence very fresh
+      lastWorkspaceMtimeAtMs: async () => null,
+    });
+    // 20 minutes with no progress, against a 10-minute progress bound.
+    const cmd = makeCommand({
+      tracker,
+      sessionProvider,
+      gitOps,
+      activityOps,
+      progressStaleMs: 10 * 60 * 1000,
+    });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.status).not.toBe("healthy");
   });
 
   test("stale, clean tree, no commits -> crashed-no-output, continuation prompt returned, attempt recorded", async () => {
