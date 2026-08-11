@@ -55,6 +55,11 @@ interface Classification {
   hasJsonFlag: boolean;
   /** Where the classified source text came from — see `readCommandSource`. */
   basis: "execute-source" | "defining-file";
+  /**
+   * Whether a return literal spread keys in (`...rest`). The reading is then a
+   * lower bound on the payload, not a full picture.
+   */
+  keysBehindSpread: boolean;
 }
 
 /**
@@ -67,9 +72,63 @@ interface Classification {
 const DELEGATING_WRAPPER_MAX_LENGTH = 200;
 
 const SELF_PRINT_RE = /log\.cli\(/;
-const MESSAGE_KEY_RE = /\bmessage\s*[:,]/;
-const OUTPUT_KEY_RE = /\boutput\s*[:,]/;
-const SUCCESS_KEY_RE = /\bsuccess\s*[:,]/;
+const RETURN_LITERAL = "return {";
+
+/**
+ * Top-level keys of every `return { … }` object literal in `text`.
+ *
+ * Depth matters: the formatter reads `result.message`, so only a key at the
+ * literal's own top level counts. A token scan that ignored nesting classified
+ * `config doctor` as already-projected because each of its nine diagnostics
+ * carries an inner `message` field — while the top-level result carried none,
+ * which is precisely why mt#3478 found it printing a bare success line. That
+ * false negative is what this walker exists to prevent, and the pre-mt#3478
+ * acceptance run is what catches it if this regresses.
+ *
+ * Keys behind a spread (`...rest`) are invisible here; `hasSpread` reports that
+ * so the caller can treat the reading as incomplete rather than authoritative.
+ */
+function topLevelReturnKeys(text: string): { keys: Set<string>; hasSpread: boolean } {
+  const keys = new Set<string>();
+  let hasSpread = false;
+
+  for (let start = text.indexOf(RETURN_LITERAL); start !== -1; ) {
+    let depth = 0;
+    let quote: string | null = null;
+    let index = start + RETURN_LITERAL.length - 1;
+
+    for (; index < text.length; index++) {
+      const char = text[index];
+      if (quote) {
+        if (char === "\\") index++;
+        else if (char === quote) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === "`") {
+        quote = char;
+        continue;
+      }
+      if (char === "{" || char === "[" || char === "(") depth++;
+      else if (char === "}" || char === "]" || char === ")") {
+        depth--;
+        if (depth === 0) break;
+      } else if (depth === 1) {
+        // Depth 1 is the returned literal's own key list.
+        const rest = text.slice(index);
+        const key = rest.match(/^([A-Za-z_$][\w$]*)\s*[:,}]/);
+        if (key?.[1] && /[{,\s]/.test(text[index - 1] ?? "")) {
+          keys.add(key[1]);
+          index += key[1].length - 1;
+          continue;
+        }
+        if (rest.startsWith("...")) hasSpread = true;
+      }
+    }
+    start = text.indexOf(RETURN_LITERAL, index + 1);
+  }
+
+  return { keys, hasSpread };
+}
 
 /**
  * Index every non-test source file once, so the defining-file fallback below is
@@ -113,11 +172,12 @@ function readCommandSource(
   return { text: executeSource, basis: "execute-source" };
 }
 
-function classify(text: string): Bucket {
-  if (SELF_PRINT_RE.test(text)) return "renders-own-report";
-  if (MESSAGE_KEY_RE.test(text) || OUTPUT_KEY_RE.test(text)) return "projection";
-  if (SUCCESS_KEY_RE.test(text)) return "payload-rendered";
-  return "json-dump";
+function classify(text: string): { bucket: Bucket; hasSpread: boolean } {
+  const { keys, hasSpread } = topLevelReturnKeys(text);
+  if (SELF_PRINT_RE.test(text)) return { bucket: "renders-own-report", hasSpread };
+  if (keys.has("message") || keys.has("output")) return { bucket: "projection", hasSpread };
+  if (keys.has("success")) return { bucket: "payload-rendered", hasSpread };
+  return { bucket: "json-dump", hasSpread };
 }
 
 /** Command ids carrying a per-command `outputFormatter`, across every CLI category. */
@@ -164,12 +224,14 @@ export async function runAudit(): Promise<AuditReport> {
   for (const command of all) {
     if (formatterIds.has(command.id) || switchHandled.has(command.id)) continue;
     const { text, basis } = readCommandSource(command.id, command.execute, sources);
+    const { bucket, hasSpread } = classify(text);
     fallthrough.push({
       id: command.id,
       category: String(command.category),
-      bucket: classify(text),
+      bucket,
       hasJsonFlag: "json" in (command.parameters ?? {}),
       basis,
+      keysBehindSpread: hasSpread,
     });
   }
 
