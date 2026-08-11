@@ -65,6 +65,7 @@ async function runInSubprocess(
           module: () => Promise.resolve({ run: ${guardBody} }),
           timeoutMs: 5000,
           denyCapable: true,
+          effects: [{ effect: "deny", verdictShape: "validator", failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" } }],
         },
       ],
       readInputFn: () => Promise.resolve(${JSON.stringify(input)}),
@@ -168,6 +169,13 @@ describe("updatedInput aggregation (mt#3612)", () => {
       module: () => Promise.resolve({ run: () => ({ updatedInput, ...extra }) }),
       timeoutMs: 1000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
     };
   }
 
@@ -204,6 +212,13 @@ describe("updatedInput aggregation (mt#3612)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "ctx" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: [
+          {
+            effect: "deny",
+            verdictShape: "validator",
+            failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+          },
+        ],
       },
     ]);
     const hso = (written[0]?.hookSpecificOutput ?? {}) as Record<string, unknown>;
@@ -250,6 +265,13 @@ describe("updatedInput aggregation (mt#3612)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: [
+          {
+            effect: "deny",
+            verdictShape: "validator",
+            failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+          },
+        ],
       },
     ]);
     const hso = (written[0]?.hookSpecificOutput ?? {}) as Record<string, unknown>;
@@ -275,6 +297,13 @@ describe("updatedInput aggregation (mt#3612)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: [
+          {
+            effect: "deny",
+            verdictShape: "validator",
+            failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+          },
+        ],
       },
     ]);
     const hso = (written[0]?.hookSpecificOutput ?? {}) as Record<string, unknown>;

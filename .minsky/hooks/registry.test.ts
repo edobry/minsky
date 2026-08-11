@@ -23,6 +23,13 @@ function makeReg(overrides: Partial<GuardRegistration> = {}): GuardRegistration 
     module: () => Promise.resolve({ run: () => null }),
     timeoutMs: 5000,
     denyCapable: true,
+    effects: [
+      {
+        effect: "deny",
+        verdictShape: "validator",
+        failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+      },
+    ],
     ...overrides,
   };
 }

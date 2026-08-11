@@ -22,6 +22,13 @@ describe("runDispatcher guard-denial recording", () => {
     module: () => Promise.resolve({ run: () => ({ deny: { reason: DENY_REASON } }) }),
     timeoutMs: 1000,
     denyCapable: true,
+    effects: [
+      {
+        effect: "deny",
+        verdictShape: "validator",
+        failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+      },
+    ],
   };
 
   test("a deny hands the recorder the guard, tool, reason and input", async () => {

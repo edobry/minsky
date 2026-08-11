@@ -103,6 +103,13 @@ function guard(name: string, denyCapable: boolean, run: () => unknown): GuardReg
     module: () => Promise.resolve({ run: run as never }),
     timeoutMs: 1000,
     denyCapable,
+    effects: [
+      {
+        effect: "deny",
+        verdictShape: "validator",
+        failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+      },
+    ],
   };
 }
 
@@ -185,6 +192,13 @@ const SCENARIOS: Scenario[] = [
           import("../.minsky/hooks/record-agent-dispatch").then((m) => ({ run: m.run })),
         timeoutMs: 13000,
         denyCapable: false,
+        effects: [
+          {
+            effect: "deny",
+            verdictShape: "validator",
+            failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+          },
+        ],
       },
     ],
     expect: (run) => {

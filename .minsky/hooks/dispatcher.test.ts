@@ -30,9 +30,25 @@ import {
   type ContextFragment,
 } from "./dispatcher";
 import { GUARD_REGISTRY } from "./registry";
-import type { GuardRegistration } from "./registry";
+import type { GuardRegistration, GuardEffectDeclaration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import type { TranscriptLine } from "./transcript";
+
+/**
+ * Shared placeholder `effects` declaration for this file's ad-hoc
+ * `GuardRegistration` fixtures (mt#3981 made the field required). These
+ * fixtures test dispatcher MECHANICS — deny short-circuiting, output
+ * composition, timeout handling — not posture semantics, so one uniform
+ * "deny" validator declaration satisfies the type everywhere without
+ * repeating the object literal at each of this file's call sites.
+ */
+const FIXTURE_EFFECTS: [GuardEffectDeclaration, ...GuardEffectDeclaration[]] = [
+  {
+    effect: "deny",
+    verdictShape: "validator",
+    failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+  },
+];
 import type { RecordFireLogInput } from "./fire-log";
 import {
   DISPATCH_HOOK_FILENAME,
@@ -758,6 +774,7 @@ describe("runDispatcher", () => {
           module: () => Promise.resolve({ run: () => ({ deny: { reason: "x" } }) }),
           timeoutMs: 1000,
           denyCapable: true,
+          effects: FIXTURE_EFFECTS,
         },
       ],
       readInputFn: () => Promise.resolve(baseInput({ tool_name: "Bash" })),
@@ -780,6 +797,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "second",
@@ -794,6 +812,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -819,6 +838,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "fragment A" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "b",
@@ -827,6 +847,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "fragment B" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -859,6 +880,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -913,6 +935,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "second",
@@ -927,6 +950,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -973,6 +997,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1027,6 +1052,7 @@ describe("runDispatcher", () => {
             }),
           timeoutMs: 1000,
           denyCapable: true,
+          effects: FIXTURE_EFFECTS,
         },
         {
           name: "second",
@@ -1041,6 +1067,7 @@ describe("runDispatcher", () => {
             }),
           timeoutMs: 1000,
           denyCapable: false,
+          effects: FIXTURE_EFFECTS,
         },
       ];
       await runDispatcher("PreToolUse", {
@@ -1082,6 +1109,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         calibrationLog: "detector-log",
       },
     ];
@@ -1106,6 +1134,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ calibration: { matched: true } }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1133,6 +1162,7 @@ describe("runDispatcher", () => {
           Promise.resolve({ run: () => ({ auditLines: ["[g] legacy override active\n"] }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1173,6 +1203,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => null }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1200,6 +1231,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1224,6 +1256,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "fyi" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1253,6 +1286,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1287,6 +1321,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     process.env[HOOK_OVERRIDE_ENV_VAR] = "pilot";
@@ -1365,6 +1400,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "A" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "b",
@@ -1373,6 +1409,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => null }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1398,6 +1435,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "second",
@@ -1412,6 +1450,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1438,6 +1477,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "ok" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     // No recordFireLogFn override — exercises the real default wiring,
@@ -1642,6 +1682,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         contextPriority: 10,
       },
       {
@@ -1657,6 +1698,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         calibrationLog: "quiet-low",
       },
     ];
@@ -1697,6 +1739,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({}) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "empty-string-guard",
@@ -1705,6 +1748,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1727,6 +1771,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "SECOND-DECLARED" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         contextPriority: 99,
       },
       {
@@ -1736,6 +1781,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "FIRST-DECLARED" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {

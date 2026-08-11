@@ -103,6 +103,13 @@ describe("guard-health write isolation regression (mt#2875)", () => {
             }),
           timeoutMs: 1000,
           denyCapable: true,
+          effects: [
+            {
+              effect: "deny",
+              verdictShape: "validator",
+              failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+            },
+          ],
         },
       ];
       await runDispatcher("PreToolUse", {

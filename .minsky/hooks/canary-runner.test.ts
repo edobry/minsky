@@ -143,6 +143,13 @@ describe("runGuardCanary — real guard, real canary", () => {
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       // no `canary` field
     };
     const result = await runGuardCanary(syntheticReg);
@@ -198,6 +205,13 @@ describe("runGuardCanary — SABOTAGE DETECTION (mt#2889 acceptance test)", () =
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       canary: { input: {}, expects: "warn" },
     };
     const result = await runGuardCanary(sabotagedWarnReg);
@@ -223,6 +237,13 @@ describe("runGuardCanary — setup hook", () => {
         }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       canary: {
         input: {},
         expects: "warn",
@@ -308,6 +329,13 @@ describe("mt#3004 — MISSING result carries no expects", () => {
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
     };
     const result = await runGuardCanary(syntheticReg);
     expect(result.passed).toBeUndefined();
@@ -332,6 +360,13 @@ describe("mt#3004 — runGuardCanary restores env mutated by setup (PR #2145 R1)
         }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       canary: {
         input: {},
         expects: "warn",
