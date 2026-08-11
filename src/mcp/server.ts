@@ -38,6 +38,7 @@ import {
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
 import type { InFlightToolCall } from "./memory-capture";
+import { formatAdmissionRefusal, type AdmissionGate } from "./daemon/memory-admission";
 import type { InitController } from "./init-retry";
 import {
   type PresenceClaimRepository,
@@ -419,6 +420,14 @@ export class MinskyMCPServer {
   // Configurable via MINSKY_MCP_RETRY_AFTER_SECS env var; defaults to 30.
   private readonly SESSION_CAP_RETRY_AFTER_SECS: number = 30;
 
+  // mt#3814: resident-memory admission gate for the shared local daemon.
+  //
+  // Null (no gate) unless the daemon wiring installs one, which is why this is
+  // a setter rather than an env read here: arming it changes when a server
+  // refuses a session, and the hosted Railway surface is explicitly out of
+  // mt#3814's scope. `mcp start --local-daemon` installs it; nothing else does.
+  private sessionAdmissionGate: AdmissionGate | null = null;
+
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
   // pinned in memory. The reaper periodically drops sessions whose
@@ -432,7 +441,13 @@ export class MinskyMCPServer {
   private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
   private readonly SESSION_IDLE_TIMEOUT_MS: number =
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
-  private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
+  // mt#3814: made env-configurable alongside the timeout above. With a fixed
+  // 60s sweep, setting the idle timeout to seconds changes nothing observable
+  // for up to a minute — so the local tuning ADR-038 §Question 6 asks for was
+  // only half-tunable, and no bounded test could witness a reap at all. The
+  // default is unchanged, so no existing deployment is affected.
+  private readonly SESSION_REAPER_INTERVAL_MS: number =
+    Number.parseInt(process.env.MINSKY_MCP_SESSION_REAPER_INTERVAL_MS ?? "", 10) || 60 * 1000;
 
   // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
   // ever registered. Deliberately distinct from `httpSessions.size > 0`,
@@ -873,6 +888,37 @@ export class MinskyMCPServer {
             id: null,
           });
         return;
+      }
+
+      // mt#3814: resident-memory admission. Distinct from the cap above in
+      // WHAT it protects — the cap bounds concurrent sessions, this bounds the
+      // process's memory footprint before the mt#3886 ceiling terminates it.
+      // Refusing a NEW session while continuing to serve established ones is
+      // the whole point: under a shared daemon the ceiling's self-terminate
+      // costs every conversation on the machine at once, and this is the step
+      // that exists between "serving normally" and "gone".
+      if (this.sessionAdmissionGate) {
+        const decision = this.sessionAdmissionGate();
+        if (!decision.admit) {
+          log.warn("mcp_session_reject", {
+            reason: "memory_watermark",
+            residentBytes: decision.residentBytes,
+            watermarkBytes: decision.watermarkBytes,
+            currentCount: this.httpSessions.size,
+          });
+          res
+            .status(503)
+            .set("Retry-After", String(this.SESSION_CAP_RETRY_AFTER_SECS))
+            .json({
+              jsonrpc: "2.0",
+              error: {
+                code: -32603,
+                message: formatAdmissionRefusal(decision, this.SESSION_CAP_RETRY_AFTER_SECS),
+              },
+              id: null,
+            });
+          return;
+        }
       }
 
       // New session: each HTTP session gets its own Server instance because
@@ -2436,6 +2482,17 @@ export class MinskyMCPServer {
       toolName: state.toolName,
       elapsedMs: nowMs - state.startedAtMs,
     }));
+  }
+
+  /**
+   * Install (or clear) the resident-memory session-admission gate (mt#3814).
+   *
+   * A setter rather than a constructor option because the gate needs the
+   * ceiling value resolved by `orphan-exit.ts` at wiring time in
+   * `start-command.ts`, which happens well after the server is constructed.
+   */
+  setSessionAdmissionGate(gate: AdmissionGate | null): void {
+    this.sessionAdmissionGate = gate;
   }
 
   /**
