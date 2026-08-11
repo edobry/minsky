@@ -20,6 +20,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { getSessionsDir } from "@minsky/shared/paths";
 import {
   atomicWriteJSON,
   getCockpitStateDir,
@@ -128,41 +129,36 @@ describe("resolveWorkspaceKey", () => {
   });
 
   test("extracts the session ID from a session workspace path", () => {
-    // getSessionsDir() respects XDG; default is `${homedir}/.local/state/minsky/sessions`.
-    // Build a path under it explicitly to keep the test platform-portable.
-    const sessionsDir = path.join(
-      process.env["HOME"] || os.homedir(),
-      ".local",
-      "state",
-      "minsky",
-      "sessions"
-    );
+    // Derived, never hard-coded (mt#3965): the code under test resolves the
+    // sessions dir through getSessionsDir(), and a literal
+    // `$HOME/.local/state/minsky/sessions` here only matched because the test
+    // run pointed at the operator's real state dir — which is the defect
+    // mt#3965 closed.
+    const sessionsDir = getSessionsDir();
     const sessionId = "abc-123-session";
     const wsPath = path.join(sessionsDir, sessionId);
     expect(resolveWorkspaceKey(wsPath)).toBe(sessionId);
   });
 
   test("extracts the session ID even when cwd is a subdirectory of the session workspace", () => {
-    const sessionsDir = path.join(
-      process.env["HOME"] || os.homedir(),
-      ".local",
-      "state",
-      "minsky",
-      "sessions"
-    );
+    // Derived, never hard-coded (mt#3965): the code under test resolves the
+    // sessions dir through getSessionsDir(), and a literal
+    // `$HOME/.local/state/minsky/sessions` here only matched because the test
+    // run pointed at the operator's real state dir — which is the defect
+    // mt#3965 closed.
+    const sessionsDir = getSessionsDir();
     const sessionId = "deep-session";
     const wsSubdir = path.join(sessionsDir, sessionId, "src", "cockpit");
     expect(resolveWorkspaceKey(wsSubdir)).toBe(sessionId);
   });
 
   test('returns "main" for the sessions dir itself (no session ID segment)', () => {
-    const sessionsDir = path.join(
-      process.env["HOME"] || os.homedir(),
-      ".local",
-      "state",
-      "minsky",
-      "sessions"
-    );
+    // Derived, never hard-coded (mt#3965): the code under test resolves the
+    // sessions dir through getSessionsDir(), and a literal
+    // `$HOME/.local/state/minsky/sessions` here only matched because the test
+    // run pointed at the operator's real state dir — which is the defect
+    // mt#3965 closed.
+    const sessionsDir = getSessionsDir();
     expect(resolveWorkspaceKey(sessionsDir)).toBe(MAIN_WORKSPACE_KEY);
   });
 });
@@ -310,13 +306,12 @@ describe("writeCurrentCockpitState / readCurrentCockpitState / removeCurrentCock
   });
 
   test("writes under session ID when cwd is in a session workspace", () => {
-    const sessionsDir = path.join(
-      process.env["HOME"] || os.homedir(),
-      ".local",
-      "state",
-      "minsky",
-      "sessions"
-    );
+    // Derived, never hard-coded (mt#3965): the code under test resolves the
+    // sessions dir through getSessionsDir(), and a literal
+    // `$HOME/.local/state/minsky/sessions` here only matched because the test
+    // run pointed at the operator's real state dir — which is the defect
+    // mt#3965 closed.
+    const sessionsDir = getSessionsDir();
     const sessionId = "live-session-id";
     const cwd = path.join(sessionsDir, sessionId);
     const state = writeCurrentCockpitState(
