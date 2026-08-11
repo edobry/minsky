@@ -95,6 +95,50 @@ export interface ApproveResult {
  * Holds a set of injected dependencies and delegates each operation to the
  * corresponding impl function in the session sub-modules.
  */
+/**
+ * Build the parameter object `startSessionImpl` receives (mt#3955).
+ *
+ * Spread FIRST, then defaults, then the values this layer fixes — so a field the
+ * caller supplied reaches the domain unless something here deliberately overrides
+ * it.
+ *
+ * ## Why this is a function, and why it spreads
+ *
+ * It used to be an inline object literal listing every field by hand, and
+ * `recover` was not on the list. `startSessionImpl` therefore saw `undefined`,
+ * took its non-recover branch, and re-emitted "session appears abandoned" to an
+ * operator who had just followed that error's own instruction to re-run with
+ * `--recover`. Nothing caught it because the literal is cast with `as`: a MISSING
+ * optional field is not a type error, so the flag went nowhere in silence.
+ *
+ * This was the second time that same flag was dropped by a hand-written copy —
+ * mt#2742 fixed the adapter -> service hop with the identical symptom. Listing
+ * fields by hand makes every layer boundary an independent chance to forget one.
+ * Spreading removes the chance rather than patching the instance.
+ *
+ * Exported and pure so the construction can be asserted directly. The alternative
+ * — driving `SessionService.start` and patching its `startSessionImpl` import to
+ * see what arrived — is the shape `testing-standards.mdc §Testable Design` tells
+ * you to refactor instead of mock.
+ */
+export function buildSessionStartParams(
+  params: SessionStartParams & { launchIntent?: SessionLaunchIntent }
+): SessionStartParametersWithIntent {
+  return {
+    ...params,
+    description: params.description || "",
+    packageManager: params.packageManager || "bun",
+    skipInstall: params.skipInstall || false,
+    noStatusUpdate: params.noStatusUpdate || false,
+    quiet: params.quiet || false,
+    // Fixed by this layer regardless of what the caller passed — these stay
+    // AFTER the spread so they win.
+    debug: false,
+    format: "text" as const,
+    force: false,
+  } as SessionStartParametersWithIntent;
+}
+
 @injectable()
 export class SessionService {
   constructor(@inject("sessionDeps") private deps: SessionDeps) {}
@@ -115,6 +159,11 @@ export class SessionService {
 
   /**
    * Start a new session.
+   *
+   * Params construction is {@link buildSessionStartParams} — pure, exported, and
+   * tested directly, because the defect it fixes (mt#3955) lived entirely in that
+   * construction and could otherwise only be observed by patching the
+   * `startSessionImpl` import this method reaches itself.
    */
   async start(
     params: SessionStartParams & {
@@ -122,21 +171,7 @@ export class SessionService {
       launchIntent?: SessionLaunchIntent;
     }
   ): Promise<Session> {
-    const sessionStartParams = {
-      sessionId: params.sessionId,
-      task: params.task,
-      description: params.description || "",
-      branch: params.branch,
-      packageManager: params.packageManager || "bun",
-      skipInstall: params.skipInstall || false,
-      noStatusUpdate: params.noStatusUpdate || false,
-      quiet: params.quiet || false,
-      repo: params.repo,
-      debug: false,
-      format: "text" as const,
-      force: false,
-      launchIntent: params.launchIntent,
-    } as SessionStartParametersWithIntent;
+    const sessionStartParams = buildSessionStartParams(params);
 
     return startSessionImpl(sessionStartParams, {
       sessionDB: this.deps.sessionProvider,
