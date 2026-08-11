@@ -190,6 +190,14 @@ describe("updateSessionImpl push-timeout confirmation (mt#3205 AT1)", () => {
     const message = (caught as MinskyError).message;
     expect(message).toContain("pushUnconfirmed");
     expect(message).toContain("Failed to push changes to remote during session update");
+    // mt#3939 (AT2): this is the FIRST of the two pushes session_pr_create
+    // runs, and it never produces the git-exec timeout template. mt#3939's
+    // spec originally claimed the opposite — that a hang in this step surfaced
+    // as "Git push operation timed out" — and the fix rested on that being
+    // false. Pin it so a future change to this path cannot quietly make the
+    // two failure surfaces indistinguishable again.
+    expect(message).not.toContain("Git Operation Timeout");
+    expect(message).not.toContain("Git push operation timed out");
   }, 15000);
 
   test("a normal (non-hanging) push completes successfully and the pending commit reaches the remote", async () => {

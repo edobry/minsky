@@ -247,6 +247,14 @@ export interface CreatePROptions {
   draft?: boolean;
   /** Optional authorship tier — when provided, the corresponding label is applied to the PR. */
   authorshipTier?: import("../provenance/types").AuthorshipTier;
+  /**
+   * Bound for the pre-PR "ensure the branch is on the remote" push (mt#3939).
+   * Distinct from the pre-PR session update's push, which `session_pr_create`
+   * bounds separately — before mt#3939 this push carried an unreachable
+   * hardcoded 60s, so a caller-supplied bound silently did not apply to the
+   * push that actually failed. Omit to use DEFAULT_PR_CREATE_PUSH_TIMEOUT_MS.
+   */
+  pushTimeoutMs?: number;
 }
 
 export interface UpdatePROptions {

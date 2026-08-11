@@ -166,6 +166,12 @@ export function registerPrincipalCommands(
           );
         }
         return {
+          // In human mode the line above already reported delivery (chat id
+          // included), so `printed` stops the CLI formatter appending a bare
+          // "✅ Success" under it (mt#3961). Gated on the same condition that
+          // decides whether anything was printed at all — flagging the json
+          // path would suppress output nobody produced.
+          ...(human ? { printed: true } : {}),
           success: true,
           delivered: true,
           messageId: result.messageId,
@@ -183,6 +189,9 @@ export function registerPrincipalCommands(
       const succeeded = result.reason === "not-configured";
       if (human) log.cli(`Not delivered (${result.reason}): ${result.detail}`);
       return {
+        // Same gate as the delivered branch: the line above carries the reason
+        // and the detail, so the formatter has nothing to add (mt#3961).
+        ...(human ? { printed: true } : {}),
         success: succeeded,
         delivered: false,
         reason: result.reason,
