@@ -513,6 +513,36 @@ export function createStartCommand(): Command {
       proc.on("SIGTERM", cleanupAndExit);
       proc.on("SIGHUP", cleanupAndExit);
 
+      // mt#3973: resident-memory CAPTURE for the cockpit daemon.
+      //
+      // The 2026-08-08 panic stackshot carries no argv, so "the runaway was an
+      // MCP server" is an inference, not an observation (mt#3885). `bun` names
+      // at least four process classes on this machine and THIS one — a
+      // long-lived daemon — is currently the largest live `bun` on it (1.31 GB
+      // measured 2026-08-11, against a 427-644 MB band for `mcp start`).
+      // Leaving it uninstrumented would keep the attribution question open
+      // exactly where it is most likely to be answered.
+      //
+      // Capture only, NO self-terminate: mt#3886's ceiling deliberately covers
+      // `mcp start` / `mcp proxy`, whose parent restarts them. Killing the
+      // cockpit daemon out from under the tray is a different decision with a
+      // different blast radius, and it is not this task's to make.
+      const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
+      const { getCurrentProcessResidentBytes, getCurrentProcessUptimeSeconds } = await import(
+        "../../mcp/orphan-exit"
+      );
+      wireMemoryCaptureWatcher({
+        processRole: "cockpit start",
+        // No self-terminate on this class — say so, rather than inventing a
+        // bound the arm-check would then compare against.
+        ceilingBytes: Number.POSITIVE_INFINITY,
+        // Above the 1.31 GB measured baseline, so this fires on genuine growth
+        // rather than on every cockpit start.
+        defaultWatermarkMb: 2048,
+        getResidentBytes: getCurrentProcessResidentBytes,
+        getUptimeSeconds: getCurrentProcessUptimeSeconds,
+      });
+
       // Synchronous-only path: fires on any non-signal exit (normal exit,
       // process.exit() called elsewhere, event-loop drain). `cleanupSync` uses
       // fs.unlinkSync inside removeCockpitPidFile, which is safe here.

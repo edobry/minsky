@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   DEFAULT_MEMORY_CAPTURE_WATERMARK_MB,
+  HEAP_SNAPSHOT_RSS_MULTIPLIER,
   buildCaptureFileStem,
   buildCaptureRecord,
   decideCaptureArm,
@@ -26,6 +27,8 @@ const MB = 1024 * 1024;
 const ROLE = "mcp start (stdio)";
 /** A plausible long-running, allocation-heavy tool — the mt#3885 shape. */
 const SLOW_TOOL = "transcripts_search-text";
+/** Stand-in artifact path for the injected writer. */
+const STUB_JSON_PATH = "/captures/x.json";
 
 /** Assert exactly one item and return it, without a non-null assertion. */
 function only<T>(items: T[]): T {
@@ -314,6 +317,94 @@ describe("wireMemoryCaptureWatcher", () => {
     // is the machine's protection against a kernel panic, and a diagnostic that
     // failed must not be able to take it down with it.
     expect(() => timers.tick()).not.toThrow();
+  });
+
+  test("a per-class default watermark applies when the env var is unset", () => {
+    // The cockpit daemon's case: it idles at ~1.31 GB, so the global 1024 MB
+    // default would fire on every start rather than on genuine growth.
+    const timers = createFakeTimers();
+    const written: WriteCaptureOptions[] = [];
+    wireMemoryCaptureWatcher({
+      processRole: "cockpit start",
+      ceilingBytes: Number.POSITIVE_INFINITY,
+      defaultWatermarkMb: 2048,
+      getResidentBytes: () => 1400 * MB,
+      getUptimeSeconds: () => 1,
+      env: {} as NodeJS.ProcessEnv,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      writeArtifact: (options) => {
+        written.push(options);
+        return STUB_JSON_PATH;
+      },
+    });
+    timers.tick();
+    expect(written).toHaveLength(0);
+  });
+
+  test("the env var overrides a per-class default", () => {
+    const timers = createFakeTimers();
+    const written: WriteCaptureOptions[] = [];
+    wireMemoryCaptureWatcher({
+      processRole: "cockpit start",
+      ceilingBytes: Number.POSITIVE_INFINITY,
+      defaultWatermarkMb: 2048,
+      getResidentBytes: () => 1400 * MB,
+      getUptimeSeconds: () => 1,
+      env: { MINSKY_MCP_MEMORY_CAPTURE_MB: "1024" } as NodeJS.ProcessEnv,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      writeArtifact: (options) => {
+        written.push(options);
+        return STUB_JSON_PATH;
+      },
+    });
+    timers.tick();
+    expect(written).toHaveLength(1);
+  });
+
+  test("an infinite ceiling arms — a class with no self-terminate is still capturable", () => {
+    expect(
+      decideCaptureArm({
+        watermarkBytes: 2048 * MB,
+        ceilingBytes: Number.POSITIVE_INFINITY,
+        forceDisable: false,
+      })
+    ).toEqual({ armed: true });
+  });
+
+  test("refuses a requested snapshot that would breach the ceiling to take it", () => {
+    // The measured cost is ~10x RSS (mt#3973 AT3: 422MB -> 4620MB). At a 1024MB
+    // watermark under a 2048MB ceiling, taking the snapshot would push the
+    // process to ~10GB — causing the kernel panic the ceiling exists to prevent.
+    const timers = createFakeTimers();
+    const written: WriteCaptureOptions[] = [];
+    wireMemoryCaptureWatcher({
+      processRole: ROLE,
+      ceilingBytes: 2048 * MB,
+      getResidentBytes: () => 1024 * MB,
+      getUptimeSeconds: () => 1,
+      env: { MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT: "1" } as NodeJS.ProcessEnv,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      writeArtifact: (options) => {
+        written.push(options);
+        return STUB_JSON_PATH;
+      },
+    });
+    timers.tick();
+
+    const record = only(written).record as MemoryCaptureRecord;
+    expect(record.heapSnapshotPath).toBeNull();
+    expect(record.heapSnapshotSkippedReason).toContain("refused");
+    expect(only(written).heapSnapshotBytes).toBeFalsy();
+    // The artifact is still written — the in-flight context is the half that
+    // matters most, and it costs nothing.
+    expect(record.residentBytes).toBe(1024 * MB);
+  });
+
+  test("HEAP_SNAPSHOT_RSS_MULTIPLIER reflects the measured cost, not Node's documented 2x", () => {
+    expect(HEAP_SNAPSHOT_RSS_MULTIPLIER).toBeGreaterThan(2);
   });
 
   test("the default watermark leaves room below the shipped 2048MB ceiling", () => {

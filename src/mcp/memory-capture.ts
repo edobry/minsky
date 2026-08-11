@@ -56,6 +56,27 @@ export const DEFAULT_MEMORY_CAPTURE_POLL_INTERVAL_MS = 30_000;
 
 const BYTES_PER_MB = 1024 * 1024;
 
+/**
+ * Transient RSS multiplier while `Bun.generateHeapSnapshot("v8")` runs.
+ *
+ * MEASURED, not inherited (mt#3973 AT3, `scripts/verify-memory-capture.ts`):
+ * a process at 422 MB RSS peaked at 4620 MB taking one snapshot — **10.94x** —
+ * and blocked for 5444 ms producing a 529 MB artifact.
+ *
+ * Node documents V8's equivalent as "memory about twice the size of the heap"
+ * (https://nodejs.org/api/v8.html). Bun's JSC-backed implementation is roughly
+ * FIVE TIMES worse than that, which is exactly why this task measured instead
+ * of assuming: designing to the documented 2x would have put a snapshot at the
+ * 1024 MB watermark at ~2 GB (uncomfortable but survivable), when the real
+ * figure puts it near 11 GB — enough to cause the kernel panic the ceiling
+ * exists to prevent.
+ *
+ * Rounded down from 10.94 to be honest about precision, not to be optimistic:
+ * the guard below multiplies by it, so a lower value is the LESS conservative
+ * choice, and 10 is already far above anything a caller would guess.
+ */
+export const HEAP_SNAPSHOT_RSS_MULTIPLIER = 10;
+
 /** One MCP tool call in flight at capture time. */
 export interface InFlightToolCall {
   toolName: string;
@@ -260,8 +281,21 @@ export function writeCaptureArtifact(options: WriteCaptureOptions): string {
 export interface WireMemoryCaptureWatcherOptions {
   /** Names the process class in the artifact — "mcp start (stdio)", "mcp shim", "cockpit". */
   processRole: string;
-  /** The kill ceiling in bytes; the watermark must sit below it to be useful. */
+  /**
+   * The kill ceiling in bytes; the watermark must sit below it to be useful.
+   * `Number.POSITIVE_INFINITY` for a class with no self-terminate (the cockpit
+   * daemon), which is honest about the absence rather than inventing a bound.
+   */
   ceilingBytes: number;
+  /**
+   * Watermark default for THIS process class, when the env var is unset.
+   *
+   * Exists because the classes have genuinely different baselines: `mcp start`
+   * idles at 427-644 MB, while the cockpit daemon was measured at 1.31 GB on
+   * the same machine and the same day. One global default would either fire on
+   * every cockpit start or sit uselessly far above the MCP band.
+   */
+  defaultWatermarkMb?: number;
   getResidentBytes: () => number;
   getUptimeSeconds: () => number;
   /** In-flight MCP tool calls at capture time. Absent for classes that serve no tools. */
@@ -296,7 +330,9 @@ export function wireMemoryCaptureWatcher(
   const writeArtifact = options.writeArtifact ?? writeCaptureArtifact;
 
   const watermarkMb =
-    parsePositiveIntEnv(env["MINSKY_MCP_MEMORY_CAPTURE_MB"]) ?? DEFAULT_MEMORY_CAPTURE_WATERMARK_MB;
+    parsePositiveIntEnv(env["MINSKY_MCP_MEMORY_CAPTURE_MB"]) ??
+    options.defaultWatermarkMb ??
+    DEFAULT_MEMORY_CAPTURE_WATERMARK_MB;
   const watermarkBytes = watermarkMb * BYTES_PER_MB;
 
   const verdict = decideCaptureArm({
@@ -336,9 +372,23 @@ export function wireMemoryCaptureWatcher(
         let heapSnapshotBytes: ArrayBuffer | null = null;
         let heapSnapshotSkippedReason: string | undefined;
 
+        const projectedPeakBytes = residentBytes * HEAP_SNAPSHOT_RSS_MULTIPLIER;
+
         if (!snapshotRequested) {
           heapSnapshotSkippedReason =
             "not requested (set MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT=1; see mt#3973 on why this is opt-in)";
+        } else if (projectedPeakBytes > options.ceilingBytes) {
+          // Refuse even when explicitly requested. Taking the snapshot here
+          // would push the process past the very ceiling that exists to stop it
+          // panicking the machine — the diagnostic would CAUSE the incident it
+          // is meant to explain. The operator opted into a snapshot, not into
+          // an outage, and this is the one case where honoring the flag is
+          // worse than reporting why it could not be honored.
+          heapSnapshotSkippedReason =
+            `refused: a snapshot at ${Math.round(residentBytes / BYTES_PER_MB)}MB would transiently ` +
+            `reach ~${Math.round(projectedPeakBytes / BYTES_PER_MB)}MB (measured ${HEAP_SNAPSHOT_RSS_MULTIPLIER}x, mt#3973 AT3), ` +
+            `above the ${Math.round(options.ceilingBytes / BYTES_PER_MB)}MB ceiling. ` +
+            `Lower MINSKY_MCP_MEMORY_CAPTURE_MB or raise MINSKY_MCP_MEMORY_CEILING_MB.`;
         } else {
           heapSnapshotBytes = generateHeapSnapshotBytes();
           if (!heapSnapshotBytes) {
