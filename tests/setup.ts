@@ -40,11 +40,19 @@ import { TEST_LOGGER_SILENCED_FLAG } from "@minsky/shared/logger";
 //
 // Both are set only when the invoker has not — individual tests still set and
 // restore their own for path-specific cases, and that must keep working.
+// ONE temp root serves both, so a run leaves one directory behind rather than
+// two (PR #2883 R1). They do not collide: the inline family writes directly
+// under the root, and `getMinskyStateDir()` appends `minsky` to it. The root is
+// created lazily — if the invoker already set both, none is made at all.
+let isolatedStateRoot: string | undefined;
+const stateRoot = (): string =>
+  (isolatedStateRoot ??= mkdtempSync(join(tmpdir(), "minsky-test-state-")));
+
 if (!process.env.MINSKY_STATE_DIR) {
-  process.env.MINSKY_STATE_DIR = mkdtempSync(join(tmpdir(), "minsky-test-state-"));
+  process.env.MINSKY_STATE_DIR = stateRoot();
 }
 if (!process.env.XDG_STATE_HOME) {
-  process.env.XDG_STATE_HOME = mkdtempSync(join(tmpdir(), "minsky-test-xdg-state-"));
+  process.env.XDG_STATE_HOME = stateRoot();
 }
 
 // Global test setup - logger mocks apply to all tests

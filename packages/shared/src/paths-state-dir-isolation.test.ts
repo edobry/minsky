@@ -15,9 +15,12 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { homedir } from "os";
-import { join } from "path";
+import { join, sep } from "path";
 
 import { getMinskyStateDir, getSessionsDir } from "./paths";
+
+/** A fixed XDG root for the precedence cases — never touched on disk. */
+const XDG_ROOT = "/mock/xdg-state";
 
 const ORIGINAL_MINSKY_STATE_DIR = process.env.MINSKY_STATE_DIR;
 const ORIGINAL_XDG_STATE_HOME = process.env.XDG_STATE_HOME;
@@ -40,8 +43,10 @@ describe("getMinskyStateDir isolation (mt#3965)", () => {
     // variable. What has to be true is that a test run cannot reach the
     // operator's own state directory, however the isolation is achieved.
     const resolved = getMinskyStateDir();
-    expect(resolved).not.toBe(join(homedir(), ".local/state/minsky"));
-    expect(resolved.startsWith(`${homedir()}/`)).toBe(false);
+    expect(resolved).not.toBe(join(homedir(), ".local", "state", "minsky"));
+    // `sep`, not a literal "/" — the assertion is about containment, and a
+    // hard-coded separator would make this pass vacuously off-POSIX (R1).
+    expect(resolved.startsWith(homedir() + sep)).toBe(false);
 
     // The consumers that carried the real pollution derive from this function,
     // so isolating the root only helps if the derived paths follow it.
@@ -53,15 +58,26 @@ describe("getMinskyStateDir isolation (mt#3965)", () => {
     // shared resolver must keep answering to the MORE SPECIFIC override rather
     // than to a process-wide one, which is why mt#3965 fixed the backstop
     // instead of adding a higher-precedence variable here.
-    process.env.XDG_STATE_HOME = "/tmp/mt3965-xdg";
-    expect(getMinskyStateDir()).toBe("/tmp/mt3965-xdg/minsky");
+    process.env.XDG_STATE_HOME = XDG_ROOT;
+    expect(getMinskyStateDir()).toBe(join(XDG_ROOT, "minsky"));
   });
 
   test("MINSKY_STATE_DIR does NOT override it — the two families stay separate", () => {
     // Pins the decision so a later 'unification' cannot silently reintroduce
     // the precedence that defeats the seven files above.
-    process.env.XDG_STATE_HOME = "/tmp/mt3965-xdg";
+    process.env.XDG_STATE_HOME = XDG_ROOT;
     process.env.MINSKY_STATE_DIR = "/tmp/mt3965-explicit";
-    expect(getMinskyStateDir()).toBe("/tmp/mt3965-xdg/minsky");
+    expect(getMinskyStateDir()).toBe(join(XDG_ROOT, "minsky"));
+  });
+
+  test("with ONLY MINSKY_STATE_DIR set, this resolver ignores it and falls back to HOME", () => {
+    // AT3's other arm (R1). This is the case that looks like a bug and is the
+    // decision: the variable that isolates the ~10 inline resolvers has no
+    // effect here, which is exactly why `tests/setup.ts` has to set both. If
+    // this ever starts returning `/tmp/mt3965-explicit`, the 24-failure
+    // precedence is back.
+    delete process.env.XDG_STATE_HOME;
+    process.env.MINSKY_STATE_DIR = "/tmp/mt3965-explicit";
+    expect(getMinskyStateDir()).toBe(join(homedir(), ".local", "state", "minsky"));
   });
 });
