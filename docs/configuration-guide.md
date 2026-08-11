@@ -232,6 +232,13 @@ cockpit:
   Quit and relaunch the tray after changing it. A tray whose Minsky checkout predates this key
   falls back to 3737 and logs that it did.
 
+  **Do not set this to 80 or 443.** The tray's webview treats a navigation as same-origin only on
+  an EXPLICIT port match, and a URL at a scheme's default port carries no explicit port — so at 80
+  or 443 the check matches nothing and cockpit links open in the OS browser instead of in the app.
+  Matching the implicit default instead would widen a security check to admit any portless
+  `http://localhost/…`, so the tray deliberately fails closed here (PR #2882 R1). This is not a
+  practical restriction: the daemon serves plain HTTP on loopback, and binding 80 needs root.
+
 - `cockpit.allowedHosts` — optional, defaults to `[]` (no extra hosts; the pre-mt#3641
   loopback-only behavior). Environment override: `MINSKY_COCKPIT_ALLOWED_HOSTS` → comma-separated
   list, e.g. `MINSKY_COCKPIT_ALLOWED_HOSTS=my-node.tail1234.ts.net`.

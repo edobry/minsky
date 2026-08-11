@@ -44,13 +44,23 @@ pub(crate) fn cockpit_url() -> String {
 /// pre-mt#3988 behavior in which `https://localhost:<port>` also counted as the
 /// cockpit origin.
 ///
-/// `port_or_known_default` rather than `port`: a URL at a scheme's default port
-/// (`http://localhost/`) reports no explicit port, so a tray configured to 80
-/// would otherwise never recognize its own origin. Identical for every other
-/// port, including 3737.
+/// Matches an EXPLICIT port only — `url.port()`, never
+/// `url.port_or_known_default()`. This preserves the pre-mt#3988 semantics
+/// exactly, and the distinction is security-relevant rather than stylistic: the
+/// `port_or_known_default` form treats `http://localhost/` (no port) as the
+/// cockpit origin when the configured port is 80, and `https://localhost/` when
+/// it is 443, admitting into the webview URLs that the hardcoded check always
+/// sent to the OS browser. It would have widened a security check to buy a
+/// configuration nobody uses — the daemon serves plain HTTP on loopback, and 80
+/// needs root on macOS. (PR #2882 R1.)
+///
+/// The consequence is pinned by test rather than left implicit: with
+/// `cockpit.port` set to 80 or 443 the check matches NOTHING, so cockpit links
+/// open in the OS browser instead of in the app. That is the fail-CLOSED
+/// direction, and it is the same behavior this code had before the port became
+/// configurable.
 fn is_cockpit_origin(url: &tauri::Url, port: u16) -> bool {
-    matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"))
-        && url.port_or_known_default() == Some(port)
+    matches!(url.host_str(), Some("localhost") | Some("127.0.0.1")) && url.port() == Some(port)
 }
 
 pub(crate) const COCKPIT_WINDOW_LABEL: &str = "cockpit";
@@ -638,6 +648,35 @@ mod tests {
             &url("http://localhost/"),
             CONFIGURED_PORT
         ));
+    }
+
+    /// PR #2882 R1. The first draft used `url.port_or_known_default()`, which
+    /// silently WIDENED this check: at a configured port of 80, a portless
+    /// `http://localhost/…` would have become same-origin and loaded in the
+    /// webview, where the hardcoded check had always sent it to the OS browser.
+    /// These cases pin the reverted, explicit-port semantics in BOTH directions
+    /// so the widening cannot come back unnoticed.
+    #[test]
+    fn scheme_default_ports_are_never_matched_implicitly() {
+        // Rejection: a portless URL matches nothing, at either scheme default.
+        assert!(
+            !is_cockpit_origin(&url("http://localhost/tasks"), 80),
+            "a portless http:// URL must not be same-origin at a configured 80"
+        );
+        assert!(
+            !is_cockpit_origin(&url("https://localhost/tasks"), 443),
+            "a portless https:// URL must not be same-origin at a configured 443"
+        );
+        // `:80` on http and `:443` on https are normalized away by the URL
+        // parser, so these are the SAME case arriving spelled differently —
+        // which is exactly why `port_or_known_default` was tempting.
+        assert!(!is_cockpit_origin(&url("http://localhost:80/"), 80));
+        assert!(!is_cockpit_origin(&url("https://localhost:443/"), 443));
+
+        // Acceptance is unaffected for every port that is not a scheme default:
+        // an explicit port still matches, which is the whole feature.
+        assert!(is_cockpit_origin(&url("http://localhost:8080/"), 8080));
+        assert!(!is_cockpit_origin(&url("http://localhost:80/"), 8080));
     }
 
     /// `cockpit_url()` and the check it is paired with read the SAME resolved
