@@ -328,6 +328,16 @@ export interface McpSharedCommandConfig {
    * bridge actually forwards {@link buildSafeDebugContext}'s output.
    */
   debugContextLog?: (message: string, meta: { context: Record<string, unknown> }) => void;
+  /**
+   * Registry to read commands from, defaulting to the process-wide
+   * `sharedCommandRegistry` (mt#3993). Production never passes this; it exists
+   * so a test can exercise the full registration chain against an ISOLATED
+   * registry instead of clearing and restoring the singleton, which is
+   * cross-file interference dressed up as setup. Mirrors the `targetRegistry`
+   * seam `provenance.ts` and `unasked-direction.ts` already use on the write
+   * side.
+   */
+  registry?: Pick<typeof sharedCommandRegistry, "getCommandsByCategory">;
 }
 
 /** Classifier version tag for 2-strikes `stuck.unblock` Asks (mt#1464). */
@@ -425,8 +435,9 @@ export function registerSharedCommandsWithMcp(
   });
 
   // Register commands for each category
+  const registry = config.registry ?? sharedCommandRegistry;
   config.categories.forEach((category) => {
-    const commands = sharedCommandRegistry.getCommandsByCategory(category);
+    const commands = registry.getCommandsByCategory(category);
 
     commands.forEach((command) => {
       const overrides = config.commandOverrides?.[command.id];

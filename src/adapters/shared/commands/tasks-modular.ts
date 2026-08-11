@@ -25,14 +25,17 @@ export class ModularTasksCommandManager {
    * Each command is wrapped with category: CommandCategory.TASKS
    * so the MCP bridge can discover it.
    */
-  registerAllCommands(container?: AppContainerInterface): void {
+  registerAllCommands(
+    container?: AppContainerInterface,
+    targetRegistry: Pick<typeof sharedCommandRegistry, "registerCommand"> = sharedCommandRegistry
+  ): void {
     try {
       log.debug("[ModularTasksCommandManager] Auto-registering all task commands");
 
       const commands = createAllTaskCommands(container);
 
       for (const command of commands) {
-        sharedCommandRegistry.registerCommand({
+        targetRegistry.registerCommand({
           id: command.id,
           category: CommandCategory.TASKS,
           name: command.name,
@@ -107,10 +110,17 @@ export class ModularTasksCommandManager {
 export const modularTasksManager = new ModularTasksCommandManager();
 
 /**
- * Register task commands function for backward compatibility
+ * Register task commands function for backward compatibility.
+ *
+ * `targetRegistry` (mt#3993) defaults to the process-wide registry; production
+ * never passes it. It exists so a test can drive this real registration path
+ * into an isolated registry rather than mutating the singleton.
  */
-export function registerTasksCommands(container?: AppContainerInterface): void {
-  modularTasksManager.registerAllCommands(container);
+export function registerTasksCommands(
+  container?: AppContainerInterface,
+  targetRegistry?: Pick<typeof sharedCommandRegistry, "registerCommand">
+): void {
+  modularTasksManager.registerAllCommands(container, targetRegistry);
 }
 
 /**

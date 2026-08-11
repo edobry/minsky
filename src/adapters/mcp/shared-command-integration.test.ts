@@ -13,6 +13,7 @@ import { z } from "zod";
 import { registerSharedCommandsWithMcp } from "./shared-command-integration";
 import {
   sharedCommandRegistry,
+  createSharedCommandRegistry,
   CommandCategory,
   ADAPTER_BEHAVIOR_FLAG_KEYS,
   type CommandExecutionContext,
@@ -1456,35 +1457,28 @@ describe("MCP shared-command bridge", () => {
      * and asserts at the far end, on the registered tool.
      */
     test("readsPresence survives the FULL production chain: factory → registerTasksCommands → bridge → tool", () => {
-      // The registry is global and another file in the same bun process may
-      // already hold TASKS commands. `registerAllCommands` wraps its whole loop
-      // in one try/catch, so a single duplicate-id throw aborts the rest —
-      // and `tasks.claims.list` is the LAST entry in `createAllTaskCommands`,
-      // i.e. exactly the one that would go missing. Clear the category first and
-      // put it back afterward, so this test neither inherits nor leaves state.
-      const preexisting = sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS);
-      for (const command of preexisting) {
-        sharedCommandRegistry.unregisterCommand(command.id);
-      }
+      // Both halves of the chain run against an ISOLATED registry, so this test
+      // neither reads nor writes the process-wide singleton. An earlier revision
+      // cleared and restored the global TASKS category instead; it passed alone
+      // and failed under the full suite, because another file had already
+      // registered task commands and `registerAllCommands` wraps its whole loop
+      // in one try/catch — the first duplicate-id throw aborts the rest, and
+      // `tasks.claims.list` is the LAST entry in `createAllTaskCommands`, i.e.
+      // exactly the one that goes missing.
+      const registry = createSharedCommandRegistry();
 
-      try {
-        registerTasksCommands();
+      registerTasksCommands(undefined, registry);
 
-        const { mapper, captured } = makeToolCapturingMapper("tasks.claims.list");
-        registerSharedCommandsWithMcp(mapper as never, { categories: [CommandCategory.TASKS] });
+      const { mapper, captured } = makeToolCapturingMapper("tasks.claims.list");
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        registry,
+      });
 
-        // Fails loudly rather than vacuously if registration itself broke:
-        // registerTasksCommands swallows its errors into a log warning.
-        expect(captured.tool).toBeDefined();
-        expect(captured.tool?.readsPresence).toBe(true);
-      } finally {
-        for (const command of sharedCommandRegistry.getCommandsByCategory(CommandCategory.TASKS)) {
-          sharedCommandRegistry.unregisterCommand(command.id);
-        }
-        for (const command of preexisting) {
-          sharedCommandRegistry.registerCommand(command, { allowOverwrite: true });
-        }
-      }
+      // Fails loudly rather than vacuously if registration itself broke:
+      // registerTasksCommands swallows its errors into a log warning.
+      expect(captured.tool).toBeDefined();
+      expect(captured.tool?.readsPresence).toBe(true);
     });
   });
 });

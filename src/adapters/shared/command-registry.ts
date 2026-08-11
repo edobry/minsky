@@ -272,16 +272,21 @@ export type AdapterBehaviorFlags = Pick<AnyCommandDefinition, AdapterBehaviorFla
  * Derived from {@link ADAPTER_BEHAVIOR_FLAG_KEYS} rather than written out, so
  * the key list is the single place a flag is named.
  *
- * The parameter is a bare object rather than `Partial<AdapterBehaviorFlags>`
- * (mt#3993). `AdapterBehaviorFlags` is all-optional, so under that signature
+ * The parameter is constrained to a command-SHAPED object rather than to
+ * `Partial<AdapterBehaviorFlags>` (mt#3993). The latter is all-optional, so
  * TypeScript's weak-type check REJECTS any command that currently declares no
  * flag — which is most of them, including the class-based `tools.*` and
- * `principal-corpus.*` commands. The rejection lands exactly where the spread
- * is being adopted defensively, and the path of least resistance out of it is
- * to go back to naming fields by hand: the defect this helper exists to
- * prevent. The return type stays exact, so callers gain nothing loose.
+ * `principal-corpus.*` commands. That rejection lands exactly where the spread
+ * is being adopted defensively, and the cheapest way out of it is to go back to
+ * naming fields by hand: the defect this helper exists to prevent. Requiring
+ * `id` + `name` keeps a real guarantee — a params bag, an options object or a
+ * result payload is still rejected at compile time — without the weak-type
+ * check firing, since the constraint has required members. The return type
+ * stays exact.
  */
-export function pickAdapterBehaviorFlags<T extends object>(command: T): AdapterBehaviorFlags {
+export function pickAdapterBehaviorFlags<T extends { id: string; name: string }>(
+  command: T
+): AdapterBehaviorFlags {
   const source = command as Partial<AdapterBehaviorFlags>;
   const flags: AdapterBehaviorFlags = {};
   for (const key of ADAPTER_BEHAVIOR_FLAG_KEYS) {
