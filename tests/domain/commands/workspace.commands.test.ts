@@ -28,6 +28,14 @@ const mockGitRootExecAsync = (stdout: string): any => {
   };
 };
 
+/**
+ * The XDG state root these tests pin, matching the `/Users/test/...` fixture
+ * paths they assert against. Named once because getXdgStateHome() consults
+ * XDG_STATE_HOME first and HOME only as a fallback — overriding HOME alone left
+ * these tests resolving against the operator's live state dir (mt#3965).
+ */
+const TEST_XDG_STATE_HOME = "/Users/test/.local/state";
+
 describe("Workspace Domain Methods", () => {
   // Saved so the real process.cwd can be restored after every test. Bun's
   // mock.restore() (wired via setupTestMocks()) only rewinds spies created
@@ -55,7 +63,13 @@ describe("Workspace Domain Methods", () => {
 
       // Override environment variables for testing
       const originalHome = process.env.HOME;
+      const originalXdgStateHome = process.env.XDG_STATE_HOME;
       process.env.HOME = "/Users/test";
+      // XDG_STATE_HOME is what getXdgStateHome() actually consults; HOME is only
+      // its fallback. These tests overrode HOME alone and passed because nothing
+      // set XDG_STATE_HOME — including the real test run, which is why they were
+      // resolving against the operator's live state dir (mt#3965).
+      process.env.XDG_STATE_HOME = TEST_XDG_STATE_HOME;
 
       try {
         // Act
@@ -66,6 +80,8 @@ describe("Workspace Domain Methods", () => {
       } finally {
         // Restore the original HOME
         process.env.HOME = originalHome;
+        if (originalXdgStateHome === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalXdgStateHome;
       }
     });
 
@@ -102,7 +118,13 @@ describe("Workspace Domain Methods", () => {
 
       // Override environment variables for testing
       const originalHome = process.env.HOME;
+      const originalXdgStateHome = process.env.XDG_STATE_HOME;
       process.env.HOME = "/Users/test";
+      // XDG_STATE_HOME is what getXdgStateHome() actually consults; HOME is only
+      // its fallback. These tests overrode HOME alone and passed because nothing
+      // set XDG_STATE_HOME — including the real test run, which is why they were
+      // resolving against the operator's live state dir (mt#3965).
+      process.env.XDG_STATE_HOME = TEST_XDG_STATE_HOME;
 
       try {
         // Act
@@ -114,6 +136,8 @@ describe("Workspace Domain Methods", () => {
       } finally {
         // Restore the original HOME
         process.env.HOME = originalHome;
+        if (originalXdgStateHome === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalXdgStateHome;
       }
     });
   });
@@ -126,7 +150,13 @@ describe("Workspace Domain Methods", () => {
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
+      const originalXdgStateHome = process.env.XDG_STATE_HOME;
       process.env.HOME = "/Users/test";
+      // XDG_STATE_HOME is what getXdgStateHome() actually consults; HOME is only
+      // its fallback. These tests overrode HOME alone and passed because nothing
+      // set XDG_STATE_HOME — including the real test run, which is why they were
+      // resolving against the operator's live state dir (mt#3965).
+      process.env.XDG_STATE_HOME = TEST_XDG_STATE_HOME;
 
       // Create mock sessionDB
       const sessionDbMock = new FakeSessionProvider({
@@ -155,6 +185,8 @@ describe("Workspace Domain Methods", () => {
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;
+        if (originalXdgStateHome === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalXdgStateHome;
       }
     });
 
@@ -178,7 +210,13 @@ describe("Workspace Domain Methods", () => {
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
+      const originalXdgStateHome = process.env.XDG_STATE_HOME;
       process.env.HOME = "/Users/test";
+      // XDG_STATE_HOME is what getXdgStateHome() actually consults; HOME is only
+      // its fallback. These tests overrode HOME alone and passed because nothing
+      // set XDG_STATE_HOME — including the real test run, which is why they were
+      // resolving against the operator's live state dir (mt#3965).
+      process.env.XDG_STATE_HOME = TEST_XDG_STATE_HOME;
 
       // Create mock sessionDB that returns null (empty store → getSession returns null)
       const sessionDbMock = new FakeSessionProvider();
@@ -192,6 +230,8 @@ describe("Workspace Domain Methods", () => {
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;
+        if (originalXdgStateHome === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalXdgStateHome;
       }
     });
 
@@ -202,7 +242,13 @@ describe("Workspace Domain Methods", () => {
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
+      const originalXdgStateHome = process.env.XDG_STATE_HOME;
       process.env.HOME = "/Users/test";
+      // XDG_STATE_HOME is what getXdgStateHome() actually consults; HOME is only
+      // its fallback. These tests overrode HOME alone and passed because nothing
+      // set XDG_STATE_HOME — including the real test run, which is why they were
+      // resolving against the operator's live state dir (mt#3965).
+      process.env.XDG_STATE_HOME = TEST_XDG_STATE_HOME;
 
       const sessionDbMock = new FakeSessionProvider({
         initialSessions: [
@@ -227,6 +273,8 @@ describe("Workspace Domain Methods", () => {
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;
+        if (originalXdgStateHome === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalXdgStateHome;
       }
     });
   });
@@ -239,7 +287,13 @@ describe("Workspace Domain Methods", () => {
 
       // Set up environment for testing
       const originalHome = process.env.HOME;
+      const originalXdgStateHome = process.env.XDG_STATE_HOME;
       process.env.HOME = "/Users/test";
+      // XDG_STATE_HOME is what getXdgStateHome() actually consults; HOME is only
+      // its fallback. These tests overrode HOME alone and passed because nothing
+      // set XDG_STATE_HOME — including the real test run, which is why they were
+      // resolving against the operator's live state dir (mt#3965).
+      process.env.XDG_STATE_HOME = TEST_XDG_STATE_HOME;
 
       // Create mock sessionDB
       const sessionDbMock = new FakeSessionProvider({
@@ -264,6 +318,8 @@ describe("Workspace Domain Methods", () => {
       } finally {
         // Restore original HOME
         process.env.HOME = originalHome;
+        if (originalXdgStateHome === undefined) delete process.env.XDG_STATE_HOME;
+        else process.env.XDG_STATE_HOME = originalXdgStateHome;
       }
     });
 

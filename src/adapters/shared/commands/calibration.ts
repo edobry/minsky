@@ -317,7 +317,16 @@ async function withWatermarkLock<T>(workspacePath: string, critical: () => Promi
 // Result formatting
 // ---------------------------------------------------------------------------
 
-function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
+/**
+ * Render the sweep for a human reader.
+ *
+ * Exported for direct testing (mt#3898 / PR #2884 R1). Nothing covered this
+ * surface, which is why a property present in the JSON could go missing from
+ * the text with every check green — the reviewer caught exactly that here, and
+ * PR #2599 R1 had caught the same class one property earlier. A formatter whose
+ * only verification is a reviewer's eye keeps re-losing fields.
+ */
+export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
   const lines: string[] = ["=== Calibration Review Sweep ===", ""];
   const reasonByPath = new Map(reviewDue.map((d) => [d.path, d.reason]));
 
@@ -369,6 +378,26 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
       // cannot be rated," which is why the verdict distinguishes them at all;
       // showing only two of three states re-hides that distinction.
       lines.push(`  Classifiable:           n/a — no un-reviewed records to assess`);
+    }
+    // mt#3898 / PR #2884 R1: render the recoverability signal too. Same class
+    // as the PR #2599 R1 fix directly above — a property the JSON carries and
+    // the text omits is a property the reader of the text does not have. It
+    // matters more here than for the verdict: the whole point of the property
+    // is that `classifiable` alone misleads, so printing the verdict WITHOUT
+    // it reproduces the gap this shipped to close.
+    const judged = classifiability.judgedText;
+    if (judged.recoverability === "recoverable") {
+      lines.push(`  Judged text:            recoverable — all ${judged.recordsAssessed} record(s)`);
+    } else if (judged.recoverability === "partial") {
+      lines.push(
+        `  Judged text:            PARTIAL — ${judged.capturedRecords} of ${judged.recordsAssessed} record(s); bound any rate to the captured ones`
+      );
+    } else if (judged.recoverability === "unrecoverable") {
+      lines.push(
+        `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry no capture; you can rate what matched, not whether it was right in context`
+      );
+    } else {
+      lines.push(`  Judged text:            n/a — no un-reviewed records to assess`);
     }
     if (r.atCountThreshold && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);

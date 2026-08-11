@@ -21,10 +21,38 @@ import { TEST_LOGGER_SILENCED_FLAG } from "@minsky/shared/logger";
 // exercised a throwing guard without overriding the default recorder wrote
 // fixture rows (guard "throws", error "boom") into the REAL guard-health log,
 // firing a CRITICAL operator escalation for a guard that doesn't exist.
-// Point MINSKY_STATE_DIR at a per-run temp dir unless the invoker already set
-// one (individual tests still set/restore their own for path-specific cases).
+// TWO variables, because there are two state-dir families and each reads a
+// different one (mt#3965). ~10 hand-rolled resolvers read MINSKY_STATE_DIR
+// inline; the shared `getMinskyStateDir()` in packages/shared/src/paths.ts
+// reads XDG_STATE_HOME. Setting only the first left every consumer of the
+// shared function — session paths, workspace resolution, the transcripts
+// writers, the conversation pid-map — writing into the operator's REAL state
+// dir on an ordinary `bun test`. That is not hypothetical: a fixture
+// conversation id reached the production conversation-by-pid/ map, and the
+// operator's next /clear turned it into a fabricated predecessor edge in
+// mt#3943's transition log — 2 of the 13 records in a file that is meant to be
+// evidence for the lineage design.
+//
+// Fixed here rather than by adding MINSKY_STATE_DIR to the shared resolver: it
+// would then outrank the XDG_STATE_HOME override that 7 test files use for
+// their own per-test isolation (mt#3415 and siblings), silently defeating the
+// more specific override. Measured: 24 tests fail that way.
+//
+// Both are set only when the invoker has not — individual tests still set and
+// restore their own for path-specific cases, and that must keep working.
+// ONE temp root serves both, so a run leaves one directory behind rather than
+// two (PR #2883 R1). They do not collide: the inline family writes directly
+// under the root, and `getMinskyStateDir()` appends `minsky` to it. The root is
+// created lazily — if the invoker already set both, none is made at all.
+let isolatedStateRoot: string | undefined;
+const stateRoot = (): string =>
+  (isolatedStateRoot ??= mkdtempSync(join(tmpdir(), "minsky-test-state-")));
+
 if (!process.env.MINSKY_STATE_DIR) {
-  process.env.MINSKY_STATE_DIR = mkdtempSync(join(tmpdir(), "minsky-test-state-"));
+  process.env.MINSKY_STATE_DIR = stateRoot();
+}
+if (!process.env.XDG_STATE_HOME) {
+  process.env.XDG_STATE_HOME = stateRoot();
 }
 
 // Global test setup - logger mocks apply to all tests
