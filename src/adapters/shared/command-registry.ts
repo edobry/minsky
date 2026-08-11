@@ -198,6 +198,29 @@ export interface CommandDefinition<
    * — three-state, browser-reachable, and coverage-tested.
    */
   mutating?: boolean;
+
+  /**
+   * This command READS presence state, so invoking it must not WRITE presence
+   * (mt#3889, generalized by mt#3903).
+   *
+   * Presence claims are touch-based: the MCP server upserts one for any call
+   * carrying a `task`/`taskId` argument. That is correct for a tool that WORKS
+   * on a task, and self-defeating for a tool that REPORTS on it — the probe
+   * refreshes the `lastRefreshedAt` it is about to return, so a long-stale claim
+   * reads back fresh and an agent checking whether anyone else holds a task sees
+   * its own write.
+   *
+   * Declared HERE rather than in a server-side name list because the fact
+   * belongs to the tool: a future presence-reading tool will be written by
+   * someone who never opens `src/mcp/server.ts`, and under the old allowlist the
+   * defect returned silently — no error, no failing test, just a probe that
+   * quietly refreshes what it reports.
+   *
+   * NOT the inverse of {@link CommandDefinition.mutating}, and not a read/write
+   * classification: it names one specific interaction with one specific
+   * subsystem. Almost every command leaves it unset, including most reads.
+   */
+  readsPresence?: boolean;
 }
 
 /**
@@ -281,6 +304,8 @@ export interface SharedCommand<
    * use `@minsky/shared/tool-effect`.
    */
   mutating?: boolean;
+  /** Carried through from `CommandDefinition.readsPresence` — see its docblock. */
+  readsPresence?: boolean;
 }
 
 /**
