@@ -240,6 +240,20 @@ describe("parseToolCallExpanded — batched spec verifications (mt#3545)", () =>
     ]);
   });
 
+  test("a batch accepts the Unverifiable status alongside the other three (mt#3919)", () => {
+    const expanded = parseToolCallExpanded(
+      BATCHED_SPEC_VERIFICATION_TOOL,
+      JSON.stringify({
+        verifications: [entry("SC1", "Met"), entry("SC2 — mt#3874's spec updated", "Unverifiable")],
+      })
+    );
+
+    expect(expanded.map((c) => (c.args as SubmitSpecVerificationArgs).status)).toEqual([
+      "Met",
+      "Unverifiable",
+    ]);
+  });
+
   test("a batched entry is byte-identical to the singular call for the same entry", () => {
     const single = parseToolCall(SINGULAR_SPEC_TOOL, JSON.stringify(entry("SC1")));
     const [batched] = parseToolCallExpanded(
@@ -324,6 +338,17 @@ describe("parseToolCall — submit_spec_verification", () => {
     const result = parseToolCall(TOOL_SUBMIT_SPEC_VERIFICATION, JSON.stringify(args));
     if (result.name !== TOOL_SUBMIT_SPEC_VERIFICATION) throw new Error("unreachable");
     expect(result.args.status).toBe("N/A");
+  });
+
+  test("parses with status Unverifiable (mt#3919)", () => {
+    const args = {
+      ...BASE_ARGS,
+      status: "Unverifiable" as const,
+      evidence: "mt#3874's spec could not be fetched: status=not-found",
+    };
+    const result = parseToolCall(TOOL_SUBMIT_SPEC_VERIFICATION, JSON.stringify(args));
+    if (result.name !== TOOL_SUBMIT_SPEC_VERIFICATION) throw new Error("unreachable");
+    expect(result.args.status).toBe("Unverifiable");
   });
 
   test("throws on invalid status enum", () => {
