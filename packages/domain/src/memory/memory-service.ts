@@ -204,6 +204,41 @@ export async function getMemoryRefSummary(
   return { id: record.id, type: record.type, name: record.name };
 }
 
+/**
+ * Look up one memory by either id form (`mem#N` or a full uuid) and return the
+ * FULL record — unlike `getMemoryRefSummary` above, which deliberately narrows
+ * to `{id, type, name}` for a cross-reference existence check (mt#3354).
+ *
+ * mt#3964: the reviewer service needs a memory's `content` to verify a success
+ * criterion naming a `mem#N` artifact (e.g. "mem#648's CORRECTION 1 is
+ * amended: ..."), the same way `resolveReferencedTaskSpecs`
+ * (`services/reviewer/src/task-spec-fetch.ts`) verifies an `mt#NNNN` criterion
+ * against another task's spec content. That mechanism goes through the full
+ * `TaskServiceInterface`; the equivalent full `MemoryService` requires an
+ * `embeddingService` + `vectorStorage` neither a by-id content read touches
+ * (see `MemoryServiceDeps`) — standing one up just to call `.get()` would be
+ * pure overhead in a service (the reviewer) that has no other reason to hold
+ * an embedding client. This function needs only the narrow `MemoryServiceDb`,
+ * exactly like `getMemoryRefSummary`.
+ *
+ * Deliberately does NOT bump `last_accessed_at`/`access_count`, for the same
+ * reason `getMemoryRefSummary`/`getWithoutAccessTracking` don't: an automated
+ * criterion-verification read is not a consumer read of the record, and
+ * counting it would inflate the access stats that surface memory relevance.
+ */
+export async function getMemoryRecordById(
+  db: MemoryServiceDb,
+  id: string
+): Promise<MemoryRecord | null> {
+  const where = memoryIdWhere(id);
+  // Neither a uuid nor a `mem#N` short id — a genuine miss, not a query.
+  if (!where) return null;
+  const rows = await db.select().from(memoriesTable).where(where);
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return rowToRecord(row);
+}
+
 // ---------------------------------------------------------------------------
 // Service
 // ---------------------------------------------------------------------------

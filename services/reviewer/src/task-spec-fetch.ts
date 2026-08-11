@@ -219,8 +219,16 @@ const SECTION_HINT_WINDOW_CHARS = 300;
  * criterion satisfied entirely by an amendment section is not invisible to
  * targeted injection just because nothing in the criterion text happened to
  * name it explicitly.
+ *
+ * Exported for reuse by short-id-fetch.ts (mt#3964): memory bodies follow the
+ * SAME "## Correction N" / "## AMENDED" convention (mem#648's own
+ * "## CORRECTION 1/2/3" headings are a live example) — a live replay found
+ * that without heading-targeted extraction, a large memory body truncates
+ * from the head before reaching a late "## CORRECTION" section, making a
+ * criterion depending on it render Unverifiable regardless of whether the
+ * memory actually carries the change (see extractAmendmentSections there).
  */
-const AMENDMENT_HEADING_RE = /^(amend|correction|update)/i;
+export const AMENDMENT_HEADING_RE = /^(amend|correction|update)/i;
 
 /** One resolved `mt#NNNN` reference, plus any section names its local context hinted at. */
 export interface ReferencedTaskRef {
@@ -331,7 +339,7 @@ function extractHintedSections(specContent: string, sectionHints: string[]): str
 }
 
 /** Result of applying a char cap: whether it fired, and how much was cut. */
-interface CappedContent {
+export interface CappedContent {
   content: string;
   truncated: boolean;
   omittedChars: number;
@@ -341,8 +349,14 @@ interface CappedContent {
  * Cap `content` at `maxChars`, truncating from the tail (`safeTruncate`, not
  * a raw slice, so a cut cannot land between a high/low surrogate pair and
  * hand the model a broken character — mt#1615's fix, reused here).
+ *
+ * Exported for reuse by `short-id-fetch.ts` (mt#3964), which applies the same
+ * size-cap discipline to `mem#N`/`ask#N`/`ws#N` reference content — a memory
+ * body is unbounded in the same way a task spec is (PR #2841's blocking
+ * finding was exactly that), so the two callers share one truncation rule
+ * rather than risking it drifting between them.
  */
-function capContent(content: string, maxChars: number): CappedContent {
+export function capContent(content: string, maxChars: number): CappedContent {
   if (content.length <= maxChars) {
     return { content, truncated: false, omittedChars: 0 };
   }

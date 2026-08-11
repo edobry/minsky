@@ -731,6 +731,9 @@ describe("buildReferencedTaskSpecsSection (mt#3919)", () => {
   });
 });
 
+// buildReferencedShortIdsSection (mt#3964) coverage lives in its own file,
+// prompt-referenced-short-ids.test.ts, to stay under this file's 1500-line cap.
+
 describe("buildReviewPrompt out-of-repo section", () => {
   const OUT_OF_REPO_HEADING = "## Out-of-repo references observed";
   const baseInput: ReviewPromptInput = {

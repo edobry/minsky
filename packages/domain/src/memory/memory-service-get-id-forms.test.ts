@@ -16,7 +16,7 @@
  * counted.
  */
 import { describe, test, expect } from "bun:test";
-import { MemoryService, type MemoryServiceDb } from "./memory-service";
+import { MemoryService, getMemoryRecordById, type MemoryServiceDb } from "./memory-service";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 
@@ -146,5 +146,63 @@ describe("MemoryService.get id forms (mt#3259)", () => {
   test("a uuid with surrounding whitespace still resolves", async () => {
     const { db } = countingDb();
     expect((await serviceWith(db).get(`  ${UUID}  `))?.id).toBe(UUID);
+  });
+});
+
+describe("getMemoryRecordById id forms (mt#3964)", () => {
+  // getMemoryRecordById shares memoryIdWhere with MemoryService.get, so both
+  // id forms resolve identically — these mirror the describe block above,
+  // scoped to the standalone function the reviewer service uses (no
+  // embeddingService/vectorStorage required, unlike MemoryService.get).
+
+  test("a full uuid queries the id column and returns the FULL record (content included)", async () => {
+    const { db, selectCalls, whereColumns } = countingDb();
+    const record = await getMemoryRecordById(db, UUID);
+    expect(record?.id).toBe(UUID);
+    expect(record?.content).toBe(ROW.content);
+    expect(selectCalls()).toBe(1);
+    expect(whereColumns()).toEqual(["id"]);
+  });
+
+  test("a mem#N short id queries the short_id column and returns the FULL record", async () => {
+    const { db, selectCalls, whereColumns } = countingDb();
+    const record = await getMemoryRecordById(db, "mem#728");
+    expect(record?.id).toBe(UUID);
+    expect(record?.content).toBe(ROW.content);
+    expect(selectCalls()).toBe(1);
+    expect(whereColumns()).toEqual(["short_id"]);
+  });
+
+  test("a malformed id returns null WITHOUT issuing a query", async () => {
+    for (const bad of ["not-a-uuid", "mem#0", "ask#7", ""]) {
+      const { db, selectCalls } = countingDb();
+      expect(await getMemoryRecordById(db, bad)).toBeNull();
+      expect(selectCalls()).toBe(0);
+    }
+  });
+
+  test("does NOT bump access tracking — no update() call is issued", async () => {
+    let updateCalls = 0;
+    const db = {
+      select: () => ({
+        from: () => ({ where: () => Promise.resolve([ROW]) }),
+      }),
+      insert: () => {
+        throw new Error("not used");
+      },
+      update: () => {
+        updateCalls++;
+        return { set: () => ({ where: () => Promise.resolve([]) }) };
+      },
+      delete: () => {
+        throw new Error("not used");
+      },
+      transaction: async () => {
+        throw new Error("not used");
+      },
+    } as unknown as MemoryServiceDb;
+
+    await getMemoryRecordById(db, UUID);
+    expect(updateCalls).toBe(0);
   });
 });
