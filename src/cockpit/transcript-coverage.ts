@@ -32,13 +32,40 @@ export interface TranscriptCoverage {
  * "measured as zero"; collapsing those two is the exact ambiguity that let the
  * 0.5% sit unnoticed.
  */
-export async function getTranscriptCoverage(): Promise<TranscriptCoverage | null> {
-  try {
+export interface TranscriptCoverageDeps {
+  /**
+   * Resolve the persistence provider to read through.
+   *
+   * Injected (mt#3600) so both branches — SQL-capable and not — are reachable
+   * from a test without depending on what the DEVELOPER'S MACHINE happens to
+   * have configured. Before this seam existed, `sweeps.test.ts` asserted the
+   * not-measured path by assuming no provider was reachable; on a configured
+   * machine that assumption is false, and the test read the live transcripts
+   * table instead (2,540 rows at last observation). It passed alone and failed
+   * whenever a sibling test in the same bun process had already initialized the
+   * shared singleton — an order-dependent failure that blocked unrelated
+   * commits.
+   */
+  getProvider: () => Promise<unknown>;
+}
+
+const defaultDeps: TranscriptCoverageDeps = {
+  getProvider: async () => {
     const { getSharedPersistenceService } = await import("./shared-persistence");
     const svc = await getSharedPersistenceService();
-    const provider = svc.getProvider();
+    return svc.getProvider();
+  },
+};
+
+export async function getTranscriptCoverage(
+  deps: TranscriptCoverageDeps = defaultDeps
+): Promise<TranscriptCoverage | null> {
+  try {
+    const provider = await deps.getProvider();
 
     if (
+      provider === null ||
+      typeof provider !== "object" ||
       !("getDatabaseConnection" in provider) ||
       typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
     ) {
