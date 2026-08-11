@@ -468,11 +468,17 @@ export function registerPersistenceCommands(
         }
 
         return {
-          // Every check above printed its own ✅/❌ line, so the CLI formatter
-          // would otherwise append a bare "✅ Success" under a report that
-          // already said so (mt#3961). Unconditional because this command
-          // prints its report regardless of output format.
-          printed: true,
+          // Suppress the formatter's trailing status line only when this run
+          // actually printed a VERDICT, which is the same condition that gates
+          // the "📊 Validation Results / Status:" block above (mt#3961, PR
+          // #2859 R1).
+          //
+          // The per-check ✅ lines are not a verdict. On the happy path without
+          // `--report` they are all that prints, and the formatter's
+          // "✅ Success" is what tells the operator the run passed overall —
+          // suppressing it there would remove the outcome rather than a
+          // duplicate of it.
+          ...(report || !validationResult.success ? { printed: true } : {}),
           success: validationResult.success,
           backend: targetBackend,
           sourceInfo,
