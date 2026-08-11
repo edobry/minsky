@@ -19,7 +19,8 @@
 //                        short id is `#` followed by decimal digits only, so
 //                        this is wrong by construction too.
 //
-// WHAT IS LOGGED BUT NOT FLAGGED: bare `mt#N` / `PR #N`.
+// WHAT IS LOGGED BUT NOT FLAGGED: bare `mt#N` / `PR #N`, and a bare short id
+// the caller's short-id map can resolve (`linkable-short-id`, mt#3960).
 //
 // THE FLAG SET TRACKS THE LINKIFIER'S COMPLEMENT (mt#3897). v0 had these two
 // classes the other way around. `mt#2565` then shipped a display linkifier
@@ -28,12 +29,27 @@
 // already fixed downstream. Measured over ask#7639's review window: 13 of the
 // 13 warnings this scanner injected were for that now-auto-linked class.
 //
-// The linkifier deliberately does NOT cover `ask#N` / `mem#N` / `ws#N`: their
-// deeplink target is a UUID, which ADR-029 makes the sole legal target and
-// which cannot be derived from the visible label without an id-set lookup the
-// display hook cannot afford. Those are therefore the only classes where a bare
-// ref still costs the reader a lookup — which is what makes them worth warning
-// about and the others not.
+// THE COMPLEMENT IS COMPUTED, NOT HARD-CODED (mt#3960). Until mt#3914 the
+// linkifier could not touch `ask#N` / `mem#N` / `ws#N` at all — their target is
+// a UUID, which ADR-029 makes the sole legal one and which is not derivable
+// from the visible label — so naming those three families WAS naming the
+// complement. mt#3914 shipped the cached short-id map and the two stopped
+// coinciding: a mapped id is repaired at display time exactly like `mt#N`,
+// while an id minted since the last sweep (or any id with no cockpit running to
+// refresh the cache) still reaches the reader bare. Measured on this guard's
+// own log, 5 of the first 6 injected phrases after mt#3914 named ids the map
+// already held.
+//
+// So the family is no longer the right unit and `scanMessage` takes the map as
+// an argument: a short id the caller can resolve is LOGGED, one it cannot is
+// FLAGGED. That keeps the flagged set equal to the linkifier's complement by
+// construction rather than by a class list that goes stale each time the
+// display path changes — which is what happened here, twice in two days.
+//
+// Passing no map means "resolve nothing", so every short id is flagged: the
+// pre-mt#3914 behavior, and the correct degradation for an unreadable cache
+// (ADR-024's "fail to Rung-1, never silent-skip" — under-linking costs a
+// lookup, silence costs the finding).
 //
 // Both halves are operator decisions, not inferences: ask#7415 (2026-08-10)
 // approved flagging the short-id families; ask#7639 (2026-08-10) retired the
@@ -45,6 +61,7 @@
 // @see mem#623 — the linked-reference-actionability family (R1-R6)
 
 import { elideMarkdownContexts } from "./pre-narration-detector";
+import type { ShortIdKind, ShortIdMap } from "./entity-linkify";
 
 /** A full 36-char canonical UUID, the only legal ask/memory/session target. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -78,8 +95,20 @@ function safeDecode(value: string): string | null {
  */
 export type FlaggedKind = "bare-short-id" | "malformed-target" | "raw-uuid-label";
 
+/**
+ * Classes recorded for calibration and never rendered.
+ *
+ * Kept DISTINCT rather than folded into one "logged" bucket: they are logged
+ * for different reasons and a review pass has to tell them apart. `bare-ref` is
+ * repaired by a pure string transform, so it is auto-linked unconditionally;
+ * `linkable-short-id` is repaired only because THIS message's map happened to
+ * hold the id, which is a measurement of how much of the class mt#3914 absorbs
+ * over time — and the input to any future decision about the class as a whole.
+ */
+export type LoggedKind = "bare-ref" | "linkable-short-id";
+
 export interface ScanFinding {
-  kind: FlaggedKind | "bare-ref";
+  kind: FlaggedKind | LoggedKind;
   /** The reference as it appeared, e.g. "mt#3286" or "minsky://ask/fa4b942e". */
   ref: string;
   /** One-line reason, rendered into the advisory. */
@@ -141,6 +170,19 @@ function collectLinkLabelRanges(
   return ranges;
 }
 
+export interface ScanOptions {
+  /**
+   * The short-id -> UUID map the DISPLAY path will use on this same message
+   * (mt#3960). Supplied by the caller so this module stays pure; omitted means
+   * "resolve nothing", which flags every short id.
+   *
+   * It must be the map the display path actually reads, not an equivalent one
+   * built here — the whole claim being made is "the reader will see this ref as
+   * a link", and only the display path's own view of the cache can support it.
+   */
+  shortIdMap?: ShortIdMap;
+}
+
 /**
  * Scan one assistant message for deeplink defects.
  *
@@ -148,7 +190,7 @@ function collectLinkLabelRanges(
  * must-not-flag behavior for code fences, inline spans and blockquotes rather
  * than having to remember it.
  */
-export function scanMessage(text: string): ScanResult {
+export function scanMessage(text: string, options: ScanOptions = {}): ScanResult {
   const elided = elideMarkdownContexts(text);
   const links = collectLinks(elided);
   const flagged: ScanFinding[] = [];
@@ -257,30 +299,46 @@ export function scanMessage(text: string): ScanResult {
   // mention and writing the rest bare does not flag — the same "linked
   // somewhere in this message" semantics the mt#/PR# checks above use.
   const linkedShortIds = new Set<string>();
-  const shortIdMatches: Array<{ whole: string; entityType: string }> = [];
+  const shortIdMatches: Array<{ whole: string; entityType: ShortIdKind; num: string }> = [];
 
   for (const m of elided.matchAll(/\b(ask|mem|ws)#(\d+)\b/gi)) {
     const whole = m[0];
     const kind = (m[1] ?? "").toLowerCase();
-    const entityType = kind === "ask" ? "ask" : kind === "mem" ? "memory" : "session";
+    const entityType: ShortIdKind = kind === "ask" ? "ask" : kind === "mem" ? "memory" : "session";
     const start = m.index ?? 0;
     const end = start + whole.length;
     const insideMatchingLabel = labelRanges.some(
       (r) => r.type === entityType && start >= r.start && end <= r.end
     );
     if (insideMatchingLabel) linkedShortIds.add(whole.toLowerCase());
-    shortIdMatches.push({ whole, entityType });
+    shortIdMatches.push({ whole, entityType, num: m[2] ?? "" });
   }
 
   const seenShort = new Set<string>();
-  for (const { whole, entityType } of shortIdMatches) {
+  for (const { whole, entityType, num } of shortIdMatches) {
     const key = whole.toLowerCase();
     if (seenShort.has(key) || linkedShortIds.has(key)) continue;
     seenShort.add(key);
+    // mt#3960: the display path resolves this id, so the reader gets a link and
+    // there is nothing for the author to fix. Recorded rather than dropped —
+    // the size of this population is how a later pass measures what mt#3914
+    // absorbed, and a silently-discarded finding would make that unmeasurable.
+    if (options.shortIdMap?.[entityType]?.[num] !== undefined) {
+      logged.push({
+        kind: "linkable-short-id",
+        ref: whole,
+        reason: "resolved by the short-id map (auto-linked at display time)",
+      });
+      continue;
+    }
     flagged.push({
       kind: "bare-short-id",
       ref: whole,
-      reason: `bare ${entityType} short id — its deeplink target is a UUID, so nothing downstream can link it for you`,
+      // The reason is what the reader of the advisory acts on, so it has to say
+      // why THIS id is unresolvable when a sibling in the same message may not
+      // be — "nothing downstream can link it" stopped being true of the class
+      // when mt#3914 shipped.
+      reason: `bare ${entityType} short id the display map cannot resolve — link it yourself; nothing downstream will`,
     });
   }
 

@@ -33,16 +33,26 @@
 // of 13, while the short-id families it cannot derive a target for are the ones
 // still costing the reader a lookup.
 //
-// EXPIRY CONDITION — FIRED 2026-08-10, posture deliberately UNCHANGED. mt#3914
-// shipped the cached short-id → UUID map, so the linkifier now repairs
+// EXPIRY CONDITION — FIRED 2026-08-10, DISCHARGED per-finding by mt#3960.
+// mt#3914 shipped the cached short-id → UUID map, so the linkifier now repairs
 // `ask#N` / `mem#N` / `ws#N` — but only when the id is IN the map. An id minted
 // since the last sweep, or any id at all when no cockpit is running to refresh
-// the cache, still reaches the reader bare. So this is a narrowing of the
-// flagged population, not the clean auto-repair `bare-ref` got, and the right
-// input to the decision is the post-mt#3914 fire rate rather than the ship
-// event. This is a posture change and therefore an operator decision — it is
-// surfaced, not flipped, and a `/calibration-review` pass over the fires
-// recorded from here on is the vehicle (ask#7639 is the precedent).
+// the cache, still reaches the reader bare. So it is a NARROWING of the flagged
+// population, not the clean auto-repair `bare-ref` got.
+//
+// mt#3960 applies that narrowing where it is decidable: the scan now consults
+// the same map the display path will, and flags only the ids it cannot resolve.
+// That needs no operator decision, because it changes no CLASS — every posture
+// here is exactly what ask#7415 and ask#7639 set, and the guard still speaks
+// for the case that actually reaches the reader bare. Measured on this guard's
+// own log, the ids the map already held were 5 of the first 6 injected phrases
+// after mt#3914.
+//
+// What remains an operator decision is retiring the `bare-short-id` class
+// OUTRIGHT, which mt#3947 holds the data for. Do not read this narrowing as
+// having settled that: the residue it leaves — a just-minted id cited in the
+// same turn — is the shape the class exists for, and mem#623's family is a
+// record of that shape costing the principal real lookups.
 //
 // Neither class is gated on the other — whichever fires, a calibration record
 // is written, and that log is what a `/calibration-review` pass rates. The one
@@ -67,6 +77,7 @@ import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./regis
 import { calibrationLogPath } from "./dispatcher";
 import { extractAssistantText, extractFinalTurn } from "./transcript";
 import { scanMessage, type ScanFinding } from "./bare-entity-ref-scan";
+import { readShortIdMap } from "./linkify-message-display";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_BARE_ENTITY_REF";
 
@@ -285,7 +296,13 @@ export async function run(
   const text = lastMessage || extractAssistantText(turnLines);
   if (!text) return null;
 
-  const { flagged, logged } = scanMessage(text);
+  // mt#3960: the display path resolves a short id against this cache before the
+  // reader ever sees the message, so a ref it covers is already a link and must
+  // not be flagged. Read here rather than in the scanner to keep that module
+  // pure; an unreadable or absent cache yields undefined, which flags every
+  // short id — the pre-mt#3914 behavior, and the direction ADR-024's
+  // "fail to Rung-1, never silent-skip" invariant requires.
+  const { flagged, logged } = scanMessage(text, { shortIdMap: readShortIdMap() });
   if (flagged.length === 0 && logged.length === 0) return null;
 
   // mt#3860: only a continuation can be capped, and only a fire that would

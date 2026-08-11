@@ -207,3 +207,85 @@ describe("bare-entity-ref scanner — the R6 message shape", () => {
     expect(kinds(scanMessage(r6))).not.toContain("bare-ref");
   });
 });
+
+describe("bare-entity-ref scanner — short ids the display map resolves (mt#3960)", () => {
+  // mt#3914 gave the display linkifier a short-id -> UUID map, so a mapped ref
+  // is already clickable when the reader sees it. Flagging it asks the author
+  // to fix something that is not broken — 5 of the first 6 injected phrases
+  // after mt#3914 were exactly that.
+  const MAP = { memory: { "928": "33855c14-a2b5-4b03-9b5d-7726f8f15e33" } } as const;
+
+  test("a mapped short id is recorded, not flagged", () => {
+    const r = scanMessage("Continues mem#928 from yesterday.", { shortIdMap: MAP });
+    expect(r.flagged).toHaveLength(0);
+    expect(r.logged).toEqual([
+      {
+        kind: "linkable-short-id",
+        ref: "mem#928",
+        reason: "resolved by the short-id map (auto-linked at display time)",
+      },
+    ]);
+  });
+
+  test("an unmapped short id still flags", () => {
+    const r = scanMessage("Continues mem#944 from yesterday.", { shortIdMap: MAP });
+    expect(refs(r)).toEqual(["mem#944"]);
+    expect(kinds(r)).toEqual(["bare-short-id"]);
+  });
+
+  test("a mixed message flags only the unmapped id", () => {
+    const r = scanMessage("Continues mem#928; see also mem#944.", { shortIdMap: MAP });
+    expect(refs(r)).toEqual(["mem#944"]);
+    expect(r.logged.map((f) => f.ref)).toEqual(["mem#928"]);
+  });
+
+  test("the map is per-family — a memory entry does not resolve the same number as an ask", () => {
+    // The map is keyed by URI type then number, so `ask#928` and `mem#928` are
+    // different entities that happen to share a numeral. Collapsing the two
+    // would suppress a real finding on the strength of an unrelated id.
+    const r = scanMessage("Pending: ask#928.", { shortIdMap: MAP });
+    expect(refs(r)).toEqual(["ask#928"]);
+  });
+
+  test("no map flags every short id — the pre-mt#3914 behavior", () => {
+    // The degradation an absent or unreadable cache must produce. Silence here
+    // would be the ADR-024 "silent-skip" failure: under-linking costs the
+    // reader a lookup, a suppressed finding costs them the ref entirely.
+    const text = "Continues mem#928 and mem#944.";
+    expect(refs(scanMessage(text))).toEqual(["mem#928", "mem#944"]);
+    expect(refs(scanMessage(text, {}))).toEqual(["mem#928", "mem#944"]);
+    expect(refs(scanMessage(text, { shortIdMap: {} }))).toEqual(["mem#928", "mem#944"]);
+    expect(refs(scanMessage(text, { shortIdMap: { ask: {} } }))).toEqual(["mem#928", "mem#944"]);
+  });
+
+  test("a mapped id written INSIDE a correct link is still not double-counted", () => {
+    // `[mem#928](minsky://memory/<uuid>)` contains the literal `mem#928`, and
+    // the positional check (mt#3897) is what stops it flagging. That check runs
+    // BEFORE the map lookup, so a correctly-linked ref must not now appear in
+    // the logged population either — it is neither a finding nor a suppression.
+    const r = scanMessage("See [mem#928](minsky://memory/33855c14-a2b5-4b03-9b5d-7726f8f15e33).", {
+      shortIdMap: MAP,
+    });
+    expect(r.flagged).toHaveLength(0);
+    expect(r.logged).toHaveLength(0);
+  });
+
+  test("negative control: the 2026-08-11 window replays to exactly one finding", () => {
+    // The three phrases this guard actually injected on 2026-08-11, against a
+    // map snapshot holding the two ids that existed before the fires and not
+    // the one minted 15 seconds before its own. Only mem#944 should survive.
+    const snapshot = {
+      memory: {
+        "552": "b0b294ab-69cc-45fd-9f05-031bfb910d9c",
+        "928": "33855c14-a2b5-4b03-9b5d-7726f8f15e33",
+      },
+    };
+    const window = "Continues mem#928 (mem#944 supersedes it); background in mem#552.";
+    const r = scanMessage(window, { shortIdMap: snapshot });
+    expect(refs(r)).toEqual(["mem#944"]);
+    expect(r.logged.map((f) => f.ref)).toEqual(["mem#928", "mem#552"]);
+    // Without the map every one of the three flags — which is what the guard
+    // did on the day, and the 2-of-3 false-positive rate that produced mt#3960.
+    expect(refs(scanMessage(window))).toEqual(["mem#928", "mem#944", "mem#552"]);
+  });
+});
