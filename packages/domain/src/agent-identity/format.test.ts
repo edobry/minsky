@@ -2,7 +2,13 @@
  * Unit tests for agentId format parser/serializer (ADR-006).
  */
 import { describe, test, expect } from "bun:test";
-import { parseAgentId, serializeAgentId, isValidAgentId, type ParsedAgentId } from "./format";
+import {
+  parseAgentId,
+  serializeAgentId,
+  isValidAgentId,
+  redactAgentId,
+  type ParsedAgentId,
+} from "./format";
 
 // Shared test constants — extracted to avoid magic-string-duplication warnings
 const CLAUDE_CODE_KIND = "com.anthropic.claude-code";
@@ -145,5 +151,36 @@ describe("isValidAgentId", () => {
     expect(isValidAgentId("")).toBe(false);
     expect(isValidAgentId("bad")).toBe(false);
     expect(isValidAgentId("bad:invalid-scope:id")).toBe(false);
+  });
+});
+
+describe("redactAgentId (mt#3986)", () => {
+  const CONVERSATION_UUID = "2154425b-1c30-4f0e-9d51-0b73b9a2f5a1";
+
+  test("keeps kind and scope, truncates the id segment to 8 chars", () => {
+    expect(redactAgentId(`${CLAUDE_CODE_KIND}:conv:${CONVERSATION_UUID}`)).toBe(
+      `${CLAUDE_CODE_KIND}:conv:2154425b…`
+    );
+  });
+
+  test("does NOT leak the full conversation id", () => {
+    // A conversation id is an attribution key: logging it verbatim would link
+    // transcripts to infrastructure log sinks (PR #2390 R1). This is the
+    // property the mt#3986 fallback log line depends on.
+    const redacted = redactAgentId(`${CLAUDE_CODE_KIND}:conv:${CONVERSATION_UUID}`);
+    expect(redacted).not.toContain(CONVERSATION_UUID);
+    expect(redacted.length).toBeLessThan(`${CLAUDE_CODE_KIND}:conv:${CONVERSATION_UUID}`.length);
+  });
+
+  test("truncates a colon-less input rather than passing it through whole", () => {
+    expect(redactAgentId("no-colons-at-all-and-quite-long")).toBe("no-colon…");
+  });
+
+  test("appends the ellipsis even when the id was already short enough", () => {
+    // The stdio proxy and the shim each keep their own copy of this for bundle
+    // reasons; their parity is asserted in src/mcp/shim/identity.test.ts. The
+    // marker is unconditional in all three, so a redacted id is always
+    // distinguishable from a verbatim one in a log line.
+    expect(redactAgentId(CLAUDE_PROC_ID)).toBe(`${CLAUDE_CODE_KIND}:proc:${PROC_ID}…`);
   });
 });
