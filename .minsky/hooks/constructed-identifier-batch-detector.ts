@@ -78,6 +78,8 @@ import {
   CAPTURE_SCHEMA_VERSION,
 } from "./judged-input-capture";
 import type { ArtifactCapture } from "./judged-input-capture";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection (mt#3125 SC3)
@@ -369,11 +371,22 @@ export interface ConsumeBeforeMintMatch {
  *
  * Unlike the categorical batch pass, this one is EXACT rather than
  * co-occurrence-based, because it runs post-hoc over the transcript where the
- * minted id is present in the later tool_result. The discriminator that keeps
- * it precise is the prior-source check: an id the agent wrote with no prior
- * occurrence anywhere before that write is an id it could not have read — a
- * legitimate reference to an EXISTING entity would have a source (a tool
- * result, the user's prompt, an earlier read).
+ * minted id is present in the later tool_result. The first discriminator is the
+ * prior-source check: an id the agent wrote with no prior occurrence anywhere
+ * before that write is an id it could not have read in THIS transcript.
+ *
+ * That check alone is not sufficient, and the calibration data says so
+ * (mt#3991). It assumed "a legitimate reference to an EXISTING entity would
+ * have a source (a tool result, the user's prompt, an earlier read)" — but an
+ * agent routinely cites a task it knows from the task graph, from an injected
+ * memory, or from the always-loaded rules, with no occurrence anywhere in the
+ * transcript window. Measured over the 10 fires to 2026-08-11: **9 wrote an id
+ * that already existed**, by margins from 20 minutes to nearly four months.
+ *
+ * So the SECOND discriminator — existence — is applied by the caller, which
+ * filters these matches through {@link withoutExistingIds}. It is deliberately
+ * not applied in here: this function stays pure and synchronous, and the
+ * lookup it would need is IO.
  *
  * CROSS-MESSAGE ONLY (PR #2418 R1). The mint must be in a STRICTLY LATER
  * message than the write. A mint in the SAME message is the batch pass's
@@ -452,6 +465,79 @@ export function detectConsumeBeforeMint(
   }
 
   return matches;
+}
+
+/**
+ * Drop matches whose written id ALREADY EXISTED — the existence discriminator
+ * (mt#3991). Pure: the caller supplies the set, so this is testable without
+ * reaching a database.
+ *
+ * `existing` of `null` means the lookup could not run. That case must keep every
+ * match — **fail toward firing**. A detector that goes quiet when its dependency
+ * is unavailable is indistinguishable from a dead one (ADR-032), and this file's
+ * whole family exists because silent-when-broken is the failure mode that costs
+ * weeks to notice. Reporting a false positive is recoverable; reporting nothing
+ * is not.
+ */
+export function withoutExistingIds(
+  matches: ConsumeBeforeMintMatch[],
+  existing: ReadonlySet<string> | null
+): ConsumeBeforeMintMatch[] {
+  if (existing === null) return matches;
+  return matches.filter((m) => !existing.has(m.writtenId));
+}
+
+/**
+ * Which of `ids` name a task that exists. Returns `null` on ANY failure — see
+ * {@link withoutExistingIds} for why null must not be read as "none exist".
+ *
+ * ONE query over the distinct ids rather than a lookup per id: this runs on
+ * every Stop event, and the id count per turn is small (typically one) but the
+ * round trips are not free.
+ *
+ * SCOPE: `mt#` only. The detector also recognizes `ask#` and `mem#`, whose short
+ * ids live in different tables; every fire in the mt#3991 calibration window was
+ * `mt#`, so those families keep their prior behavior rather than getting an
+ * existence check written against no evidence. Widening is a follow-on, not a
+ * silent extension.
+ */
+export async function resolveExistingTaskIds(
+  ids: readonly string[]
+): Promise<ReadonlySet<string> | null> {
+  const taskIds = [...new Set(ids.filter((id) => id.startsWith("mt#")))];
+  if (taskIds.length === 0) return new Set();
+
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) return null;
+
+    const { resolvePersistenceProviderOrError } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) return null;
+
+    const provider = resolution.provider;
+    if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+    if (!db) return null;
+
+    const { sql } = await import("drizzle-orm");
+    const rows = await db.execute(sql`select id from tasks where id in ${taskIds}`);
+    const found = Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] }).rows ?? []);
+    return new Set(
+      found
+        .map((r) => (r as { id?: unknown }).id)
+        .filter((id): id is string => typeof id === "string")
+    );
+  } catch {
+    // Deliberate: every failure shape collapses to "could not check", which the
+    // caller renders as "fire anyway". Rethrowing would take the whole Stop
+    // hook down over a detector's optional refinement.
+    return null;
+  }
 }
 
 /** First mint of `family` in a STRICTLY LATER line than `afterLineIndex`. */
@@ -586,7 +672,14 @@ export function buildConsumeBeforeMintReminder(matches: ConsumeBeforeMintMatch[]
  * Calibration is logged unconditionally on a match; `additionalContext` is
  * gated behind `INJECTION_ENABLED` (false — calibration-first, mt#3125 SC3).
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+// Async since mt#3991: the existence discriminator needs a database lookup.
+// `GuardRegistration.run` already accepts `GuardRunResult | Promise<...>`
+// (registry.ts), and the sibling `duplicate-signature-scan` is async for the
+// same reason — this is the established shape for a guard that queries.
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -618,6 +711,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     );
     return null;
   }
+
+  // Existence discriminator (mt#3991) — applied AFTER detection so the lookup
+  // covers only ids that actually produced a candidate, and so a lookup failure
+  // cannot suppress the batch pass beside it.
+  orderMatches = withoutExistingIds(
+    orderMatches,
+    await resolveExistingTaskIds(orderMatches.map((m) => m.writtenId))
+  );
 
   if (matches.length === 0 && orderMatches.length === 0) return null;
 
@@ -754,6 +855,12 @@ export async function main(): Promise<void> {
     );
     process.exit(0);
   }
+
+  // Existence discriminator (mt#3991) — see the guard path above.
+  orderMatches = withoutExistingIds(
+    orderMatches,
+    await resolveExistingTaskIds(orderMatches.map((m) => m.writtenId))
+  );
 
   if (matches.length === 0 && orderMatches.length === 0) {
     process.exit(0);
