@@ -10,7 +10,10 @@
 // they observe).
 
 import { describe, expect, test } from "bun:test";
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- read-only corpus scan; see the mt#3869 block below for why a fixture cannot stand in for it
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 // The default every non-hook Minsky process gets when no connect timeout is
 // configured (`postgres-provider.ts` `|| 10`, `?? 10`; `validation-operations.ts`
@@ -115,5 +118,117 @@ describe("hook domain bootstrap (mt#3019)", () => {
     } else {
       expect(result).toEqual({ ok: true });
     }
+  });
+});
+
+describe("describeProviderResolutionFailure (mt#3869)", () => {
+  test("carries both the class and the message", () => {
+    const message = describeProviderResolutionFailure({
+      error: "write CONNECT_TIMEOUT undefined:undefined",
+      errorClass: "Error",
+    });
+
+    expect(message).toContain("Error");
+    expect(message).toContain("write CONNECT_TIMEOUT undefined:undefined");
+  });
+
+  test("keeps the class when the message scrubs to nothing", () => {
+    // `error` is credential-scrubbed upstream and can come back empty; the
+    // class is what still discriminates the failure, which is why it is
+    // unconditional. ADR-035 §Decision rule 3: "configured but failing" must
+    // stay distinguishable from "not configured."
+    expect(describeProviderResolutionFailure({ error: "", errorClass: "TypeError" })).toContain(
+      "TypeError"
+    );
+  });
+});
+
+// STRUCTURAL, not behavioral, and deliberately so. The property this task
+// establishes is "no hook reports a cause it did not obtain from the
+// resolution" — an invariant over the corpus, which a per-site behavioral test
+// cannot express. It also fails for a site nobody has written yet, which is the
+// actual risk: the defect mt#3750 fixed was one call site copied six more times.
+//
+// A behavioral test here would additionally be a probe that cannot fail: which
+// branch `resolvePersistenceProviderOrError()` takes depends on ambient process
+// state (whether configuration was initialized, whether a DB is reachable), so
+// an assertion about the failure branch passes alone and fails in the gated
+// suite where a sibling file initializes configuration and a database IS
+// reachable. That exact test cost mt#3750 a blocked push and two red CI jobs —
+// mem#912. The formatter's own behavior is covered above, with no ambient
+// dependency at all.
+describe("hook persistence-resolution diagnosis (mt#3869)", () => {
+  const HOOKS_DIR = new URL(".", import.meta.url).pathname;
+
+  /* eslint-disable custom/no-real-fs-in-tests -- the corpus IS the subject: this
+     block asserts a property of the hook sources on disk, so a fixture would
+     test the fixture. Read-only, and the sibling precedent is
+     `record-subagent-invocation-entrypoint.test.ts` (mt#3893), which reads its
+     own source the same way. */
+  const hookSources = readdirSync(HOOKS_DIR)
+    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+    .map((f) => ({ file: f, text: readFileSync(join(HOOKS_DIR, f), "utf8") }));
+  /* eslint-enable custom/no-real-fs-in-tests */
+
+  test("the scan actually sees the hook corpus", () => {
+    // Without this, every assertion below passes vacuously if the glob breaks.
+    expect(hookSources.length).toBeGreaterThan(20);
+    expect(hookSources.map((s) => s.file)).toContain("record-subagent-invocation.ts");
+  });
+
+  test("no hook hardcodes a resolution cause", () => {
+    // The fixed string is the defect: it names either nothing or, as at the
+    // originating site, a class the control flow had already excluded. Only
+    // `domain-bootstrap.ts` may contain the phrase, and there it is a template
+    // interpolating the real cause rather than a literal.
+    const offenders = hookSources
+      .filter((s) => s.file !== "domain-bootstrap.ts")
+      .filter((s) => s.text.includes('"persistence provider unavailable"'))
+      .map((s) => s.file);
+
+    expect(offenders).toEqual([]);
+  });
+
+  test("every remaining `| null` resolve is marked deliberate", () => {
+    // The `| null` variant is not retired — it has non-hook consumers, and two
+    // sites in `record-subagent-invocation.ts` keep it because their degraded
+    // path has no channel to report into. What must not happen is a site
+    // keeping it by omission, which is indistinguishable from a converted one
+    // at a glance. The marker is the difference.
+    const unmarked = hookSources
+      .filter((s) => /await resolvePersistenceProvider\(\)/.test(s.text))
+      .filter((s) => !s.text.includes("Deliberately still the `| null` resolve (mt#3869)"))
+      .map((s) => s.file);
+
+    expect(unmarked).toEqual([]);
+  });
+
+  test("each converted hook formats its failure through the shared helper", () => {
+    // Pinned by name: a site that resolves with the error-carrying variant and
+    // then throws the resolution away would satisfy the two checks above while
+    // reporting nothing.
+    //
+    // Both patterns tolerate the line breaks prettier introduces inside the
+    // call — matching the exact one-line spelling made this assertion fail on
+    // formatting rather than on behavior, and reported it by printing the
+    // entire source file.
+    const RESOLVES = /resolvePersistenceProviderOrError\(\s*\)/;
+    const REPORTS = /describeProviderResolutionFailure\(\s*resolution\s*\)/;
+
+    const converted = [
+      "duplicate-signature-scan.ts",
+      "post-merge-unasked-direction-scan.ts",
+      "record-agent-dispatch.ts",
+      "record-subagent-invocation.ts",
+      "stamp-pr-author-link.ts",
+      "stamp-session-creator-link.ts",
+    ];
+
+    const missing = converted.filter((file) => {
+      const source = hookSources.find((s) => s.file === file);
+      return !source || !RESOLVES.test(source.text) || !REPORTS.test(source.text);
+    });
+
+    expect(missing).toEqual([]);
   });
 });

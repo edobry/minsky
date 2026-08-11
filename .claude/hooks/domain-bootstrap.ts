@@ -104,3 +104,43 @@ export async function ensureHookDomainBootstrap(): Promise<
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Render a `resolvePersistenceProviderOrError()` failure into the one line a
+ * hook's degraded path reports.
+ *
+ * Lives here, beside the bootstrap every hook with a DB path already imports,
+ * because it is needed by all of them. It was written inline in
+ * `standalone-dup-probe.ts` (mt#3750) when exactly one call site had been
+ * converted; mt#3869 converted the rest, and a formatter shared by seven hooks
+ * does not belong inside one of them.
+ *
+ * What this replaced, at each site, was a FIXED string — "persistence provider
+ * unavailable" — naming no cause at all, or naming one the control flow had
+ * already excluded. A hook process exits immediately after its decision, so its
+ * stderr and anything the domain layer logs at debug level are discarded unread:
+ * whatever this returns is typically the ONLY account of the failure a reader
+ * ever gets. A 22-invocation critical-escalation guard-health streak was read as
+ * a config-init failure for three days while the real error was a driver
+ * `CONNECT_TIMEOUT` (mt#3750).
+ *
+ * ADR-035 §Decision rule 3 is the standing form of this: "configured but
+ * failing" MUST be distinguishable from "not configured." A `| null` return
+ * collapses them; `errorClass` is what separates them at a glance, which is why
+ * it is kept unconditionally — it discriminates the failure even when `error`
+ * scrubs to nothing.
+ *
+ * Both fields come from `resolvePersistenceProviderOrError`, which
+ * credential-scrubs `error` before returning it: some of these messages are
+ * persisted into guard-health records and rendered into an operator-facing
+ * banner.
+ *
+ * Structurally typed rather than importing `PersistenceProviderResolution`, so
+ * this module keeps its domain imports dynamic (see layer 1 above).
+ */
+export function describeProviderResolutionFailure(failure: {
+  error: string;
+  errorClass: string;
+}): string {
+  return `persistence provider unavailable: ${failure.errorClass}: ${failure.error}`;
+}
