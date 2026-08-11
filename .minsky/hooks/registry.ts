@@ -845,8 +845,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // outage would then read as a clean pass. This was 8000 against a 5s scan
     // and stayed 8000 when the scan's deadline was re-based to 15s on
     // measurement — inverting the ordering the comment claimed. 18s keeps ~3s of
-    // margin over the scan and sits under the 30s per-hook-entry cap that
-    // `.claude/settings.json` sets for `mcp__minsky__tasks_create`.
+    // margin over the scan and sits under the DERIVED (mt#3981, absorbing
+    // mt#3675) per-hook-entry cap that `.claude/settings.json` sets for
+    // `mcp__minsky__tasks_create` — see `.minsky/hooks/dispatch-timeout-budget.ts`.
     timeoutMs: 18000,
     calibrationLog: "duplicate-signature-scan",
     // NEVER denies — the deny half of this concern is the sibling above, which
@@ -945,8 +946,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // guard's OWN deadline fires first: that path returns the stamp plus a
     // recorded `write-failed` outcome, whereas a dispatcher kill loses the STAMP
     // as well as the row — and the stamp is the unrecoverable half, since the
-    // prompt is sent either way. 13s keeps ~3s of margin under the dispatcher's
-    // 15s settings.json entry cap.
+    // prompt is sent either way. 13s keeps margin under the dispatcher's
+    // DERIVED (mt#3981, absorbing mt#3675) settings.json entry cap for this
+    // matcher — see `.minsky/hooks/dispatch-timeout-budget.ts`.
     timeoutMs: 13000,
     calibrationLog: "agent-dispatch-record",
     // NEVER denies. An observability writer must not be able to block a

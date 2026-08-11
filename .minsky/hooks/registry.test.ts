@@ -12,6 +12,7 @@ import {
   type GuardRegistration,
   type LifecycleEvent,
 } from "./registry";
+import { deriveDispatchTimeoutMs, DISPATCH_TIMEOUT_MARGIN_MS } from "./dispatch-timeout-budget";
 
 /** Representative non-tool-scoped event, used across the matcher-less-registration tests. */
 const NON_TOOL_EVENT: LifecycleEvent = "UserPromptSubmit";
@@ -532,6 +533,46 @@ describe("registry <-> .claude/settings.json parity (mt#3823)", () => {
           if (entryBudgetMs < reg.timeoutMs) {
             violations.push(
               `${describeRouting(reg.event, reg.matcher)}: entry timeout ${hook.timeout}s < ${reg.name}'s timeoutMs ${reg.timeoutMs}ms`
+            );
+          }
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  test("a dispatcher entry's timeout equals the DERIVED sum of its routed guards' budgets (mt#3981, absorbing mt#3675 SC1)", () => {
+    // The floor test above only checks against the LARGEST single guard
+    // budget on the block — it does not catch the Stop-family drift class
+    // (mt#3536/mt#3593/mem#746: guard budget grows, the entry timeout does
+    // not, and a killed dispatcher silently loses every remaining guard's
+    // verdict). This test asserts EQUALITY against `deriveDispatchTimeoutMs`
+    // (SUM of the block's routed guards + `DISPATCH_TIMEOUT_MARGIN_MS`), the
+    // same routing relation ("clears the largest guard budget" above) that
+    // decides which guards a given matcher block actually carries.
+    const violations: string[] = [];
+    for (const event of Object.keys(DISPATCHER_BY_EVENT)) {
+      for (const block of dispatcherBlocks(event)) {
+        const routedGuards = GUARD_REGISTRY.filter(
+          (reg) =>
+            reg.event === event &&
+            (reg.matcher === undefined ||
+              toolNamesCoveredBy(reg.matcher).some((tool) =>
+                matcherRoutesTool(block.matcher, tool)
+              ))
+        );
+        const derivedMs = deriveDispatchTimeoutMs(routedGuards.map((r) => r.timeoutMs));
+        const entrypoint = DISPATCHER_BY_EVENT[event] as string;
+        for (const hook of block.hooks ?? []) {
+          if (!(hook.command ?? "").endsWith(entrypoint)) continue;
+          const declaredMs = (hook.timeout ?? 0) * 1000;
+          if (declaredMs !== derivedMs) {
+            violations.push(
+              `${describeRouting(event, block.matcher)}: declared ${hook.timeout}s != derived ${
+                derivedMs / 1000
+              }s (sum of [${routedGuards.map((r) => `${r.name}:${r.timeoutMs}ms`).join(", ")}] + ${
+                DISPATCH_TIMEOUT_MARGIN_MS / 1000
+              }s margin)`
             );
           }
         }
