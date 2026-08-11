@@ -16,6 +16,13 @@ name: npm Pack Install Smoke
 # PRE-publish gate: checking after publishing costs an immutable version number
 # per attempt, which is how the original defect was found rather than prevented.
 #
+# mt#3887: also runs the script's step 4b, which applies migrations against the
+# Postgres service below using the INSTALLED package's dist/ layout. This is the
+# falsifier for excluding dist/storage/migrations/pg/meta/*_snapshot.json from
+# files[] — those are drizzle-kit's generate-time-only metadata, and this job is
+# what proves apply-time (`persistence migrate --execute`) never needed them,
+# against a real database rather than by reading drizzle's docs.
+#
 # Sibling gates, and why this is not either of them:
 #   - bundle-boot-smoke: does the thing we DEPLOY start? (dist/minsky.js on Railway)
 #   - docker-build-smoke: does the production image BUILD?
@@ -43,6 +50,24 @@ jobs:
   npm-pack-install-smoke:
     name: npm-pack-install-smoke
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # pgvector-enabled image, matching cold-start-migrate.yml — the schema uses the
+        # `vector` type and the bootstrap snapshot runs CREATE EXTENSION IF NOT EXISTS vector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: minsky_test
+          POSTGRES_PASSWORD: minsky_test
+          POSTGRES_DB: minsky_pack_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -75,4 +100,8 @@ jobs:
         run: bun run build
 
       - name: Pack, install, and run the published artifact
+        env:
+          # mt#3887: enables step 4b (migration falsifier). Composed from parts, same
+          # convention as cold-start-migrate.yml, to avoid gitleaks flagging a literal URL.
+          DATABASE_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_pack_smoke') }}
         run: bun scripts/verify-npm-pack-install.ts
