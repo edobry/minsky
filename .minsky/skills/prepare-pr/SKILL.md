@@ -129,7 +129,7 @@ This step fires unconditionally as part of every /prepare-pr invocation — it i
 
         Note: redact absolute paths in failure output if they leak system info (e.g., replace `/Users/yourname/...` with `<project-root>/...`).
 
-        Accepted marker forms (case-insensitive; mt#2648, widened mt#3968): a Markdown heading of any level with an optional trailing colon (`## Execution evidence`, `### Execution evidence:`), or a plain label line `Execution evidence: <content>` — the colon is REQUIRED on the non-heading form so bare prose doesn't false-positive. The label may also be bolded (`**Execution evidence:**` or `**Execution evidence**:`) and/or preceded by a leading `-` bullet, mirroring the negative-control marker's accepted decoration above — the colon is still required either way.
+        Accepted marker forms (case-insensitive; mt#2648, widened mt#3968): a Markdown heading of any level with an optional trailing colon (`## Execution evidence`, `### Execution evidence:`), or a plain label line `Execution evidence: <content>` — the colon is REQUIRED on the non-heading form so bare prose doesn't false-positive. The label may also be bolded (`**Execution evidence:**` or `**Execution evidence**:`) and/or preceded by a leading Markdown bullet (`-`, `*`, or `+`), mirroring the negative-control marker's accepted decoration above — the colon is still required either way.
 
 **If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
 

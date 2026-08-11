@@ -410,7 +410,8 @@ export function checkExecutionEvidence(
     `required) OR a Markdown heading of any level with an optional trailing colon ` +
     `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`). The label may also be ` +
     `\`**bold**\` (\`**Execution evidence:**\` or \`**Execution evidence**:\`) and/or preceded ` +
-    `by a leading \`-\` bullet — the colon is still required either way.\n\n` +
+    `by a leading Markdown bullet (\`-\`, \`*\`, or \`+\`) — the colon is still required either ` +
+    `way.\n\n` +
     `Evidence-requiring files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
     `  1. Run the artifact and paste output under an \`Execution evidence\` section ` +
