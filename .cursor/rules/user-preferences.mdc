@@ -75,23 +75,23 @@ tags:
 
   **Canonical probe sequence** (run in order; first hit indicates a collision):
   0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims (who has touched this task recently). Treat it as a **signal, not proof** — run probes 1–4 to confirm any hit:
-     - **Fresh claims with an `actorId` you can't account for → "possible other actor"**; go confirm below. `actorId` is an opaque `unknown:hash:<...>` (ADR-006 ascribed identity) for callers without a declared agent_id and **churns per process / staleness-respawn** — so "N claims" is NOT "N distinct agents," and your OWN prior-respawn claims can show up as "other." It tells you *when* to do the forensics, not *who* definitively holds the task.
-     - **An empty result is "no claim visible," not "nobody"** — presence is best-effort and fire-and-forget; treat absence as inconclusive, not proof-of-unclaimed. (Claims self-stale at ~15 min; the default fresh-only view is what you want here.)
-     - **After a `/clear`, a "fresh claim by another actor" may be YOUR OWN (mt#3900, open).** The proxy resolves the conversation id once at spawn, so an in-process switch attributes your calls to the PREVIOUS conversation until the next reconnect. Your own touches then read back under an id you don't recognize. Before treating a hit as a collision, check whether the cited conversation is actually alive — `ls -l ~/.claude/projects/<project>/<id>.jsonl` — a transcript last written hours ago is not a live sibling. Probing no longer refreshes what it reports (mt#3889 exempted presence-reads from the presence write), so `lastRefreshedAt` is now trustworthy; **attribution is not, yet**.
-     - **That mtime check is invalid for a DISPATCHED SUBAGENT (mt#3958).** A subagent writes its own activity to `<session-dir>/subagents/agent-<id>.jsonl`, not the parent's transcript — a parent last written hours ago is not evidence its subagent is dead (mt#3812: a fresh claim was dismissed this way, then a 3rd attempt was redispatched into a live peer's session). Check `<session-dir>/subagents/agent-*.jsonl`, or message the agent, instead.
+     - **Fresh claims with an `actorId` you can't account for → "possible other actor"**; go confirm below. For an undeclared caller `actorId` is an opaque `unknown:hash:<...>` (ADR-006) that **churns per process / staleness-respawn** — so "N claims" is NOT "N distinct agents," and your OWN prior-respawn claims read as "other." It says *when* to do the forensics, not *who* holds the task.
+     - **An empty result is "no claim visible," not "nobody"** — presence is best-effort and fire-and-forget; treat absence as inconclusive. (Claims self-stale at ~15 min; the default fresh-only view is what you want.)
+     - **After a `/clear`, a "fresh claim by another actor" may be YOUR OWN.** The proxy resolves the conversation id once at spawn, so your own touches read back under an unrecognized id. mt#3900 fixed this but the fix reaches a process only on MCP reconnect, so assume attribution is stale. Probing no longer refreshes what it reports (mt#3889), so `lastRefreshedAt` IS trustworthy.
+     - **PRECEDENCE when the two disagree: a fresh claim outranks a stale transcript.** They answer different questions — a claim says a PROCESS IS RUNNING; the id only labels WHO IT THINKS IT IS, which is what goes stale. So `ls -l ~/.claude/projects/<project>/<id>.jsonl` tests whether the ID IS TRUSTWORTHY, never whether a peer EXISTS: **an unconfirmable id means "unknown actor", never "no actor."** A seconds-old claim against a stale transcript is a live peer with an untrustworthy name — redispatching is the mt#3086/mt#3958 double-dispatch (mt#3812: refused 2026-08-10, peer then finished the work).
+     - **One named cause, not the class (mt#3958):** a dispatched subagent writes to `<session-dir>/subagents/agent-<id>.jsonl`, not the parent's transcript — look there, or message it. An instance of the precedence, which also covers the causes nobody has hit.
   1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
   2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
   3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.
   4. **Recent-activity probe** — `mcp__minsky__git_log --grep="mt#<id>" --since="24 hours ago"` for commits by other actors.
 
-  **If a probe returns "another actor is here"**, do NOT recommend the same action as the next step. Surface the collision (which actor, what evidence) to the principal; let them resolve who continues.
+  **If a probe returns "another actor is here"**, do NOT recommend the same action. Surface the collision (which actor, what evidence) to the principal; let them resolve who continues.
 
-  **If all probes pass cleanly**, proceed — but record the probe outcome in the recommendation so the audit trail shows the check was done.
+  **If all probes pass cleanly**, proceed — but record the probe outcome so the audit trail shows the check was done.
 
-  Dual of `§Probe before deferring` (opposite direction: assuming unclaimed vs. assuming
-  blocked). Full incident, structural-enforcement roadmap (mt#1990/mt#2569), and
-  presence-probe detail: `docs/rules-rationale/user-preferences.md §Probe before claiming a
-  shared resource`.
+  Dual of `§Probe before deferring` (assuming unclaimed vs. assuming blocked). Incidents,
+  enforcement roadmap (mt#1990/mt#2569), precedence rationale and presence-probe detail:
+  `docs/rules-rationale/user-preferences.md §Probe before claiming a shared resource`.
 
 - **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
 

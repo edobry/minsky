@@ -116,6 +116,47 @@ underlying assumption.
 into a single query, or eliminate the need to probe entirely via active edges + presence
 broadcast. When that lands, this rule retires.
 
+### The precedence rule, and why an enumeration of causes was not enough (mt#3967)
+
+mt#3889 added a falsifier for the phantom-collision case: before treating a presence hit as a
+collision, check whether the cited conversation is alive by looking at its transcript's mtime, since
+"a transcript last written hours ago is not a live sibling."
+
+That check produces a FALSE NEGATIVE in the case it most needs to handle. Observed 2026-08-10 while
+running the dispatch watchdog on mt#3812:
+
+```
+tasks_dispatch-recover mt#3812 → status: "contested"
+  peerLastRefreshedAt: 2026-08-10T15:48:16Z          (36 seconds before the call)
+ls -l ~/.claude/projects/…/bff0cf98-….jsonl
+  → last written Aug  8 23:33                        (~2 days earlier)
+```
+
+Applied literally, the heuristic yields _no live peer_ and licenses a redispatch into a workspace
+something is actively touching — the mt#3086 / mt#3958 double-dispatch race, reached by following
+the rule's own advice. **On 2026-08-11 mt#3812 reached DONE: the peer was alive and finished the
+work.** The agent that refused was right, and it was right by NOT following the text.
+
+**Why the signals disagree.** They answer different questions. A fresh claim proves _a process is
+running_. A conversation id only labels _who that process thinks it is_ — and that label is exactly
+what goes stale on a `/clear`, a resume, a fork, or any process whose proxy outlived its
+conversation (mt#3900). So the transcript check tests the reliability of the LABEL, and the original
+text let it be read as a verdict on the ACTIVITY.
+
+**Why a third cause-specific bullet would not have fixed it.** mt#3958 had already added one: a
+dispatched subagent writes to `<session-dir>/subagents/agent-<id>.jsonl`, so a stale parent
+transcript is no evidence about it. Correct, and an enumeration. `/clear` staleness (mt#3900) is a
+second cause. Adding a third on the next recurrence is the arms-race shape that ADR-024 names for
+detectors and that `/plan-task` Step 4's halt-citation test names for rationales: **an enumeration
+of known bad cases is defeated by a novel bad case.** The precedence — claim recency outranks a
+stale transcript; an unconfirmable id means "unknown actor", never "no actor" — covers the causes
+nobody has hit yet, and the mt#3958 bullet stays as a named instance of it.
+
+**Note on cost.** `user-preferences.mdc` sat at 15,020 bytes against a 15,000-byte per-rule ceiling
+when this amendment was written, so the edit had to be net-negative: the precedence was added and
+the section compressed to 14,982. That constraint is why the incident narrative lives here rather
+than in the rule.
+
 ## Plain-language first in chat reports (mt#2801)
 
 **Originating incident:** 2026-07-15, mt#2777 planning. The gate output led with a four-part
