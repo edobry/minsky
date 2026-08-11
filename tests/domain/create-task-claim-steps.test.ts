@@ -46,8 +46,12 @@ const EXPECTED_STEPS: string[][] = [
   ["2c", "Cite the emission site before asserting a root cause"],
 ];
 
-// Headings look like: `### 2c. Cite the emission site before asserting a root cause (mt#3957)`
-const STEP_HEADING = /^[ \t]*### (\d[a-z])\.\s+(.+?)\s*\(mt#\d+\)\s*$/gm;
+// Headings look like: `### 2c. Cite the emission site before asserting a root cause (mt#3957)`.
+// The trailing task tag is OPTIONAL (PR #2846 R1): every current step carries one, but a
+// future step added without it would vanish from the manifest silently — the manifest would
+// simply not see the heading, which is the exact silent-deletion failure this guard exists to
+// catch, reintroduced through the parser.
+const STEP_HEADING = /^[ \t]*### (\d[a-z])\.\s+(.+?)(?:\s*\(mt#\d+\))?\s*$/gm;
 
 function parseSteps(content: string): string[][] {
   return [...content.matchAll(STEP_HEADING)].map((m) => [m[1] as string, m[2] as string]);
@@ -65,8 +69,29 @@ function parseSteps(content: string): string[][] {
 const CAUSAL_CLAIM_PATTERN =
   /\broot cause\b|\bcause confirmed\b|\bdiagnosis \(definitive\)\b|\bthe reason is\b|\bcaused by\b/i;
 
-/** A `path/to/file.ext:123` reference — the emission site's required form. */
-const PATH_LINE_PATTERN = /[\w./-]+\.[a-z]{2,4}:\d+/i;
+/**
+ * Strip URLs before looking for a `path:line`. Without this, `https://db.example.com:5432`
+ * satisfies the citation check: `example` + `.com` + `:5432` matches the path:line shape
+ * exactly, so a spec that asserts a cause and happens to mention a hosted endpoint would
+ * pass §2c having cited no emission site at all (PR #2846 R1, BLOCKING).
+ *
+ * Stripping by SCHEME rather than blacklisting `https` covers the whole class — `postgres://`,
+ * `redis://`, `ws://` and any future scheme fail the same way for the same reason.
+ */
+function stripUrls(text: string): string {
+  return text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, " ");
+}
+
+/**
+ * A `path/to/file.ext:123` reference — the emission site's required form.
+ *
+ * The extension segment is deliberately permissive (`.json5`, `.graphql`, `.proto`, and the
+ * `.ts` of a `.d.ts` all qualify) rather than a curated list that would silently reject a
+ * legitimate citation in a language the list forgot (PR #2846 R1, NON-BLOCKING). Over-matching
+ * is safe HERE only because {@link stripUrls} has already removed the one over-match that
+ * mattered; the leading `[\w./\\-]` class also admits Windows separators.
+ */
+const PATH_LINE_PATTERN = /[\w./\\-]*[\w-]\.[a-z][a-z0-9]{0,7}:\d+/i;
 
 /** Wording that states the asserted cause's branch reaches the cited line. */
 const REACHABILITY_PATTERN = /\breach(?:es|ed|able)?\b|\bfalls (?:to|through)\b|\bcontrol falls\b/i;
@@ -94,7 +119,7 @@ export function satisfiesEmissionSiteCheck(specText: string): EmissionSiteVerdic
   if (UNVERIFIED_PATTERN.test(specText)) {
     return { triggered: true, satisfied: true, reason: "cause marked UNVERIFIED" };
   }
-  const hasPathLine = PATH_LINE_PATTERN.test(specText);
+  const hasPathLine = PATH_LINE_PATTERN.test(stripUrls(specText));
   const hasReachability = REACHABILITY_PATTERN.test(specText);
   if (hasPathLine && hasReachability) {
     return { triggered: true, satisfied: true, reason: "emission site cited with reachability" };
@@ -161,6 +186,14 @@ describe("create-task claim-step manifest (mt#3957)", () => {
     expect(gateBlock).toContain("EMISSION");
   });
 
+  test("a step heading without an (mt#NNNN) tag is still parsed (PR #2846 R1)", () => {
+    // If the parser required the tag, a future untagged step would be invisible to the
+    // manifest — reintroducing the silent-deletion failure through the guard itself.
+    expect(parseSteps("### 2d. A future step with no task tag\n")).toEqual([
+      ["2d", "A future step with no task tag"],
+    ]);
+  });
+
   test("§2b's falsified calibration-first rationale is corrected, not left standing", () => {
     // mt#3957's planning audit falsified it; leaving it would let the next sibling
     // inherit the same wrong reason.
@@ -215,6 +248,37 @@ describe("§2c acceptance replay (mt#3957)", () => {
 
     const corrected = satisfiesEmissionSiteCheck(MT3955_CORRECTED);
     expect(corrected.satisfied).toBe(true);
+  });
+
+  test.each([
+    ["https", "https://db.example.com:5432"],
+    ["postgres", "postgres://user@host.internal:6543/db"],
+    ["ws", "ws://events.example.io:8080/stream"],
+  ])("a %s URL with a port is NOT an emission-site citation (PR #2846 R1)", (_scheme, url) => {
+    // The blocking finding: `example` + `.com` + `:5432` matches the path:line shape exactly,
+    // so without URL-stripping a spec could satisfy §2c while citing no source line at all.
+    // Asserted per-scheme because the fix strips by scheme rather than blacklisting one host.
+    const verdict = satisfiesEmissionSiteCheck(
+      `The root cause is that the connection to ${url} is refused, and control reaches the error path.`
+    );
+    expect(verdict.satisfied).toBe(false);
+    expect(verdict.reason).toContain("no emission-site citation");
+  });
+
+  test.each([
+    ["packages/domain/src/session/start-session-operations.ts:481"],
+    ["src/types/api.d.ts:12"],
+    ["schema/user.graphql:9"],
+    ["proto/service.proto:145"],
+    ["config/settings.json5:22"],
+    ["src\\windows\\path.ts:7"],
+  ])("%s is accepted as an emission-site citation (PR #2846 R1)", (ref) => {
+    // The under-inclusive finding: a curated extension list silently rejects a legitimate
+    // citation in whatever language it forgot, which fails CLOSED against the author.
+    const verdict = satisfiesEmissionSiteCheck(
+      `The root cause is the dropped flag; \`${ref}\` emits the string and the branch reaches it.`
+    );
+    expect(verdict.satisfied).toBe(true);
   });
 
   test("a path:line WITHOUT a reachability statement does not satisfy the check", () => {
