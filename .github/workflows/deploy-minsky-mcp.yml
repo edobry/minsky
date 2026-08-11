@@ -221,8 +221,14 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           docker tag $IMAGE:ci $IMAGE:latest
           docker tag $IMAGE:ci $IMAGE:sha-${SHORT_SHA}
-          docker push $IMAGE:latest
-          docker push $IMAGE:sha-${SHORT_SHA}
+          # mt#3979: `docker push` to GHCR intermittently ends in `unknown blob`
+          # after most layers have already pushed — a transient registry
+          # condition that only a re-run recovered. The wrapper retries ONLY the
+          # enumerated transient conditions and fails fast on everything else
+          # (auth, rejected manifest), so a real failure stays loud. The
+          # immutable sha tag goes first so a failure cannot leave the mutable
+          # :latest pointer promoted while the run goes red.
+          ./scripts/ci/docker-push-with-retry.sh "$IMAGE:sha-${SHORT_SHA}" "$IMAGE:latest"
           echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
 
       - name: Trigger Railway redeploy
