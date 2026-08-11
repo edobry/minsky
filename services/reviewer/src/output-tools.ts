@@ -160,13 +160,15 @@ export const SubmitSpecVerificationArgsSchema = z.object({
    *   "Not Met"      — the PR does not satisfy this criterion
    *   "N/A"          — the criterion does not apply to this PR (e.g., out of scope)
    *   "Unverifiable" — the criterion's artifact lives outside this diff (e.g. it
-   *                    names another task's spec, `mt#NNNN`) AND that artifact
-   *                    could not be fetched (task missing, service disabled, or
-   *                    a transport error) — see the "## Referenced Task Specs"
-   *                    section for the fetch status. Distinct from "Not Met":
-   *                    the criterion was NOT read, so its truth is unknown, not
-   *                    false. Never report "Met" in this case, and never omit
-   *                    the criterion (mt#3919).
+   *                    names another task's spec, `mt#NNNN`, or a `mem#N` /
+   *                    `ask#N` / `ws#N` short id) AND that artifact could not be
+   *                    fetched (missing, ambiguous, service disabled, or a
+   *                    transport error) — see the "## Referenced Task Specs" or
+   *                    "## Referenced Memories, Asks & Workspaces" section for
+   *                    the fetch status. Distinct from "Not Met": the criterion
+   *                    was NOT read, so its truth is unknown, not false. Never
+   *                    report "Met" in this case, and never omit the criterion
+   *                    (mt#3919, extended to short ids by mt#3964).
    */
   status: z.enum(["Met", "Not Met", "N/A", "Unverifiable"]),
 
@@ -535,17 +537,19 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "Call this once per criterion listed in the spec's 'Success Criteria' section. " +
         "status: 'Met' if the PR satisfies the criterion; 'Not Met' if it does not; " +
         "'N/A' if the criterion does not apply to this PR; 'Unverifiable' if the criterion's " +
-        "artifact lives outside this diff (e.g. it names another task's spec, mt#NNNN) and " +
-        "that spec could not be fetched — see the 'Referenced Task Specs' section for fetch " +
+        "artifact lives outside this diff (e.g. it names another task's spec, mt#NNNN, or a " +
+        "mem#N / ask#N / ws#N short id) and that artifact could not be fetched — see the " +
+        "'Referenced Task Specs' or 'Referenced Memories, Asks & Workspaces' section for fetch " +
         "status and content when one is provided. " +
         "evidence must reference specific file paths or code to justify the verdict. " +
         "When status is 'Not Met', the evidence field must explain what was deferred and why, " +
         "and indicate that the spec needs updating or follow-up tasks need filing. " +
         "When status is 'Unverifiable', evidence must name the fetch failure (from the " +
-        "Referenced Task Specs section) — never guess 'Not Met' for a criterion you could not " +
-        "read, and never report 'Met' for one either. Do NOT also emit a submit_finding with " +
-        "severity BLOCKING for an Unverifiable criterion — inability to fetch the referenced " +
-        "spec is not evidence the criterion is unmet.",
+        "Referenced Task Specs or Referenced Memories, Asks & Workspaces section) — never guess " +
+        "'Not Met' for a criterion you could not read, and never report 'Met' for one either. " +
+        "Do NOT also emit a submit_finding with severity BLOCKING for an Unverifiable " +
+        "criterion — inability to fetch the referenced artifact is not evidence the criterion " +
+        "is unmet.",
       parameters: {
         type: "object",
         properties: {
@@ -559,9 +563,9 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             enum: ["Met", "Not Met", "N/A", "Unverifiable"],
             description:
               "Verification result: Met, Not Met, N/A (criterion does not apply to this PR), " +
-              "or Unverifiable (the criterion's artifact — e.g. another task's spec — could " +
-              "not be fetched; distinct from Not Met, which means the artifact WAS read and " +
-              "does not carry the change).",
+              "or Unverifiable (the criterion's artifact — e.g. another task's spec, or a " +
+              "mem#N / ask#N / ws#N short id — could not be fetched; distinct from Not Met, " +
+              "which means the artifact WAS read and does not carry the change).",
           },
           evidence: {
             type: "string",
@@ -607,9 +611,9 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
                   enum: ["Met", "Not Met", "N/A", "Unverifiable"],
                   description:
                     "Verification result: Met, Not Met, N/A (criterion does not apply to this PR), " +
-                    "or Unverifiable (the criterion's artifact — e.g. another task's spec — could " +
-                    "not be fetched; distinct from Not Met, which means the artifact WAS read and " +
-                    "does not carry the change).",
+                    "or Unverifiable (the criterion's artifact — e.g. another task's spec, or a " +
+                    "mem#N / ask#N / ws#N short id — could not be fetched; distinct from Not Met, " +
+                    "which means the artifact WAS read and does not carry the change).",
                 },
                 evidence: {
                   type: "string",

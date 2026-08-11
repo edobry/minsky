@@ -422,6 +422,10 @@ export function createApp(
           ? {
               taskService: domainServices.taskService,
               persistenceProvider: domainServices.persistenceProvider,
+              // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
+              memoryLookup: domainServices.memoryLookup,
+              askLookup: domainServices.askLookup,
+              sessionLookup: domainServices.sessionProvider,
             }
           : {}),
       }
@@ -1564,6 +1568,10 @@ if (import.meta.main) {
       ? {
           taskService: domainServices.taskService,
           persistenceProvider: domainServices.persistenceProvider,
+          // mt#3964: mem#N / ask#N / ws#N criteria-reference resolution.
+          memoryLookup: domainServices.memoryLookup,
+          askLookup: domainServices.askLookup,
+          sessionLookup: domainServices.sessionProvider,
         }
       : {}),
   }).catch((err: unknown) => {
