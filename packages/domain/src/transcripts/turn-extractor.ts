@@ -155,6 +155,42 @@ function parseTimestamp(ts: unknown): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * The Anthropic Messages API `id` of the model message this line carries, when
+ * the harness recorded one.
+ *
+ * This is the fusion discriminator (mt#3883). ONE model turn can reach the JSONL
+ * as several consecutive `assistant` lines — those share a `message.id` and must
+ * accumulate into one extracted turn. TWO distinct model turns carry DIFFERENT
+ * ids and must not be fused, even with no intervening `user` line to separate
+ * them.
+ *
+ * Deliberately NOT `parentUuid`: the tree answers a different question (which
+ * sibling branch superseded which), which is mt#3975's half of the original
+ * mt#3514 split. `message.id` is both cheaper and the correct discriminator for
+ * this one.
+ */
+function extractMessageId(line: RawTurnLine): string | null {
+  const msg = line.message as Record<string, unknown> | undefined;
+  const id = msg?.["id"];
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/**
+ * Does an incoming assistant line continue the model turn already pending?
+ *
+ * A missing id on EITHER side answers "yes". Measured over 120 transcripts
+ * (37,781 assistant lines), a DIFFERING id marks a real turn boundary 46 times
+ * against 18,485 same-id continuations — but an ABSENT id carries no such
+ * signal, and treating absence as a boundary would manufacture turn splits out
+ * of missing data. Fail toward the pre-mt#3883 behavior (accumulate), so a line
+ * shape the harness never labels is left exactly as it was.
+ */
+function continuesPendingModelTurn(pendingId: string | null, incomingId: string | null): boolean {
+  if (pendingId === null || incomingId === null) return true;
+  return pendingId === incomingId;
+}
+
 // ── Core extraction ───────────────────────────────────────────────────────────
 
 /**
@@ -164,12 +200,22 @@ function parseTimestamp(ts: unknown): Date | null {
  *
  * Pairing algorithm:
  * - Iterate lines in order.
- * - When a `user` line is encountered, start a new pending turn.
- * - When an `assistant` line is encountered after a pending user line, close
- *   the turn and emit it.
+ * - When a `user` line is encountered, flush any pending turn, then start a new
+ *   pending turn.
  * - Consecutive user lines overwrite the pending turn (the last user line wins).
- * - Consecutive assistant lines are accumulated into a single assistant message
- *   (some harnesses emit continuation assistant lines; see §Streaming).
+ *   That is the ingest-side supersession behavior; making it a DELIBERATE,
+ *   documented policy rather than an emergent one is mt#3975's scope, not this
+ *   module's — do not change it here.
+ * - Consecutive assistant lines accumulate into a single assistant message ONLY
+ *   while they share a `message.id` (one model turn split across JSONL records).
+ *   A DIFFERING id closes the pending turn and opens a new one: without that
+ *   check, two model turns with no intervening `user` line fuse into a single
+ *   row, so one emitted turn no longer corresponds to one model turn (mt#3883 —
+ *   measured at 46 events across 120 transcripts, touching 23.3% of them).
+ * - Turns flush at the NEXT boundary rather than eagerly. Before mt#3883 an
+ *   assistant line with no pending user flushed immediately, which split a
+ *   same-id continuation following it into separate turns — the same defect in
+ *   the other direction.
  * - A trailing user line with no following assistant line is emitted as a
  *   partial turn (assistantText = null).
  *
@@ -185,6 +231,8 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
   let pendingUserStartedAt: Date | null = null;
   let pendingAssistantBlocks: ContentBlock[] = [];
   let pendingAssistantEndedAt: Date | null = null;
+  /** `message.id` of the model turn currently accumulating (mt#3883). */
+  let pendingAssistantMessageId: string | null = null;
   let hasPendingUser = false;
   let hasPendingAssistant = false;
 
@@ -216,6 +264,7 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
     pendingUserStartedAt = null;
     pendingAssistantBlocks = [];
     pendingAssistantEndedAt = null;
+    pendingAssistantMessageId = null;
     hasPendingUser = false;
     hasPendingAssistant = false;
   }
@@ -233,12 +282,15 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
       // turnCount with a synthetic non-turn.
       if (isSyntheticInterruptLine(blocks)) continue;
 
-      if (hasPendingUser && hasPendingAssistant) {
-        // We have a complete (user, assistant) pair — flush before starting a new user.
+      if (hasPendingAssistant) {
+        // A pending turn ends here — either a complete (user, assistant) pair, or
+        // an assistant-only run that mt#3883 stopped flushing eagerly. Both close
+        // before this user line opens the next turn.
         flushTurn();
       }
-      // If we have a pending user but no assistant, we overwrite it with the new user line
-      // (back-to-back user lines; the last one wins).
+      // A pending user with NO assistant is overwritten by this user line
+      // (back-to-back user lines; the last one wins) — the supersession behavior
+      // noted in the pairing algorithm above, owned by mt#3975.
 
       const text = extractUserText(blocks);
 
@@ -246,20 +298,25 @@ export function extractTurns(transcript: RawTurnLine[]): ExtractedTurn[] {
       pendingUserStartedAt = parseTimestamp(line.timestamp);
       hasPendingUser = true;
     } else if (line.type === "assistant") {
-      // Accumulate assistant blocks (streaming or split messages).
       const msg = line.message as Record<string, unknown> | undefined;
       const content = msg?.["content"];
       const blocks = normalizeContent(content);
-      pendingAssistantBlocks.push(...blocks);
+      const messageId = extractMessageId(line);
 
-      pendingAssistantEndedAt = parseTimestamp(line.timestamp);
-      hasPendingAssistant = true;
-
-      // If there is no pending user, treat this assistant-only line as a partial turn.
-      // Flush immediately so that subsequent user lines start a fresh pair.
-      if (!hasPendingUser) {
+      // mt#3883: a DIFFERENT `message.id` means this line opens a NEW model turn,
+      // so the pending one closes here. Accumulating across that boundary is the
+      // fusion defect — two model turns land in one row and every later turn
+      // index shifts by one.
+      if (hasPendingAssistant && !continuesPendingModelTurn(pendingAssistantMessageId, messageId)) {
         flushTurn();
       }
+
+      pendingAssistantBlocks.push(...blocks);
+      // Keep the FIRST id seen for this turn: a continuation line that omits its
+      // id must not erase the id the boundary check above reads.
+      pendingAssistantMessageId ??= messageId;
+      pendingAssistantEndedAt = parseTimestamp(line.timestamp);
+      hasPendingAssistant = true;
     }
   }
 

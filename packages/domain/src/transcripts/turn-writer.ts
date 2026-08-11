@@ -11,12 +11,14 @@
  * Embedding is the separate, deferred stage owned by PerTurnEmbeddingPipeline,
  * which fills the `embedding` column on rows this module has already written.
  *
- * CRITICAL — embedding preservation: the upsert here writes text/metadata
- * columns only and MUST NOT touch the `embedding` column. A new row gets a NULL
- * embedding (filled later by the backfill); an existing row's embedding is left
- * intact (a capture-path text upsert over an already-embedded turn must not
- * clobber the vector). See ADR-019 §Consequences ("two writers on the same
- * rows").
+ * CRITICAL — embedding preservation, CONDITIONAL since mt#3883: the upsert here
+ * never COMPUTES an embedding. A new row gets a NULL embedding (filled later by
+ * the backfill); an existing row keeps its vector ONLY while its text is
+ * unchanged, and has it NULLED when the text changes — so a turn boundary that
+ * moves cannot leave a vector describing content the row no longer holds. See
+ * ADR-019 §Consequences ("two writers on the same rows"), and the SET clause
+ * below for why unconditional preservation turned into a corruption vector the
+ * moment extraction stopped producing identical boundaries.
  *
  * @see docs/architecture/adr-019-transcript-pipeline-staging.md
  * @see ./turn-extractor.ts — the pure extraction logic this reuses
@@ -120,12 +122,17 @@ const defaultLogSink: TurnWriterLogSink = { warn: log.warn, error: log.error };
 
 /**
  * Extract per-turn rows from a session's transcript and upsert them into
- * `agent_transcript_turns` (text/metadata columns only — never `embedding`).
+ * `agent_transcript_turns`. This never COMPUTES an embedding — that stays the
+ * backfill's job — but since mt#3883 it does INVALIDATE one (see below).
  *
- * Idempotent: existing rows are upserted on (agent_session_id, turn_index); the
- * `embedding` column is excluded from both the insert and the on-conflict SET,
- * so re-running preserves any embedding already present and re-materializing the
- * full transcript on each incremental append is safe.
+ * Idempotent: existing rows are upserted on (agent_session_id, turn_index). The
+ * `embedding` column is excluded from the INSERT values, so a new row starts
+ * NULL. On conflict it is set conditionally: preserved when the row's
+ * `user_text`/`assistant_text` are unchanged, NULLED when they changed. So
+ * re-materializing the full transcript on each incremental append is still safe
+ * and still cheap — an unchanged row keeps its vector — while a turn whose
+ * boundary MOVED (mt#3883) does not keep a vector describing text it no longer
+ * holds.
  *
  * @param transcript - The session's full `agent_transcripts.transcript` JSONB
  *   (array of raw turn lines). Turn ordering / `turn_index` is assigned over the
@@ -312,7 +319,9 @@ async function writeTurnsLocked(
   while (pending.length > 0) {
     const range = pending.shift() as ChunkRange;
     const chunk = turns.slice(range.start, range.start + range.size);
-    // NOTE: `embedding` is deliberately omitted — capture writes text only.
+    // NOTE: `embedding` is deliberately omitted from the INSERT VALUES — a new
+    // row starts NULL and the backfill fills it. The on-conflict SET below is a
+    // different matter: since mt#3883 it nulls a vector whose text changed.
     // `fts_text` is GENERATED ALWAYS and must not be written either.
     const insertValues = chunk.map((turn) => ({
       agentSessionId,
@@ -342,8 +351,25 @@ async function writeTurnsLocked(
           .values(insertValues)
           .onConflictDoUpdate({
             target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
-            // `embedding` is intentionally NOT in this SET — preserve any vector
-            // the backfill already filled (ADR-019 embedding-preservation invariant).
+            // ADR-019's embedding-preservation invariant, made CONDITIONAL on the
+            // text being unchanged (mt#3883).
+            //
+            // Preserving unconditionally was correct only while turn boundaries
+            // were stable. Once a boundary moves — which is exactly what the
+            // mt#3883 fusion fix does, for 23.3% of conversations — turn N's TEXT
+            // is overwritten by a different turn's content while turn N's VECTOR
+            // is kept. The row then has an embedding describing text it no longer
+            // holds, and semantic search returns it for the wrong query. Nothing
+            // downstream can notice: the row is present, well-formed, and
+            // non-null, so it fails as a confident wrong answer rather than an
+            // error.
+            //
+            // The invariant that was actually meant is "do not clobber a vector
+            // that still describes this row." Comparing the two columns
+            // `buildEmbedText` reads (per-turn-embedding-pipeline.ts: user_text +
+            // assistant_text, NOT tool_calls) expresses that directly: identical
+            // text keeps the vector, changed text nulls it so the embedding
+            // backfill refills it on its next pass.
             set: {
               userText: sql`EXCLUDED.user_text`,
               assistantText: sql`EXCLUDED.assistant_text`,
@@ -351,6 +377,7 @@ async function writeTurnsLocked(
               startedAt: sql`EXCLUDED.started_at`,
               endedAt: sql`EXCLUDED.ended_at`,
               isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
+              embedding: sql`CASE WHEN ${agentTranscriptTurnsTable.userText} IS DISTINCT FROM EXCLUDED.user_text OR ${agentTranscriptTurnsTable.assistantText} IS DISTINCT FROM EXCLUDED.assistant_text THEN NULL ELSE ${agentTranscriptTurnsTable.embedding} END`,
             },
           });
       });
@@ -749,7 +776,8 @@ export interface ExtractAllTurnsOptions {
  * Extraction reconciliation: ensure every `agent_transcripts` row has its turns
  * materialized into `agent_transcript_turns`. This is the catch-up for sessions
  * that were ingested before extraction-on-capture existed (or whose turn rows
- * were otherwise lost). Idempotent (text-only upsert, embedding-preserving).
+ * were otherwise lost). Idempotent: the upsert never computes an embedding, and
+ * preserves an existing one whenever the row's text is unchanged (mt#3883).
  *
  * Batched/bounded/resumable (mt#2457): rows are fetched in keyset-paginated
  * pages instead of one unbounded full-corpus `SELECT *`, so the sweep's memory

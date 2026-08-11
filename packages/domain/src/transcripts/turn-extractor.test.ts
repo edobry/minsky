@@ -478,4 +478,112 @@ describe("extractTurns", () => {
       expect(assertTurn(turns, 0).userText).toBe("hello");
     });
   });
+
+  /**
+   * mt#3883 — sibling fusion. One emitted turn must correspond to one model
+   * turn. The discriminator is `message.id`: shared across the JSONL records of
+   * ONE model turn, different between two.
+   */
+  describe("sibling fusion (mt#3883)", () => {
+    /** An assistant line carrying an explicit Messages-API `message.id`. */
+    function assistantLineWithId(
+      text: string,
+      messageId: string,
+      toolCalls: Record<string, unknown>[] = [],
+      ts = TS2
+    ): RawTurnLine {
+      const content: Record<string, unknown>[] = [];
+      if (text) content.push({ type: "text", text });
+      content.push(...toolCalls);
+      return {
+        type: "assistant",
+        timestamp: ts,
+        message: { role: "assistant", id: messageId, content },
+      };
+    }
+
+    test("two consecutive assistant lines with DIFFERENT message.id produce two turns", () => {
+      const turns = extractTurns([
+        userLine("do two things", TS1),
+        assistantLineWithId("first model turn", "msg_a", [], TS2),
+        assistantLineWithId("second model turn", "msg_b", [], TS3),
+      ]);
+
+      expect(turns).toHaveLength(2);
+      expect(assertTurn(turns, 0).userText).toBe("do two things");
+      expect(assertTurn(turns, 0).assistantText).toBe("first model turn");
+      expect(assertTurn(turns, 1).userText).toBeNull();
+      expect(assertTurn(turns, 1).assistantText).toBe("second model turn");
+      expect(assertTurn(turns, 0).turnIndex).toBe(0);
+      expect(assertTurn(turns, 1).turnIndex).toBe(1);
+    });
+
+    test("consecutive assistant lines SHARING a message.id accumulate into one turn", () => {
+      const turns = extractTurns([
+        userLine("one thing", TS1),
+        assistantLineWithId("first half", "msg_a", [], TS2),
+        assistantLineWithId("second half", "msg_a", [], TS3),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).assistantText).toBe("first half\nsecond half");
+    });
+
+    test("a parallel tool batch under ONE message.id stays a single turn", () => {
+      // This is the population the earlier 12-of-12 sample looked at: several
+      // tool_use blocks belonging to one model turn. Accumulation is CORRECT
+      // here — a fusion fix that split these would be a regression, not a fix.
+      const turns = extractTurns([
+        userLine("search two places", TS1),
+        assistantLineWithId("dispatching", "msg_a", [regularToolCall("Grep", "toolu_1")], TS2),
+        assistantLineWithId("", "msg_a", [regularToolCall("Glob", "toolu_2")], TS3),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).toolCalls).toHaveLength(2);
+    });
+
+    test("assistant lines with NO message.id accumulate, as they did before mt#3883", () => {
+      // Absence carries no boundary signal; treating it as one would manufacture
+      // turn splits out of missing data.
+      const turns = extractTurns([
+        userLine("legacy shape", TS1),
+        assistantLine("part one", [], TS2),
+        assistantLine("part two", [], TS3),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).assistantText).toBe("part one\npart two");
+    });
+
+    test("a same-id continuation after an assistant-only line is not split", () => {
+      // Pre-mt#3883 an assistant line with no pending user flushed eagerly, so
+      // the continuation landed in its own turn — the fusion defect running the
+      // other way.
+      const turns = extractTurns([
+        assistantLineWithId("bare start", "msg_a", [], TS1),
+        assistantLineWithId("bare continued", "msg_a", [], TS2),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).userText).toBeNull();
+      expect(assertTurn(turns, 0).assistantText).toBe("bare start\nbare continued");
+    });
+
+    test("a fusion boundary shifts every later turn index by one", () => {
+      // The downstream consequence the consumer audit rests on: correcting a
+      // boundary renumbers every turn after it, which is why re-extraction
+      // cannot preserve embeddings by index (see turn-writer.ts).
+      const turns = extractTurns([
+        userLine("first", TS1),
+        assistantLineWithId("reply one", "msg_a", [], TS2),
+        assistantLineWithId("reply two", "msg_b", [], TS3),
+        userLine("second", TS3),
+        assistantLineWithId("reply three", "msg_c", [], TS4),
+      ]);
+
+      expect(turns.map((t) => t.turnIndex)).toEqual([0, 1, 2]);
+      expect(assertTurn(turns, 2).userText).toBe("second");
+    });
+  });
 });

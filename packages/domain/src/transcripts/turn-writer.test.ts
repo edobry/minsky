@@ -80,10 +80,18 @@ function turnKey(sid: string, idx: number): string {
  * upserted independently, matching Postgres's per-row ON CONFLICT semantics
  * for a multi-row INSERT.
  *
- * Crucially, the upsert SIMULATES the embedding-preservation invariant: because
- * writeTurnsForTranscript never includes `embedding` in `values`, on conflict the
- * fake leaves the existing row's `embedding` untouched (matching a SET clause that
- * omits the embedding column).
+ * The fake leaves an existing row's `embedding` untouched on conflict, because
+ * `writeTurnsForTranscript` never puts `embedding` in `values`.
+ *
+ * Since mt#3883 that is no longer the whole story: the real SET clause NULLS the
+ * embedding when the row's TEXT changed, so a moved turn boundary cannot leave a
+ * vector describing content the row no longer holds. The fake cannot see that —
+ * it only ever receives `values`, never the SET clause — and simulating the CASE
+ * expression here would be pretending to implement Postgres, which is precisely
+ * what the orphan-delete note below refuses to do. So these tests deliberately
+ * do NOT cover the conditional; its behavior against real Postgres is covered by
+ * `scripts/verify-turn-embedding-invalidation.ts`. What they still cover is the
+ * unchanged-text case, which must keep the vector either way.
  */
 function makeDb(
   transcriptRows: FakeTranscriptRow[],
