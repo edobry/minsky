@@ -94,6 +94,32 @@ describe("SharedConversationPage (mt#4024)", () => {
     expect(screen.getByText("Passkey gate research")).toBeTruthy();
   });
 
+  test("the header dates the conversation, not just the time of day", async () => {
+    // Found by looking at the rendered page: inside the cockpit a bare clock
+    // time is fine because the operator arrived from a list, but a reader who
+    // clicked a link from a message has no idea whether `16:00:00` is today or
+    // last spring.
+    stubFetch(200, {
+      conversationId: "agent-ae1576839e37ecab9",
+      label: "Passkey gate research",
+      createdAt: "2026-08-12T00:00:00.000Z",
+      blocks: [turnBlock(0, "user", "hello"), turnBlock(1, "assistant", "hi")],
+    });
+
+    renderSharePage();
+
+    const page = await screen.findByTestId("share-page");
+    // The fixture's turns are on 2026-08-11; assert the DAY reaches the reader
+    // rather than pinning a locale-specific rendering of it.
+    expect(page.textContent).toContain(
+      new Date(Date.UTC(2026, 7, 11, 16, 0, 0)).toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    );
+  });
+
   test("reads ONLY the public share endpoint — no gated route is touched", async () => {
     stubFetch(200, {
       conversationId: "agent-ae1576839e37ecab9",

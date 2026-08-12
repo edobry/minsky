@@ -23,15 +23,10 @@ import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
-import { buildConversationThread } from "../lib/conversation-thread-model";
+import { buildConversationThread, prepareThreadTurns } from "../lib/conversation-thread-model";
 import { buildTurnNodes } from "../components/ConversationTurnView";
-import {
-  hasRenderablePreparedElement,
-  mergeCommandInvocations,
-  pairToolInvocations,
-} from "../lib/conversation-turn-assembly";
 import type { EntityIndex } from "../lib/entity-linkifier";
-import { formatLocalTime } from "../lib/conversation-timeline";
+import { formatDatedRange } from "../lib/conversation-timeline";
 
 /**
  * No entity linkification on a share page.
@@ -114,14 +109,6 @@ function ShareMessage({ failure }: { failure: ShareFailure }) {
   );
 }
 
-/** A date range reads better than two full timestamps when both fall on one day. */
-function formatRange(first: string | undefined, last: string | undefined): string | null {
-  if (!first) return null;
-  const start = formatLocalTime(first);
-  if (!last || last === first) return start;
-  return `${start} – ${formatLocalTime(last)}`;
-}
-
 export function SharedConversationPage() {
   const { token } = useParams<{ token: string }>();
 
@@ -137,13 +124,7 @@ export function SharedConversationPage() {
 
   const blocks = query.data?.blocks;
   const model = useMemo(() => buildConversationThread(blocks ?? []), [blocks]);
-  const preparedTurns = useMemo(
-    () =>
-      mergeCommandInvocations(
-        pairToolInvocations(model.visibleTurns, model.callNameByToolUseId)
-      ).filter((t) => t.elements.some(hasRenderablePreparedElement)),
-    [model]
-  );
+  const preparedTurns = useMemo(() => prepareThreadTurns(model), [model]);
 
   if (query.isPending) {
     return (
@@ -164,7 +145,7 @@ export function SharedConversationPage() {
   const payload = query.data;
   if (!payload) return <ShareMessage failure="error" />;
 
-  const range = formatRange(
+  const range = formatDatedRange(
     preparedTurns[0]?.timestamp,
     preparedTurns[preparedTurns.length - 1]?.timestamp
   );

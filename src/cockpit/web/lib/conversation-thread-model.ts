@@ -23,6 +23,12 @@ import {
   type SupersededGroup,
   type SupersededPrompt,
 } from "../components/SupersededPromptMarker";
+import {
+  hasRenderablePreparedElement,
+  mergeCommandInvocations,
+  pairToolInvocations,
+  type PreparedTurn,
+} from "./conversation-turn-assembly";
 
 export interface ConversationThreadModel {
   /** Blocks that survive rewind suppression — what the turns were built from. */
@@ -143,4 +149,22 @@ export function buildConversationThread(
     callNameByToolUseId,
     visibleTurns,
   };
+}
+
+/**
+ * The turns as they will actually RENDER: call/result pairs merged, slash
+ * commands folded, and anything left with nothing to show dropped.
+ *
+ * Shared rather than inlined at each call site because the two consumers must
+ * agree on the COUNT. The publish confirmation tells the operator how many
+ * turns are about to become public; the share page shows them. Counting
+ * `visibleTurns` in one and rendering the prepared turns in the other reported
+ * 5 against a page that showed 4 — the tool-result turn is merged into the call
+ * above it — which is a small number and a control saying something untrue
+ * about what it is asking permission for.
+ */
+export function prepareThreadTurns(model: ConversationThreadModel): PreparedTurn[] {
+  return mergeCommandInvocations(
+    pairToolInvocations(model.visibleTurns, model.callNameByToolUseId)
+  ).filter((t) => t.elements.some(hasRenderablePreparedElement));
 }

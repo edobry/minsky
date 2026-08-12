@@ -17,8 +17,16 @@
  *   bun scripts/verify-conversation-share.ts --url https://host --cookie 'minsky_cockpit_session=…'
  *   bun scripts/verify-conversation-share.ts --conversation <agent-session-id>
  *
- * `--cookie` is only needed against a gated deployment (mt#4023); a local
- * daemon mounts no gate, so minting works unauthenticated there.
+ * Two DIFFERENT credentials, for two different gates, and a local run needs
+ * the first even though "local" sounds unauthenticated:
+ *
+ *   - The local daemon's `mutationAuthMiddleware` requires a bearer token on
+ *     every non-GET. A browser gets it from the loopback cookie bootstrap; a
+ *     script has to read it from `~/.local/state/minsky/cockpit-token`, which
+ *     this does automatically (override with `--token`).
+ *   - A gated deployment (mt#4023) additionally requires a passkey session
+ *     cookie, which cannot be minted headlessly — pass `--cookie` from a
+ *     signed-in browser.
  *
  * Exit codes: 0 all assertions held; 1 an assertion failed; 0 with a SKIP line
  * when the target is unreachable or nothing publishable was found — matching
@@ -26,13 +34,32 @@
  * prerequisite.
  */
 
+import fs from "fs";
+import path from "path";
+
 const DEFAULT_URL = "http://127.0.0.1:3737";
 const REQUEST_TIMEOUT_MS = 20_000;
 
 interface Args {
   baseUrl: string;
   cookie: string | null;
+  bearer: string | null;
   conversationId: string | null;
+}
+
+/**
+ * The local daemon's bearer token, if this machine has one. Absent is fine —
+ * a deployed target does not use it — so a missing file is not an error.
+ */
+function readLocalCockpitToken(): string | null {
+  const stateHome =
+    process.env.XDG_STATE_HOME ?? path.join(process.env.HOME ?? "", ".local", "state");
+  try {
+    const token = fs.readFileSync(path.join(stateHome, "minsky", "cockpit-token"), "utf8").trim();
+    return /^[0-9a-f]{64}$/.test(token) ? token : null;
+  } catch {
+    return null;
+  }
 }
 
 function parseArgs(argv: readonly string[]): Args {
@@ -46,6 +73,7 @@ function parseArgs(argv: readonly string[]): Args {
   return {
     baseUrl: (read("--url") ?? DEFAULT_URL).replace(/\/$/, ""),
     cookie: read("--cookie"),
+    bearer: read("--token") ?? readLocalCockpitToken(),
     conversationId: read("--conversation"),
   };
 }
@@ -72,13 +100,14 @@ function get(url: string, cookie?: string | null): Promise<Response> {
   });
 }
 
-function post(url: string, cookie: string | null, body?: unknown): Promise<Response> {
+function post(args: Args, url: string, body?: unknown): Promise<Response> {
   return fetch(url, {
     method: "POST",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       "Content-Type": "application/json",
-      ...(cookie ? { Cookie: cookie } : {}),
+      ...(args.cookie ? { Cookie: args.cookie } : {}),
+      ...(args.bearer ? { Authorization: `Bearer ${args.bearer}` } : {}),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -134,7 +163,7 @@ async function main(): Promise<number> {
   console.log(`  publishing conversation ${conversationId}\n`);
 
   // --- mint ----------------------------------------------------------------
-  const mintRes = await post(`${args.baseUrl}/api/shares`, args.cookie, { conversationId });
+  const mintRes = await post(args, `${args.baseUrl}/api/shares`, { conversationId });
   const mintBody = await mintRes.text();
   if (mintRes.status === 422) {
     console.log(`SKIP: that conversation predates the credential-scrub cutoff, so it cannot be`);
@@ -204,7 +233,7 @@ async function main(): Promise<number> {
   check("an unknown token is 404", unknownRes.status === 404 ? null : `got ${unknownRes.status}`);
 
   // --- revoke ---------------------------------------------------------------
-  const revokeRes = await post(`${args.baseUrl}/api/shares/${minted.id}/revoke`, args.cookie);
+  const revokeRes = await post(args, `${args.baseUrl}/api/shares/${minted.id}/revoke`);
   check("revoke succeeds", revokeRes.status === 200 ? null : `got ${revokeRes.status}`);
 
   const afterRes = await get(`${args.baseUrl}/api/shares/public/${token}`);

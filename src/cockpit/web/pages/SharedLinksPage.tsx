@@ -18,7 +18,7 @@ import { Link } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
-import { formatLocalTime } from "../lib/conversation-timeline";
+import { formatDatedRange } from "../lib/conversation-timeline";
 import {
   listShares,
   revokeShare,
@@ -26,13 +26,15 @@ import {
   type ShareSummary,
 } from "../lib/shares-client";
 
+/**
+ * Dated, not just a clock time. "Last opened 13:54" reads as "minutes ago" and
+ * is the single most misleading thing this table could say — the question it
+ * answers is whether a link is still being used, and a share nobody has opened
+ * since March looks identical to one opened this afternoon without the day.
+ */
 function when(iso: string | null): string {
   if (!iso) return "—";
-  try {
-    return formatLocalTime(iso);
-  } catch {
-    return iso;
-  }
+  return formatDatedRange(iso, undefined) ?? iso;
 }
 
 function ShareRow({ share, onRevoke }: { share: ShareSummary; onRevoke: (id: string) => void }) {

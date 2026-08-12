@@ -31,8 +31,8 @@ import {
   DialogTitle,
 } from "./ui/dialog";
 import { fetchSnapshot, snapshotQueryKey, snapshotRetry } from "../lib/conversation-snapshot";
-import { buildConversationThread } from "../lib/conversation-thread-model";
-import { formatLocalTime } from "../lib/conversation-timeline";
+import { buildConversationThread, prepareThreadTurns } from "../lib/conversation-thread-model";
+import { formatDatedRange } from "../lib/conversation-timeline";
 import {
   absoluteShareUrl,
   MintError,
@@ -45,15 +45,7 @@ import type { SessionContextSnapshot } from "@minsky/domain/context/types";
 /** What the operator is told is about to become readable. */
 interface Exposure {
   turnCount: number;
-  firstAt: string | undefined;
-  lastAt: string | undefined;
-}
-
-function describeRange(exposure: Exposure): string {
-  if (!exposure.firstAt) return "no dated turns";
-  const start = formatLocalTime(exposure.firstAt);
-  if (!exposure.lastAt || exposure.lastAt === exposure.firstAt) return start;
-  return `${start} – ${formatLocalTime(exposure.lastAt)}`;
+  range: string | null;
 }
 
 export function PublishConversationDialog({
@@ -85,11 +77,15 @@ export function PublishConversationDialog({
   const exposure = useMemo<Exposure | null>(() => {
     const blocks = snapshotQuery.data?.blocks;
     if (!blocks) return null;
-    const { visibleTurns } = buildConversationThread(blocks);
+    // The SAME preparation the share page renders from, so the count the
+    // operator authorizes is the count the reader sees. Counting the raw
+    // visible turns instead reported 5 against a page that showed 4 — the
+    // tool-result turn is merged into the call above it — which is a control
+    // saying something untrue about what it is asking permission for.
+    const turns = prepareThreadTurns(buildConversationThread(blocks));
     return {
-      turnCount: visibleTurns.length,
-      firstAt: visibleTurns[0]?.timestamp,
-      lastAt: visibleTurns[visibleTurns.length - 1]?.timestamp,
+      turnCount: turns.length,
+      range: formatDatedRange(turns[0]?.timestamp, turns[turns.length - 1]?.timestamp),
     };
   }, [snapshotQuery.data]);
 
@@ -100,6 +96,9 @@ export function PublishConversationDialog({
       void queryClient.invalidateQueries({ queryKey: sharesQueryKey });
     },
   });
+
+  /** The snapshot read settled and produced nothing to show. */
+  const exposureUnavailable = !snapshotQuery.isPending && exposure === null;
 
   const close = (next: boolean) => {
     if (!next) {
@@ -176,9 +175,11 @@ export function PublishConversationDialog({
                       ? exposure.turnCount
                       : "could not read"}
                 </dd>
-                <dt className="text-muted-foreground">Dates</dt>
+                <dt className="text-muted-foreground">When</dt>
                 <dd>
-                  {snapshotQuery.isPending ? "…" : exposure ? describeRange(exposure) : "unknown"}
+                  {snapshotQuery.isPending
+                    ? "…"
+                    : (exposure?.range ?? (exposure ? "no dated turns" : "unknown"))}
                 </dd>
               </dl>
 
@@ -195,6 +196,22 @@ export function PublishConversationDialog({
                 you publish it.
               </p>
 
+              {/*
+                A confirmation that cannot say what is about to be exposed is
+                not a confirmation. If the snapshot read failed, publishing is
+                REFUSED here rather than offered with "could not read" in the
+                summary — the control exists precisely so the operator sees the
+                contents before the contents become public, and failing open
+                would leave the button doing its job while the dialog did not
+                do its own. Found by looking at the rendered dialog.
+              */}
+              {exposureUnavailable ? (
+                <p className="text-xs text-destructive" role="alert" data-testid="share-no-exposure">
+                  Could not read this conversation, so there is nothing to show you about what
+                  would become public. Publishing is disabled until it loads.
+                </p>
+              ) : null}
+
               {mint.error ? (
                 <p className="text-xs text-destructive" role="alert" data-testid="share-mint-error">
                   {mint.error instanceof MintError
@@ -210,7 +227,7 @@ export function PublishConversationDialog({
               </Button>
               <Button
                 size="sm"
-                disabled={mint.isPending}
+                disabled={mint.isPending || snapshotQuery.isPending || exposureUnavailable}
                 data-testid="share-publish-confirm"
                 onClick={() => mint.mutate()}
               >

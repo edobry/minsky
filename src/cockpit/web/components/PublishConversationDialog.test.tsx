@@ -33,6 +33,38 @@ function turnBlock(i: number, role: "user" | "assistant", body: string): Session
   };
 }
 
+/** An assistant turn that CALLS a tool — pairs with the result block below. */
+function toolCallBlock(i: number, toolUseId: string, name: string): SessionContextSnapshotBlock {
+  return {
+    id: `block-${i}`,
+    type: "assistant-text",
+    source: "observed",
+    content: {
+      role: "assistant",
+      content: [{ type: "tool_use", id: toolUseId, name, input: { pattern: "share" } }],
+    },
+    timestamp: new Date(Date.UTC(2026, 7, 11, 16, 0, i)).toISOString(),
+    turnIndex: i,
+    rawJsonlType: "assistant",
+  };
+}
+
+/** The `user`-role turn carrying a tool result, which the render folds upward. */
+function toolResultBlock(i: number, toolUseId: string, text: string): SessionContextSnapshotBlock {
+  return {
+    id: `block-${i}`,
+    type: "user-prompt",
+    source: "observed",
+    content: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: toolUseId, content: text }],
+    },
+    timestamp: new Date(Date.UTC(2026, 7, 11, 16, 0, i)).toISOString(),
+    turnIndex: i,
+    rawJsonlType: "user",
+  };
+}
+
 interface Call {
   url: string;
   method: string;
@@ -130,6 +162,47 @@ describe("PublishConversationDialog (mt#4024)", () => {
     // Three blocks in, three turns reported — the operator is shown the size of
     // what they are about to expose, not asked to remember it.
     await waitFor(() => expect(exposure.textContent).toContain("3"));
+    // And WHEN, with the day — a bare clock time does not identify a
+    // conversation the operator is being asked to make public.
+    expect(exposure.textContent).toContain(
+      new Date(Date.UTC(2026, 7, 11, 16, 0, 0)).toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    );
+  });
+
+  test("the turn count matches what the share page will render, not the raw turns", async () => {
+    // A tool call and its result are two transcript turns and ONE rendered
+    // exchange. Reporting the raw count told the operator 5 where the reader
+    // saw 4; the confirmation has to be counting the same thing.
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method ?? "GET" });
+      if (url.startsWith("/api/cockpit/context-inspector/snapshot")) {
+        return new Response(
+          JSON.stringify({
+            agentSessionId: CONVERSATION_ID,
+            harness: "claude_code",
+            assembledAt: "2026-08-12T00:00:00.000Z",
+            blocks: [
+              turnBlock(0, "user", "find the share route"),
+              toolCallBlock(1, "toolu_pair", "Grep"),
+              toolResultBlock(2, "toolu_pair", "No matches found"),
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response(JSON.stringify(MINTED.body), { status: 201 });
+    }) as unknown as typeof globalThis.fetch;
+
+    renderDialog();
+
+    const exposure = await screen.findByTestId("share-exposure");
+    // 3 blocks -> 2 rendered exchanges (the result merges into its call).
+    await waitFor(() => expect(exposure.textContent).toMatch(/Turns\s*2/));
   });
 
   test("states plainly that everything becomes readable, and that scrubbing is partial", async () => {
@@ -154,6 +227,32 @@ describe("PublishConversationDialog (mt#4024)", () => {
     const field = (await screen.findByTestId("share-url")) as HTMLInputElement;
     expect(field.value).toContain(`/s/${"b".repeat(64)}`);
     expect(calls.filter((c) => c.url === "/api/shares" && c.method === "POST")).toHaveLength(1);
+  });
+
+  test("REFUSES to publish when it cannot say what would be exposed", async () => {
+    // Found by looking at the rendered dialog against a conversation whose
+    // snapshot 404s: the exposure summary read "could not read / unknown" and
+    // the Publish button was still live. A confirmation that cannot state what
+    // becomes public is not a confirmation — it must fail closed.
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method ?? "GET" });
+      if (url.startsWith("/api/cockpit/context-inspector/snapshot")) {
+        return new Response(JSON.stringify({ error: { code: "invalid_id", message: "nope" } }), {
+          status: 404,
+        });
+      }
+      return new Response(JSON.stringify(MINTED.body), { status: 201 });
+    }) as unknown as typeof globalThis.fetch;
+
+    renderDialog();
+
+    await waitFor(() => expect(screen.getByTestId("share-no-exposure")).toBeTruthy());
+    const confirm = (await screen.findByTestId("share-publish-confirm")) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+
+    fireEvent.click(confirm);
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
   });
 
   test("a refused publish surfaces the reason and yields no link", async () => {

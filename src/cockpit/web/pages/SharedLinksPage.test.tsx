@@ -94,6 +94,14 @@ describe("SharedLinksPage (mt#4024)", () => {
     // Last-opened is what turns the list into an exposure readout rather than
     // a receipt: a link opened after the reader was done is worth noticing.
     expect(row.textContent).not.toContain("—");
+    // DATED. "Last opened 09:30" reads as this morning whatever month it was.
+    expect(row.textContent).toContain(
+      new Date("2026-08-12T09:30:00.000Z").toLocaleDateString(undefined, {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    );
   });
 
   test("a revoked share stays listed rather than disappearing", async () => {
