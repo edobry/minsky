@@ -495,6 +495,43 @@ export interface GuardRegistration {
    * test renders BOTH and enforces the ceiling against the larger.
    */
   worstCaseCanary?: GuardCanary;
+
+  /**
+   * For a CALIBRATION-FIRST guard — one whose module gates injection off — a
+   * function that renders the advisory the guard WOULD emit, at its worst case
+   * (mt#4002).
+   *
+   * Declaring this asserts two things about the guard, and both are consumed:
+   *
+   * 1. **It renders but does not inject.** `guard-feedback-shape.test.ts`
+   *    enforces `attentionCost.denialMessageSizeChars` against a guard's live
+   *    `additionalContext`, and such a guard returns NONE — so the ceiling was
+   *    being checked against an empty string. Measured 2026-08-12 across the
+   *    whole population: five guards, ceilings declared 400-1650, every one
+   *    measured at 0. `operator-deferral-detector` declared 600 against a
+   *    1049-char render and nothing noticed for the guard's entire lifetime.
+   *    With this declared, the test measures THIS instead.
+   * 2. **It contributes no chars to a real turn.** So it is excluded from the
+   *    top-five conditional bucket `MERGED_CONTEXT_BUDGET_CHARS` is derived
+   *    from. A never-injecting guard in that bucket models a turn that cannot
+   *    occur, and inflates the shared per-turn budget for text that is never
+   *    sent — which is what mt#3533 did (6156 -> 7206) and what mt#3997 avoided
+   *    hours earlier by trimming its guard instead.
+   *
+   * Pose it SATURATED, exactly as `worstCaseCanary` requires: every axis at its
+   * cap at once, not the axis you happened to change.
+   *
+   * Async and self-importing, mirroring `module` — the registry must not eagerly
+   * import guard modules. Point it at a `renderWorstCase()` the MODULE exports,
+   * rather than constructing the renderer's input here: the guard owns its own
+   * input types and its own caps, and building a saturated `BatchMatch` (say) in
+   * the registry would drag guard-internal types into it and go stale the moment
+   * either changes.
+   *
+   * DELETE this when the guard's injection gate flips to true — at that point the
+   * live `additionalContext` is real and both consumers above should see it.
+   */
+  renderProbe?: () => Promise<string>;
 }
 
 /**
@@ -872,6 +909,71 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         tool_input: {
           title: "GET /api/canary signature scan",
           spec: "## Summary\n\nA spec citing `src/cockpit/routes/sweeps.test.ts`.\n\nDuplicate check: no candidates found.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4004 — the duplicate-check record claims a search that never ran.
+  //
+  // Third guard on the same record, and the one that closes the gap between the
+  // other two: `require-duplicate-check-record` checks the line is PRESENT,
+  // `duplicate-signature-scan` checks its VERDICTS are true, neither asks
+  // whether the search RAN. Originating incident mt#4003 — a fabricated search
+  // narrative filed against four tasks that already owned the work; the
+  // signature scan caught it only because the false provenance happened to
+  // coincide with wrong verdicts.
+  //
+  // Unusually mechanizable for its family (`assertion-without-verification`,
+  // anchor mt#2544), which has repeatedly chosen "no detector, deliberately"
+  // because its members turn on whether a claim about the WORLD is true. This
+  // one is about the SESSION: the call is in the transcript's tool list or it is
+  // not. A phrase the pattern misses is a false NEGATIVE, never a false
+  // positive, which is what keeps it off ADR-024's regex arms-race.
+  // -------------------------------------------------------------------------
+  {
+    name: "duplicate-check-search-provenance",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every path, and an `additionalContext` injection on the matched one
+    // (PR #2886 R1 — the injector declaration was missing while the module
+    // returned `additionalContext`, so the declaration under-described what
+    // ships).
+    effects: [recorderEffect(), advisoryEffect()],
+    // `advisory`: which prose counts as CLAIMING a search is a heuristic, and
+    // the calibration log exists to size it. The session-state half it gates on
+    // is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-check-search-provenance").then((m) => ({ run: m.run })),
+    // A regex over one paragraph plus a membership test over lines the
+    // dispatcher already parsed — no IO of its own, so this is generous.
+    timeoutMs: 5000,
+    calibrationLog: "duplicate-check-search-provenance",
+    // LOAD-BEARING (PR #2886 R1). `ctx.transcriptLines` is populated ONLY for a
+    // registration that declares this (D6), and the session's tool-call list is
+    // this guard's entire discriminating half. Without it the guard records
+    // `skipped` on every live run — present, tested, green, and inert. The unit
+    // tests could not catch that: they construct the context directly, so they
+    // exercise the module and say nothing about whether the dispatcher will
+    // hand it anything. `registry.test.ts` now asserts the coupling for every
+    // guard whose source reads `transcriptLines`.
+    needsTranscript: true,
+    // Calibration-first per ADR-024 and ask#6982. The module asserts this in a
+    // test rather than only intending it.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // The canary carries a record claiming a search, in a canary process whose
+    // transcript is empty — so the healthy outcome is a RECORDED skip, which is
+    // this guard's honest answer to a claim it cannot adjudicate. Asserting
+    // `matched` here would bake in the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary provenance task",
+          spec: "## Context\n\nDuplicate check: searched `tasks_search` for canary; no candidates.\n",
         },
       },
       expects: "calibration",
@@ -1539,6 +1641,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./causal-premise-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "causal-premise",
     denyCapable: false,
@@ -1547,7 +1650,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // (dormant by flag). The canary asserts the calibration outcome, not
     // additionalContext, so a future INJECTION_ENABLED flip doesn't silently
     // break this canary (it would simply gain an ADDITIONAL warn outcome).
-    attentionCost: { denialMessageSizeChars: 550, optionCount: 2 },
+    // MEASURED via `renderProbe` (mt#4002): 1518 at 8 matched phrases. Was 550,
+    // never checked against real text because this guard injects nothing. The
+    // count axis is UNCAPPED (one line per hit), so this is a saturated sample,
+    // not a proved ceiling — capping it is this guard's own follow-up.
+    attentionCost: { denialMessageSizeChars: 1550, optionCount: 2 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1647,11 +1754,17 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
+    renderProbe: () =>
+      import("./constructed-identifier-batch-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "constructed-identifier-batch",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // MEASURED via `renderProbe` (mt#4002): 2139 for the larger of its two
+    // renderers at 5 matches. Was 600 — a 3.6x understatement, the largest in
+    // the population, invisible because this guard injects nothing. Count axis
+    // UNCAPPED on both renderers; saturated sample, not a proved ceiling.
+    attentionCost: { denialMessageSizeChars: 2200, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1700,6 +1813,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "operator-deferral",
     denyCapable: false,
@@ -1747,11 +1861,19 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     event: "PreToolUse",
     matcher: "AskUserQuestion",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
+    // Same module, same renderer, same injection gate — so the same probe. It
+    // OVER-poses this surface (three matches where the ask surface returns one),
+    // which is the safe direction for a ceiling.
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "operator-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // Matches its sibling registration: same module, same renderer, so the same
+    // measured 1609 (mt#4002). It was left at 600 when mt#3533 corrected the
+    // sibling — the two registrations render identical text and only one was
+    // fixed, which the sweep caught.
+    attentionCost: { denialMessageSizeChars: 1650, optionCount: 1 },
     canary: {
       input: {
         transcript_path: "mt2889-canary-transcript",
@@ -2016,13 +2138,16 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./build-claim-injection-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./build-claim-injection-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "build-claim-injection",
     denyCapable: false,
     needsTranscript: true,
     // mt#2923: INJECTION_ENABLED=false — calibration-first, same rationale as
     // causal-premise-detector above; canary asserts calibration, not warn.
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    // MEASURED via `renderProbe` (mt#4002): 1115 at the file list's own
+    // `.slice(0, 6)` cap. Was 500. Bounded on the axis that grows.
+    attentionCost: { denialMessageSizeChars: 1150, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2923-canary-transcript" },
       transcriptLines: [
@@ -2441,6 +2566,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     tuningOwnership: "advisory",
     event: "Stop",
     module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./knowledge-acquisition-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "knowledge-acquisition",
     denyCapable: false,
@@ -2448,7 +2574,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // mt#2708: INJECTION_ENABLED=false — calibration-first, same rationale as
     // causal-premise-detector/build-claim-injection-detector; canary asserts
     // calibration, not warn.
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    // MEASURED via `renderProbe` (mt#4002): 627 at 6 research tools. Was 400.
+    // The template is fixed; only the joined tool list grows.
+    attentionCost: { denialMessageSizeChars: 650, optionCount: 1 },
     canary: {
       // input.cwd defaults to the canary runner's real process.cwd() (a real
       // repo checkout, per baseCanaryInput) — readSkillDescription resolves
@@ -2669,6 +2797,15 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // one attentionCost budget and one canary, making the deny path's
   // zero-false-positive character depend on the scan's unmeasured one.
   ["require-duplicate-check-record", "duplicate-signature-scan"],
+  // Third tier on the same `tasks_create` spec (mt#4004), and the reason all
+  // three are separate registrations rather than one: they ask three different
+  // questions about the same paragraph. Is the record PRESENT (deny), are its
+  // verdicts TRUE (warn), and did the search it claims actually RUN (warn).
+  // The third is the only one that reads SESSION state rather than the spec
+  // alone, so its false-positive surface is unrelated to the second's token
+  // heuristic and needs its own calibration log to be sized.
+  ["require-duplicate-check-record", "duplicate-check-search-provenance"],
+  ["duplicate-signature-scan", "duplicate-check-search-provenance"],
   // Same Bash/session_exec command string, third unrelated defect (mt#3910):
   // whether the call chains two or more VERIFICATION commands, which makes a
   // non-zero exit unattributable. Orthogonal to both siblings on this matcher —

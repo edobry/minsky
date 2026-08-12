@@ -1614,8 +1614,14 @@ describe("composeAdditionalContext (mt#3394)", () => {
     // registry means changing an annotation automatically changes what this
     // asserts, and `guard-feedback-shape.test.ts` separately keeps the
     // annotations honest against each guard's real rendered output.
+    // `renderProbe` marks a guard that RENDERS but does not INJECT (mt#4002).
+    // Such a guard contributes zero chars to any real turn, so including it in
+    // the modelled turn sizes the shared budget for text that is never sent —
+    // which is exactly what mt#3533 did (6156 -> 7206 for a guard whose
+    // `INJECTION_ENABLED` is false), and what mt#3997 avoided hours earlier by
+    // trimming its guard instead. A turn containing one cannot occur.
     const annotated = GUARD_REGISTRY.filter(
-      (r) => r.event === USER_PROMPT_SUBMIT && r.attentionCost !== undefined
+      (r) => r.event === USER_PROMPT_SUBMIT && r.attentionCost !== undefined && !r.renderProbe
     );
     const size = (name: string) =>
       annotated.find((r) => r.name === name)?.attentionCost?.denialMessageSizeChars ?? 0;
