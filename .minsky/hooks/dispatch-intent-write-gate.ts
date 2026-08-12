@@ -280,7 +280,9 @@ if (import.meta.main) {
   const decision = decideDispatchIntentGate(sessionId, storeResult.declarations, Date.now());
 
   if (decision.decision === "allow") {
-    recordAndExit("allow");
+    // mt#3920: downstream of `decideDispatchIntentGate` — the gate exercised its check
+    // and reached a verdict, so this record is clean-run evidence.
+    recordAndExit("allow", undefined, "decided");
   }
 
   writeOutput({
@@ -290,5 +292,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, "decided");
 }

@@ -258,7 +258,10 @@ if (import.meta.main) {
           overrideClassification: classifyOverride(OVERRIDE_ENV_VAR),
         }
       : undefined;
-    recordAndExit("allow", overrideFields);
+    // mt#3920: `decided` only when the gate actually reached its verdict. An OVERRIDE
+    // allow is left UNSET — the guard did not run, so it is evidence of neither a clean
+    // decision nor a crash (dispatcher.ts records overrides the same way).
+    recordAndExit("allow", overrideFields, overrideFields ? undefined : "decided");
   }
 
   writeOutput({
@@ -268,5 +271,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, "decided");
 }

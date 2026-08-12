@@ -492,10 +492,14 @@ if (import.meta.main) {
           additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
         },
       });
+      // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+      // check. Neither a clean decision nor a crash: nothing broke, there was simply
+      // nothing to check against.
       recordAndExit("warn");
     }
     const resolved = resolvePrBodyFromTask(repo, task, { cwd: input.cwd, timeout: ghTimeoutMs });
     // null = no PR exists for branch (legitimate; allow silently)
+    // mt#3920: UNSET — the scan never ran, so this allow is not clean-run evidence.
     if (resolved === null) recordAndExit("allow");
     if (!resolved.ok) {
       // Fail-open: emit a warning to stderr (the conventional channel for
@@ -542,7 +546,10 @@ if (import.meta.main) {
   const matches = scanForTriggerPhrases(body);
   if (matches.length === 0) {
     // No coupled-step language in PR body — allow.
-    recordAndExit("allow");
+    // mt#3920: the fetch succeeded and the scan ran — a clean bill of health is a verdict
+    // on real data, so this is clean-run evidence (unlike the no-PR / not-a-merge exits
+    // above, where the scan never ran).
+    recordAndExit("allow", undefined, "decided");
   }
 
   // Triggers found. Check for operator override.
@@ -562,5 +569,5 @@ if (import.meta.main) {
       permissionDecisionReason: buildDenialReason(prNumber, matches),
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, "decided");
 }

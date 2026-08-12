@@ -274,7 +274,9 @@ if (import.meta.main) {
         permissionDecisionReason: SUBAGENT_DENIAL_MESSAGE,
       },
     });
-    recordAndExit("deny");
+    // mt#3920: downstream of the command scan — a matched bypass-merge segment in a
+    // subagent context is the gate's verdict, so this is clean-run evidence.
+    recordAndExit("deny", undefined, "decided");
   }
 
   // Main agent: check for override env var
@@ -297,5 +299,5 @@ if (import.meta.main) {
       permissionDecisionReason: MAIN_AGENT_DENIAL_MESSAGE,
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, "decided");
 }
