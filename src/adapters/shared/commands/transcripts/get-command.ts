@@ -43,10 +43,15 @@
  *   - A turn with no markup detected is included verbatim with `injected: false`.
  *
  * **Heuristic limits** (documented per mt#2818's requirement, not a general
- * claim of completeness): this is a fixed marker-tag allowlist
- * (`command-message`, `command-name`, `local-command-stdout`,
- * `system-reminder`), not a general parser. A harness-injected wrapper using a
- * tag name outside that list is NOT detected and will pass through unflagged.
+ * claim of completeness): this is a fixed marker-tag allowlist, not a general
+ * parser. A harness-injected wrapper using a tag name outside that list is NOT
+ * detected and will pass through unflagged. The list itself is
+ * `HARNESS_MARKUP_TAGS` in `@minsky/shared/harness-markup` — read it there
+ * rather than from a copy here. This docblock used to enumerate four tags by
+ * hand and had already fallen two behind (`local-command-caveat`,
+ * `task-notification`) before mt#4058 added the bash-mode family; the shared
+ * inventory exists precisely to end that drift, and a fourth copy of the list
+ * would reintroduce it.
  * It is also a regex match, not a real XML/HTML parser, so pathological
  * malformed/nested tags could mismatch. See `stripHarnessMarkup`'s own
  * docblock for the exact tag list and matching rules.
