@@ -63,9 +63,24 @@ independently.
 
 Minsky interceptors are host- and process-side; MCP interceptors (SEP-2624) are the protocol-wire kind; the tool-call validator/mutator subset is shaped to become them.
 
-That sentence is deliberately unwrapped onto one line, and is written **once** in `docs/`, here. Reference it from elsewhere rather than
-restating it. (mt#3754's earlier field-survey sections cite the same MCP proposal under its older
-number, SEP-1763; it is one proposal, and it is still a Draft.)
+That sentence is deliberately unwrapped onto one line, and is written **once** in `docs/`, here.
+Reference it from elsewhere rather than restating it.
+
+**On the SEP number — do not "correct" it.** The MCP interceptors effort has **two live
+identifiers, both upstream's own**, and you will encounter each of them:
+
+- **[Issue #1763](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1763)** —
+  "SEP-1763: Interceptors for Model Context Protocol", the originating proposal issue.
+- **[PR #2624](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2624)** —
+  "SEP-2624: Interceptors for the Model Context Protocol", open, filed from a branch literally
+  named `SEP-1763`. This is the one carrying the actual SEP document (two interceptor types,
+  validators and mutators; `interceptors/list` and `interceptor/invoke`).
+
+The sentence above cites **SEP-2624 because that is what the live SEP document titles itself**.
+SEP-1763 is not a stale or superseded number — it is the issue number the same effort was proposed
+under, and mt#3754's earlier field-survey sections cite it for that reason. Neither number is
+wrong; they name different upstream artifacts. Do not rewrite one into the other. The proposal is
+still open, which is the substantive caveat the disambiguation exists for.
 
 ---
 
@@ -286,7 +301,8 @@ each — the full comparison is in mt#3754's `## Package comparison table`:
   "guard" over-claims blocking for five of the eight types.
 
 Two accepted costs came with the choice, and both are honored here. First, the MCP disambiguation
-sentence in §1 — the risk being that "interceptor" is a Draft SEP with a narrower two-type
+sentence in §1, whose footnote also settles the two-identifier question — the risk being that
+"interceptor" is a still-open Draft SEP with a narrower two-type
 taxonomy than our eight, and that to gRPC/NestJS-native readers it connotes wrapping both sides of
 a call, which is false for our PreToolUse-only entities. Second, the storage-key policy:
 
