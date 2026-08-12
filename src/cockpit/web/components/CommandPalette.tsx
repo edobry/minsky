@@ -161,6 +161,12 @@ const PAGES: PalettePage[] = [
     label: "Memories",
     description: "Browse, search, and inspect memory records",
   },
+  {
+    type: "page",
+    path: "/shares",
+    label: "Shared links",
+    description: "Conversations published as public read-only links",
+  },
 ];
 
 // ---------------------------------------------------------------------------

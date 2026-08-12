@@ -3,6 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Never index any cockpit page (mt#4024). Declared in the shell rather than
+      injected by the share page, so it is in the HTML a crawler receives before
+      any JavaScript runs — the ChatGPT shared-link incident (Aug 2025) is the
+      precedent this exists for. The server sets the matching `X-Robots-Tag`
+      header on `/s/<token>` and on the share JSON; a private-by-default app has
+      nothing that wants indexing either way.
+    -->
+    <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Minsky Cockpit</title>
   </head>

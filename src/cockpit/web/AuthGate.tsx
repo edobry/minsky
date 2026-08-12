@@ -35,30 +35,19 @@ async function postJson(url: string, body: unknown): Promise<Response> {
 }
 
 /**
- * True on a published share page (mt#4024). Those are public by design — the
- * whole feature is handing a link to someone who has no account — so the gate
- * must not render a login screen over them. Read from `window.location`
- * directly rather than from the router, because AuthGate sits ABOVE the routes
- * and must decide before anything below it mounts.
- *
- * Narrow by construction: only `/s/<token>` matches. The server is the actual
- * authority (`isPublicPath`); this only keeps the client from covering a page
- * the server already agreed to serve.
+ * Published share pages (mt#4024) never reach this component: `main.tsx` routes
+ * `/s/:token` as a sibling of this gate rather than beneath it, so a page whose
+ * whole purpose is being readable without an account cannot have a sign-in
+ * screen rendered over it. This file briefly carried a `/s/` path check for the
+ * same purpose; the route split makes it structural instead of a regex two
+ * components had to agree on.
  */
-function isPublicSharePath(pathname: string): boolean {
-  return /^\/s\/[^/]+\/?$/.test(pathname);
-}
-
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>({ kind: "checking" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (isPublicSharePath(window.location.pathname)) {
-      setState({ kind: "not-applicable" });
-      return;
-    }
     try {
       const res = await fetch("/api/auth/status");
       if (!res.ok) {
