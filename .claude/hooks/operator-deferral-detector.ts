@@ -245,19 +245,57 @@ export const PERMISSION_DEFERRAL_PATTERNS: RegExp[] = [
  *     shared/production state changes.
  *   - **Principal-reserved** — the closed category list in
  *     `principal-context.mdc §Decisions Eugene reserves`.
+ *
+ * The two are declared SEPARATELY below because they are matched against
+ * different windows (mt#3865). Both are re-exported concatenated as
+ * {@link PERMISSION_ESCALATION_EXCLUSIONS}.
  */
-export const PERMISSION_ESCALATION_EXCLUSIONS: RegExp[] = [
-  // Destructive / irreversible (git-safety.mdc + shared/prod state)
+export const DESTRUCTIVE_EXCLUSIONS: RegExp[] = [
   // `drop` takes an optional article — "drop the table" is the natural phrasing
   // and an adjacency-only pattern misses it (caught by the drop-table fixture).
   /\b(force[\s-]?push|--force|reset\s+--hard|rm\s+-rf|truncate|revert|rollback|delete|destroy|wipe|purge)\b/i,
   /\bdrop\s+(the\s+|a\s+|this\s+)?(table|database|schema|column|index)\b/i,
   /\b(deploy|push|ship|release|merge)\b[^.!?]{0,40}\b(to\s+)?(prod|production|main|master|live)\b/i,
   /\bproduction\b/i,
-  // Principal-reserved categories (principal-context.mdc)
+];
+
+/**
+ * The principal-reserved half, mirroring the CLOSED category list in
+ * `principal-context.mdc §Decisions Eugene reserves`. One pattern family per
+ * category, in the rule's own order, so a future category addition has a
+ * visible empty slot rather than being silently absent — which is exactly how
+ * the durable-default gap below survived.
+ *
+ * Scoped WIDER than {@link DESTRUCTIVE_EXCLUSIONS} — see
+ * {@link sentenceWithLead} for why the two halves cannot share a window.
+ */
+export const PRINCIPAL_RESERVED_EXCLUSIONS: RegExp[] = [
+  // Naming (including customer-facing terms).
   /\b(name|naming|call\s+it|rename)\b[^.!?]{0,30}\?/i,
+  // Architectural moves reaching the customer or the product surface.
+  /\b(product\s+surface|customer[\s-]facing|user[\s-]facing)\b/i,
+  // Vendor commitments.
   /\b(vendor|pricing|paid\s+plan|upgrade\s+the\s+plan|sign\s+up)\b/i,
+  // Scope changes to in-flight work, and framework choices.
   /\b(scope|architecture|framework)\b[^.!?]{0,30}\b(change|choice|decision)\b/i,
+  // Preferences that set a DURABLE DEFAULT — added to the rule by ask#7587 on
+  // 2026-08-10, after this list was written. A one-off preference call is the
+  // agent's to make, so these patterns require the durability marker rather
+  // than matching "preference" or "default" alone.
+  /\b(standing|durable|default)[\s-](default|preference|behaviou?r|choice)s?\b/i,
+  /\bdefault\s+(model|tool|format|setting)\b/i,
+  /\bsets?\s+(a\s+)?(durable|standing)\b/i,
+];
+
+/**
+ * The two halves, concatenated. Retained as the module's exported name because
+ * callers and tests address the exclusion set as one thing; the SPLIT is about
+ * the window each half is matched against, not about what counts as an
+ * exclusion.
+ */
+export const PERMISSION_ESCALATION_EXCLUSIONS: RegExp[] = [
+  ...DESTRUCTIVE_EXCLUSIONS,
+  ...PRINCIPAL_RESERVED_EXCLUSIONS,
 ];
 
 /**
@@ -271,6 +309,95 @@ export const PROBE_PROSE_PATTERNS: RegExp[] = [
   /\bprobe\s+(results?|sequence)\b/i,
   /\bprobes?\s+(returned|failed|show(s|ed)?|came\s+back)\b/i,
   /\bran\s+the\s+probe\b/i,
+];
+
+// ---------------------------------------------------------------------------
+// mt#3865 — suppressions for prose that carries a trigger phrase without
+// performing a deferral. Each family below is tied to specific calibration
+// records; none was invented from a shape that has not fired.
+// ---------------------------------------------------------------------------
+
+/** How far back of the match {@link isNegated} reads. */
+const NEGATION_LOOKBACK_CHARS = 40;
+
+/**
+ * A PROHIBITION carrying the trigger phrase, rather than a request for it.
+ *
+ * "Don't paste the token into this chat" is the agent REFUSING to receive a
+ * secret — required by `terminal-command-best-practices.mdc` — and Surface A
+ * read it as deferring a capability. That is the worst false positive shape
+ * available: acting on the advisory would degrade the security-correct
+ * behaviour it fires on.
+ *
+ * Deliberately omits a bare `not`. "I will not be able to provide the token"
+ * IS a capability deferral, and `not` alone would swallow it; the four forms
+ * kept here all attach a prohibition directly to the verb.
+ */
+export const NEGATION_LEAD_PATTERN =
+  /\b(?:don'?t|do\s+not|never|no\s+need\s+to)\s+(?:\w+\s+){0,3}$/i;
+
+/** True when the match at `idx` sits inside a prohibition rather than a request. */
+export function isNegated(text: string, idx: number): boolean {
+  const start = Math.max(0, idx - NEGATION_LOOKBACK_CHARS);
+  return NEGATION_LEAD_PATTERN.test(text.slice(start, idx));
+}
+
+/**
+ * The deferral is attributed to a DOCUMENT or a THIRD PARTY — the agent is
+ * reporting one, not making one.
+ *
+ * Both members are narrow on purpose. Reported speech requires a naming verb
+ * plus the recipient; the open-question form requires the ENUMERATED
+ * `open question (b)` shape, because a bare "that's an open question" is
+ * ordinary prose an agent writes while genuinely deferring.
+ */
+export const DESCRIPTIVE_FRAME_PATTERNS: RegExp[] = [
+  /\b(asked|asks|told|tells|instructed|instructs|prompted|prompts|directed)\s+(the\s+)?(operator|user|users|reader|readers|principal)\s+to\b/i,
+  /\bopen\s+question\s*\(/i,
+];
+
+/**
+ * The deferral NAMES a standing instruction and poses the ask in the same
+ * message — which is the shape `user-preferences.mdc §Probe before deferring`
+ * prescribes for its third shape (mt#3930). Firing here penalises the
+ * prescribed remedy.
+ *
+ * The conjunction matters and is enforced at the call site: one of these
+ * patterns ALONE is not a suppression. "X requires your authorization, so
+ * I've left it" is a trigger phrase that rule names as the FAILURE — what
+ * makes the difference is that the ask accompanies it, and the ask is the
+ * match itself.
+ */
+export const STANDING_INSTRUCTION_PATTERNS: RegExp[] = [
+  /\byour\s+(setup|config(uration)?|instructions?|preferences?|settings?)\s+(says?|asks?|tells?|requires?)\b/i,
+  /\bthe\s+standing\s+instruction\b/i,
+  /\bI'?m\s+not\s+supposed\s+to\b/i,
+  /\byou'?ve\s+(asked|told)\s+me\s+not\s+to\b/i,
+];
+
+/**
+ * The offer attaches to a decision the agent ALREADY SETTLED, with a
+ * resourcing reason — not to a request for permission to act.
+ *
+ * The discriminator is the KIND of reason, not the presence of one. Two real
+ * positives in the corpus carry reasons too ("since they're all the same
+ * underlying fix"; "I didn't want to mint a task you may prefer to just do")
+ * and must keep firing, so a generic `since`/`because` pattern is exactly
+ * wrong here. What these three share is a reason about RESOURCING — the
+ * turn's own budget, a concurrent process, a selection already made — where
+ * the offer is a revert rather than a request.
+ *
+ * SCOPE BOUNDARY (mt#3801). This does NOT cover the offer-shape
+ * "X unless you'd rather Y", where the agent PROPOSES a next step and hands
+ * the choice over. mt#3801 owns that decision point and takes the opposite
+ * position on it. The line: a completed or firmly-stated decision of the
+ * agent's own is not a decision being handed over; a proposed next step is.
+ */
+export const SETTLED_DECISION_PATTERNS: RegExp[] = [
+  /\bI\s+(picked|chose|selected|went\s+with)\b/i,
+  /\bwith\s+fresh\s+context\b/i,
+  /\bthis\s+turn\s+has\s+run\s+long\b/i,
+  /\brather\s+not\s+derail\b/i,
 ];
 
 /**
@@ -389,16 +516,24 @@ export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralM
   const scanned = elideDoubleQuotedSpans(elideQuotedContexts(text));
   for (const pattern of CAPABILITY_DEFERRAL_PATTERNS) {
     const m = pattern.exec(scanned);
-    if (m) {
-      const idx = m.index ?? 0;
-      return [
-        {
-          surface: "capability-deferral-prose",
-          matchedPhrase: m[0].trim(),
-          context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
-        },
-      ];
-    }
+    if (!m) continue;
+    const idx = m.index ?? 0;
+    // mt#3865. A suppressed match CONTINUES to the next pattern rather than
+    // returning: a turn can carry a prohibition and a real deferral at once,
+    // and returning here would let the first hide the second. (A second
+    // occurrence of the SAME pattern is still not reached — these are
+    // non-global regexes — which is acceptable while `matchedPhrase` is an
+    // exemplar rather than an exhaustive list.)
+    if (isNegated(scanned, idx)) continue;
+    const window = sentenceWithLead(scanned, idx);
+    if (DESCRIPTIVE_FRAME_PATTERNS.some((p) => p.test(window))) continue;
+    return [
+      {
+        surface: "capability-deferral-prose",
+        matchedPhrase: m[0].trim(),
+        context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
+      },
+    ];
   }
   return [];
 }
@@ -677,10 +812,14 @@ function isOverridden(): boolean {
  * (mt#3463, Surface C).
  *
  * Same suppression as Surface A: a turn that ran the capability probe and then
- * asked is not this failure. Sentence-scoped exclusion — the destructive /
- * principal-reserved check runs against the SENTENCE the match sits in, not the
- * whole turn, so an unrelated mention of "production" three paragraphs away
- * cannot mask a real permission-ask about something else.
+ * asked is not this failure.
+ *
+ * Exclusions run against TWO windows, never the whole turn (mt#3865). The
+ * DESTRUCTIVE half stays scoped to the SENTENCE the match sits in, so an
+ * unrelated mention of "production" three paragraphs away cannot mask a real
+ * permission-ask about something else. The PRINCIPAL-RESERVED half, and the
+ * suppression families beside it, read one sentence further back — see
+ * {@link sentenceWithLead} for why the two cannot share a window.
  */
 export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
   const text = extractAssistantText(turnLines);
@@ -693,7 +832,13 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
     if (!m) continue;
     const idx = m.index ?? 0;
     const sentence = sentenceAround(scanned, idx);
-    if (PERMISSION_ESCALATION_EXCLUSIONS.some((x) => x.test(sentence))) continue;
+    const window = sentenceWithLead(scanned, idx);
+    if (DESTRUCTIVE_EXCLUSIONS.some((x) => x.test(sentence))) continue;
+    if (PRINCIPAL_RESERVED_EXCLUSIONS.some((x) => x.test(window))) continue;
+    if (SETTLED_DECISION_PATTERNS.some((p) => p.test(window))) continue;
+    // The conjunction (mt#3865 Cause C): naming a standing instruction only
+    // suppresses BECAUSE the ask accompanies it, and the ask is `m` itself.
+    if (STANDING_INSTRUCTION_PATTERNS.some((p) => p.test(window))) continue;
     return [
       {
         surface: "permission-deferral-prose",
@@ -705,22 +850,65 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
   return [];
 }
 
-/** The sentence containing `idx`, bounded by terminal punctuation or newline. */
-function sentenceAround(text: string, idx: number): string {
+/**
+ * Index of the first character of the sentence containing `idx`, bounded by
+ * terminal punctuation or a newline.
+ */
+function sentenceStartIndex(text: string, idx: number): number {
   // Not a display truncation: this slice is only scanned for punctuation
   // indices and is never emitted, so a split surrogate pair cannot affect the
   // boundary it computes.
   // eslint-disable-next-line custom/no-unsafe-string-truncation
   const before = text.slice(0, idx);
-  const start = Math.max(
-    before.lastIndexOf("."),
-    before.lastIndexOf("!"),
-    before.lastIndexOf("?"),
-    before.lastIndexOf("\n")
+  return (
+    Math.max(
+      before.lastIndexOf("."),
+      before.lastIndexOf("!"),
+      before.lastIndexOf("?"),
+      before.lastIndexOf("\n")
+    ) + 1
   );
-  const rest = text.slice(idx);
-  const endRel = rest.search(/[.!?\n]/);
-  return text.slice(start + 1, endRel === -1 ? text.length : idx + endRel + 1);
+}
+
+/** Index one past the last character of the sentence containing `idx`. */
+function sentenceEndIndex(text: string, idx: number): number {
+  const endRel = text.slice(idx).search(/[.!?\n]/);
+  return endRel === -1 ? text.length : idx + endRel + 1;
+}
+
+/** The sentence containing `idx`, bounded by terminal punctuation or newline. */
+function sentenceAround(text: string, idx: number): string {
+  return text.slice(sentenceStartIndex(text, idx), sentenceEndIndex(text, idx));
+}
+
+/**
+ * The match's sentence PLUS one preceding sentence (mt#3865).
+ *
+ * Why a second window exists rather than widening {@link sentenceAround}: the
+ * two halves of the exclusion set need different reach, and giving them one
+ * window breaks whichever half loses.
+ *
+ * - **Principal-reserved** declarations are naturally written in the sentence
+ *   BEFORE the ask — "Both are standing-default changes, so I'm not making
+ *   them unilaterally. Want me to pick mt#3711 back up?" — so a sentence-scoped
+ *   check cannot see the very thing that makes the ask correct. That record
+ *   fired for exactly this reason, and adding the missing durable-default
+ *   pattern alone would not have stopped it.
+ * - **Destructive** patterns must NOT gain that reach. `/\bproduction\b/i` is a
+ *   bare word, and the sentence scoping is what stops an unrelated mention
+ *   nearby from masking a real permission-ask about something else — a
+ *   property the surface has a test pinning, and one this widening would
+ *   otherwise quietly remove.
+ *
+ * This also aligns the exclusion window with the window the RECORD already
+ * shows a reviewer, via `extractMatchContext(..., { leadSentences: 1 })`. They
+ * disagreed before: the reserved-category declaration was visible in the
+ * calibration record while being invisible to the matcher that produced it.
+ */
+export function sentenceWithLead(text: string, idx: number): string {
+  const ownStart = sentenceStartIndex(text, idx);
+  const start = ownStart <= 0 ? 0 : sentenceStartIndex(text, ownStart - 1);
+  return text.slice(start, sentenceEndIndex(text, idx));
 }
 
 /**

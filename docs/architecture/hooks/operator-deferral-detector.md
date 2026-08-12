@@ -121,6 +121,53 @@ stop-and-escalate carve-out, where stopping is the correct response. That contro
 regression test is built from mem#276's recorded 2026-04-23 reason string and is labeled
 synthetic in the test rather than presented as a replay.
 
+### What the matcher does NOT treat as a deferral (mt#3865)
+
+Three calibration windows put the FP rate at 31–43%, roughly half of it in shapes where the
+trigger phrase is present but no deferral is being made. Each suppression below is tied to
+specific rated records; none was written for a shape that has not fired.
+
+| Suppression                     | Window it reads           | What it removes                                                                                         |
+| ------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `NEGATION_LEAD_PATTERN`         | 40 chars before the match | A PROHIBITION carrying the phrase — "Don't paste the token into this chat"                              |
+| `DESCRIPTIVE_FRAME_PATTERNS`    | match sentence + 1 lead   | A deferral ATTRIBUTED to a document or third party — reported speech, an enumerated `open question (b)` |
+| `STANDING_INSTRUCTION_PATTERNS` | match sentence + 1 lead   | Naming a standing instruction AND asking in the same message — the remedy mt#3930 prescribes            |
+| `SETTLED_DECISION_PATTERNS`     | match sentence + 1 lead   | An offer attached to a decision already made, on a RESOURCING reason                                    |
+
+**The negation case is the one that matters most.** Both records were the agent refusing to
+RECEIVE a secret, which the security rules require — so the advisory fired on correct behavior,
+and acting on it would have degraded it. `NEGATION_LEAD_PATTERN` deliberately omits a bare
+`not`: "I will not be able to provide the token" IS a capability deferral, and a bare-`not`
+pattern would swallow it.
+
+**The exclusion set is matched against two different windows, and that split is load-bearing.**
+`PERMISSION_ESCALATION_EXCLUSIONS` is now the concatenation of two exported halves:
+
+- `DESTRUCTIVE_EXCLUSIONS` stays scoped to the match SENTENCE. `/\bproduction\b/i` is a bare
+  word, and sentence-scoping is what stops an incidental mention nearby from masking a real
+  permission-ask about something else.
+- `PRINCIPAL_RESERVED_EXCLUSIONS` reads one sentence further back, via `sentenceWithLead`.
+  A reserved-category declaration is naturally written BEFORE the ask — "Both are
+  standing-default changes, so I'm not making them unilaterally. Want me to pick mt#3711 back
+  up?" — so the sentence-scoped check could not see the very thing making the ask correct.
+
+That list had also gone stale against its own source: `principal-context.mdc §Decisions Eugene
+reserves` gained "preferences that set a durable default" via ask#7587 on 2026-08-10, after the
+list was written. Fixing the staleness WITHOUT the window widening would have left the
+originating record firing — both halves were needed.
+
+**What was deliberately NOT tuned.** The "X unless you'd rather Y" offer shape belongs to
+mt#3801, which takes the opposite position on the same sentences in this same file; suppressing
+it here would pre-empt that decision. And three turn-end offers to begin the next unit of work
+are genuinely unratable — whether they are deferrals or the junction `/disambiguate-next`
+covers depends on whether sibling tasks were walkable, which the record cannot show. A
+suppression there would silence real positives.
+
+`scripts/replay-operator-deferral-calibration.ts` replays the log through the current matcher.
+Read its denominator: records with no `context` (pre-`captureSchema`) and records whose phrase
+was truncated out of the 240-char window are reported SEPARATELY from suppressions, because a
+record silent for those reasons is not one the tune removed.
+
 ### The evaluation stream
 
 The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL FOUR surfaces,
