@@ -836,7 +836,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // in the module header; matcher in
     // `packages/domain/src/detectors/flakiness-attribution.ts`.
     name: "flakiness-control-detector",
-    effects: [recorderEffect()],
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every matched path AND an `additionalContext` injection (SC2's WARN —
+    // `flakiness-control-detector.ts` sets `outcome.additionalContext` under
+    // `INJECTION_ENABLED`). Declaring recorder-only under-described what ships
+    // and took the recorder's spool/spool posture for an injector that should
+    // fail OPEN (`registry-effects.ts`). Same finding as PR #2886 R1 on the
+    // sibling at `duplicate-check-search-provenance`; PR #2909 R4 here.
+    effects: [recorderEffect(), advisoryEffect()],
     tuningOwnership: "advisory",
     event: "PreToolUse",
     matcher: "mcp__minsky__tasks_create",
@@ -849,8 +856,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     calibrationLog: "flakiness-control",
     denyCapable: false,
-    // MEASURED via `renderProbe` with both axes saturated — a proved ceiling,
-    // not a sample. Derivation in the module header.
+    // MEASURED via `worstCaseCanary` below with both axes saturated — a proved
+    // ceiling, not a sample. (Not `renderProbe`: this guard injects, so it has
+    // none — see the note above.) Derivation in the module header.
     attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
     canary: {
       input: {

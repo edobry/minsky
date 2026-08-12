@@ -33,8 +33,9 @@
 //   right for a presence check and wrong for this.
 // - `timeoutMs: 5000` — pure string work on the tool payload, no database, no
 //   filesystem, no transcript. Matches the deny-tier neighbour on this surface.
-// - `attentionCost.denialMessageSizeChars: 1000` — MEASURED via `renderProbe`,
-//   with both axes saturated at once: MAX_RENDERED_CLAIMS claims plus the
+// - `attentionCost.denialMessageSizeChars: 1000` — MEASURED via the
+//   registration's `worstCaseCanary` (this guard INJECTS, so it declares no
+//   `renderProbe`), with both axes saturated at once: MAX_RENDERED_CLAIMS claims plus the
 //   `...and N more` line, each phrase at the matcher's 120-char cap, and the
 //   DENIAL branch (the longer directive). A proved ceiling rather than a
 //   sample, because the only otherwise-unbounded input — phrase length — is
@@ -72,8 +73,8 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_FLAKINESS_CONTROL";
  * unmeasured; going silent as well would mean the agent filing the spec learns
  * nothing until someone reviews the log, which is most of the value gone.
  *
- * `renderWorstCase` therefore measures text that is actually emitted, and the
- * ceiling is enforced against it either way (mt#4002).
+ * The `worstCaseCanary` therefore measures text that is actually emitted, and
+ * the ceiling is enforced against it either way (mt#4002).
  */
 export const INJECTION_ENABLED = true;
 
