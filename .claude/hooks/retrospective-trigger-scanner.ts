@@ -34,7 +34,6 @@ import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
-  extractLastAssistantTurn,
   resolveCompletedTurnWithAnchor,
   extractAssistantText,
   extractLastUserMessage,
@@ -1061,12 +1060,18 @@ export async function run(
   let dedupError: string | undefined;
 
   let runAssistantText = "";
+  // PR #2918 R1: the resolved window is hoisted so the excerpt below reuses the
+  // SAME turn that was scanned and deduped. Re-deriving it there was a second
+  // source of truth for the turn boundary -- the very shape this task just
+  // removed from the dedup key.
+  let runTurnLines: TranscriptLine[] = [];
   try {
     // mt#3950: one resolution feeds BOTH the scanned text and the dedup key.
     // Deriving them separately is what let the key name a different turn than
     // the text it was filtering.
     const completedTurn = resolveCompletedTurnWithAnchor(lines, ctx.recordedAnchor);
     const turnLines = completedTurn.turnLines;
+    runTurnLines = turnLines;
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       // Assistant-side R-family scan: suppressed when a recent
@@ -1178,11 +1183,10 @@ export async function run(
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
-          : extractAssistantText(turnLines);
+          : extractAssistantText(runTurnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
       if (idx >= 0) {
         const start = Math.max(0, idx - 80);
@@ -1292,9 +1296,11 @@ export async function main(): Promise<void> {
   // recent /retrospective invocation covers this turn's output).
   let mainAssistantText = "";
   let mainDedupError: string | undefined;
+  let mainTurnLines: TranscriptLine[] = [];
   try {
     const completedTurn = resolveCompletedTurnWithAnchor(lines);
     const turnLines = completedTurn.turnLines;
+    mainTurnLines = turnLines;
     if (turnLines.length > 0) {
       mainAssistantText = extractAssistantText(turnLines);
       if (mainAssistantText && !retrospectiveAlreadyInvoked) {
@@ -1340,11 +1346,10 @@ export async function main(): Promise<void> {
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
-          : extractAssistantText(turnLines);
+          : extractAssistantText(mainTurnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
       if (idx >= 0) {
         const start = Math.max(0, idx - 80);
