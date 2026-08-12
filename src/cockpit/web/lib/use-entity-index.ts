@@ -386,11 +386,16 @@ export function useTaskLabel(id: string | undefined): EntityLabelInfo | null {
 }
 
 /**
- * Resolve `{label, status}` for ANY of the six entity types — the single
- * entry point `<EntityRef>` uses. Dispatches to the batched task channel for
+ * Resolve `{label, status}` for ANY routable entity type — the single entry
+ * point `<EntityRef>` uses. Dispatches to the batched task channel for
  * `type: "task"`; every other type resolves from the free client-side
  * extraction in `useEntityLabels`. Both underlying hooks are called
  * unconditionally (rules-of-hooks) regardless of `type`.
+ *
+ * A type with no label channel resolves to `null`, which is the correct
+ * answer rather than a gap: `interceptor` (mt#4010) is keyed by `guardName`,
+ * and that id is already the human-readable label, so there is nothing to
+ * look up.
  */
 export function useResolvedEntityLabel(
   type: RoutableEntityType,

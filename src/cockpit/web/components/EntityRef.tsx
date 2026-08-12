@@ -78,6 +78,7 @@ const TYPE_LABEL: Record<RoutableEntityType, string> = {
   memory: "Memory",
   changeset: "Changeset",
   conversation: "Conversation",
+  interceptor: "Interceptor",
 };
 
 export interface EntityRefProps {
