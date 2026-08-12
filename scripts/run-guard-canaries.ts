@@ -149,10 +149,18 @@ async function persistCanaryRun(report: CanaryReport): Promise<void> {
 
     await repository.recordRun(runId, ranAt, outcomes);
   } catch (err) {
+    // A drizzle-orm/postgres-js query error's `.message` embeds the FULL SQL
+    // statement plus every bound parameter (verified live: a 45-guard run
+    // produced a multi-KB single line) — safeTruncate keeps the stderr line
+    // readable without hiding that a failure occurred.
+    const { safeTruncate } = await import("@minsky/shared/safe-truncate");
+    const rawMessage = err instanceof Error ? err.message : String(err);
     process.stderr.write(
-      `[run-guard-canaries] warn: canary-history persistence failed (best-effort, swallowed): ${
-        err instanceof Error ? err.message : String(err)
-      }\n`
+      `[run-guard-canaries] warn: canary-history persistence failed (best-effort, swallowed): ${safeTruncate(
+        rawMessage,
+        500,
+        "head"
+      )}\n`
     );
   } finally {
     if (persistenceToClose) {
