@@ -639,8 +639,15 @@ async function phasePlan(opts: { cwd: string }): Promise<void> {
  * values (no prefix characters — even 4 chars of an OPENAI key is too much
  * signal to emit to logs). Integers and known literals are safe to display in
  * full because they are not secrets.
+ *
+ * Exported (mt#4022) so `deploy-minsky-mcp.test.ts` can assert directly
+ * against the real function — never a second guessed pattern — that none of
+ * its outputs collide with any `CREDENTIAL_SHAPES` regex
+ * (packages/domain/src/transcripts/credential-scrubber.ts). This is a
+ * DIFFERENT, unrelated masking convention from `maskConnectionString`
+ * (length-and-category text, never a URL) — see criterion 2 of mt#4022.
  */
-function maskShape(v: string | undefined): string {
+export function maskShape(v: string | undefined): string {
   if (v == null) return "(null)";
   if (v.includes("BEGIN") && v.includes("PRIVATE KEY")) return `(PEM, ${v.length} chars)`;
   if (/^\d+$/.test(v)) return `(integer: ${v})`;
@@ -1252,7 +1259,14 @@ async function main(): Promise<void> {
   else if (phase === "verify") await phaseVerify({ cwd });
 }
 
-main().catch((err) => {
-  console.error(`deploy-minsky-mcp: ${err instanceof Error ? err.message : String(err)}`);
-  process.exit(1);
-});
+// mt#4022: guarded so this script can be IMPORTED (e.g. by
+// deploy-minsky-mcp.test.ts, to exercise `maskShape` against
+// CREDENTIAL_SHAPES) without unconditionally running `main()` and calling
+// `process.exit()` on argv it was never given. `import.meta.main` is true
+// only when this file is the actual entry point (`bun scripts/deploy-minsky-mcp.ts ...`).
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(`deploy-minsky-mcp: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  });
+}
