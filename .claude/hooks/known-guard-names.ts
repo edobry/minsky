@@ -110,6 +110,12 @@ export const STANDALONE_GUARD_NAMES: readonly string[] = [
   "require-growth-justification-before-merge",
   "require-review-before-merge",
   "require-session-for-main-workspace-edits",
+  // mt#4008: present in the fire log since 2026-07 (87 records) but missing
+  // from the 2026-08-05 snapshot, so `scripts/audit-fire-log.ts` was reporting
+  // a legitimate enforcement point (`parallel-work-guard-standalone.ts`, the
+  // mt#2813 advisory duplicate probe) as an actionable unknown — exactly the
+  // false-positive failure mode this module's staleness note warns against.
+  "standalone-duplicate-matcher",
   "tasks-status-set-guard",
   "validate-task-spec",
 ];

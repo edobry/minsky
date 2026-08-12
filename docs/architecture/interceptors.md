@@ -246,6 +246,61 @@ carries the precision; the genus noun stays thin, which is the point.
 
 ---
 
+## 4b. The failure-class taxonomy
+
+The three axes describe an interceptor mechanically — where it sits, what it does, how it
+decides. None of them answers the question a human actually arrives with: **"what stops me
+merging something unreviewed?"** That is mt#3754's sixth axis, and unlike the other five it is
+**authored, not derived** — no field in any source states it and nothing can infer it.
+
+The list is deliberately small. It is a **filter**, not a per-entity restatement: eleven classes
+over ~91 entities averages ~8 entities per class, and a taxonomy approaching one class per entity
+would be a renaming exercise that no one could filter by. An interceptor carries **at least one**
+class and may carry several — the same non-exclusivity the computed families have.
+
+| Class                     | The failure                                                                                                                                                                                                                                      | The question that should surface it                              |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| **`unreviewed-merge`**    | Code reaches main without the review, checks, or evidence its policy requires.                                                                                                                                                                   | What stops me merging something unreviewed?                      |
+| **`broken-main`**         | A commit leaves the tree unbuildable, unformatted, untested, or with generated outputs out of sync with their sources.                                                                                                                           | What stops me committing a tree that does not build?             |
+| **`corrupt-record`**      | A durable record is written in a state later readers cannot trust: a spec missing required sections, an illegal status transition, a mutated already-applied migration, a colliding identifier.                                                  | What keeps the task graph and the migration history trustworthy? |
+| **`secret-exposure`**     | A credential reaches a persisted surface — the transcript, the repo, a log.                                                                                                                                                                      | What stops a secret leaking into something permanent?            |
+| **`unfounded-claim`**     | Something is asserted as fact without the evidence it needs: a code mechanism never read, a causal story never checked, a result narrated before it happened.                                                                                    | What stops me asserting something I never checked?               |
+| **`wrong-workspace`**     | Work lands in the wrong tree or travels through the wrong channel: main instead of the session, raw git/gh instead of the tools, a fork writing where it declared it would not.                                                                  | What stops my edits landing in the wrong place?                  |
+| **`duplicate-work`**      | Effort is spent on something another task, agent, or PR already owns.                                                                                                                                                                            | What stops me redoing work someone else is already doing?        |
+| **`lost-signal`**         | Something the principal needed does not reach them — the turn dropped it (a decision not routed, an action named but not taken, an incident not escalated) or rendered it unusable (a wall of text, a silent stretch, an unclickable reference). | What makes sure I actually see what I need to see?               |
+| **`stale-context`**       | The agent acts on facts that have since changed: the date, git state, production state, a stale skill or daemon, a memory never retrieved.                                                                                                       | What stops me acting on stale facts?                             |
+| **`unrecorded-learning`** | A failure or a finding evaporates instead of becoming a durable fix in the substrate.                                                                                                                                                            | What makes sure we learn from a failure instead of repeating it? |
+| **`blind-enforcement`**   | The interception system itself fails without anyone noticing — a guard erroring in a streak, a calibration log past its review window, a fire-log record with no known source.                                                                   | What tells me the guards themselves are still working?           |
+
+**This page is the taxonomy's home.** Adding, removing, or re-scoping a class is an edit here
+first; `.minsky/hooks/interceptor-descriptions.ts` holds the machine-readable `FailureClass` union
+and the per-entity assignments, and its test suite asserts that every class in the union appears
+in this table. Do not start a second vocabulary home.
+
+### Where the per-entity assignments live
+
+`.minsky/hooks/interceptor-descriptions.ts` (mt#4008) carries, keyed by `guardName`, a one-to-two
+sentence description, its failure classes, and provenance pointers to the sources the description
+distills. Three properties of that store are load-bearing and easy to erode:
+
+1. **The population is the fire log's distinct-name set, not the registry.** Measured 2026-08-12:
+   **91** distinct `guardName` values live, against **39** `GuardRegistration` entries — so
+   registry-derived authoring drops **57%** of the corpus. This is §3's coverage-gap finding made
+   operational. (mt#3754 recorded 37 and 89; both have since moved, which is why the store's test
+   suite recomputes rather than pinning.)
+2. **Coverage gaps are content.** An entity with no registry entry has no `tuningOwnership`, no
+   `attentionCost` and no `canary`; those are computed into an explicit `coverageGaps` list at read
+   time rather than defaulted away — and an unknown name resolves to an explicit `undescribed`
+   marker rather than being dropped.
+3. **Descriptions state axis-2 truth, never the filename.** The `*-detector.ts` files named in §3
+   each carry a `filenameNote` recording that they inject.
+
+The store is a **sidecar module rather than a registry field or a DB table**; the reasoning — the
+thin-hooks direction, ADR-027's scope, and why a description belongs in the commit that changes
+the behavior it describes — is recorded in that module's header.
+
+---
+
 ## 5. Entity strata
 
 Two orthogonal dimensions plus the mechanism axis. The catalog should carry all three as columns.
