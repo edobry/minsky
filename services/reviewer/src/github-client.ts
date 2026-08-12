@@ -1014,6 +1014,61 @@ export async function readFileAtRef(
   }
 }
 
+/** Result of {@link listPathsAtRef}. */
+export interface ListPathsResult {
+  /** Every blob path in the tree, repo-root-relative. */
+  paths: string[];
+  /**
+   * GitHub sets this when the tree exceeded its response limits, in which case `paths` is a
+   * PARTIAL listing. A caller asking "does this file exist?" must treat a miss against a
+   * truncated listing as unknown, never as absence.
+   */
+  truncated: boolean;
+}
+
+/**
+ * List every blob path in the repository at `ref`, in one recursive tree call (mt#4042).
+ *
+ * `readFileAtRef` above answers "what is at this path?" — it cannot answer "where is this file?",
+ * which is what an absence claim naming a bare filename requires. Measured on this repo at
+ * 4,959 entries the tree comes back whole (`truncated: false`); the flag is surfaced rather than
+ * dropped because that is a property of repo size, not a constant.
+ */
+export async function listPathsAtRef(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  ref: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  callerSignal?: AbortSignal
+): Promise<ListPathsResult | null> {
+  try {
+    const response = await withTimeout("github.git.getTree.recursive", timeoutMs, (innerSignal) => {
+      const signal =
+        callerSignal !== undefined ? AbortSignal.any([innerSignal, callerSignal]) : innerSignal;
+      return octokit.rest.git.getTree({
+        owner,
+        repo,
+        tree_sha: ref,
+        recursive: "1",
+        request: { signal },
+      });
+    });
+    const tree = response.data.tree ?? [];
+    return {
+      paths: tree
+        .filter((entry) => entry.type === "blob" && typeof entry.path === "string")
+        .map((entry) => entry.path as string),
+      truncated: response.data.truncated === true,
+    };
+  } catch (err: unknown) {
+    if (getErrorStatus(err) === 404) {
+      return null;
+    }
+    throw err;
+  }
+}
+
 /**
  * List the immediate children (files and directories) of a directory at a
  * specific git ref.
