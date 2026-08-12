@@ -102,11 +102,23 @@ export function formatTimeoutMessage(result: SessionPrWaitForReviewTimeout): str
     lastSeenReviews,
     finalCheckPerformed,
     reviewerCheckRunState,
+    expectedHeadShaUnreached,
   } = result;
   const header =
     `⏳ No matching review after ${Math.round(elapsedMs / 1000)}s ` +
     `(${pollCount} poll(s)). Timeout reached without a match.`;
   const lines: string[] = [header, `  Threshold (since): ${sinceUsed}`];
+  // mt#3877: a text-mode caller must see this too — it changes the remedy from
+  // "wait longer / investigate the reviewer" to "the push never landed", and a
+  // diagnostic only present in --json is not present for the reader who hit it.
+  if (expectedHeadShaUnreached) {
+    const { expected, lastObservedHeadSha } = expectedHeadShaUnreached;
+    lines.push(
+      `  PUSH NOT LANDED: remote head ${lastObservedHeadSha ?? "<unresolved>"} never reached ` +
+        `expected ${expected}. No review was considered. Check the commit that was pushing ` +
+        `(pushed / pushConfirmedVia) rather than waiting longer — this is NOT reviewer silence.`
+    );
+  }
   lines.push(
     finalCheckPerformed
       ? "  Final authoritative check: re-read reviews list immediately before timing out — still no match."

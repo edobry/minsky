@@ -800,17 +800,27 @@ export function findMatchingReview(
  * wait loop returns immediately on the first match. The defensive non-null
  * fallback below covers the edge case where annotation runs on a list
  * containing a matching review (e.g., during testing).
+ *
+ * `suppressedReason` (mt#3877) covers the one case where that fallback would
+ * LIE: with `expectedHeadSha` set and the remote not yet serving it, the wait
+ * suppresses matching wholesale, so a review passing every ordinary filter is
+ * still not a match. Annotating it "matched" inside a TIMEOUT payload asserts
+ * the opposite of what happened, in the field an agent reads to work out why
+ * the wait failed. Per-review reasons still win when they apply — they are
+ * more specific, and a review can be both stale-by-`since` and suppressed.
  */
 export function annotateReviewRejections(
   reviews: ReviewListEntry[],
   since: number,
   reviewer: string | undefined,
-  headSha?: string
+  headSha?: string,
+  suppressedReason?: string
 ): AnnotatedReview[] {
   return reviews.map((review) => ({
     ...review,
     rejectionReason:
       explainReviewRejection(review, since, reviewer, headSha) ??
+      suppressedReason ??
       "matched: review satisfies all filter criteria (annotation defensive fallback)",
   }));
 }
@@ -992,7 +1002,15 @@ export async function sessionPrWaitForReview(
       matched: false,
       elapsedMs: now() - start,
       pollCount,
-      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer, headSha),
+      lastSeenReviews: annotateReviewRejections(
+        lastReviews,
+        since,
+        resolvedReviewer,
+        headSha,
+        remoteIsServingExpectedHead()
+          ? undefined
+          : `push-not-landed: matching suppressed while remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}`
+      ),
       sinceUsed: sinceIso,
       ...(expectedHeadSha !== undefined && !remoteIsServingExpectedHead()
         ? {

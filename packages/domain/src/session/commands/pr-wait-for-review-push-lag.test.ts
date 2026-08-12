@@ -135,6 +135,27 @@ describe("sessionPrWaitForReview — expectedHeadSha (mt#3877)", () => {
     }
   });
 
+  test("a suppressed review is annotated as suppressed, never as 'matched' (PR #2907 R1)", async () => {
+    // The timeout payload's per-review reason is what an agent reads to work
+    // out why the wait failed. A review that passes every ordinary filter but
+    // was suppressed wholesale by the head gate must not read "matched" there —
+    // that asserts the opposite of what happened.
+    const deps = makePushLagDeps(0, { pushEverLands: false });
+
+    const result = await sessionPrWaitForReview(
+      { sessionId: "s", intervalSeconds: 5, timeoutSeconds: 10, expectedHeadSha: PUSHED_SHA },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      const [annotated] = result.lastSeenReviews;
+      expect(annotated).toBeDefined();
+      expect(annotated?.rejectionReason).toContain("push-not-landed");
+      expect(annotated?.rejectionReason).not.toContain("matched:");
+    }
+  });
+
   test("a timeout names the sha the remote never reached", async () => {
     // "The push is stuck" and "the reviewer is silent" call for opposite
     // responses, and only one of them is a bypass condition — so the timeout
