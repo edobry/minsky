@@ -95,8 +95,6 @@ export {
 export {
   // Session operation schemas
   SessionStartParametersSchema,
-  SessionListParametersSchema,
-  SessionGetParametersSchema,
   SessionUpdateParametersSchema,
   SessionPRParametersSchema,
 

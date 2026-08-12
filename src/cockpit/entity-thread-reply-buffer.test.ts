@@ -23,12 +23,17 @@ import {
   MAX_PENDING_AGE_MS,
   MAX_PENDING_PER_THREAD,
   CLOCK_SKEW_TOLERANCE_MS,
+  DRAIN_BACKOFF_MS,
+  schedulePendingDrain,
   shouldReportPendingReplies,
+  stopPendingDrain,
   blocksToStoredAgentReplies,
   LOST_RETENTION_MS,
 } from "./entity-thread-reply-buffer";
 
 const LOCAL_ID = "entity-thread:ask:a902cba7-fd37-464a-842f-96fe38fe8bcc";
+/** A second thread, for the cases that turn on threads being independent. */
+const OTHER_LOCAL_ID = "entity-thread:task:mt%234036";
 /** The postgres-js code the 2026-08-11 outage actually produced. */
 const OUTAGE_ERROR = "CONNECTION_CLOSED";
 
@@ -110,7 +115,7 @@ describe("EntityThreadReplyBuffer.buffer", () => {
   test("keeps threads separate", () => {
     const buffer = new EntityThreadReplyBuffer();
     buffer.buffer(LOCAL_ID, "a", 1_000);
-    buffer.buffer("entity-thread:task:mt%234036", "b", 1_000);
+    buffer.buffer(OTHER_LOCAL_ID, "b", 1_000);
     expect(buffer.report(LOCAL_ID).pending).toBe(1);
     expect(buffer.totalPending()).toBe(2);
   });
@@ -319,7 +324,7 @@ describe("EntityThreadReplyBuffer.drain", () => {
   test("a thread whose store read fails does not stall the others", async () => {
     const store = new FakeStore();
     const buffer = bufferOver(store);
-    const otherId = "entity-thread:task:mt%234036";
+    const otherId = OTHER_LOCAL_ID;
 
     store.reachable = false;
     buffer.buffer(LOCAL_ID, "a", store.now);
@@ -329,5 +334,138 @@ describe("EntityThreadReplyBuffer.drain", () => {
     const outcome = await buffer.drain({} as never, store.now);
     expect(outcome.appended).toBe(2);
     expect(buffer.totalPending()).toBe(0);
+  });
+});
+
+/**
+ * mt#4066 — aging must not depend on the store being readable.
+ *
+ * The 2026-08-12 recurrence, on this file's own LOCAL_ID: a reply failed to
+ * persist at 21:01:32Z and was still reported `pending, lost: 0` at 21:25Z —
+ * 24 minutes, 9 past MAX_PENDING_AGE_MS. Every mt#4036 test passed throughout,
+ * because each one lets the store recover before asserting on the age bound
+ * (see "gives up past the age bound" above, which sets `reachable = true`
+ * first). The store STAYING down was the untested case, and it is the case the
+ * buffer exists for.
+ */
+describe("aging under an unreachable store (mt#4066)", () => {
+  test("SC1: a reply past its window is lost even though no read ever succeeded", async () => {
+    const store = new FakeStore();
+    const buffer = bufferOver(store);
+
+    store.reachable = false;
+    buffer.buffer(LOCAL_ID, "Punting ask#8004 costs you nothing here", store.now);
+
+    const wayLater = store.now + MAX_PENDING_AGE_MS + 1;
+    // Deliberately still unreachable — the outage outlasts the window, which
+    // is exactly the 2026-08-12 shape.
+    const outcome = await buffer.drain({} as never, wayLater);
+
+    expect(outcome.agedOut).toBe(1);
+    expect(outcome.stillPending).toBe(0);
+    const report = buffer.report(LOCAL_ID, [], wayLater);
+    expect(report.pending).toBe(0);
+    expect(report.lost).toBe(1);
+    // The whole point: the operator is now told to ask again instead of being
+    // told to keep waiting.
+    expect(shouldReportPendingReplies(report)).toBe(true);
+  });
+
+  test("SC4: inside the window, a failed read still loses nothing", async () => {
+    const store = new FakeStore();
+    const buffer = bufferOver(store);
+
+    store.reachable = false;
+    buffer.buffer(LOCAL_ID, "Both filed.", store.now);
+
+    const stillFresh = store.now + MAX_PENDING_AGE_MS - 1;
+    const outcome = await buffer.drain({} as never, stillFresh);
+
+    expect(outcome.agedOut).toBe(0);
+    expect(outcome.stillPending).toBe(1);
+    expect(store.appendCalls).toBe(0);
+    expect(buffer.report(LOCAL_ID, [], stillFresh).lost).toBe(0);
+  });
+
+  test("SC4: a reply that LANDED is reconciled, never reported lost, however stale", async () => {
+    const store = new FakeStore();
+    const buffer = bufferOver(store);
+
+    // The commit landed; only the ack was lost — and then nothing drained for
+    // longer than the age window. Aging this would tell the operator to ask
+    // again for an answer rendered directly above the notice.
+    store.commitThenFail = true;
+    try {
+      await store.append({}, { localId: LOCAL_ID, role: "agent", content: "Both filed." });
+    } catch {
+      buffer.buffer(LOCAL_ID, "Both filed.", store.now);
+    }
+    store.commitThenFail = false;
+
+    const wayLater = store.now + MAX_PENDING_AGE_MS + 1;
+    const outcome = await buffer.drain({} as never, wayLater);
+
+    expect(outcome.reconciled).toBe(1);
+    expect(outcome.agedOut).toBe(0);
+    expect(buffer.report(LOCAL_ID, [], wayLater).lost).toBe(0);
+    expect(store.turns).toHaveLength(1);
+  });
+
+  test("SC5: one thread's unreadable store does not hold another thread's pass", async () => {
+    const store = new FakeStore();
+    const otherId = OTHER_LOCAL_ID;
+    const buffer = new EntityThreadReplyBuffer({
+      listTurns: (async (db: unknown, localId: string) => {
+        if (localId === LOCAL_ID) throw new Error(OUTAGE_ERROR);
+        return store.list(db, localId);
+      }) as never,
+      appendTurn: store.append as never,
+    });
+
+    const wayLater = store.now + MAX_PENDING_AGE_MS + 1;
+    buffer.buffer(LOCAL_ID, "unreadable thread", store.now);
+    // Deliberately still INSIDE its window: an equally-stale reply would age
+    // out on its own merits and prove nothing about cross-thread isolation.
+    buffer.buffer(otherId, "healthy thread", wayLater - 1_000);
+
+    const outcome = await buffer.drain({} as never, wayLater);
+
+    // The unreadable thread ages out; the healthy one still lands in the SAME
+    // pass rather than waiting behind it.
+    expect(outcome.agedOut).toBe(1);
+    expect(store.turns.map((t) => t.content)).toEqual(["healthy thread"]);
+    expect(buffer.totalPending()).toBe(0);
+  });
+});
+
+/**
+ * mt#4066 — the drain has to actually run.
+ *
+ * `schedulePendingDrain` is armed only by a failed append and re-armed only by
+ * its own `.finally`, so "the chain is wedged" and "the chain is not running"
+ * are indistinguishable from outside. This exercises the real timer rather
+ * than asserting on the module's internal handle: what matters is that arming
+ * it drains the queue, not which variable holds the timeout.
+ */
+describe("drain scheduling (mt#4066)", () => {
+  test("SC2: arming the chain drains a queued reply once the store recovers", async () => {
+    const store = new FakeStore();
+    const buffer = bufferOver(store);
+
+    store.reachable = false;
+    // Real clock: the scheduled pass reads `Date.now()` for its age check.
+    buffer.buffer(LOCAL_ID, "Both filed.", Date.now());
+    store.reachable = true;
+
+    stopPendingDrain();
+    schedulePendingDrain({} as never, buffer);
+    // Idempotent — a second arm must not stack a second chain.
+    schedulePendingDrain({} as never, buffer);
+
+    await new Promise((resolve) => setTimeout(resolve, (DRAIN_BACKOFF_MS[0] ?? 2_000) + 750));
+
+    expect(store.turns.map((t) => t.content)).toEqual(["Both filed."]);
+    expect(buffer.totalPending()).toBe(0);
+    stopPendingDrain();
   });
 });

@@ -286,6 +286,35 @@ export class EntityThreadReplyBuffer {
   }
 
   /**
+   * Drop every entry past {@link MAX_PENDING_AGE_MS} from the front of a queue,
+   * counting each as lost. Returns how many were dropped.
+   *
+   * Head-first is sufficient because {@link buffer} appends in arrival order,
+   * so `firstFailedAt` is non-decreasing along the queue: the first entry still
+   * inside its window bounds every entry behind it.
+   *
+   * Kept separate from the reconcile loop because this is the only aging that
+   * may run WITHOUT a successful read, and that distinction is the whole of
+   * mt#4066 — a reply the store might still hold is never aged here, only one
+   * the store cannot be asked about at all.
+   */
+  private expireStaleEntries(localId: string, queue: PendingReply[], now: number): number {
+    let expired = 0;
+    while (queue.length > 0) {
+      const head = queue[0];
+      if (!head) break;
+      if (now - head.firstFailedAt <= MAX_PENDING_AGE_MS) break;
+      queue.shift();
+      this.recordLost(localId, now);
+      expired++;
+      log.warn(
+        `entity-thread reply buffer: giving up on a reply for ${localId} after ${MAX_PENDING_AGE_MS}ms — it is lost`
+      );
+    }
+    return expired;
+  }
+
+  /**
    * What to tell the operator about this thread.
    *
    * `stored` lets a caller that ALREADY holds the thread's agent turns exclude
@@ -357,18 +386,41 @@ export class EntityThreadReplyBuffer {
       try {
         storedAgentReplies = toStoredAgentReplies(await this.store.listTurns(db, localId));
       } catch (err) {
-        // The store is still unreachable. Leave the queue intact — this is the
-        // condition the buffer exists for, not an error to act on.
+        // The store is still unreachable — the condition this buffer exists
+        // for, not an error to act on. The queue survives; only its EXPIRED
+        // head does not.
+        //
+        // Aging exclusively on the success path (mt#4066) put the honesty
+        // threshold out of reach in precisely the case it was written for. A
+        // reply cannot age out until a read succeeds, so for as long as the
+        // store is down the panel keeps saying "retrying" — and `retrying` is
+        // the one thing that is definitely wrong once the reply is past its
+        // window. Observed 2026-08-12 on the mt#4036 originating thread: 24
+        // minutes stale, still reported `pending`, `lost: 0`.
         log.debug(
           `entity-thread reply buffer: cannot read ${localId} yet: ${getLoggableErrorSummary(err)}`
         );
+        outcome.agedOut += this.expireStaleEntries(localId, queue, now);
         outcome.stillPending += queue.length;
+        if (queue.length === 0) this.pending.delete(localId);
         continue;
       }
 
       while (queue.length > 0) {
         const reply = queue[0];
         if (!reply) break;
+
+        // Reconcile BEFORE aging (mt#4066). A reply already in the table
+        // LANDED, however old it is; calling it `lost` would tell the operator
+        // to ask again for an answer sitting directly above the notice. Age is
+        // the verdict only for a reply the store does not have — which is why
+        // the failed-read path above may age, and this path may not until the
+        // read has ruled the reply out.
+        if (isReplyAlreadyStored(reply, storedAgentReplies)) {
+          queue.shift();
+          outcome.reconciled++;
+          continue;
+        }
 
         if (now - reply.firstFailedAt > MAX_PENDING_AGE_MS) {
           queue.shift();
@@ -377,12 +429,6 @@ export class EntityThreadReplyBuffer {
           log.warn(
             `entity-thread reply buffer: giving up on a reply for ${localId} after ${MAX_PENDING_AGE_MS}ms — it is lost`
           );
-          continue;
-        }
-
-        if (isReplyAlreadyStored(reply, storedAgentReplies)) {
-          queue.shift();
-          outcome.reconciled++;
           continue;
         }
 
@@ -472,11 +518,19 @@ export function schedulePendingDrain(
       .then((outcome) => {
         if (outcome.appended > 0 || outcome.reconciled > 0) {
           drainStep = 0;
-          log.info(
-            `entity-thread reply buffer: recovered ${outcome.appended} reply(ies), reconciled ${outcome.reconciled}, ${outcome.stillPending} still pending`
-          );
         } else {
           drainStep++;
+        }
+        // Report every pass that had work, not only a pass that made progress
+        // (mt#4066). The silent `else` above is why 24 minutes of a stranded
+        // reply were unattributable: `log.debug` was the drain's only other
+        // output and the daemon runs at `info`, so "the drain is wedged on a
+        // failing read" and "the drain is not running at all" wrote the same
+        // thing — nothing. Bounded by the backoff to at most one line a minute.
+        if (outcome.appended || outcome.reconciled || outcome.agedOut || outcome.stillPending) {
+          log.info(
+            `entity-thread reply buffer: appended ${outcome.appended}, reconciled ${outcome.reconciled}, lost ${outcome.agedOut}, ${outcome.stillPending} still pending`
+          );
         }
       })
       .catch((err) => {

@@ -35,6 +35,16 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     coverageGaps: [],
     registered: true,
     undescribed: false,
+    // Axis coordinates (mt#4056) — a fully-resolved `classified` default.
+    point: "PreToolUse",
+    pointSource: "registry",
+    interventions: [{ type: "deny" }],
+    mechanism: "structural",
+    role: "judge",
+    coordinateGaps: [],
+    families: ["guard"],
+    familyState: "classified",
+    deliberatelyUnauthored: false,
     ...overrides,
   };
 }

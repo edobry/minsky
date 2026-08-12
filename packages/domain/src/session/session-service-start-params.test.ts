@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { buildSessionStartParams } from "./session-service";
+import { SessionStartParametersSchema } from "../schemas/session-schemas";
 
 // ---------------------------------------------------------------------------
 // mt#3955 — the service -> domain hop must not drop caller-supplied flags.
@@ -62,7 +63,12 @@ describe("buildSessionStartParams", () => {
   it("applies defaults only where the caller supplied nothing", () => {
     const built = buildSessionStartParams(startParams({}));
 
-    expect(built.description).toBe("");
+    // mt#3212: `description` is NO LONGER coerced to `""`. It used to be, only
+    // because `SessionStartParametersSchema` wrongly required it; an empty
+    // string satisfied the TYPE while failing the schema's own `min(1)`. The
+    // domain reads it as a truthy auto-create trigger, so undefined and "" were
+    // always the same behavior — one of them was just a lie about the contract.
+    expect(built.description).toBeUndefined();
     expect(built.packageManager).toBe("bun");
     expect(built.skipInstall).toBe(false);
     expect(built.noStatusUpdate).toBe(false);
@@ -101,6 +107,22 @@ describe("buildSessionStartParams", () => {
     expect(built.debug).toBe(false);
     expect(built.force).toBe(false);
     expect(built.format).toBe("text");
+  });
+
+  // mt#3212 / mt#3956. The bare `session start --task <id>` invocation: the
+  // caller supplies NEITHER a session id nor a description, because both are
+  // derived from the task. This asserts the whole point of reconciling the two
+  // schemas — the built params satisfy the DOMAIN schema at runtime, not merely
+  // a cast at compile time. Before this change `SessionStartParametersSchema`
+  // required both fields, so this parse failed while `as` kept the build green.
+  it("builds params a bare --task invocation can actually satisfy", () => {
+    const built = buildSessionStartParams(startParams({}));
+
+    expect(built.sessionId).toBeUndefined();
+    expect(built.description).toBeUndefined();
+
+    const parsed = SessionStartParametersSchema.safeParse(built);
+    expect(parsed.success).toBe(true);
   });
 
   it("carries the domain-only launch intent through", () => {

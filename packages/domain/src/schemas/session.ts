@@ -223,66 +223,23 @@ export const sessionUpdateParamsSchema = z
  */
 export type SessionUpdateParams = z.infer<typeof sessionUpdateParamsSchema>;
 
-/**
- * Schema for session approve parameters
- */
-export const sessionApproveParamsSchema = z
-  .object({
-    sessionId: sessionIdSchema.optional().describe("Session ID to approve"),
-    task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    repo: repoPathSchema.optional().describe("Repository path"),
-    noStash: z
-      .boolean()
-      .optional()
-      .default(false)
-      .describe("Skip automatic stashing of uncommitted changes"),
-  })
-  .extend(commonCommandOptionsSchema.shape)
-  .refine(
-    (data) => data.sessionId !== undefined || data.task !== undefined || data.repo !== undefined,
-    {
-      message: "Either session ID, task ID, or repo path must be provided",
-    }
-  );
-
-/**
- * Type for session approve parameters
- */
-export type SessionApproveParams = z.infer<typeof sessionApproveParamsSchema>;
-
-/**
- * Schema for session PR parameters
- */
-export const sessionPrParamsSchema = z
-  .object({
-    sessionId: sessionIdSchema.optional().describe("Session ID"),
-    task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    title: z.string().min(1).optional().describe("PR title (optional for existing PRs)"),
-    body: z.string().optional().describe("PR body text"),
-    bodyPath: z.string().optional().describe("Path to file containing PR body text"),
-    baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
-    debug: flagSchema("Enable debug output"),
-    noStatusUpdate: flagSchema("Skip updating task status"),
-
-    autoResolveDeleteConflicts: flagSchema(
-      "Automatically resolve delete/modify conflicts by accepting deletions"
-    ),
-    skipConflictCheck: flagSchema("Skip proactive conflict detection during update"),
-  })
-  .extend(commonCommandOptionsSchema.shape)
-  .refine((data) => !(data.body && data.bodyPath), {
-    message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
-    path: ["body"],
-  })
-  .refine((data) => data.body || data.bodyPath, {
-    message: "PR description is required. Please provide either --body or --body-path",
-    path: ["body"],
-  });
-
-/**
- * Type for session PR parameters
- */
-export type SessionPrParams = z.infer<typeof sessionPrParamsSchema>;
+// mt#3212: `sessionApproveParamsSchema` / `SessionApproveParams` and
+// `sessionPrParamsSchema` / `SessionPrParams` were DELETED here.
+//
+// APPROVE had THREE definitions of one contract — this schema-derived type, the
+// `SessionApproveParametersSchema` in `./session-schemas.ts`, and the
+// hand-written `SessionApproveParams` interface in
+// `../session/session-commands.ts`. Only the interface had a consumer
+// (`pureSessionApprove`), so the two schema copies went and the interface is now
+// the single definition of that name.
+//
+// PR had TWO, and BOTH were dead: this one and the identically-named
+// hand-written interface in `session-commands.ts` (whose consumer, the legacy
+// `sessionPr()` wrapper, was deleted long ago). The live PR contract is
+// `SessionPRParametersSchema` in `./session-schemas.ts`, which
+// `session-pr-operations.ts` parses with. Deleting a dead pair is not tidiness:
+// a reader who finds one of these first learns a contract production does not
+// use — the failure mode this task's whole family is named for.
 
 /**
  * Schema for session review parameters

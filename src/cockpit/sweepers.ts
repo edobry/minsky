@@ -2053,3 +2053,45 @@ export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions)
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Interceptor-aggregates refresh (mt#4009)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cadence matched to the guard-events ingest sweep above: the aggregation
+ * snapshot only moves when ingest lands new rows, so refreshing faster than
+ * ingest would re-run the 2.7s-class catalog rollup for identical results.
+ */
+const INTERCEPTOR_AGGREGATES_INTERVAL_MS = 5 * 60 * 1000;
+/** The rollup measured 2.73s cold; a wedged DB should not pin a tick forever. */
+const INTERCEPTOR_AGGREGATES_TICK_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * Start the periodic interceptor-aggregates refresh (mt#4009). Recomputes the
+ * catalog-wide `guard_events` rollup + canary/health/calibration joins once at
+ * boot, then every tick; the `interceptor-aggregates` widget's catalog path
+ * only ever reads the resulting in-process snapshot (`interceptor-aggregates-cache.ts`)
+ * — this sweeper is the sole place the full-corpus queries run.
+ *
+ * Fail-open: a failed pass logs inside the refresh and leaves the last-good
+ * snapshot in place — never crashes the cockpit.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startInterceptorAggregatesSweeper(intervalMs?: number): () => void {
+  return createIntervalSweeper({
+    name: "interceptor-aggregates",
+    intervalMs: intervalMs ?? INTERCEPTOR_AGGREGATES_INTERVAL_MS,
+    tickTimeoutMs: INTERCEPTOR_AGGREGATES_TICK_TIMEOUT_MS,
+    tick: async () => {
+      try {
+        const { refreshInterceptorAggregates } = await import("./interceptor-aggregates-cache");
+        await refreshInterceptorAggregates();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: interceptor-aggregates sweep failed", { message });
+      }
+    },
+  });
+}
