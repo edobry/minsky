@@ -453,20 +453,44 @@ export function extractDuplicateSectionClaim(summary: string, details: string): 
 // ---------------------------------------------------------------------------
 
 /**
- * Trigger phrases for an ABSENCE claim. Deliberately broad on its own: like the section class's
- * `appears twice`, the precision guard is not the phrase but the conjunction — a demotion also
- * requires a file-shaped subject quoted in the finding's own evidence AND that subject actually
- * resolving in the repo at the review ref.
+ * Trigger phrases for the claim this class actually targets: **a file lookup that failed, reported
+ * as absence**. Not merely "something is missing".
+ *
+ * The distinction is load-bearing in the DEMOTE direction, which is the dangerous one. A generic
+ * `\bmissing\b` fires on "the `Makefile` target is missing" and on "the `config.ts` entry for X is
+ * missing" — claims about something INSIDE a file that exists. Locating the file would then demote
+ * a finding that was never about the file's existence, i.e. this pass would start suppressing TRUE
+ * findings, which is exactly what it must never do. Requiring a non-existence assertion keeps the
+ * trigger on the shape the class was built for.
+ *
+ * It still fires on both known instances of the family: PR #2909's details carry
+ * "there is no `…` file in the repo (`read_file: not_found`)", and instance 1 (PR #1766) read
+ * "`…adr-014….md` is not present in the repo; this is a broken reference."
  */
 const MISSING_SUBJECT_TRIGGER_RE =
-  /\b(?:missing|absent)\b|\bnot\s+(?:present|found|added|documented|included)\b|\bdoes\s*n[o'’]?t\s+exist\b|\bno\s+such\s+(?:file|entry|section|path)\b|\bnever\s+(?:added|created|documented)\b|\bnot_found\b/imu;
+  /\bnot_found\b|\bnot\s+found\b|\bdoes\s*n[o'’]?t\s+exist\b|\bno\s+such\s+(?:file|path)\b|\b(?:is|are|was|were)\s+not\s+present\s+in\s+the\s+repo\w*\b|\bthere\s+(?:is|are)\s+no\b[^.\n]{0,80}\bfiles?\b|\bmissing\s+from\s+the\s+repo\w*\b|\bno\s+\S+\s+file\s+(?:in|at|under)\s+the\s+repo\w*\b/imu;
 
 /**
- * A quoted span that looks like a file reference: no whitespace, and a short trailing extension.
- * Requiring the extension is what keeps ordinary backticked prose (`checks:write`, `read_file`,
- * an identifier) out of the subject set.
+ * A quoted span that could name a file: no whitespace, no trailing slash (that is a directory),
+ * at least one letter, and only characters a path may contain.
+ *
+ * An extension is NOT required. It was in the first draft, and the reviewer was right that this
+ * silently dropped `LICENSE`, `Makefile`, `Dockerfile` and every other extensionless file — a
+ * recall gap that fails safe (the finding stays BLOCKING) but fails all the same. Accepting bare
+ * words is only sound BECAUSE the trigger above now requires a non-existence assertion: a
+ * backticked word that names nothing resolves to nothing and changes no outcome, and one that
+ * names a real file is exactly what the claim said was absent.
  */
-const FILE_REF_RE = /^[A-Za-z0-9._\-/@]+\.[A-Za-z0-9]{1,8}$/;
+const FILE_REF_RE = /^(?=.*[A-Za-z])[A-Za-z0-9._\-/@]{3,}$/;
+
+/**
+ * Diagnostic tokens a finding quotes to show HOW the lookup failed. They pass `FILE_REF_RE` once
+ * an extension is no longer required — `not_found` is a plausible-looking filename — and the real
+ * PR #2909 finding quotes exactly that. Harmless to the verdict (they resolve to nothing, so they
+ * cannot demote anything) but they would land in the audit entry as though the reviewer had named
+ * a file, which makes the record misleading to the next reader.
+ */
+const DIAGNOSTIC_TOKENS = new Set(["not_found", "notfound", "enoent", "404", "not-found"]);
 
 /** Upper bound on subjects considered for one finding — see `MAX_SECTION_CANDIDATES`. */
 const MAX_MISSING_SUBJECTS = 6;
@@ -485,6 +509,10 @@ export function extractMissingSubjectClaim(summary: string, details: string): st
   for (const match of text.matchAll(QUOTED_SPAN_RE)) {
     const span = (match[1] ?? match[2] ?? match[3])?.trim();
     if (!span) continue;
+    // A trailing slash names a directory, not a file — the real PR #2909 finding quotes
+    // `docs/architecture/hooks/` alongside its file refs.
+    if (span.endsWith("/")) continue;
+    if (DIAGNOSTIC_TOKENS.has(span.toLowerCase())) continue;
     if (!FILE_REF_RE.test(span)) continue;
     found.add(span);
   }

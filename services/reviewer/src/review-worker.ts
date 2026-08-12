@@ -1083,7 +1083,8 @@ async function runReviewBody(
             pr.headOwner,
             pr.headRepo,
             filePath,
-            pr.headSha
+            pr.headSha,
+            config.githubTimeoutMs
           );
           return result !== null && result.kind === "text" ? result.content : null;
         },
@@ -1093,7 +1094,13 @@ async function runReviewBody(
         // found in that case and let the pass preserve BLOCKING.
         async (fileRef) => {
           if (repoTreePaths === undefined) {
-            const listed = await listPathsAtRef(octokit, pr.headOwner, pr.headRepo, pr.headSha);
+            const listed = await listPathsAtRef(
+              octokit,
+              pr.headOwner,
+              pr.headRepo,
+              pr.headSha,
+              config.githubTimeoutMs
+            );
             repoTreePaths = listed !== null && !listed.truncated ? listed.paths : null;
           }
           if (repoTreePaths === null) return [];

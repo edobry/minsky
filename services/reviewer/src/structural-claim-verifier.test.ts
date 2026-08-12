@@ -857,3 +857,66 @@ describe("fetchAndApplyStructuralClaimVerification — missing-subject wiring", 
     expect(result.toolCalls).toEqual(toolCalls);
   });
 });
+
+// ---------------------------------------------------------------------------
+// missing-subject — PR #2923 R1: trigger precision + extensionless files
+// ---------------------------------------------------------------------------
+
+describe("extractMissingSubjectClaim — R1 precision and recall", () => {
+  it("does NOT fire on a claim about something INSIDE a file that exists", () => {
+    // The demote direction is the dangerous one: locating `config.ts` must not suppress a
+    // finding that was never about whether `config.ts` exists.
+    expect(
+      extractMissingSubjectClaim(
+        "Missing entry",
+        "The `config.ts` entry for the new provider is missing."
+      )
+    ).toBeNull();
+    expect(
+      extractMissingSubjectClaim("Missing target", "The `Makefile` target `smoke` is missing.")
+    ).toBeNull();
+  });
+
+  it("fires when the finding asserts the file itself is not there", () => {
+    expect(
+      extractMissingSubjectClaim(
+        "Broken reference",
+        "`docs/architecture/adr-014-cockpit-daemon-lifecycle-ownership.md` is not present in the repo; this is a broken reference."
+      )
+    ).toEqual(["docs/architecture/adr-014-cockpit-daemon-lifecycle-ownership.md"]);
+  });
+
+  it("accepts an extensionless filename (LICENSE, Makefile, Dockerfile)", () => {
+    expect(
+      extractMissingSubjectClaim("No license", "There is no `LICENSE` file in the repo.")
+    ).toEqual(["LICENSE"]);
+    expect(
+      extractMissingSubjectClaim("Build", "`Dockerfile` does not exist at the path referenced.")
+    ).toEqual(["Dockerfile"]);
+  });
+
+  it("demotes an extensionless absence claim when the file resolves", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(
+        "README.md",
+        "No license file",
+        "There is no `LICENSE` file in the repo, so the package is unlicensed."
+      ),
+    ];
+    const resolved = new Map<string, readonly string[]>([["LICENSE", ["LICENSE"]]]);
+
+    const result = applyStructuralClaimVerification(toolCalls, new Map(), resolved);
+
+    expect(result.downgrades).toHaveLength(1);
+    expect(asMissingSubjectEntry(result.downgrades[0]).subjects).toEqual([
+      { subject: "LICENSE", resolvedPaths: ["LICENSE"] },
+    ]);
+  });
+
+  it("still extracts both subjects from the verbatim PR #2909 finding after the narrowing", () => {
+    expect(extractMissingSubjectClaim(PR2909_SUMMARY, PR2909_DETAILS)).toEqual([
+      RULE_BARE_NAME,
+      RULE_CONSTRUCTED_PATH,
+    ]);
+  });
+});
