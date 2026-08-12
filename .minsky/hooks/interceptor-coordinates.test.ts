@@ -10,6 +10,7 @@ import { describe, expect, test } from "bun:test";
 import { INTERCEPTOR_DESCRIPTIONS } from "./interceptor-descriptions";
 import { GUARD_REGISTRY } from "./registry";
 import {
+  DELIBERATELY_UNAUTHORED_NAMES,
   EFFECT_TO_INTERVENTION,
   INTERCEPTOR_COORDINATES,
   OUT_OF_MODEL_NAMES,
@@ -24,23 +25,13 @@ import {
 } from "./interceptor-coordinates";
 
 /**
- * Names with NO authored coordinates, deliberately.
+ * The module's own exception list, asserted against the data below.
  *
- * Pinned as an exact set so adding a real interceptor without coordinates
- * fails here rather than rendering as a blank row in the catalog.
+ * Imported rather than restated: a second hand-maintained copy drifts, and the
+ * first symptom is a real interceptor exempted in one surface while the other
+ * still checks it (PR #2914 R1).
  */
-const DELIBERATELY_UNAUTHORED = [
-  // Test fixtures the fire log records; not interceptors at all.
-  "denier",
-  "first-guard",
-  "mt3612-live-rewrite",
-  "overridden-guard",
-  "second-guard",
-  // Declared in the oracle with fire records, but no source module exists in
-  // this repo — so what it does cannot be stated. Already carries
-  // `provenanceStatus: "declaration-only"` in the descriptions module.
-  "rationalization-review",
-].sort();
+const DELIBERATELY_UNAUTHORED = [...DELIBERATELY_UNAUTHORED_NAMES].sort();
 
 /**
  * Inputs built from the two sources that are plain module imports.

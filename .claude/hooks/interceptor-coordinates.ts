@@ -219,6 +219,30 @@ export function unmappedEffects(declared: Iterable<string>): string[] {
 }
 
 /**
+ * Names with NO authored coordinates, deliberately — the single source of truth.
+ *
+ * Five are fire-log TEST FIXTURES whose own descriptions say "Not an
+ * interceptor". The sixth, `rationalization-review`, is declared in the oracle
+ * and present in the fire log but has no source module in this repo (already
+ * `provenanceStatus: "declaration-only"` from mt#4008). For both classes an
+ * invented point or mechanism would be fabricated data — exactly what the
+ * coverage-gap posture exists to prevent — so they resolve to explicit gaps.
+ *
+ * Exported so the test suite and `scripts/audit-interceptor-coordinates.ts`
+ * consume ONE list. Two hand-maintained copies drift, and the first symptom of
+ * that drift is a real interceptor silently exempted from coverage in one
+ * surface while the other still checks it (PR #2914 R1).
+ */
+export const DELIBERATELY_UNAUTHORED_NAMES: readonly string[] = [
+  "denier",
+  "first-guard",
+  "mt3612-live-rewrite",
+  "overridden-guard",
+  "rationalization-review",
+  "second-guard",
+];
+
+/**
  * `guardName` -> the `.claude/settings.json` script basename that registers it.
  *
  * Only for the names where the two differ. A substring match happens to resolve

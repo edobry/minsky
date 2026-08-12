@@ -35,6 +35,7 @@ import { join, resolve } from "node:path";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 import { INTERCEPTOR_DESCRIPTIONS } from "../.minsky/hooks/interceptor-descriptions";
 import {
+  DELIBERATELY_UNAUTHORED_NAMES,
   INTERCEPTOR_COORDINATES,
   OUT_OF_MODEL_NAMES,
   classifyFamilies,
@@ -47,19 +48,11 @@ import {
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
 /**
- * Names with no authored coordinates ON PURPOSE — the five fire-log test
- * fixtures plus the one entity whose source module does not exist in this repo.
- * Kept in step with the same list in the test suite; a name appearing here that
- * IS authored, or a real interceptor missing from both, is a finding.
+ * The exception list, imported from the module that owns it rather than
+ * restated here — see `DELIBERATELY_UNAUTHORED_NAMES` for why the copy that
+ * used to live at this line was a drift hazard (PR #2914 R1).
  */
-const DELIBERATELY_UNAUTHORED = new Set([
-  "denier",
-  "first-guard",
-  "mt3612-live-rewrite",
-  "overridden-guard",
-  "second-guard",
-  "rationalization-review",
-]);
+const DELIBERATELY_UNAUTHORED = new Set(DELIBERATELY_UNAUTHORED_NAMES);
 
 function fireLogPath(): string {
   const stateDir = process.env["MINSKY_STATE_DIR"] ?? join(homedir(), ".local", "state", "minsky");
