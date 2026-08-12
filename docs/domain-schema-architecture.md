@@ -1,5 +1,19 @@
 # Domain-Wide Schema Architecture
 
+> **Accuracy note (mt#3212, 2026-08-12).** The code samples below are
+> ILLUSTRATIVE of the intended pattern, and two of them no longer describe the
+> live wiring. (a) The import paths are pre-mt#2108: the schemas moved to
+> `packages/domain/src/schemas/`, not `src/domain/schemas/`. (b) §MCP
+> Integration shows a tool deriving `inputSchema` from
+> `SessionStartParametersSchema`. No tool does. The MCP and CLI surfaces are
+> generated from the shared command registry — for `session.start` that is the
+> hand-declared `sessionStartCommandParams` map in
+> `src/adapters/shared/commands/session/session-parameters.ts` — and the domain
+> schemas have no consumer outside `packages/domain`. That separation is now
+> pinned by a test (`session-parameter-family-parity.test.ts`), so a reader can
+> check it rather than trust this note. Rewriting the document is out of
+> mt#3212's scope; this note bounds what it can be relied on for.
+
 ## Overview
 
 This document describes the domain-wide schema architecture implemented in Task #329, which extends the type composition patterns from Task #322 to create interface-agnostic schemas that can be used across CLI, MCP, and future API interfaces.
