@@ -8,7 +8,12 @@
  * distinction.
  */
 import { describe, expect, test } from "bun:test";
-import { assembleInterceptorAggregates, SNAPSHOT_SOURCES, type AssembleInput } from "./aggregates";
+import {
+  assembleInterceptorAggregates,
+  SNAPSHOT_SOURCES,
+  toIsoOrNull,
+  type AssembleInput,
+} from "./aggregates";
 
 /** Narrow an indexed access without a non-null assertion; throws on a genuinely missing value. */
 function must<T>(value: T | undefined): T {
@@ -33,6 +38,21 @@ function baseInput(overrides: Partial<AssembleInput> = {}): AssembleInput {
     ...overrides,
   };
 }
+
+describe("toIsoOrNull", () => {
+  test("maps Dates and parseable strings to ISO-8601, everything else to null without throwing", () => {
+    expect(toIsoOrNull(new Date("2026-08-12T20:00:00.000Z"))).toBe("2026-08-12T20:00:00.000Z");
+    expect(toIsoOrNull("2026-08-12T20:00:00.000Z")).toBe("2026-08-12T20:00:00.000Z");
+    // PR #2939 R1: an unparseable string used to reach Invalid Date's
+    // toISOString(), which throws a RangeError.
+    expect(toIsoOrNull("not-a-date")).toBeNull();
+    expect(toIsoOrNull(new Date("not-a-date"))).toBeNull();
+    expect(toIsoOrNull("")).toBeNull();
+    expect(toIsoOrNull(42)).toBeNull();
+    expect(toIsoOrNull(null)).toBeNull();
+    expect(toIsoOrNull(undefined)).toBeNull();
+  });
+});
 
 describe("assembleInterceptorAggregates", () => {
   test("population is the lifetime row set, sorted by guard name", () => {

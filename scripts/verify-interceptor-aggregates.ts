@@ -28,6 +28,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
+import { createInterface } from "node:readline";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   fetchFireLogDecisionCounts,
@@ -72,17 +73,24 @@ function stateDir(): string {
  * Recompute one guard's decision counts from the on-disk fire-log over
  * [since, until], collapsing byte-identical lines the way ingest's
  * `dedupe_key` (sha256 over `<stream>\n<line>`) collapses them.
+ *
+ * Streams line-by-line (PR #2939 R1 non-blocking): the fire-log is ~92MB and
+ * growing ~4MB/day, so a whole-file read doubles as a memory spike the
+ * streaming read avoids.
  */
-function recomputeFromDisk(
+async function recomputeFromDisk(
   fireLogPath: string,
   guardName: string,
   since: Date,
   until: Date
-): Record<string, number> {
+): Promise<Record<string, number>> {
   const counts: Record<string, number> = {};
   const seen = new Set<string>();
-  const content = String(fs.readFileSync(fireLogPath, "utf-8"));
-  for (const line of content.split("\n")) {
+  const rl = createInterface({
+    input: fs.createReadStream(fireLogPath, { encoding: "utf-8" }),
+    crlfDelay: Infinity,
+  });
+  for await (const line of rl) {
     if (line.trim() === "") continue;
     let record: unknown;
     try {
@@ -170,7 +178,7 @@ async function main(): Promise<number> {
     const bucket = row.decision ?? "null";
     dbCounts[bucket] = (dbCounts[bucket] ?? 0) + row.fires;
   }
-  const diskCounts = recomputeFromDisk(fireLogPath, sampledGuard, since, until);
+  const diskCounts = await recomputeFromDisk(fireLogPath, sampledGuard, since, until);
 
   const buckets = new Set([...Object.keys(dbCounts), ...Object.keys(diskCounts)]);
   const mismatches: string[] = [];

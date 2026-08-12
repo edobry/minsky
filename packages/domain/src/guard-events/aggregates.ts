@@ -86,10 +86,21 @@ function fireLogWhere(since?: Date, guardName?: string, until?: Date): SQL | und
   );
 }
 
-/** `min`/`max(occurred_at)` comes back as a Date from postgres-js; normalize to ISO-8601. */
-function toIso(value: unknown): string | null {
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === "string" && value !== "") return new Date(value).toISOString();
+/**
+ * `min`/`max(occurred_at)` comes back as a Date from postgres-js; normalize to
+ * ISO-8601. Anything unparseable maps to null rather than throwing — an
+ * Invalid Date's `toISOString()` throws a RangeError, and a malformed value
+ * from the driver must degrade to an honest null, not crash the refresh
+ * (PR #2939 R1). Exported for direct testing of exactly that path.
+ */
+export function toIsoOrNull(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "string" && value !== "") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
   return null;
 }
 
@@ -173,8 +184,8 @@ export async function fetchFireLogLifetime(
   return rows.map((r) => ({
     guardName: r.guardName as string,
     totalFires: r.totalFires,
-    firstFireAt: toIso(r.firstFireAt),
-    lastFireAt: toIso(r.lastFireAt),
+    firstFireAt: toIsoOrNull(r.firstFireAt),
+    lastFireAt: toIsoOrNull(r.lastFireAt),
   }));
 }
 
