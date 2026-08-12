@@ -1346,7 +1346,12 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
   name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
-  `MINSKY_ALLOW_SECRET_FILE_READ`.
+  Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
+  secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
+  DB connection string by design) — invoking one directly, via any interpreter or its own
+  shebang, denies the same way a reader+secret-path pair does. Same matcher class as the
+  file-read check (structured command string against a fixed list, no paraphrase axis), so no
+  new guard and no calibration-first ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers both checks.
 - **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
   `Duplicate check:` line (either named candidates + reconciliation, or the literal
   `Duplicate check: no candidates found.`). Presence check on the spec text, NOT a similarity

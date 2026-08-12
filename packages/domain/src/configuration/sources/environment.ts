@@ -213,6 +213,16 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
+  // mt#4017 — NOT hook-read: this one is read by scripts/drizzle-config-loader.ts,
+  // which calls loadConfiguration() itself, so the var is present in process.env
+  // when the loader's own environment source parses it. It is the sanctioned-
+  // caller gate signal drizzle.pg.config.ts sets on that script's subprocess
+  // environment before invoking it — the script refuses to print its stdout
+  // (a live DB connection string) without it. No config-schema home; without
+  // this entry the auto-mapping fallback would route it to
+  // `drizzle.loader.gate` and mt#1612 strict-mode validation would reject it,
+  // crashing the loader itself on the very invocation the gate exists to allow.
+  "MINSKY_DRIZZLE_LOADER_GATE",
   // Pre-push test-gate controls (.husky/pre-push -> scripts/run-tests-gated.ts).
   // Neither has a config-schema home, so without entries here the auto-mapping
   // fallback would route them to `skip.prepushTests` / `prepush.fullSuite` and
