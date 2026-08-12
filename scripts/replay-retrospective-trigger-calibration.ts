@@ -25,13 +25,15 @@
  *   hash — a turn containing the phrase is not proof it is the turn that was
  *   judged — and far stronger than proximity in time.
  * - `recovered-unverified` — no hash and nothing to corroborate against, so the
- *   nearest turn ending at or before the record's timestamp is returned. It is a
- *   CANDIDATE: plausible, unproven. Measured on the four mt#3931 records, this
- *   selection alone picked the WRONG turn three times out of four — a
- *   `retrospective-trigger` record is written at `UserPromptSubmit`, so the
- *   firing prompt lands in the transcript AFTER the hook read it and the turn
- *   boundary a later reader reconstructs is not the one the hook resolved. Treat
- *   this verdict as a lead to check by hand, never as a replay input.
+ *   nearest candidate ending at or before the record's timestamp is returned. It
+ *   is a CANDIDATE: plausible, unproven. Two measurements over the four mt#3931
+ *   records bound it. Against WHOLE-TURN candidates it picked the wrong turn 3
+ *   times out of 4, which is why prefixes exist (below). With prefixes it picks a
+ *   candidate containing the record's own phrase 4 times out of 4 — better, and
+ *   still not proof: containing the phrase is not being the judged text, and a
+ *   record with nothing quoted (885 of the 959 in the live log) offers no way to
+ *   check even that. Treat this verdict as a lead to check by hand, never as a
+ *   replay input.
  * - `hash-mismatch` — a hash was present and no turn matched it. Reported
  *   loudly rather than silently downgraded to the nearest turn: a mismatch says
  *   the transcript was rotated, edited, or resolved differently, and quietly
@@ -207,9 +209,20 @@ export interface RecoverDeps {
   resolveLines?: (sessionId: string) => TranscriptLine[] | null;
 }
 
+/**
+ * Memoized per session: a log holds many records from one conversation, and
+ * re-parsing a 2,000-line transcript once per record turns a whole-log replay
+ * into minutes of work for no new information.
+ */
+const linesCache = new Map<string, TranscriptLine[] | null>();
+
 function defaultResolveLines(sessionId: string): TranscriptLine[] | null {
+  const cached = linesCache.get(sessionId);
+  if (cached !== undefined) return cached;
   const transcriptPath = findTranscript(sessionId);
-  return transcriptPath === null ? null : parseTranscript(transcriptPath);
+  const lines = transcriptPath === null ? null : parseTranscript(transcriptPath);
+  linesCache.set(sessionId, lines);
+  return lines;
 }
 
 function recover(record: CalibrationRecord, deps: RecoverDeps = {}): Recovery {
@@ -331,7 +344,7 @@ function main(): void {
     if (args.limit !== undefined && records.length >= args.limit) break;
   }
 
-  const recoveries = records.map(recover);
+  const recoveries = records.map((record) => recover(record));
   const tally: Record<Verdict, number> = {
     "recovered-verified": 0,
     "recovered-corroborated": 0,

@@ -226,8 +226,10 @@ detector never saw. `judged-input-capture.ts`'s header states the rule; the raw 
 `recovered-verified` (a turn elides to the recorded hash) is the only verdict that licenses using
 the text as a replay input. `recovered-corroborated` means the turn contains the record's own
 quoted text — weaker than a hash, far stronger than proximity in time. `recovered-unverified` is
-proximity alone: measured on mt#3931's four records, that selection picked the WRONG turn three
-times out of four. `hash-mismatch` and `unreplayable` are reported, never silently downgraded.
+proximity alone. Two measurements over mt#3931's four records bound what that is worth: against
+whole-turn candidates it picked the wrong turn 3 times of 4 (the reason prefixes exist, below);
+with prefixes it picks a candidate containing the record's own phrase 4 times of 4 — better, and
+still not proof, since 885 of the live log's 959 records quote nothing to check against. `hash-mismatch` and `unreplayable` are reported, never silently downgraded.
 
 ### Turn PREFIXES are candidates, and that is load-bearing
 
