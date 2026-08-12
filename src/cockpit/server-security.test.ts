@@ -16,6 +16,12 @@
  * cockpit.test.ts / server-static-assets.test.ts.
  */
 /* eslint-disable custom/no-real-fs-in-tests -- mirrors server-static-assets.test.ts: a temp dist dir IS the contract under test for (e) */
+/*
+ * mt#4023 note: the isPublicDeployment block below used to assert that the
+ * carve-out SKIPPED auth. That assertion described the exposure, not a
+ * requirement — the deployment served the live corpus to anyone with the URL.
+ * Those tests now assert the passkey gate instead.
+ */
 import { describe, test, expect, afterEach, beforeAll, afterAll } from "bun:test";
 import { createServer, request as httpRequest } from "http";
 import type { Server } from "http";
@@ -26,6 +32,7 @@ import path from "path";
 import { tmpdir } from "os";
 import WebSocket from "ws";
 import { createCockpitServer } from "./server";
+import type { PasskeyStore } from "./passkey-auth";
 import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import { attachDrivenSessionWebSocket } from "./driven-session-ws";
 import { DrivenSessionRegistry, buildReconnectingDrivenSessionRecord } from "./driven-session-host";
@@ -102,6 +109,24 @@ function waitForWsOutcome(ws: WebSocket): Promise<"refused" | "opened"> {
     ws.on("error", () => resolve("refused"));
     ws.on("close", () => resolve("refused"));
   });
+}
+
+/**
+ * A `PasskeyStore` double whose only interesting behavior is that any
+ * presented session token is valid (mt#4023). It exists so a test can reach
+ * PAST the gate — the gate's denial path needs no store behavior at all,
+ * since a request with no cookie never gets as far as a lookup.
+ */
+function alwaysAuthenticatedPasskeyStore(): PasskeyStore {
+  return {
+    listPasskeys: async () => [{ id: "p1", credentialId: "c1", publicKey: "", counter: 0 }],
+    findPasskeyByCredentialId: async () => null,
+    insertPasskey: async () => "p1",
+    updatePasskeyCounter: async () => {},
+    createSession: async () => {},
+    findValidSession: async () => ({ id: "s1" }),
+    deleteSession: async () => {},
+  };
 }
 
 describe("Cockpit daemon security hardening (mt#2538)", () => {
@@ -408,15 +433,57 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       expect(res.status).toBe(200);
     });
 
-    test("skips mutation auth — a mutation with no token/cookie is not rejected with 401", async () => {
-      const s = await startTestServer({ isPublicDeployment: true, ...emptyAskRepoOverride() });
+    test("requires a passkey session — an unauthenticated request is rejected with 401 (mt#4023)", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: alwaysAuthenticatedPasskeyStore(),
+        ...emptyAskRepoOverride(),
+      });
       closeList.push(s.close);
+      // No cookie: the gate denies before the route is reached. Until mt#4023
+      // this asserted the opposite — that the carve-out skipped auth entirely,
+      // which is exactly the exposure that task closed.
       const res = await fetch(`${s.url}/api/asks/nonexistent/resolve`, {
         method: "POST",
         headers: { "Content-Type": CONTENT_TYPE_JSON },
         body: JSON.stringify({ responder: "operator", payload: {} }),
       });
-      // No 401 gate — falls through to the route, which 404s on the unknown id.
+      expect(res.status).toBe(401);
+    });
+
+    test("reads are gated too — an unauthenticated GET of a data route is 401 (mt#4023)", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: alwaysAuthenticatedPasskeyStore(),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/tasks`);
+      expect(res.status).toBe(401);
+    });
+
+    test("/api/health stays public — the deploy healthcheck must not need a session", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: alwaysAuthenticatedPasskeyStore(),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/health`);
+      expect(res.status).toBe(200);
+    });
+
+    test("with a valid session, the request reaches the route (404 on unknown id)", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: alwaysAuthenticatedPasskeyStore(),
+        ...emptyAskRepoOverride(),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/asks/nonexistent/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: "minsky_cockpit_session=test" },
+        body: JSON.stringify({ responder: "operator", payload: {} }),
+      });
+      // 404, not 401: the gate passed and the route itself answered.
       expect(res.status).toBe(404);
     });
 

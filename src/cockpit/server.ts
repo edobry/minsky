@@ -100,6 +100,8 @@ import {
   isLoopbackHost,
   mutationAuthMiddleware,
 } from "./auth";
+import { createPasskeyAuthRouter, requirePasskeySession } from "./passkey-auth";
+import { createLazyDrizzlePasskeyStore } from "./passkey-store";
 import { cspMiddleware } from "./csp";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import { log } from "@minsky/shared/logger";
@@ -243,6 +245,13 @@ export interface CockpitServerOptions {
    * response-header behavior with no request-handling impact.
    */
   isPublicDeployment?: boolean;
+  /**
+   * Test-only seam for the mt#4023 passkey gate: supplies the credential/session
+   * store the gate reads, so a test can exercise the authenticated path without
+   * a database or a real WebAuthn ceremony. Never set in production — when
+   * absent, the gate builds a lazily-resolved Drizzle store.
+   */
+  passkeyStore?: import("./passkey-auth").PasskeyStore;
   /**
    * Test-only injection seams for the conversation-keyed live-tail endpoint
    * (mt#2749) — overrides the fs/tailer/timing primitives its
@@ -399,6 +408,53 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     app.use(mutationAuthMiddleware(cockpitToken));
   }
 
+  if (opts.isPublicDeployment) {
+    // Passkey gate for the publicly-reachable deployment (mt#4023).
+    //
+    // This is the branch that used to have NO credential of any kind: the
+    // `isPublicDeployment` flag turns off the Host allowlist and the
+    // mutation-auth middleware above (both are loopback-shaped and cannot be
+    // satisfied by a Railway hostname), which left the live corpus readable by
+    // anyone holding the URL. WebAuthn is the credential that branch lacked.
+    //
+    // The relying-party id must be the deployment's full hostname —
+    // `up.railway.app` is on the Public Suffix List, so there is no shorter
+    // registrable suffix to scope a credential to. Overridable by env for a
+    // future custom domain (which requires re-enrolling the passkey).
+    const rpID = process.env.MINSKY_COCKPIT_RP_ID ?? "cockpit-preview-production.up.railway.app";
+    const passkeyDeps = {
+      store:
+        opts.passkeyStore ??
+        createLazyDrizzlePasskeyStore(async () => {
+          const { getSharedPersistenceService } = await import("./shared-persistence");
+          const provider = await (await getSharedPersistenceService()).getProvider();
+          if (
+            provider === null ||
+            typeof provider !== "object" ||
+            !("getDatabaseConnection" in provider) ||
+            typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
+              "function"
+          ) {
+            return null;
+          }
+          return await (
+            provider as {
+              getDatabaseConnection: () => Promise<
+                import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+              >;
+            }
+          ).getDatabaseConnection();
+        }),
+      rpID,
+      origin: process.env.MINSKY_COCKPIT_ORIGIN ?? `https://${rpID}`,
+    };
+
+    // Order matters: the auth routes must be reachable BEFORE the gate that
+    // requires a session, or signing in would require already being signed in.
+    app.use(createPasskeyAuthRouter(passkeyDeps));
+    app.use(requirePasskeySession(passkeyDeps));
+  }
+
   // NO permissive CORS is set anywhere in this file — that absence IS the
   // policy (same-origin only). There is no `cors` middleware and no
   // `Access-Control-Allow-Origin` response header, so a cross-origin
@@ -413,6 +469,14 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   if (process.env.MINSKY_COCKPIT_PREVIEW === "true") {
     app.use("/api", (req, res, next) => {
       if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+        next();
+        return;
+      }
+      // Authentication is not a product mutation (mt#4023). The passkey
+      // ceremonies are POSTs, and blocking them here would make the preview
+      // deployment permanently un-signinable — the gate would deny every data
+      // route while the only way through it returned 403.
+      if (req.path.startsWith("/auth/")) {
         next();
         return;
       }
