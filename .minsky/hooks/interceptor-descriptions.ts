@@ -282,6 +282,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "flakiness-control-detector",
+    {
+      description:
+        "Records when a new task spec claims a test failure's MODE — that it is flaky, or equally that it is NOT load-dependent and fails deterministically — without recording the isolation control that would settle it, or marking the claim UNVERIFIED. The denial is the more dangerous shape: it reads as the already-investigated verdict.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("flakiness-control-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:

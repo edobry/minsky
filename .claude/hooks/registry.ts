@@ -670,65 +670,29 @@ export interface GuardEffectDeclaration {
  * posture triad a second time.
  */
 
-/** SC5 default: enforcement effects (deny/allow decisions) fail closed on both axes. */
-export const ENFORCEMENT_POSTURE: EffectFailurePosture = {
-  failurePolicy: "closed",
-  degradedPolicy: "closed",
-};
-/** SC5 default: advisory injector effects fail open on both axes — a thinner turn, never a blocked one. */
-export const ADVISORY_POSTURE: EffectFailurePosture = {
-  failurePolicy: "open",
-  degradedPolicy: "open",
-};
-/** SC5 default: recorder effects spool locally on both axes — today's JSONL calibration pattern. */
-export const RECORDER_POSTURE: EffectFailurePosture = {
-  failurePolicy: "spool",
-  degradedPolicy: "spool",
-};
+// Extracted to `./registry-effects` (mt#3658) so this file stays under its
+// 1500-line ceiling — it sat at 1499, one line from refusing the next guard.
+// Imported once and re-exported from those bindings, so every existing import
+// site is unchanged and the module specifier appears exactly once.
+import {
+  ENFORCEMENT_POSTURE,
+  ADVISORY_POSTURE,
+  RECORDER_POSTURE,
+  enforcementEffect,
+  advisoryEffect,
+  recorderEffect,
+  mutatorEffect,
+} from "./registry-effects";
 
-/** A `"deny"` validator effect at the SC5 enforcement default (closed/closed). */
-export function enforcementEffect(
-  effect: GuardEffectDeclaration["effect"] = "deny"
-): GuardEffectDeclaration {
-  return { effect, verdictShape: "validator", failurePolicy: ENFORCEMENT_POSTURE };
-}
-/** An `"additionalContext"`/`"sessionTitle"` injector effect at the SC5 advisory default (open/open). */
-export function advisoryEffect(
-  effect: GuardEffectDeclaration["effect"] = "additionalContext",
-  rationale?: string
-): GuardEffectDeclaration {
-  return {
-    effect,
-    verdictShape: "injector",
-    failurePolicy: ADVISORY_POSTURE,
-    ...(rationale ? { rationale } : {}),
-  };
-}
-/** A `"calibration"`/out-of-band-write recorder effect at the SC5 default (spool/spool). */
-export function recorderEffect(
-  effect: GuardEffectDeclaration["effect"] = "calibration",
-  rationale?: string
-): GuardEffectDeclaration {
-  return {
-    effect,
-    verdictShape: "recorder",
-    failurePolicy: RECORDER_POSTURE,
-    ...(rationale ? { rationale } : {}),
-  };
-}
-/** A payload-transform (`updatedInput`) mutator effect — no SC5 default; posture is always explicit. */
-export function mutatorEffect(
-  effect: GuardEffectDeclaration["effect"],
-  posture: EffectFailurePosture,
-  rationale?: string
-): GuardEffectDeclaration {
-  return {
-    effect,
-    verdictShape: "mutator",
-    failurePolicy: posture,
-    ...(rationale ? { rationale } : {}),
-  };
-}
+export {
+  ENFORCEMENT_POSTURE,
+  ADVISORY_POSTURE,
+  RECORDER_POSTURE,
+  enforcementEffect,
+  advisoryEffect,
+  recorderEffect,
+  mutatorEffect,
+};
 
 // ---------------------------------------------------------------------------
 // Registry (Phase 1: one entry — the pilot migration)
@@ -869,6 +833,64 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         },
       },
       expects: "deny",
+    },
+  },
+  {
+    // mt#3658. Contract, tier rationale and the measured-ceiling derivation are
+    // in the module header; matcher in
+    // `packages/domain/src/detectors/flakiness-attribution.ts`.
+    name: "flakiness-control-detector",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every matched path AND an `additionalContext` injection (SC2's WARN —
+    // `flakiness-control-detector.ts` sets `outcome.additionalContext` under
+    // `INJECTION_ENABLED`). Declaring recorder-only under-described what ships
+    // and took the recorder's spool/spool posture for an injector that should
+    // fail OPEN (`registry-effects.ts`). Same finding as PR #2886 R1 on the
+    // sibling at `duplicate-check-search-provenance`; PR #2909 R4 here.
+    effects: [recorderEffect(), advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./flakiness-control-detector").then((m) => ({ run: m.run })),
+    // No `renderProbe`: this guard INJECTS (log-only means a WARN plus a
+    // record, per the spec's SC2), so its text is measurable from the canary
+    // like any other injecting guard — and a probe would exclude it from the
+    // `MERGED_CONTEXT_BUDGET_CHARS` bucket it genuinely contributes to
+    // (mt#4002). `worstCaseCanary` below poses the ceiling instead.
+    timeoutMs: 5000,
+    calibrationLog: "flakiness-control",
+    denyCapable: false,
+    // MEASURED via `worstCaseCanary` below with both axes saturated — a proved
+    // ceiling, not a sample. (Not `renderProbe`: this guard injects, so it has
+    // none — see the note above.) Derivation in the module header.
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec: "## Summary\n\nThe suite fails intermittently under load; it looks flaky.\n",
+        },
+      },
+      expects: "calibration",
+    },
+    // Saturates BOTH rendered axes at once: more claims than MAX_RENDERED_CLAIMS
+    // (so the `...and N more` line renders too) AND a denial among them (the
+    // longer of the two directive branches). Posing only the claim count would
+    // measure the shorter branch and understate the ceiling — the under-posing
+    // mt#3767 hit.
+    worstCaseCanary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec:
+            "It is not load-dependent and not timing-dependent; it fails deterministically. " +
+            "The suite is flaky, intermittent, load-sensitive, and only under parallelism; " +
+            "it passes in isolation and looks timing-dependent, a race-condition.\n",
+        },
+      },
+      expects: "calibration",
     },
   },
   {
@@ -2857,6 +2879,17 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // share one invocation. Independent overrides; running all three is the point.
   ["check-guessed-session-path", "chained-verification-commands"],
   ["block-secret-file-read", "chained-verification-commands"],
+  // Fourth question about the same `tasks_create` spec (mt#3658), and unrelated
+  // to the other three: they all ask about the DUPLICATE CHECK — is the record
+  // present, are its verdicts true, did its search run — while this asks whether
+  // a claim about a test failure's MODE carries the control that would settle
+  // it. Different paragraph, different evidence, different override. Folding it
+  // into any of them would put a prose-vocabulary matcher, which has a real
+  // false-positive surface, behind a `denyCapable` flag or a token-selection
+  // canary sized for a different question.
+  ["flakiness-control-detector", "require-duplicate-check-record"],
+  ["flakiness-control-detector", "duplicate-signature-scan"],
+  ["flakiness-control-detector", "duplicate-check-search-provenance"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

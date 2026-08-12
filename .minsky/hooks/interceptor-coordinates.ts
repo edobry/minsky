@@ -378,6 +378,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Exact substring over task-spec text in one OR-ed query — no similarity metric. The embedding sibling is `standalone-duplicate-matcher`.",
     },
   ],
+  ["flakiness-control-detector", lexicalDetector],
   [
     "guard-health-escalation-detector",
     {
