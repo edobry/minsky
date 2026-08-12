@@ -205,6 +205,52 @@ export interface SessionPrWaitForReviewParams {
   expectedHeadSha?: string;
 }
 
+/**
+ * Git's documented default minimum abbreviation length (`core.abbrev`).
+ *
+ * A shorter prefix is refused rather than matched: at 4 characters a prefix
+ * collides across a real repository's history often enough that "the remote is
+ * serving my commit" would stop being a claim about MY commit.
+ */
+export const MIN_ABBREVIATED_SHA_LENGTH = 7;
+
+/**
+ * Does the remote head satisfy the caller's `expectedHeadSha`?
+ *
+ * PREFIX-anchored, not equality (mt#4039). `session_commit` returns
+ * `commitHash` in ABBREVIATED form and `/implement-task` §9 tells callers to
+ * pass that value through verbatim — while the remote head is always the full
+ * 40 characters. A strict `===` therefore never matched for any caller
+ * following the documented flow: every real review was suppressed with
+ * `push-not-landed` and the wait ran to timeout, which is the exact wasted
+ * round mt#3877 added this filter to prevent. Observed on PR #2914, where two
+ * genuine reviews sat unread for 900s and the identical wait matched in 128s
+ * once the sha was expanded by hand.
+ *
+ * Undefined on either side means "no opinion" and matches, preserving the
+ * opt-in semantics: no `expectedHeadSha` is no filter, and an unresolved remote
+ * head (backend without `getPullRequestHeadSha`, or `requireCurrentHead:
+ * false`) has nothing to compare against.
+ */
+export function headShaMatchesExpected(
+  headSha: string | undefined,
+  expectedHeadSha: string | undefined
+): boolean {
+  if (expectedHeadSha === undefined || headSha === undefined) return true;
+
+  const expected = expectedHeadSha.trim().toLowerCase();
+  const head = headSha.trim().toLowerCase();
+
+  // Too short to identify a commit — never match. The command layer rejects
+  // this up front with a clear error; this branch is the defense in depth, so
+  // a caller reaching the matcher by another path cannot match promiscuously.
+  if (expected.length < MIN_ABBREVIATED_SHA_LENGTH) return false;
+  // A value longer than the head cannot be a prefix of it.
+  if (expected.length > head.length) return false;
+
+  return head.startsWith(expected);
+}
+
 export interface SessionPrWaitForReviewMatch {
   matched: true;
   /**
@@ -895,6 +941,28 @@ export async function sessionPrWaitForReview(
     throw new ValidationError(`Invalid --since timestamp: ${params.since}`);
   }
 
+  // A too-short `expectedHeadSha` fails LOUDLY here rather than quietly never
+  // matching. Same reasoning as the `finalCheckDeadlineMs` validation above:
+  // the failure mode of accepting it is a wait that suppresses every review and
+  // times out, which reads as reviewer silence rather than as a bad argument
+  // (mt#4039). Hex-shape is checked too, since a non-sha value can only ever
+  // suppress.
+  if (params.expectedHeadSha !== undefined) {
+    const candidate = params.expectedHeadSha.trim();
+    if (!/^[0-9a-fA-F]+$/.test(candidate)) {
+      throw new ValidationError(
+        `expectedHeadSha must be a hexadecimal commit sha (got '${params.expectedHeadSha}')`
+      );
+    }
+    if (candidate.length < MIN_ABBREVIATED_SHA_LENGTH) {
+      throw new ValidationError(
+        `expectedHeadSha must be at least ${MIN_ABBREVIATED_SHA_LENGTH} characters ` +
+          `(got '${params.expectedHeadSha}', ${candidate.length}). Pass the commitHash ` +
+          `session_commit returned; abbreviated forms are matched as a prefix.`
+      );
+    }
+  }
+
   try {
     // Resolve the reviewer filter ONCE up front. A TokenRole identifier
     // (`"reviewer"` / `"implementer"`) is converted to the configured App's
@@ -992,7 +1060,7 @@ export async function sessionPrWaitForReview(
     // about code the caller has already superseded.
     const expectedHeadSha = params.expectedHeadSha;
     const remoteIsServingExpectedHead = (): boolean =>
-      expectedHeadSha === undefined || headSha === undefined || headSha === expectedHeadSha;
+      headShaMatchesExpected(headSha, expectedHeadSha);
 
     const buildTimeoutResult = (
       overrides: Partial<

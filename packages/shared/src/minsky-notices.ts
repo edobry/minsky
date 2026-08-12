@@ -23,12 +23,32 @@
 /**
  * The notice Minsky sends when it resumes a conversation whose actuator died
  * mid-turn (mt#3038). Sent verbatim through the input channel.
+ *
+ * ## Why it names the harness's own marker (mt#4037)
+ *
+ * The last sentence exists because the notice is not the only thing the resumed
+ * model reads about the interruption — its own transcript is, and the transcript
+ * says something contradictory. When a turn is interrupted for ANY reason, the
+ * harness synthesizes a `tool_result` reading "The user doesn't want to proceed
+ * with this tool use. The tool use was rejected", followed by
+ * `[Request interrupted by user for tool use]`. That is boilerplate for every
+ * interrupt, including one where no human was present.
+ *
+ * Observed 2026-08-11: a cockpit restart killed a thread's actuator mid-turn at
+ * 03:38:43Z. On resume the agent read those markers and reported to the
+ * operator that its call had been "rejected" — attributing to them an action
+ * they did not take and were asleep for. The notice was already accurate about
+ * the cause; it simply never told the model that the louder, more specific
+ * evidence sitting in its own context was wrong.
  */
 export const INTERRUPTION_NOTICE_TEXT =
   "[minsky] This conversation was resumed after an unexpected interruption — the previous " +
   "actuator process was terminated (most likely a cockpit daemon restart) potentially " +
   "mid-turn. Before continuing, verify whether your last in-flight action actually " +
-  "completed rather than assuming it did.";
+  "completed rather than assuming it did. Your transcript may show " +
+  "'[Request interrupted by user for tool use]' or a tool_result saying the user rejected " +
+  "the call — that is the harness's boilerplate for ANY interruption and does NOT mean the " +
+  "operator did anything. Do not report it to them as a rejection.";
 
 /**
  * The stable leading clause the detector anchors on.

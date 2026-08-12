@@ -22,11 +22,16 @@ import {
   extractAssistantText,
   extractLastAssistantTurn,
   extractLastUserMessage,
+  resolveCompletedTurnWithAnchor,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
-import { filterStopFlagged } from "./retrospective-trigger-scanner";
+import {
+  buildReminder,
+  collapseByPhrase,
+  filterStopFlagged,
+} from "./retrospective-trigger-scanner";
 import { flagKey, turnKeyFor, writeFlagged } from "./turn-end-scan-store";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -751,43 +756,110 @@ describe("run() (dispatcher-compatible)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// filterStopFlagged (mt#2357) — turn-end dedup on the prompt-time side
+// filterStopFlagged (mt#2357, re-keyed mt#3950) — turn-end dedup on the
+// prompt-time side.
+//
+// These fixtures turn on ONE distinction: whether the firing prompt has been
+// appended to the transcript by the time the prompt-time hook reads it.
+// `resolveCompletedTurn` documents the NOT-yet-appended shape as the ordinary
+// one at `UserPromptSubmit`, and that is exactly the shape the old positional
+// key got wrong — so the pre-mt#3950 suite, which only ever built the landed
+// shape, passed against a dedup that was missing in production.
 // ---------------------------------------------------------------------------
 
-describe("filterStopFlagged (mt#2357)", () => {
-  const R1_PHRASE = "I made a mistake";
+describe("filterStopFlagged (mt#2357 / mt#3950)", () => {
+  // The phrase from the incident pair this task was filed on: session
+  // 947f77e0, records 2026-08-11T23:11:27Z (channel "stop") and
+  // 2026-08-12T00:30:18Z (prompt-time), byte-identical excerpts, both injected.
+  const R1_PHRASE =
+    "I need to stop and correct something in what I just committed — the default I chose is too permissive.";
+  const r1Match = { family: "R1" as const, matchedPhrase: R1_PHRASE };
+
+  const prevOpening: TranscriptLine = {
+    type: "user",
+    message: { role: "user", content: "the previous turn" },
+    uuid: "u-prev",
+  };
+  const prevAssistant: TranscriptLine = {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "nothing notable here." }] },
+  };
   const opening: TranscriptLine = {
     type: "user",
     message: { role: "user", content: "deploy it" },
     uuid: "u-open",
   };
-  const lines: TranscriptLine[] = [
-    opening,
-    {
-      type: "assistant",
-      message: {
-        role: "assistant",
-        content: [{ type: "text", text: `${R1_PHRASE} in the deploy step.` }],
-      },
+  const assistant: TranscriptLine = {
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: `${R1_PHRASE} in the deploy step.` }],
     },
-    { type: "user", message: { role: "user", content: "why did that happen?" } },
-  ];
-  const r1Match = { family: "R1" as const, matchedPhrase: R1_PHRASE };
+  };
+  const firingPrompt: TranscriptLine = {
+    type: "user",
+    message: { role: "user", content: "why did that happen?" },
+    uuid: "u-firing",
+  };
 
-  test("a phrase flagged by the Stop-time scan of the same turn is dropped", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mt2357-scanner-dedup-"));
+  /** The turn the Stop scan flagged, with the firing prompt NOT yet appended. */
+  const notLanded: TranscriptLine[] = [prevOpening, prevAssistant, opening, assistant];
+  /** The same turn, after the firing prompt landed. */
+  const landed: TranscriptLine[] = [...notLanded, firingPrompt];
+
+  function withStore(fn: (dir: string) => void): void {
+    const dir = mkdtempSync(join(tmpdir(), "mt3950-scanner-dedup-"));
     try {
-      writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
-      expect(filterStopFlagged("s-1", lines, [r1Match], dir)).toEqual([]);
+      fn(dir);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  }
+
+  /** Exactly what `run()` passes: the key of the turn the scanned text came from. */
+  function keyOfCompletedTurn(lines: TranscriptLine[]): string {
+    const { openingPromptIndex } = resolveCompletedTurnWithAnchor(lines);
+    return turnKeyFor(openingPromptIndex === undefined ? undefined : lines[openingPromptIndex]);
+  }
+
+  test("AT1: a Stop-flagged phrase is dropped when the firing prompt has NOT landed", () => {
+    withStore((dir) => {
+      writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
+      // The regression: the key must name `u-open` — the turn actually scanned —
+      // not `u-prev`, which is what a fixed `length - 2` index yields here.
+      expect(keyOfCompletedTurn(notLanded)).toBe("u-open");
+      expect(
+        filterStopFlagged("s-1", keyOfCompletedTurn(notLanded), [r1Match], dir).matches
+      ).toEqual([]);
+    });
   });
 
-  test("an unflagged match passes through; empty store is a no-op", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mt2357-scanner-dedup-"));
-    try {
-      expect(filterStopFlagged("s-1", lines, [r1Match], dir)).toEqual([r1Match]);
+  test("AT1: the already-landed shape still dedups (the case that always worked)", () => {
+    withStore((dir) => {
+      writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
+      expect(keyOfCompletedTurn(landed)).toBe("u-open");
+      expect(filterStopFlagged("s-1", keyOfCompletedTurn(landed), [r1Match], dir).matches).toEqual(
+        []
+      );
+    });
+  });
+
+  test("AT2 negative control: a DIFFERENT turn carrying the same phrase still injects", () => {
+    withStore((dir) => {
+      // Flagged against the PREVIOUS turn only.
+      writeFlagged("s-1", new Set([flagKey(turnKeyFor(prevOpening), "R1", R1_PHRASE)]), dir);
+      // The completed turn is `u-open`, so this match is new and must survive.
+      expect(
+        filterStopFlagged("s-1", keyOfCompletedTurn(notLanded), [r1Match], dir).matches
+      ).toEqual([r1Match]);
+    });
+  });
+
+  test("an unflagged match passes through; empty store is a no-op", () => {
+    withStore((dir) => {
+      expect(
+        filterStopFlagged("s-1", keyOfCompletedTurn(notLanded), [r1Match], dir).matches
+      ).toEqual([r1Match]);
       // PR #2148 R1: non-Stop-scanned families pass through even when a
       // MATCHING store key exists — the family allowlist is enforced in
       // code, not just at call sites.
@@ -800,10 +872,71 @@ describe("filterStopFlagged (mt#2357)", () => {
         ]),
         dir
       );
-      expect(filterStopFlagged("s-1", lines, [userCorrection], dir)).toEqual([userCorrection]);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+      expect(
+        filterStopFlagged("s-1", keyOfCompletedTurn(notLanded), [userCorrection], dir).matches
+      ).toEqual([userCorrection]);
+    });
+  });
+
+  test("an absent turn key fails open rather than dropping every match", () => {
+    withStore((dir) => {
+      writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
+      expect(filterStopFlagged("s-1", undefined, [r1Match], dir).matches).toEqual([r1Match]);
+      expect(filterStopFlagged("s-1", "session-start", [r1Match], dir).matches).toEqual([r1Match]);
+    });
+  });
+
+  test("AT4: a throw inside the filter returns matches unfiltered AND leaves a record", () => {
+    withStore((dir) => {
+      writeFlagged("s-1", new Set([flagKey(turnKeyFor(opening), "R1", R1_PHRASE)]), dir);
+      const exploding = {
+        family: "R1" as const,
+        get matchedPhrase(): string {
+          throw new Error("induced dedup failure");
+        },
+      } as unknown as typeof r1Match;
+      const result = filterStopFlagged("s-1", keyOfCompletedTurn(notLanded), [exploding], dir);
+      // Fail-open: the match survives, so a real warning is never lost...
+      expect(result.matches).toHaveLength(1);
+      // ...but the swallow is no longer indistinguishable from a clean no-match.
+      expect(result.dedupError).toContain("induced dedup failure");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// collapseByPhrase / buildReminder (mt#3950) — one phrase, one evidence line
+// ---------------------------------------------------------------------------
+
+describe("collapseByPhrase (mt#3950)", () => {
+  const PHRASE = "Verifying before I go further.";
+
+  test("AT3: two rungs matching one phrase render ONE evidence line, both families named", () => {
+    const matches = [
+      { family: "R1" as const, matchedPhrase: PHRASE },
+      { family: "R2" as const, matchedPhrase: PHRASE },
+    ];
+
+    expect(collapseByPhrase(matches)).toEqual([{ matchedPhrase: PHRASE, families: ["R1", "R2"] }]);
+
+    const evidenceLines = buildReminder(matches)
+      .split("\n")
+      .filter((l) => l.includes(PHRASE));
+    expect(evidenceLines).toHaveLength(1);
+    // Attribution is preserved in the advisory as well as on the record.
+    expect(evidenceLines[0]).toContain("R1, R2");
+  });
+
+  test("distinct phrases keep their own lines", () => {
+    const matches = [
+      { family: "R1" as const, matchedPhrase: "I made a mistake" },
+      { family: "R3" as const, matchedPhrase: "Going forward I'll" },
+    ];
+    expect(collapseByPhrase(matches)).toHaveLength(2);
+    const rendered = buildReminder(matches)
+      .split("\n")
+      .filter((l) => l.startsWith("  - Family "));
+    expect(rendered).toHaveLength(2);
   });
 });
 
