@@ -453,7 +453,9 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Injection text (gated by INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
-function buildInjectionReminder(result: BuildClaimInjectionResult): string {
+// Exported (mt#4002) — see `renderProbe` in the registry. Calibration-first
+// guards emit no `additionalContext`, so the shape test had nothing to measure.
+export function buildInjectionReminder(result: BuildClaimInjectionResult): string {
   const files =
     result.deploySurfaceFiles
       .slice(0, 6)
@@ -473,9 +475,32 @@ function buildInjectionReminder(result: BuildClaimInjectionResult): string {
     "warrant + basis] (see claim-confidence.mdc). Name the crossing step",
     "(rebuild/reinstall/deploy) still needed before the change is usable, rather",
     "than asserting it is ready now.",
-    "",
-    `Override: ${OVERRIDE_ENV_VAR}=1.`,
+    // Override advertisement removed (mt#4002) — banned from advisory text by
+    // `guard-feedback-authoring.mdc`; the operator reads overrides in
+    // `CLAUDE.md §Hook Files`, the agent should not be handed the exit.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * Bounded on the axis that grows: the file list is `.slice(0, 6)`, so six is the
+ * ceiling however many deploy-surface files a session touched. `matchedPhrase`
+ * is interpolated unbounded in principle, but it comes from this module's own
+ * fixed claim-phrase corpus, so it is posed at the longest member's order of
+ * magnitude rather than at an arbitrary length.
+ */
+export function renderWorstCase(): string {
+  return buildInjectionReminder({
+    matched: true,
+    matchedPhrase: "x".repeat(60),
+    deploySurfaceFiles: Array.from(
+      { length: 6 },
+      (_, i) => `services/${"s".repeat(40)}/file-${i}.ts`
+    ),
+    hadMerge: true,
+    hadRebuildEvidence: false,
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -122,6 +122,23 @@ measured 1668. The merged budget inherited the understatement, so it bound on or
 and silently dropped lower-priority reminders, which is the precise opposite of its documented
 intent.
 
+**A calibration-first guard needs a `renderProbe`, or its ceiling is enforced against nothing
+(mt#4002).** The check above measures a guard's live `additionalContext`, and a guard whose
+module gates injection off returns none — so for that whole population the ceiling was compared
+to `""` and passed at any declared value. Measured across it: five guards, ceilings declared
+400–1650, all measuring 0; five of six registrations understated, by up to 3.6x. Declare
+`renderProbe` on the registration, pointing at a `renderWorstCase()` the module exports, and pose
+it SATURATED on every axis at once. It carries a second meaning the budget derivation reads:
+a guard that renders but never injects contributes no chars to a real turn, so it is excluded
+from the top-five bucket `MERGED_CONTEXT_BUDGET_CHARS` sums — putting one there sizes a shared
+per-turn budget for text that is never sent. Delete the probe when the guard's gate flips.
+
+**Growth-shaped and uncapped is its own classification, not `capped`.** Where the probe's count
+axis has no `…and N more` bound, `guard-feedback-shape.test.ts` classifies the guard
+`render-probe-sample` — the annotation is then a saturated SAMPLE, not a proved ceiling. Three
+guards carry that today and each owes a cap; calling them capped would launder exactly what the
+classification receipt exists to expose.
+
 ## Adding a guard
 
 - Declare a `canary` (mt#2889) — the shape test can only measure guards it can trigger, and a

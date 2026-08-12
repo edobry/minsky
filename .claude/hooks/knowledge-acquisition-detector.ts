@@ -1202,7 +1202,9 @@ export function buildCalibrationRecord(
   };
 }
 
-function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
+// Exported (mt#4002) — see `renderProbe` in the registry. Calibration-first
+// guards emit no `additionalContext`, so the shape test had nothing to measure.
+export function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
   return [
     "[knowledge-acquisition-detector] Research surfaced knowledge relevant to a",
     `loaded skill (\`${result.matchedSkill}\`, keyword "${result.matchedKeyword}"),`,
@@ -1210,8 +1212,34 @@ function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
     `Research tools: ${result.researchTools.join(", ")}.`,
     "If this should update the skill/rule, capture it now: memory_create, the",
     "/learn routing skill, or a filed task targeting the artifact.",
-    `Override: ${OVERRIDE_ENV_VAR}=1.`,
+    // Override advertisement removed (mt#4002) — see `guard-feedback-authoring.mdc`.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * The template is fixed and interpolates three values. `researchTools` is joined
+ * with no count cap — growth-shaped, though bounded in practice by the number of
+ * distinct research tools a turn can call — so this is posed at a saturated
+ * sample rather than a proved ceiling; `matchedSkill` and `matchedKeyword` come
+ * from the loaded-skill list and this module's keyword corpus.
+ */
+export function renderWorstCase(): string {
+  // Every required field supplied rather than cast through `unknown`: a cast
+  // would let the probe keep compiling after the result type gains a field the
+  // renderer reads, which is the drift this measurement exists to prevent.
+  const result: KnowledgeAcquisitionResult = {
+    matched: true,
+    detectionRung: "rung-2",
+    researchTools: Array.from({ length: 6 }, (_, i) => `mcp__research__tool_number_${i}`),
+    loadedSkills: [],
+    matchedSkill: "x".repeat(40),
+    matchedKeyword: "y".repeat(40),
+    keywordHits: [],
+    hadPropagation: false,
+  };
+  return buildInjectionReminder(result);
 }
 
 /**

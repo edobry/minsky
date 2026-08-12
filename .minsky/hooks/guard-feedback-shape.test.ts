@@ -148,18 +148,33 @@ beforeAll(async () => {
   // fix the measurement. Precisely the invisible-omission class this file exists
   // to close, reintroduced one level up. No guard is worst-case-only today; the
   // regression test below keeps it from silently mattering when one is.
+  // mt#4002: a CALIBRATION-FIRST guard returns no `additionalContext` at all —
+  // its module gates injection off — so every measurement above is "" for it and
+  // the ceiling below was being enforced against an empty string. Measured
+  // across the whole population before this fix: five guards, ceilings declared
+  // 400-1650, all measuring 0; five of six registrations were understated, by up
+  // to 3.6x. `renderProbe` renders what the guard WOULD emit, so the ceiling
+  // binds on real text without flipping any guard's posture.
+  const probed = new Map<string, string>();
+  for (const reg of GUARD_REGISTRY) {
+    if (!reg.renderProbe) continue;
+    probed.set(reg.name, await reg.renderProbe());
+  }
+
   const ordinaryByName = new Map(canaryResults.map(({ reg, result }) => [reg.name, result]));
   const longer = (a: string, b: string): string => (b.length > a.length ? b : a);
-  measured = GUARD_REGISTRY.filter(declaresAnyCanary).map((reg) => {
-    const ordinary = textsOf(ordinaryByName.get(reg.name));
-    const worst = textsOf(worstCase.get(reg.name));
-    return {
-      guardName: reg.name,
-      declared: reg.attentionCost?.denialMessageSizeChars ?? -1,
-      advisory: longer(ordinary.advisory, worst.advisory),
-      denial: longer(ordinary.denial, worst.denial),
-    };
-  });
+  measured = GUARD_REGISTRY.filter((reg) => declaresAnyCanary(reg) || Boolean(reg.renderProbe)).map(
+    (reg) => {
+      const ordinary = textsOf(ordinaryByName.get(reg.name));
+      const worst = textsOf(worstCase.get(reg.name));
+      return {
+        guardName: reg.name,
+        declared: reg.attentionCost?.denialMessageSizeChars ?? -1,
+        advisory: longer(longer(ordinary.advisory, worst.advisory), probed.get(reg.name) ?? ""),
+        denial: longer(ordinary.denial, worst.denial),
+      };
+    }
+  );
 });
 
 afterAll(() => {
@@ -192,18 +207,28 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
       [
         "ask-routing-deferral-detector",
         "block-secret-file-read",
+        // mt#4002: the five calibration-first guards now produce measurable text
+        // through `renderProbe`. Before that they were absent from this receipt
+        // entirely — not failing it, just silently outside the space it covers,
+        // which is the coverage-loss shape mem#534 names.
+        "build-claim-injection-detector",
         "calibration-review-cadence-detector",
+        "causal-premise-detector",
         "chained-verification-commands",
         "check-guessed-session-path",
         "code-mechanism-assertion-detector",
+        "constructed-identifier-batch-detector",
         "guard-health-escalation-detector",
         "inject-current-time",
         "inject-dispatch-watchdog",
         "inject-git-state",
         "inject-memory-capture",
         "inject-prod-state",
+        "knowledge-acquisition-detector",
         "mcp-daemon-staleness-detector",
         "memory-search",
+        "operator-deferral-ask-surface",
+        "operator-deferral-detector",
         "pre-narration-detector",
         "require-duplicate-check-record",
         "retrospective-trigger-scanner",
@@ -252,17 +277,42 @@ const CHECK_GUESSED_SESSION_PATH = "check-guessed-session-path";
 /** The one `FeedbackShape` value that is cross-checked against the registry. */
 const WORST_CASE_CANARY = "worst-case-canary";
 
+/** Growth-shaped, measured by a saturated `renderProbe` sample (mt#4002). */
+const RENDER_PROBE_SAMPLE = "render-probe-sample";
+
 type FeedbackShape =
   /** Interpolates only short scalars — its ordinary canary IS its worst case. */
   | "fixed"
   /** Growth-shaped, bounded by a cap constant in its own source. */
   | "capped"
   /** Growth-shaped, bounded and PROVEN so by a declared `worstCaseCanary`. */
-  | "worst-case-canary";
+  | "worst-case-canary"
+  /**
+   * Growth-shaped and NOT yet bounded — measured by a saturated `renderProbe`
+   * sample rather than by a cap in its own source (mt#4002).
+   *
+   * Deliberately a distinct value rather than folding these into `"capped"`.
+   * Calling an uncapped guard capped is the exact laundering this receipt exists
+   * to prevent: the annotation would read as a ceiling when it is a sample at
+   * whatever count the probe happened to pose. Every guard carrying this value
+   * owes a cap (`…and N more`), which is `guard-feedback-authoring.mdc`'s
+   * preferred fix and belongs to that guard's owner.
+   */
+  | "render-probe-sample";
 
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
   "block-secret-file-read": "fixed",
+  // The five calibration-first guards, newly visible to this receipt (mt#4002).
+  // Until `renderProbe` existed they rendered nothing measurable, so none of
+  // them was ever classified — and five of six registrations turned out to be
+  // understated, by up to 3.6x.
+  "build-claim-injection-detector": "capped", // deploySurfaceFiles.slice(0, 6)
+  "causal-premise-detector": RENDER_PROBE_SAMPLE, // one line per phrase, uncapped
+  "constructed-identifier-batch-detector": RENDER_PROBE_SAMPLE, // one line per match, uncapped
+  "knowledge-acquisition-detector": RENDER_PROBE_SAMPLE, // researchTools joined, uncapped
+  "operator-deferral-detector": "capped", // <=3 matches x 240-char contexts
+  "operator-deferral-ask-surface": "capped", // same module, same renderer
   "calibration-review-cadence-detector": "capped", // ADVISORY_BUDGET_CHARS byte-budget fit (mt#3824)
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
   [CHECK_GUESSED_SESSION_PATH]: "fixed",

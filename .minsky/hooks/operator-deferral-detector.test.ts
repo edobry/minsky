@@ -16,11 +16,9 @@ import {
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
 } from "./operator-deferral-detector";
-import type { DeferralMatch } from "./operator-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
-import { GUARD_REGISTRY } from "./registry";
 import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
 
 // ---------------------------------------------------------------------------
@@ -671,7 +669,12 @@ describe("calibration-first posture", () => {
       },
     ]);
     expect(reminder).toContain("whoami");
-    expect(reminder).toContain(OVERRIDE_ENV_VAR);
+    // Inverted (mt#4002): the advisory must NOT advertise its override.
+    // `guard-feedback-authoring.mdc` bans it — the agent is the wrong reader for
+    // an exit, and `CLAUDE.md §Hook Files` is where the operator finds it. The
+    // old assertion required the violation, and nothing caught the conflict
+    // because this guard renders no live text for the authoring check to read.
+    expect(reminder).not.toContain(OVERRIDE_ENV_VAR);
   });
 
   test("a clean turn produces no outcome", () => {
@@ -910,31 +913,13 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     expect(reminder).not.toContain("Run the capability probe");
   });
 
-  test("the saturated render stays within the guard's DECLARED attentionCost", () => {
-    // A stopgap for mt#4002. `guard-feedback-shape.test.ts` enforces every
-    // guard's `denialMessageSizeChars` against its rendered `additionalContext`
-    // — but this guard is calibration-first, so `toOutcome` returns no
-    // `additionalContext` at all and that check has always measured an empty
-    // string here. The consequence was live: the annotation read 600 while the
-    // two-prose-match render already measured 1049.
-    //
-    // Saturating input on EVERY axis at once, per `guard-feedback-authoring.mdc`
-    // — all three surfaces `run()` can return, each `context` at the 240-char
-    // cap `extractMatchContext` enforces, so both directive branches render.
-    const saturated = [
-      "capability-deferral-prose",
-      "permission-deferral-prose",
-      DENIAL_ANCHORED,
-    ].map((surface, i) => ({
-      surface: surface as DeferralMatch["surface"],
-      matchedPhrase: `p${i}`,
-      context: "x".repeat(240),
-    }));
-    const declared = GUARD_REGISTRY.find((r) => r.name === "operator-deferral-detector")
-      ?.attentionCost?.denialMessageSizeChars;
-    expect(declared).toBeGreaterThan(0);
-    expect(buildReminder(saturated).length).toBeLessThanOrEqual(declared as number);
-  });
+  // mt#3533's per-guard size test is GONE (mt#4002). `guard-feedback-shape.test.ts`
+  // now measures this guard's render through the registry's `renderProbe`, along
+  // with every other calibration-first guard, so keeping a hand-written size
+  // check in one guard's own file would be a second copy of a shared check —
+  // free to drift, and exactly what mt#4002's SC#2 asked to be removed. The
+  // renderer it posed is now `renderWorstCase()` in the module, which the probe
+  // calls.
 
   test("a turn tripping both shapes gets both directives — the guard's worst case", () => {
     const reminder = buildReminder([

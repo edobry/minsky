@@ -869,8 +869,32 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "THE WORK. If all fail, state the probe results inline so the deferral is justified."
     );
   }
-  lines.push(`Override: set ${OVERRIDE_ENV_VAR}=1 if this is genuinely not a deferral case.`);
+  // No override advertisement (mt#4002). `guard-feedback-authoring.mdc` bans it
+  // from advisory text — the agent is the wrong reader for an exit, and the
+  // overrides are catalogued in `CLAUDE.md §Hook Files` for the operator. It
+  // survived here because this guard renders nothing at runtime, so the check
+  // that enforces the authoring standard had no text to look at.
   return lines.join("\n");
+}
+
+/**
+ * The largest advisory this guard can render, for the registry's `renderProbe`
+ * (mt#4002).
+ *
+ * Bounded by construction on every axis: `run()` returns at most one match per
+ * surface and there are three prose/denial surfaces, and every `context` is
+ * capped at 240 chars by `extractMatchContext` / `safeTruncate`. Three matches
+ * also means BOTH directive branches render, which is the real worst case —
+ * posing only the denial branch would measure the axis this task changed rather
+ * than the largest output (`guard-feedback-authoring.mdc`).
+ */
+export function renderWorstCase(): string {
+  const context = "x".repeat(240);
+  return buildReminder([
+    { surface: "capability-deferral-prose", matchedPhrase: "p0", context },
+    { surface: "permission-deferral-prose", matchedPhrase: "p1", context },
+    { surface: "denial-anchored", matchedPhrase: "p2", context },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
