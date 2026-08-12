@@ -20,7 +20,7 @@ The genus decision was made by the principal in ask#7119 and is already recorded
 mt#3754's `## Naming decision`. An ADR restating it would put the same decision in a third place
 without adding a reader, and ADRs are immutable once Accepted — the wrong container for a model
 that is explicitly expected to grow as the catalog is built out over ~89 heterogeneous entities.
-The decision therefore lives in [The genus decision](#the-genus-decision-ask7119) below, inside
+The decision therefore lives in [The genus decision](#6-the-genus-decision-ask7119) below, inside
 the ontology it governs, so a reader lands on both at once.
 
 ---
@@ -295,9 +295,15 @@ a call, which is false for our PreToolUse-only entities. Second, the storage-key
 The fire log holds **387,000+ records keyed by `guardName`** (plus `guard-health-log.jsonl`), read
 by health tracking, the calibration sweep, threshold tuning, and the cockpit UI. That key is
 **not** migrated. New code reaches interceptor vocabulary through a **read-side alias layer** over
-`guardName`; the persisted field name stays as it is, permanently. Renaming it is a Tier-2 cost
+`guardName`; the persisted field name stays as it is, permanently. Renaming it is a **Tier-2** cost
 against zero behavioral gain — and the calibration sweep already carries a hand-maintained reverse
 index with a recorded desync incident (mt#2889), which is what a migration would multiply.
+
+mt#3754's adoption-cost tiers, since they are cited above and elsewhere: **Tier 0** — docs and
+ontology only. **Tier 1** — code identifiers, no persisted data. **Tier 2** — persisted data
+(`guardName` and its readers). **Tier 3** — shipped UI, or reversing an already-DONE decision. The
+interceptor-forward choice is Tier 0–1 by construction: everything at Tier 2 and above is
+explicitly out of scope, permanently, not deferred.
 
 ---
 
