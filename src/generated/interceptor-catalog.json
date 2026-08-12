@@ -190,7 +190,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-git-gh-cli",

@@ -206,6 +206,8 @@ export const INTERVENTION_TYPE_ORDER: InterventionType[] = [
   "ask-and-pause",
 ];
 
+export const ROLE_ORDER: InterceptorRole[] = ["judge", "feeder", "infrastructure"];
+
 export const ROLE_LABELS: Record<InterceptorRole, string> = {
   judge: "judge — classifies, then intervenes",
   feeder: "feeder — unconditional context provider",

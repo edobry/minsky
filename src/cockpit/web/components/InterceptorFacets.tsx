@@ -17,6 +17,8 @@ import {
   INTERVENTION_TYPE_ORDER,
   MECHANISM_LABELS,
   MECHANISM_ORDER,
+  ROLE_LABELS,
+  ROLE_ORDER,
   formatIntervention,
   type InterceptorEntry,
   type InterceptorFamily,
@@ -37,6 +39,7 @@ export interface InterceptorFacets {
   family: string;
   mechanism: string;
   intervention: string;
+  role: string;
 }
 
 export const NO_FACETS: InterceptorFacets = {
@@ -44,6 +47,7 @@ export const NO_FACETS: InterceptorFacets = {
   family: ANY,
   mechanism: ANY,
   intervention: ANY,
+  role: ANY,
 };
 
 /**
@@ -60,6 +64,7 @@ export function matchesFacets(entry: InterceptorEntry, facets: InterceptorFacets
     return false;
   }
   if (facets.mechanism !== ANY && entry.mechanism !== facets.mechanism) return false;
+  if (facets.role !== ANY && entry.role !== facets.role) return false;
   if (
     facets.intervention !== ANY &&
     !entry.interventions.some((i) => i.type === facets.intervention)
@@ -144,6 +149,14 @@ export function InterceptorFacetBar({
         onChange={(mechanism) => onChange({ ...facets, mechanism })}
         allLabel="Any mechanism"
         options={MECHANISM_ORDER.map((m) => ({ value: m, label: MECHANISM_LABELS[m] }))}
+      />
+      <Facet
+        label="Filter by role"
+        testId="interceptors-role-filter"
+        value={facets.role}
+        onChange={(role) => onChange({ ...facets, role })}
+        allLabel="Any role"
+        options={ROLE_ORDER.map((r) => ({ value: r, label: ROLE_LABELS[r] }))}
       />
     </div>
   );
@@ -240,6 +253,20 @@ export function AxisChips({ entry }: { entry: InterceptorEntry }) {
       ) : (
         <span className="text-warn-amber" data-testid="interceptor-mechanism-gap">
           mechanism unauthored
+        </span>
+      )}
+
+      <span aria-hidden="true" className="text-muted-foreground/40">
+        ·
+      </span>
+
+      {entry.role ? (
+        <span className="text-muted-foreground" title={ROLE_LABELS[entry.role]}>
+          {entry.role}
+        </span>
+      ) : (
+        <span className="text-warn-amber" data-testid="interceptor-role-gap">
+          role unauthored
         </span>
       )}
 

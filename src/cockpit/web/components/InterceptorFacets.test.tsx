@@ -127,6 +127,16 @@ describe("matchesFacets — family filtering computes over axis 2 (AT2)", () => 
     expect(matchesFacets(e, { ...NO_FACETS, intervention: "deny" })).toBe(false);
   });
 
+  test("the role facet constrains on the entity-strata axis (SC1)", () => {
+    const feeder = entry({ role: "feeder" });
+    expect(matchesFacets(feeder, { ...NO_FACETS, role: "feeder" })).toBe(true);
+    expect(matchesFacets(feeder, { ...NO_FACETS, role: "judge" })).toBe(false);
+    // An entity with no authored role matches no role facet — it must not fall
+    // into an arbitrary bucket.
+    expect(matchesFacets(unclassifiedEntry(), { ...NO_FACETS, role: "judge" })).toBe(false);
+    expect(matchesFacets(unclassifiedEntry(), { ...NO_FACETS, role: "infrastructure" })).toBe(false);
+  });
+
   test("facets combine conjunctively", () => {
     const e = entry({ point: "Stop", families: ["detector"] });
     expect(matchesFacets(e, { ...NO_FACETS, point: "Stop", family: "detector" })).toBe(true);
@@ -218,6 +228,8 @@ describe("AxisChips — every axis renders a value or an explicit gap marker (AT
     expect(text).toContain("Stop");
     expect(text).toContain("deny");
     expect(text).toContain("lexical");
+    // The entity-strata axis rides the same strip (SC1).
+    expect(text).toContain("judge");
   });
 
   test("an unresolved axis renders a gap marker rather than an empty slot", () => {
@@ -225,6 +237,7 @@ describe("AxisChips — every axis renders a value or an explicit gap marker (AT
     expect(screen.getByTestId("interceptor-point-gap")).toBeTruthy();
     expect(screen.getByTestId("interceptor-interventions-gap")).toBeTruthy();
     expect(screen.getByTestId("interceptor-mechanism-gap")).toBeTruthy();
+    expect(screen.getByTestId("interceptor-role-gap")).toBeTruthy();
   });
 
   test("an intervention's audience is rendered, not dropped", () => {
