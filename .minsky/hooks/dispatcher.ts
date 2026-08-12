@@ -719,8 +719,22 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * 650, pre-narration 650, code-mechanism-assertion 600 = 4950, plus the 1190
  * always-on floor and 16 chars of separators. That the total lands back on
  * exactly the pre-mt#3533 number is arithmetic, not coincidence: the same five
- * injecting guards were always the real bucket. Each guard re-enters
- * automatically the day its posture flips and its `renderProbe` is deleted.
+ * injecting guards were always the real bucket.
+ *
+ * **This constant is HAND-SET, and the exclusion above describes the DERIVATION,
+ * not a computation performed here (PR #2889 R2).** Nothing reads `renderProbe`
+ * at runtime to size the budget; the filter lives in `dispatcher.test.ts`, which
+ * asserts that the modelled turn fits this number. That split is deliberate and
+ * predates this change — the constant is meant to trend DOWN as guard text is
+ * trimmed, which an auto-sum would silently prevent (mt#3796 records the same
+ * reasoning, and explicitly rules auto-computation out of scope). The practical
+ * consequence for an editor: changing a top-five annotation does NOT move this
+ * number by itself. Re-derive it and edit it here, then run
+ * `dispatcher.test.ts` — the pre-commit gated runner excludes `.minsky/hooks/**`
+ * and will not catch the mismatch locally.
+ *
+ * A guard re-enters the bucket the day its posture flips and its `renderProbe`
+ * is deleted — at which point this number must be re-derived by hand again.
  */
 export const MERGED_CONTEXT_BUDGET_CHARS = 6156;
 

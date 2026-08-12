@@ -106,6 +106,43 @@ function declaresAnyCanary(reg: Pick<GuardRegistration, "canary" | "worstCaseCan
   return Boolean(reg.canary || reg.worstCaseCanary);
 }
 
+/**
+ * Probes that threw or timed out, collected rather than thrown (PR #2889 R1) so
+ * one broken probe cannot void every assertion in this file. Asserted empty by
+ * its own test, which names the guard.
+ */
+const probeFailures: string[] = [];
+
+/** Each `renderProbe`'s rendered text, by guard name. Module-scoped so the
+ * receipt below can assert every declared probe actually produced text. */
+const probed = new Map<string, string>();
+
+/** How long a single `renderProbe` may take before it is treated as hung. */
+const PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * Bound a probe in time. A `renderProbe` is a pure render behind a dynamic
+ * import, so it should finish in microseconds — but "should" is the assumption
+ * an unbounded `await` in a shared `beforeAll` turns into a hung suite with no
+ * attribution, which is the failure mode worth spending five lines to avoid.
+ */
+async function withProbeTimeout(probe: Promise<string>): Promise<string> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      probe,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`renderProbe exceeded ${PROBE_TIMEOUT_MS}ms`)),
+          PROBE_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /** Text off an outcome, or "" when the guard produced none. */
 function textsOf(result: CanaryResult | undefined): { advisory: string; denial: string } {
   const outcome = result?.outcome ?? undefined;
@@ -155,10 +192,22 @@ beforeAll(async () => {
   // 400-1650, all measuring 0; five of six registrations were understated, by up
   // to 3.6x. `renderProbe` renders what the guard WOULD emit, so the ceiling
   // binds on real text without flipping any guard's posture.
-  const probed = new Map<string, string>();
+  //
+  // A probe that THROWS or HANGS must not take the sweep with it (PR #2889 R1).
+  // `beforeAll` is shared by every test in this file, so an unguarded `await`
+  // here converts one guard's broken probe into a total loss of the ceiling
+  // check, the coverage receipt and the classification receipt at once — and the
+  // failure would surface as a hook-file stack trace naming none of them. Each
+  // probe is therefore isolated and bounded, and a failure is RECORDED and
+  // asserted below rather than thrown: fail-closed, and attributable to the
+  // guard that caused it.
   for (const reg of GUARD_REGISTRY) {
     if (!reg.renderProbe) continue;
-    probed.set(reg.name, await reg.renderProbe());
+    try {
+      probed.set(reg.name, await withProbeTimeout(reg.renderProbe()));
+    } catch (err) {
+      probeFailures.push(`${reg.name}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   const ordinaryByName = new Map(canaryResults.map(({ reg, result }) => [reg.name, result]));
@@ -186,6 +235,19 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
   // one that measures everything. Per mem#534 ("a detector isn't working because
   // it shipped — it works when its receipt proves it covered its space"), assert
   // the space actually covered, not merely the absence of failures.
+
+  test("every renderProbe this test depends on rendered", () => {
+    // The counterpart to the canary check below, for the calibration-first half
+    // of the corpus (PR #2889 R1). A probe that throws is collected rather than
+    // thrown so it cannot void the rest of the file — but silence would then be
+    // indistinguishable from success, which is the coverage-loss shape this
+    // whole receipt exists to prevent. So it fails HERE, naming the guard.
+    expect(probeFailures).toEqual([]);
+
+    const declaredProbes = GUARD_REGISTRY.filter((r) => r.renderProbe).map((r) => r.name);
+    const rendered = declaredProbes.filter((name) => (probed.get(name) ?? "").length > 0);
+    expect(rendered.sort()).toEqual(declaredProbes.sort());
+  });
 
   test("every canary this test depends on still fires", () => {
     const notFiring = canaryResults
