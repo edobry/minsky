@@ -147,6 +147,12 @@ export function run(input: ToolHookInput, _ctx: DispatchContext): GuardOutcome |
   // un-measurable.
   const outcome: GuardOutcome = {
     calibration: {
+      // `timestamp` + `session_id` is the established record convention, not a
+      // divergence: verified against the live logs rather than recalled —
+      // `negative-existence-claim` (shipped 3 days ago), `pre-narration` and
+      // `wall-of-text` all open every record with exactly these two keys. A
+      // reviewer read them as `ts`/`sessionId` on PR #2909 R1; no calibration
+      // log in `.minsky/` uses that shape.
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       claims: result.claims.map((c) => ({

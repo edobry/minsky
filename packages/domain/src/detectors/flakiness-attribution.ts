@@ -156,7 +156,17 @@ export interface FlakinessAttributionResult {
   singleFileAcceptanceTestSuspected: boolean;
 }
 
-/** Every claim in `spec`, both families, one match per pattern. */
+/**
+ * Every claim in `spec`, both families, ONE match per pattern — deliberately,
+ * matching `extractNegativeExistenceClaims`, where PR #2905 R1 asked for the
+ * same bound.
+ *
+ * The record and the advisory both enumerate claims one per line, so an
+ * unbounded count is an unbounded render; and the second occurrence of the SAME
+ * pattern adds nothing a reader acts on, because the remedy is identical (run
+ * the control) and the excerpt already shows where the claim sits. A spec
+ * saying "flaky" five times is not five findings.
+ */
 export function extractFlakinessClaims(spec: string): FlakinessClaim[] {
   if (!spec) return [];
   const claims: FlakinessClaim[] = [];

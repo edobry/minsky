@@ -668,8 +668,9 @@ export interface GuardEffectDeclaration {
 
 // Extracted to `./registry-effects` (mt#3658) so this file stays under its
 // 1500-line ceiling — it sat at 1499, one line from refusing the next guard.
-// Re-exported here so every existing import site is unchanged.
-export {
+// Imported once and re-exported from those bindings, so every existing import
+// site is unchanged and the module specifier appears exactly once.
+import {
   ENFORCEMENT_POSTURE,
   ADVISORY_POSTURE,
   RECORDER_POSTURE,
@@ -678,13 +679,16 @@ export {
   recorderEffect,
   mutatorEffect,
 } from "./registry-effects";
-import {
+
+export {
+  ENFORCEMENT_POSTURE,
   ADVISORY_POSTURE,
+  RECORDER_POSTURE,
   enforcementEffect,
   advisoryEffect,
   recorderEffect,
   mutatorEffect,
-} from "./registry-effects";
+};
 
 // ---------------------------------------------------------------------------
 // Registry (Phase 1: one entry — the pilot migration)
