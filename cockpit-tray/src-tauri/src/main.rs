@@ -2,7 +2,8 @@
 //
 // A macOS system-tray application that owns the cockpit daemon's lifecycle:
 // it spawns the daemon as a managed child, supervises it (respawn-on-crash +
-// throttle), ADOPTS an already-running daemon on :3737 instead of double-
+// throttle), ADOPTS an already-running daemon on the configured cockpit port
+// (`cockpit.port`, default 3737 — mt#3988) instead of double-
 // spawning, tears down what it spawned on quit, and registers itself as a
 // macOS Login Item for auto-start. launchd (`minsky cockpit install`) is
 // retained as an optional opt-in headless mode. See
@@ -25,6 +26,7 @@ mod hotkey;
 mod launchd;
 mod menu;
 mod mouse_nav;
+mod port;
 mod single_instance;
 mod supervisor;
 mod watcher_backend;
@@ -100,6 +102,18 @@ fn main() {
     let app = builder
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Resolve the cockpit port BEFORE anything that consumes it
+            // (mt#3988): the tray menu, the webview's same-origin check, the
+            // deep-link recovery loop and the supervisor all read
+            // `port::cockpit_port()`, and resolving first is what guarantees
+            // none of them can observe a different value than the others.
+            // Synchronous on purpose — see `port::init` for the cost and why it
+            // is paid here rather than raced against.
+            //
+            // Inside setup(), not main(), so a second instance rejected by the
+            // single-instance guard does not pay for a lookup it will never use.
+            port::init(&supervisor::path_env());
             // Register zoom state before any menu handler that can read it
             // (mt#2334 review): menu events fire post-setup, but managing it up
             // front guarantees `try_state::<ZoomLevel>()` is always populated.
@@ -166,7 +180,9 @@ fn main() {
             // app and the daemon alive — this is a menu-bar app; only an
             // explicit app.exit() (code Some — the Quit path) proceeds to
             // teardown.
-            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            RunEvent::ExitRequested {
+                code: None, api, ..
+            } => api.prevent_exit(),
             RunEvent::Exit => {
                 // Synchronous teardown of the daemon we spawned. Idempotent, so
                 // it's safe to fire here on the explicit-quit path.
