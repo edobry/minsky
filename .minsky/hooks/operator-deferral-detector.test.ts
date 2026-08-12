@@ -748,7 +748,7 @@ const denialResult = (id: string, text: string = DENIAL_NO_REASON): TranscriptLi
 });
 
 const asksCreate = (): TranscriptLine =>
-  assistantToolUse("mcp__minsky__asks_create", {
+  assistantToolUse(ASKS_CREATE_TOOL, {
     title: "The harness blocks the Railway write; please add a Bash permission rule.",
   });
 
@@ -948,6 +948,12 @@ const ASK_JUSTIFICATION = "ask-justification";
 /** The channel that lied in the anchor instance — and that surface A counts as a probe. */
 const CREDENTIALS_LIST_TOOL = "mcp__minsky__config_credentials_list";
 
+/** The independent channel that would have falsified it. */
+const AI_VALIDATE_TOOL = "mcp__minsky__ai_validate";
+
+/** The tool whose payload carries an ask justification. */
+const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
+
 /**
  * ask#6754's claim, verbatim in substance (mt#3547, 2026-08-01): the agent read
  * ONE channel, the credential store, which returned exit-0 JSON that silently
@@ -1007,7 +1013,7 @@ function askTurn(options: {
     lines.push(correlatedToolResult(`toolu_ch${i}`, "{}"));
   });
   lines.push(
-    correlatedToolUse("toolu_ask", "mcp__minsky__asks_create", {
+    correlatedToolUse("toolu_ask", ASKS_CREATE_TOOL, {
       kind: "authorization.approve",
       title: "Authorize pulling the production OpenAI key",
       question: justification,
@@ -1049,7 +1055,7 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
       askTurn({
         channels: [
           { name: CREDENTIALS_LIST_TOOL },
-          { name: "mcp__minsky__ai_validate", input: { provider: "openai" } },
+          { name: AI_VALIDATE_TOOL, input: { provider: "openai" } },
         ],
       })
     );
@@ -1109,7 +1115,7 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
       askTurn({
         channels: [
           { name: CREDENTIALS_LIST_TOOL },
-          { name: "mcp__minsky__ai_validate", input: { provider: "openai" } },
+          { name: AI_VALIDATE_TOOL, input: { provider: "openai" } },
         ],
       })
     );
@@ -1121,6 +1127,26 @@ describe("surface E — ask-justification capability-absence (mt#3999)", () => {
     const record = buildEvaluationRecord(undefined, [], "", "prose-turn", fired);
     expect(record["ask_justification"]).toEqual(fired);
     expect(record["evaluated"]).toBe("prose-turn");
+  });
+
+  test("AT5b: distinctChannels is turn-level across MULTIPLE routed asks (PR #2920 R1)", () => {
+    const twoAsks: TranscriptLine[] = [
+      correlatedToolUse("toolu_c0", CREDENTIALS_LIST_TOOL, {}),
+      correlatedToolResult("toolu_c0", "{}"),
+      correlatedToolUse("toolu_c1", AI_VALIDATE_TOOL, { provider: "openai" }),
+      correlatedToolResult("toolu_c1", "{}"),
+      correlatedToolUse("toolu_a1", ASKS_CREATE_TOOL, { question: ANCHOR_JUSTIFICATION }),
+      correlatedToolResult("toolu_a1", OPERATOR_ROUTED_RESULT),
+      // A second routed ask whose `question` is NOT a string. The earlier
+      // implementation `continue`d before assigning the count, so this turn
+      // reported 0 channels despite having consulted two.
+      correlatedToolUse("toolu_a2", ASKS_CREATE_TOOL, { question: 42 }),
+      correlatedToolResult("toolu_a2", OPERATOR_ROUTED_RESULT),
+    ];
+
+    const summary = summarizeAskJustificationEvaluation(twoAsks);
+    expect(summary.operatorRoutedAsks).toBe(2);
+    expect(summary.distinctChannels).toBe(2);
   });
 
   test("AT6: surface E gets its OWN directive, not the probe one", () => {

@@ -145,6 +145,40 @@ describe("isOperatorRoutedAskResult", () => {
     expect(isOperatorRoutedAskResult("")).toBe(false);
     expect(isOperatorRoutedAskResult("{}")).toBe(false);
   });
+
+  // PR #2920 R1 — the structured parse exists so the field cannot be satisfied
+  // by the string merely APPEARING somewhere in the body.
+  test("a nested JSON-in-string result still resolves the field", () => {
+    const inner = JSON.stringify({ routingTarget: "operator", state: "routed" });
+    expect(isOperatorRoutedAskResult(JSON.stringify(inner))).toBe(true);
+  });
+
+  test("the phrase quoted INSIDE a policy-routed payload does not count", () => {
+    // A real result that routed to policy, whose prose happens to quote the
+    // operator target. The old field-scan returned true here.
+    const body = JSON.stringify({
+      routingTarget: "policy",
+      state: "closed",
+      citation: 'policy says asks like this would otherwise be "routingTarget": "operator"',
+    });
+    expect(isOperatorRoutedAskResult(body)).toBe(false);
+  });
+
+  test("an unparseable body falls back to the scan rather than failing closed", () => {
+    // Evidence about the parser, not about the ask — going quiet here would be
+    // the silent-miss failure this family exists to prevent.
+    expect(
+      isOperatorRoutedAskResult('Ask created ok -> {"routingTarget": "operator"} (routed)')
+    ).toBe(true);
+  });
+
+  test("an ElicitationClosedAsk counts — it closed BECAUSE a human answered", () => {
+    expect(
+      isOperatorRoutedAskResult(
+        JSON.stringify({ routingTarget: "operator", state: "closed", responder: "operator" })
+      )
+    ).toBe(true);
+  });
 });
 
 describe("detectCapabilityAbsenceEscalation", () => {

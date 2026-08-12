@@ -168,9 +168,12 @@ export const MIN_INDEPENDENT_CHANNELS = 2;
 /**
  * Hosted-infra skill prefixes whose LOAD is a capability probe.
  *
- * Kept in step with `PROBE_SKILL_PREFIXES` in the hook rather than imported from
- * it: the hook may not import from the domain package's consumers, and this
- * module must stay free of hook imports so it can be tested without a transcript.
+ * **The single source of truth** (PR #2920 R1). `operator-deferral-detector.ts`
+ * derives its own `PROBE_SKILL_PREFIXES` Set from this array rather than keeping
+ * a second hand-maintained copy — two lists of the same concept drift, and the
+ * first draft of this module shipped exactly that. The direction is forced: the
+ * hook can import from the domain package, and this module must stay free of
+ * hook imports so it can be tested without a transcript. Add a prefix HERE.
  */
 export const PROBE_SKILL_PREFIXES: readonly string[] = [
   "railway",
@@ -266,15 +269,45 @@ export function extractCapabilityAbsenceClaims(prose: string): AbsenceClaim[] {
  * so it fails this test and is EXCLUDED rather than counted — it never reaches a
  * human and spends none of the attention this detector is about.
  *
- * Parsed leniently on purpose: the body reaches a hook as transcript text that
- * may be a JSON object, a JSON string, or a rendered wrapper around one. A
- * failure to parse falls back to a field scan rather than to `false`, because
- * "this shape is unfamiliar" is evidence about the parser and silently answering
- * "not operator-routed" would make every unfamiliar rendering a silent miss.
+ * **Structured parse FIRST, regex only as a fallback** (PR #2920 R1). A bare
+ * field scan can be satisfied by the string appearing anywhere — inside a nested
+ * JSON-in-JSON payload, a quoted log line, or prose wrapping the result — which
+ * on a gate for detector firing is a false positive. So: `JSON.parse` and read
+ * the field when the body is real JSON (including one level of JSON-in-string,
+ * which is how some transports render a tool result), and fall back to the scan
+ * only when it does not parse.
+ *
+ * The fallback is kept rather than failing closed: an unparseable shape is
+ * evidence about the PARSER, and answering "not operator-routed" for every
+ * unfamiliar rendering would make this a silent miss — the failure mode this
+ * whole family exists to prevent.
+ *
+ * **`state` is deliberately NOT checked.** A policy-covered ask is already
+ * excluded by this test, because it carries `routingTarget: "policy"`. Excluding
+ * closed asks generally would also drop an `ElicitationClosedAsk`, which closed
+ * precisely BECAUSE it reached a human and got an answer — the population this
+ * surface is about.
  */
 export function isOperatorRoutedAskResult(resultText: string): boolean {
   if (typeof resultText !== "string" || resultText.length === 0) return false;
-  return /"routingTarget"\s*:\s*"operator"/.test(resultText);
+
+  const routedByField = (value: unknown, depth: number): boolean => {
+    if (typeof value === "string" && depth > 0) {
+      try {
+        return routedByField(JSON.parse(value), depth - 1);
+      } catch {
+        return false;
+      }
+    }
+    if (!value || typeof value !== "object") return false;
+    return (value as { routingTarget?: unknown }).routingTarget === "operator";
+  };
+
+  try {
+    return routedByField(JSON.parse(resultText), 1);
+  } catch {
+    return /"routingTarget"\s*:\s*"operator"/.test(resultText);
+  }
 }
 
 /**

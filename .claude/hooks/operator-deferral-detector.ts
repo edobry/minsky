@@ -78,6 +78,7 @@ import {
   isOperatorRoutedAskResult,
   secondChannelFor,
   MAX_SUBJECT_CHARS,
+  PROBE_SKILL_PREFIXES as DOMAIN_PROBE_SKILL_PREFIXES,
 } from "../../packages/domain/src/detectors/capability-absence-escalation";
 import type { ProbeObservation } from "../../packages/domain/src/detectors/capability-absence-escalation";
 import { isReshapedRetry, leadingTokenOf } from "./command-shape";
@@ -338,21 +339,19 @@ export const PROBE_TOOL_NAME_PATTERN =
  * suppress a real deferral. Only services whose skill answers "do I have
  * access to this infra?" belong here; add a prefix when a new hosted-infra
  * skill family ships.
+ *
+ * **DERIVED from the domain list, not a second copy** (PR #2920 R1). Surface E's
+ * matcher needs the same allowlist to classify a skill load as a channel, and it
+ * cannot import from the hooks tree. The domain module is the single source; this
+ * wraps it in a Set for the `.has` lookup below. Add a prefix THERE.
+ *
+ * The sibling {@link PROBE_COMMAND_PATTERN} is deliberately NOT consolidated the
+ * same way: it and the domain's `shell-capability` channel rule are different
+ * sets on purpose. This one was narrowed by PR #2263 R1 (two members removed
+ * because they suppressed on non-probes), and merging it with a rule tuned for
+ * channel classification would silently undo that narrowing.
  */
-export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set([
-  "railway",
-  "cloudflare",
-  "supabase",
-  "github",
-  "gh",
-  "vercel",
-  "aws",
-  "gcloud",
-  "fly",
-  "heroku",
-  "docker",
-  "kubectl",
-]);
+export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set(DOMAIN_PROBE_SKILL_PREFIXES);
 
 /** True iff `skill` names a hosted-infra service skill (`railway:use-railway`). */
 export function isProbeSkill(skill: string): boolean {
@@ -891,7 +890,6 @@ export function summarizeAskJustificationEvaluation(
   const probes = collectProbeObservations(turnLines);
   let operatorRoutedAsks = 0;
   let absenceClaimPresent = false;
-  let channels = 0;
 
   for (const call of findToolCallsWithResults(turnLines)) {
     if (!ASK_CREATE_TOOL_NAME_PATTERN.test(call.toolName)) continue;
@@ -903,17 +901,21 @@ export function summarizeAskJustificationEvaluation(
       justification: elideDoubleQuotedSpans(elideQuotedContexts(question)),
       probes,
     });
-    channels = result.channels.length;
     if (result.claims.length > 0) absenceClaimPresent = true;
   }
 
   return {
     operatorRoutedAsks,
     absenceClaimPresent,
-    // Reported for the whole turn even when no ask was routed, so a review can
-    // see the channel distribution across the population rather than only
-    // across fires.
-    distinctChannels: operatorRoutedAsks > 0 ? channels : distinctProbeChannels(probes).length,
+    // Computed ONCE from the turn's probes, not read off the loop (PR #2920 R1).
+    // Channels are a property of the TURN — `detectCapabilityAbsenceEscalation`
+    // derives them from `probes` alone, which does not vary per ask — so the
+    // earlier per-iteration assignment could not actually differ between asks.
+    // It was still wrong on a path the review did not name: an ask whose
+    // `question` is not a string `continue`s BEFORE the assignment, so a turn
+    // with such an ask reported 0 channels while having consulted several. One
+    // turn-level computation has no such path, and reads as what it is.
+    distinctChannels: distinctProbeChannels(probes).length,
   };
 }
 
