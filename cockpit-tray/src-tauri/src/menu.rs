@@ -262,6 +262,13 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // (Safari, Chrome, Terminal, iTerm), and the one an operator arriving from
     // a browser already has in their fingers.
     //
+    // `CmdOrCtrl` is deliberate, not inherited by accident (PR #2936 R1): the
+    // same relocation is correct off-mac, because browsers there also bind
+    // Ctrl+W to close-tab and Ctrl+Shift+W to close-window. The tray ships as a
+    // macOS menu-bar app today, so this is currently theoretical -- but the
+    // theoretical behavior is the RIGHT one, and every other accelerator in
+    // this file already uses the same modifier token.
+    //
     // Both are CUSTOM items rather than `SubmenuBuilder::close_window()`,
     // because a `PredefinedMenuItem`'s accelerator cannot be changed: only
     // MenuItem/CheckMenuItem/IconMenuItem expose `set_accelerator`, and the
@@ -398,7 +405,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "close_window" => {
             if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
                 if let Err(e) = window.close() {
-                    eprintln!("[cockpit-tray] failed to close cockpit window: {e}");
+                    // "requested" because the request is what failed: a
+                    // successful close() is intercepted and becomes a hide, so
+                    // this line means the window neither closed NOR hid.
+                    eprintln!("[cockpit-tray] failed to request cockpit window close (hide-on-close): {e}");
                 }
             }
         }

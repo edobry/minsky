@@ -90,6 +90,24 @@ describe("TabCloseBridge — the ⌘W seam (mt#4059)", () => {
     expect(screen.getByText("mt#200")).toBeDefined();
   });
 
+  test("hands focus to the neighbor closeTab selects", () => {
+    seedTabs(["100", "200"]);
+    renderBridge("/tasks/mt%23200");
+
+    pressCloseTab();
+
+    // `closeTab` navigates to the last remaining tab when you close the one you
+    // are on. Asserted here rather than left to `closeTab`'s own tests because
+    // it is half of this task's first success criterion: the window stays put
+    // and the operator lands somewhere deliberate, not on the dashboard.
+    const neighbor = document.querySelector('[data-tab-path="/tasks/mt%23100"]');
+    // Two assertions, not one: `neighbor?.querySelector(...)` yields `undefined`
+    // when the tab is missing entirely, and `undefined` is not null — so the
+    // single-assertion form would pass in exactly the case it exists to catch.
+    expect(neighbor).not.toBeNull();
+    expect(neighbor?.querySelector('[aria-current="location"]')).toBeTruthy();
+  });
+
   test("no-ops on a non-entity route rather than closing something arbitrary", () => {
     seedTabs(["100", "200"]);
     // A list route opens no tab, so there is nothing in view to close — the
