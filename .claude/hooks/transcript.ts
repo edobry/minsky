@@ -892,7 +892,7 @@ export function findToolUseInputs(
  * `{ content: [...] }` wrapper — is recursed into once. Non-text, non-nested
  * blocks are ignored; a malformed or absent content contributes "".
  */
-function extractToolResultText(content: unknown): string {
+export function extractToolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
@@ -1162,6 +1162,82 @@ export function findIndexedToolUses(lines: TranscriptLine[]): IndexedToolUse[] {
     }
   }
   return calls;
+}
+
+/** A tool call paired with the body of the result it produced. */
+export interface ToolCallWithResult {
+  index: number;
+  toolName: string;
+  input: Record<string, unknown>;
+  /** The result body, or "" when no correlated result appears in `lines`. */
+  resultText: string;
+  /** True when a correlated result was found — distinguishes "" from "never returned". */
+  hasResult: boolean;
+}
+
+/**
+ * Every `tool_use` in `lines`, joined to the body of its `tool_result`.
+ *
+ * The join is the same `tool_use_id` correlation {@link findCreatedResourceIds}
+ * and {@link findDeniedToolCalls} each perform inline for their own purposes;
+ * this is the general form, because a caller that needs to judge a call by WHAT
+ * IT RETURNED — rather than by whether it errored, or by an id it minted —
+ * previously had no helper and would have made this the third copy.
+ *
+ * `hasResult` is carried separately from `resultText` because an empty body and
+ * a call with no result at all are different facts: a search that legitimately
+ * found nothing returns "", while a call still in flight returns nothing. A
+ * caller counting hits must not read the second as zero.
+ */
+export function findToolCallsWithResults(lines: TranscriptLine[]): ToolCallWithResult[] {
+  const calls: Array<{
+    index: number;
+    useId: string | undefined;
+    toolName: string;
+    input: Record<string, unknown>;
+  }> = [];
+  const consider = (index: number, id: unknown, name: unknown, rawInput: unknown): void => {
+    if (typeof name !== "string" || !name) return;
+    calls.push({
+      index,
+      useId: typeof id === "string" ? id : undefined,
+      toolName: name,
+      input: rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {},
+    });
+  };
+
+  const resultsById = new Map<string, string>();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (line.type === "tool_use") {
+      const raw = line as Record<string, unknown>;
+      consider(i, raw["id"], line.name ?? line.tool_name, raw["input"]);
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block) continue;
+      if (block["type"] === "tool_use") {
+        consider(i, block["id"], block["name"], block["input"]);
+      }
+      if (block["type"] === "tool_result" && typeof block["tool_use_id"] === "string") {
+        resultsById.set(block["tool_use_id"] as string, extractToolResultText(block["content"]));
+      }
+    }
+  }
+
+  return calls.map(({ index, useId, toolName, input }) => {
+    const hasResult = useId !== undefined && resultsById.has(useId);
+    return {
+      index,
+      toolName,
+      input,
+      resultText: hasResult ? (resultsById.get(useId as string) ?? "") : "",
+      hasResult,
+    };
+  });
 }
 
 /**

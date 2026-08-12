@@ -71,31 +71,60 @@ jobs:
             sleep 5
           done
 
-          # Verify the domain layer initialized (not just Express serving).
-          # /api/widgets returns the widget registry; an empty array or error
-          # means the config/persistence layer failed to boot.
-          WIDGETS=$(curl -s "$PREVIEW_URL/api/widgets" 2>/dev/null || echo "FETCH_FAILED")
-          if echo "$WIDGETS" | grep -q '"status":"error"'; then
-            echo "FAIL: /api/widgets returned error response"
-            echo "Response: $WIDGETS"
-            exit 1
-          fi
-          WIDGET_COUNT=$(echo "$WIDGETS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
-          if [ "$WIDGET_COUNT" -lt 1 ]; then
-            echo "FAIL: /api/widgets returned 0 widgets — domain layer likely failed to initialize"
-            echo "Response: $WIDGETS"
-            exit 1
-          fi
-          echo "Widget API: $WIDGET_COUNT widgets registered"
+          # mt#4023: the preview is passkey-gated, so CI (which holds no
+          # credential) can no longer read a data endpoint. The previous check
+          # fetched /api/widgets and treated an empty result as "domain layer
+          # failed to initialize" — against a gated deployment that check
+          # reports a boot failure whenever the gate is working, which is the
+          # opposite of the truth. It is replaced below.
 
-          # Verify preview mode blocks mutations (curl WITHOUT -f so 403 is captured)
+          # The gate is mounted and Express is routing: a data route must refuse
+          # an anonymous caller. A 200 here would mean the gate is NOT applied —
+          # exactly the exposure mt#4023 closed — so this assertion is now the
+          # security check as well as the liveness check.
+          TASKS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL/api/tasks")
+          if [ "$TASKS_CODE" != "401" ]; then
+            echo "FAIL: GET /api/tasks returned $TASKS_CODE (expected 401 — the passkey gate should deny anonymous reads)"
+            exit 1
+          fi
+          echo "Passkey gate: anonymous data read refused (401)"
+
+          # The domain layer initialized: /api/auth/status is public AND queries
+          # the database (it counts enrolled passkeys), so it is a stronger boot
+          # probe than the old widget-registry read, which touched no storage.
+          #
+          # 503 is ACCEPTED and means "auth tables not present yet" — expected on
+          # the PR that introduces migration 0094, since the preview points at
+          # the production database and that migration applies after merge. The
+          # gate fails closed in that state (the 401 above still holds), so 503
+          # is an availability signal, never an exposure.
+          STATUS_BODY=$(curl -s -o /tmp/auth-status.json -w "%{http_code}" "$PREVIEW_URL/api/auth/status")
+          if [ "$STATUS_BODY" = "200" ]; then
+            if ! grep -q '"gated":true' /tmp/auth-status.json; then
+              echo "FAIL: /api/auth/status returned 200 but did not report gated:true"
+              cat /tmp/auth-status.json
+              exit 1
+            fi
+            echo "Auth status: gated:true, database reachable"
+          elif [ "$STATUS_BODY" = "503" ]; then
+            echo "Auth status: 503 — auth tables not yet migrated (expected before 0094 applies); gate still denying"
+          else
+            echo "FAIL: /api/auth/status returned $STATUS_BODY (expected 200 or 503)"
+            cat /tmp/auth-status.json || true
+            exit 1
+          fi
+
+          # Mutations: the passkey gate now answers BEFORE the preview-mode
+          # mutation guard, so an anonymous POST is 401 rather than the 403 this
+          # step used to assert. The 403 path still exists for an authenticated
+          # caller and is covered by src/cockpit/server-security.test.ts.
           MUTATION_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PREVIEW_URL/api/asks/smoke-test/resolve" \
             -H "Content-Type: application/json" -d '{"responder":"operator","payload":{}}')
-          if [ "$MUTATION_CODE" != "403" ]; then
-            echo "FAIL: POST to mutation endpoint returned $MUTATION_CODE (expected 403)"
+          if [ "$MUTATION_CODE" != "401" ]; then
+            echo "FAIL: POST to mutation endpoint returned $MUTATION_CODE (expected 401 from the passkey gate)"
             exit 1
           fi
-          echo "Preview guard: mutations blocked (403)"
+          echo "Passkey gate: anonymous mutation refused (401)"
           echo "All verification checks passed."
 
       - name: Post preview URL comment

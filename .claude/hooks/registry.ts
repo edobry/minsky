@@ -28,6 +28,7 @@ import type { ClaudeHookInput } from "./types";
 import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
 import type { RecordedTurnAnchor } from "./turn-anchor-store";
+import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1672,6 +1673,44 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
           },
         },
         { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "calibration",
+    },
+  },
+  {
+    // mt#3918. Full contract in the module's header; matcher in
+    // `packages/domain/src/detectors/negative-existence-claim.ts`.
+    name: "negative-existence-claim-detector",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./negative-existence-claim-detector").then((m) => ({ run: m.run })),
+    renderProbe: () =>
+      import("./negative-existence-claim-detector").then((m) => m.renderWorstCase()),
+    timeoutMs: 10000,
+    calibrationLog: "negative-existence-claim",
+    denyCapable: false,
+    needsTranscript: true,
+    // MEASURED via `renderProbe`: 1559 saturated. Claim axis posed at its bound
+    // (7 patterns); the DONE-task-id axis is UNCAPPED, so this is a sample, not
+    // a ceiling — `render-probe-sample`, and a cap is owed before injection.
+    attentionCost: { denialMessageSizeChars: 1600, optionCount: 2 },
+    // Calibration-first: the canary asserts `calibration`, not additionalContext,
+    // so a later INJECTION_ENABLED flip gains an outcome rather than breaking it.
+    // It cites mt#2677 — a really-DONE task — which makes it deterministic in
+    // BOTH lookup states: the check passes with a database, and without one the
+    // lookup returns null and conjunct 3 fails TOWARD firing. A nonexistent id
+    // would fire only in the second state.
+    canary: {
+      input: { transcript_path: "mt3918-canary-transcript" },
+      transcriptLines: [
+        userPromptLine("first turn"),
+        toolUseLine("toolu_canary_search", "Grep", { pattern: "progress" }),
+        toolResultLine("toolu_canary_search", "src/mcp/server.ts:214: progress"),
+        toolUseLine("toolu_canary_artifact", "mcp__minsky__tasks_create", {
+          spec: "There are zero production call sites for the progress mechanism mt#2677 shipped.",
+        }),
+        userPromptLine("second turn"),
       ],
       expects: "calibration",
     },

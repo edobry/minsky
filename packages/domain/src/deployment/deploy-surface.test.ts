@@ -45,14 +45,10 @@ describe("isDeploySurfaceFile", () => {
   });
 
   test("does not match a non-deploy-surface file", () => {
-    // NOTE root `src/**` deliberately does NOT appear here even though it's
-    // NOT a deploy-surface pattern per this module — see the mt#3523
-    // "cockpit inversion" tests below for why root src/** is carved out
-    // (mt#4013) rather than silently added.
-    expect(isDeploySurfaceFile("src/domain/session/session.ts")).toBe(false);
-    // mt#3523: services/reviewer/** application source IS now covered — see
-    // the "mt#3523 widened surface" describe block below for the positive
-    // case. This example moves to a genuinely non-surface path.
+    // Root src/** IS a surface as of mt#4013 (bundled into the minsky-mcp
+    // image), so the negative examples here are paths genuinely outside
+    // every deploy workflow's paths: block.
+    expect(isDeploySurfaceFile("scripts/run-tests-main.ts")).toBe(false);
     expect(isDeploySurfaceFile(NON_SURFACE_DOC)).toBe(false);
     expect(isDeploySurfaceFile("README.md")).toBe(false);
   });
@@ -149,7 +145,7 @@ describe("findAffectedServices", () => {
   });
 
   test("ignores non-deploy-surface files", () => {
-    const result = findAffectedServices(["src/domain/session.ts", "README.md"], available);
+    const result = findAffectedServices(["scripts/run-tests-main.ts", "README.md"], available);
     expect(result.services).toEqual([]);
     expect(result.matchedFiles).toEqual([]);
   });
@@ -218,19 +214,22 @@ describe("mt#3523 widened surface", () => {
     expect(result.matchedFiles).toEqual(files);
   });
 
-  // --- AT3: cockpit inversion — src/cockpit/web/** + docs/** is NOT a surface ---
-  test("AT3: src/cockpit/web/** + docs/** is NOT a deploy surface and yields no services", () => {
-    const files = [
-      "src/cockpit/web/App.tsx",
-      "src/cockpit/web/components/Widget.tsx",
-      "docs/cockpit-ui.md",
-    ];
-    for (const file of files) {
-      expect(isDeploySurfaceFile(file)).toBe(false);
+  // --- AT3 (revised by mt#4013): src/cockpit/web/** IS a surface, but for
+  // minsky-mcp (bundled input of that image), never for the cockpit service.
+  // The original ask#7028 cockpit-inversion claim — the COCKPIT service is
+  // not a merge-deploy target — still holds and is what the service
+  // assertion below pins; the isDeploySurfaceFile half flipped when root
+  // src/** joined the map (it was already a live workflow trigger).
+  test("AT3: src/cockpit/web/** is a minsky-mcp surface (bundled input), never a cockpit one; docs/** stays out", () => {
+    const cockpitWebFiles = ["src/cockpit/web/App.tsx", "src/cockpit/web/components/Widget.tsx"];
+    for (const file of cockpitWebFiles) {
+      expect(isDeploySurfaceFile(file)).toBe(true);
     }
-    const result = findAffectedServices(files, availableAll);
-    expect(result.services).toEqual([]);
-    expect(result.matchedFiles).toEqual([]);
+    expect(isDeploySurfaceFile("docs/cockpit-ui.md")).toBe(false);
+    const result = findAffectedServices([...cockpitWebFiles, "docs/cockpit-ui.md"], availableAll);
+    expect(result.services).toEqual(["minsky-mcp"]);
+    expect(result.services).not.toContain("cockpit");
+    expect(result.matchedFiles).toEqual(cockpitWebFiles);
   });
 
   // --- AT4: docs-only PR is still NOT a deploy surface ---
@@ -310,16 +309,16 @@ describe("mt#3523 widened surface", () => {
     }
   });
 
-  // --- root src/** is deliberately NOT a deploy surface (mt#4013 carve-out) ---
-  test("root src/** (outside src/cockpit/**) is NOT classified as a deploy surface (mt#4013 owns this)", () => {
-    // NOTE: this is a documented, deliberate gap, not an oversight — see the
-    // DEPLOY_SURFACE_SERVICE_MAP doc comment in deploy-surface.ts. Root
-    // src/** IS currently a live minsky-mcp trigger per
-    // deploy-minsky-mcp.yml's paths: block (verified via git blame), but
-    // adding it here would pre-empt mt#4013's decision and would also flip
-    // the AT3 cockpit-inversion result above (since src/cockpit/** nests
-    // under root src/**).
-    expect(isDeploySurfaceFile("src/mcp/tools/example.ts")).toBe(false);
-    expect(isDeploySurfaceFile("src/domain/session/session.ts")).toBe(false);
+  // --- root src/** -> minsky-mcp (mt#4013: trigger kept, map aligned) ---
+  test("root src/** is a minsky-mcp deploy surface (mt#4013 decision)", () => {
+    // Root src is COPYed wholesale into the minsky-mcp image
+    // (Dockerfile `COPY src ./src`), and deploy-minsky-mcp.yml has carried
+    // "src/**" in its paths: block since 2026-06-12. mt#4013 decided the
+    // trigger stays and the map matches it — see the
+    // DEPLOY_SURFACE_SERVICE_MAP doc comment in deploy-surface.ts.
+    expect(isDeploySurfaceFile("src/mcp/tools/example.ts")).toBe(true);
+    expect(isDeploySurfaceFile("src/domain/session/session.ts")).toBe(true);
+    const result = findAffectedServices(["src/mcp/tools/example.ts"], availableAll);
+    expect(result.services).toEqual(["minsky-mcp"]);
   });
 });

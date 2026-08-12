@@ -322,6 +322,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
+  "MINSKY_COCKPIT_RP_ID", // src/cockpit/server.ts (mt#4023) — WebAuthn relying-party id for the public deployment; defaults to the Railway hostname. Changing it invalidates every enrolled passkey, since a credential is bound to the rpID it was created under.
+  "MINSKY_COCKPIT_ORIGIN", // src/cockpit/server.ts (mt#4023) — expected WebAuthn origin; defaults to `https://<rpID>`. Override only when the scheme or port differs from that default.
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
@@ -347,6 +349,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
   "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
   "MINSKY_ACK_CODE_MECHANISM_ASSERTION", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
+  "MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
   "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
   "MINSKY_SKIP_SPEC_READ_CHECK", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
   "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard

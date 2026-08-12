@@ -17,13 +17,12 @@
  * edit to either workflow's `paths:` block is caught automatically, with no
  * companion edit required here.
  *
- * ONE documented, named exception: root `src/**` for minsky-mcp. See
- * `KNOWN_DIVERGENCES` below and the matching doc comment on
- * `DEPLOY_SURFACE_SERVICE_MAP` in ./deploy-surface.ts for the full
- * rationale (it IS currently a live trigger — verified via `git blame` —
- * but mt#4013 owns the decision of whether it should stay one, and it
- * subsumes `src/cockpit/**`, which would flip this module's cockpit
- * exclusion).
+ * No carve-outs remain: the root `src/**` exception that reserved the
+ * mapping decision for mt#4013 was removed when that decision landed
+ * (keep the trigger; map `/^src\//` to minsky-mcp — see
+ * `DEPLOY_SURFACE_SERVICE_MAP`'s doc comment in ./deploy-surface.ts).
+ * `KNOWN_DIVERGENCES` below stays as the named-allowlist mechanism for
+ * any future documented exception.
  *
  * Negative-control observation (this task's spec item 3): before shipping,
  * a path was temporarily added to one workflow's `paths:` list, this test
@@ -60,9 +59,7 @@ const WORKFLOWS: readonly WorkflowTarget[] = [
  * `DEPLOY_SURFACE_PATTERNS` still fails this test — this is a named
  * allowlist of exactly one entry, not a blanket skip.
  */
-const KNOWN_DIVERGENCES: ReadonlySet<string> = new Set([
-  ".github/workflows/deploy-minsky-mcp.yml::src/**",
-]);
+const KNOWN_DIVERGENCES: ReadonlySet<string> = new Set<string>();
 
 function readWorkflowPushPaths(workflowPath: string): string[] {
   // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the committed workflow file to assert DEPLOY_SURFACE_PATTERNS tracks its actual trigger paths; the workflow's content IS the thing under test (mt#3523)
@@ -155,6 +152,17 @@ describe("deploy-surface workflow-paths drift (mt#3523)", () => {
       const examplePath = globToExamplePath(glob);
       expect(isDeploySurfaceFile(examplePath)).toBe(false);
     }
+  });
+
+  // mt#4013 (PR #2908 review): the `/^src\//` -> minsky-mcp map entry is
+  // justified by the root Dockerfile bundling the whole src tree. If that
+  // COPY ever changes shape (selective src COPYs, tree moved), the map's
+  // premise is gone and the entry must be re-decided — fail here rather
+  // than leaving map, workflow, and Dockerfile to drift apart silently.
+  test("root Dockerfile still COPYs the whole src tree (the premise of the src/** -> minsky-mcp mapping)", () => {
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the committed Dockerfile to assert the mapping's premise; the Dockerfile's content IS the thing under test (mt#4013)
+    const dockerfile = readFileSync(join(REPO_ROOT, "Dockerfile"), "utf8");
+    expect(dockerfile).toContain("COPY src ./src");
   });
 });
 

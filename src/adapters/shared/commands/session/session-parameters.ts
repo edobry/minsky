@@ -874,6 +874,21 @@ export const sessionPrWaitForReviewCommandParams = {
     required: false,
     defaultValue: true,
   },
+  expectedHeadSha: {
+    schema: z.string(),
+    description:
+      "The commit you expect the REMOTE to be serving — pass the commitHash session_commit " +
+      "just returned (mt#3877). While the remote head differs from it, NO review is " +
+      "considered and the wait keeps polling, so arming the watcher before a push lands no " +
+      "longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in " +
+      "that window the superseded commit IS the current head, so it is admitted by exactly " +
+      "the filter meant to exclude it. The window is routine — session_commit regularly " +
+      "exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. " +
+      "On timeout the result carries expectedHeadShaUnreached naming the sha the remote " +
+      "never reached. Ignored on backends without HEAD-sha support, or with " +
+      "requireCurrentHead: false.",
+    required: false,
+  },
   fullBody: {
     schema: z.boolean(),
     description:
