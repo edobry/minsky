@@ -55,6 +55,7 @@ export enum CommandCategory {
   EVENTS = "EVENTS",
   REFS = "REFS",
   PRINCIPAL = "PRINCIPAL",
+  SECURITY = "SECURITY",
 }
 
 /**
