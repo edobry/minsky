@@ -317,6 +317,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
   "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
   "MINSKY_SKIP_DUPLICATE_RECORD", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
+  "MINSKY_SKIP_FLAKINESS_CONTROL", // .claude/hooks/flakiness-control-detector.ts (mt#3658) — override for the tasks_create flakiness-isolation-control detector
   "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
   "MINSKY_SKIP_AGENT_DISPATCH_RECORD", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
