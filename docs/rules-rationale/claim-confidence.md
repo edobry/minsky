@@ -208,9 +208,24 @@ mine."_
 
 mt#3599 (this amendment, Leg B) · mt#3598 (the corpus audit) · mem#824 (the originating incident)
 · mem#664 (`family:principal-altitude` root) · ADR-037 (the forward control mechanism this
-amendment accompanies) · `user-preferences.mdc §Plain-language first` · mt#4051 + mem#997 (the
-normative-content extension above) · mem#706 (`family:assertion-without-verification` root) ·
-`/escalation-packaging §Content checklist` items 2 and 4 (the chokepoint check).
+amendment accompanies) · `user-preferences.mdc §Plain-language first` · mem#706
+(`family:assertion-without-verification` root) · `/escalation-packaging §Content checklist` items 2
+and 4 (the chokepoint check).
+
+For the normative-content extension above, three ids that are easy to confuse and are not the same
+record:
+
+- **mt#4051** — the task that shipped the extension (this rule amendment, the checklist items, and
+  this section).
+- **mt#4052** — the deterministic slice mt#4051 deferred: a calibration-first `PreToolUse` detector
+  for a preference marker carried into an `AskUserQuestion` option label without a named source.
+  Filed, TODO, with a recorded dependency on mt#4032. This is the mechanism that would have caught
+  the incident above; the prose here is the weaker tier and says so.
+- **mem#997** — `feedback_recommendation_loses_provenance_across_surfaces`, the bridge memory,
+  retired when mt#4052 ships. **Distinct from mem#977**
+  (`handoff_transcript_archive_premise_falsified_2026-08-11`), the handoff cited in the incident
+  narrative above as the record the agent read and whose disclaimer it dropped. The two differ by a
+  digit transposition and nothing else, so check the name before citing either.
 
 ## Absence in a derived view is not evidence of absence in the source
 
