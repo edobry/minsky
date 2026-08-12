@@ -1158,7 +1158,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "block-concurrent-bulk-mutation",
-    effects: [enforcementEffect()],
+    // BOTH effects, and the recorder is load-bearing (PR #2937 R3): this guard denies AND writes
+    // a calibration record on every governed command — including the `overridden` outcome, which
+    // is the whole point of recording the override rather than returning null. Declaring only the
+    // enforcement effect left the records with nowhere to land: emitted by `run`, dropped by the
+    // dispatcher for want of a `calibrationLog`. Silent, and exactly the shape of defect this
+    // guard's own docblock warns about elsewhere.
+    effects: [enforcementEffect(), recorderEffect()],
     // `invariant`: "do not start a second copy of a script that is already
     // running" is not a threshold an operator tunes. The escape is the
     // documented override on the individual call, not a knob.
@@ -1169,6 +1175,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // Two short-lived subprocess calls (`pgrep`, then `ps` on the matched pids),
     // and only on a command that already matched the pure trigger.
     timeoutMs: 5000,
+    calibrationLog: "block-concurrent-bulk-mutation",
     denyCapable: true,
     // MEASURED against buildDenialReason()'s fixed body plus one process entry
     // — ~780 chars. The per-process line adds ~140 chars, and a collision with

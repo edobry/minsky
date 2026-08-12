@@ -199,6 +199,7 @@ export interface CalibrationLogEntry {
     | "operator-instruction-trigger"
     | "agent-dispatch-record"
     | "chained-verification-commands"
+    | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
     | "generic-matches";
   /**
@@ -1870,6 +1871,7 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "operator-instruction-trigger": true,
   "agent-dispatch-record": true,
   "chained-verification-commands": true,
+  "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
   "generic-matches": true,
 };
