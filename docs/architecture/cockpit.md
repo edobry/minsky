@@ -66,9 +66,18 @@ growth costs a gesture per pane, so there is no cap or eviction policy.
 | `⌘K`             | Open the command palette (`CommandPalette.tsx`)                                                     |
 | `⌘⇧]` / `⌘⇧[`    | Next / previous tab in **strip** order, wrapping at both ends (mt#3469)                             |
 | `⌃Tab` / `⌃⇧Tab` | Next / previous tab in **recency** order; holding `⌃` walks a frozen order, as in VS Code (mt#3469) |
+| `⌘W`             | Close the **active** tab; inert when no entity tab is in view (mt#4059)                             |
+| `⌘⇧W`            | Close (hide) the cockpit window — where plain `⌘W` used to sit (mt#4059)                            |
 
-All of them are suppressed while focus is in a text input, textarea, select, or
-contenteditable host.
+The palette and the tab-cycling chords are suppressed while focus is in a text
+input, textarea, select, or contenteditable host. `⌘W` and `⌘⇧W` are not: they
+are macOS **menu accelerators** (Window ▸ Close Tab / Close Window), which fire
+regardless of focus and never reach the document. That is the point of the
+choice — an accelerator also renders its chord in the menu, and does not depend
+on a chorded key being delivered to the webview, which is the open question
+mt#3475 tracks for the cycling chords above. `⌘W` reaches SPA state through the
+ADR-023 native→SPA seam: `menu.rs eval_close_active_tab` evals
+`window.__minskyCloseActiveTab`, installed by `components/TabCloseBridge.tsx`.
 
 **The tab shortcuts only work in the Tauri cockpit window, not in a browser tab.** Browsers
 reserve those chords for their own tab strip and never deliver them to the page, so there they

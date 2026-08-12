@@ -246,6 +246,20 @@ re-fetching the body and re-running the matchers answers "what would the detecto
 say TODAY", never "what was it judging when it fired" — mt#3584 lost a real false
 positive exactly that way, because the body had been edited in between.
 
+**A pre-capture record may still be RECOVERABLE from the transcript (mt#3821).**
+"Unrecoverable from the record" and "unrecoverable" are different claims, and the
+corpus had been treating them as one. For `retrospective-trigger`,
+`bun scripts/replay-retrospective-trigger-calibration.ts` reconstructs the judged
+turn from the session transcript and grades what it found: `recovered-verified`
+(the turn matches the record's `judged_text_hash`) is the only verdict that
+licenses using the text as a replay input; `recovered-corroborated` means the turn
+contains the record's own quoted text; `recovered-unverified` is proximity in time
+alone, a lead to check by hand. Transcripts do age out — 12 of 959 records had none
+— so a recovery attempt can still end at `unreplayable`, which is a measurement,
+not a pass. Nothing here changes the split above: a record whose text was recovered
+this way is auditable BY THAT EVIDENCE, and should be reported as such rather than
+silently folded in with `captureSchema`-bearing records.
+
 ## Step 3 — Recommendation
 
 Per review-due log, pick one. Note what the log's reason tells you about the

@@ -3,7 +3,7 @@
 //
 // `build` constructs the tray dropdown (status/build/uptime lines + daemon
 // lifecycle actions) and the macOS application menu (mt#2327: gives the
-// cockpit window standard shortcuts like Cmd+R / Cmd+W / zoom, which Tauri
+// cockpit window standard shortcuts like Cmd+R / Cmd+C / zoom, which Tauri
 // does not create by default). `handle_menu_event` is the single dispatch
 // point both menus route through. Split out of main.rs (mt#2628).
 
@@ -187,7 +187,7 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // lifecycle, but it does NOT give the cockpit *window* the standard
     // web-app keyboard shortcuts. On macOS those come from the
     // application menu's accelerators, which Tauri (unlike Electron) does
-    // not create by default — so Cmd+R / Cmd+W / Cmd+C&c. were dead in the
+    // not create by default — so Cmd+R / Cmd+C / close &c. were dead in the
     // cockpit window. Build a minimal app menu so they work when the
     // window is focused. Zoom (Cmd +/-/0) is driven by the View-menu
     // items below via `WebviewWindow::set_zoom` (mt#2334) — Tauri's
@@ -257,9 +257,39 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
         .item(&history_back_item)
         .item(&history_forward_item)
         .build()?;
+    // Close Tab / Close Window (mt#4059). `⌘W` addresses the ENTITY TAB, and
+    // window-close moves to `⌘⇧W` -- the mapping every tabbed macOS app uses
+    // (Safari, Chrome, Terminal, iTerm), and the one an operator arriving from
+    // a browser already has in their fingers.
+    //
+    // `CmdOrCtrl` is deliberate, not inherited by accident (PR #2936 R1): the
+    // same relocation is correct off-mac, because browsers there also bind
+    // Ctrl+W to close-tab and Ctrl+Shift+W to close-window. The tray ships as a
+    // macOS menu-bar app today, so this is currently theoretical -- but the
+    // theoretical behavior is the RIGHT one, and every other accelerator in
+    // this file already uses the same modifier token.
+    //
+    // Both are CUSTOM items rather than `SubmenuBuilder::close_window()`,
+    // because a `PredefinedMenuItem`'s accelerator cannot be changed: only
+    // MenuItem/CheckMenuItem/IconMenuItem expose `set_accelerator`, and the
+    // predefined variant's chord comes from a fixed table (muda
+    // `items/predefined.rs`, which binds CloseWindow to CmdOrCtrl+W on macOS).
+    // Same substitution, for the same reason, that Quit above already makes.
+    //
+    // `close_window` calls `WebviewWindow::close()` rather than hiding
+    // directly, so it lands on the mt#2675 hide-on-close `CloseRequested`
+    // handler in `create_cockpit_window` -- identical behavior to the red
+    // button, with one definition of what closing means.
+    let close_tab_item = MenuItemBuilder::with_id("close_tab", "Close Tab")
+        .accelerator("CmdOrCtrl+W")
+        .build(app)?;
+    let close_window_item = MenuItemBuilder::with_id("close_window", "Close Window")
+        .accelerator("CmdOrCtrl+Shift+W")
+        .build(app)?;
     let window_submenu = SubmenuBuilder::new(app, "Window")
         .minimize()
-        .close_window()
+        .item(&close_tab_item)
+        .item(&close_window_item)
         .build()?;
     let app_menu = MenuBuilder::new(app)
         .item(&app_submenu)
@@ -277,7 +307,9 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
     app.on_menu_event(move |app, event| match event.id().as_ref() {
         "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" | "history_back"
-        | "history_forward" => handle_menu_event(app, event.id().as_ref()),
+        | "history_forward" | "close_tab" | "close_window" => {
+            handle_menu_event(app, event.id().as_ref())
+        }
         _ => {}
     });
 
@@ -325,6 +357,32 @@ pub(crate) fn eval_history_nav(app: &AppHandle, forward: bool, guard_editable: b
     }
 }
 
+/// Close the cockpit SPA's ACTIVE entity tab (mt#4059).
+///
+/// The ADR-023 native->SPA seam in its `eval`-a-global form -- the deep-link
+/// shape (`deeplink.rs`), not the history shape. `history.back()` is a native
+/// browser API the eval can call directly; a tab is SPA state with no native
+/// equivalent, so the SPA installs `window.__minskyCloseActiveTab` and this
+/// calls it.
+///
+/// The `typeof` guard makes a pre-mount or non-cockpit document a no-op rather
+/// than a thrown ReferenceError, and the SPA side no-ops when no entity tab is
+/// active -- so `⌘W` on a list page does nothing at all, and deliberately does
+/// NOT fall through to closing the window. There is no payload, so ADR-023's
+/// JSON-encoding requirement (a script-injection guard for interpolated
+/// values) has nothing to encode: keep this script a literal.
+pub(crate) fn eval_close_active_tab(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) else {
+        return;
+    };
+    let script = "(function () {\n  \
+         if (typeof window.__minskyCloseActiveTab === 'function') { window.__minskyCloseActiveTab(); }\n\
+         })()";
+    if let Err(e) = window.eval(script) {
+        eprintln!("[cockpit-tray] failed to close the active cockpit tab: {e}");
+    }
+}
+
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "open_window" => open_cockpit_window(app),
@@ -339,6 +397,20 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         // focused-editable carve-out applies -- see eval_history_nav.
         "history_back" | "history_forward" => {
             eval_history_nav(app, id == "history_forward", true);
+        }
+        // Tab close (mt#4059) -- SPA state, so it goes through the ADR-023
+        // eval-a-global seam. Window close keeps the pre-mt#4059 behavior at
+        // its new chord: `close()` is intercepted by the hide-on-close handler.
+        "close_tab" => eval_close_active_tab(app),
+        "close_window" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                if let Err(e) = window.close() {
+                    // "requested" because the request is what failed: a
+                    // successful close() is intercepted and becomes a hide, so
+                    // this line means the window neither closed NOR hid.
+                    eprintln!("[cockpit-tray] failed to request cockpit window close (hide-on-close): {e}");
+                }
+            }
         }
         "zoom_in" | "zoom_out" | "zoom_reset" => {
             // try_state (not state) so an early/edge invocation before the
@@ -434,7 +506,7 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
 /// global-hotkey toggle's "visible+focused -> hide" direction). Mirrors the
 /// hide-on-close `CloseRequested` handler in `create_cockpit_window` below --
 /// same behavior, triggered by the hotkey instead of the window's close
-/// button / Cmd+W.
+/// button / Cmd+Shift+W (Cmd+W closes the active TAB since mt#4059).
 pub(crate) fn hide_cockpit_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         if let Err(e) = window.hide() {
@@ -549,7 +621,7 @@ fn create_cockpit_window(app: &AppHandle) {
     {
         Ok(window) => {
             // Hide-on-close (mt#2675): intercept CloseRequested so the red
-            // button / Cmd+W hides the window (preserving SPA state) instead
+            // button / Cmd+Shift+W hides the window (preserving SPA state) instead
             // of destroying it, and drop Dock + Cmd-Tab presence while
             // hidden. Destroyed is the defensive fallback for any destroy
             // path that bypasses CloseRequested (e.g. app teardown).

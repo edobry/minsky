@@ -46,10 +46,19 @@ task graph — back ~184px of content width.
 | `⌘⇧O`            | Start a new conversation              |
 | `⌘⇧[` / `⌘⇧]`    | Previous / next tab, in strip order   |
 | `⌃Tab` / `⌃⇧Tab` | Previous / next tab, in recency order |
+| `⌘W`             | Close the tab you are looking at      |
+| `⌘⇧W`            | Close the cockpit window              |
 
-All of them yield to text entry. The two tab chords are reserved by browsers for
-their own tab switching, so they fire only inside the cockpit tray window and are
-simply inert in a browser tab.
+The first five yield to text entry. The tab-cycling chords are reserved by
+browsers for their own tab switching, so they fire only inside the cockpit tray
+window and are simply inert in a browser tab.
+
+`⌘W` / `⌘⇧W` are tray-window only for a different reason: they are entries in
+the Window menu, so a browser tab keeps browser behavior (`⌘W` closes the
+browser tab). In the tray, `⌘W` closes the active entity tab — the browser
+mapping, which is why window-close moved to `⌘⇧W`. On a list page or the
+dashboard there is no tab in view, so `⌘W` does nothing rather than closing the
+window out from under your working set.
 
 ## The side peek (mt#3694)
 
