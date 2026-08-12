@@ -194,6 +194,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "git.stash_list": "reads",
   "git.stats": "reads",
   "git.status": "reads",
+  "guard-events.ingest": "mutates", // batch-inserts into guard_events (mt#4035)
 
   // --- init / knowledge / mcp ---------------------------------------------
   init: "mutates",

@@ -798,6 +798,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Ingests the finished transcript at SessionEnd — recording, not enforcement (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/guard-events-ingest-on-session-end.ts",
+    reason:
+      "mt#4035 guard/calibration exhaust ingest push at SessionEnd — recording, not enforcement; the correctness layer is the cockpit sweep, not this hook (hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/post-merge-unasked-direction-scan.ts",
     reason: "Post-merge scanner for unasked directions — detector, log-only (hook-observers.mdc)",
   },
