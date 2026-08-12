@@ -484,20 +484,29 @@ First wait (no \`since\` — picks up the first review on the PR):
 mcp__minsky__session_pr_wait-for-review(task: "mt#<id>", reviewer: "minsky-reviewer[bot]")
 \`\`\`
 
-Subsequent waits (after pushing a fix — pass \`since\` set to the previous review's \`submittedAt\` timestamp so the call returns the NEW review, not the stale CHANGES_REQUESTED one):
+Subsequent waits (after pushing a fix) pass TWO things — \`since\`, so the call returns the NEW review rather than the stale CHANGES_REQUESTED one, and \`expectedHeadSha\`, so it does not return a review of a tree the remote has not received yet:
 
 \`\`\`
 mcp__minsky__session_pr_wait-for-review(
   task: "mt#<id>",
   reviewer: "minsky-reviewer[bot]",
-  since: "<previous review.submittedAt>"   // e.g. "2026-05-23T16:59:27Z"
+  since: "<previous review.submittedAt>",      // e.g. "2026-05-23T16:59:27Z"
+  expectedHeadSha: "<session_commit's commitHash>"
 )
 \`\`\`
+
+**Why \`expectedHeadSha\` (mt#3877).** \`session_commit\` runs the full suite in pre-commit and routinely exceeds the 120s MCP tool timeout, at which point the harness BACKGROUNDS it — the call returns, and the push completes up to a minute later. Arming the watcher in that window gets you a review of the PREVIOUS head, re-reporting the findings your unpushed commit already fixed: one wasted round of reviewer tokens, ~9 minutes, and an agent turn spent deciding whether the bot self-reversed (observed on PR #2730, 2026-08-09, with 44 seconds between the review and the push).
+
+\`requireCurrentHead: true\` does NOT protect you here, and the reason is worth internalizing rather than memorizing: at the moment you arm the watcher, the stale commit genuinely IS the remote's current head. The flag compares a review against the remote, never against your local intent, so it is satisfied by exactly the wrong thing. \`expectedHeadSha\` supplies the missing half — the commit you MEANT to be reviewed — and the wait polls on until the remote reaches it. Take the sha from \`session_commit\`'s returned \`commitHash\`; do not construct or recall it.
+
+**Do NOT block on \`pushed: true\` before arming the watcher — that is what \`expectedHeadSha\` is for.** Arm it immediately after \`session_commit\` returns, passing the sha; the wait absorbs the push lag by polling. \`pushed: true\` (or \`pushConfirmedVia\`) in the backgrounded commit's eventual notification is a DIAGNOSTIC you consult when something goes wrong, not a precondition you wait on first. Precedence, in one line: pass \`expectedHeadSha\` always; read \`pushed\` only if the wait times out with \`expectedHeadShaUnreached\`, which says the push is stuck rather than the reviewer being silent — go check the commit rather than waiting longer or bypassing.
+
+**Diagnostic (mt#3877).** When a review re-reports findings you believe you just fixed, compare its \`commitId\` against your local HEAD BEFORE concluding the reviewer self-reversed. A stale-head review and a genuine self-reversal are indistinguishable from the findings alone, and only one of them is a bypass condition — mistaking the first for the second is how a wasted round turns into an unjustified bypass.
 
 Block-and-return on the first review by the reviewer-bot. Then branch on the review state:
 
 - **APPROVE** → call \`mcp__minsky__session_pr_merge\`. The standard merge path succeeds when the bot's review body satisfies the merge-gate text patterns (post-mt#2053: both \`## Spec verification\` and \`## Documentation impact\` sections are required and will be present in a well-formed APPROVE review). On success, the at-merge handler sets DONE atomically.
-- **CHANGES_REQUESTED** → fix per the §7 Convergence Checklist (anti-rationalization: did you change behavior or just add a doc comment?; class-not-instance: scan for sibling sites of the same class and patch them all in one round). Commit, push, then re-invoke \`session_pr_wait-for-review\` with \`since\` set to the previous review's timestamp. Iterate until APPROVE.
+- **CHANGES_REQUESTED** → fix per the §7 Convergence Checklist (anti-rationalization: did you change behavior or just add a doc comment?; class-not-instance: scan for sibling sites of the same class and patch them all in one round). Commit, push, then re-invoke \`session_pr_wait-for-review\` with \`since\` set to the previous review's timestamp AND \`expectedHeadSha\` set to the commit you just pushed (see above — without it a backgrounded push costs you a guaranteed-stale round). Iterate until APPROVE.
 - **COMMENT** → assess whether changes are required. If the bot is the same App identity as the PR author, GitHub blocks APPROVE — the bot posts COMMENT with a "would have approved" signal in the body. If the body indicates no outstanding BLOCKING/REQUEST_CHANGES findings, treat as approval-equivalent and proceed to the bot-authored merge path below. Otherwise treat the COMMENT findings the same as CHANGES_REQUESTED and iterate.
 
 **Self-authored / bot-authored PR escape valves** (per \`feedback_self_authored_pr_merge_constraints\`).
