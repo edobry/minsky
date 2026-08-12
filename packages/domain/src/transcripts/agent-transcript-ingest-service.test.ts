@@ -618,6 +618,8 @@ function makeNoopToolCallProjector(): ToolCallProjector {
       toolCallsProjected: 0,
       turnsErrored: 0,
       skippedNonArray: 0,
+      orphansDeleted: 0,
+      orphanDeleteFailed: false,
     }),
   };
 }
