@@ -529,6 +529,120 @@ describe("mt#3917 precision fixes", () => {
       expect(detectUntakenAction("I'll merge it once I get to it.").length).toBeGreaterThan(0);
     });
 
+    describe("mt#3948 — the armed-watcher suppression is not bound to one word order", () => {
+      // The four attested closing messages, verbatim from the 2026-08-10 and 2026-08-11
+      // calibration windows. Each reports a wait the agent armed ITSELF and then keeps going,
+      // which is what `work-completion.mdc §External self-resolving waits` prescribes.
+      test.each([
+        [
+          "participle after the noun, with a preposition",
+          "The merge call refuses until it completes, and I have a background wait armed on it — I'll merge and write the handoff when it fires.",
+        ],
+        [
+          "an intervening modifier the old single-modifier slot missed",
+          "CI is still running on the R3 commit and I have a blocking watcher armed on the checks — I'll merge the moment they go green.",
+        ],
+        [
+          "participle after the noun, no preposition",
+          "CI is running on the approved HEAD; watcher armed, I'll merge when it's green.",
+        ],
+        [
+          "the noun is `wait`, which the copula pattern bound to `watcher`",
+          "A background wait is armed; I'll merge when the timer fires and the build has concluded.",
+        ],
+      ])("suppresses: %s", (_label, message) => {
+        expect(detectUntakenAction(message)).toEqual([]);
+      });
+
+      test("the pre-existing word order still suppresses", () => {
+        // The two retired patterns' own shapes, so the widening cannot regress them.
+        expect(
+          detectUntakenAction("A retry watcher is armed; I'll re-attempt when it fires.")
+        ).toEqual([]);
+        expect(
+          detectUntakenAction("I armed a background poll; I'll merge the PR when it clears.")
+        ).toEqual([]);
+      });
+
+      test("NEGATIVE CONTROL: naming a blocker without a wait still fires", () => {
+        // The discriminator this fix must not buy its way past. `work-completion.mdc` asks for
+        // evidence the watcher EXISTS, not for an excuse — the same line PR #2784 R1 drew when
+        // it rejected a broader `blocked only on ci` pattern. Every sentence here mentions CI, a
+        // review, or a check and arms nothing.
+        //
+        // PR #2904 R1: asserts the SPECIFIC family, not `length > 0`. A bare length assertion
+        // passes when the intended family was wrongly suppressed and some OTHER family happened
+        // to match the same sentence — so it can go green on exactly the regression it exists to
+        // catch.
+        for (const unarmed of [
+          "I'll merge the PR when the review lands.",
+          "Blocked only on CI now — I'll merge the PR when it goes green.",
+          "The checks are still running; I'll merge the PR after they finish.",
+        ]) {
+          expect(detectUntakenAction(unarmed).map((m) => m.family)).toContain("ill-action");
+        }
+      });
+    });
+
+    describe("mt#3948 — a next step inside a handoff block is the deliverable (absorbs mt#3998)", () => {
+      const HANDOFF = [
+        "## Handoff — calibration pass",
+        "",
+        "Two PRs merged, a retrospective, and a 13-hour data operation.",
+        "",
+        "### Resume — New session",
+        "",
+        "The queue is worked; the next step is a clean self-contained scope.",
+      ].join("\n");
+
+      test("suppresses the next-up family inside a handoff/resume block", () => {
+        expect(detectUntakenAction(HANDOFF).filter((m) => m.family === "next-up")).toEqual([]);
+      });
+
+      test("NEGATIVE CONTROL: the same phrasing outside a handoff block still fires", () => {
+        // PR #2904 R1: family-specific. `length > 0` would pass if `next-up` were wrongly
+        // suppressed here and any other family matched the sentence.
+        expect(
+          detectUntakenAction(
+            "The queue is worked; the next step is a clean self-contained scope."
+          ).map((m) => m.family)
+        ).toContain("next-up");
+      });
+
+      test("the suppression is scoped to next-up — `next-step` in a handoff still fires", () => {
+        // PR #2904 R1 BLOCKING: the first version gated on `ATTRIBUTABLE_FAMILIES`, which also
+        // carries `next-step`, silently widening past both the spec and the evidence. Every
+        // attested handoff fire is the `next step is` phrasing. This pins the scope so a future
+        // widening is a deliberate edit with a fixture behind it, not a set reused by accident.
+        const withNextStep = `${HANDOFF}\n\nThat's the next step.`;
+        expect(detectUntakenAction(withNextStep).map((m) => m.family)).toContain("next-step");
+      });
+
+      test("a real commitment in the SAME message still fires — suppression is per-family", () => {
+        // Why this is a per-family filter rather than a SUPPRESSION_PATTERNS entry: a handoff is
+        // a long closing message, exactly where a genuine commitment is most likely to also
+        // appear. A global suppression would silence it.
+        const withCommitment = `${HANDOFF}\n\nI'll merge the PR once you confirm.`;
+        expect(detectUntakenAction(withCommitment).some((m) => m.family === "ill-action")).toBe(
+          true
+        );
+      });
+
+      test("the heading may sit above the 600-char tail window", () => {
+        // The bug this pins: checking the tail alone would suppress only handoffs short enough
+        // to fit the window, so a real handoff — where the heading is far above the closing
+        // sentence — would still fire while the short fixture passed.
+        const padded = [
+          "### Resume — New session",
+          "",
+          "x".repeat(900),
+          "",
+          "The next step is a clean self-contained scope.",
+        ].join("\n");
+        expect(detectUntakenAction(padded).filter((m) => m.family === "next-up")).toEqual([]);
+      });
+    });
+
     test("delegating the wait to the PRINCIPAL still fires (PR #2784 R3)", () => {
       // "when you report back" is operator-delegation, which
       // `work-completion.mdc` names as the anti-pattern ("Ping me when GitHub's

@@ -195,6 +195,44 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     expect(msg).toContain('Reviewer check-run "minsky-reviewer/findings": in_progress');
   });
 
+  // mt#3877 (PR #2907 R1): the push-not-landed diagnostic changes the REMEDY —
+  // check the stuck push rather than waiting longer or citing reviewer silence
+  // as a bypass condition. A diagnostic only present in --json is not present
+  // for the text-mode reader who hit it.
+  test("renders the push-not-landed diagnostic when expectedHeadSha was never reached", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 600_000,
+      pollCount: 21,
+      sinceUsed: "2026-05-22T18:32:55.000Z",
+      lastSeenReviews: [],
+      expectedHeadShaUnreached: {
+        expected: "6303291ad0000000000000000000000000000000",
+        lastObservedHeadSha: "9a3a8ca4b0000000000000000000000000000000",
+      },
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
+    };
+    const msg = formatTimeoutMessage(result);
+    expect(msg).toContain("PUSH NOT LANDED");
+    expect(msg).toContain("6303291ad0000000000000000000000000000000");
+    expect(msg).toContain("9a3a8ca4b0000000000000000000000000000000");
+    expect(msg).toContain("NOT reviewer silence");
+  });
+
+  test("an ordinary timeout carries no push-not-landed line", () => {
+    const result: SessionPrWaitForReviewTimeout = {
+      matched: false,
+      elapsedMs: 600_000,
+      pollCount: 21,
+      sinceUsed: "2026-05-22T18:32:55.000Z",
+      lastSeenReviews: [],
+      finalCheckPerformed: true,
+      reviewerCheckRunState: null,
+    };
+    expect(formatTimeoutMessage(result)).not.toContain("PUSH NOT LANDED");
+  });
+
   test("renders a failed-conclusion check-run state and a failed final-check re-read", () => {
     const result: SessionPrWaitForReviewTimeout = {
       matched: false,

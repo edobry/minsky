@@ -288,6 +288,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "inject-prod-state",
         "knowledge-acquisition-detector",
         "mcp-daemon-staleness-detector",
+        "negative-existence-claim-detector",
         "memory-search",
         "operator-deferral-ask-surface",
         "operator-deferral-detector",
@@ -387,6 +388,10 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "inject-prod-state": "fixed",
   "mcp-daemon-staleness-detector": "capped", // MAX_PATHS_LISTED
   "memory-search": "capped", // bounded by its own token budget
+  // mt#3918: the CLAIM axis is bounded (NEGATIVE_EXISTENCE_PATTERNS.length) and
+  // posed at its bound, but the DONE-task-id axis is not — one id per cited DONE
+  // task, no `…and N more`. Sample, not ceiling, until that cap lands.
+  "negative-existence-claim-detector": RENDER_PROBE_SAMPLE,
   "pre-narration-detector": "fixed", // one excerpt, slice(0, 200)
   "require-duplicate-check-record": "fixed",
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)

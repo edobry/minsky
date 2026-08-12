@@ -198,8 +198,10 @@ describe("detectBuildClaimInjection", () => {
   });
 
   test("SILENT: merge occurred, but no deploy-surface file was edited this session", () => {
+    // scripts/** is outside every deploy workflow's paths: block; root src/**
+    // no longer qualifies as a non-surface fixture (mt#4013).
     const lines = buildTranscript([
-      ...editAndMergeBlocks("src/domain/tasks/tasks.ts", "mt#0002"),
+      ...editAndMergeBlocks("scripts/run-tests-main.ts", "mt#0002"),
       textBlock(USABILITY_CLAIM_TEXT),
     ]);
 

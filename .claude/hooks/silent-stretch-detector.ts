@@ -416,6 +416,44 @@ function computeGapMinutes(from: string | undefined, to: string | undefined): nu
   return Math.max(0, (toMs - fromMs) / 60000);
 }
 
+/**
+ * Minutes between the measured turn's END and the moment this guard fired
+ * (mt#4018) — the record's STALENESS, not its measured gap.
+ *
+ * The two are independent and a reader conflates them at their peril.
+ * `gapMinutes` describes the silence INSIDE the turn; this describes how long
+ * ago that turn finished. This guard registers on `UserPromptSubmit`, so it
+ * measures the last COMPLETED turn and fires whenever the operator next types
+ * — which may be seconds later or a day later. Measured over the 2026-08-11
+ * calibration window: 9 of 10 advisories landed 28 minutes to 36 hours after
+ * the turn they describe, and across the log's 64 anchored records ~37% land
+ * more than an hour late. The delta was recomputable from `turnAnchor` and the
+ * record timestamp all along; recording it makes the distribution readable
+ * from the sweep instead of from a hand-rolled `jq` pipeline.
+ *
+ * `undefined` when EITHER timestamp is unknown or unparsable — the turn-end
+ * case is the same condition that makes {@link buildTurnAnchor} return
+ * undefined. Absent is honest here: a zero would read as "delivered
+ * instantly", the opposite of "not known". Both sides are validated rather
+ * than only the boundary (PR #2903 R1): `computeGapMinutes` returns 0 for an
+ * unparsable input, so validating one and delegating the other would emit
+ * exactly the misleading zero this contract exists to avoid.
+ *
+ * Deliberately does NOT gate the advisory. Withholding a stale advisory
+ * changes when guidance reaches the agent, which ADR-031 §"The principal-facing
+ * axis" reserves to the principal; that half is mt#4027, gated on an operator
+ * decision and on the distribution this field makes visible.
+ */
+export function computeStalenessMinutes(
+  turnEndTimestamp: string | undefined,
+  firedAt: string
+): number | undefined {
+  if (!turnEndTimestamp) return undefined;
+  if (Number.isNaN(Date.parse(turnEndTimestamp))) return undefined;
+  if (!firedAt || Number.isNaN(Date.parse(firedAt))) return undefined;
+  return Math.round(computeGapMinutes(turnEndTimestamp, firedAt) * 100) / 100;
+}
+
 // ---------------------------------------------------------------------------
 // Turn-boundary timestamp lookup
 // ---------------------------------------------------------------------------
@@ -637,6 +675,12 @@ export function run(
   }
 
   const turnAnchor = buildTurnAnchor(boundaries);
+  // One clock read for BOTH records (mt#4018). Reading `Date.now()` separately
+  // per record would let the evaluation and calibration rows for the same
+  // firing disagree by however long the dedupe reads took, which is exactly
+  // the kind of drift that makes a delta un-auditable later.
+  const firedAt = new Date().toISOString();
+  const stalenessMinutes = computeStalenessMinutes(boundaries.turnEndTimestamp, firedAt);
 
   // mt#3583: record the measurement whether or not it matched. A fire-only
   // stream can express "it happened again" but never "it stopped happening,"
@@ -665,12 +709,16 @@ export function run(
     )
   ) {
     appendEvaluation(input.cwd, {
-      timestamp: new Date().toISOString(),
+      timestamp: firedAt,
       session_id: input.session_id,
       guardName: "silent-stretch-detector",
       turnAnchor,
       gapMinutes: measurement.gapMinutes,
       toolCallCount: measurement.toolCallCount,
+      // Present on the NON-matched rows too, deliberately: the staleness
+      // distribution is a property of when this guard runs, not of whether it
+      // fired, so a fire-only sample would be biased by construction.
+      ...(stalenessMinutes !== undefined ? { stalenessMinutes } : {}),
       fired: measurement.matched,
     });
   }
@@ -694,12 +742,13 @@ export function run(
 
   const outcome: GuardOutcome = {
     calibration: {
-      timestamp: new Date().toISOString(),
+      timestamp: firedAt,
       session_id: input.session_id,
       gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
       toolCallCount: measurement.toolCallCount,
       hadTextInTurn: measurement.hadTextInTurn,
       turnAnchor,
+      ...(stalenessMinutes !== undefined ? { stalenessMinutes } : {}),
     },
   };
 
@@ -823,13 +872,19 @@ export async function main(): Promise<void> {
         )
       : false;
     if (!alreadyLogged) {
+      // Same shape as run()'s calibration record, including mt#4018's
+      // `stalenessMinutes` — the two paths write the same log, so a field on
+      // one and not the other would make the corpus non-uniform by writer.
+      const firedAt = new Date().toISOString();
+      const stalenessMinutes = computeStalenessMinutes(boundaries.turnEndTimestamp, firedAt);
       appendCalibrationRecord(input.cwd, {
-        timestamp: new Date().toISOString(),
+        timestamp: firedAt,
         session_id: input.session_id,
         gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
         toolCallCount: measurement.toolCallCount,
         hadTextInTurn: measurement.hadTextInTurn,
         turnAnchor,
+        ...(stalenessMinutes !== undefined ? { stalenessMinutes } : {}),
       });
     }
   }
