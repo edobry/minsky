@@ -251,13 +251,7 @@ import {
 
 // mt#2782: the secondary alert channel's decisions — coalesce, payload shape,
 // and reading the response as an OUTCOME rather than a transport status.
-import {
-  MONITOR_ALERT_ASK_KIND,
-  buildAskCreateArguments,
-  decideAskAlert,
-  parseAskCreateResponse,
-  parseOpenAsksResponse,
-} from "../packages/domain/src/deployment/monitor-ask-alert";
+import { runAskAlert } from "../packages/domain/src/deployment/monitor-ask-alert";
 
 // ---------------------------------------------------------------------------
 // Service definitions — discovered at runtime from deploy.config.ts files
@@ -1536,34 +1530,27 @@ async function alertViaMcp(
       return parsed;
     };
 
-    // Coalesce: is an ask already open for this exact incident?
-    const openAsks = parseOpenAsksResponse(
-      await callTool(2, "asks_list", { status: "open", kind: MONITOR_ALERT_ASK_KIND })
-    );
-    const decision = decideAskAlert({ openAsks, service, failureClass });
-    if (decision.action === "skip") {
+    // List -> decide -> create -> verify. The sequence lives in the domain
+    // module so it is testable end-to-end with an injected caller (PR #2888 R1);
+    // this shell owns only the session and the JSON-RPC envelope.
+    let nextRequestId = 2;
+    const result = await runAskAlert({
+      callTool: (name, args) => callTool(nextRequestId++, name, args),
+      service,
+      failureClass,
+      subject,
+      details,
+    });
+
+    if (result.outcome === "coalesced") {
       console.log(
-        `[mcp] asks_create skipped — ask ${decision.existingAskId} is already open for ` +
+        `[mcp] asks_create skipped — ask ${result.existingAskId} is already open for ` +
           `${service}/${failureClass} (coalesced)`
       );
       return;
     }
 
-    const outcome = parseAskCreateResponse(
-      await callTool(
-        3,
-        "asks_create",
-        buildAskCreateArguments({ service, failureClass, subject, details })
-      )
-    );
-    if (!outcome.ok) {
-      // The whole point of mt#2782: this used to be the branch that logged
-      // success. It now throws, and the caller logs it as a non-fatal secondary
-      // failure — visible instead of asserted-away.
-      throw new Error(`asks_create did not create an ask: ${outcome.error}`);
-    }
-
-    console.log(`[mcp] asks_create created ask ${outcome.askId} for ${service}/${failureClass}`);
+    console.log(`[mcp] asks_create created ask ${result.askId} for ${service}/${failureClass}`);
   } finally {
     clearTimeout(timeoutId);
   }

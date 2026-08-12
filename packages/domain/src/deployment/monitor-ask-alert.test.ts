@@ -16,6 +16,7 @@ import {
   decideAskAlert,
   parseAskCreateResponse,
   parseOpenAsksResponse,
+  runAskAlert,
   type ExistingAsk,
 } from "./monitor-ask-alert";
 
@@ -75,7 +76,7 @@ describe("buildAskCreateArguments", () => {
 describe("decideAskAlert", () => {
   const openAsk: ExistingAsk = {
     id: ASK_UUID,
-    status: "suspended",
+    state: "suspended",
     metadata: { [COALESCE_KEY_FIELD]: buildCoalesceKey(SERVICE, FAILURE_CLASS) },
   };
 
@@ -109,7 +110,7 @@ describe("decideAskAlert", () => {
     // The incident recurring after being resolved must alert again.
     expect(
       decideAskAlert({
-        openAsks: [{ ...openAsk, status: "closed" }],
+        openAsks: [{ ...openAsk, state: "closed" }],
         service: SERVICE,
         failureClass: FAILURE_CLASS,
       })
@@ -119,7 +120,7 @@ describe("decideAskAlert", () => {
   test("matches on metadata, not on title collision", () => {
     expect(
       decideAskAlert({
-        openAsks: [{ id: "other", status: "suspended", metadata: { service: SERVICE } }],
+        openAsks: [{ id: "other", state: "suspended", metadata: { service: SERVICE } }],
         service: SERVICE,
         failureClass: FAILURE_CLASS,
       })
@@ -127,10 +128,150 @@ describe("decideAskAlert", () => {
   });
 });
 
+describe("decideAskAlert — open-vs-terminal state handling (PR #2888 R1)", () => {
+  const withState = (state: string): ExistingAsk => ({
+    id: ASK_UUID,
+    state,
+    metadata: { [COALESCE_KEY_FIELD]: buildCoalesceKey(SERVICE, FAILURE_CLASS) },
+  });
+
+  // The canonical AskState enum (packages/domain/src/ask/types.ts). The first
+  // version of this module invented "pending"/"delivered" and omitted
+  // "detected"/"responded", so coalescing would never have fired.
+  test.each(["detected", "classified", "routed", "suspended", "responded"])(
+    "%s is OPEN — coalesces",
+    (state) => {
+      expect(
+        decideAskAlert({
+          openAsks: [withState(state)],
+          service: SERVICE,
+          failureClass: FAILURE_CLASS,
+        })
+      ).toEqual({ action: "skip", reason: "already-open", existingAskId: ASK_UUID });
+    }
+  );
+
+  test.each(["closed", "cancelled", "expired"])("%s is TERMINAL — creates a new ask", (state) => {
+    expect(
+      decideAskAlert({
+        openAsks: [withState(state)],
+        service: SERVICE,
+        failureClass: FAILURE_CLASS,
+      })
+    ).toEqual({ action: "create" });
+  });
+
+  test("an UNRECOGNIZED state is treated as open — fails toward a duplicate, not a dropped alert", () => {
+    // A state added to the enum later must not silently disable coalescing.
+    expect(
+      decideAskAlert({
+        openAsks: [withState("some-future-state")],
+        service: SERVICE,
+        failureClass: FAILURE_CLASS,
+      })
+    ).toEqual({ action: "skip", reason: "already-open", existingAskId: ASK_UUID });
+  });
+});
+
+describe("runAskAlert — the end-to-end sequence (PR #2888 R1)", () => {
+  function recordingCaller(responses: Record<string, unknown>) {
+    const calls: Array<{ name: string; args: object }> = [];
+    const callTool = async (name: string, args: object) => {
+      calls.push({ name, args });
+      return responses[name];
+    };
+    return { calls, callTool };
+  }
+
+  test("lists, then creates, and returns the created id", async () => {
+    const { calls, callTool } = recordingCaller({
+      asks_list: jsonResult([]),
+      asks_create: jsonResult({ id: ASK_UUID }),
+    });
+
+    const result = await runAskAlert({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      subject: "subject",
+      details: "details",
+    });
+
+    expect(result).toEqual({ outcome: "created", askId: ASK_UUID });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list", "asks_create"]);
+    // And the create carried the declared params, not the old ones.
+    const createArgs = calls[1]?.args as Record<string, unknown>;
+    expect(createArgs.title).toBe("subject");
+    expect(createArgs.question).toBe("details");
+    expect(createArgs.severity).toBe("incident");
+    expect(createArgs).not.toHaveProperty("body");
+  });
+
+  test("coalesces WITHOUT calling asks_create at all", async () => {
+    const { calls, callTool } = recordingCaller({
+      asks_list: jsonResult([
+        {
+          id: ASK_UUID,
+          state: "suspended",
+          metadata: { [COALESCE_KEY_FIELD]: buildCoalesceKey(SERVICE, FAILURE_CLASS) },
+        },
+      ]),
+    });
+
+    const result = await runAskAlert({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      subject: "subject",
+      details: "details",
+    });
+
+    expect(result).toEqual({ outcome: "coalesced", existingAskId: ASK_UUID });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list"]);
+  });
+
+  test("THROWS when the create is accepted but produces no ask", async () => {
+    // The defect this whole task exists for: previously this path logged
+    // "sent successfully". A thrown error cannot be mistaken for success.
+    const { callTool } = recordingCaller({
+      asks_list: jsonResult([]),
+      asks_create: { error: { code: -32602, message: "Tool not found" } },
+    });
+
+    await expect(
+      runAskAlert({
+        callTool,
+        service: SERVICE,
+        failureClass: FAILURE_CLASS,
+        subject: "subject",
+        details: "details",
+      })
+    ).rejects.toThrow(/did not create an ask/);
+  });
+
+  test("an unreadable listing still creates — fails open rather than dropping the alert", async () => {
+    const { calls, callTool } = recordingCaller({
+      asks_list: { error: { message: "listing blew up" } },
+      asks_create: jsonResult({ id: ASK_UUID }),
+    });
+
+    const result = await runAskAlert({
+      callTool,
+      service: SERVICE,
+      failureClass: FAILURE_CLASS,
+      subject: "subject",
+      details: "details",
+    });
+
+    expect(result).toEqual({ outcome: "created", askId: ASK_UUID });
+    expect(calls.map((c) => c.name)).toEqual(["asks_list", "asks_create"]);
+  });
+});
+
 describe("parseOpenAsksResponse", () => {
   const row = {
     id: ASK_UUID,
-    status: "suspended",
+    state: "suspended",
     metadata: { [COALESCE_KEY_FIELD]: buildCoalesceKey(SERVICE, FAILURE_CLASS) },
   };
 
@@ -143,7 +284,7 @@ describe("parseOpenAsksResponse", () => {
   });
 
   test("drops rows without a string id rather than inventing one", () => {
-    expect(parseOpenAsksResponse(jsonResult([{ status: "suspended" }, row]))).toEqual([row]);
+    expect(parseOpenAsksResponse(jsonResult([{ state: "suspended" }, row]))).toEqual([row]);
   });
 
   test("an unreadable listing FAILS OPEN — empty, so the alert still fires", () => {

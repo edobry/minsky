@@ -107,7 +107,13 @@ export function buildAskCreateArguments(input: BuildAskArgumentsInput): AskCreat
 /** The subset of an ask record this decision needs. */
 export interface ExistingAsk {
   id: string;
-  status?: string;
+  /**
+   * The ask's lifecycle state. Named `state`, NOT `status` — `AskState` in
+   * `packages/domain/src/ask/types.ts` is the canonical field, and PR #2888 R1
+   * caught this reading `status`, which never matches, so coalescing would
+   * silently never fire and every tick would create a duplicate.
+   */
+  state?: string;
   metadata?: Record<string, unknown> | null;
 }
 
@@ -115,8 +121,30 @@ export type AskAlertDecision =
   | { action: "create" }
   | { action: "skip"; reason: "already-open"; existingAskId: string };
 
-/** Ask states that mean "this incident is already represented and awaiting a human". */
-const OPEN_ASK_STATES = new Set(["pending", "classified", "routed", "suspended", "delivered"]);
+/**
+ * The TERMINAL `AskState`s, from `packages/domain/src/ask/types.ts`.
+ *
+ * Tested as a terminal set rather than an open set on purpose (PR #2888 R1).
+ * The first version enumerated the OPEN states and got them wrong — it invented
+ * `pending` and `delivered`, which do not exist, and omitted `detected` and
+ * `responded`, which do. Two failure directions, and they are not symmetric:
+ *
+ *   - miss an open state  -> coalescing silently never fires -> a duplicate ask
+ *     every 10 minutes, which is the exact defect the coalesce exists to stop;
+ *   - miss a terminal state -> a resolved incident suppresses a new alert.
+ *
+ * The terminal set is the smaller and far more stable of the two, and defaulting
+ * an UNRECOGNIZED state to "open" fails toward the noisy side, matching
+ * `parseOpenAsksResponse`'s asymmetry. A state added to the enum later is
+ * therefore handled correctly without touching this file.
+ */
+const TERMINAL_ASK_STATES = new Set(["closed", "cancelled", "expired"]);
+
+/** True when the ask still represents an unresolved incident. */
+function isOpenAsk(state: string | undefined): boolean {
+  if (state === undefined) return true;
+  return !TERMINAL_ASK_STATES.has(state);
+}
 
 /**
  * Create, or coalesce onto an ask already open for this incident.
@@ -136,10 +164,9 @@ export function decideAskAlert(input: {
   failureClass: string;
 }): AskAlertDecision {
   const key = buildCoalesceKey(input.service, input.failureClass);
-  const existing = input.openAsks.find((ask) => {
-    if (ask.status !== undefined && !OPEN_ASK_STATES.has(ask.status)) return false;
-    return ask.metadata?.[COALESCE_KEY_FIELD] === key;
-  });
+  const existing = input.openAsks.find(
+    (ask) => isOpenAsk(ask.state) && ask.metadata?.[COALESCE_KEY_FIELD] === key
+  );
   return existing
     ? { action: "skip", reason: "already-open", existingAskId: existing.id }
     : { action: "create" };
@@ -176,12 +203,12 @@ export function parseOpenAsksResponse(body: unknown): ExistingAsk[] {
 
   return rows.flatMap((row) => {
     if (!row || typeof row !== "object") return [];
-    const record = row as { id?: unknown; status?: unknown; metadata?: unknown };
+    const record = row as { id?: unknown; state?: unknown; metadata?: unknown };
     if (typeof record.id !== "string") return [];
     return [
       {
         id: record.id,
-        ...(typeof record.status === "string" ? { status: record.status } : {}),
+        ...(typeof record.state === "string" ? { state: record.state } : {}),
         metadata:
           record.metadata && typeof record.metadata === "object"
             ? (record.metadata as Record<string, unknown>)
@@ -231,6 +258,64 @@ export function parseAskCreateResponse(body: unknown): ToolCallOutcome {
     return { ok: false, error: "call succeeded but returned no ask id — nothing was created" };
   }
   return { ok: true, askId };
+}
+
+/** Calls one MCP tool and returns the raw JSON-RPC response body. */
+export type McpToolCaller = (name: string, args: object) => Promise<unknown>;
+
+export type AskAlertResult =
+  | { outcome: "created"; askId: string }
+  | { outcome: "coalesced"; existingAskId: string };
+
+/**
+ * The whole secondary-alert flow: list, decide, create — and verify.
+ *
+ * Extracted from the script (PR #2888 R1) so the end-to-end sequence is
+ * exercisable with an injected caller. Previously only the parsers and the
+ * builder had tests, so nothing covered the ORDER of the calls, the skip
+ * short-circuit, or that a failed create actually throws. The script keeps the
+ * fetch/session setup and passes `callTool` in.
+ *
+ * Throws on a create that did not produce an ask id — the caller logs it as a
+ * non-fatal secondary failure. Throwing rather than returning a failure value
+ * is deliberate: the old code's sin was making failure look like success, and a
+ * thrown error cannot be mistaken for one.
+ */
+export async function runAskAlert(input: {
+  callTool: McpToolCaller;
+  service: string;
+  failureClass: string;
+  subject: string;
+  details: string;
+}): Promise<AskAlertResult> {
+  const openAsks = parseOpenAsksResponse(
+    await input.callTool("asks_list", { kind: MONITOR_ALERT_ASK_KIND })
+  );
+
+  const decision = decideAskAlert({
+    openAsks,
+    service: input.service,
+    failureClass: input.failureClass,
+  });
+  if (decision.action === "skip") {
+    return { outcome: "coalesced", existingAskId: decision.existingAskId };
+  }
+
+  const created = parseAskCreateResponse(
+    await input.callTool(
+      "asks_create",
+      buildAskCreateArguments({
+        service: input.service,
+        failureClass: input.failureClass,
+        subject: input.subject,
+        details: input.details,
+      })
+    )
+  );
+  if (!created.ok) {
+    throw new Error(`asks_create did not create an ask: ${created.error}`);
+  }
+  return { outcome: "created", askId: created.askId };
 }
 
 /** Flatten MCP `content` blocks to text. */
