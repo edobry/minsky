@@ -61,6 +61,8 @@ import {
   entityThreadLocalId,
   type EntityThreadEntityType,
 } from "@minsky/domain/transcripts/entity-thread-store";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
+import { pendingReplyBuffer, schedulePendingDrain } from "./entity-thread-reply-buffer";
 
 // ---------------------------------------------------------------------------
 // Seeding (pure)
@@ -641,11 +643,21 @@ export function extractAssistantTextFromEvent(payload: Record<string, unknown>):
  * open would silently lose exactly the replies the principal stepped away
  * from.
  *
- * Write failures are logged and swallowed: this subscriber runs on the live
- * session's event path, where the sibling observers' convention (see
+ * A write failure never throws: this subscriber runs on the live session's
+ * event path, where the sibling observers' convention (see
  * ./driven-session-launch.ts) is that persistence must never disturb the
- * running child. A dropped turn degrades the thread's history; a throw here
- * would degrade the session itself.
+ * running child. That constraint is unchanged.
+ *
+ * What CHANGED at mt#4036 is what happens instead of throwing. This used to
+ * log and drop, on the reasoning that "a dropped turn degrades the thread's
+ * history." The 2026-08-11 outage falsified that: the panel renders the thread
+ * from this table, so a dropped reply is not a history gap — it is the ANSWER,
+ * and its absence is indistinguishable from an agent that never replied. Four
+ * replies were lost that way while the agent worked, and the operator sat
+ * looking at silence. Not-throwing and not-losing were being treated as the
+ * same choice; they are independent. The reply now goes to
+ * ./entity-thread-reply-buffer.ts, which reconciles it back into the table when
+ * the store recovers and reports it to the operator until then.
  */
 export function createEntityThreadReplyRecorder(
   db: PostgresJsDatabase,
@@ -656,9 +668,18 @@ export function createEntityThreadReplyRecorder(
       const text = extractAssistantTextFromEvent(event.payload);
       if (!text) return;
       void appendEntityThreadTurn(db, { localId, role: "agent", content: text }).catch((err) => {
-        log.warn(`entity-thread reply recorder: failed to persist turn for ${localId}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        const report = pendingReplyBuffer.buffer(localId, text);
+        // `getLoggableErrorSummary`, not `err.message`: on a Drizzle failure the
+        // message is the QUERY TEXT and the Postgres cause sits on `.cause`
+        // (mt#3398). Reading `err.message` alone is why the four 2026-08-11 log
+        // lines carried the entire rejected INSERT — reply body included — and
+        // still did not say WHY it failed. The helper keeps the cause and bounds
+        // each level, so the body can no longer be emitted whole.
+        log.warn(
+          `entity-thread reply recorder: failed to persist turn for ${localId} — buffered, ${report.pending} pending`,
+          { error: getLoggableErrorSummary(err) }
+        );
+        schedulePendingDrain(db);
       });
     },
     // An actuator swap replaces the record this subscriber is attached to. The

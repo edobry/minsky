@@ -82,6 +82,27 @@ export interface EntityThreadResponse {
    * as `live`: a daemon that does not report it must not be read as "not seeded".
    */
   originSeeded?: boolean;
+  /**
+   * Replies the agent produced that the daemon could not write (mt#4036).
+   *
+   * Optional and OMITTED when there is nothing to report — same discipline as
+   * `live` and `originSeeded`. Present means the daemon positively knows about
+   * unpersisted replies; absent means it has nothing to say, which for a daemon
+   * predating this field is the honest answer rather than a reassuring zero.
+   */
+  pendingReplies?: PendingRepliesInfo;
+}
+
+/**
+ * The daemon's account of replies that did not reach the store (mt#4036).
+ *
+ * `pending` and `lost` are separate because they are different statements to
+ * the operator: one says wait, the other says this is not coming back.
+ */
+export interface PendingRepliesInfo {
+  pending: number;
+  lost: number;
+  oldestFailedAt: string | null;
 }
 
 export interface EntityThreadSendResponse {
@@ -229,6 +250,39 @@ export function derivePollInterval(sendPending: boolean): number | false {
  * "why was this filed?" deserves to know whether the answer came from the
  * originating conversation or from the entity text alone.
  */
+/**
+ * What to tell the operator about replies that never reached the store
+ * (mt#4036), or `null` to say nothing.
+ *
+ * This is the whole point of the task. On 2026-08-11 an agent produced four
+ * replies during a database outage, every one was dropped, and the panel
+ * rendered exactly what it renders for an agent that never answered: nothing.
+ * The operator asked "Well?" into that silence and the reply to THAT was
+ * dropped too. A dropped write must never be indistinguishable from an absent
+ * reply, and this line is what distinguishes them.
+ *
+ * `lost` leads when present: an operator who cannot get a reply back needs to
+ * know that before they are told to keep waiting for one.
+ */
+export function derivePendingRepliesNotice(info: PendingRepliesInfo | undefined): string | null {
+  if (!info) return null;
+  const { pending, lost } = info;
+  if (lost > 0 && pending > 0) {
+    return `${lost} ${replyWord(lost)} could not be saved and ${lost === 1 ? "is" : "are"} lost; ${pending} more ${pending === 1 ? "is" : "are"} still being retried. Ask again to get the answer back.`;
+  }
+  if (lost > 0) {
+    return `The agent answered, but ${lost} ${replyWord(lost)} could not be saved and ${lost === 1 ? "is" : "are"} lost. Ask again to get the answer back.`;
+  }
+  if (pending > 0) {
+    return `The agent answered, but ${pending} ${replyWord(pending)} could not be saved yet — the cockpit is retrying.`;
+  }
+  return null;
+}
+
+function replyWord(n: number): string {
+  return n === 1 ? "reply" : "replies";
+}
+
 export function deriveOriginNotice(originSeeded: boolean | undefined): string | null {
   if (originSeeded === true) return "Grounded in the conversation that filed this.";
   if (originSeeded === false) return "The originating conversation isn't reachable for this one.";
@@ -342,6 +396,7 @@ export function EntityThreadPanel({
   // resolve semantics should not pay to scan its blocks for proposals.
   const proposal = proposalSlot ? findLatestResolveProposal(blocks ?? []) : null;
   const originNotice = deriveOriginNotice(query.data?.originSeeded);
+  const pendingNotice = derivePendingRepliesNotice(query.data?.pendingReplies);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -359,7 +414,18 @@ export function EntityThreadPanel({
         </p>
       )}
 
-      {stranded ? (
+      {/* mt#4036: this takes precedence over the stranded notice below, and the
+          precedence is the fix, not a cosmetic ordering. "The agent stopped
+          before answering" is FALSE when a reply was produced and lost — it
+          blames the agent for a database failure and tells the operator to
+          re-ask without saying why. Both conditions hold at once whenever an
+          outage drops the reply to the operator's last question, which is
+          exactly the 2026-08-11 shape. */}
+      {pendingNotice ? (
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-pending-replies">
+          {pendingNotice}
+        </p>
+      ) : stranded ? (
         <p className="text-sm text-muted-foreground mt-2">
           The agent stopped before answering — send again to ask.
         </p>
