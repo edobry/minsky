@@ -91,7 +91,22 @@ export interface EntityThreadResponse {
    * predating this field is the honest answer rather than a reassuring zero.
    */
   pendingReplies?: PendingRepliesInfo;
+  /**
+   * Why the agent is not running, when the daemon can tell (mt#4037).
+   *
+   * Optional and UNKNOWN when absent — same discipline as `live`. Only a
+   * definite answer produces a line; the panel falls back to the weaker
+   * stranded notice rather than guessing at a cause.
+   */
+  agentStopReason?: AgentStopReason;
 }
+
+/**
+ * `cockpit-restart` — the daemon went down while this actuator was live, so the
+ * agent was killed by the cockpit rather than stopping on its own. Resumable.
+ * `unrecoverable` — there is no transcript to resume, or its workspace is gone.
+ */
+export type AgentStopReason = "cockpit-restart" | "unrecoverable";
 
 /**
  * The daemon's account of replies that did not reach the store (mt#4036).
@@ -283,6 +298,31 @@ function replyWord(n: number): string {
   return n === 1 ? "reply" : "replies";
 }
 
+/**
+ * What to tell the operator about a stopped agent (mt#4037), or `null` to fall
+ * back to the weaker stranded notice.
+ *
+ * The stranded notice — "The agent stopped before answering" — is the only
+ * thing the panel could say before this, and on 2026-08-11 it was false: a
+ * cockpit restart killed the agent mid-task at 23:38 local, and the operator
+ * read a line blaming the agent, with no hint that sending anything would bring
+ * it back. They waited 12h34m.
+ *
+ * So the restart line has to do two things the stranded line does not: name the
+ * COCKPIT as what stopped it, and say that re-sending resumes. `null` when the
+ * daemon reports nothing — an unsupported cause is worse than a vague true
+ * statement.
+ */
+export function deriveAgentStoppedNotice(reason: AgentStopReason | undefined): string | null {
+  if (reason === "cockpit-restart") {
+    return "The cockpit restarted and stopped this agent mid-task — send anything to pick it back up.";
+  }
+  if (reason === "unrecoverable") {
+    return "This agent can't be resumed — its conversation is gone. Send a message to start a fresh one.";
+  }
+  return null;
+}
+
 export function deriveOriginNotice(originSeeded: boolean | undefined): string | null {
   if (originSeeded === true) return "Grounded in the conversation that filed this.";
   if (originSeeded === false) return "The originating conversation isn't reachable for this one.";
@@ -397,6 +437,7 @@ export function EntityThreadPanel({
   const proposal = proposalSlot ? findLatestResolveProposal(blocks ?? []) : null;
   const originNotice = deriveOriginNotice(query.data?.originSeeded);
   const pendingNotice = derivePendingRepliesNotice(query.data?.pendingReplies);
+  const stoppedNotice = deriveAgentStoppedNotice(query.data?.agentStopReason);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -424,6 +465,16 @@ export function EntityThreadPanel({
       {pendingNotice ? (
         <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-pending-replies">
           {pendingNotice}
+        </p>
+      ) : stoppedNotice ? (
+        /* mt#4037: a KNOWN cause outranks the stranded line, which is the
+           panel's weakest true statement — it names no cause and offers no way
+           back. When the daemon can say the cockpit killed the agent, saying
+           "the agent stopped before answering" instead is not merely vaguer, it
+           is false. The stranded line survives below as the fallback for a
+           daemon that reports no reason at all. */
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-agent-stopped">
+          {stoppedNotice}
         </p>
       ) : stranded ? (
         <p className="text-sm text-muted-foreground mt-2">
