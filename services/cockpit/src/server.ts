@@ -22,7 +22,11 @@ await initServerSseBroker();
 // place, so this flag no longer means "no auth". It previously did, and this
 // deployment served the live corpus to anyone holding the URL. See the
 // CockpitServerOptions doc comment in src/cockpit/server.ts.
-const app = createCockpitServer({ isPublicDeployment: true });
+//
+// `publicAuth` is stated explicitly rather than left to its default so this
+// call declares the deployment's auth posture on its face — the reader does not
+// have to know that the flag above changed meaning.
+const app = createCockpitServer({ isPublicDeployment: true, publicAuth: "passkey" });
 app.listen(PORT, "0.0.0.0", () => {
   const mode = process.env.MINSKY_COCKPIT_PREVIEW === "true" ? " (preview mode)" : "";
   log.info(`Cockpit running on port ${PORT}${mode}`);

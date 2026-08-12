@@ -251,6 +251,19 @@ export interface CockpitServerOptions {
    */
   isPublicDeployment?: boolean;
   /**
+   * Which credential a public deployment presents (mt#4023). `"passkey"` is the
+   * only value, and the default — there is deliberately no `"none"`, because an
+   * unauthenticated public deployment is the exposure this gate closed, not a
+   * configuration anyone should be able to select.
+   *
+   * It exists so the call site DECLARES its auth posture instead of implying it.
+   * `isPublicDeployment: true` alone once meant "no auth"; a reader had to know
+   * that had changed. Naming the mode makes the intent local to the call, and
+   * gives a second mode somewhere to land without every existing public
+   * deployment silently inheriting whichever one ships first.
+   */
+  publicAuth?: "passkey";
+  /**
    * Test-only seam for the mt#4023 passkey gate: supplies the credential/session
    * store the gate reads, so a test can exercise the authenticated path without
    * a database or a real WebAuthn ceremony. Never set in production — when
@@ -426,6 +439,12 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // `up.railway.app` is on the Public Suffix List, so there is no shorter
     // registrable suffix to scope a credential to. Overridable by env for a
     // future custom domain (which requires re-enrolling the passkey).
+    // Read rather than ignored, so the option is load-bearing instead of
+    // decorative: the mode the call site declares is the mode that mounts.
+    const publicAuth = opts.publicAuth ?? "passkey";
+    if (publicAuth !== "passkey") {
+      throw new Error(`Unsupported publicAuth mode for a public cockpit deployment: ${publicAuth}`);
+    }
     const rpID = process.env.MINSKY_COCKPIT_RP_ID ?? "cockpit-preview-production.up.railway.app";
     const passkeyDeps = {
       store:
