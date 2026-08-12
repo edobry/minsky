@@ -32,16 +32,40 @@ describe("isDeploySurfaceFile (mt#2353)", () => {
     expect(isDeploySurfaceFile(".github/workflows/deploy-reviewer.yaml")).toBe(true);
   });
 
-  test("does NOT match non-deploy files (the coverage hole this guard fills)", () => {
-    // A behavior change to deployed SOURCE with no deploy-config file touched is
-    // exactly the mt#1459 hole — but it is also NOT a deploy-surface file; the
-    // guard intentionally scopes to config-as-code, not arbitrary service source.
-    expect(isDeploySurfaceFile("services/reviewer/src/server.ts")).toBe(false);
-    expect(isDeploySurfaceFile("src/index.ts")).toBe(false);
+  test("does NOT match non-deploy files", () => {
     expect(isDeploySurfaceFile(".github/workflows/test-quality.yml")).toBe(false);
     expect(isDeploySurfaceFile("docs/deployment-platforms.md")).toBe(false);
     expect(isDeploySurfaceFile("infrastructure-notes.md")).toBe(false); // not under infra/
-    expect(isDeploySurfaceFile(`${REVIEWER_DOCKERFILE}.dev`)).toBe(false); // anchored $
+    // Root src/** (outside services/*) stays out of the surface (mt#4013
+    // carve-out — see deploy-surface.ts's DEPLOY_SURFACE_SERVICE_MAP doc
+    // comment for why).
+    expect(isDeploySurfaceFile("src/index.ts")).toBe(false);
+    // A sibling service NOT scoped by mt#3523's explicit map still resolves
+    // via the per-service Dockerfile pattern's anchoring only.
+    expect(isDeploySurfaceFile("services/site/Dockerfile.dev")).toBe(false); // anchored $
+  });
+
+  // mt#3523: services/reviewer/** is now a BROAD deploy-surface pattern
+  // (deploy-reviewer.yml's own `services/reviewer/**` trigger path), so
+  // unlike the anchored per-file Dockerfile pattern above, ANY file under
+  // services/reviewer/ — including one that wouldn't match the anchored
+  // Dockerfile pattern — is now correctly a deploy surface.
+  test("mt#3523: services/reviewer/** broad pattern covers files the anchored Dockerfile pattern alone would not", () => {
+    expect(isDeploySurfaceFile(`${REVIEWER_DOCKERFILE}.dev`)).toBe(true);
+  });
+
+  // mt#3523: application SOURCE that a deploy workflow's `paths:` block
+  // actually triggers on IS a deploy surface now, not just deploy config —
+  // this closes the mt#1459 coverage hole the superseded test above
+  // (removed) used to assert was out of scope by design.
+  test("mt#3523: matches services/reviewer/** application source (deploy-reviewer.yml's own trigger paths)", () => {
+    expect(isDeploySurfaceFile("services/reviewer/src/server.ts")).toBe(true);
+    expect(isDeploySurfaceFile("services/reviewer/migrations/pg/0001_init.sql")).toBe(true);
+  });
+
+  test("mt#3523: matches packages/domain/src/** and packages/shared/src/** (both deploy workflows' trigger paths)", () => {
+    expect(isDeploySurfaceFile("packages/domain/src/transcripts/turns.ts")).toBe(true);
+    expect(isDeploySurfaceFile("packages/shared/src/index.ts")).toBe(true);
   });
 
   test("normalises a leading ./ and Windows backslashes", () => {
@@ -68,7 +92,10 @@ describe("findDeploySurfaceFiles (mt#2353)", () => {
   });
 
   test("empty when no deploy surface is touched", () => {
-    const files: PrFile[] = [f("services/reviewer/src/server.ts"), f("src/util.ts", "added")];
+    // mt#3523 widened services/reviewer/** to a deploy surface, so this
+    // fixture moves to files outside every mapped tree (root src/** stays
+    // excluded — mt#4013 carve-out — and services/site/ isn't in the new map).
+    const files: PrFile[] = [f("services/site/src/server.ts"), f("src/util.ts", "added")];
     expect(findDeploySurfaceFiles(files)).toEqual([]);
   });
 
