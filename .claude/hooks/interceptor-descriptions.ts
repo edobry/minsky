@@ -204,8 +204,29 @@ export interface InterceptorDescription {
   /**
    * Repo-relative paths this description distills, so drift is auditable
    * (SC4). Every path must resolve in the repo — asserted by the test suite.
+   *
+   * `provenance[0]` MUST be the module that IMPLEMENTS the described
+   * behavior, never the entity's registration. A pointer at `registry.ts`
+   * says "this entity is registered", which is not where the behavior lives
+   * and defeats the whole point: editing a guard's logic would never
+   * invalidate a pointer aimed at its registration. For a registry-stratum
+   * entity the implementing module is the registry's own `module:` import,
+   * and the test suite derives it from there rather than trusting this list.
+   * `registry.ts` may appear as a LATER pointer only where the description
+   * asserts something the registry itself declares (the mt#3981 `effects`
+   * field).
    */
   readonly provenance: readonly [string, ...string[]];
+  /**
+   * Whether `provenance[0]` points at an implementation or is only a
+   * declaration site. `"declaration-only"` is the honest answer for an entity
+   * with no source module — a retired step, a test fixture, or a name declared
+   * in the oracle whose module cannot be found. Substituting the registry (or
+   * any other plausible file) there would be fabricated provenance; naming the
+   * gap is what SC3's coverage-gap discipline asks for. Requires a `note`
+   * saying why.
+   */
+  readonly provenanceStatus?: "declaration-only";
   readonly stratum: Stratum;
   /**
    * Ontology amendment (d): this entity classifies OTHER interceptors, not the
@@ -240,7 +261,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Denies a tool call naming a session-workspace path that does not exist on disk — the tell of a path assembled from a plausible-looking pattern instead of read from the call that minted it.",
       failureClasses: ["wrong-workspace", "unfounded-claim"],
-      provenance: [hook("check-guessed-session-path"), REGISTRY],
+      provenance: [hook("check-guessed-session-path")],
       stratum: "registry",
     },
   ],
@@ -270,7 +291,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
       failureClasses: ["duplicate-work", "unfounded-claim"],
-      provenance: [hook("duplicate-check-search-provenance"), REGISTRY],
+      provenance: [hook("duplicate-check-search-provenance")],
       stratum: "registry",
     },
   ],
@@ -290,7 +311,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "On a raw `Agent` spawn, writes the pending `subagent_invocations` row and stamps the harness `(session_id, tool_use_id)` into the prompt via `updatedInput` — the join the Stop side needs, since PreToolUse has no `agent_id` and SubagentStop has no `tool_use_id`. Mutates as well as records; never denies.",
       failureClasses: ["blind-enforcement"],
-      provenance: [hook("agent-dispatch-stamp"), REGISTRY],
+      provenance: [hook("record-agent-dispatch"), REGISTRY],
       stratum: "registry",
     },
   ],
@@ -310,7 +331,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Emits a derived title for the conversation. Outputs a scalar rather than a decision about the trajectory.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("auto-session-title"), REGISTRY],
+      provenance: [hook("auto-session-title")],
       stratum: "registry",
       note: "The ontology (§3c) records this as the entity the genus definition fits worst: it is in the corpus because it occupies an interception point and fires on the same machinery, not because it decides anything.",
     },
@@ -321,7 +342,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects the current wall-clock time into every turn, unconditionally, so a date is never asserted from memory.",
       failureClasses: ["stale-context"],
-      provenance: [hook("inject-current-time"), REGISTRY],
+      provenance: [hook("inject-current-time")],
       stratum: "registry",
     },
   ],
@@ -331,7 +352,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects the current branch, ahead/behind counts against the last-fetched origin, a working-tree summary, and recent commits into every turn.",
       failureClasses: ["stale-context"],
-      provenance: [hook("inject-git-state"), REGISTRY],
+      provenance: [hook("inject-git-state")],
       stratum: "registry",
     },
   ],
@@ -340,7 +361,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     {
       description: "Injects current production/deployment state into every turn.",
       failureClasses: ["stale-context"],
-      provenance: [hook("inject-prod-state"), REGISTRY],
+      provenance: [hook("inject-prod-state")],
       stratum: "registry",
     },
   ],
@@ -349,7 +370,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     {
       description: "Injects a memory-capture prompt surface into the turn.",
       failureClasses: ["stale-context", "unrecorded-learning"],
-      provenance: [hook("inject-memory-capture"), REGISTRY],
+      provenance: [hook("inject-memory-capture")],
       stratum: "registry",
     },
   ],
@@ -359,7 +380,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects the state of in-flight subagent dispatches, so a subagent that has gone silent or stalled surfaces to the orchestrating agent rather than being discovered later.",
       failureClasses: ["stale-context", "lost-signal"],
-      provenance: [hook("inject-dispatch-watchdog"), REGISTRY],
+      provenance: [hook("inject-dispatch-watchdog")],
       stratum: "registry",
     },
   ],
@@ -369,7 +390,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Auto-injects top-K memory-search results for non-trivial prompts, restoring preamble-parity for Claude Code without the agent having to remember to search.",
       failureClasses: ["stale-context"],
-      provenance: [hook("memory-search"), REGISTRY],
+      provenance: [hook("memory-search")],
       stratum: "registry",
     },
   ],
@@ -379,7 +400,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects a warning when a skill, agent, or rule has drifted from its compiled baseline.",
       failureClasses: ["stale-context"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("skill-staleness-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
       filenameNote:
         "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record. Axis 2 is inject, not record.",
@@ -413,7 +434,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Records whether a retrospective that FIRED is complete — the sections its declared triage level requires, and in-turn status reads for the fix-tasks it cites. Log-only.",
       failureClasses: ["unrecorded-learning"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("retrospective-completeness-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -423,7 +444,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Scans the just-completed turn for user-correction and self-recognized-failure phrases and injects a reminder to run `/retrospective`, recording every evaluation.",
       failureClasses: ["unrecorded-learning"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("retrospective-trigger-scanner"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -433,7 +454,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects when a turn states a tool outcome — created, merged, tests pass — before that result is in hand.",
       failureClasses: ["unfounded-claim"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("pre-narration-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -493,7 +514,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "The `AskUserQuestion` half of the operator-deferral evaluation: records option labels that defer an action the agent could have probed for itself.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("operator-deferral-detector"), REGISTRY],
+      provenance: [hook("operator-deferral-detector")],
       stratum: "registry",
     },
   ],
@@ -516,7 +537,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects when a tool-only run crosses the heartbeat cadence — 10 minutes wall-clock or 15 consecutive tool calls — with no interstitial prose.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("silent-stretch-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -526,7 +547,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Records a turn-end report that violates the Tier-1 shape — over the word budget, or leading with a process-internal label instead of plain language.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("wall-of-text-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -536,7 +557,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Records a claim that a build, bundle, or install succeeded without the evidence that would establish it. Log-only.",
       failureClasses: ["unfounded-claim"],
-      provenance: [hook("build-claim-injection-detector"), REGISTRY],
+      provenance: [hook("build-claim-injection-detector")],
       stratum: "registry",
     },
   ],
@@ -546,7 +567,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Writes the turn-anchor store at Stop. Always returns null; its only observable effect is a file write that OTHER interceptors read — framework state, not evidence for review.",
       failureClasses: ["blind-enforcement"],
-      provenance: [hook("registry"), REGISTRY],
+      provenance: [hook("record-turn-anchor")],
       stratum: "registry",
       note: "Ontology §3c calls this the `record(framework)` case, distinct from `record(review)`: nothing in `/calibration-review` consumes it.",
     },
@@ -557,7 +578,11 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects when a closing message carries an entity reference the reader cannot click. Posture is per finding class: bare short ids the display map cannot resolve, malformed targets and raw-uuid labels are live; bare `mt#`/`PR #` is record-only because the display linkifier repairs those.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("bare-entity-ref-scan"), HOOK_OBSERVERS_RULE],
+      provenance: [
+        hook("turn-end-bare-ref-scan"),
+        hook("bare-entity-ref-scan"),
+        HOOK_OBSERVERS_RULE,
+      ],
       stratum: "registry",
     },
   ],
@@ -567,7 +592,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "The Stop-event sibling of the retrospective trigger scanner: injects a `/retrospective` reminder when the just-completed turn carries a failure signal.",
       failureClasses: ["unrecorded-learning"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("turn-end-retro-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -577,7 +602,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects when the final message names a next action without taking it. Suppressed — with the suppression recorded — when the message names a principal-reserved category.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("turn-end-untaken-action-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -587,7 +612,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Injects when a turn minted a task id and ended with no status-set, session-start, dispatch, or ask naming it. Keyed on tool-call state, so it sees the SILENT stop.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("turn-end-unwalked-task-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -597,7 +622,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         'Injects when the final message reports an incident and names the remediation as the principal\'s, with no ask carrying `severity: "incident"`.',
       failureClasses: ["lost-signal"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("turn-end-unescalated-incident-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -607,7 +632,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description:
         "Records the silent stop at a ripe decision: a turn whose mutations are all evidence-writes, ending having minted nothing and said nothing. Log-only.",
       failureClasses: ["lost-signal"],
-      provenance: [hook("registry"), HOOK_OBSERVERS_RULE],
+      provenance: [hook("stop-at-decision-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -848,8 +873,9 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Declared as a standalone enforcement point and present in the fire log, but no source module for it exists in this repo — so what it does cannot be stated from source.",
       failureClasses: ["blind-enforcement"],
       provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
       stratum: "standalone",
-      note: "UNVERIFIED — description deliberately withheld rather than inferred. `rationalization-review` appears only in `known-guard-names.ts`'s STANDALONE_GUARD_NAMES and in one fire-log record; a repo-wide grep finds no implementing module. Either it is a retired name that belongs in RETIRED_GUARD_NAMES, or its module is named something this search did not reach. Resolve before the catalog renders it as a live interceptor.",
+      note: "No source module exists. UNVERIFIED — description deliberately withheld rather than inferred. `rationalization-review` appears only in `known-guard-names.ts`'s STANDALONE_GUARD_NAMES and in one fire-log record; a repo-wide grep finds no implementing module. Either it is a retired name that belongs in RETIRED_GUARD_NAMES, or its module is named something this search did not reach. Resolve before the catalog renders it as a live interceptor.",
     },
   ],
 
@@ -1105,8 +1131,9 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Retired pre-commit step that ran the unit suite on every commit; superseded by `fast-related-tests`, which scopes the run to the staged files.",
       failureClasses: ["broken-main"],
       provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
       stratum: "retired",
-      note: "Last seen 2026-07-20. The fire log is append-only history, so its records persist under this name permanently.",
+      note: "Last seen 2026-07-20. No source module exists — a retired step's implementation is gone by definition, so the oracle's declaration is the only honest pointer. The fire log is append-only history, so its records persist under this name permanently.",
     },
   ],
   [
@@ -1116,8 +1143,9 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Retired pre-commit step that combined the migration-safety and duplicate-generated-content checks; split into `migration-guard-check` and `duplicate-generated-content-check`.",
       failureClasses: ["corrupt-record", "broken-main"],
       provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
       stratum: "retired",
-      note: "Last seen 2026-07-29.",
+      note: "Last seen 2026-07-29. No source module exists — the step was split into its two successors, so the oracle's declaration is the only honest pointer.",
     },
   ],
 
@@ -1138,8 +1166,9 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       description: `Not an interceptor. A synthetic name from ${scenario} in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.`,
       failureClasses: ["blind-enforcement"],
       provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
       stratum: "fixture",
-      note: "mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
+      note: "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
     },
   ]),
 ]);
@@ -1177,6 +1206,13 @@ export interface CatalogEntry {
   readonly subject: "trajectory" | "system";
   readonly filenameNote?: string | undefined;
   readonly note?: string | undefined;
+  /**
+   * `"implementation"` when `provenance[0]` points at the module implementing
+   * the described behavior; `"declaration-only"` when no such module exists and
+   * the pointer is a declaration site (see {@link InterceptorDescription}).
+   * `"none"` for an undescribed name, which has no provenance at all.
+   */
+  readonly provenanceStatus: "implementation" | "declaration-only" | "none";
   /**
    * Registry metadata this entity does not have, ALWAYS enumerated rather than
    * defaulted (SC3). For an entity with no `GuardRegistration` at all this is
@@ -1218,6 +1254,8 @@ export function resolveCatalogEntry(guardName: string, input: ResolveCatalogInpu
     subject: described?.subject === "system" ? "system" : "trajectory",
     filenameNote: described?.filenameNote,
     note: described?.note,
+    provenanceStatus:
+      described === undefined ? "none" : (described.provenanceStatus ?? "implementation"),
     coverageGaps,
     registered: facts !== undefined,
     undescribed: described === undefined,

@@ -163,6 +163,72 @@ describe("AT3 — provenance resolves to the source it distills", () => {
       .map(([n]) => n);
     expect(bare).toEqual([]);
   });
+
+  // ---------------------------------------------------------------------
+  // A pointer can RESOLVE and still not be the source it distills — which
+  // is what SC4 actually asks for. These four tests close that gap.
+  // ---------------------------------------------------------------------
+
+  test("provenance[0] is never the registry", () => {
+    // A registry pointer says "this entity is registered", not where the
+    // described behavior lives, so a change to a guard's logic could never
+    // invalidate it — defeating the drift-auditing purpose entirely.
+    const registryLed = [...INTERCEPTOR_DESCRIPTIONS.entries()]
+      .filter(([, d]) => d.provenance[0].endsWith("/registry.ts"))
+      .map(([n]) => n);
+    expect(registryLed).toEqual([]);
+  });
+
+  test("every registry-stratum entry points at the module the REGISTRY declares", () => {
+    // Derived from the registry's own `module: () => import("./X")` rather
+    // than a hand-maintained copy, so this cannot drift from the truth. This
+    // is the check that catches a pointer aimed at a file which exists but is
+    // not the implementing module.
+    const mismatches: string[] = [];
+
+    for (const r of GUARD_REGISTRY) {
+      const described = INTERCEPTOR_DESCRIPTIONS.get(r.name);
+      if (!described || described.stratum !== "registry") continue;
+
+      const importPath = /import\(\s*["']\.\/([\w.-]+)["']\s*\)/.exec(String(r.module))?.[1];
+      if (importPath === undefined) {
+        mismatches.push(`${r.name} -> could not derive module from registry`);
+        continue;
+      }
+
+      const expected = `.minsky/hooks/${importPath}.ts`;
+      if (described.provenance[0] !== expected) {
+        mismatches.push(`${r.name} -> expected ${expected}, got ${described.provenance[0]}`);
+      }
+    }
+
+    expect(mismatches).toEqual([]);
+  });
+
+  test("declaration-only provenance is marked and explained, never substituted", () => {
+    // An entity with no source module keeps an honest pointer at its
+    // declaration site plus a note saying so. Substituting the registry (or
+    // any other plausible file) there would be fabricated provenance.
+    for (const [name, desc] of INTERCEPTOR_DESCRIPTIONS) {
+      if (desc.provenanceStatus !== "declaration-only") continue;
+      expect(desc.note, `${name} must explain its declaration-only provenance`).toBeTruthy();
+      expect(desc.note ?? "").toContain("No source module exists");
+      expect(desc.provenance[0].endsWith("/registry.ts")).toBe(false);
+    }
+  });
+
+  test("every retired and fixture entry is declaration-only", () => {
+    // These strata have no implementation by construction, so an
+    // implementation-status pointer would be a claim that cannot be true.
+    const wrong = [...INTERCEPTOR_DESCRIPTIONS.entries()]
+      .filter(
+        ([, d]) =>
+          (d.stratum === "retired" || d.stratum === "fixture") &&
+          d.provenanceStatus !== "declaration-only"
+      )
+      .map(([n]) => n);
+    expect(wrong).toEqual([]);
+  });
 });
 
 describe("SC2 — the failure-class taxonomy", () => {
