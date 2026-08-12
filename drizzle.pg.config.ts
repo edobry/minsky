@@ -29,10 +29,18 @@ function getPostgresConnectionString(): string {
 
   // 3. Load from Minsky configuration system using helper script
   // This handles standalone drizzle-kit commands
+  //
+  // MINSKY_DRIZZLE_LOADER_GATE is the sanctioned-caller signal
+  // scripts/drizzle-config-loader.ts requires before it will print anything
+  // (mt#4017) — that script's stdout is a live credential, and without this
+  // gate it refuses and exits non-zero rather than emit it. Only THIS
+  // execSync call (drizzle-kit's own subprocess, never a Bash/session_exec
+  // tool call an agent issues) is meant to set it.
   try {
     const configOutput = execSync("bun ./scripts/drizzle-config-loader.ts", {
       encoding: "utf8",
       stdio: ["inherit", "pipe", "pipe"],
+      env: { ...process.env, MINSKY_DRIZZLE_LOADER_GATE: "1" },
     });
     const dbConfig = JSON.parse(configOutput.trim());
     if (dbConfig.postgres?.connectionString) {
