@@ -40,6 +40,8 @@ import * as fs from "fs";
 import * as path from "path";
 import { getStateDir, atomicWriteJSON } from "./lifecycle";
 import { log } from "@minsky/shared/logger";
+// mt#4014: type-only, erased at build — see OPEN_ASK_STATES below.
+import type { AskState } from "@minsky/domain/ask/types";
 
 /**
  * Cache filename under the Minsky state dir. The CONSUMER hook hard-codes this
@@ -66,7 +68,17 @@ export const WATERMARK_STORE_RELPATH = ".minsky/calibration-review-watermarks.js
  * written into the record, so the hook needs no policy knowledge of its own and
  * the two cannot drift.
  */
-export const OPEN_ASK_STATES: ReadonlySet<string> = new Set(["routed", "suspended"]);
+// mt#4014: typed against `AskState` so a typo is a compile error. The MEMBERSHIP
+// is deliberately narrower than "non-terminal" and is NOT widened here — per the
+// docstring above, `detected`/`classified` are pre-routing (nobody owes anything
+// yet) and `responded` means the answer already arrived. Binding the type and
+// choosing the membership are independent decisions; only the first was missing.
+//
+// `import type` is erased at compile time, so this does NOT reintroduce the
+// runtime module-graph coupling the value-duplication comments above avoid.
+// Constructed as `Set<AskState>` so the members are checked; exposed as
+// `ReadonlySet<string>` so callers can look up a raw DB value without a cast.
+export const OPEN_ASK_STATES: ReadonlySet<string> = new Set<AskState>(["routed", "suspended"]);
 
 /** One resolved ask, or the record that it was looked up and not found. */
 export type AskStateEntry =
