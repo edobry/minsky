@@ -733,6 +733,18 @@ export interface SilentStretchRecord {
   gapMinutes: number;
   toolCallCount: number;
   hadTextInTurn?: boolean;
+  /**
+   * Minutes from the measured turn's END to the moment the guard fired
+   * (mt#4018). Distinct from `gapMinutes`, which measures silence INSIDE the
+   * turn — this measures how long ago that turn finished, which for a
+   * `UserPromptSubmit` guard is the operator's away-time.
+   *
+   * Optional because every record written before mt#4018 lacks it. Absent is
+   * NOT zero: a zero means "fired the instant the turn ended", so a reader
+   * computing a staleness distribution must exclude absent rather than
+   * average them in.
+   */
+  stalenessMinutes?: number;
 }
 
 /**
@@ -1253,6 +1265,11 @@ function parseCalibrationRecordCore(
         toolCallCount: raw["toolCallCount"],
         hadTextInTurn:
           raw["hadTextInTurn"] !== undefined ? Boolean(raw["hadTextInTurn"]) : undefined,
+        // mt#4018. Only a NUMBER is accepted: a malformed value must read as
+        // absent, not coerce to a plausible-looking figure that would then be
+        // averaged into a staleness distribution as though it were measured.
+        stalenessMinutes:
+          typeof raw["stalenessMinutes"] === "number" ? raw["stalenessMinutes"] : undefined,
       } satisfies SilentStretchRecord;
     }
 

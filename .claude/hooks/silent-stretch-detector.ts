@@ -431,9 +431,13 @@ function computeGapMinutes(from: string | undefined, to: string | undefined): nu
  * record timestamp all along; recording it makes the distribution readable
  * from the sweep instead of from a hand-rolled `jq` pipeline.
  *
- * `undefined` when the turn's end boundary is unknown — the same condition
- * that makes {@link buildTurnAnchor} return undefined. Absent is honest here:
- * a zero would read as "delivered instantly", the opposite of "not known".
+ * `undefined` when EITHER timestamp is unknown or unparsable — the turn-end
+ * case is the same condition that makes {@link buildTurnAnchor} return
+ * undefined. Absent is honest here: a zero would read as "delivered
+ * instantly", the opposite of "not known". Both sides are validated rather
+ * than only the boundary (PR #2903 R1): `computeGapMinutes` returns 0 for an
+ * unparsable input, so validating one and delegating the other would emit
+ * exactly the misleading zero this contract exists to avoid.
  *
  * Deliberately does NOT gate the advisory. Withholding a stale advisory
  * changes when guidance reaches the agent, which ADR-031 §"The principal-facing
@@ -446,6 +450,7 @@ export function computeStalenessMinutes(
 ): number | undefined {
   if (!turnEndTimestamp) return undefined;
   if (Number.isNaN(Date.parse(turnEndTimestamp))) return undefined;
+  if (!firedAt || Number.isNaN(Date.parse(firedAt))) return undefined;
   return Math.round(computeGapMinutes(turnEndTimestamp, firedAt) * 100) / 100;
 }
 

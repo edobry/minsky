@@ -1004,6 +1004,16 @@ describe("mt#4018 — staleness of the record relative to the turn it measures",
     expect(computeStalenessMinutes("not-a-timestamp", "2026-08-10T18:29:15.000Z")).toBeUndefined();
   });
 
+  // PR #2903 R1. The original guarded the turn-end timestamp and delegated
+  // `firedAt` to computeGapMinutes, which returns 0 for an unparsable input —
+  // so a malformed fire time produced `0`, i.e. "delivered instantly", the
+  // exact misleading value the undefined contract exists to prevent. Same
+  // class as the turn-end check directly above; one side had it, one didn't.
+  test("an unparsable firedAt yields undefined, not a 0 that reads as fresh", () => {
+    expect(computeStalenessMinutes("2026-08-10T18:29:15.000Z", "not-a-timestamp")).toBeUndefined();
+    expect(computeStalenessMinutes("2026-08-10T18:29:15.000Z", "")).toBeUndefined();
+  });
+
   test("a fire BEFORE the turn end clamps to 0 rather than going negative", () => {
     // computeGapMinutes already clamps; asserted here because a negative
     // staleness would corrupt any distribution computed over the corpus.
@@ -1041,6 +1051,26 @@ describe("mt#4018 — staleness of the record relative to the turn it measures",
     // clock read would let them drift by however long the dedupe reads took.
     expect(outcome?.calibration?.stalenessMinutes).toBe(records[0]?.stalenessMinutes);
     expect(outcome?.calibration?.timestamp).toBe(records[0]?.timestamp);
+  });
+
+  // PR #2903 R1: the missing-session_id skip path was correct but unobserved.
+  // Without the skip, `sessionHasLoggedKey` cannot key a record it has no
+  // session for, so it always reports "not logged" and the evaluation stream
+  // appends on EVERY run with no upper bound.
+  test("no session_id -> no evaluation record is appended at all", () => {
+    const { deps, records } = capturingDeps();
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+    const inputWithoutSession = { ...HOOK_INPUT, session_id: "" };
+
+    // Runs twice: an unbounded-append bug shows up as growth, not as a first
+    // bad record, so a single call could not distinguish the two.
+    run(inputWithoutSession, makeCtx(transcriptLines), deps);
+    run(inputWithoutSession, makeCtx(transcriptLines), deps);
+    expect(records).toHaveLength(0);
   });
 
   // AT3 — the scope boundary. This task measures; it must not change delivery.
