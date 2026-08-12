@@ -75,6 +75,7 @@ import {
   Wrench,
   PanelLeftClose,
   PanelLeftOpen,
+  Share2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
@@ -121,6 +122,11 @@ const BROWSE: NavItem[] = [
   { to: "/activity", label: "Activity", icon: Bell },
   { to: "/embeddings", label: "Embeddings", icon: Cpu },
   { to: "/memories", label: "Memories", icon: Brain },
+  // mt#4024 — the inventory of conversations published as public read-only
+  // links. In the rail rather than Cmd-K-only because it answers a standing
+  // question about exposure ("what is readable right now"), which the operator
+  // has to be able to find without already knowing the page exists.
+  { to: "/shares", label: "Shared links", icon: Share2 },
   { to: "/plant", label: "Plant", icon: Layers },
   { to: "/vitals", label: "Vitals", icon: Activity },
 ];

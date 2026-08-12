@@ -184,6 +184,13 @@ export function extractSessionToken(req: Request): string | null {
 export function isPublicPath(path: string): boolean {
   if (path === "/api/health") return true;
   if (path.startsWith("/api/auth/")) return true;
+  // Published conversation shares (mt#4024). The ONLY data route that is
+  // deliberately public, and it is not a hole in the gate: it serves exactly
+  // one conversation, only when the operator explicitly published it, only
+  // while the share is live, and only if that transcript passes the scrub
+  // gate. Note how narrow the prefix is — `/api/shares` (mint, list, revoke)
+  // stays GATED; only the `/public/` sub-path is open.
+  if (path.startsWith("/api/shares/public/")) return true;
   if (!path.startsWith("/api/")) return true; // SPA shell + static assets
   return false;
 }

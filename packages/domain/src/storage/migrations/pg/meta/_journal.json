@@ -673,6 +673,13 @@
       "when": 1786553414518,
       "tag": "0095_messy_galactus",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1786553414519,
+      "tag": "0096_good_amphibian",
+      "breakpoints": true
     }
   ]
 }
