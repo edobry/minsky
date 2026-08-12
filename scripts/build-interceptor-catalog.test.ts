@@ -13,12 +13,30 @@ import { buildCatalog, collectOracleNames, type CatalogSources } from "./build-i
 import { INTERCEPTOR_DESCRIPTIONS } from "../.minsky/hooks/interceptor-descriptions";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 import type { RegistryFacts } from "../.minsky/hooks/interceptor-descriptions";
+import type { CoordinateResolutionInput } from "../.minsky/hooks/interceptor-coordinates";
+import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
+
+/**
+ * An EMPTY coordinate input, so a fixture name resolves to all-gaps.
+ *
+ * That is the honest default for an invented name: nothing declares it, so
+ * every axis is a gap and the family state is `unclassified`. A fixture that
+ * silently resolved a point would be testing against data the resolver made up.
+ */
+function emptyCoordinateInput(): CoordinateResolutionInput {
+  return {
+    registryEvents: new Map<string, string>(),
+    settingsEvents: new Map<string, string>(),
+    strata: new Map<string, string>(),
+  };
+}
 
 function sources(overrides: Partial<CatalogSources> = {}): CatalogSources {
   return {
     oracleNames: new Set<string>(),
     describedNames: new Set<string>(),
     input: { registryFacts: new Map<string, RegistryFacts>() },
+    coordinateInput: emptyCoordinateInput(),
     ...overrides,
   };
 }
@@ -104,6 +122,7 @@ describe("the real corpus", () => {
         ])
       ),
     },
+    coordinateInput: buildCoordinateResolutionInput(),
   });
 
   test("the oracle and the descriptions agree on the population", () => {

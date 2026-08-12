@@ -20,9 +20,13 @@ import { Link, useParams } from "react-router-dom";
 import {
   useInterceptors,
   COVERAGE_GAP_LABELS,
+  MECHANISM_LABELS,
+  ROLE_LABELS,
   STRATUM_LABELS,
+  formatIntervention,
   type InterceptorEntry,
 } from "../hooks/useInterceptors";
+import { FamilyChips } from "../components/InterceptorFacets";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -127,6 +131,75 @@ export function InterceptorDetailPage() {
               {!entry.registered && (
                 <span className="ml-2 text-[10px] font-mono text-muted-foreground/70">
                   not in the dispatcher registry
+                </span>
+              )}
+            </Field>
+
+            <Field label="Interception point">
+              {entry.point ? (
+                <>
+                  <span className="font-mono text-[11px]">{entry.point}</span>
+                  <span className="ml-2 text-[10px] font-mono text-muted-foreground/70">
+                    {entry.pointSource === "authored"
+                      ? "authored — no declaring source establishes it"
+                      : `derived from ${entry.pointSource}`}
+                  </span>
+                </>
+              ) : (
+                <span className="text-warn-amber" data-testid="interceptor-detail-point-gap">
+                  Undeclared — no registry event, settings registration, or stratum establishes
+                  where this sits.
+                </span>
+              )}
+            </Field>
+
+            <Field label="Interventions">
+              {entry.interventions.length === 0 ? (
+                <span
+                  className="text-warn-amber"
+                  data-testid="interceptor-detail-interventions-gap"
+                >
+                  Unauthored — the capability set for this name was never written down.
+                </span>
+              ) : (
+                <ul className="list-none p-0 m-0 flex flex-wrap gap-1.5">
+                  {entry.interventions.map((i) => (
+                    <li
+                      key={formatIntervention(i)}
+                      className="rounded bg-muted px-1 py-px font-mono text-[11px]"
+                    >
+                      {formatIntervention(i)}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Field>
+
+            <Field label="Families">
+              <FamilyChips entry={entry} />
+              <p className="m-0 mt-1 text-[10px] text-muted-foreground/70">
+                Computed from the intervention set, not stored. Membership is not exclusive.
+              </p>
+            </Field>
+
+            <Field label="Decision mechanism">
+              {entry.mechanism ? (
+                <span className="text-[11px] text-muted-foreground">
+                  {MECHANISM_LABELS[entry.mechanism]}
+                </span>
+              ) : (
+                <span className="text-warn-amber" data-testid="interceptor-detail-mechanism-gap">
+                  Unauthored — how this decides was never written down.
+                </span>
+              )}
+            </Field>
+
+            <Field label="Role">
+              {entry.role ? (
+                <span className="text-[11px] text-muted-foreground">{ROLE_LABELS[entry.role]}</span>
+              ) : (
+                <span className="text-warn-amber" data-testid="interceptor-detail-role-gap">
+                  Unauthored.
                 </span>
               )}
             </Field>
