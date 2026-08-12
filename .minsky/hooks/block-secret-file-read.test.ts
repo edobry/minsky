@@ -463,6 +463,7 @@ describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
   const LOADER_REL = "scripts/drizzle-config-loader.ts";
   const LOADER_DOT_REL = `./${LOADER_REL}`;
   const BUN_LOADER_CMD = `bun ${LOADER_DOT_REL}`;
+  const SCRIPT_INVOCATION_KIND = "script-invocation";
 
   // AT3: attempt the guard's covered invocation → denied, with the denial
   // naming a non-emitting alternative.
@@ -480,8 +481,8 @@ describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
       test(`denies: ${cmd}`, () => {
         const hits = findSecretScriptInvocations(cmd);
         expect(hits.length).toBe(1);
-        expect(hits[0]?.kind).toBe("script-invocation");
-        expect(hits[0]?.path).toContain("drizzle-config-loader.ts");
+        expect(hits[0]?.kind).toBe(SCRIPT_INVOCATION_KIND);
+        expect(hits[0]?.path).toContain(LOADER_REL);
       });
     }
 
@@ -491,6 +492,34 @@ describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
       // exempt it, since the guard fires before the process even starts.
       const hits = findSecretScriptInvocations(`MINSKY_DRIZZLE_LOADER_GATE=1 ${BUN_LOADER_CMD}`);
       expect(hits.length).toBe(1);
+    });
+
+    // PR #2898 review, non-blocking: a shell -c/-lc/-ic payload embeds the
+    // invocation inside a string the outer tokenizer never inspects.
+    describe("shell -c payloads are unwrapped and checked (PR #2898 non-blocking finding)", () => {
+      const wrapped = [
+        `bash -c "${BUN_LOADER_CMD}"`,
+        `bash -lc '${BUN_LOADER_CMD}'`,
+        `sh -c "${BUN_LOADER_CMD}"`,
+        `zsh -ic "${BUN_LOADER_CMD}"`,
+        `bash --command "${BUN_LOADER_CMD}"`,
+      ];
+      for (const cmd of wrapped) {
+        test(`denies: ${cmd}`, () => {
+          const hits = findSecretScriptInvocations(cmd);
+          expect(hits.length).toBe(1);
+          expect(hits[0]?.kind).toBe(SCRIPT_INVOCATION_KIND);
+          expect(hits[0]?.path).toContain(LOADER_REL);
+        });
+      }
+
+      test("an unrelated -c payload is unaffected", () => {
+        expect(findSecretScriptInvocations('bash -c "echo hello"')).toEqual([]);
+      });
+
+      test("a shell with no -c flag at all is unaffected", () => {
+        expect(findSecretScriptInvocations("bash script.sh")).toEqual([]);
+      });
     });
 
     test("caught anywhere in a pipeline or sequence, not just the head", () => {
@@ -554,7 +583,7 @@ describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
     const hits = findSecretScriptInvocations(BUN_LOADER_CMD);
 
     test("names the blocked invocation", () => {
-      expect(buildDenialReason(hits)).toContain("drizzle-config-loader.ts");
+      expect(buildDenialReason(hits)).toContain(LOADER_REL);
     });
 
     test("names the non-emitting alternative (AT3)", () => {
@@ -652,7 +681,7 @@ describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
       });
       expect(hits.length).toBe(2);
       const kinds = hits.map((h) => h.kind).sort();
-      expect(kinds).toEqual(["file-read", "script-invocation"]);
+      expect(kinds).toEqual(["file-read", SCRIPT_INVOCATION_KIND]);
     });
   });
 });

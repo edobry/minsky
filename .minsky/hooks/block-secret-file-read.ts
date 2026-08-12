@@ -474,6 +474,27 @@ export const SECRET_EMITTING_SCRIPT_PATTERNS: readonly RegExp[] = [
 const SCRIPT_INTERPRETERS: ReadonlySet<string> = new Set(["bun", "bunx", "node", "ts-node", "tsx"]);
 
 /**
+ * Shells whose `-c`-style flag takes a nested command STRING as its argument
+ * (mt#4017 PR #2898 review, non-blocking). `bash -lc 'bun ./scripts/x.ts'`
+ * tokenizes to `program=bash`, and the invocation the outer tokenizer never
+ * looks inside is the quoted payload — {@link findSecretScriptInvocations}
+ * recurses into it once found, rather than adding a shell-syntax parser.
+ */
+const SHELL_DASH_C_PROGRAMS: ReadonlySet<string> = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
+
+/**
+ * True for `-c`, `-lc`, `-ic`, `-lic` (any bundled short-flag run ending in
+ * `c`) or the long form `--command` — the shell flags whose value is a
+ * command string to execute, as opposed to a script FILE path.
+ */
+function isDashCFlag(token: string): boolean {
+  if (token === "--command") return true;
+  // `*` not `+`: bare `-c` has zero characters before the trailing `c`, and
+  // must still match alongside bundled forms like `-lc`/`-ic`.
+  return /^-[a-z]*c$/.test(token);
+}
+
+/**
  * Does this segment directly invoke a known secret-emitting script? Matches
  * both interpreter-prefixed invocation (`bun ./scripts/x.ts`) and direct
  * execution via the script's own shebang (`./scripts/x.ts`, `scripts/x.ts`).
@@ -514,9 +535,24 @@ export function findSecretScriptInvocations(command: string): SecretReadHit[] {
     if (!program) continue;
 
     const script = findSecretScriptInvocation(program, tokens);
-    if (!script) continue;
+    if (script) {
+      hits.push({ segment, reader: program, path: script, kind: "script-invocation" });
+      continue;
+    }
 
-    hits.push({ segment, reader: program, path: script, kind: "script-invocation" });
+    // A shell -c/-lc/-ic payload embeds a NESTED command string the outer
+    // tokenizer never inspects (mt#4017 PR #2898 review, non-blocking) —
+    // recurse into it rather than teaching this function shell grammar.
+    if (SHELL_DASH_C_PROGRAMS.has(program)) {
+      const args = tokens.slice(1);
+      const flagIdx = args.findIndex((t) => isDashCFlag(t));
+      const payload = flagIdx !== -1 ? args[flagIdx + 1] : undefined;
+      if (payload) {
+        for (const nested of findSecretScriptInvocations(payload)) {
+          hits.push({ ...nested, segment: `${segment} [nested: ${nested.segment}]` });
+        }
+      }
+    }
   }
   return hits;
 }
