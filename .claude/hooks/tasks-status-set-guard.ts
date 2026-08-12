@@ -43,6 +43,22 @@ const GUARD_NAME = "tasks-status-set-guard";
 export interface CheckResult {
   decision: "allow" | "deny";
   reason?: string;
+  /**
+   * mt#3920 — whether this result is evidence the guard's CHECK ran cleanly, for
+   * guard-health's recovery join. Every path below returns `decision: "allow"`, so the
+   * entry point cannot tell them apart without this:
+   *
+   * - `"decided"` — the transition was actually validated (or the requested status was
+   *   rejected as invalid, which needs no read).
+   * - `"crashed"` — the live task read came back `null`. That is a DEGRADED probe failing
+   *   open, and it is the case that must never count as clean: if the CLI read breaks,
+   *   every call allows, and without this marker guard-health would read a guard that has
+   *   stopped checking anything as recovered.
+   * - UNSET — the guard did not run: a different tool, or a call with no usable
+   *   `taskId`/`status`. Also the read-succeeded-but-status-unusable path, where nothing
+   *   broke and there was simply nothing to validate against.
+   */
+  outcome?: "decided" | "crashed";
 }
 
 export interface CurrentTaskFields {
@@ -94,6 +110,7 @@ export function checkTransition(
   if (!isValidTaskStatus(requested)) {
     return {
       decision: "deny",
+      outcome: "decided",
       reason:
         `Refused tasks_status_set on ${taskId}: requested status "${requested}" is not a valid TaskStatus. ` +
         `Valid: ${TASK_STATUS_VALUES.join(", ")}.`,
@@ -103,7 +120,7 @@ export function checkTransition(
   const taskFields = deps.readCurrentTask(taskId);
   if (taskFields === null) {
     // Could not read task — fail open. Domain layer will catch.
-    return { decision: "allow" };
+    return { decision: "allow", outcome: "crashed" };
   }
   const current = taskFields.status;
   if (current === null || !isValidTaskStatus(current)) {
@@ -118,11 +135,12 @@ export function checkTransition(
 
   try {
     validateStatusTransition(current as TaskStatus, requested as TaskStatus, kind);
-    return { decision: "allow" };
+    return { decision: "allow", outcome: "decided" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       decision: "deny",
+      outcome: "decided",
       reason:
         `Refused tasks_status_set on ${taskId}: ${message}\n\n` +
         `If the current status is wrong (e.g., stale local belief), read it first via ` +
@@ -153,6 +171,9 @@ if (import.meta.main) {
     guardName: GUARD_NAME,
     event: "PreToolUse",
     decision: result.decision,
+    // mt#3920: see CheckResult.outcome — a degraded task read fails open, and only this
+    // field separates that allow from one the transition validator actually produced.
+    ...(result.outcome !== undefined ? { guardOutcome: result.outcome } : {}),
     durationMs: Date.now() - startMs,
     toolName: input.tool_name,
     sessionId: input.session_id,

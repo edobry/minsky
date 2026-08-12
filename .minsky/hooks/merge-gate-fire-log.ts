@@ -80,10 +80,41 @@ export interface MergeGateFireLogContext {
   taskResolutionSource?: TaskResolutionSource;
 }
 
+/**
+ * Whether this exit point is clean-run evidence (mt#3920).
+ *
+ * **The field is UNSET unless an exit point names it, and that is the safe direction.**
+ * `guardOutcome` answers one question for guard-health: did this guard's CHECK actually run
+ * cleanly? So only an exit downstream of the check may answer it.
+ *
+ * A first draft of this defaulted to `"decided"` on the reasoning that `recordAndExit` is
+ * only called from an exit the gate deliberately reached. That reasoning is true and it
+ * answers the wrong question. A merge gate exits early on every unrelated tool call, on a
+ * command that is not a merge, and on a branch with no PR — all deliberate, none of them
+ * evidence the gate's probe works. Defaulting those to `"decided"` would let a guard reach
+ * `liveness: "recovered"` purely on traffic it never inspected, which is a WORSE signal than
+ * the `dormant` this task exists to remove. It is also exactly mt#3892's own R2 lesson
+ * (PR #2762): a short-circuit that never exercised the probe is not clean-run evidence.
+ *
+ * The three values, per mt#3920 criterion 1:
+ *
+ * - **`"decided"`** — the gate exercised its check and reached a verdict. Pass it explicitly.
+ * - **`"crashed"`** — the record stands in for a FAILED evaluation: the fail-open the
+ *   factory's own convention names (*"a transport/fetch failure logged only to
+ *   stderr/console.error … → `allow`"*), which arrives indistinguishable from a real allow
+ *   because both are `decision: "allow"`. Marking one `"decided"` would report a guard whose
+ *   probe is broken as recovered.
+ * - **UNSET** (omit) — the gate did not run: an override, or a short-circuit before the path
+ *   that can fail.
+ */
+export type MergeGateOutcome = "decided" | "crashed";
+
 /** The `recordAndExit` closure shape every merge-gate hook's entry point uses. */
 export type RecordAndExit = (
   decision: FireLogDecision,
-  overrideFields?: MergeGateOverrideFields
+  overrideFields?: MergeGateOverrideFields,
+  /** See {@link MergeGateOutcome}. Omit at a normal exit; pass `"crashed"` at a fail-open. */
+  outcome?: MergeGateOutcome
 ) => never;
 
 /**
@@ -107,7 +138,8 @@ export interface MergeGateDecision {
 /** Builds the {@link MergeGateDecision} for one exit point. Pure; no I/O, no exit. */
 export type MergeGateDecider = (
   decision: FireLogDecision,
-  overrideFields?: MergeGateOverrideFields
+  overrideFields?: MergeGateOverrideFields,
+  outcome?: MergeGateOutcome
 ) => MergeGateDecision;
 
 /**
@@ -130,12 +162,15 @@ export function makeMergeGateDecider(
   context?: MergeGateFireLogContext,
   nowMs: () => number = Date.now
 ): MergeGateDecider {
-  return (decision, overrideFields) => ({
+  return (decision, overrideFields, outcome) => ({
     exitCode: MERGE_GATE_EXIT_CODE,
     record: {
       guardName,
       event: "PreToolUse",
       decision,
+      // mt#3920: UNSET by default — see {@link MergeGateOutcome}. Only an exit point that
+      // actually EXERCISED the gate's check may claim `"decided"`, and it must say so.
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: nowMs() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
@@ -227,6 +262,6 @@ export function makeRecordAndExit(
   context?: MergeGateFireLogContext
 ): RecordAndExit {
   const decide = makeMergeGateDecider(guardName, startMs, input, context);
-  return (decision, overrideFields) =>
-    dispatchMergeGateDecision(decide(decision, overrideFields), recordOptions);
+  return (decision, overrideFields, outcome) =>
+    dispatchMergeGateDecision(decide(decision, overrideFields, outcome), recordOptions);
 }

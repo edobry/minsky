@@ -300,14 +300,25 @@ if (import.meta.main) {
   // callee is a function declaration or an identifier with an EXPLICIT type
   // annotation. Without it, `if (!filterResult.fires) finishRun("allow")` stops
   // narrowing `filterResult` and the reads below it fail to compile.
-  const finishRun: (decision: FireLogDecision, output?: HookOutput) => never = (
-    decision,
-    output
-  ) => {
+  const finishRun: (
+    decision: FireLogDecision,
+    output?: HookOutput,
+    /**
+     * mt#3920 — clean-run evidence. Set only at the four exits downstream of
+     * `loadPolicyCorpus`, and only when the corpus actually loaded: the exits above it
+     * (the `disabled` override, a non-firing action filter, this detector's own infra
+     * paths) never touched the fallible part, and an EMPTY corpus is the mt#3393 failure
+     * shape — the loader swallows its own read errors, so a corpus that loaded nothing
+     * decides `uncovered` for every action and looks identical to a working one from
+     * here. That is a crashed evaluation, not a clean decision.
+     */
+    outcome?: "decided" | "crashed"
+  ) => never = (decision, output, outcome) => {
     recordFireLogEntry({
       guardName: "policy-coverage",
       event: "PreToolUse",
       decision,
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: Date.now() - startedAt,
       toolName: input.tool_name,
       ...(input.session_id ? { sessionId: input.session_id } : {}),
@@ -323,8 +334,15 @@ if (import.meta.main) {
 
   // Only fire on covered write tools (Edit/Write/NotebookEdit + MCP session
   // file-write variants — see COVERED_TOOL_NAMES above).
+  //
+  // mt#3920 R1: routes through `finishRun` like every other terminal branch, instead of
+  // the bare `process.exit(0)` it used to take. That exit contradicted this entry point's
+  // own stated invariant three paragraphs up ("Every terminal branch below routes through
+  // here ... including the branches that decide 'nothing to do'"), and left the one class
+  // of invocation nothing recorded at all. No `guardOutcome`: this branch is above the
+  // fallible corpus load, so it is evidence of neither a clean decision nor a crash.
   if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
-    process.exit(0);
+    finishRun("allow");
   }
 
   // Apply action filter
@@ -373,6 +391,13 @@ if (import.meta.main) {
   // Run coverage decision
   const coverage = decideCoverage(action, corpus);
 
+  // mt#3920: the mt#3393 failure shape, made visible to guard-health. `loadPolicyCorpus`
+  // swallows every read error, so a corpus that loaded nothing returns normally and every
+  // action below reads `uncovered` — indistinguishable from a working detector unless the
+  // record says so. `loadedCount`, not `entries.length`: a corpus can legitimately hold
+  // zero MATCHING entries, but zero loaded FILES is always the degraded state.
+  const corpusOutcome = corpus.loadedCount === 0 ? "crashed" : "decided";
+
   // Build the DetectionContext for AskIntent emission (used in calibration too)
   const ctx: DetectionContext = {
     surface: "pre-tool",
@@ -401,12 +426,16 @@ if (import.meta.main) {
   // appendCalibrationRecordIfLoggable enforces the same invariant for any
   // future callsite that does construct a covered record.
   if (coverage.covered) {
-    finishRun("allow", {
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: formatPermitMessage(coverage.evidence),
+    finishRun(
+      "allow",
+      {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: formatPermitMessage(coverage.evidence),
+        },
       },
-    });
+      corpusOutcome
+    );
   }
 
   // Uncovered — check dismissal
@@ -420,12 +449,16 @@ if (import.meta.main) {
       outcome: "dismissed",
       signature,
     });
-    finishRun("allow", {
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: `[policy-coverage-detector] Action uncovered but signature ${signature} dismissed — permitting.`,
+    finishRun(
+      "allow",
+      {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: `[policy-coverage-detector] Action uncovered but signature ${signature} dismissed — permitting.`,
+        },
       },
-    });
+      corpusOutcome
+    );
   }
 
   // Uncovered: build signal + AskIntent for calibration; in `block` mode also deny.
@@ -442,12 +475,16 @@ if (import.meta.main) {
   });
 
   if (mode === "log-only") {
-    finishRun("warn", {
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext: `[policy-coverage-detector] log-only: would block (signature ${signature}, reason ${action.reason}). Set ${MODE_ENV_VAR}=block to enforce.`,
+    finishRun(
+      "warn",
+      {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: `[policy-coverage-detector] log-only: would block (signature ${signature}, reason ${action.reason}). Set ${MODE_ENV_VAR}=block to enforce.`,
+        },
       },
-    });
+      corpusOutcome
+    );
   }
 
   const denyReason = formatBlockMessage(
@@ -456,11 +493,15 @@ if (import.meta.main) {
     signal.suggestedOptions ?? []
   );
 
-  finishRun("deny", {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: denyReason,
+  finishRun(
+    "deny",
+    {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: denyReason,
+      },
     },
-  });
+    corpusOutcome
+  );
 }

@@ -515,6 +515,9 @@ if (import.meta.main) {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     recordAndExit("warn");
   }
 
@@ -528,7 +531,9 @@ if (import.meta.main) {
           "⚠️ [deploy-verification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    recordAndExit("warn", undefined, "crashed");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -552,7 +557,10 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the PR-context fetch failed, so the check never ran. The
+    // comment above says it: fail-open. Counting it clean would let a guard whose forge
+    // transport is broken report itself recovered on every merge.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -644,7 +652,12 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${blockingReasons.join("\n\n---\n\n")}`,
       },
     });
-    recordAndExit("deny", usabilityOverrideFields);
+    // mt#3920: the three exits below are all downstream of `checkDeployVerification` —
+    // the gate exercised its check and reached a verdict, so each is clean-run evidence.
+    // `usabilityOverrideFields` does NOT change that: the Gap A override neutralizes ONE
+    // sub-check and the gate keeps running, unlike a top-level override (which exits above
+    // and is deliberately left UNSET).
+    recordAndExit("deny", usabilityOverrideFields, "decided");
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -652,7 +665,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
-    recordAndExit("warn", usabilityOverrideFields);
+    recordAndExit("warn", usabilityOverrideFields, "decided");
   }
-  recordAndExit("allow", usabilityOverrideFields);
+  recordAndExit("allow", usabilityOverrideFields, "decided");
 }

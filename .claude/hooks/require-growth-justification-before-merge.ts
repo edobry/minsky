@@ -498,6 +498,9 @@ if (import.meta.main) {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     recordAndExit("warn");
   }
 
@@ -510,7 +513,9 @@ if (import.meta.main) {
           "⚠️ [growth-justification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
@@ -524,7 +529,9 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the PR-context fetch failed, so the check never ran. Fail-open
+    // on a broken probe, not a verdict.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const { headSha, baseBranch, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -535,6 +542,8 @@ if (import.meta.main) {
   // touch rules at all).
   const rulesFiles = findRulesDirFiles(prFiles);
   if (rulesFiles.length === 0) {
+    // mt#3920: `decided` — the file list was fetched and scanned; a PR that touches no
+    // rules is a verdict on real data, not a short-circuit taken before the check.
     if (topLevelWarnings.length > 0) {
       writeOutput({
         hookSpecificOutput: {
@@ -542,9 +551,9 @@ if (import.meta.main) {
           additionalContext: topLevelWarnings.map((w) => `⚠️ ${w}`).join("\n"),
         },
       });
-      recordAndExit("warn");
+      recordAndExit("warn", undefined, "decided");
     }
-    recordAndExit("allow");
+    recordAndExit("allow", undefined, "decided");
   }
 
   // mt#3676: per-rule ceiling, checked BEFORE the aggregate size comparison —
@@ -573,7 +582,8 @@ if (import.meta.main) {
             permissionDecisionReason: buildPerRuleCeilingDenyMessage(breaches),
           },
         });
-        recordAndExit("deny");
+        // mt#3920: `decided` — the per-rule ceiling state was read and evaluated.
+        recordAndExit("deny", undefined, "decided");
       }
     }
   }
@@ -588,7 +598,8 @@ if (import.meta.main) {
           `${headSha} — size-justification check skipped.`,
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the merge-base fetch failed, so the size comparison never ran.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const headSizeBytes = fetchFileSizeAtRef(repo, TARGET_FILE, headSha, { cwd: input.cwd });
@@ -603,7 +614,8 @@ if (import.meta.main) {
           `— size-justification check skipped.`,
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the size fetch failed, so the comparison never ran.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const result = checkGrowthJustification(prFiles, prBody, headSizeBytes, baseSizeBytes);
@@ -619,7 +631,9 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
-    recordAndExit("deny");
+    // mt#3920: the three exits below are all downstream of `checkGrowthJustification` —
+    // the gate exercised its check and reached a verdict.
+    recordAndExit("deny", undefined, "decided");
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -627,7 +641,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
-    recordAndExit("warn");
+    recordAndExit("warn", undefined, "decided");
   }
-  recordAndExit("allow");
+  recordAndExit("allow", undefined, "decided");
 }

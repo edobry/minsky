@@ -221,6 +221,12 @@ if (import.meta.main) {
     guardName: GUARD_NAME,
     event: "PreToolUse",
     decision: decision.denied ? "deny" : "allow",
+    // mt#3920: `decided` unconditionally, and legitimately so — there is exactly ONE
+    // record site and it always sits downstream of `checkFilePathDenial`, which is pure
+    // path matching over the tool input with no probe that can fail. Every completed
+    // invocation of a guard like this IS a clean run, including the common
+    // not-a-file-editing-tool and session-workspace allows.
+    guardOutcome: "decided",
     durationMs: Date.now() - startMs,
     toolName: input.tool_name,
     sessionId: input.session_id,

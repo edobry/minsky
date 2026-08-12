@@ -271,7 +271,23 @@ export interface BypassDispatchInput {
 }
 
 export type BypassDispatchOutput =
-  | { kind: "skip" }
+  | {
+      kind: "skip";
+      /**
+       * mt#3920 — whether this skip is downstream of the CI-status evaluation.
+       *
+       * `skip` is returned from four places, and they are not the same event. Three are
+       * short-circuits taken BEFORE any check runs (wrong tool, subagent context, the
+       * command is not a bypass merge); the fourth is the pass verdict — branch
+       * protection and check runs were both fetched and evaluated, and every required
+       * check is green. The entry point cannot tell them apart from `kind` alone, and it
+       * must: only the fourth is clean-run evidence for guard-health's recovery join.
+       *
+       * Purely informational. It changes nothing about what this function decides — every
+       * `skip`, marked or not, still exits allow.
+       */
+      exercisedCheck?: boolean;
+    }
   | { kind: "override"; auditLine: string }
   | { kind: "deny"; reason: string };
 
@@ -428,7 +444,9 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
       reason: buildDenial(gateResult.reason),
     };
   }
-  return { kind: "skip" };
+  // The pass verdict: required checks were fetched and evaluated, and none is failing.
+  // mt#3920 — the ONLY skip that is clean-run evidence; see `exercisedCheck`.
+  return { kind: "skip", exercisedCheck: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -472,7 +490,9 @@ if (import.meta.main) {
   }
 
   if (result.kind === "skip") {
-    recordAndExit("allow");
+    // mt#3920: only the post-evaluation skip is clean-run evidence — the other three are
+    // short-circuits taken before any check ran. See `exercisedCheck`.
+    recordAndExit("allow", undefined, result.exercisedCheck ? "decided" : undefined);
   }
   if (result.kind === "override") {
     process.stdout.write(result.auditLine);
@@ -508,5 +528,8 @@ if (import.meta.main) {
       permissionDecisionReason: result.reason,
     },
   });
-  recordAndExit("deny");
+  // mt#3920: `decided`. This gate is deny-on-failure by construction — it never fails
+  // open, so every deny (including the transport-unreadable one) is a verdict it
+  // deliberately reached, not a probe that broke and let the call through.
+  recordAndExit("deny", undefined, "decided");
 }

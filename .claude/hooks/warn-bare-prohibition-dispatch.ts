@@ -250,11 +250,23 @@ if (import.meta.main) {
    * so this can never break a dispatch.
    */
   const overrideActive = isOverrideActive();
-  const finishRun: (decision: "allow" | "deny") => never = (decision) => {
+  /**
+   * mt#3920 — `outcome` is clean-run evidence for guard-health's recovery join.
+   *
+   * Note this guard's override does NOT suppress the marker, unlike the merge gates'.
+   * There the override exits before the check; here `decideBareProhibitionGate` still runs
+   * and still writes its calibration record — the override only neutralizes enforcement.
+   * The detection genuinely ran, so the record says so.
+   */
+  const finishRun: (decision: "allow" | "deny", outcome?: "decided" | "crashed") => never = (
+    decision,
+    outcome
+  ) => {
     recordFireLogEntry({
       guardName: "bare-prohibition",
       event: "PreToolUse",
       decision,
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: Date.now() - startedAt,
       toolName: input.tool_name,
       ...(input.session_id ? { sessionId: input.session_id } : {}),
@@ -277,7 +289,8 @@ if (import.meta.main) {
     process.stderr.write(
       `[warn-bare-prohibition-dispatch] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
     );
-    finishRun("allow");
+    // mt#3920: `crashed` — the detector threw and this allow is a fail-open.
+    finishRun("allow", "crashed");
   }
 
   if (decision.report && decision.report.bare.length > 0) {
@@ -288,7 +301,7 @@ if (import.meta.main) {
   }
 
   if (decision.decision === "allow") {
-    finishRun("allow");
+    finishRun("allow", "decided");
   }
 
   writeOutput({
@@ -298,5 +311,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  finishRun("deny");
+  finishRun("deny", "decided");
 }
