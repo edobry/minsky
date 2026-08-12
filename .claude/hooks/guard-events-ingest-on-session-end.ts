@@ -142,7 +142,19 @@ function realRunCommand(cmd: string[], opts: { timeoutMs: number }): CommandResu
       PATH: pathPrefix,
     },
   });
-  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
+  // Explicit, documented signal check (mt#4035 R1) — mirrors the CANONICAL,
+  // already-fixed detection in `.minsky/hooks/types.ts`'s `safeSpawnSync`
+  // (mt#2810 PR #1952 R1 NON-BLOCKING): a timed-out `Bun.spawnSync` always
+  // reports `exitCode: null` (it never completed normally), but the signal
+  // Bun uses to kill it can vary by platform/version (e.g. SIGKILL after a
+  // grace period). Gating on `signalCode === "SIGTERM"` specifically — the
+  // narrower check this hook used before this fix, and the one
+  // transcript-ingest-on-session-end.ts's own inline copy still uses —
+  // produces a FALSE NEGATIVE (`timedOut: false`) for any of those other
+  // signals. `exitCode === null` alone is the reliable "did not exit
+  // normally" signal; that is the only condition Bun's docs guarantee for a
+  // timeout-killed process.
+  const timedOut = result.exitCode === null;
   return {
     exitCode: result.exitCode ?? 1,
     stdout: result.stdout.toString().trim(),

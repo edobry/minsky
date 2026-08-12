@@ -19,6 +19,8 @@ const FIRE_LOG_SOURCE: GuardEventStreamSource = {
 
 /** `resolvePath` in the fakes below always resolves to `/root/<relativePath>`. */
 const FIRE_LOG_PATH = "/root/fire-log.jsonl";
+/** A single minimal fire-log-shaped JSONL line, reused across the SC2 fixtures below. */
+const ONE_GUARD_LINE = '{"guardName":"g"}\n';
 
 const DISCONNECT_SOURCE: GuardEventStreamSource = {
   stream: "mcp-disconnect-log",
@@ -155,10 +157,14 @@ function buildFakeWorld(
     readHwm: () => hwm,
     writeHwm,
     insertBatch: async (rows: GuardEventInsertRow[]) => {
+      // Simulates ON CONFLICT (dedupe_key) DO NOTHING + `.returning()`: a
+      // repeat key is a no-op and is NOT counted in the returned insert count.
+      let newlyInserted = 0;
       for (const row of rows) {
-        // Simulates ON CONFLICT (dedupe_key) DO NOTHING: a repeat key is a no-op.
+        if (!insertedDedupeKeys.has(row.dedupeKey)) newlyInserted++;
         insertedDedupeKeys.add(row.dedupeKey);
       }
+      return newlyInserted;
     },
     resolveProjectIds: async () => new Map(),
   };
@@ -184,7 +190,7 @@ describe("runGuardEventsIngestSweep", () => {
       { ...FIRE_LOG_SOURCE, stream: "guard-health-log", relativePath: "guard-health-log.jsonl" },
     ];
     const world = buildFakeWorld(streams, {
-      [FIRE_LOG_PATH]: '{"guardName":"g"}\n',
+      [FIRE_LOG_PATH]: ONE_GUARD_LINE,
       "/root/guard-health-log.jsonl": '{"guardName":"h"}\n',
     });
     // Make the first stream's readTail throw to simulate a dependency failure.
@@ -212,22 +218,43 @@ describe("runGuardEventsIngestSweep", () => {
 
     const first = await runGuardEventsIngestSweep(world.deps);
     expect(first.totalRead).toBe(2);
+    expect(first.totalInserted).toBe(2);
     expect(world.insertedDedupeKeys.size).toBe(2);
 
     // Second run: HWM has already advanced past all content (the real
-    // incremental case — nothing new to read at all).
+    // incremental case — nothing new to read at all). read=0 AND inserted=0
+    // — the SC2 observability distinction: this must still be visible as a
+    // completed run (see the "always reports a summary" test below), not
+    // silently indistinguishable from "never ran".
     const second = await runGuardEventsIngestSweep(world.deps);
     expect(second.totalRead).toBe(0);
+    expect(second.totalInserted).toBe(0);
     expect(world.insertedDedupeKeys.size).toBe(2); // unchanged
 
     // Third run: simulate a full re-scan (HWM reset, e.g. after rotation) —
     // constraint #5 requires this to remain SAFE via dedupe. The same two
-    // dedupe keys are recomputed and re-"inserted", but the tracked set (our
-    // ON CONFLICT DO NOTHING stand-in) shows no growth: no new rows.
+    // dedupe keys are recomputed and re-"inserted" (read=2, since the bytes
+    // were parsed again), but totalInserted=0 — every row collided with an
+    // existing dedupe_key, so genuinely-new rows is zero.
     world.deps.writeHwm({});
     const third = await runGuardEventsIngestSweep(world.deps);
     expect(third.totalRead).toBe(2); // read 2 lines again (full re-scan)
-    expect(world.insertedDedupeKeys.size).toBe(2); // but genuinely-new rows: zero
+    expect(third.totalInserted).toBe(0); // but genuinely-new rows: zero
+    expect(world.insertedDedupeKeys.size).toBe(2);
+  });
+
+  test("SC2 — summary reports streamsChecked/totalInserted even when every count is zero (never collapses to an unrunnable-looking result)", async () => {
+    const world = buildFakeWorld(
+      [FIRE_LOG_SOURCE],
+      { [FIRE_LOG_PATH]: ONE_GUARD_LINE },
+      { "fire-log": { byteOffset: Buffer.byteLength(ONE_GUARD_LINE, "utf-8") } }
+    );
+    const summary = await runGuardEventsIngestSweep(world.deps);
+    expect(summary.streamsChecked).toBe(1); // the sweep DID run — one stream checked
+    expect(summary.totalRead).toBe(0);
+    expect(summary.totalInserted).toBe(0);
+    expect(summary.totalErrors).toBe(0);
+    expect(summary.perStream[0]).toMatchObject({ stream: "fire-log", read: 0, inserted: 0 });
   });
 
   test("batches project-id resolution once per unique session id, not per row", async () => {

@@ -27,11 +27,14 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 export interface GuardEventsIngestResult {
+  streamsChecked: number;
   totalRead: number;
+  totalInserted: number;
   totalErrors: number;
   perStream: Array<{
     stream: string;
     read: number;
+    inserted: number;
     skippedNoFile: boolean;
     truncated: boolean;
     error?: string;
@@ -110,8 +113,13 @@ export function registerGuardEventsCommands(
             log.warn("guard-events.ingest: stream failed", { stream: s.stream, error: s.error });
           }
         }
+        // Unconditional (mt#4035 R1, same reasoning as the cockpit sweep tick):
+        // a zero-guarded log here would make "checked everything, nothing new"
+        // indistinguishable from a run that never happened.
         log.info("guard-events.ingest complete", {
+          streamsChecked: summary.streamsChecked,
           totalRead: summary.totalRead,
+          totalInserted: summary.totalInserted,
           totalErrors: summary.totalErrors,
           streamsWithNewRecords: summary.perStream.filter((s) => s.read > 0).length,
         });

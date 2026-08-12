@@ -26,6 +26,7 @@
  * Filesystem access is injected (`HwmStoreFsDeps`) so tests exercise an
  * in-memory fake instead of real `fs`/tmpdir, per `custom/no-real-fs-in-tests`.
  */
+import { dirname } from "node:path";
 
 /** One stream's persisted cursor. Exactly one of the two fields is meaningful, per format. */
 export interface GuardEventsHwmEntry {
@@ -87,7 +88,11 @@ export function writeHwmState(
   state: GuardEventsHwmState,
   deps: HwmStoreFsDeps
 ): void {
-  const dir = path.slice(0, Math.max(path.lastIndexOf("/"), 0));
-  if (dir) deps.mkdirSync(dir);
+  // node:path's dirname, not a hand-rolled "/" split — a hardcoded separator
+  // breaks on Windows paths (mt#4035 R1). dirname(path) === "." for a
+  // path with no directory component (e.g. a bare filename); skip the
+  // mkdir call in that case, same as the original empty-string guard did.
+  const dir = dirname(path);
+  if (dir && dir !== ".") deps.mkdirSync(dir);
   deps.writeFileSync(path, serializeHwmState(state));
 }

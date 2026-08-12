@@ -69,6 +69,8 @@ export interface GuardEventsStreamResult {
   skippedNoFile: boolean;
   /** New records read and batched for insert this tick (before ON CONFLICT DO NOTHING collapses dupes). */
   read: number;
+  /** Rows ACTUALLY inserted this tick (post-dedupe — `read` minus any ON CONFLICT DO NOTHING collapses). Distinct from `read` so a fully-idempotent re-scan (read > 0, inserted = 0) is visible, not just "nothing happened". */
+  inserted: number;
   /** True when more records remain beyond this tick's `maxRecordsPerStreamPerTick` cap. */
   truncated: boolean;
   error?: string;
@@ -76,7 +78,10 @@ export interface GuardEventsStreamResult {
 
 export interface GuardEventsIngestSummary {
   perStream: GuardEventsStreamResult[];
+  /** Streams checked this tick — SC2's "per-run observable" needs this alongside the counts below to distinguish "swept and found nothing" from "never ran" (a summary with streamsChecked=0 is the latter). */
+  streamsChecked: number;
   totalRead: number;
+  totalInserted: number;
   totalErrors: number;
 }
 
@@ -89,8 +94,13 @@ export interface GuardEventsIngestDeps {
   readWhole: (path: string) => string | null;
   readHwm: () => GuardEventsHwmState;
   writeHwm: (state: GuardEventsHwmState) => void;
-  /** Batched insert — ON CONFLICT (dedupe_key) DO NOTHING, no per-row round trips. */
-  insertBatch: (rows: GuardEventInsertRow[]) => Promise<void>;
+  /**
+   * Batched insert — ON CONFLICT (dedupe_key) DO NOTHING, no per-row round
+   * trips. Returns the count of rows ACTUALLY inserted (excludes rows that
+   * collided with an existing dedupe_key), so the caller can report
+   * `inserted` distinctly from `read` (mt#4035 R1 — SC2 observability).
+   */
+  insertBatch: (rows: GuardEventInsertRow[]) => Promise<number>;
   /** Batch-resolve project ids for a set of distinct session ids (never per-row). */
   resolveProjectIds: (sessionIds: string[]) => Promise<Map<string, string | null>>;
   maxRecordsPerStreamPerTick?: number;
@@ -206,7 +216,13 @@ export async function runGuardEventsIngestSweep(
       if (source.format === "json-array") {
         const raw = deps.readWhole(path);
         if (raw === null) {
-          perStream.push({ stream: source.stream, skippedNoFile: true, read: 0, truncated: false });
+          perStream.push({
+            stream: source.stream,
+            skippedNoFile: true,
+            read: 0,
+            inserted: 0,
+            truncated: false,
+          });
           continue;
         }
         const priorCount = hwm[source.stream]?.elementCount;
@@ -216,9 +232,10 @@ export async function runGuardEventsIngestSweep(
           priorCount,
           maxRecords
         );
+        let inserted = 0;
         if (rows.length > 0) {
           const withProjects = await attachProjectIds(rows, path, source, deps.resolveProjectIds);
-          await deps.insertBatch(withProjects);
+          inserted = await deps.insertBatch(withProjects);
         }
         const entry: GuardEventsHwmEntry = { elementCount: newCount };
         nextHwm[source.stream] = entry;
@@ -226,6 +243,7 @@ export async function runGuardEventsIngestSweep(
           stream: source.stream,
           skippedNoFile: false,
           read: rows.length,
+          inserted,
           truncated,
         });
         continue;
@@ -235,7 +253,13 @@ export async function runGuardEventsIngestSweep(
       const priorOffset = hwm[source.stream]?.byteOffset;
       const initialTail = deps.readTail(path, priorOffset ?? 0);
       if (initialTail === null) {
-        perStream.push({ stream: source.stream, skippedNoFile: true, read: 0, truncated: false });
+        perStream.push({
+          stream: source.stream,
+          skippedNoFile: true,
+          read: 0,
+          inserted: 0,
+          truncated: false,
+        });
         continue;
       }
       // Re-read from byte 0 if the persisted offset no longer fits (rotation/truncation).
@@ -250,13 +274,20 @@ export async function runGuardEventsIngestSweep(
         start,
         maxRecords
       );
+      let inserted = 0;
       if (rows.length > 0) {
         const withProjects = await attachProjectIds(rows, path, source, deps.resolveProjectIds);
-        await deps.insertBatch(withProjects);
+        inserted = await deps.insertBatch(withProjects);
       }
       const entry: GuardEventsHwmEntry = { byteOffset: newOffset };
       nextHwm[source.stream] = entry;
-      perStream.push({ stream: source.stream, skippedNoFile: false, read: rows.length, truncated });
+      perStream.push({
+        stream: source.stream,
+        skippedNoFile: false,
+        read: rows.length,
+        inserted,
+        truncated,
+      });
     } catch (err) {
       // SC2: the actual error, never converted into a silent "nothing to ingest".
       const message = err instanceof Error ? err.message : String(err);
@@ -264,6 +295,7 @@ export async function runGuardEventsIngestSweep(
         stream: source.stream,
         skippedNoFile: false,
         read: 0,
+        inserted: 0,
         truncated: false,
         error: message,
       });
@@ -273,8 +305,9 @@ export async function runGuardEventsIngestSweep(
   deps.writeHwm(nextHwm);
 
   const totalRead = perStream.reduce((sum, s) => sum + s.read, 0);
+  const totalInserted = perStream.reduce((sum, s) => sum + s.inserted, 0);
   const totalErrors = perStream.filter((s) => s.error).length;
-  return { perStream, totalRead, totalErrors };
+  return { perStream, streamsChecked: perStream.length, totalRead, totalInserted, totalErrors };
 }
 
 async function attachProjectIds(

@@ -95,19 +95,33 @@ async function bootstrapDb(): Promise<PostgresJsDatabase> {
   return connection;
 }
 
+// Always prints — even when every count is zero (mt#4035 R1: a summary that
+// only appears on a non-zero result makes "checked everything, nothing new"
+// indistinguishable from "this invocation never ran").
 function printSummary(label: string, summary: GuardEventsIngestSummary): void {
   console.log(`\n${label}`);
-  console.log("stream".padEnd(38), "read".padStart(8), "skipped", "truncated", "error");
+  console.log(
+    "stream".padEnd(38),
+    "read".padStart(8),
+    "inserted".padStart(9),
+    "skipped",
+    "truncated",
+    "error"
+  );
   for (const s of summary.perStream) {
     console.log(
       s.stream.padEnd(38),
       String(s.read).padStart(8),
+      String(s.inserted).padStart(9),
       s.skippedNoFile ? "no-file" : "-",
       s.truncated ? "yes" : "-",
       s.error ?? ""
     );
   }
-  console.log(`totalRead=${summary.totalRead} totalErrors=${summary.totalErrors}`);
+  console.log(
+    `streamsChecked=${summary.streamsChecked} totalRead=${summary.totalRead} ` +
+      `totalInserted=${summary.totalInserted} totalErrors=${summary.totalErrors}`
+  );
 }
 
 const SCOPE_MATCH_MAX_RATIO = 2;
@@ -137,7 +151,8 @@ async function main(): Promise<void> {
     ...realDeps,
     streams,
     insertBatch: async () => {
-      // dry-run: never writes
+      // dry-run: never writes, so nothing was ever inserted this call.
+      return 0;
     },
     writeHwm: () => {
       // dry-run: never advances the cursor

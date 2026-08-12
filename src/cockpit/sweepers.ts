@@ -1921,8 +1921,15 @@ const GUARD_EVENTS_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const GUARD_EVENTS_SWEEP_TICK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Injectable for tests; production wiring resolves the real DB + fs deps. */
+export interface GuardEventsSweepResult {
+  streamsChecked: number;
+  totalRead: number;
+  totalInserted: number;
+  totalErrors: number;
+}
+
 export interface GuardEventsSweepDeps {
-  runSweep: () => Promise<{ totalRead: number; totalErrors: number }>;
+  runSweep: () => Promise<GuardEventsSweepResult>;
 }
 
 export interface GuardEventsSweepOptions {
@@ -1964,7 +1971,7 @@ async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | n
   const db = await sqlProvider.getDatabaseConnection();
   if (!db) return null;
 
-  const runSweep = async (): Promise<{ totalRead: number; totalErrors: number }> => {
+  const runSweep = async (): Promise<GuardEventsSweepResult> => {
     const { buildGuardEventsIngestDeps } = await import(
       "@minsky/domain/guard-events/ingest-runtime"
     );
@@ -1981,7 +1988,12 @@ async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | n
         });
       }
     }
-    return { totalRead: summary.totalRead, totalErrors: summary.totalErrors };
+    return {
+      streamsChecked: summary.streamsChecked,
+      totalRead: summary.totalRead,
+      totalInserted: summary.totalInserted,
+      totalErrors: summary.totalErrors,
+    };
   };
 
   return { runSweep };
@@ -2023,13 +2035,17 @@ export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions)
         const result = await deps.runSweep();
         // SC2: a per-stream error is already logged inside runSweep above;
         // this is the per-run observable summary line (SC2's "per-run
-        // observable" requirement).
-        if (result.totalRead > 0 || result.totalErrors > 0) {
-          log.info("cockpit: guard-events sweep complete", {
-            totalRead: result.totalRead,
-            totalErrors: result.totalErrors,
-          });
-        }
+        // observable" requirement). UNCONDITIONAL (mt#4035 R1) — a guarded
+        // log here made "swept 40 streams, found nothing new" indistinguishable
+        // from "this tick never ran at all" in the log stream. Every field
+        // that answers "did the sweep run, and what did it see" belongs on
+        // every tick, zero or not.
+        log.info("cockpit: guard-events sweep complete", {
+          streamsChecked: result.streamsChecked,
+          totalRead: result.totalRead,
+          totalInserted: result.totalInserted,
+          totalErrors: result.totalErrors,
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: guard-events sweep: unexpected error in tick", { message });

@@ -88,9 +88,22 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-function buildInsertBatch(db: PostgresJsDatabase): (rows: GuardEventInsertRow[]) => Promise<void> {
+/**
+ * Returns the count of rows ACTUALLY inserted (mt#4035 R1 — SC2
+ * observability: distinguishing `read` candidates from rows that survived
+ * ON CONFLICT DO NOTHING, so "swept and found nothing new" is visible as
+ * `inserted: 0` rather than collapsing into the same shape as "never ran").
+ * `.returning({ id })` is the same technique `memory-service.ts` /
+ * `drizzle-session-repository.ts` already use to detect an
+ * onConflictDoNothing no-op — a conflicting row is silently excluded from
+ * the returned set, so `rows.length` after `.returning()` IS the real
+ * insert count.
+ */
+function buildInsertBatch(
+  db: PostgresJsDatabase
+): (rows: GuardEventInsertRow[]) => Promise<number> {
   return async (rows) => {
-    if (rows.length === 0) return;
+    if (rows.length === 0) return 0;
     const inserts: GuardEventInsert[] = rows.map((r) => ({
       stream: r.stream,
       family: r.family,
@@ -105,11 +118,16 @@ function buildInsertBatch(db: PostgresJsDatabase): (rows: GuardEventInsertRow[])
       dedupeKey: r.dedupeKey,
       sourcePath: r.sourcePath,
     }));
+    let insertedCount = 0;
     for (const batch of chunk(inserts, INSERT_CHUNK_SIZE)) {
-      await db.insert(guardEventsTable).values(batch).onConflictDoNothing({
-        target: guardEventsTable.dedupeKey,
-      });
+      const returned = await db
+        .insert(guardEventsTable)
+        .values(batch)
+        .onConflictDoNothing({ target: guardEventsTable.dedupeKey })
+        .returning({ id: guardEventsTable.id });
+      insertedCount += returned.length;
     }
+    return insertedCount;
   };
 }
 
