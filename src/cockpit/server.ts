@@ -100,6 +100,8 @@ import {
   isLoopbackHost,
   mutationAuthMiddleware,
 } from "./auth";
+import { createPasskeyAuthRouter, requirePasskeySession } from "./passkey-auth";
+import { createLazyDrizzlePasskeyStore } from "./passkey-store";
 import { cspMiddleware } from "./csp";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import { log } from "@minsky/shared/logger";
@@ -235,14 +237,39 @@ export interface CockpitServerOptions {
    * loopback-only Host-header allowlist below. The mt#2538 local-daemon
    * hardening spec explicitly rules that deployment out of scope. Setting
    * this to `true` skips the Host-header allowlist and the bearer-token /
-   * cookie mutation-auth requirement entirely, preserving that deployment's
-   * pre-mt#2538 behavior exactly (it also skips generating/reading the local
-   * `~/.local/state/minsky/cockpit-token` file, which has no meaning for a
-   * multi-instance container deployment). The CSP header and the
+   * cookie mutation-auth requirement (it also skips generating/reading the
+   * local `~/.local/state/minsky/cockpit-token` file, which has no meaning for
+   * a multi-instance container deployment). The CSP header and the
    * no-permissive-CORS policy still apply — both are purely additive
    * response-header behavior with no request-handling impact.
+   *
+   * As of mt#4023 this flag SUBSTITUTES an auth mechanism rather than removing
+   * one: it mounts a WebAuthn passkey gate that denies every non-public route
+   * without a session. Until then it removed auth outright, and the deployment
+   * served the live corpus to anyone holding its URL. Do not read this flag as
+   * "no auth" — that reading is what the exposure was.
    */
   isPublicDeployment?: boolean;
+  /**
+   * Which credential a public deployment presents (mt#4023). `"passkey"` is the
+   * only value, and the default — there is deliberately no `"none"`, because an
+   * unauthenticated public deployment is the exposure this gate closed, not a
+   * configuration anyone should be able to select.
+   *
+   * It exists so the call site DECLARES its auth posture instead of implying it.
+   * `isPublicDeployment: true` alone once meant "no auth"; a reader had to know
+   * that had changed. Naming the mode makes the intent local to the call, and
+   * gives a second mode somewhere to land without every existing public
+   * deployment silently inheriting whichever one ships first.
+   */
+  publicAuth?: "passkey";
+  /**
+   * Test-only seam for the mt#4023 passkey gate: supplies the credential/session
+   * store the gate reads, so a test can exercise the authenticated path without
+   * a database or a real WebAuthn ceremony. Never set in production — when
+   * absent, the gate builds a lazily-resolved Drizzle store.
+   */
+  passkeyStore?: import("./passkey-auth").PasskeyStore;
   /**
    * Test-only injection seams for the conversation-keyed live-tail endpoint
    * (mt#2749) — overrides the fs/tailer/timing primitives its
@@ -399,6 +426,69 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     app.use(mutationAuthMiddleware(cockpitToken));
   }
 
+  if (opts.isPublicDeployment) {
+    // Passkey gate for the publicly-reachable deployment (mt#4023).
+    //
+    // This is the branch that used to have NO credential of any kind: the
+    // `isPublicDeployment` flag turns off the Host allowlist and the
+    // mutation-auth middleware above (both are loopback-shaped and cannot be
+    // satisfied by a Railway hostname), which left the live corpus readable by
+    // anyone holding the URL. WebAuthn is the credential that branch lacked.
+    //
+    // The relying-party id must be the deployment's full hostname —
+    // `up.railway.app` is on the Public Suffix List, so there is no shorter
+    // registrable suffix to scope a credential to. Overridable by env for a
+    // future custom domain (which requires re-enrolling the passkey).
+    // Read rather than ignored, so the option is load-bearing instead of
+    // decorative: the mode the call site declares is the mode that mounts.
+    const publicAuth = opts.publicAuth ?? "passkey";
+    if (publicAuth !== "passkey") {
+      throw new Error(`Unsupported publicAuth mode for a public cockpit deployment: ${publicAuth}`);
+    }
+    const rpID = process.env.MINSKY_COCKPIT_RP_ID ?? "cockpit-preview-production.up.railway.app";
+    const passkeyDeps = {
+      store:
+        opts.passkeyStore ??
+        createLazyDrizzlePasskeyStore(async () => {
+          const { getSharedPersistenceService } = await import("./shared-persistence");
+          const provider = await (await getSharedPersistenceService()).getProvider();
+          if (
+            provider === null ||
+            typeof provider !== "object" ||
+            !("getDatabaseConnection" in provider) ||
+            typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
+              "function"
+          ) {
+            return null;
+          }
+          return await (
+            provider as {
+              getDatabaseConnection: () => Promise<
+                import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+              >;
+            }
+          ).getDatabaseConnection();
+        }),
+      rpID,
+      origin: process.env.MINSKY_COCKPIT_ORIGIN ?? `https://${rpID}`,
+    };
+
+    // Order matters: the auth routes must be reachable BEFORE the gate that
+    // requires a session, or signing in would require already being signed in.
+    app.use(createPasskeyAuthRouter(passkeyDeps));
+    app.use(requirePasskeySession(passkeyDeps));
+  } else {
+    // The SPA asks every cockpit whether it is gated. A local daemon must
+    // answer "no" EXPLICITLY: leaving the route unmounted would hand the
+    // question to the SPA catch-all, which answers unmatched GETs with
+    // index.html — an HTML 200 the client cannot distinguish from a real
+    // answer, and would fail closed on. That would lock the local daemon out
+    // of itself (mt#4023).
+    app.get("/api/auth/status", (_req, res) => {
+      res.json({ gated: false, authenticated: true, enrollmentOpen: false });
+    });
+  }
+
   // NO permissive CORS is set anywhere in this file — that absence IS the
   // policy (same-origin only). There is no `cors` middleware and no
   // `Access-Control-Allow-Origin` response header, so a cross-origin
@@ -413,6 +503,25 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   if (process.env.MINSKY_COCKPIT_PREVIEW === "true") {
     app.use("/api", (req, res, next) => {
       if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+        next();
+        return;
+      }
+      // Authentication is not a product mutation (mt#4023). The passkey
+      // ceremonies are POSTs, and blocking them here would make the preview
+      // deployment permanently un-signinable — the gate would deny every data
+      // route while the only way through it returned 403.
+      //
+      // `req.path` is MOUNT-RELATIVE inside `app.use("/api", ...)`: Express
+      // strips the mount prefix, so a request to `/api/auth/passkey/login/start`
+      // arrives here as `/auth/passkey/login/start` (`req.originalUrl` keeps the
+      // full path). Verified directly, not assumed — PR #2902 R1 read this as
+      // matching the wrong path. Two tests in server-security.test.ts pin the
+      // behavior from the outside.
+      //
+      // Belt and braces: the auth router is mounted EARLIER than this guard, so
+      // a ceremony is answered before it ever reaches here. This exemption is
+      // what keeps that safe if the middleware order is ever changed.
+      if (req.path.startsWith("/auth/")) {
         next();
         return;
       }
