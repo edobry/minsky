@@ -44,6 +44,7 @@ import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   blocksToStoredAgentReplies,
   pendingReplyBuffer,
+  schedulePendingDrain,
   shouldReportPendingReplies,
 } from "../entity-thread-reply-buffer";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
@@ -279,6 +280,16 @@ export function mountEntityThreadRoutes(
       // evidence to settle that, so it settles it here rather than waiting for
       // an async drain.
       const pendingReport = pendingReplyBuffer.report(localId, blocksToStoredAgentReplies(blocks));
+      // Liveness backstop (mt#4066). The drain chain is armed ONLY by a failed
+      // append and re-armed only by its own `.finally`, so a chain that ever
+      // stops with entries still queued waits for the next UNRELATED failed
+      // append to restart it. From the panel a reply nobody is retrying looks
+      // exactly like one that is — the notice says "retrying" either way — so
+      // the cheapest place to close that gap is the poll that renders it.
+      // `schedulePendingDrain` returns immediately when a timer is already
+      // armed or the buffer is empty, so the steady-state cost is a map walk,
+      // and a thread being polled is precisely when someone is waiting.
+      if (pendingReport.pending > 0) schedulePendingDrain(db);
       res.json({
         localId,
         entityType,
