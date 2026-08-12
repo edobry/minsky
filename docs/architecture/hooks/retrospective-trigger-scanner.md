@@ -194,3 +194,46 @@ boundaries, which they do on any tool-using turn (mem#528: tool-result messages 
 
 The rule generalizes past this guard: when a dedup key identifies a unit of text, derive it from
 the same accessor that produced the text, never from a second walk over the same source.
+
+## Judged-input capture and replay (mt#3821)
+
+Every record this scanner writes now carries `captureSchema` plus `judged_text_hash` and
+`judged_text_length` — the identity of the elided text the rungs actually judged. The log-only
+branch (a Rung-2 nomination that Rung 3 rejected, or a degraded stage) additionally carries
+`nomination_contexts`: one bounded sentence per nominated family, via the shared
+`extractMatchContext`.
+
+**Why the record does not hold the turn itself.** The obvious fix was to store the judged turn,
+capped at `ARTIFACT_CAPTURE_MAX_CHARS`. It was rejected because the turn already exists in the
+transcript; what the record lacked was a way to FIND it and to PROVE the thing found is the thing
+judged. `scripts/replay-retrospective-trigger-calibration.ts` does the finding and checks its
+result against the hash. The record stays small, and the calibration log does not become a
+transcript mirror shipped into the `guard_events` corpus.
+
+**Two capture surfaces, deliberately not merged.** A fire's `transcript_excerpt` is cut from the
+surface that produced the FIRST match, which for a `user-correction` or `method-redirect` fire is
+the user message rather than the assistant turn Rung 2 scored. So `judged_text_hash` on an
+injected record describes the excerpt's surface, and `nomination_contexts` appears only on the
+log-only branch, where the assistant turn is by construction the only surface.
+
+**The excerpt is cut from the elided copy** (this was raw until mt#3821). Every rung matches on
+the elided residual, so a phrase that also occurs inside a fenced or quoted span could be
+excerpted from the span the detector deliberately blanked — a reviewer then reads context the
+detector never saw. `judged-input-capture.ts`'s header states the rule; the raw cut broke it.
+
+### What a replay verdict means
+
+`recovered-verified` (a turn elides to the recorded hash) is the only verdict that licenses using
+the text as a replay input. `recovered-corroborated` means the turn contains the record's own
+quoted text — weaker than a hash, far stronger than proximity in time. `recovered-unverified` is
+proximity alone: measured on mt#3931's four records, that selection picked the WRONG turn three
+times out of four. `hash-mismatch` and `unreplayable` are reported, never silently downgraded.
+
+### Turn PREFIXES are candidates, and that is load-bearing
+
+The scanner runs at `UserPromptSubmit`, so the firing prompt is not yet in the file the hook reads
+(`transcript.ts:590-600`). A later reader therefore segments turns differently: on session
+`719ef66c` the judged turn and the following one appear as ONE candidate ending four minutes past
+the record. Whole-turn candidates alone resolved all four of mt#3931's records to the wrong turn,
+and would make a hash written by the live scanner fail to match its own transcript. Emitting the
+cumulative prefix at each assistant line puts the exact judged text back in the candidate set.

@@ -62,6 +62,12 @@ import type { DispatchContext, GuardOutcome } from "./registry";
 import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedAndCodeContexts, isDetectorMetaDiscussion } from "./elision";
 import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+  hashJudgedText,
+} from "./judged-input-capture";
+import {
   nominate,
   type DegradedReason,
   type ExemplarSet,
@@ -565,6 +571,27 @@ export function isNominationEnforcing(): boolean {
   return isEnvFlagSet(NOMINATION_ENFORCE_ENV_VAR);
 }
 
+/**
+ * What Rung 2 and Rung 3 actually judged, recorded so a fire can be re-read
+ * and re-run later (mt#3821).
+ *
+ * The hash is over the WHOLE elided turn — the value the confirm stage sees —
+ * while `nominationContexts` holds only a bounded sentence per nomination. That
+ * split is deliberate: a reviewer classifying a record needs the sentence, and a
+ * harness replaying one needs the turn, but the turn does not have to live in the
+ * record to be replayable. `scripts/replay-retrospective-trigger-calibration.ts`
+ * recovers it from the transcript and checks what it recovered against this hash,
+ * so a reconstruction that drifted reports a mismatch instead of a verdict.
+ */
+export interface JudgedInputCapture {
+  /** sha256 (first 16 hex) of the elided text Rung 2 scored and Rung 3 judged. */
+  judgedTextHash: string;
+  /** Length of that text, so a recovered candidate can be sized before hashing. */
+  judgedTextLength: number;
+  /** One bounded context per nomination, centred on the nominated segment. */
+  nominationContexts: { family: string; context: string }[];
+}
+
 export interface NominatedDetection {
   matches: TriggerMatch[];
   /** Set when the Rung-2 stage could not run; the caller still injects on Rung 1. */
@@ -595,6 +622,12 @@ export interface NominatedDetection {
     degradedReason?: ConfirmDegradedReason;
     latencyMs?: number;
   };
+  /**
+   * Set on every path that reached the elided text, INCLUDING the degraded ones
+   * — a degraded turn still wrote a calibration record, and until mt#3821 that
+   * record named no text at all.
+   */
+  capture?: JudgedInputCapture;
 }
 
 /**
@@ -632,6 +665,21 @@ export async function detectTriggerPhrasesWithNomination(
     return { matches: rung1, nominatedFamilies: [], confirmedFamilies: [] };
   }
 
+  // Score against the SAME elided text Rung 1 scans: a trigger phrase inside
+  // backticks or a blockquote is being described, not asserted, at either rung.
+  //
+  // mt#3821 hoisted this above the dependency resolution so the degraded
+  // returns below can carry the capture too. Those paths write a calibration
+  // record — `nomination_degraded` alone is enough to write one — and a record
+  // that names neither the text nor a way back to it is the un-auditable shape
+  // this task exists to end.
+  const elided = elideQuotedAndCodeContexts(text);
+  const capture: JudgedInputCapture = {
+    judgedTextHash: hashJudgedText(elided),
+    judgedTextLength: elided.length,
+    nominationContexts: [],
+  };
+
   let resolved: NominationDeps | null;
   if (deps === undefined) {
     // A hook is its own entry point: it inherits neither the reflect polyfill
@@ -648,6 +696,7 @@ export async function detectTriggerPhrasesWithNomination(
         degradedReason: "provider-unconfigured",
         nominatedFamilies: [],
         confirmedFamilies: [],
+        capture,
       };
     }
     resolved = await resolveNominationDeps();
@@ -660,12 +709,10 @@ export async function detectTriggerPhrasesWithNomination(
       degradedReason: "provider-unconfigured",
       nominatedFamilies: [],
       confirmedFamilies: [],
+      capture,
     };
   }
 
-  // Score against the SAME elided text Rung 1 scans: a trigger phrase inside
-  // backticks or a blockquote is being described, not asserted, at either rung.
-  const elided = elideQuotedAndCodeContexts(text);
   const result = await nominate(elided, NOMINATION_EXEMPLARS, resolved);
 
   if (result.degraded) {
@@ -675,6 +722,7 @@ export async function detectTriggerPhrasesWithNomination(
       degradedDetail: result.degradedDetail,
       nominatedFamilies: [],
       confirmedFamilies: [],
+      capture,
     };
   }
 
@@ -693,6 +741,16 @@ export async function detectTriggerPhrasesWithNomination(
     if (alreadyMatched.has(nomination.family)) continue;
     alreadyMatched.add(nomination.family);
     nominatedFamilies.push(nomination.family);
+    // mt#3821: the sentence around the nominated segment, so a reviewer can
+    // classify the nomination without the transcript. `segment` came out of
+    // `elided`, so its offset addresses the same span here.
+    const segmentIndex = elided.indexOf(nomination.segment);
+    if (segmentIndex >= 0) {
+      capture.nominationContexts.push({
+        family: nomination.family,
+        context: extractMatchContext(elided, segmentIndex, nomination.segment.length),
+      });
+    }
     if (enforcing) {
       matches.push({
         family: nomination.family as TriggerFamily,
@@ -720,7 +778,7 @@ export async function detectTriggerPhrasesWithNomination(
         // injected-deps unit test reach a live provider on any machine with
         // credentials configured. This branch is unreachable from the live
         // hooks, which pass neither parameter.
-        return { matches, nominatedFamilies, enforcing, confirmedFamilies: [] };
+        return { matches, nominatedFamilies, enforcing, confirmedFamilies: [], capture };
       }
       // Same entry-point reasoning as the nomination resolver above; the
       // bootstrap is memoized, so this is a no-op when Rung 2 already ran it.
@@ -750,7 +808,7 @@ export async function detectTriggerPhrasesWithNomination(
     }
   }
 
-  return { matches, nominatedFamilies, enforcing, confirmedFamilies, rung3 };
+  return { matches, nominatedFamilies, enforcing, confirmedFamilies, rung3, capture };
 }
 
 export function detectUserCorrection(userText: string): TriggerMatch[] {
@@ -866,6 +924,66 @@ export function filterStopFlagged(
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
+
+/**
+ * How far either side of the matched phrase the injected-fire excerpt reaches.
+ * Unchanged from the hand-rolled slice this replaced; only its SOURCE changed.
+ */
+const EXCERPT_WINDOW_CHARS = 80;
+
+/**
+ * Excerpt plus judged-input identity for a fire that INJECTED (mt#3821).
+ *
+ * Two things were wrong with the slice this replaces, and they are the same
+ * thing seen twice. It cut from the RAW turn while every rung matched on the
+ * elided copy, so a phrase that also appears inside a quoted or fenced span
+ * could be excerpted from the span the detector deliberately blanked — a
+ * reviewer then reads context the detector never saw. `judged-input-capture`'s
+ * header states the rule the raw cut broke: capture from the elided copy,
+ * because the elision is what makes a wider window safe rather than a new
+ * exposure. Both surfaces already elide before matching, so this only aligns
+ * the record with what was judged.
+ *
+ * Returns `null` when the phrase is not locatable in the elided text, and the
+ * caller then stamps NO capture marker: `hasJudgedInputCapture` means the
+ * writer captured its judged input, so claiming it for an empty excerpt would
+ * make the predicate lie (mt#4048 R1 made exactly that mistake in reverse).
+ */
+export function captureInjectedInput(
+  fullText: string,
+  matchedPhrase: string
+): { excerpt: string; capture: JudgedInputCapture } | null {
+  const elided = elideQuotedAndCodeContexts(fullText);
+  const idx = elided.indexOf(matchedPhrase);
+  if (idx < 0) return null;
+  const start = Math.max(0, idx - EXCERPT_WINDOW_CHARS);
+  const end = Math.min(elided.length, idx + matchedPhrase.length + EXCERPT_WINDOW_CHARS);
+  return {
+    excerpt: elided.slice(start, end),
+    capture: {
+      judgedTextHash: hashJudgedText(elided),
+      judgedTextLength: elided.length,
+      nominationContexts: [],
+    },
+  };
+}
+
+/**
+ * The record fields a capture contributes (mt#3821). Snake_case to match the
+ * rest of the record; `captureSchema` keeps the shared module's spelling
+ * because every consumer keys on that exact field name.
+ */
+function captureFields(capture: JudgedInputCapture | undefined): Record<string, unknown> {
+  if (capture === undefined) return {};
+  return {
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    judged_text_hash: capture.judgedTextHash,
+    judged_text_length: capture.judgedTextLength,
+    ...(capture.nominationContexts.length > 0
+      ? { nomination_contexts: capture.nominationContexts }
+      : {}),
+  };
+}
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
@@ -1056,6 +1174,7 @@ export async function run(
   let nominationEnforcing = false;
   let confirmedFamilies: string[] = [];
   let rung3Outcome: NominatedDetection["rung3"];
+  let judgedCapture: JudgedInputCapture | undefined;
   let assistantScanned = false;
   let dedupError: string | undefined;
 
@@ -1089,6 +1208,7 @@ export async function run(
         nominationEnforcing = detected.enforcing === true;
         confirmedFamilies = detected.confirmedFamilies;
         rung3Outcome = detected.rung3;
+        judgedCapture = detected.capture;
         const deduped = filterStopFlagged(
           input.session_id,
           turnKeyFor(
@@ -1173,6 +1293,10 @@ export async function run(
           ...(nominationDegradedReason !== undefined
             ? { nomination_degraded: nominationDegradedReason }
             : {}),
+          // mt#3821: what Rung 2 nominated on, and the identity of the whole
+          // text Rung 3 judged. Until this landed the branch recorded neither,
+          // which made ~87% of this log's records unclassifiable by anyone.
+          ...captureFields(judgedCapture),
         },
       };
     }
@@ -1181,17 +1305,17 @@ export async function run(
 
   const firstMatch = allMatches[0];
   let transcriptExcerpt = "";
+  let injectedCapture: JudgedInputCapture | undefined;
   if (firstMatch) {
     try {
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
           : extractAssistantText(runTurnLines);
-      const idx = fullText.indexOf(firstMatch.matchedPhrase);
-      if (idx >= 0) {
-        const start = Math.max(0, idx - 80);
-        const end = Math.min(fullText.length, idx + firstMatch.matchedPhrase.length + 80);
-        transcriptExcerpt = fullText.slice(start, end);
+      const captured = captureInjectedInput(fullText, firstMatch.matchedPhrase);
+      if (captured !== null) {
+        transcriptExcerpt = captured.excerpt;
+        injectedCapture = captured.capture;
       }
     } catch {
       // fail-open
@@ -1227,6 +1351,10 @@ export async function run(
       ...(nominationDegradedReason !== undefined
         ? { nomination_degraded: nominationDegradedReason }
         : {}),
+      // mt#3821: identity of the text `transcript_excerpt` was cut from — the
+      // surface that produced the FIRST match, which is not always the surface
+      // Rung 2 scored (a user-correction fire judges the user message).
+      ...captureFields(injectedCapture),
     },
     additionalContext: buildReminder(allMatches),
   };
@@ -1344,17 +1472,17 @@ export async function main(): Promise<void> {
   // Log calibration record
   const firstMatch = allMatches[0];
   let transcriptExcerpt = "";
+  let injectedCapture: JudgedInputCapture | undefined;
   if (firstMatch) {
     try {
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
           : extractAssistantText(mainTurnLines);
-      const idx = fullText.indexOf(firstMatch.matchedPhrase);
-      if (idx >= 0) {
-        const start = Math.max(0, idx - 80);
-        const end = Math.min(fullText.length, idx + firstMatch.matchedPhrase.length + 80);
-        transcriptExcerpt = fullText.slice(start, end);
+      const captured = captureInjectedInput(fullText, firstMatch.matchedPhrase);
+      if (captured !== null) {
+        transcriptExcerpt = captured.excerpt;
+        injectedCapture = captured.capture;
       }
     } catch {
       // fail-open
@@ -1369,6 +1497,7 @@ export async function main(): Promise<void> {
     matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
     transcript_excerpt: transcriptExcerpt,
     ...(mainDedupError !== undefined ? { dedup_error: mainDedupError } : {}),
+    ...captureFields(injectedCapture),
   });
 
   const reminder = buildReminder(allMatches);
