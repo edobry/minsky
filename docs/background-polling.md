@@ -252,6 +252,39 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
   its own `timeoutSeconds`.
 - **Production status:** **available (DONE, mt#2647).**
 
+### 2.11b `mcp__minsky__session_pr_checks` (`wait: true`) — blocking CI-check wait
+
+- **Class:** C (agent-driven poll, server-side)
+- **Shape:** MCP tool that polls the forge's check-runs + combined-status APIs until every
+  check reaches a terminal state (or the timeout elapses). `wait: false` (default) is a
+  single fetch with no polling or timeout semantics. `wait: true` blocks server-side;
+  `timeoutSeconds` (default 600) and `intervalSeconds` (default 30) bound the wait.
+- **Progress signal (mt#2677, extended mt#4020):** when the caller supplies an `onProgress`
+  callback (the MCP `context.onProgress` hook), it fires:
+  1. **Once at the very start of the call**, before session resolution and repository-backend
+     construction run (mt#4020) — the message is
+     `"Resolving session and repository backend..."`.
+  2. **Once per poll interval** thereafter, while checks remain pending, with a
+     `"Waiting for N pending check(s)... (Ns remaining)"` message.
+     A caller that renders `onProgress` messages as a progress indicator will therefore see one
+     extra message at the very start of every `wait: true` call, before the first poll message —
+     this is intentional (SC3 of mt#4020): it is the only way to signal "the call is alive" during
+     the setup phase, which previously had no progress signal reachable at all.
+- **Whole-call timeout bound (mt#4020):** `timeoutSeconds` bounds the ENTIRE call, not just the
+  polling loop. Before mt#4020, `timeoutSeconds` was applied only to the poll loop — a stall in
+  session resolution or backend construction (both of which run BEFORE the first poll) was
+  completely unbounded, and the observed incident (PR #2891, 2026-08-11) ran silent for 1824s
+  against a 900s `timeoutSeconds`. A timeout during setup returns the SAME result shape a
+  loop-side timeout returns —
+  `{allPassed: false, summary: {total:0, passed:0, failed:0, pending:0}, checks: [], timedOut: true}`
+  — a caller cannot distinguish a setup-phase timeout from a loop-phase timeout from the result
+  alone (nor does it need to; both mean "did not complete within `timeoutSeconds`").
+- **Fit:** the correct answer for "block until CI finishes on this session's PR." Composed by
+  `session_pr_drive` (§2.11a) as its checks-wait step after an APPROVED review.
+- **Latency:** bounded by the call's `timeoutSeconds`; sub-interval for a PR whose checks are
+  already all terminal at call time.
+- **Production status:** **available (DONE).**
+
 ### 2.12 `mcp__minsky__pr_watch_create` + scheduler — registered PR-state watch
 
 - **Class:** B (pull-on-tool-call) post-mt#1725 — agent-context delivery via `WakeSignalSink`. Also fires Class A (laptop) notifications via `OperatorNotify` for operators who want desktop alerts. See §2.3 for the operator-side path.

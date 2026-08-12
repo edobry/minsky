@@ -221,9 +221,22 @@ export async function sessionPrChecks(
     // deadline (mirrors the same fix in pr-wait-for-review-subcommand.ts's
     // poll loop) — a stalled backend.ci.getChecksForPR() call with no
     // timeout of its own must not hang the wait past checksTimeoutSeconds.
-    // A DeadlineExceededError here is treated as "checks still pending" so
-    // the surrounding logic falls through to the same timedOut:true result
-    // the normal deadline-elapsed path returns.
+    //
+    // Three DeadlineExceededError catch sites exist in this function, and
+    // their return shapes deliberately differ — this is PRE-EXISTING
+    // behavior (mt#2677), unchanged by mt#4020's setup-phase addition, not a
+    // new divergence:
+    //   1. Setup-phase (above, mt#4020) and this FIRST fetchChecks() call
+    //      (mt#2677, below) both return IMMEDIATELY with a zeroed
+    //      `{timedOut:true}` result on timeout — there is no prior fetch's
+    //      data to preserve, so there is nothing to fall through to.
+    //   2. Each SUBSEQUENT fetchChecks() call inside the while loop (below)
+    //      instead `break`s, falling through to the
+    //      `if (!result.allPassed && result.summary.pending > 0)` check
+    //      after the loop — `result` still holds the LAST successful poll's
+    //      data, so returning `{...result, timedOut:true}` preserves that
+    //      partial progress (e.g. which specific checks were still pending)
+    //      instead of discarding it for a zeroed result.
     let result: ChecksResult;
     try {
       result = await withDeadline(fetchChecks(), Math.max(0, deadline - now()));
