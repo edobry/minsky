@@ -800,6 +800,119 @@ pub(crate) fn daemon_start_time(pid: u32) -> Option<SystemTime> {
     SystemTime::now().checked_sub(Duration::from_secs(secs))
 }
 
+// ---------------------------------------------------------------------------
+// The supervised-daemon record.
+// ---------------------------------------------------------------------------
+
+/// One supervised daemon: who it is, and how its supervision is going.
+///
+/// This is the unit mt#3815's registry holds N of. Everything on it is identity
+/// or state that EVERY supervised daemon has. A daemon that additionally needs
+/// policy-specific state — as the cockpit does, with a bundle-build label, a
+/// backend source mtime and a `db`-degraded counter — WRAPS this rather than
+/// extending it, which is what `supervisor::Sup` does. That is the whole point
+/// of the split: before mt#3990 those four cockpit-only fields sat in the same
+/// struct as the ten below, so a second daemon would have inherited a build
+/// label and a `db` counter that mean nothing for it.
+///
+/// mt#3990 success criterion 4 is that this module's surface suffices to
+/// express a SECOND daemon with no further change to it. That claim is checked
+/// by the compiler rather than asserted: `tests::a_second_daemon_needs_no_change_here`
+/// constructs a full record, and a spawn spec, for a daemon that does not exist.
+pub(crate) struct SupervisedDaemon {
+    // --- Identity: fixed for this daemon's lifetime. ---
+    /// The user-visible strings this daemon contributes to the tray.
+    pub(crate) labels: DaemonLabels,
+    /// The loopback port it serves on. Read once at construction so every
+    /// probe, spawn, adoption decision and label in the loop provably refers to
+    /// the same port (mt#3988).
+    pub(crate) port: u16,
+
+    // --- Supervision state: driven by the poll loop. ---
+    /// The managed child, when WE spawned it. `None` for an adopted daemon or
+    /// when nothing is running.
+    pub(crate) child: Option<Child>,
+    pub(crate) last_spawn: Option<Instant>,
+    /// Last status-line text. Owned `String` (not `&'static str`) so dynamic
+    /// messages — port-conflict holder pid, restart-failure summary — can be
+    /// shown alongside the static [`DaemonLabels`] entries (mt#2299).
+    pub(crate) last_status: Option<String>,
+    /// Wall-clock start time of the daemon currently being supervised (mt#2299):
+    /// `SystemTime::now()` for a tray-spawned daemon, or `now − ps(etime)` for
+    /// an adopted one. `None` when no daemon is running. Drives the uptime line.
+    pub(crate) daemon_started_at: Option<SystemTime>,
+    /// Last value pushed to the uptime menu line (mt#2299), for dedupe.
+    pub(crate) last_uptime_label: Option<String>,
+
+    // --- Self-health watchdog state (mt#2578). ---
+    /// Ring buffer of daemon-crash restart timestamps (child-exited or
+    /// processStartedAtMs changed) within [`RESTART_STORM_WINDOW`]. Pruned every
+    /// poll to evict entries older than the window.
+    pub(crate) restart_timestamps: Vec<Instant>,
+    /// Instant of the last restart-storm alert toast; `None` when the condition
+    /// is clear (cooldown reset so the next episode fires immediately).
+    pub(crate) last_restart_alert: Option<Instant>,
+    /// `processStartedAtMs` from the daemon's most recent successful health
+    /// response; `None` before the first successful poll. A change between polls
+    /// means the daemon restarted (for adopted-daemon restart detection).
+    pub(crate) last_process_started_at_ms: Option<u64>,
+    /// Consecutive polls where the health probe failed while the daemon child is
+    /// alive or an adopted daemon is expected (the unhealthy-but-not-exiting
+    /// case). Reset to 0 on the first successful health poll; also reset in the
+    /// crash-exit arm (that path's alerting is owned by `restart_timestamps`).
+    pub(crate) consecutive_http_failed: u32,
+    /// Last time a sustained-HTTP-failure alert was fired; reset when health
+    /// returns (condition cleared → next episode re-alerts immediately).
+    pub(crate) last_http_alert: Option<Instant>,
+}
+
+impl SupervisedDaemon {
+    /// A record for a daemon that is not running yet: identity set, every piece
+    /// of supervision state at its "nothing has happened" value.
+    pub(crate) fn new(labels: DaemonLabels, port: u16) -> Self {
+        Self {
+            labels,
+            port,
+            child: None,
+            last_spawn: None,
+            last_status: None,
+            daemon_started_at: None,
+            last_uptime_label: None,
+            restart_timestamps: Vec::new(),
+            last_restart_alert: None,
+            last_process_started_at_ms: None,
+            consecutive_http_failed: 0,
+            last_http_alert: None,
+        }
+    }
+}
+
+/// Move the watchdog counters between a [`SupervisedDaemon`] and the plain-data
+/// [`NoChildCounters`] that `handle_health_down_no_child` takes.
+///
+/// These conversions lived in the cockpit policy layer until the `Sup` split
+/// (mt#3990 increment 3) — not by preference, but because until then the
+/// generic half of the state was a cockpit-owned struct this module could not
+/// name. It can now, so they come home.
+impl NoChildCounters {
+    pub(crate) fn take_from(daemon: &mut SupervisedDaemon) -> Self {
+        Self {
+            consecutive_http_failed: daemon.consecutive_http_failed,
+            last_http_alert: daemon.last_http_alert,
+            last_spawn: daemon.last_spawn,
+            restart_timestamps: std::mem::take(&mut daemon.restart_timestamps),
+            last_process_started_at_ms: daemon.last_process_started_at_ms,
+        }
+    }
+
+    pub(crate) fn write_back_to(self, daemon: &mut SupervisedDaemon) {
+        daemon.consecutive_http_failed = self.consecutive_http_failed;
+        daemon.last_http_alert = self.last_http_alert;
+        daemon.restart_timestamps = self.restart_timestamps;
+        daemon.last_process_started_at_ms = self.last_process_started_at_ms;
+    }
+}
+
 /// Humanize a duration for the uptime line: `5s`, `1m 30s`, `2h 5m`, `8d 3h`. Pure.
 pub(crate) fn format_duration(d: Duration) -> String {
     let s = d.as_secs();
@@ -1332,5 +1445,63 @@ mod tests {
         let out = last_nonempty_capped(long.as_bytes()).expect("some");
         assert_eq!(out.chars().count(), 123); // 120 + "..."
         assert!(out.ends_with("..."));
+    }
+
+    /// mt#3990 success criterion 4, checked by the COMPILER rather than
+    /// asserted. Everything a second supervised daemon needs — its strings, its
+    /// port, its supervision state, and the spec it would be spawned from — is
+    /// constructed here for a daemon that does not exist. If a later change
+    /// makes any of that inexpressible without editing this module, this stops
+    /// compiling; that is the point, since a sufficiency claim carried only in
+    /// prose can quietly become false.
+    ///
+    /// Constructed, deliberately never spawned: handing the spec to
+    /// `spawn_daemon` would start a real process, and what is under test is the
+    /// surface, not the syscall.
+    #[test]
+    fn a_second_daemon_needs_no_change_here() {
+        let mut second = SupervisedDaemon::new(TEST_LABELS, TEST_PORT);
+
+        // The record is driven by the same generic logic the cockpit daemon
+        // runs on — reaching any of it requires no cockpit-shaped state.
+        assert!(throttle_ok(
+            second.last_spawn,
+            Instant::now(),
+            RESPAWN_THROTTLE
+        ));
+        assert_eq!(status_label(true, &second.labels), "Testd: running");
+        assert_eq!(decide_action(false, false), DaemonAction::Spawn);
+
+        // The watchdog counters round-trip through the record, so a second
+        // daemon gets its OWN restart-storm and sustained-outage accounting
+        // rather than sharing the cockpit's.
+        second.consecutive_http_failed = 7;
+        let counters = NoChildCounters::take_from(&mut second);
+        assert_eq!(counters.consecutive_http_failed, 7);
+        assert!(
+            second.restart_timestamps.is_empty(),
+            "take_from moves the ring buffer out"
+        );
+        counters.write_back_to(&mut second);
+        assert_eq!(second.consecutive_http_failed, 7);
+
+        // ...and its spawn is expressible without this module knowing what it
+        // runs, where from, or what it logs to.
+        let program = PathBuf::from("/usr/bin/true");
+        let cwd = PathBuf::from("/tmp");
+        let args = vec!["--serve".to_string(), second.port.to_string()];
+        let spec = DaemonSpawnSpec {
+            program: &program,
+            args: &args,
+            cwd: &cwd,
+            path_env: "/usr/bin:/bin",
+            stdout_log: "testd-stdout.log",
+            stderr_log: "testd-stderr.log",
+        };
+        assert_eq!(spec.args, ["--serve", "4317"]);
+        assert!(
+            !spec.stderr_log.contains("cockpit"),
+            "a second daemon writes its own logs"
+        );
     }
 }

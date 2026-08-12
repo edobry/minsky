@@ -6,7 +6,7 @@
 // docs/architecture/adr-014-cockpit-daemon-lifecycle-ownership.md.
 
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 
 use tauri::menu::MenuItem;
@@ -50,7 +50,7 @@ pub(crate) use daemon_core::{
     daemon_start_time, decide_action, format_duration, handle_health_down_no_child, kill_group,
     kill_pid, log_tail_last_line, open_log, path_env, pid_on_port, port_holder, port_in_use,
     resolve_program, spawn_daemon, teardown, throttle_ok, DaemonAction, DaemonLabels,
-    DaemonSpawnSpec, NoChildCounters, NoChildEffect, SpawnedPgid, ALERT_COOLDOWN,
+    DaemonSpawnSpec, NoChildCounters, NoChildEffect, SpawnedPgid, SupervisedDaemon, ALERT_COOLDOWN,
     HTTP_FAILURE_POLL_THRESHOLD, POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD,
     RESTART_STORM_WINDOW,
 };
@@ -148,29 +148,6 @@ pub(crate) enum SupervisorCmd {
     /// A cockpit-web source file changed at runtime — rebuild the bundle
     /// without disturbing the running daemon (mt#2297).
     Rebuild,
-}
-
-/// Move the watchdog counters between `Sup` (cockpit policy state) and the
-/// core's plain-data [`NoChildCounters`] (mt#3990). These conversions live here
-/// rather than in `daemon_core` because they are the only place the two sides
-/// touch: the core knows nothing about `Sup`.
-impl NoChildCounters {
-    fn take_from(sup: &mut Sup) -> Self {
-        Self {
-            consecutive_http_failed: sup.consecutive_http_failed,
-            last_http_alert: sup.last_http_alert,
-            last_spawn: sup.last_spawn,
-            restart_timestamps: std::mem::take(&mut sup.restart_timestamps),
-            last_process_started_at_ms: sup.last_process_started_at_ms,
-        }
-    }
-
-    fn write_back_to(self, sup: &mut Sup) {
-        sup.consecutive_http_failed = self.consecutive_http_failed;
-        sup.last_http_alert = self.last_http_alert;
-        sup.restart_timestamps = self.restart_timestamps;
-        sup.last_process_started_at_ms = self.last_process_started_at_ms;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -277,61 +254,41 @@ pub(crate) fn resolve_repo_root(path: &str) -> Option<PathBuf> {
 // Supervisor thread.
 // ---------------------------------------------------------------------------
 
-/// Mutable state owned by the supervisor loop.
+/// Mutable state owned by the supervisor loop: the COCKPIT daemon's supervision
+/// state, plus the cockpit-only policy state that rides alongside it.
+///
+/// The split is mt#3990's: everything generic — the child, the spawn/status/
+/// uptime bookkeeping, and the whole self-health watchdog — lives on
+/// [`SupervisedDaemon`] in `daemon_core`, which is the record mt#3815's registry
+/// holds N of. What stays HERE is the four fields that would mean nothing for a
+/// second daemon: a bundle-build label (only the cockpit has a web bundle), the
+/// backend-source mtime the adoption decision compares against (only the cockpit
+/// has a watched source tree), and the `db`-degraded counter and its alert
+/// cooldown (only the cockpit's `/api/health` publishes a `db` field).
 pub(crate) struct Sup {
-    pub(crate) child: Option<Child>,
-    pub(crate) last_spawn: Option<Instant>,
-    /// Last status-line text. Owned `String` (not `&'static str`) so dynamic
-    /// messages — port-conflict holder pid, restart-failure summary — can be
-    /// shown alongside the static `LABEL_*` constants (mt#2299).
-    pub(crate) last_status: Option<String>,
+    /// This tray's one supervised daemon, in the core's terms.
+    pub(crate) daemon: SupervisedDaemon,
+
     /// Last value pushed to the build-status menu line (mt#2297), for dedupe.
     pub(crate) last_build_label: Option<String>,
-    /// Wall-clock start time of the daemon currently being supervised (mt#2299):
-    /// `SystemTime::now()` for a tray-spawned daemon, or `now − ps(etime)` for an
-    /// adopted one. `None` when no daemon is running. Drives the uptime line.
-    pub(crate) daemon_started_at: Option<SystemTime>,
     /// Newest backend-source mtime at the moment the daemon was (re)started — the
     /// "source version" the running daemon reflects (mt#2299).
     pub(crate) daemon_source_mtime: Option<SystemTime>,
-    /// Last value pushed to the uptime menu line (mt#2299), for dedupe.
-    pub(crate) last_uptime_label: Option<String>,
-
-    // --- Self-health watchdog state (mt#2578) ---
-    /// Ring buffer of daemon-crash restart timestamps (child-exited or
-    /// processStartedAtMs changed) within RESTART_STORM_WINDOW.
-    /// Pruned every poll to evict entries older than the window.
-    restart_timestamps: Vec<Instant>,
     /// Number of consecutive POLL_INTERVAL polls where db != "ok".
     /// Reset to 0 on the first "ok" poll.
     consecutive_db_degraded: u32,
-    /// Instant of the last restart-storm alert toast; `None` when the condition
-    /// is clear (cooldown reset so the next episode fires immediately).
-    last_restart_alert: Option<Instant>,
     /// Instant of the last DB-degraded alert toast; reset to `None` when
     /// condition clears.
     last_db_alert: Option<Instant>,
-    /// `processStartedAtMs` from the daemon's most recent successful health
-    /// response; `None` before the first successful poll.  A change between
-    /// polls means the daemon restarted (for adopted-daemon restart detection).
-    last_process_started_at_ms: Option<u64>,
-    /// Consecutive polls where http_ok = false while the daemon child is alive
-    /// or an adopted daemon is expected (the unhealthy-but-not-exiting case).
-    /// Reset to 0 on the first successful health poll; also reset in the
-    /// crash-exit arm (that path's alerting is owned by restart_timestamps).
-    consecutive_http_failed: u32,
-    /// Last time a sustained-HTTP-failure alert was fired; reset when health
-    /// returns (condition cleared → next episode re-alerts immediately).
-    last_http_alert: Option<Instant>,
 }
 
 /// Update the visible status label (dropdown line + tray tooltip), skipping
 /// the UI round-trip when the label hasn't changed.
 pub(crate) fn set_status(app: &AppHandle, sup: &mut Sup, label: &str) {
-    if sup.last_status.as_deref() == Some(label) {
+    if sup.daemon.last_status.as_deref() == Some(label) {
         return;
     }
-    sup.last_status = Some(label.to_string());
+    sup.daemon.last_status = Some(label.to_string());
     let _ = update_status(app, label);
 }
 
@@ -421,14 +378,14 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str, p
         stderr_log: COCKPIT_STDERR_LOG,
     }) {
         Ok((child, pid)) => {
-            sup.child = Some(child);
-            sup.last_spawn = Some(Instant::now());
+            sup.daemon.child = Some(child);
+            sup.daemon.last_spawn = Some(Instant::now());
             // mt#2299: a fresh tray-spawn is current as of now; record the
             // wall-clock start + the backend-source version it reflects so the
             // uptime line can render "running Xs, started against src @ HH:MM:SS".
             // Gate the source-mtime capture on the BACKEND source root, not the
             // web root (reviewer R1 B1).
-            sup.daemon_started_at = Some(SystemTime::now());
+            sup.daemon.daemon_started_at = Some(SystemTime::now());
             sup.daemon_source_mtime = cockpit_backend_root(path)
                 .and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
             if let Ok(mut g) = spawned.lock() {
@@ -451,7 +408,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str, p
 /// fresh health probe so a conflict (someone else on the supervised port) is
 /// left untouched.
 fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool, port: u16) {
-    if let Some(mut child) = sup.child.take() {
+    if let Some(mut child) = sup.daemon.child.take() {
         let pgid = spawned.lock().ok().and_then(|mut g| g.take());
         #[cfg(unix)]
         if let Some(pgid) = pgid {
@@ -487,12 +444,25 @@ fn run_supervisor(
 
     rt.block_on(async move {
         let path = path_env();
-        // Read ONCE for the supervisor's lifetime (mt#3988). `crate::port::init`
-        // has already resolved it on the setup thread, so this is a cheap read
-        // of the settled value — and binding it here rather than calling
-        // `cockpit_port()` at each site means every probe, spawn, adoption
-        // decision and label in this loop provably refers to the same port.
-        let port = cockpit_port();
+        // This tray's one supervised daemon. The core's record carries the
+        // generic supervision state and this daemon's identity; the four fields
+        // beside it are the cockpit-only policy state (mt#3990).
+        //
+        // Constructed HERE, before the watchers and the health client, because
+        // it OWNS the port. `crate::port::init` has already resolved it on the
+        // setup thread, so `cockpit_port()` is a cheap read of the settled
+        // value; taking the loop's `port` binding back off the record — rather
+        // than calling `cockpit_port()` at each site — means every probe, spawn,
+        // adoption decision and label below provably refers to the same port as
+        // the daemon it belongs to (mt#3988).
+        let mut sup = Sup {
+            daemon: SupervisedDaemon::new(COCKPIT_LABELS, cockpit_port()),
+            last_build_label: None,
+            daemon_source_mtime: None,
+            consecutive_db_degraded: 0,
+            last_db_alert: None,
+        };
+        let port = sup.daemon.port;
         // mt#2297: runtime cockpit-web watcher (source-gated). Held for the
         // supervisor's lifetime; dropping it stops the watch. `None` on a
         // no-source install — the auto-rebuild feature simply doesn't run.
@@ -516,24 +486,6 @@ fn run_supervisor(
             .build()
             .expect("reqwest client");
 
-        let mut sup = Sup {
-            child: None,
-            last_spawn: None,
-            last_status: None,
-            last_build_label: None,
-            daemon_started_at: None,
-            daemon_source_mtime: None,
-            last_uptime_label: None,
-            // Watchdog state (mt#2578).
-            restart_timestamps: Vec::new(),
-            consecutive_db_degraded: 0,
-            last_restart_alert: None,
-            last_db_alert: None,
-            last_process_started_at_ms: None,
-            consecutive_http_failed: 0,
-            last_http_alert: None,
-        };
-
         // Initial adoption-or-spawn.
         match decide_action(health_ok(&client, port).await, port_in_use(port)) {
             DaemonAction::Adopt => match adopt_decision(&path, port) {
@@ -547,7 +499,7 @@ fn run_supervisor(
                     do_spawn(&app, &mut sup, &spawned, &path, port);
                 }
                 AdoptDecision::Fresh { started, source_mtime } => {
-                    sup.daemon_started_at = started;
+                    sup.daemon.daemon_started_at = started;
                     sup.daemon_source_mtime = source_mtime;
                     set_status(&app, &mut sup, LABEL_RUNNING);
                     refresh_uptime(&app, &mut sup);
@@ -569,7 +521,7 @@ fn run_supervisor(
                                 do_spawn(&app, &mut sup, &spawned, &path, port);
                             }
                             AdoptDecision::Fresh { started, source_mtime } => {
-                                sup.daemon_started_at = started;
+                                sup.daemon.daemon_started_at = started;
                                 sup.daemon_source_mtime = source_mtime;
                                 set_status(&app, &mut sup, LABEL_RUNNING);
                                 refresh_uptime(&app, &mut sup);
@@ -602,7 +554,7 @@ fn run_supervisor(
                                     do_spawn(&app, &mut sup, &spawned, &path, port);
                                 }
                                 AdoptDecision::Fresh { started, source_mtime } => {
-                                    sup.daemon_started_at = started;
+                                    sup.daemon.daemon_started_at = started;
                                     sup.daemon_source_mtime = source_mtime;
                                     set_status(&app, &mut sup, LABEL_RUNNING);
                                     refresh_uptime(&app, &mut sup);
@@ -620,7 +572,7 @@ fn run_supervisor(
                                                 do_spawn(&app, &mut sup, &spawned, &path, port);
                                             }
                                             AdoptDecision::Fresh { started, source_mtime } => {
-                                                sup.daemon_started_at = started;
+                                                sup.daemon.daemon_started_at = started;
                                                 sup.daemon_source_mtime = source_mtime;
                                                 set_status(&app, &mut sup, LABEL_RUNNING);
                                                 refresh_uptime(&app, &mut sup);
@@ -641,7 +593,7 @@ fn run_supervisor(
                         }
                     }
                     Some(SupervisorCmd::Stop) => {
-                        let had_child = sup.child.is_some();
+                        let had_child = sup.daemon.child.is_some();
                         let h = health_ok(&client, port).await;
                         do_stop(&mut sup, &spawned, &path, h, port);
                         if !had_child && !h && port_in_use(port) {
@@ -654,7 +606,7 @@ fn run_supervisor(
                     }
                     Some(SupervisorCmd::Restart) => {
                         let h = health_ok(&client, port).await;
-                        if sup.child.is_none() && !h && port_in_use(port) {
+                        if sup.daemon.child.is_none() && !h && port_in_use(port) {
                             // Foreign listener owns the port — refuse to restart over it.
                             report_conflict(&app, &mut sup, &path, port);
                         } else {
@@ -751,48 +703,48 @@ fn run_supervisor(
 
                     // --- Watchdog: restart-storm detection ---
                     // Prune timestamps older than the rolling window.
-                    sup.restart_timestamps.retain(|t| poll_now.duration_since(*t) < RESTART_STORM_WINDOW);
+                    sup.daemon.restart_timestamps.retain(|t| poll_now.duration_since(*t) < RESTART_STORM_WINDOW);
 
-                    if sup.restart_timestamps.len() > RESTART_STORM_THRESHOLD {
-                        let cooldown_elapsed = sup.last_restart_alert
+                    if sup.daemon.restart_timestamps.len() > RESTART_STORM_THRESHOLD {
+                        let cooldown_elapsed = sup.daemon.last_restart_alert
                             .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
                             .unwrap_or(true);
                         if cooldown_elapsed {
                             let reason = format!(
                                 "{} daemon restarts in the last {}m — possible crash-loop. \
                                  Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
-                                sup.restart_timestamps.len(),
+                                sup.daemon.restart_timestamps.len(),
                                 RESTART_STORM_WINDOW.as_secs() / 60
                             );
                             notify_daemon_unhealthy(&app, &reason);
-                            sup.last_restart_alert = Some(poll_now);
+                            sup.daemon.last_restart_alert = Some(poll_now);
                             eprintln!("[watchdog] restart-storm alert: {}", reason);
                         }
                     } else {
                         // Condition cleared — next episode re-alerts immediately.
-                        sup.last_restart_alert = None;
+                        sup.daemon.last_restart_alert = None;
                     }
 
                     if health.http_ok {
                         // HTTP health restored — reset failure counter + cooldown.
-                        if sup.consecutive_http_failed > 0 {
+                        if sup.daemon.consecutive_http_failed > 0 {
                             eprintln!(
                                 "[watchdog] HTTP health restored after {} failed polls",
-                                sup.consecutive_http_failed
+                                sup.daemon.consecutive_http_failed
                             );
                         }
-                        sup.consecutive_http_failed = 0;
-                        sup.last_http_alert = None;
+                        sup.daemon.consecutive_http_failed = 0;
+                        sup.daemon.last_http_alert = None;
 
                         // Detect adopted-daemon restarts via processStartedAtMs change.
-                        if let (Some(prev), Some(curr)) = (sup.last_process_started_at_ms, health.process_started_at_ms) {
+                        if let (Some(prev), Some(curr)) = (sup.daemon.last_process_started_at_ms, health.process_started_at_ms) {
                             if curr != prev {
-                                sup.restart_timestamps.push(poll_now);
+                                sup.daemon.restart_timestamps.push(poll_now);
                                 eprintln!("[watchdog] adopted-daemon restart detected via processStartedAtMs: {prev} → {curr}");
                             }
                         }
                         if health.process_started_at_ms.is_some() {
-                            sup.last_process_started_at_ms = health.process_started_at_ms;
+                            sup.daemon.last_process_started_at_ms = health.process_started_at_ms;
                         }
 
                         // --- Watchdog: DB-degraded detection ---
@@ -843,32 +795,32 @@ fn run_supervisor(
                     // HTTP health poll failed — daemon is down or unresponsive.
                     // Increment the sustained-HTTP-failure counter BEFORE branching;
                     // the crash-exit arm will reset it (that path is owned by restart-storm).
-                    sup.consecutive_http_failed += 1;
+                    sup.daemon.consecutive_http_failed += 1;
 
                     // Health is down. Only a daemon WE spawned is respawned.
-                    match sup.child.as_mut().map(|c| c.try_wait()) {
+                    match sup.daemon.child.as_mut().map(|c| c.try_wait()) {
                         Some(Ok(Some(_status))) => {
                             // Our child exited — record crash for storm detection, respawn (throttled).
                             // The crash-exit path (restart-storm) owns the alerting for this case;
                             // reset the HTTP-failure counter so the two paths don't double-alert.
-                            sup.consecutive_http_failed = 0;
-                            sup.last_http_alert = None;
-                            sup.child = None;
+                            sup.daemon.consecutive_http_failed = 0;
+                            sup.daemon.last_http_alert = None;
+                            sup.daemon.child = None;
                             if let Ok(mut g) = spawned.lock() {
                                 *g = None;
                             }
                             clear_uptime(&app, &mut sup);
                             // Record this crash; the next poll will prune + check the threshold.
-                            sup.restart_timestamps.push(poll_now);
+                            sup.daemon.restart_timestamps.push(poll_now);
                             // Clear last_process_started_at_ms so the first successful health
                             // poll after respawn does NOT double-count a restart via the
                             // adopted-daemon change-detection path above.
-                            sup.last_process_started_at_ms = None;
+                            sup.daemon.last_process_started_at_ms = None;
                             eprintln!(
                                 "[watchdog] child crash: {} restarts in window",
-                                sup.restart_timestamps.len()
+                                sup.daemon.restart_timestamps.len()
                             );
-                            if throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
+                            if throttle_ok(sup.daemon.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
                                 do_spawn(&app, &mut sup, &spawned, &path, port);
                             } else {
                                 // Crash-looping: exited within the respawn-throttle
@@ -886,12 +838,12 @@ fn run_supervisor(
                             // Child alive but not yet serving — still booting or hung.
                             // This is the primary "unhealthy-but-not-exiting" path: the
                             // daemon is running but not accepting health requests.
-                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
-                                let cooldown_elapsed = sup.last_http_alert
+                            if sup.daemon.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+                                let cooldown_elapsed = sup.daemon.last_http_alert
                                     .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
                                     .unwrap_or(true);
                                 if cooldown_elapsed {
-                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                    let sustained_secs = sup.daemon.consecutive_http_failed as u64
                                         * POLL_INTERVAL.as_secs();
                                     let reason = format!(
                                         "Cockpit daemon has been unresponsive for {sustained_secs}s \
@@ -899,7 +851,7 @@ fn run_supervisor(
                                          Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
                                     );
                                     notify_daemon_unhealthy(&app, &reason);
-                                    sup.last_http_alert = Some(poll_now);
+                                    sup.daemon.last_http_alert = Some(poll_now);
                                     eprintln!("[watchdog] sustained HTTP-failure (child alive) alert: {}", reason);
                                 }
                             }
@@ -911,13 +863,18 @@ fn run_supervisor(
                             // `handle_health_down_no_child` (mt#2794) — this
                             // call site just wires the live AppHandle/lsof/
                             // process seams.
-                            let mut counters = NoChildCounters::take_from(&mut sup);
+                            // The counters and the labels both come off the
+                            // core's record now (mt#3990). `labels` is copied
+                            // out first because the effect closure below needs
+                            // its own `&mut sup` borrow.
+                            let labels = sup.daemon.labels;
+                            let mut counters = NoChildCounters::take_from(&mut sup.daemon);
                             handle_health_down_no_child(
                                 &mut counters,
                                 poll_now,
                                 Instant::now(),
                                 port,
-                                &COCKPIT_LABELS,
+                                &labels,
                                 || port_in_use(port),
                                 |eff| match eff {
                                     NoChildEffect::Notify(reason) => {
@@ -932,7 +889,7 @@ fn run_supervisor(
                                     NoChildEffect::ClearUptime => clear_uptime(&app, &mut sup),
                                 },
                             );
-                            counters.write_back_to(&mut sup);
+                            counters.write_back_to(&mut sup.daemon);
                         }
                     }
                 }
@@ -1107,17 +1064,17 @@ fn update_uptime_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
 
 /// Set the uptime label, skipping the UI round-trip when unchanged.
 fn set_uptime_status(app: &AppHandle, sup: &mut Sup, label: String) {
-    if sup.last_uptime_label.as_deref() == Some(label.as_str()) {
+    if sup.daemon.last_uptime_label.as_deref() == Some(label.as_str()) {
         return;
     }
-    sup.last_uptime_label = Some(label.clone());
+    sup.daemon.last_uptime_label = Some(label.clone());
     let _ = update_uptime_status(app, &label);
 }
 
 /// Recompute + push the uptime line from the current daemon-start/source state.
 fn refresh_uptime(app: &AppHandle, sup: &mut Sup) {
     let label = uptime_label(
-        sup.daemon_started_at,
+        sup.daemon.daemon_started_at,
         sup.daemon_source_mtime,
         SystemTime::now(),
     );
@@ -1126,7 +1083,7 @@ fn refresh_uptime(app: &AppHandle, sup: &mut Sup) {
 
 /// Clear the uptime line + recorded start state (daemon no longer running).
 fn clear_uptime(app: &AppHandle, sup: &mut Sup) {
-    sup.daemon_started_at = None;
+    sup.daemon.daemon_started_at = None;
     sup.daemon_source_mtime = None;
     set_uptime_status(app, sup, uptime_label(None, None, SystemTime::now()));
 }
@@ -1149,7 +1106,7 @@ fn report_conflict(app: &AppHandle, sup: &mut Sup, path: &str, port: u16) {
     let holder = port_holder(port, path);
     let pid = holder.as_ref().map(|(pid, _)| *pid);
     let label = conflict_label_for(port, pid);
-    if sup.last_status.as_deref() != Some(label.as_str()) {
+    if sup.daemon.last_status.as_deref() != Some(label.as_str()) {
         // The ADDRESS is reported, not assumed (PR #2684 R2): the probe is
         // scoped to loopback but that covers both families, and "which address"
         // is exactly what the original incident turned on.
