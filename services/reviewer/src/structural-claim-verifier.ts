@@ -10,6 +10,13 @@
  *
  *   1. "identifier X is duplicate-declared in file Y"  (mt#3245, origin below)
  *   2. "section/heading H appears more than once in file Y"  (mt#3520, origin below)
+ *   3. "file/entry F is missing / not present"  (mt#4042, origin below)
+ *
+ * Class 3 runs the check in the OPPOSITE direction from classes 1 and 2, which is the only real
+ * asymmetry in this module. A duplication claim is disproven by a count of `<= 1`; an ABSENCE
+ * claim is disproven by PRESENCE, so class 3 demotes on `>= 1`. Everything else — extract the
+ * subject from the finding's own evidence, check it against the repo at the review ref, demote
+ * only on disproof — is the same skeleton.
  *
  * A future class plugs in at `extractStructuralClaim`'s dispatch — add a claim extractor +
  * counter pair there rather than a new top-level pipeline stage. Both classes share the same
@@ -55,6 +62,25 @@
  * restated the claim on a retrigger of the same HEAD even after the PR body carried the per-file
  * counts, and its own spec-verification table simultaneously recorded "a single (p) section" as
  * Met — so in-context prose does not correct this class either.
+ *
+ * ## Origin of class 3 (mt#2575 instance 7, mt#4042 spec)
+ *
+ * PR #2909 (2026-08-12) added a detector plus its index entry in `.minsky/rules/hook-observers.mdc`
+ * — an in-diff change at line 55 of that file. The reviewer posted BLOCKING: "Index entry missing
+ * in `hook-observers.mdc` as required by the spec," citing as evidence that
+ * `docs/architecture/hook-observers.mdc` returned `not_found` and that the
+ * `docs/architecture/hooks/` listing did not contain it either.
+ *
+ * Both evidence lines are TRUE. Neither is where the file lives. The finding took a bare filename
+ * from the prose of `docs/architecture/hooks/flakiness-control-detector.md` and looked for it in
+ * that document's own directory and its parent — but a bare `hook-observers.mdc` in this corpus is
+ * how a rule is NAMED, not where it sits, and no rule sits under `docs/`.
+ *
+ * That is what separates this class from the two above, and from instance 1 of the same family
+ * (PR #1766, a broken-cross-reference claim diagnosed at the time as "the reviewer cannot see the
+ * filesystem"). Here the reviewer HAD `read_file`, USED it, and got a truthful miss for a path
+ * that was never the right path — then reported the miss as absence. The finding arrives WITH
+ * evidence attached, and the evidence is real, which is precisely why a reader believes it.
  *
  * A second, independently-documented mechanism produces the identical claim shape with no
  * source/generated pair involved: mem#648 (PR #2106, 2026-07-20/21) records a false "Duplicate
@@ -423,6 +449,99 @@ export function extractDuplicateSectionClaim(summary: string, details: string): 
 }
 
 // ---------------------------------------------------------------------------
+// Missing-subject definitions (class 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Trigger phrases for an ABSENCE claim. Deliberately broad on its own: like the section class's
+ * `appears twice`, the precision guard is not the phrase but the conjunction — a demotion also
+ * requires a file-shaped subject quoted in the finding's own evidence AND that subject actually
+ * resolving in the repo at the review ref.
+ */
+const MISSING_SUBJECT_TRIGGER_RE =
+  /\b(?:missing|absent)\b|\bnot\s+(?:present|found|added|documented|included)\b|\bdoes\s*n[o'’]?t\s+exist\b|\bno\s+such\s+(?:file|entry|section|path)\b|\bnever\s+(?:added|created|documented)\b|\bnot_found\b/imu;
+
+/**
+ * A quoted span that looks like a file reference: no whitespace, and a short trailing extension.
+ * Requiring the extension is what keeps ordinary backticked prose (`checks:write`, `read_file`,
+ * an identifier) out of the subject set.
+ */
+const FILE_REF_RE = /^[A-Za-z0-9._\-/@]+\.[A-Za-z0-9]{1,8}$/;
+
+/** Upper bound on subjects considered for one finding — see `MAX_SECTION_CANDIDATES`. */
+const MAX_MISSING_SUBJECTS = 6;
+
+/**
+ * If `summary`+`details` claims something is missing AND quotes at least one file-shaped
+ * reference, return those references (distinct, first-seen order). Otherwise `null`.
+ *
+ * Exported for unit testing.
+ */
+export function extractMissingSubjectClaim(summary: string, details: string): string[] | null {
+  const text = `${summary}\n${details}`;
+  if (!MISSING_SUBJECT_TRIGGER_RE.test(text)) return null;
+
+  const found = new Set<string>();
+  for (const match of text.matchAll(QUOTED_SPAN_RE)) {
+    const span = (match[1] ?? match[2] ?? match[3])?.trim();
+    if (!span) continue;
+    if (!FILE_REF_RE.test(span)) continue;
+    found.add(span);
+  }
+
+  const candidates = [...found];
+  if (candidates.length === 0 || candidates.length > MAX_MISSING_SUBJECTS) return null;
+  return candidates;
+}
+
+/**
+ * Match a quoted file reference against a repo path listing.
+ *
+ * An EXPLICIT path (contains `/`) is checked as written: naming a full path is a stronger, more
+ * specific claim than naming a file, and a reviewer that says `docs/foo/bar.md` does not exist is
+ * making a claim about that path. A BARE filename matches on basename anywhere in the tree —
+ * which is the entire point of the class, since a bare name in prose is a NAME, not a location.
+ *
+ * Lives here rather than in the caller so the rule is unit-testable independently of GitHub;
+ * `review-worker.ts` supplies the listing and calls this.
+ *
+ * Exported for unit testing.
+ */
+export function matchPathsForFileRef(fileRef: string, paths: readonly string[]): string[] {
+  if (fileRef.includes("/")) {
+    return paths.filter((p) => p === fileRef);
+  }
+  return paths.filter((p) => p === fileRef || p.endsWith(`/${fileRef}`));
+}
+
+/**
+ * Whether an absence claim naming `subjects` is disproven by `resolvedPaths`.
+ *
+ * ## Why ANY, when the section class requires ALL
+ *
+ * The section class demotes only when EVERY quoted heading is non-duplicated, because there each
+ * additional subject is another chance for the claim to be TRUE. Here the polarity is reversed and
+ * so is the quantifier: the claim is that something is missing, and locating it ONCE disproves the
+ * claim entirely.
+ *
+ * This is not a loosening — it is what makes the check work on its own originating incident, and
+ * getting it backwards would have produced a check that cannot fire there. PR #2909's finding
+ * quotes TWO subjects: the bare `hook-observers.mdc` (which resolves) and the constructed
+ * `docs/architecture/hook-observers.mdc` (which does not, because it was never a real path). Under
+ * an ALL rule the constructed path preserves BLOCKING and the false finding survives. A path the
+ * reviewer built wrongly failing to resolve is the ERROR being corrected, not a second piece of
+ * evidence for absence.
+ *
+ * Exported for unit testing.
+ */
+export function isAbsenceClaimDisproven(
+  subjects: readonly string[],
+  resolvedPaths: ReadonlyMap<string, readonly string[]>
+): boolean {
+  return subjects.some((subject) => (resolvedPaths.get(subject)?.length ?? 0) > 0);
+}
+
+// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -459,7 +578,21 @@ export interface DuplicateSectionDowngradeAuditEntry extends StructuralClaimDown
  */
 export type StructuralClaimDowngradeAuditEntry =
   | DuplicateDeclarationDowngradeAuditEntry
-  | DuplicateSectionDowngradeAuditEntry;
+  | DuplicateSectionDowngradeAuditEntry
+  | MissingSubjectDowngradeAuditEntry;
+
+/** Audit entry for the missing-subject class (mt#4042). */
+export interface MissingSubjectDowngradeAuditEntry extends StructuralClaimDowngradeAuditBase {
+  claimClass: "missing-subject";
+  /**
+   * Every file-shaped reference the finding quoted, with the repo paths it resolved to at the
+   * review ref. At least one entry has a non-empty `resolvedPaths` — that is what demoted the
+   * finding. Entries that resolved to nothing are kept deliberately: a constructed path that
+   * resolves to nothing beside a bare name that resolves is the signature of this whole class,
+   * and a reader of the audit log should be able to see it.
+   */
+  subjects: Array<{ subject: string; resolvedPaths: string[] }>;
+}
 
 export interface StructuralClaimVerificationResult {
   /** Same length/order as input; only demoted `submit_finding` severities differ. */
@@ -477,8 +610,11 @@ export interface StructuralClaimVerificationResult {
  * `extractDuplicateSectionClaim`), and ALL of them must be disproven to demote.
  */
 interface ExtractedStructuralClaim {
-  claimClass: "duplicate-declaration" | "duplicate-section";
-  /** The identifier (declaration class) or normalized heading(s) (section class). */
+  claimClass: "duplicate-declaration" | "duplicate-section" | "missing-subject";
+  /**
+   * The identifier (declaration class), normalized heading(s) (section class), or quoted file
+   * reference(s) (missing-subject class).
+   */
   subjects: string[];
 }
 
@@ -500,6 +636,11 @@ export function extractStructuralClaim(
   const headings = extractDuplicateSectionClaim(summary, details);
   if (headings) return { claimClass: "duplicate-section", subjects: headings };
 
+  // Absence is tried LAST: its trigger set is the broadest of the three, so a finding that also
+  // yields a duplication candidate is a duplication claim.
+  const missing = extractMissingSubjectClaim(summary, details);
+  if (missing) return { claimClass: "missing-subject", subjects: missing };
+
   return null;
 }
 
@@ -514,7 +655,15 @@ export function extractStructuralClaim(
  */
 export function applyStructuralClaimVerification(
   toolCalls: ReadonlyArray<ReviewToolCall>,
-  fileContents: ReadonlyMap<string, string | null>
+  fileContents: ReadonlyMap<string, string | null>,
+  /**
+   * Repo paths each quoted file reference resolved to at the review ref (missing-subject class
+   * only). A subject absent from this map was never checked — indistinguishable here from one
+   * that resolved to nothing, and both preserve BLOCKING, so the conflation is safe in the only
+   * direction that matters. Defaults to empty, which disables the class: existing callers that
+   * pass two arguments keep their exact behavior.
+   */
+  resolvedPaths: ReadonlyMap<string, readonly string[]> = new Map()
 ): StructuralClaimVerificationResult {
   const corrected: ReviewToolCall[] = [];
   const downgrades: StructuralClaimDowngradeAuditEntry[] = [];
@@ -528,6 +677,48 @@ export function applyStructuralClaimVerification(
     const claim = extractStructuralClaim(tc.args.summary, tc.args.details);
     if (!claim) {
       corrected.push(tc);
+      continue;
+    }
+
+    if (claim.claimClass === "missing-subject") {
+      if (!isAbsenceClaimDisproven(claim.subjects, resolvedPaths)) {
+        // Either the subjects genuinely resolve to nothing (the claim may be TRUE — preserve it,
+        // this pass never invents an absence) or the resolver could not run. Fail safe.
+        corrected.push(tc);
+        continue;
+      }
+
+      const subjects = claim.subjects.map((subject) => ({
+        subject,
+        resolvedPaths: [...(resolvedPaths.get(subject) ?? [])],
+      }));
+      const located = subjects
+        .filter((s) => s.resolvedPaths.length > 0)
+        .map((s) => `"${s.subject}" -> ${s.resolvedPaths.join(", ")}`)
+        .join("; ");
+      const reason =
+        `structural-claim-verification: finding claims something is missing or not present, but ` +
+        `at least one file it names DOES exist in the repo at the review ref — ${located}. A read ` +
+        `that returned not_found for a differently-constructed path is a failed lookup, not ` +
+        `evidence of absence. Downgraded.`;
+
+      corrected.push({
+        name: "submit_finding",
+        args: {
+          ...tc.args,
+          severity: "NON-BLOCKING",
+          summary: `${tc.args.summary} [missing-subject-unverified]`,
+          details: `${tc.args.details}\n\n_${reason}_`,
+        } satisfies SubmitFindingArgs,
+      });
+      downgrades.push({
+        file: tc.args.file,
+        claimClass: "missing-subject",
+        subjects,
+        fromSeverity: "BLOCKING",
+        toSeverity: "NON-BLOCKING",
+        reason,
+      });
       continue;
     }
 
@@ -609,6 +800,14 @@ export function applyStructuralClaimVerification(
 export type FileContentFetcher = (path: string) => Promise<string | null>;
 
 /**
+ * Resolve a file reference quoted by a finding to the repo paths matching it at the review ref.
+ * A reference containing `/` is taken at face value (an explicit path is a stronger claim than a
+ * bare name, so it is checked as written); a bare filename matches on BASENAME anywhere in the
+ * tree, which is the whole point — the class exists because a bare name is not a path.
+ */
+export type PathResolver = (fileRef: string) => Promise<readonly string[]>;
+
+/**
  * Fetch current file content (only for files a duplicate-declaration claim actually needs — no
  * fetch at all when no BLOCKING finding matches the claim shape) and apply
  * `applyStructuralClaimVerification`.
@@ -619,17 +818,28 @@ export type FileContentFetcher = (path: string) => Promise<string | null>;
  */
 export async function fetchAndApplyStructuralClaimVerification(
   toolCalls: ReadonlyArray<ReviewToolCall>,
-  fileFetcher: FileContentFetcher
+  fileFetcher: FileContentFetcher,
+  /**
+   * Resolves a quoted file reference to the repo paths matching it at the review ref (mt#4042).
+   * Optional: omitted, the missing-subject class never fires and the other two are unaffected —
+   * the same opt-in shape `resolvedPaths` has on the pure function.
+   */
+  pathResolver?: PathResolver
 ): Promise<StructuralClaimVerificationResult> {
   const filesToFetch = new Set<string>();
+  const subjectsToResolve = new Set<string>();
   for (const tc of toolCalls) {
     if (tc.name !== "submit_finding" || tc.args.severity !== "BLOCKING") continue;
-    if (extractStructuralClaim(tc.args.summary, tc.args.details)) {
+    const claim = extractStructuralClaim(tc.args.summary, tc.args.details);
+    if (!claim) continue;
+    if (claim.claimClass === "missing-subject") {
+      for (const subject of claim.subjects) subjectsToResolve.add(subject);
+    } else {
       filesToFetch.add(tc.args.file);
     }
   }
 
-  if (filesToFetch.size === 0) {
+  if (filesToFetch.size === 0 && subjectsToResolve.size === 0) {
     return { toolCalls: [...toolCalls], downgrades: [] };
   }
 
@@ -642,5 +852,16 @@ export async function fetchAndApplyStructuralClaimVerification(
     }
   }
 
-  return applyStructuralClaimVerification(toolCalls, fileContents);
+  const resolvedPaths = new Map<string, readonly string[]>();
+  if (pathResolver) {
+    for (const subject of subjectsToResolve) {
+      try {
+        resolvedPaths.set(subject, await pathResolver(subject));
+      } catch {
+        // Leave unset: an unresolvable subject preserves BLOCKING, same as a fetch failure.
+      }
+    }
+  }
+
+  return applyStructuralClaimVerification(toolCalls, fileContents, resolvedPaths);
 }

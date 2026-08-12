@@ -7,6 +7,8 @@ import {
   extractQuotedHeadings,
   extractDuplicateSectionClaim,
   extractStructuralClaim,
+  extractMissingSubjectClaim,
+  matchPathsForFileRef,
   applyStructuralClaimVerification,
   fetchAndApplyStructuralClaimVerification,
 } from "./structural-claim-verifier";
@@ -14,6 +16,7 @@ import type {
   StructuralClaimDowngradeAuditEntry,
   DuplicateDeclarationDowngradeAuditEntry,
   DuplicateSectionDowngradeAuditEntry,
+  MissingSubjectDowngradeAuditEntry,
 } from "./structural-claim-verifier";
 import type { ReviewToolCall } from "./output-tools";
 
@@ -639,5 +642,218 @@ describe("applyStructuralClaimVerification — duplicate-section class", () => {
     expect(fetched).toEqual([SKILL_SOURCE_FILE]);
     expect(result.downgrades).toHaveLength(1);
     expect(asSectionEntry(result.downgrades[0]).claimClass).toBe(DUPLICATE_SECTION_CLASS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// missing-subject class (mt#4042) — an absence claim disproven by presence
+// ---------------------------------------------------------------------------
+
+/**
+ * Narrow an audit entry to the missing-subject variant, mirroring the two helpers above.
+ */
+function asMissingSubjectEntry(
+  entry: StructuralClaimDowngradeAuditEntry | undefined
+): MissingSubjectDowngradeAuditEntry {
+  expect(entry?.claimClass).toBe("missing-subject");
+  return entry as MissingSubjectDowngradeAuditEntry;
+}
+
+const DETECTOR_DOC_FILE = "docs/architecture/hooks/flakiness-control-detector.md";
+const RULE_BARE_NAME = "hook-observers.mdc";
+const RULE_REAL_PATH = ".minsky/rules/hook-observers.mdc";
+const RULE_COMPILED_PATH = ".cursor/rules/hook-observers.mdc";
+const RULE_CONSTRUCTED_PATH = "docs/architecture/hook-observers.mdc";
+
+/**
+ * VERBATIM from PR #2909's R4 review (2026-08-12), the originating incident. Copied rather than
+ * paraphrased on purpose: mt#3520 recorded that a paraphrased fixture would have skipped its own
+ * originating finding, because the real text names more subjects than a summary of it does.
+ */
+const PR2909_SUMMARY = "Index entry missing in hook-observers.mdc as required by the spec";
+const PR2909_DETAILS = [
+  "The spec's Success Criteria require “The detector is documented in `hook-observers.mdc`",
+  "alongside its siblings, and the source rule is recompiled in the same PR.” This new doc",
+  "file's header claims an index entry exists — “Index entry: `hook-observers.mdc`.”",
+  "However, there is no `docs/architecture/hook-observers.mdc` file in the repo",
+  "(`read_file: not_found`), and the `docs/architecture/hooks/` directory listing contains no",
+  "`hook-observers.mdc` either. Evidence:",
+  "",
+  "- `docs/architecture/hook-observers.mdc` — not found (read attempt failed with `not_found`).",
+].join("\n");
+
+/** The repo tree as it actually stood at PR #2909's head e507968d, for the two rule paths. */
+const TREE_AT_PR2909_HEAD = [
+  ".minsky/rules/hook-observers.mdc",
+  ".cursor/rules/hook-observers.mdc",
+  "docs/architecture/hooks/flakiness-control-detector.md",
+  "CLAUDE.md",
+];
+
+describe("extractMissingSubjectClaim", () => {
+  it("extracts both the bare name and the constructed path from the real PR #2909 finding", () => {
+    expect(extractMissingSubjectClaim(PR2909_SUMMARY, PR2909_DETAILS)).toEqual([
+      RULE_BARE_NAME,
+      RULE_CONSTRUCTED_PATH,
+    ]);
+  });
+
+  it("returns null without a trigger phrase, even when a file is quoted", () => {
+    expect(
+      extractMissingSubjectClaim("Style nit", "Consider renaming `src/foo/bar.ts` for clarity.")
+    ).toBeNull();
+  });
+
+  it("returns null when the trigger fires but nothing file-shaped is quoted", () => {
+    expect(
+      extractMissingSubjectClaim(
+        "Permission missing",
+        "The App does not hold `checks:write`, so `read_file` is not present in the tool set."
+      )
+    ).toBeNull();
+  });
+
+  it("does not treat a quoted directory as a file reference", () => {
+    expect(
+      extractMissingSubjectClaim("Missing", "The `docs/architecture/hooks/` listing has no entry.")
+    ).toBeNull();
+  });
+});
+
+describe("matchPathsForFileRef", () => {
+  it("resolves a bare filename by basename anywhere in the tree", () => {
+    expect(matchPathsForFileRef(RULE_BARE_NAME, TREE_AT_PR2909_HEAD)).toEqual([
+      RULE_REAL_PATH,
+      RULE_COMPILED_PATH,
+    ]);
+  });
+
+  it("takes an explicit path at face value and does not fall back to basename", () => {
+    expect(matchPathsForFileRef(RULE_CONSTRUCTED_PATH, TREE_AT_PR2909_HEAD)).toEqual([]);
+  });
+
+  it("matches a root-level file with no directory prefix", () => {
+    expect(matchPathsForFileRef("CLAUDE.md", TREE_AT_PR2909_HEAD)).toEqual(["CLAUDE.md"]);
+  });
+
+  it("does not match a suffix that is not a path segment boundary", () => {
+    expect(matchPathsForFileRef("observers.mdc", TREE_AT_PR2909_HEAD)).toEqual([]);
+  });
+});
+
+describe("applyStructuralClaimVerification — missing-subject class", () => {
+  it("demotes the real PR #2909 finding once the bare name resolves", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS, { line: 1 }),
+    ];
+    const resolved = new Map<string, readonly string[]>([
+      [RULE_BARE_NAME, [RULE_REAL_PATH, RULE_COMPILED_PATH]],
+      [RULE_CONSTRUCTED_PATH, []],
+    ]);
+
+    const result = applyStructuralClaimVerification(toolCalls, new Map(), resolved);
+
+    const finding = result.toolCalls[0];
+    expect(finding?.name).toBe("submit_finding");
+    if (finding?.name !== "submit_finding") throw new Error("expected submit_finding");
+    expect(finding.args.severity).toBe("NON-BLOCKING");
+    expect(finding.args.summary).toContain("[missing-subject-unverified]");
+    expect(finding.args.details).toContain(RULE_REAL_PATH);
+
+    const entry = asMissingSubjectEntry(result.downgrades[0]);
+    expect(entry.subjects).toEqual([
+      { subject: RULE_BARE_NAME, resolvedPaths: [RULE_REAL_PATH, RULE_COMPILED_PATH] },
+      { subject: RULE_CONSTRUCTED_PATH, resolvedPaths: [] },
+    ]);
+  });
+
+  it("preserves BLOCKING when no quoted subject resolves (the claim may be true)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS, { line: 1 }),
+    ];
+    const resolved = new Map<string, readonly string[]>([
+      [RULE_BARE_NAME, []],
+      [RULE_CONSTRUCTED_PATH, []],
+    ]);
+
+    const result = applyStructuralClaimVerification(toolCalls, new Map(), resolved);
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+
+  it("preserves BLOCKING when the resolver never ran (no entry in the map)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS, { line: 1 }),
+    ];
+
+    const result = applyStructuralClaimVerification(toolCalls, new Map());
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+
+  it("leaves a NON-BLOCKING absence finding alone", () => {
+    const toolCalls: ReviewToolCall[] = [
+      nonBlockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS),
+    ];
+    const resolved = new Map<string, readonly string[]>([[RULE_BARE_NAME, [RULE_REAL_PATH]]]);
+
+    const result = applyStructuralClaimVerification(toolCalls, new Map(), resolved);
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+});
+
+describe("fetchAndApplyStructuralClaimVerification — missing-subject wiring", () => {
+  it("resolves each quoted subject against the listing and demotes end-to-end", async () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS, { line: 1 }),
+    ];
+    const asked: string[] = [];
+
+    const result = await fetchAndApplyStructuralClaimVerification(
+      toolCalls,
+      async () => {
+        throw new Error("the content fetcher must not be called for a missing-subject claim");
+      },
+      async (fileRef) => {
+        asked.push(fileRef);
+        return matchPathsForFileRef(fileRef, TREE_AT_PR2909_HEAD);
+      }
+    );
+
+    expect(asked).toEqual([RULE_BARE_NAME, RULE_CONSTRUCTED_PATH]);
+    expect(result.downgrades).toHaveLength(1);
+    expect(asMissingSubjectEntry(result.downgrades[0]).file).toBe(DETECTOR_DOC_FILE);
+  });
+
+  it("preserves BLOCKING when the resolver throws", async () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS, { line: 1 }),
+    ];
+
+    const result = await fetchAndApplyStructuralClaimVerification(
+      toolCalls,
+      async () => null,
+      async () => {
+        throw new Error("tree listing unavailable");
+      }
+    );
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
+  });
+
+  it("never fires the class when no resolver is supplied", async () => {
+    const toolCalls: ReviewToolCall[] = [
+      blockingFinding(DETECTOR_DOC_FILE, PR2909_SUMMARY, PR2909_DETAILS, { line: 1 }),
+    ];
+
+    const result = await fetchAndApplyStructuralClaimVerification(toolCalls, async () => null);
+
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.toolCalls).toEqual(toolCalls);
   });
 });

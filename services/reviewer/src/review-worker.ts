@@ -48,6 +48,7 @@ import {
   fetchReviewThreads,
   getAppIdentity,
   listDirectoryAtRef,
+  listPathsAtRef,
   readFileAtRef,
   submitReview,
   type ReviewThread,
@@ -88,7 +89,10 @@ import { extractFixCommitDiff, type FixCommitLineRangeMap } from "./diff-scoper"
 import { resolveDiffScope } from "./incremental-diff-scope";
 import { submitReviewWithGuards } from "./guarded-submit";
 import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
-import { fetchAndApplyStructuralClaimVerification } from "./structural-claim-verifier";
+import {
+  fetchAndApplyStructuralClaimVerification,
+  matchPathsForFileRef,
+} from "./structural-claim-verifier";
 import type { ReviewToolCall } from "./output-tools";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { log } from "./logger";
@@ -1067,6 +1071,9 @@ async function runReviewBody(
     // them does not matter. Flag off reproduces current behavior exactly: the fetcher
     // is never invoked and output.toolCalls passes through unchanged.
     let toolCallsAfterStructuralVerification: ReadonlyArray<ReviewToolCall> = output.toolCalls;
+    // Lazily-listed repo tree for the mt#4042 path resolver: `undefined` = not listed yet,
+    // `null` = listed and unusable (404 or truncated), array = usable listing.
+    let repoTreePaths: string[] | null | undefined = undefined;
     if (structuralClaimVerificationEnabled) {
       const structuralVerification = await fetchAndApplyStructuralClaimVerification(
         output.toolCalls,
@@ -1079,6 +1086,18 @@ async function runReviewBody(
             pr.headSha
           );
           return result !== null && result.kind === "text" ? result.content : null;
+        },
+        // mt#4042 missing-subject class: resolve a file reference a finding claims is absent.
+        // The tree is listed once per review and reused across subjects. A truncated listing is
+        // a PARTIAL view, so a miss against it is unknown rather than absent — return nothing
+        // found in that case and let the pass preserve BLOCKING.
+        async (fileRef) => {
+          if (repoTreePaths === undefined) {
+            const listed = await listPathsAtRef(octokit, pr.headOwner, pr.headRepo, pr.headSha);
+            repoTreePaths = listed !== null && !listed.truncated ? listed.paths : null;
+          }
+          if (repoTreePaths === null) return [];
+          return matchPathsForFileRef(fileRef, repoTreePaths);
         }
       );
       toolCallsAfterStructuralVerification = structuralVerification.toolCalls;
