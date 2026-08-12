@@ -5,7 +5,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 92,
+  "population": 93,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -534,6 +534,21 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
+      "undescribed": false
+    },
+    {
+      "guardName": "flakiness-control-detector",
+      "description": "Records when a new task spec claims a test failure's MODE — that it is flaky, or equally that it is NOT load-dependent and fails deterministically — without recording the isolation control that would settle it, or marking the claim UNVERIFIED. The denial is the more dangerous shape: it reads as the already-investigated verdict.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/flakiness-control-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
       "undescribed": false
     },
     {

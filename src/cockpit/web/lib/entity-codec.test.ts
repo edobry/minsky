@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import { entityToPath, entityToMinskyUri, parseMinskyUri, minskyUriToPath } from "./entity-codec";
 import { matchEntityRoute } from "./tabs";
+import { tokenEntity } from "./entity-linkifier";
 
 // Shared fixture ids
 const ASK_ID = "0a1b2c3d-0000-0000-0000-000000000000";
@@ -371,6 +372,18 @@ describe("interceptor type (mt#4010)", () => {
   test("the bare catalog route is NOT an entity route", () => {
     // `/interceptors` is a list destination; only a detail path opens a tab.
     expect(matchEntityRoute("/interceptors")).toBeNull();
+  });
+
+  test("tokenEntity inverts entityToPath for the new type", () => {
+    // `tokenEntity` is a THIRD inverse (path segment -> type), keyed by a
+    // `Record<string, ...>` so the typechecker cannot enforce exhaustiveness
+    // the way it did for EntityRef's and TabBar's Records. Without this case,
+    // a `minsky://interceptor/...` URI in Prose renders an anchor that
+    // navigates but loses its entity identity.
+    expect(tokenEntity({ kind: "link", to: entityToPath("interceptor", NAME) } as never)).toEqual({
+      type: "interceptor",
+      id: NAME,
+    });
   });
 
   test("a name needing encoding survives the round-trip", () => {
