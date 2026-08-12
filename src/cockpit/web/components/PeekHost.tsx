@@ -24,7 +24,8 @@
 import { PanelRightClose, Pin, SquareArrowOutUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { usePeek } from "../lib/peek";
-import { entityToPath } from "../lib/entity-codec";
+import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { useResolvedEntityLabel } from "../lib/use-entity-index";
 import {
   Sheet,
   SheetContent,
@@ -34,6 +35,39 @@ import {
   SheetCloseButton,
 } from "./ui/sheet";
 import { PeekBody } from "./PeekBody";
+
+/**
+ * Pane title — the resolved entity label, not the raw id.
+ *
+ * Found by looking at it (mt#3694 live verification): a memory pane titled
+ * `fbcb360f-fe0e-402d-9b35-7e3c2b2ab59a` is unreadable, and `cockpit-deeplinks`
+ * already makes the general rule — show a short readable ref, keep the full id
+ * in the target. Uses the SAME resolver `EntityRef` uses, so a pane and the link
+ * that opened it never disagree about what the entity is called.
+ *
+ * Degrades to the bare id when nothing resolves, which is the pre-existing
+ * behavior and is correct for a task id like `mt#4010` that is already readable.
+ * Its own component because a hook cannot be called inside the pane map.
+ */
+function PaneTitle({ type, id }: { type: RoutableEntityType; id: string }) {
+  const info = useResolvedEntityLabel(type, id);
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id);
+  // A raw uuid is never the best available title: prefer the label, and fall
+  // back to a truncated prefix rather than 36 characters of hex.
+  const fallback = isUuid ? `${id.slice(0, 8)}…` : id;
+  return (
+    <SheetTitle title={id}>
+      {info?.label ? (
+        <>
+          <span className="text-muted-foreground">{fallback}</span>
+          <span className="ml-2 font-sans font-normal">{info.label}</span>
+        </>
+      ) : (
+        fallback
+      )}
+    </SheetTitle>
+  );
+}
 
 export function PeekHost() {
   const { panes, closePeek, holdPeek } = usePeek();
@@ -78,7 +112,7 @@ export function PeekHost() {
               onFocusOutside={(event) => event.preventDefault()}
             >
               <SheetHeader>
-                <SheetTitle>{pane.id}</SheetTitle>
+                <PaneTitle type={pane.type} id={pane.id} />
                 <div className="ml-auto flex items-center gap-0.5">
                   <button
                     type="button"
