@@ -353,6 +353,17 @@ export async function run(
   // Writing it from both places would double-count every fire, which is the
   // shape that makes a rate un-measurable. The EVALUATION stream above is
   // different — the dispatcher knows nothing about it, so this path owns it.
+  // Pinned by a test rather than left to this comment: see
+  // "does NOT write the calibration log on the dispatcher path".
+  //
+  // Same division for `guardOutcome` (mt#3892/mt#3920): this guard writes NO
+  // fire-log record, so it stamps no `guardOutcome`. The dispatcher writes the
+  // record and stamps its own, exactly as it does for `causal-premise-detector`
+  // and every other dispatched observer — none of which names the field either.
+  // `custom/require-guard-outcome-in-fire-log` is correspondingly scoped to
+  // files that reach the writer (`recordFireLogEntry`, `makeRecordAndExit`, and
+  // the merge-gate factory surface); this file reaches none of them, and the
+  // returned `GuardOutcome` type has no such field to set.
 
   const outcome: GuardOutcome = {
     calibration: {

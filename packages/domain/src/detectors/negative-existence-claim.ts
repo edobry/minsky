@@ -157,7 +157,17 @@ export function extractCitedTaskIds(prose: string): string[] {
   return [...ids];
 }
 
-/** Every negative-existence claim in `prose`, with surrounding context. */
+/**
+ * Every negative-existence claim in `prose`, with surrounding context.
+ *
+ * ONE match per pattern, deliberately (PR #2905 R1 asked). The record and the
+ * advisory both enumerate claims one per line, so an unbounded count is an
+ * unbounded render — and the second occurrence of the SAME pattern adds no
+ * information a reviewer acts on: the remedy is identical (read the DONE task's
+ * diff) and the excerpt already shows where the claim sits. Bounding here is
+ * what keeps `renderWorstCase()`'s claim axis posed at a real ceiling rather
+ * than an arbitrary sample.
+ */
 export function extractNegativeExistenceClaims(prose: string): ClaimMatch[] {
   if (!prose) return [];
   const claims: ClaimMatch[] = [];
@@ -236,8 +246,18 @@ export function countSearchHits(resultText: string): number | null {
   const lines = trimmed.split("\n").filter((line) => line.trim().length > 0);
   if (lines.length === 0) return 0;
 
-  const countMatch = /\bfound (\d+) (?:matches|results|files)\b/i.exec(trimmed);
-  if (countMatch?.[1] !== undefined) return Number.parseInt(countMatch[1], 10);
+  // An explicit count is authoritative ONLY when it sits on the first or last
+  // non-empty line — where tools print a summary. Accepting it anywhere let a
+  // mid-body mention ("...the fix in mt#3 found 42 matches...") override the
+  // real line count, and a body containing several would silently take the
+  // first (PR #2905 R1).
+  const edges = [lines[0], lines[lines.length - 1]].filter(
+    (line): line is string => typeof line === "string"
+  );
+  for (const line of edges) {
+    const countMatch = /\bfound (\d+) (?:matches|results|files)\b/i.exec(line);
+    if (countMatch?.[1] !== undefined) return Number.parseInt(countMatch[1], 10);
+  }
 
   return lines.length;
 }

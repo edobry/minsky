@@ -99,6 +99,17 @@ describe("countSearchHits", () => {
   it("prefers an explicit count over the line count", () => {
     expect(countSearchHits("Found 42 matches\nsrc/a.ts\nsrc/b.ts")).toBe(42);
   });
+
+  it("accepts a trailing summary line too", () => {
+    expect(countSearchHits("src/a.ts\nsrc/b.ts\nFound 42 matches")).toBe(42);
+  });
+
+  it("ignores a count buried mid-body and counts the lines instead", () => {
+    // PR #2905 R1: an explicit count is a SUMMARY convention, so it is
+    // authoritative only at an edge. A mid-body mention is prose.
+    const body = "src/a.ts:1: x\nthe earlier pass found 42 matches here\nsrc/b.ts:9: x";
+    expect(countSearchHits(body)).toBe(3);
+  });
 });
 
 describe("isSearchCall", () => {

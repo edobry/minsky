@@ -265,6 +265,21 @@ describe("AT4 — evaluation stream records fired AND non-fired cases", () => {
     expect(records[1]?.["thinSearchPresent"]).toBe(false);
   });
 
+  it("does NOT write the calibration log on the dispatcher path", async () => {
+    // The dispatcher owns that write (`calibrationLog` on the registration).
+    // Writing it here too would double-count every fire, making the rate
+    // un-measurable. Pinned rather than left to a comment (PR #2905 R1).
+    const cwd = makeTempCwd();
+    const firing = makeTurn({ claim: INSTANCE_3_CLAIM, searchResult: "one hit" });
+    const outcome = await run(makeInput(cwd), makeCtx(asCompletedTurn(firing)), {
+      lookupDoneTaskIds: doneLookup,
+    });
+
+    expect(outcome?.calibration).toBeDefined();
+    expect(existsSync(join(cwd, ".minsky/negative-existence-claim-calibration.jsonl"))).toBe(false);
+    expect(existsSync(join(cwd, EVALUATION_LOG))).toBe(true);
+  });
+
   it("evaluates nothing when the turn wrote no durable artifact", async () => {
     const cwd = makeTempCwd();
     const noArtifact: TranscriptLine[] = [
