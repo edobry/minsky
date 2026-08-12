@@ -22,7 +22,23 @@ import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { hostname } from "os";
-import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import {
+  resolveAgentIdWithLayer,
+  type IdentityFallbackEvent,
+} from "@minsky/domain/agent-identity/resolve";
+import { buildDeclaredIdentityKeys } from "@minsky/domain/agent-identity/declared";
+import { redactAgentId } from "@minsky/domain/agent-identity/format";
+
+/**
+ * How many distinct Layer 1 agentIds the identity-fallback reporter remembers
+ * before resetting (mt#3986, PR #2877 R1).
+ *
+ * Sized against the observed fleet rather than a round number: mt#3811 measured
+ * this daemon at 1–10 concurrent clients, and each client PROCESS contributes
+ * one id, so 256 is roughly an order of magnitude above any observed
+ * simultaneous population while staying trivially small in memory.
+ */
+const IDENTITY_FALLBACK_REPORT_CAP = 256;
 import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -38,6 +54,7 @@ import {
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
 import type { InFlightToolCall } from "./memory-capture";
+import { formatAdmissionRefusal, type AdmissionGate } from "./daemon/memory-admission";
 import type { InitController } from "./init-retry";
 import {
   type PresenceClaimRepository,
@@ -112,6 +129,17 @@ export interface MinskyMCPServerOptions {
    * Provided by the MCP start command after tool registration.
    */
   container?: AppContainerInterface;
+
+  /**
+   * A protocol-native `_meta` key to consult for conversation identity, after
+   * `io.minsky/agent_id` and W3C `baggage` (mt#3986).
+   *
+   * Configured rather than hardcoded because no such key exists yet: the MCP
+   * 2026-07-28 revision reserves the `io.modelcontextprotocol/` prefix but
+   * defines no conversation identifier under it. Only a key under a
+   * reserved MCP prefix is accepted; anything else is ignored.
+   */
+  protocolConversationIdKey?: string;
 
   /**
    * MCP client capability registry (mt#1457). When provided, each `Server`
@@ -400,6 +428,17 @@ export class MinskyMCPServer {
    */
   private warnedAmbientConversationConflict = false;
 
+  /**
+   * Layer 1 agentIds already reported as an identity fallback (mt#3986).
+   * Bounds the warning to one per distinct ascribed id — see
+   * `reportIdentityFallback`. Capped at
+   * {@link IDENTITY_FALLBACK_REPORT_CAP}; a Layer 1 id is derived from
+   * (hostname, user, pid, start-time), so a long-lived shared daemon meets a
+   * new one per client PROCESS and this would otherwise grow without bound
+   * (PR #2877 R1).
+   */
+  private reportedIdentityFallbacks = new Set<string>();
+
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
   // class binds 1:1 with a Transport and rejects a second connect().
@@ -419,6 +458,14 @@ export class MinskyMCPServer {
   // Configurable via MINSKY_MCP_RETRY_AFTER_SECS env var; defaults to 30.
   private readonly SESSION_CAP_RETRY_AFTER_SECS: number = 30;
 
+  // mt#3814: resident-memory admission gate for the shared local daemon.
+  //
+  // Null (no gate) unless the daemon wiring installs one, which is why this is
+  // a setter rather than an env read here: arming it changes when a server
+  // refuses a session, and the hosted Railway surface is explicitly out of
+  // mt#3814's scope. `mcp start --local-daemon` installs it; nothing else does.
+  private sessionAdmissionGate: AdmissionGate | null = null;
+
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
   // pinned in memory. The reaper periodically drops sessions whose
@@ -432,7 +479,13 @@ export class MinskyMCPServer {
   private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
   private readonly SESSION_IDLE_TIMEOUT_MS: number =
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
-  private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
+  // mt#3814: made env-configurable alongside the timeout above. With a fixed
+  // 60s sweep, setting the idle timeout to seconds changes nothing observable
+  // for up to a minute — so the local tuning ADR-038 §Question 6 asks for was
+  // only half-tunable, and no bounded test could witness a reap at all. The
+  // default is unchanged, so no existing deployment is affected.
+  private readonly SESSION_REAPER_INTERVAL_MS: number =
+    Number.parseInt(process.env.MINSKY_MCP_SESSION_REAPER_INTERVAL_MS ?? "", 10) || 60 * 1000;
 
   // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
   // ever registered. Deliberately distinct from `httpSessions.size > 0`,
@@ -873,6 +926,37 @@ export class MinskyMCPServer {
             id: null,
           });
         return;
+      }
+
+      // mt#3814: resident-memory admission. Distinct from the cap above in
+      // WHAT it protects — the cap bounds concurrent sessions, this bounds the
+      // process's memory footprint before the mt#3886 ceiling terminates it.
+      // Refusing a NEW session while continuing to serve established ones is
+      // the whole point: under a shared daemon the ceiling's self-terminate
+      // costs every conversation on the machine at once, and this is the step
+      // that exists between "serving normally" and "gone".
+      if (this.sessionAdmissionGate) {
+        const decision = this.sessionAdmissionGate();
+        if (!decision.admit) {
+          log.warn("mcp_session_reject", {
+            reason: "memory_watermark",
+            residentBytes: decision.residentBytes,
+            watermarkBytes: decision.watermarkBytes,
+            currentCount: this.httpSessions.size,
+          });
+          res
+            .status(503)
+            .set("Retry-After", String(this.SESSION_CAP_RETRY_AFTER_SECS))
+            .json({
+              jsonrpc: "2.0",
+              error: {
+                code: -32603,
+                message: formatAdmissionRefusal(decision, this.SESSION_CAP_RETRY_AFTER_SECS),
+              },
+              id: null,
+            });
+          return;
+        }
       }
 
       // New session: each HTTP session gets its own Server instance because
@@ -1559,8 +1643,9 @@ export class MinskyMCPServer {
 
   /**
    * Resolve the caller's agentId from MCP request extras.
-   * Uses the priority resolver: Layer 2 (_meta declared) > Layer 1 (ascribed).
-   * Reads clientInfo from the underlying SDK server for Layer 1 kind normalization.
+   * Uses the priority resolver: Layer 2 (_meta declared, an ordered key list)
+   * > Layer 1 (ascribed). Reads clientInfo from the underlying SDK server for
+   * Layer 1 kind normalization.
    *
    * `server` is the Server instance handling this specific request — for HTTP,
    * each session has its own Server and thus its own clientVersion.
@@ -1573,10 +1658,58 @@ export class MinskyMCPServer {
     } catch {
       // getClientVersion() may throw if called before initialize completes
     }
-    return resolveAgentId({
+    return resolveAgentIdWithLayer({
       extras,
       clientInfo: clientInfoName ? { name: clientInfoName } : undefined,
-    });
+      declaredKeys: buildDeclaredIdentityKeys(this.options.protocolConversationIdKey),
+      onFallback: (event) => this.reportIdentityFallback(event),
+    }).agentId;
+  }
+
+  /**
+   * Log a resolution that fell through every declared key to Layer 1 (mt#3986).
+   *
+   * Layer 1 is a hash of (hostname, user, pid, start-time) — ADR-006 itself
+   * says it is "not a conversation-scoped distinction" — so this line is the
+   * moment presence claims, dispatch attribution and attention accounting stop
+   * being conversation-scoped. Before this existed, that transition was
+   * completely silent and only inferable later from bad attribution data.
+   *
+   * Rate policy lives here rather than in the resolver: a non-cooperating
+   * client falls back on EVERY tool call, so the first occurrence of each
+   * distinct Layer 1 id warns and the rest go to debug. Layer 1 ids are stable
+   * per connection, which makes that one warning per client rather than one per
+   * call.
+   */
+  private reportIdentityFallback(event: IdentityFallbackEvent): void {
+    const isFirst = !this.reportedIdentityFallbacks.has(event.agentId);
+    if (isFirst) {
+      // Clear rather than stop adding when the cap is reached. Both bound the
+      // memory; only this one keeps the mechanism alive — a set that fills and
+      // then refuses new entries would warn about the FIRST N clients a daemon
+      // ever saw and go permanently silent about every one after, which is the
+      // silent degradation this whole task exists to end. Clearing costs a
+      // periodic repeat warning for a still-connected client instead.
+      if (this.reportedIdentityFallbacks.size >= IDENTITY_FALLBACK_REPORT_CAP) {
+        this.reportedIdentityFallbacks.clear();
+      }
+      this.reportedIdentityFallbacks.add(event.agentId);
+    }
+
+    const detail = {
+      keysTried: event.keysTried,
+      layerThatAnswered: event.layer,
+      agentId: redactAgentId(event.agentId),
+    };
+
+    if (isFirst) {
+      log.warn(
+        "Agent identity fell back to Layer 1 (ascribed): no declared conversation identity on this request",
+        detail
+      );
+    } else {
+      log.debug("Agent identity resolved at Layer 1 (ascribed)", detail);
+    }
   }
 
   /**
@@ -2436,6 +2569,17 @@ export class MinskyMCPServer {
       toolName: state.toolName,
       elapsedMs: nowMs - state.startedAtMs,
     }));
+  }
+
+  /**
+   * Install (or clear) the resident-memory session-admission gate (mt#3814).
+   *
+   * A setter rather than a constructor option because the gate needs the
+   * ceiling value resolved by `orphan-exit.ts` at wiring time in
+   * `start-command.ts`, which happens well after the server is constructed.
+   */
+  setSessionAdmissionGate(gate: AdmissionGate | null): void {
+    this.sessionAdmissionGate = gate;
   }
 
   /**

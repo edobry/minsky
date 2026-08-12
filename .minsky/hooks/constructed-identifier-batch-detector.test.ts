@@ -5,6 +5,7 @@ import {
   extractToolUseBlocksByMessage,
   detectBatchedMintAndConsume,
   detectConsumeBeforeMint,
+  withoutExistingIds,
   buildReminder,
   buildConsumeBeforeMintReminder,
   INJECTION_ENABLED,
@@ -13,6 +14,7 @@ import {
   type BatchMatch,
   type ToolUseBlock,
 } from "./constructed-identifier-batch-detector";
+import type { ConsumeBeforeMintMatch } from "./constructed-identifier-batch-detector";
 import { captureArtifact } from "./judged-input-capture";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
@@ -172,8 +174,10 @@ describe("category definitions", () => {
 describe("diversity axis (mt#3781)", () => {
   // Driven through `run()` — the dispatcher-facing entry point that actually
   // builds the record in production — rather than the module-private projection.
-  const calibrationFor = (message: string): { matches: Array<Record<string, unknown>> } => {
-    const outcome = run(
+  const calibrationFor = async (
+    message: string
+  ): Promise<{ matches: Array<Record<string, unknown>> }> => {
+    const outcome = await run(
       RUN_HOOK_INPUT,
       makeCtx([
         makeUserLine(),
@@ -190,10 +194,10 @@ describe("diversity axis (mt#3781)", () => {
   // AT1 for THIS detector. It is categorical, so two fires of the same
   // (mint, consume, field) shape are one pattern however different their text —
   // the exact case a text-valued `phrase` could never collapse.
-  test("AT1: two fires of the same tool shape collapse to one distinct phrase", () => {
+  test("AT1: two fires of the same tool shape collapse to one distinct phrase", async () => {
     const parsed = [
-      calibrationFor("fix(mt#1): first commit message"),
-      calibrationFor("chore(mt#2): an entirely different message"),
+      await calibrationFor("fix(mt#1): first commit message"),
+      await calibrationFor("chore(mt#2): an entirely different message"),
     ].map(
       (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
     );
@@ -203,8 +207,8 @@ describe("diversity axis (mt#3781)", () => {
 
   // AT2 — the judged text is still recoverable, via mt#3607's capture, so
   // moving `phrase` off the excerpt costs the record no classifiability.
-  test("AT2: the judged text survives under the capture, not under `phrase`", () => {
-    const cal = calibrationFor("fix(mt#1): a distinctive commit message") as {
+  test("AT2: the judged text survives under the capture, not under `phrase`", async () => {
+    const cal = (await calibrationFor("fix(mt#1): a distinctive commit message")) as {
       matches: Array<{ phrase: string; judged?: { excerpt: string } }>;
     };
 
@@ -403,7 +407,7 @@ function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
 }
 
 describe("run() (dispatcher-compatible)", () => {
-  test("AT1: batched mint+consume -> calibration record, NO additionalContext (calibration-first)", () => {
+  test("AT1: batched mint+consume -> calibration record, NO additionalContext (calibration-first)", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeUserLine(),
       makeBatchedAssistantLine([
@@ -412,7 +416,7 @@ describe("run() (dispatcher-compatible)", () => {
       ]),
       makeUserLine(),
     ];
-    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+    const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
     expect(outcome?.calibration).toBeDefined();
     expect(outcome?.additionalContext).toBeUndefined();
     const cal = outcome?.calibration as {
@@ -423,7 +427,7 @@ describe("run() (dispatcher-compatible)", () => {
     ).toBe(true);
   });
 
-  test("AT2: two independent reads batched -> null (no calibration record)", () => {
+  test("AT2: two independent reads batched -> null (no calibration record)", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeUserLine(),
       makeBatchedAssistantLine([
@@ -432,10 +436,10 @@ describe("run() (dispatcher-compatible)", () => {
       ]),
       makeUserLine(),
     ];
-    expect(run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
+    expect(await run(RUN_HOOK_INPUT, makeCtx(transcriptLines))).toBeNull();
   });
 
-  test("no transcript_path -> null", () => {
+  test("no transcript_path -> null", async () => {
     const input: ClaudeHookInput = {
       session_id: "test",
       cwd: "/test",
@@ -449,10 +453,10 @@ describe("run() (dispatcher-compatible)", () => {
       ]),
       makeUserLine(),
     ]);
-    expect(run(input, ctx)).toBeNull();
+    expect(await run(input, ctx)).toBeNull();
   });
 
-  test("override env var suppresses detection and returns an audit line", () => {
+  test("override env var suppresses detection and returns an audit line", async () => {
     const transcriptLines: TranscriptLine[] = [
       makeUserLine(),
       makeBatchedAssistantLine([
@@ -463,7 +467,7 @@ describe("run() (dispatcher-compatible)", () => {
     ];
     process.env[OVERRIDE_ENV_VAR] = "1";
     try {
-      const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+      const outcome = await run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
       expect(outcome?.calibration).toBeUndefined();
       expect(outcome?.auditLines?.[0]).toContain("OVERRIDE");
     } finally {
@@ -648,5 +652,73 @@ describe("detectConsumeBeforeMint — cross-message only (PR #2418 R1)", () => {
     // Before the R1 fix this matched: tool_result lines were never accumulated
     // into the prior-source text, so a genuinely-read id looked constructed.
     expect(detectConsumeBeforeMint(turn, "")).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Existence discriminator (mt#3991)
+// ---------------------------------------------------------------------------
+
+describe("withoutExistingIds (mt#3991)", () => {
+  /** A candidate match, shaped like detectConsumeBeforeMint's output. */
+  function candidate(writtenId: string): ConsumeBeforeMintMatch {
+    return {
+      consumeTool: SESSION_EDIT_FILE,
+      consumeField: "content",
+      writtenId,
+      mintTool: TASKS_CREATE,
+      mintedId: "mt#3907",
+      excerpt: `... ${writtenId} ...`,
+      judged: captureArtifact(`... ${writtenId} ...`),
+    };
+  }
+
+  test("AT1: a written id that already exists is dropped", () => {
+    // mt#2566 is the clearest case from the mt#3991 window: it existed six
+    // weeks before the turn that cited it, and fired anyway.
+    const kept = withoutExistingIds([candidate("mt#2566")], new Set(["mt#2566"]));
+    expect(kept).toEqual([]);
+  });
+
+  test("AT2: a written id that does NOT exist still fires", () => {
+    // The one real positive in the window. mt#3891 was never created; the same
+    // turn minted mt#3907, so the agent predicted the next id and missed by 16.
+    const kept = withoutExistingIds([candidate("mt#3891")], new Set(["mt#2566"]));
+    expect(kept.length).toBe(1);
+    expect(kept[0]?.writtenId).toBe("mt#3891");
+  });
+
+  test("AT3: the full mt#3991 window reduces to exactly one fire", () => {
+    // The nine ids that pre-existed, plus the one that did not — the same
+    // population the calibration pass classified by hand.
+    const preExisting = [
+      "mt#3651",
+      "mt#3781",
+      "mt#3894",
+      "mt#2566",
+      "mt#3934",
+      "mt#3138",
+      "mt#1097",
+      "mt#3722",
+    ];
+    const window = [...preExisting, "mt#3891"].map(candidate);
+
+    const kept = withoutExistingIds(window, new Set(preExisting));
+
+    expect(kept.length).toBe(1);
+    expect(kept[0]?.writtenId).toBe("mt#3891");
+  });
+
+  test("AT4: a lookup that could not run keeps every match — fail toward firing", () => {
+    // null means "could not check", which must never read as "none exist". A
+    // detector that goes quiet when its dependency is down is indistinguishable
+    // from a dead one (ADR-032).
+    const window = [candidate("mt#2566"), candidate("mt#3891")];
+    expect(withoutExistingIds(window, null)).toEqual(window);
+  });
+
+  test("an empty existing-set drops nothing", () => {
+    const window = [candidate("mt#2566")];
+    expect(withoutExistingIds(window, new Set())).toEqual(window);
   });
 });

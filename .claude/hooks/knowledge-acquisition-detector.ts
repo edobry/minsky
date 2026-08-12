@@ -274,7 +274,7 @@ export const TRAILING_WINDOW_TURNS = 5;
  * times: each occurrence carried its own key, so grace elapsing on occurrence N
  * did not stop occurrence N+1 from independently re-firing. v2 dedupes per
  * SESSION — this one key is checked against the calibration log's own tail via
- * {@link loadAlreadyLoggedDedupeKeys}, which filters by `session_id`, so the
+ * {@link loadLoggedSessionState}, which filters by `session_id`, so the
  * constant is safe to share across sessions and a session produces at most one
  * record regardless of how many research occurrences it contains or how many
  * times the Stop hook fires.
@@ -610,7 +610,7 @@ function readSkillDescription(cwd: string, skillName: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Research-occurrence + trailing-window helpers (pure)
+// Grace-period helpers (pure) — session-grain since mt#3720
 // ---------------------------------------------------------------------------
 
 interface ResearchOccurrence {
@@ -760,10 +760,28 @@ export interface KnowledgeAcquisitionResult {
   hadPropagation: boolean;
 }
 
+/**
+ * The verdict this session already has in the calibration log, if any (mt#3740).
+ *
+ * `timestamp` identifies the record being revised; it is what a superseding
+ * record points at, and what the sweep matches on to drop the stale one.
+ */
+export interface PriorSessionVerdict {
+  hadPropagation: boolean;
+  timestamp: string;
+}
+
 export interface KnowledgeAcquisitionDetection {
   result: KnowledgeAcquisitionResult;
-  /** Session-grain dedupe key (mt#3720: always {@link SESSION_VERDICT_DEDUPE_KEY}) so a session is logged at most once, ever. */
+  /** Session-grain dedupe key (mt#3720: always {@link SESSION_VERDICT_DEDUPE_KEY}) so a session is logged at most once PER VERDICT (mt#3740 relaxed "ever"). */
   dedupeKey: string;
+  /**
+   * Timestamp of the record this one revises (mt#3740). Set only when the
+   * session already had a verdict and the new one DIFFERS; absent on a first
+   * record. Its presence is what lets a reader — and the calibration sweep —
+   * see a revision instead of inferring one from ordering.
+   */
+  supersedes?: string;
   /**
    * Empty when this detection injects; `[SUPPRESSION_PROPAGATION_IN_WINDOW]`
    * when a gate swallowed it (mt#3207).
@@ -793,10 +811,27 @@ export async function detectKnowledgeAcquisition(
   skillKeywordsByName: ReadonlyMap<string, string[]>,
   alreadyLoggedDedupeKeys: ReadonlySet<string>,
   windowTurns: number = TRAILING_WINDOW_TURNS,
-  nominateSkill?: SkillNominator
+  nominateSkill?: SkillNominator,
+  priorVerdict?: PriorSessionVerdict | null
 ): Promise<KnowledgeAcquisitionDetection | null> {
-  // mt#3720: session-grain dedupe — at most one verdict per session, ever.
-  if (alreadyLoggedDedupeKeys.has(SESSION_VERDICT_DEDUPE_KEY)) return null;
+  // mt#3720 bounded a session to one record; mt#3740 relaxes that from "ever"
+  // to "per verdict". Stop fires per TURN against a GROWING transcript, so the
+  // first verdict is formed on a partial session: a miss recorded at turn 8 was
+  // simply the truth at turn 8, and a memory_create at turn 19 makes it stale
+  // rather than wrong. The old gate returned here, which froze that stale answer
+  // in the log forever.
+  //
+  // The decision therefore cannot be made before the verdict exists — it is a
+  // comparison, not a presence check — so it moved below, next to
+  // `hadPropagation`. Cost of moving it: an already-recorded session now runs
+  // the matching pass on every Stop instead of returning immediately. The
+  // transcript read is the caller's and was paid either way; what is added is
+  // the in-memory scan, which is the irreducible price of being able to notice
+  // that the verdict changed.
+  const alreadyRecorded = alreadyLoggedDedupeKeys.has(SESSION_VERDICT_DEDUPE_KEY);
+  // No prior verdict to compare against — a caller that does not supply one
+  // keeps mt#3720's exact behavior rather than silently recording twice.
+  if (alreadyRecorded && !priorVerdict) return null;
 
   if (loadedSkills.length === 0) return null;
 
@@ -969,6 +1004,27 @@ export async function detectKnowledgeAcquisition(
   // "the most recent occurrence" independently (PR #2751 R1).
   const hadPropagation = lastOccurrenceIdx >= 0 && hasPropagationAfter(lines, lastOccurrenceIdx);
 
+  // mt#3740's dedupe decision, made here because it needs the verdict.
+  //
+  // The bound this replaces "at most one record, ever" with: **at most one
+  // record per verdict CHANGE.** An unchanged verdict writes nothing, so a
+  // quiet session that keeps hitting Stop still produces exactly one record —
+  // the 13-records-from-one-session shape mt#3720 killed cannot return. The
+  // count is bounded by the number of genuine research↔propagation
+  // alternations in the transcript, each of which requires real tool calls;
+  // it is not a turn-count. Measured on the live log at 2026-08-11: 232
+  // records, no session holding more than one.
+  //
+  // Revision runs in BOTH directions. miss→propagated is the case this task was
+  // filed for; propagated→miss is equally real, because the verdict is "was
+  // there a capture after the LAST research occurrence" and researching again
+  // after a capture legitimately re-opens the question (mt#3901's equivalence
+  // note). A scheme keyed on the verdict VALUE could not express the second
+  // flip back; this one has no such ceiling.
+  if (alreadyRecorded) {
+    if (!priorVerdict || priorVerdict.hadPropagation === hadPropagation) return null;
+  }
+
   return {
     result: {
       matched: true,
@@ -987,6 +1043,7 @@ export async function detectKnowledgeAcquisition(
       hadPropagation,
     },
     dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+    ...(alreadyRecorded && priorVerdict ? { supersedes: priorVerdict.timestamp } : {}),
     // mt#3207 census semantics preserved: a propagated verdict still emits a
     // record (carrying the suppression reason) rather than being dropped, so
     // the propagation RATE stays measurable from the log alone. Safe to record
@@ -1012,34 +1069,80 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
   }
 }
 
+/** What this session already has in the calibration log (mt#3740). */
+export interface LoggedSessionState {
+  /** Every `dedupeKey` already logged THIS session. */
+  keys: Set<string>;
+  /** The session's most recent recorded verdict, or null if it has none. */
+  priorVerdict: PriorSessionVerdict | null;
+}
+
 /**
- * Load every `dedupeKey` already logged THIS session, from a bounded tail
- * read of the calibration log (mt#3003 shared dedupe primitive,
- * `readLogTailText`) — never a full-file read, and never throws.
+ * Load this session's logged state from a bounded tail read of the calibration
+ * log (mt#3003 shared dedupe primitive, `readLogTailText`) — never a full-file
+ * read, and never throws.
+ *
+ * mt#3740: returns the keys AND the prior verdict from ONE pass. They are
+ * deliberately not separate loaders — the revision decision needs both, and a
+ * caller that could fetch the keys alone would silently get mt#3720's
+ * freeze-the-first-answer behavior back.
  */
-function loadAlreadyLoggedDedupeKeys(cwd: string, sessionId: string | undefined): Set<string> {
-  const keys = new Set<string>();
-  if (!sessionId) return keys;
+function loadLoggedSessionState(cwd: string, sessionId: string | undefined): LoggedSessionState {
+  if (!sessionId) return { keys: new Set<string>(), priorVerdict: null };
   try {
     const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const text = readLogTailText(logPath);
-    if (!text) return keys;
-    for (const raw of text.split("\n")) {
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      try {
-        const rec = JSON.parse(trimmed) as Record<string, unknown>;
-        if (rec["session_id"] === sessionId && typeof rec["dedupeKey"] === "string") {
-          keys.add(rec["dedupeKey"] as string);
-        }
-      } catch {
-        continue;
-      }
-    }
+    if (!text) return { keys: new Set<string>(), priorVerdict: null };
+    return parseLoggedSessionState(text, sessionId);
   } catch {
     // ignore — fail-open, treat as "nothing logged yet"
+    return { keys: new Set<string>(), priorVerdict: null };
   }
-  return keys;
+}
+
+/**
+ * The pure half of {@link loadLoggedSessionState}: parse log-tail TEXT into
+ * this session's logged state.
+ *
+ * Split out (PR #2873 R1) so the loader seam — the thing that actually wires
+ * revision into production — is testable without touching disk. Testing it via
+ * the disk-reading wrapper would need a real temp file, which
+ * `custom/no-real-fs-in-tests` forbids; the wrapper is now thin enough that
+ * reading it IS the review.
+ */
+export function parseLoggedSessionState(text: string, sessionId: string): LoggedSessionState {
+  const keys = new Set<string>();
+  let priorVerdict: PriorSessionVerdict | null = null;
+  for (const raw of text.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      const rec = JSON.parse(trimmed) as Record<string, unknown>;
+      if (rec["session_id"] !== sessionId) continue;
+      if (typeof rec["dedupeKey"] === "string") {
+        keys.add(rec["dedupeKey"] as string);
+      }
+      // Last one wins: the tail is append-ordered, so the final matching
+      // record is this session's CURRENT verdict — including one that already
+      // superseded an earlier record. Comparing against anything else would
+      // let a session oscillate against a stale baseline.
+      if (
+        rec["dedupeKey"] === SESSION_VERDICT_DEDUPE_KEY &&
+        typeof rec["hadPropagation"] === "boolean" &&
+        typeof rec["timestamp"] === "string"
+      ) {
+        priorVerdict = {
+          hadPropagation: rec["hadPropagation"] as boolean,
+          timestamp: rec["timestamp"] as string,
+        };
+      }
+    } catch {
+      // A malformed line is skipped, never fatal — the log is append-only
+      // and a partial write must not blind the whole read.
+      continue;
+    }
+  }
+  return { keys, priorVerdict };
 }
 
 /**
@@ -1091,6 +1194,10 @@ export function buildCalibrationRecord(
     nominationScore: detection.result.nominationScore,
     degradedReason: detection.result.degradedReason,
     dedupeKey: detection.dedupeKey,
+    // mt#3740: present ONLY on a revision. A reader (and the calibration sweep)
+    // uses it to drop the record it names, so a revised session contributes one
+    // outcome rather than two.
+    ...(detection.supersedes !== undefined ? { supersedes: detection.supersedes } : {}),
     suppressionReasons: detection.suppressionReasons,
   };
 }
@@ -1260,14 +1367,15 @@ export async function run(
     if (loadedSkills.length === 0) return null;
 
     const skillKeywordsByName = resolveSkillKeywords(input.cwd, loadedSkills);
-    const alreadyLoggedDedupeKeys = loadAlreadyLoggedDedupeKeys(input.cwd, input.session_id);
+    const loggedState = loadLoggedSessionState(input.cwd, input.session_id);
     detection = await detectKnowledgeAcquisition(
       lines,
       loadedSkills,
       skillKeywordsByName,
-      alreadyLoggedDedupeKeys,
+      loggedState.keys,
       TRAILING_WINDOW_TURNS,
-      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined
+      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined,
+      loggedState.priorVerdict
     );
   } catch (err) {
     process.stderr.write(
@@ -1338,14 +1446,15 @@ export async function main(): Promise<void> {
     if (loadedSkills.length === 0) process.exit(0);
 
     const skillKeywordsByName = resolveSkillKeywords(input.cwd, loadedSkills);
-    const alreadyLoggedDedupeKeys = loadAlreadyLoggedDedupeKeys(input.cwd, input.session_id);
+    const loggedState = loadLoggedSessionState(input.cwd, input.session_id);
     detection = await detectKnowledgeAcquisition(
       lines,
       loadedSkills,
       skillKeywordsByName,
-      alreadyLoggedDedupeKeys,
+      loggedState.keys,
       TRAILING_WINDOW_TURNS,
-      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined
+      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined,
+      loggedState.priorVerdict
     );
   } catch (err) {
     console.error(

@@ -243,6 +243,83 @@ export type InferParams<T extends CommandParameterMap> = {
 export type AnyCommandDefinition = CommandDefinition<any, any, any>;
 
 /**
+ * The behavior flags an adapter must carry from a `CommandDefinition` onto the
+ * artifact it registers (an MCP tool, a CLI command).
+ *
+ * Every one of these is read by the adapter layer off the REGISTERED ARTIFACT,
+ * never off the definition — so an adapter that builds its registration
+ * argument field-by-field silently drops any flag it forgets. Nothing fails:
+ * the tool registers, the call succeeds, and the behavior the flag asked for
+ * simply never happens. `readsPresence` was dropped exactly that way for the
+ * whole of its life (mt#3989), so mt#3889's presence-read exemption never took
+ * effect in production and the collision probe kept refreshing the claims it
+ * reported.
+ *
+ * Adapters spread {@link pickAdapterBehaviorFlags} rather than copying fields
+ * by hand, and {@link AdapterBehaviorFlagKey} is asserted below to be exactly
+ * the set of `CommandDefinition` fields that are neither identity nor
+ * execution — so a NEW flag added to `CommandDefinition` without being
+ * classified fails to compile here, instead of going missing at runtime.
+ */
+export const ADAPTER_BEHAVIOR_FLAG_KEYS = ["mutating", "readsPresence"] as const;
+
+export type AdapterBehaviorFlagKey = (typeof ADAPTER_BEHAVIOR_FLAG_KEYS)[number];
+
+export type AdapterBehaviorFlags = Pick<AnyCommandDefinition, AdapterBehaviorFlagKey>;
+
+/**
+ * Project a command down to the behavior flags an adapter must carry through.
+ * Derived from {@link ADAPTER_BEHAVIOR_FLAG_KEYS} rather than written out, so
+ * the key list is the single place a flag is named.
+ *
+ * The parameter is constrained to a command-SHAPED object rather than to
+ * `Partial<AdapterBehaviorFlags>` (mt#3993). The latter is all-optional, so
+ * TypeScript's weak-type check REJECTS any command that currently declares no
+ * flag — which is most of them, including the class-based `tools.*` and
+ * `principal-corpus.*` commands. That rejection lands exactly where the spread
+ * is being adopted defensively, and the cheapest way out of it is to go back to
+ * naming fields by hand: the defect this helper exists to prevent. Requiring
+ * `id` + `name` keeps a real guarantee — a params bag, an options object or a
+ * result payload is still rejected at compile time — without the weak-type
+ * check firing, since the constraint has required members. The return type
+ * stays exact.
+ */
+export function pickAdapterBehaviorFlags<T extends { id: string; name: string }>(
+  command: T
+): AdapterBehaviorFlags {
+  const source = command as Partial<AdapterBehaviorFlags>;
+  const flags: AdapterBehaviorFlags = {};
+  for (const key of ADAPTER_BEHAVIOR_FLAG_KEYS) {
+    const value = source[key];
+    if (value !== undefined) {
+      flags[key] = value;
+    }
+  }
+  return flags;
+}
+
+/** Fields that name the command rather than describing how it behaves. */
+type CommandIdentityKey = "id" | "category" | "name" | "description" | "parameters";
+
+/** Fields the registry's own execution path consumes, which adapters never carry. */
+type CommandExecutionKey = "execute" | "validate" | "requiresSetup";
+
+/**
+ * Compile-time completeness check. Adding a field to `CommandDefinition`
+ * without listing it as identity, execution, or an adapter behavior flag makes
+ * this alias fail to compile — which is the point: the alternative is the
+ * field being dropped by every adapter with no error anywhere.
+ */
+type AssertNever<T extends never> = T;
+
+type _EveryCommandDefinitionFieldIsClassified = AssertNever<
+  Exclude<
+    keyof AnyCommandDefinition,
+    CommandIdentityKey | CommandExecutionKey | AdapterBehaviorFlagKey
+  >
+>;
+
+/**
  * Helper to define a command with full type inference on parameters.
  *
  * This eliminates the need for `as any` casts on command registration objects

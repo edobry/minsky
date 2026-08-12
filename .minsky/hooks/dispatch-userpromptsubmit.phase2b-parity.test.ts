@@ -44,6 +44,8 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "inject-current-time",
       "inject-git-state",
       "inject-prod-state",
+      // mt#3997 — registered immediately before inject-dispatch-watchdog
+      "inject-memory-capture",
       "inject-dispatch-watchdog",
       "memory-search",
       "skill-staleness-detector",

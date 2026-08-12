@@ -65,10 +65,10 @@
             "statusMessage": "Checking dispatch prompt for bare prohibitions..."
           },
           {
-            "_comment": "mt#2292 dispatch instrumentation — the ADR-028 D1 dispatcher's slot in the Agent block. Added because record-agent-dispatch is registered in .minsky/hooks/registry.ts (D1: register guards there, never as new individual hook commands here) and the Agent matcher had no dispatcher entry yet. Placed LAST so the three deny-capable standalone guards above keep their existing first-deny-wins order relative to each other; this guard never denies, so its position cannot change any outcome. Timeout=15 matches the dispatcher's other settings.json entries and sits above the guard's own 13s registry budget, so the guard's deadline fires first — that path still returns the prompt stamp, whereas a dispatcher kill would lose it.",
+            "_comment": "mt#2292 dispatch instrumentation — the ADR-028 D1 dispatcher's slot in the Agent block. Added because record-agent-dispatch is registered in .minsky/hooks/registry.ts (D1: register guards there, never as new individual hook commands here) and the Agent matcher had no dispatcher entry yet. Placed LAST so the three deny-capable standalone guards above keep their existing first-deny-wins order relative to each other; this guard never denies, so its position cannot change any outcome. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the guards routed to this matcher — see .minsky/hooks/registry.test.ts's dispatcher-parity block for the check that keeps this value honest.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 15,
+            "timeout": 18,
             "statusMessage": "Recording subagent dispatch..."
           }
         ]
@@ -95,10 +95,10 @@
             "statusMessage": "Checking for git/gh CLI..."
           },
           {
-            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry (currently: check-guessed-session-path). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead.",
+            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry on this matcher (check-guessed-session-path, chained-verification-commands, block-secret-file-read). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 15,
+            "timeout": 20,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           },
           {
@@ -182,10 +182,10 @@
             "statusMessage": "Validating task spec structure..."
           },
           {
-            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout=30 rather than the other entries' 15 because this matcher carries an 18s guard budget; the floor is enforced by the parity block in .minsky/hooks/registry.test.ts, which is what fails if either fact drifts.",
+            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the two guards registered on this matcher (require-duplicate-check-record, duplicate-signature-scan) — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 30,
+            "timeout": 28,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
@@ -312,10 +312,10 @@
             "statusMessage": "Final type check..."
           },
           {
-            "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY (currently six: turn-end-retro-scan at timeoutMs 10s, plus turn-end-untaken-action-scan (mt#3179), turn-end-unwalked-task-scan (mt#3536), and turn-end-unescalated-incident-scan (mt#3593) at 5s each, plus stop-at-decision-scan (mt#3653) at 8s — its budget covers up to two 2.5s `minsky` CLI status reads — plus knowledge-acquisition-detector (mt#3720) at 10s, which moved here from UserPromptSubmit when it was re-grained to one verdict per session). Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout=49 (host-cap budget model, hook-files.mdc): the family's worst-case SUM — 10+5+5+5+8+10 = 43s — plus the 6s dispatcher overhead margin the prior 21 (=15+6) encoded. Verified 2026-08-05 by summing the live registry rather than this comment's arithmetic: `GUARD_REGISTRY.filter(g => g.event === 'Stop').reduce((a, g) => a + g.timeoutMs, 0)` returns 43000ms across 6 guards. The pre-mt#3653 value was stale at 21 while the sum was already 25: the mt#3536/mt#3593 additions bumped registry timeouts without this comment's required recompute. Bump this whenever a Stop guard is added or its timeoutMs changes. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
+            "_comment": "ADR-028 guard-dispatcher Stop entrypoint (mt#2357): the SOLE settings.json entry for every Stop-event guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual Stop hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered Stop guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block for the check that keeps this value honest; it replaces the hand-recomputed-comment convention that let this entry sit stale at 49 against a live 58s sum (mt#3536/mt#3593 pattern) until this task's negative control caught it. typecheck-on-stop.ts above stays deliberately standalone (predates the framework; emits its own block decisions on its own 60s budget).",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-stop.ts",
-            "timeout": 49,
+            "timeout": 63,
             "statusMessage": "Running guard dispatcher (Stop)..."
           }
         ]
@@ -501,10 +501,10 @@
       {
         "hooks": [
           {
-            "_comment": "ADR-028 D1 guard-dispatcher Phase 2a+2b+mt#2812+mt#2824+mt#2870+mt#2923+mt#2708 (mt#2652, mt#2687, mt#2812, mt#2824, mt#2870, mt#2923, mt#2708): the SOLE settings.json entry for EVERY UserPromptSubmit guard, all migrated (or, for mt#2812/mt#2824/mt#2870/mt#2923/mt#2708, authored directly) onto .minsky/hooks/dispatch-userpromptsubmit.ts's in-process registry (Phase 2a: substrate-bypass-detector, retrospective-trigger-scanner, pre-narration-detector, causal-premise-detector, code-mechanism-assertion-detector, ask-routing-deferral-detector; Phase 2b: auto-session-title, inject-current-time, inject-git-state, inject-prod-state, inject-dispatch-watchdog, memory-search, skill-staleness-detector, mcp-daemon-staleness-detector; mt#2812: guard-health-escalation-detector; mt#2824: silent-stretch-detector; mt#2870: wall-of-text-detector; mt#2923: build-claim-injection-detector; mt#3601: retrospective-completeness-detector; mt#3125: constructed-identifier-batch-detector; mt#2459: operator-deferral-detector; calibration-review-cadence-detector kept last per registry.ts). Do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout=185 (host-cap budget model, hook-files.mdc \"Dispatcher host-cap budget model\"): this ONE process now runs all twenty-two UserPromptSubmit guards SEQUENTIALLY, so the host cap must cover the family's worst-case SUM, not one guard's budget. Re-verified 2026-07-24 (mt#2459) by SUMMING the live registry rather than trusting this comment's own arithmetic — `GUARD_REGISTRY.filter(g => g.event === 'UserPromptSubmit').reduce((a, g) => a + g.timeoutMs, 0)` returns 185000ms across 22 guards. That check also caught a pre-existing drift this comment had carried since mt#2708: the prose said \"Timeout=165\" while its own breakdown computed 175s and the field was already 175 — so the narrative figure, not the field, was stale. Re-verified again 2026-08-05 (mt#3720) by the same SUM check: still 22 guards, still 185000ms — but the MEMBERSHIP changed twice since mt#2459 and this narrative had drifted on both, in offsetting directions. retrospective-completeness-detector 10s (mt#3601) joined the family, and knowledge-acquisition-detector 10s (mt#2708) LEFT it for the Stop dispatcher (mt#3720). The field stayed right at 185 by coincidence, not by tracking, which is exactly the failure mode the SUM check exists to catch — do not read an unchanged number as evidence nothing moved. Current breakdown, additive: 145s computed 2026-07-17 (mt#2870) + build-claim-injection-detector 10s (mt#2923) + constructed-identifier-batch-detector 10s (mt#3125) + operator-deferral-detector 10s (mt#2459) + retrospective-completeness-detector 10s (mt#3601) = 185s. The sibling PreToolUse dispatcher entries stay at timeout=15: that family's registry sum is 15s total (check-guessed-session-path 5s + operator-deferral-ask-surface 10s), and no single matcher selects both.",
+            "_comment": "ADR-028 D1 guard-dispatcher UserPromptSubmit entrypoint: the SOLE settings.json entry for EVERY UserPromptSubmit guard registered in .minsky/hooks/registry.ts's GUARD_REGISTRY. Do not add new individual hook commands here; register them in GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) from .minsky/hooks/dispatch-timeout-budget.ts's deriveDispatchTimeoutMs over the registered UserPromptSubmit guards' timeoutMs — see .minsky/hooks/registry.test.ts's dispatcher-parity block, which fails naming this entry if a guard's budget changes without this value following. This replaces the hand-recomputed-comment convention (prior history: mem#746 found the comment's own prose disagreeing with its own arithmetic) with a checked derivation.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-userpromptsubmit.ts",
-            "timeout": 185,
+            "timeout": 195,
             "statusMessage": "Running guard dispatcher (UserPromptSubmit)..."
           }
         ]

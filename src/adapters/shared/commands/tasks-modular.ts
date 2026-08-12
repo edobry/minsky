@@ -5,7 +5,7 @@
  * Uses createAllTaskCommands() from registry-setup as the single source of truth,
  * eliminating dual-registration bugs where a command is added to CLI but not MCP.
  */
-import { sharedCommandRegistry } from "../command-registry";
+import { sharedCommandRegistry, pickAdapterBehaviorFlags } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -25,14 +25,17 @@ export class ModularTasksCommandManager {
    * Each command is wrapped with category: CommandCategory.TASKS
    * so the MCP bridge can discover it.
    */
-  registerAllCommands(container?: AppContainerInterface): void {
+  registerAllCommands(
+    container?: AppContainerInterface,
+    targetRegistry: Pick<typeof sharedCommandRegistry, "registerCommand"> = sharedCommandRegistry
+  ): void {
     try {
       log.debug("[ModularTasksCommandManager] Auto-registering all task commands");
 
       const commands = createAllTaskCommands(container);
 
       for (const command of commands) {
-        sharedCommandRegistry.registerCommand({
+        targetRegistry.registerCommand({
           id: command.id,
           category: CommandCategory.TASKS,
           name: command.name,
@@ -42,7 +45,13 @@ export class ModularTasksCommandManager {
           // silently re-enables the project-setup guard for commands that
           // opted out (mt#1428) and drops staleness-gating for mutating ones.
           requiresSetup: command.requiresSetup,
-          mutating: command.mutating,
+          // mt#3993: behavior flags travel as a SET. This literal named
+          // `mutating` alone, so `readsPresence` was gone before any adapter
+          // could carry it — which is why fixing the MCP bridge alone (mt#3989)
+          // left the probe still refreshing the claims it reports. The comment
+          // above already warned that an omission here is silent; a third field
+          // was missed anyway, so the field list is no longer written out.
+          ...pickAdapterBehaviorFlags(command),
           execute: (params, ctx) => command.execute(params, ctx),
         });
       }
@@ -101,10 +110,17 @@ export class ModularTasksCommandManager {
 export const modularTasksManager = new ModularTasksCommandManager();
 
 /**
- * Register task commands function for backward compatibility
+ * Register task commands function for backward compatibility.
+ *
+ * `targetRegistry` (mt#3993) defaults to the process-wide registry; production
+ * never passes it. It exists so a test can drive this real registration path
+ * into an isolated registry rather than mutating the singleton.
  */
-export function registerTasksCommands(container?: AppContainerInterface): void {
-  modularTasksManager.registerAllCommands(container);
+export function registerTasksCommands(
+  container?: AppContainerInterface,
+  targetRegistry?: Pick<typeof sharedCommandRegistry, "registerCommand">
+): void {
+  modularTasksManager.registerAllCommands(container, targetRegistry);
 }
 
 /**

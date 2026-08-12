@@ -29,7 +29,13 @@
 // @see scripts/run-guard-canaries.ts — CLI entrypoint consuming this module
 
 import { GUARD_REGISTRY } from "./registry";
-import type { GuardRegistration, GuardRunResult, DispatchContext, GuardModule } from "./registry";
+import type {
+  GuardRegistration,
+  GuardRunResult,
+  DispatchContext,
+  GuardModule,
+  GuardEffectDeclaration,
+} from "./registry";
 import { deriveBudgets, DEFAULT_HOST_CAP_SEC } from "./types";
 import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
@@ -283,6 +289,15 @@ export interface StandaloneGuardCanary {
    * why the list type is non-empty by construction.
    */
   calibrationLog?: string | [string, ...string[]];
+  /**
+   * Per-effect verdict-shape + failure-posture declarations, mirroring
+   * `GuardRegistration.effects` (thin-hooks RFC rev. 2 phase 1, mt#3981).
+   * Non-empty for the same reason: every guard produces at least one
+   * distinguishable effect. See `GuardEffectDeclaration` (registry.ts) for
+   * the shape and the phase-1 INERTNESS note — this field is descriptive
+   * metadata only.
+   */
+  effects: [GuardEffectDeclaration, ...GuardEffectDeclaration[]];
   /** Invokes the guard's real exported decision logic and returns its outcome-equivalent. Injectable for the sabotage test. */
   check: () => boolean | Promise<boolean>;
 }

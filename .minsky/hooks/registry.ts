@@ -324,6 +324,15 @@ export interface GuardRegistration {
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
+   * Per-effect verdict-shape + failure-posture declarations (thin-hooks RFC
+   * rev. 2 phase 1, mt#3981). Non-empty — every guard produces at least one
+   * distinguishable effect (a pure denier's is `"deny"`). See
+   * `GuardEffectDeclaration` for the shape and the phase-1 INERTNESS note:
+   * this field is descriptive metadata only, consumed by nothing in the
+   * dispatch path — the mt#2597 fail-open-on-throw semantics are unchanged.
+   */
+  effects: [GuardEffectDeclaration, ...GuardEffectDeclaration[]];
+  /**
    * Tuning-ownership class (mt#3518; mem#802; beyond-Minsky RFC amendment
    * 2026-08-01 §3). Names WHO may move this guard's thresholds and through
    * WHAT surface — the registration-schema sibling of `attentionCost`
@@ -516,6 +525,170 @@ export interface GuardCanary {
 }
 
 // ---------------------------------------------------------------------------
+// Failure posture + verdict shape (thin-hooks RFC, phase 1 — mt#3981)
+// ---------------------------------------------------------------------------
+
+/**
+ * Verdict shape for one guard EFFECT, along SEP-2624's validator/mutator
+ * taxonomy plus the two additive shapes `GuardOutcome` already has:
+ *
+ * - `"validator"` — a deny/allow decision (`GuardOutcome.deny`).
+ * - `"mutator"` — a payload transform (`GuardOutcome.updatedInput`).
+ * - `"injector"` — an additive side-channel a turn can run without
+ *   (`additionalContext`, `sessionTitle`).
+ * - `"recorder"` — a write with no in-turn consumer (`calibration`,
+ *   `auditLines`, or an out-of-band store write, e.g. the turn-anchor).
+ */
+export type VerdictShape = "validator" | "mutator" | "injector" | "recorder";
+
+/**
+ * Two-axis failure posture for ONE guard effect (thin-hooks RFC — Notion page
+ * `3b9937f0-3cb4-81a1-8604-c32c862a0329`, rev. 2 — "Failure posture is
+ * per-EFFECT, declared, and two-axis" finding). Vocabulary adopted from
+ * Kubernetes admission `failurePolicy` (Fail/Ignore) and SEP-2624's
+ * `failOpen`, primary-source-verified in mt#3754's field-alignment synthesis.
+ *
+ * *** THIS DATA IS INERT IN PHASE 1. NOTHING READS IT. *** The dispatcher's
+ * existing mt#2597 semantics — a THROWN guard fails OPEN, unconditionally,
+ * regardless of what any registration declares here — are UNCHANGED by this
+ * field (see `dispatcher.ts:894` and its own mt#2597 comment). A
+ * `failurePolicy: "closed"` entry below is a declared FUTURE intent, not
+ * enforced behavior; it becomes live only once the RFC's phase 4 explicitly
+ * scopes the mt#2597 reversal. Do not read a `"closed"` value here as "this
+ * guard currently denies when the daemon is unreachable" — there is no
+ * daemon relay yet for any guard to be unreachable FROM.
+ */
+export interface EffectFailurePosture {
+  /**
+   * Axis 1 — posture when the daemon ITSELF is unreachable (down, or the
+   * relay's connection attempt fails outright). `"closed"` denies with a
+   * stated reason, `"open"` proceeds silently (today's mt#2597 default for
+   * every guard, since nothing routes through a daemon yet), `"spool"`
+   * writes locally for the daemon to ingest once it returns (today's JSONL
+   * calibration-log pattern, already in production use for every
+   * `calibrationLog`-bearing guard).
+   */
+  failurePolicy: "closed" | "open" | "spool";
+  /**
+   * Axis 2 (new in RFC rev. 2 — rev. 1's matrix had only one axis) —
+   * posture when the daemon IS reachable but a dependency (the WAN
+   * Postgres) is degraded or unreachable. Adds `"open-with-warning"` to the
+   * axis-1 vocabulary: per the RFC, "many enforcement effects want
+   * fail-closed on the first and open-with-warning on the second; a laptop
+   * on a plane should be able to commit" — a daemon that is up but cannot
+   * reach its DB should still let an offline commit through, with a visible
+   * warning rather than either a silent pass or a hard deny. Also accepts
+   * `"spool"` for a RECORDER effect: a local write (today's JSONL pattern)
+   * needs no DB dependency at all, so a degraded-Postgres condition doesn't
+   * change its posture — it keeps spooling either way.
+   */
+  degradedPolicy: "closed" | "open" | "open-with-warning" | "spool";
+}
+
+/**
+ * One guard EFFECT's declared verdict shape + failure posture. A guard
+ * declares ONE of these per distinguishable output it can produce — most
+ * guards (a pure denier, a pure injector) have exactly one; a MIXED-PURITY
+ * guard declares one per effect because the posture genuinely differs
+ * between them. The canonical case is `record-agent-dispatch`: its
+ * `updatedInput` stamp must never be lost (that guard's own header comment:
+ * "The stamp is computed from the payload alone and returned even when the
+ * DB write fails or times out ... The cheap, irreversible half must not be
+ * gated on the expensive, recoverable one"), while its DB-row write is
+ * separately recoverable via a Stop-side reconciliation — two effects, two
+ * postures, neither gated on the other. See that guard's registration below
+ * for the worked declaration.
+ */
+export interface GuardEffectDeclaration {
+  /** Which `GuardOutcome` field (or named out-of-band write) this declares. */
+  effect:
+    | "deny"
+    | "additionalContext"
+    | "updatedInput"
+    | "sessionTitle"
+    | "calibration"
+    | (string & {});
+  verdictShape: VerdictShape;
+  failurePolicy: EffectFailurePosture;
+  /**
+   * Required when the assignment is not the obvious default for a guard/
+   * effect of this shape (SC5: "enforcement guards closed, advisory
+   * injectors open, recorders spool — any deviation is justified inline").
+   */
+  rationale?: string;
+}
+
+/**
+ * SC5-default effect-declaration factories + posture constants. Exported
+ * (mt#3981) so both `GUARD_REGISTRY` below AND
+ * `scripts/lib/standalone-guard-canaries.ts`'s `STANDALONE_GUARD_CANARIES`
+ * build their `effects` declarations from the SAME defaults — the mt#3586
+ * constraint against hand-copied mirrors applies to these too, so the
+ * standalone-canary population imports them rather than redefining the SC5
+ * posture triad a second time.
+ */
+
+/** SC5 default: enforcement effects (deny/allow decisions) fail closed on both axes. */
+export const ENFORCEMENT_POSTURE: EffectFailurePosture = {
+  failurePolicy: "closed",
+  degradedPolicy: "closed",
+};
+/** SC5 default: advisory injector effects fail open on both axes — a thinner turn, never a blocked one. */
+export const ADVISORY_POSTURE: EffectFailurePosture = {
+  failurePolicy: "open",
+  degradedPolicy: "open",
+};
+/** SC5 default: recorder effects spool locally on both axes — today's JSONL calibration pattern. */
+export const RECORDER_POSTURE: EffectFailurePosture = {
+  failurePolicy: "spool",
+  degradedPolicy: "spool",
+};
+
+/** A `"deny"` validator effect at the SC5 enforcement default (closed/closed). */
+export function enforcementEffect(
+  effect: GuardEffectDeclaration["effect"] = "deny"
+): GuardEffectDeclaration {
+  return { effect, verdictShape: "validator", failurePolicy: ENFORCEMENT_POSTURE };
+}
+/** An `"additionalContext"`/`"sessionTitle"` injector effect at the SC5 advisory default (open/open). */
+export function advisoryEffect(
+  effect: GuardEffectDeclaration["effect"] = "additionalContext",
+  rationale?: string
+): GuardEffectDeclaration {
+  return {
+    effect,
+    verdictShape: "injector",
+    failurePolicy: ADVISORY_POSTURE,
+    ...(rationale ? { rationale } : {}),
+  };
+}
+/** A `"calibration"`/out-of-band-write recorder effect at the SC5 default (spool/spool). */
+export function recorderEffect(
+  effect: GuardEffectDeclaration["effect"] = "calibration",
+  rationale?: string
+): GuardEffectDeclaration {
+  return {
+    effect,
+    verdictShape: "recorder",
+    failurePolicy: RECORDER_POSTURE,
+    ...(rationale ? { rationale } : {}),
+  };
+}
+/** A payload-transform (`updatedInput`) mutator effect — no SC5 default; posture is always explicit. */
+export function mutatorEffect(
+  effect: GuardEffectDeclaration["effect"],
+  posture: EffectFailurePosture,
+  rationale?: string
+): GuardEffectDeclaration {
+  return {
+    effect,
+    verdictShape: "mutator",
+    failurePolicy: posture,
+    ...(rationale ? { rationale } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Registry (Phase 1: one entry — the pilot migration)
 // ---------------------------------------------------------------------------
 
@@ -587,6 +760,7 @@ export interface GuardCanary {
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
     name: "check-guessed-session-path",
+    effects: [enforcementEffect()],
     tuningOwnership: "invariant",
     event: "PreToolUse",
     matcher: "Bash|mcp__minsky__session_exec",
@@ -624,6 +798,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "require-duplicate-check-record",
+    effects: [enforcementEffect()],
     // `invariant`: whether a create records its duplicate check is not a
     // threshold to tune — the record is either present or it is not.
     tuningOwnership: "invariant",
@@ -656,6 +831,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "duplicate-signature-scan",
+    effects: [recorderEffect()],
     // `advisory`: unlike its sibling above — where the record is either present
     // or it is not — this guard's token SELECTION is a heuristic with a real
     // false-positive surface, and the calibration log exists to size it.
@@ -669,8 +845,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // outage would then read as a clean pass. This was 8000 against a 5s scan
     // and stayed 8000 when the scan's deadline was re-based to 15s on
     // measurement — inverting the ordering the comment claimed. 18s keeps ~3s of
-    // margin over the scan and sits under the 30s per-hook-entry cap that
-    // `.claude/settings.json` sets for `mcp__minsky__tasks_create`.
+    // margin over the scan and sits under the DERIVED (mt#3981, absorbing
+    // mt#3675) per-hook-entry cap that `.claude/settings.json` sets for
+    // `mcp__minsky__tasks_create` — see `.minsky/hooks/dispatch-timeout-budget.ts`.
     timeoutMs: 18000,
     calibrationLog: "duplicate-signature-scan",
     // NEVER denies — the deny half of this concern is the sibling above, which
@@ -712,6 +889,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "chained-verification-commands",
+    effects: [recorderEffect()],
     // `advisory`: which binaries count as "verification" is a heuristic with a
     // real false-positive surface, and the calibration log exists to size it
     // before any enforcement posture is considered.
@@ -746,6 +924,17 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "record-agent-dispatch",
+    effects: [
+      mutatorEffect(
+        "updatedInput",
+        ADVISORY_POSTURE,
+        'computed purely from the payload with no DB dependency; must never be lost since the prompt is already sent — see this guard\'s own header comment ("the cheap, irreversible half must not be gated on the expensive, recoverable one").'
+      ),
+      recorderEffect(
+        "calibration",
+        "the dispatch-row write; recoverable via the Stop-side reconciliation if lost, so it can spool independently of the updatedInput stamp above."
+      ),
+    ],
     // `invariant`: this guard has no threshold to tune. It writes an
     // observability row and stamps a correlation key — behavior an operator
     // turns off (the override env var) rather than adjusts.
@@ -757,8 +946,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // guard's OWN deadline fires first: that path returns the stamp plus a
     // recorded `write-failed` outcome, whereas a dispatcher kill loses the STAMP
     // as well as the row — and the stamp is the unrecoverable half, since the
-    // prompt is sent either way. 13s keeps ~3s of margin under the dispatcher's
-    // 15s settings.json entry cap.
+    // prompt is sent either way. 13s keeps margin under the dispatcher's
+    // DERIVED (mt#3981, absorbing mt#3675) settings.json entry cap for this
+    // matcher — see `.minsky/hooks/dispatch-timeout-budget.ts`.
     timeoutMs: 13000,
     calibrationLog: "agent-dispatch-record",
     // NEVER denies. An observability writer must not be able to block a
@@ -797,6 +987,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "block-secret-file-read",
+    effects: [enforcementEffect()],
     // `invariant`: the set of files whose content is credential material is not
     // an operator preference to tune. Widening the path list is a code change
     // with its own review, not a threshold knob.
@@ -834,6 +1025,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "auto-session-title",
+    effects: [advisoryEffect("sessionTitle")],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./auto-session-title").then((m) => ({ run: m.run })),
@@ -857,6 +1049,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-current-time",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
@@ -873,6 +1066,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-git-state",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
@@ -916,6 +1110,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-prod-state",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
@@ -932,7 +1127,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     canary: { input: {}, expects: "warn" },
   },
   {
+    name: "inject-memory-capture",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-memory-capture").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3997: fires only when a process has actually crossed a resident-memory
+    // watermark — rare by construction (nothing since 2026-08-08), and when it
+    // does fire it carries the evidence mt#3885 is blocked on. High priority
+    // because being dropped returns it to the state this hook exists to end:
+    // an artifact on disk that nobody is told about.
+    contextPriority: 10,
+    // MEASURED, not estimated (PR #2881 R1). The first declaration said 400
+    // against a 407-char render, which the mt#3479 size-ceiling test caught;
+    // the honest worst case was then 889, which pushed this guard into the
+    // top-five conditional bucket `MERGED_CONTEXT_BUDGET_CHARS` is derived from
+    // and broke the mt#3394 budget test. Rather than grow a shared per-turn
+    // budget for a RARE notice, the guard's own caps came down
+    // (MAX_DESCRIBED_CAPTURES 3 -> 1, tool calls 3 -> 2, footer 3 lines -> 1).
+    // Worst case is now 326 chars, a single capture 292. 400 leaves headroom
+    // without re-entering that bucket.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 0 },
+    // mt#2889: the hook PRIMES a synthetic capture when MINSKY_CANARY_MODE=1
+    // (into the runner's isolated MINSKY_STATE_DIR), so the canary exercises
+    // the FIRING path — read, format, watermark — and not the silent one. A
+    // canary that can only observe silence cannot distinguish a broken guard
+    // from a dormant one, which is what this mechanism exists to detect.
+    canary: { input: {}, expects: "warn" },
+  },
+  {
     name: "inject-dispatch-watchdog",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
@@ -989,6 +1216,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "memory-search",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./memory-search").then((m) => ({ run: m.run })),
@@ -1046,6 +1274,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "skill-staleness-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
@@ -1085,6 +1314,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "mcp-daemon-staleness-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
@@ -1176,6 +1406,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "substrate-bypass-detector",
+    effects: [
+      advisoryEffect(
+        "additionalContext",
+        "live for unencoded commitments/retro-prose/DB-bypass; the post-merge instruction leg is log-only — one additionalContext effect covers both since the split is per finding class, not per output shape."
+      ),
+      recorderEffect(),
+    ],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     // mt#3519: this guard writes `.minsky/operator-instruction-trigger-calibration.jsonl`
@@ -1223,6 +1460,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // invocation and for `tasks_status_get` calls), and tool calls are read at
     // the moment of MAXIMUM transcript flush.
     name: "retrospective-completeness-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./retrospective-completeness-detector").then((m) => ({ run: m.run })),
@@ -1233,6 +1471,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "retrospective-trigger-scanner",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./retrospective-trigger-scanner").then((m) => ({ run: m.run })),
@@ -1259,6 +1498,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "pre-narration-detector",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
@@ -1291,6 +1531,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "causal-premise-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
@@ -1326,6 +1567,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "code-mechanism-assertion-detector",
+    effects: [
+      advisoryEffect(
+        "additionalContext",
+        "live in chat per hook-observers.mdc; comments/durable-artifact surfaces are log-only. One additionalContext effect covers the live surface, one recorder effect covers all three (the canary exercises the recorder path only)."
+      ),
+      recorderEffect(),
+    ],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./code-mechanism-assertion-detector").then((m) => ({ run: m.run })),
@@ -1357,6 +1605,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "ask-routing-deferral-detector",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./ask-routing-deferral-detector").then((m) => ({ run: m.run })),
@@ -1390,6 +1639,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "constructed-identifier-batch-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
@@ -1442,6 +1692,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "operator-deferral-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
@@ -1449,7 +1700,23 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "operator-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // MEASURED, not estimated (mt#3533). `buildReminder` at its saturated worst
+    // case — all three prose/denial surfaces matching at once, each `context` at
+    // its 240-char cap, so both directive branches render — is 1609 chars.
+    // Bounded by construction: each detector returns at most one match and every
+    // context is capped, so there is no unbounded axis (the property mt#3705
+    // required after `guard-health-escalation-detector` was annotated off a
+    // one-item canary).
+    //
+    // The prior 600 was ALREADY understated before this surface existed: the
+    // two-prose-match worst case measures 1049. It went unnoticed because
+    // `guard-feedback-shape.test.ts` renders the canary and reads
+    // `additionalContext`, which this guard leaves empty while
+    // INJECTION_ENABLED is false — so the enforced ceiling has always been
+    // measured against an empty string here. `operator-deferral-detector.test.ts`
+    // now pins the render against this number directly; the structural gap in the
+    // shape test is mt#4002.
+    attentionCost: { denialMessageSizeChars: 1650, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1471,6 +1738,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "operator-deferral-ask-surface",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "PreToolUse",
     matcher: "AskUserQuestion",
@@ -1505,6 +1773,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "guard-health-escalation-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
@@ -1607,6 +1876,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "silent-stretch-detector",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./silent-stretch-detector").then((m) => ({ run: m.run })),
@@ -1676,6 +1946,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "wall-of-text-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./wall-of-text-detector").then((m) => ({ run: m.run })),
@@ -1737,6 +2008,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "build-claim-injection-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./build-claim-injection-detector").then((m) => ({ run: m.run })),
@@ -1803,6 +2075,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // padded number here would widen the injection budget for every turn in
     // the repo (mem#865).
     name: "record-turn-anchor",
+    effects: [
+      recorderEffect(
+        "turnAnchorWrite",
+        "writes the turn-anchor store (ADR-031), not a calibration log — same recorder shape: a local write with no in-turn consumer, read later by the Stop-side resolver via ctx.recordedAnchor."
+      ),
+    ],
     tuningOwnership: "invariant",
     event: "Stop",
     module: () => import("./record-turn-anchor").then((m) => ({ run: m.run })),
@@ -1822,6 +2100,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // `attentionCost` mirrors ADVISORY_BUDGET_CHARS in the guard, which bounds
     // the render in code; `guard-feedback-shape.test.ts` asserts the two agree.
     name: "turn-end-bare-ref-scan",
+    effects: [
+      advisoryEffect(
+        "additionalContext",
+        "LIVE for the bare-short-id/malformed-target/raw-uuid-label classes; the bare-mt#/PR# class is record-only (mt#3897) — one additionalContext effect covers both since the split is per finding class, not per guard output shape."
+      ),
+      recorderEffect(),
+    ],
     tuningOwnership: "advisory",
     event: "Stop",
     module: () => import("./turn-end-bare-ref-scan").then((m) => ({ run: m.run })),
@@ -1876,6 +2161,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "turn-end-retro-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-retro-scan").then((m) => ({ run: m.run })),
@@ -1920,6 +2206,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // in `last_assistant_message`, so nothing followed it), not on the agent's
     // stated reason. Full rationale: the guard module's header.
     name: "turn-end-untaken-action-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
@@ -1992,6 +2279,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // silent — the silent stop is the gap this closes. Full rationale: the
     // guard module's header.
     name: "turn-end-unwalked-task-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-unwalked-task-scan").then((m) => ({ run: m.run })),
@@ -2058,6 +2346,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // final message while the absence check stays structural (an `asks_create`
     // carrying severity: "incident"). Full rationale: the guard module's header.
     name: "turn-end-unescalated-incident-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-unescalated-incident-scan").then((m) => ({ run: m.run })),
@@ -2109,6 +2398,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // rationale, including the recorded ADR-031 deviation for the Stop-side
     // tool-call read: the guard module's header.
     name: "stop-at-decision-scan",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "Stop",
     module: () => import("./stop-at-decision-scan").then((m) => ({ run: m.run })),
@@ -2143,6 +2433,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "knowledge-acquisition-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "Stop",
     module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
@@ -2215,6 +2506,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "calibration-review-cadence-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),

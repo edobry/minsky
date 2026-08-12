@@ -251,6 +251,43 @@ mt#3052/mt#3087 trims restored (CLAUDE.md had previously run ~137-141KB). Tier j
 the amendment revises an existing `alwaysApply` rule in place, and turn-report composition is
 per-turn discipline (mt#2874/mt#1876 admission criterion).
 
+## Generation-time enforcement for scope-boundary answers (mt#3985)
+
+### The decision: prose, not a detector
+
+R6 of `family:principal-altitude` (mem#664) landed on ordinary conversational answering — the
+agent re-argued a dependency's substance instead of stating what the thread needed and stopping.
+The family's only enforcement-tier fix is the wall-of-text detector (mt#2870/mt#3112), and it is
+Stop-time: it measures the PRIOR turn from the NEXT turn's context. It fired accurately elsewhere
+in the R6 session and was irrelevant to the violation itself — a Stop-time signal cannot prevent
+a generation-time failure by construction, not by gap.
+
+No generation-time mechanism fits. The violation has no checkable surface property: not length
+(the reply that re-argued hook latency was not egregiously long), not a keyword list (there is no
+fixed vocabulary for "substance owned elsewhere" — it differs every time), not a template
+mismatch (this was a plain answer, not a mis-filled report). Distinguishing "context this thread
+actually needs" from "a dependency's substance that belongs to another owner" requires knowing
+the current thread's scope and who owns the adjacent concern — a judgment call about
+conversational boundaries, not a property of the text. This is a deliberate prose-tier choice per
+`/retrospective` step 4's requirement that prose be chosen on purpose: the norm is stated in
+`communication-contract.mdc §Scope: every turn, not only report boundaries`, and no cheaper or
+more mechanical tier was found to fall back to.
+
+### What would change the decision
+
+A third recurrence inside `mt#2838`'s wrong-register budget (2 incidents / 14 days) is evidence
+the rule text alone is insufficient — not evidence a detector is now findable, since the reason
+none fits (a judgment call, not a surface property) does not change with recurrence count. The
+next escalation, if warranted, is generation-time steering (e.g. a mid-turn nudge), not another
+post-hoc scan — untried, not recommended here, and out of this task's scope to build
+speculatively.
+
+### Cross-references
+
+mem#664 (family root, R1–R6) · mt#2870/mt#3112 (the one enforcement-tier fix that exists, and its
+Stop-time limit) · mt#2838 (wrong-register escalation budget) · `/retrospective` step 4 (tier
+selection discipline).
+
 ## Cross-references
 
 `user-preferences.mdc §Plain-language first` (mt#2801) · `§Progress heartbeats` (mt#2824) ·
