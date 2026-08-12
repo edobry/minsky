@@ -75,7 +75,17 @@ imposed on a problem — carries no independent warrant; it is `inferred` at mos
 across files does not upgrade it. The file format renders both identically, which is what makes
 the confusion easy. "Per `<rule>.mdc`" answers WHEN a claim was written, never WHETHER it is true.
 On a provenance challenge, answer with `git_log` / `git_blame` on the file and say plainly if the
-answer is "an agent did" — a file path is not an answer. Incident + worked examples:
+answer is "an agent did" — a file path is not an answer.
+
+**NORMATIVE content is in this class, and CARRYING it is where it breaks (mt#4051).** A
+recommendation, a ranking, a `(recommended)` marker is a chosen framing — `inferred` at most, same
+as a coined term. In its home artifact it is self-labelling: an ask carries a requestor, a memory an
+author, a handoff says whose framing it is. Copy it into a NEW principal-facing surface — an
+`AskUserQuestion` option label, a fresh ask — and every one of those carriers is left behind, so the
+marker's only available referent is you. Nothing is contradicted and there is no error to notice;
+the provenance is simply not carried, which is why it survives your own review. Before handing the
+principal an option set you did not derive this turn, say whose it is in the same sentence.
+Checklist: `/escalation-packaging §Content checklist` items 2 and 4. Incident + worked examples:
 `docs/rules-rationale/claim-confidence.md §The corpus is agent-authored`.
 
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.
