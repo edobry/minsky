@@ -51,12 +51,22 @@ finer-grained pin would be over-fitting to code that doesn't exist yet.
 
 ## 2. Port/process-detection semantics
 
-Both sides answer "who, if anyone, is listening on the cockpit port
-(3737)?" using the same underlying tool (`lsof`) but two independent
-invocations that are NOT tested against each other — there is no shared
-fixture for this half of the contract, only documentation + cross-reference
-comments, because the signal is a live OS process table, not a static
-response shape.
+Both sides answer "who, if anyone, is listening on the cockpit port?" using the
+same underlying tool (`lsof`) but two independent invocations that are NOT
+tested against each other — there is no shared fixture for this half of the
+contract, only documentation + cross-reference comments, because the signal is a
+live OS process table, not a static response shape.
+
+**Which port that is, is itself part of the contract (mt#3988).** It used to be
+the literal 3737 on both sides. It is now the `cockpit.port` configuration key
+(default 3737, `MINSKY_COCKPIT_PORT` override, explicit `--port` wins), resolved
+in ONE place — `resolveCockpitPort` in `src/commands/cockpit/port.ts` — and read
+by the Rust side at tray startup rather than reimplemented there. Both entry
+points below already TAKE a port parameter, so nothing about the probes changed;
+what changed is that the callers no longer pin the argument to a constant. A
+future change to either side must keep asking about the same port the daemon was
+actually started on — the 2026-06-04 incident (two daemons, two ports, browser
+on the stale one) is what a disagreement here looks like.
 
 |                | TypeScript                                                                                                                                     | Rust                                                                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |

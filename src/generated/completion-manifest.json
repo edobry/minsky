@@ -7686,7 +7686,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port to listen on (default: 3737)",
+              "description": "Port to listen on (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             },
             {
@@ -7718,7 +7718,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port for the daemon to listen on (default: 3737)",
+              "description": "Port to listen on (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             },
             {
@@ -7738,7 +7738,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port to check (default: 3737)",
+              "description": "Port to check (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             },
             {

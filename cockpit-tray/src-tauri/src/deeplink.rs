@@ -17,9 +17,9 @@ use tauri::webview::WebviewWindow;
 use tauri::{AppHandle, Manager, Url, Wry};
 
 use crate::menu::{
-    ensure_cockpit_window_visible, set_dock_presence, COCKPIT_URL, COCKPIT_WINDOW_LABEL,
+    cockpit_url, ensure_cockpit_window_visible, set_dock_presence, COCKPIT_WINDOW_LABEL,
 };
-use crate::supervisor::DAEMON_PORT;
+use crate::port::cockpit_port;
 
 // Recovery-loop constants (mt#2528, ADR-023 cold-start handling; reworked
 // mt#2688). The loop ticks until the deep link is delivered onto a LIVE
@@ -352,13 +352,16 @@ pub(crate) fn refresh_or_heal_window(app: &AppHandle) {
     });
 }
 
-/// Parse `COCKPIT_URL`'s origin (ascii serialization, e.g.
-/// "http://localhost:3737"). None only on a malformed constant.
+/// Parse the cockpit URL's origin (ascii serialization, e.g.
+/// "http://localhost:3737"). None only on a malformed URL — which, since
+/// mt#3988, means a resolved port that cannot be formatted into a valid URL
+/// rather than a mistyped constant.
 fn cockpit_origin() -> Option<String> {
-    match COCKPIT_URL.parse::<Url>() {
+    let cockpit = cockpit_url();
+    match cockpit.parse::<Url>() {
         Ok(u) => Some(u.origin().ascii_serialization()),
         Err(e) => {
-            eprintln!("[cockpit-tray] invalid cockpit URL {COCKPIT_URL:?}: {e}");
+            eprintln!("[cockpit-tray] invalid cockpit URL {cockpit:?}: {e}");
             None
         }
     }
@@ -409,7 +412,7 @@ fn recovery_ticks(app: &AppHandle) {
     let Some(cockpit_origin) = cockpit_origin() else {
         return;
     };
-    let cockpit: Url = match COCKPIT_URL.parse() {
+    let cockpit: Url = match cockpit_url().parse() {
         Ok(u) => u,
         Err(_) => return, // unreachable: cockpit_origin() already parsed it
     };
@@ -428,7 +431,7 @@ fn recovery_ticks(app: &AppHandle) {
             let probed = probe_document_origin(w);
             origin_is_live(probed.as_deref(), &cockpit_origin)
         });
-        let daemon_up = daemon_accepting(DAEMON_PORT);
+        let daemon_up = daemon_accepting(cockpit_port());
         let rescue_armed =
             last_rescue_tick.map_or(true, |t| attempt.saturating_sub(t) >= RESCUE_REARM_TICKS);
 
@@ -586,7 +589,10 @@ mod tests {
             TickAction::AwaitDaemon
         );
         // An unscriptable webview (probe timeout) is treated as dead too.
-        assert_eq!(decide_tick(true, false, None, true), TickAction::AwaitDaemon);
+        assert_eq!(
+            decide_tick(true, false, None, true),
+            TickAction::AwaitDaemon
+        );
     }
 
     #[test]
@@ -597,7 +603,10 @@ mod tests {
         );
         // Unscriptable counts as dead: WKWebView reports the REQUESTED url
         // for failed loads, so the in-document probe is the authority.
-        assert_eq!(decide_tick(true, true, None, true), TickAction::RescueNavigate);
+        assert_eq!(
+            decide_tick(true, true, None, true),
+            TickAction::RescueNavigate
+        );
         // An issued navigation gets RESCUE_REARM_TICKS to commit before a
         // re-issue restarts the load.
         assert_eq!(
@@ -632,7 +641,10 @@ mod tests {
     #[test]
     fn origin_matching_is_exact() {
         let cockpit = "http://localhost:3737";
-        assert_eq!(origin_is_live(Some("http://localhost:3737"), cockpit), Some(true));
+        assert_eq!(
+            origin_is_live(Some("http://localhost:3737"), cockpit),
+            Some(true)
+        );
         // Blank document.
         assert_eq!(origin_is_live(Some("null"), cockpit), Some(false));
         // Port-prefix trap: a string-prefix comparison would accept this.

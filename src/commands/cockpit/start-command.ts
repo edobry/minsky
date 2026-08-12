@@ -41,6 +41,7 @@ import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
 import { getCockpitTokenPath, isLoopbackHost, getOrCreateCockpitToken } from "../../cockpit/auth";
+import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
 import {
   createHighestUpdateIdReader,
@@ -51,7 +52,9 @@ import {
 } from "../../cockpit/principal-channel-launch";
 import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
 
-const DEFAULT_PORT = 3737;
+// mt#3988: the local `DEFAULT_PORT = 3737` that used to live here is gone —
+// `DEFAULT_COCKPIT_PORT` in ./port is the single fallback, so this command, the
+// status/install commands and the tray cannot drift apart.
 
 /**
  * Default bind host (mt#2538): loopback-only. Binding to any other
@@ -137,11 +140,10 @@ export function createStartCommand(): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the Cockpit dashboard server");
   startCommand
-    .option(
-      "--port <port>",
-      `Port to listen on (default: ${DEFAULT_PORT})`,
-      DEFAULT_PORT.toString()
-    )
+    // mt#3988: no commander default — see `resolveCockpitPort`. A default here
+    // would make an explicit `--port 3737` indistinguishable from an unset
+    // flag, so `cockpit.port` could never take effect.
+    .option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION)
     .option(
       "--force",
       "If a previous cockpit instance is holding the port, terminate it and retry. " +
@@ -185,9 +187,11 @@ export function createStartCommand(): Command {
       // deliberately not gated on schema readiness.
       const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
 
-      const port = parseInt(options.port, 10);
-      if (isNaN(port) || port < 1 || port > 65535) {
-        console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
+      let port: number;
+      try {
+        port = resolveCockpitPort(options.port);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 

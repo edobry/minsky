@@ -141,6 +141,12 @@ export const environmentMappings = {
   // but explicit entries are the house convention for every other section
   // above, and this documents intent + survives a future rename).
   MINSKY_COCKPIT_ALLOWED_HOSTS: "cockpit.allowedHosts",
+  // mt#3988: the port the cockpit daemon serves on AND the tray supervises.
+  // Mapped (not hook-only) because both the daemon and `config get` read it
+  // through the normal configuration tree; the tray reads the RESOLVED value
+  // via `minsky config get cockpit.port` rather than this variable directly,
+  // so the two cannot disagree.
+  MINSKY_COCKPIT_PORT: "cockpit.port",
 
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
@@ -462,6 +468,12 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "principalChannel.allowedUserIds": "csv",
   // Comma-separated list (mt#3641)
   "cockpit.allowedHosts": "csv",
+  // mt#3988: without this entry the env layer hands the schema the raw STRING
+  // and `cockpit.port`'s `z.number()` rejects it, so setting
+  // MINSKY_COCKPIT_PORT crashes config resolution instead of overriding the
+  // port. Registering the var in `environmentMappings` above is necessary but
+  // NOT sufficient — the conversion is declared here, separately.
+  "cockpit.port": "number",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",
