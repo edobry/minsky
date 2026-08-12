@@ -290,10 +290,23 @@ export async function evaluateTurn(
   return { result, evaluation };
 }
 
+/**
+ * Injectable deps for {@link run} — tests substitute the DONE-status lookup.
+ *
+ * The lookup is the only IO in the detection path, and it is threaded rather
+ * than reached for so a test can observe the whole pipeline (corpus extraction,
+ * conjuncts, evaluation record, log writes) without a database or a module
+ * patch (`testing-standards.mdc §Testable Design`).
+ */
+export interface NegativeExistenceClaimDeps {
+  lookupDoneTaskIds?: (ids: readonly string[]) => Promise<ReadonlySet<string> | null>;
+}
+
 /** Dispatcher entry point (ADR-028 D1/D2). */
 export async function run(
   input: ClaudeHookInput,
-  ctx: DispatchContext
+  ctx: DispatchContext,
+  deps: NegativeExistenceClaimDeps = {}
 ): Promise<GuardOutcome | null> {
   const override = isOverridden();
   if (override) {
@@ -318,7 +331,7 @@ export async function run(
 
   let evaluated: Awaited<ReturnType<typeof evaluateTurn>>;
   try {
-    evaluated = await evaluateTurn(turnLines, resolveDoneTaskIds);
+    evaluated = await evaluateTurn(turnLines, deps.lookupDoneTaskIds ?? resolveDoneTaskIds);
   } catch (err) {
     process.stderr.write(
       `[negative-existence-claim-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -327,12 +340,19 @@ export async function run(
   }
   if (!evaluated) return null;
 
-  appendJsonl(input.cwd ?? process.cwd(), EVALUATION_LOG, {
+  const cwd = input.cwd ?? process.cwd();
+  appendJsonl(cwd, EVALUATION_LOG, {
     ...evaluated.evaluation,
     session_id: input.session_id,
   });
 
   if (!evaluated.result.matched) return null;
+
+  // The calibration record is RETURNED, not written here: the dispatcher owns
+  // that write for a dispatched guard (`calibrationLog` on the registration).
+  // Writing it from both places would double-count every fire, which is the
+  // shape that makes a rate un-measurable. The EVALUATION stream above is
+  // different — the dispatcher knows nothing about it, so this path owns it.
 
   const outcome: GuardOutcome = {
     calibration: {

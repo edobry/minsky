@@ -59,6 +59,7 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "retrospective-trigger-scanner",
       "pre-narration-detector",
       "causal-premise-detector",
+      "negative-existence-claim-detector",
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
       // mt#3125 — root-tier sibling of the guidance-detector family above
