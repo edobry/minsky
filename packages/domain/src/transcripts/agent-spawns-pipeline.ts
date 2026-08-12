@@ -47,6 +47,7 @@ import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-t
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { writeSpawnLink } from "./spawn-link-writer";
+import { CHILD_AGENT_SESSION_ID_KEY } from "./turn-extractor";
 import {
   findAgentToolCall,
   findAgentToolCalls,
@@ -348,9 +349,15 @@ export class AgentSpawnsPipeline {
         // `spawnsWritten`.
         let linkSource: "metadata" | "heuristic" | "refused-sibling" | "unresolved" = "unresolved";
 
-        // Primary: extract from tool-call metadata (tool result carries session ID).
-        // This is populated when the tool_calls JSONB includes a session_id field
-        // on the Agent call's input (some harness versions include this).
+        // Primary: the per-call child id the Agent tool's RESULT reported, which
+        // the turn extractor projects onto the tool_calls entry (mt#3962).
+        //
+        // Ordering is load-bearing, not incidental: this runs BEFORE the
+        // multi-spawn refusal below, so a turn that dispatched several agents
+        // now resolves each call to its OWN child instead of being refused. The
+        // refusal is what happens when this signal is absent — a pre-mt#3962 row,
+        // or a call whose result never landed — not a blanket rule about
+        // multi-spawn turns.
         const metadataSessionId = extractChildSessionIdFromMetadata(agentCall);
         if (metadataSessionId) {
           childAgentSessionId = metadataSessionId;
@@ -558,14 +565,21 @@ export function extractSpawnType(agentCall: AgentToolCallBlock): "foreground" | 
 /**
  * Extract child_agent_session_id from the tool call's metadata when present.
  *
- * Some harness versions include a `session_id` field in the Agent tool call's
- * input that directly identifies the child session. This is the most reliable
- * linkage method and is preferred over the cwd-time heuristic.
+ * Reads the projected `child_agent_session_id` the turn extractor attaches from
+ * the Agent call's RESULT (mt#3962). This is the only per-call child signal that
+ * exists, so it is the only thing that can tell sibling spawns apart; the
+ * cwd-time heuristic cannot, and refuses to try (mt#3702).
+ *
+ * It replaces a read of `input["session_id"]`, whose doc-comment claimed "some
+ * harness versions include a `session_id` field in the Agent tool call's input."
+ * That was false for every call in the corpus, not merely for some versions:
+ * across all 2,583 Agent calls the input keys are `description` (2583), `prompt`
+ * (2583), `subagent_type` (2354), `model` (1994), `run_in_background` (777) and
+ * `isolation` (3) — `session_id` appears zero times. So this path could never
+ * fire, and `linkedFromMetadata = 0` was by construction (measured 2026-08-12).
  */
 export function extractChildSessionIdFromMetadata(agentCall: AgentToolCallBlock): string | null {
-  const input = agentCall.input;
-  if (!input || typeof input !== "object") return null;
-  const sessionId = (input as Record<string, unknown>)["session_id"];
-  if (typeof sessionId === "string" && sessionId.length > 0) return sessionId;
+  const childId = (agentCall as Record<string, unknown>)[CHILD_AGENT_SESSION_ID_KEY];
+  if (typeof childId === "string" && childId.length > 0) return childId;
   return null;
 }

@@ -23,6 +23,7 @@ import {
   extractChildSessionIdFromMetadata,
 } from "./agent-spawns-pipeline";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
+import { CHILD_AGENT_SESSION_ID_KEY } from "./turn-extractor";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -213,10 +214,14 @@ function makeAgentToolCall(
     type: "tool_use",
     id: opts.id ?? "toolu_agent_1",
     name: "Agent",
+    // mt#3962: the child id is projected onto the CALL from the Agent tool's
+    // RESULT, not carried in its input. The input never held one — across all
+    // 2,583 Agent calls in the corpus its keys are description/prompt/
+    // subagent_type/model/run_in_background/isolation.
+    ...(opts.sessionId !== undefined ? { [CHILD_AGENT_SESSION_ID_KEY]: opts.sessionId } : {}),
     input: {
       ...(opts.subagentType !== undefined ? { subagent_type: opts.subagentType } : {}),
       ...(opts.runInBackground !== undefined ? { run_in_background: opts.runInBackground } : {}),
-      ...(opts.sessionId !== undefined ? { session_id: opts.sessionId } : {}),
       prompt: "Do the task.",
     },
   };
@@ -324,7 +329,7 @@ describe("extraction helpers", () => {
   });
 
   describe("extractChildSessionIdFromMetadata", () => {
-    test("returns session_id string when present in input", () => {
+    test("returns the child id projected from the Agent call's result", () => {
       const call = makeAgentToolCall({ sessionId: SESSION_CHILD });
       expect(
         extractChildSessionIdFromMetadata(
@@ -333,7 +338,7 @@ describe("extraction helpers", () => {
       ).toBe(SESSION_CHILD);
     });
 
-    test("returns null when session_id is absent", () => {
+    test("returns null when the projected child id is absent", () => {
       const call = makeAgentToolCall();
       expect(
         extractChildSessionIdFromMetadata(
@@ -344,6 +349,23 @@ describe("extraction helpers", () => {
 
     test("returns null when input is missing", () => {
       const call = { type: "tool_use", name: "Agent" };
+      expect(
+        extractChildSessionIdFromMetadata(
+          call as Parameters<typeof extractChildSessionIdFromMetadata>[0]
+        )
+      ).toBeNull();
+    });
+
+    test("ignores a session_id on the call's INPUT — the pre-mt#3962 read", () => {
+      // Negative control for the defect this replaced: the old implementation
+      // read input.session_id, a key the harness has never sent. A fixture
+      // carrying one must NOT resolve, or the old path is still live.
+      const call = {
+        type: "tool_use",
+        id: "toolu_agent_1",
+        name: "Agent",
+        input: { session_id: SESSION_CHILD, prompt: "Do the task." },
+      };
       expect(
         extractChildSessionIdFromMetadata(
           call as Parameters<typeof extractChildSessionIdFromMetadata>[0]

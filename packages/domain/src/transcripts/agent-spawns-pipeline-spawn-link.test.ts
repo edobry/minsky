@@ -17,6 +17,7 @@
 import { describe, test, expect } from "bun:test";
 
 import { AgentSpawnsPipeline } from "./agent-spawns-pipeline";
+import { CHILD_AGENT_SESSION_ID_KEY } from "./turn-extractor";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { minskySessionLinksTable } from "../storage/schemas/minsky-session-links-schema";
 import { SUBAGENT_SPAWN_LINK_TYPE, SUBAGENT_SPAWN_CONFIDENCE } from "./spawn-link-writer";
@@ -42,8 +43,10 @@ function makeAgentToolCall(
     type: "tool_use",
     id: "toolu_agent_1",
     name: "Agent",
+    // mt#3962: projected onto the call from the Agent tool's RESULT — the input
+    // has never carried a child id.
+    ...(opts.sessionId !== undefined ? { [CHILD_AGENT_SESSION_ID_KEY]: opts.sessionId } : {}),
     input: {
-      ...(opts.sessionId !== undefined ? { session_id: opts.sessionId } : {}),
       prompt: opts.prompt ?? "Do the task.",
     },
   };
