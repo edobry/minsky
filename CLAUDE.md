@@ -1112,9 +1112,9 @@ Incidents, worked examples, and extended rationale live in
 
   Applies at **every altitude register, including executive-level summaries** (heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report). Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
 
-  This bullet is the single source of truth for heartbeat cadence — `communication-contract.mdc`
+  Single source of truth for heartbeat cadence; `communication-contract.mdc`
   cites it rather than restating the numbers. Detection-layer companion, log-only:
-  `silent-stretch-detector.ts` (`hook-observers.mdc`). Cadence grounding + originating incident:
+  `.minsky/hooks/silent-stretch-detector.ts` (indexed in `hook-observers.mdc`). Cadence grounding + originating incident:
   `docs/rules-rationale/user-preferences.md §Progress heartbeats`.
 
 - **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
