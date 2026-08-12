@@ -160,6 +160,7 @@ export function createSessionPrWaitForReviewCommand(getDeps: LazySessionDeps): C
               reviewer: params.reviewer as string | undefined,
               since: params.since as string | undefined,
               requireCurrentHead: params.requireCurrentHead as boolean | undefined,
+              expectedHeadSha: params.expectedHeadSha as string | undefined,
               fullBody: params.fullBody as boolean | undefined,
             },
             // mt#2677: thread the MCP progress reporter (when the caller
