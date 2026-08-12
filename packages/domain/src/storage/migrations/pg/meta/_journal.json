@@ -666,6 +666,13 @@
       "when": 1786502457232,
       "tag": "0094_puzzling_wildside",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1786506218902,
+      "tag": "0095_good_amphibian",
+      "breakpoints": true
     }
   ]
 }

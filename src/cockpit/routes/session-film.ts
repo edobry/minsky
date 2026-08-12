@@ -123,7 +123,7 @@ export interface SessionFilmRouteOptions {
   /**
    * Test seam: override the content fetch entirely (bypasses DB + snapshot
    * conversion). Returns `null` for "no such conversation". Production code
-   * never sets this — the real implementation is {@link defaultFetchContent}.
+   * never sets this — the real implementation is {@link fetchConversationBlocks}.
    */
   overrideFetchContent?: (conversationId: string) => Promise<SessionFilmContentResult | null>;
 }
@@ -228,7 +228,7 @@ async function defaultFetchEvents(conversationId: string): Promise<SessionFilmEv
  * it would let film content bypass the credential-scrub cutoff the events
  * endpoint below already enforces. See the module doc comment.
  */
-async function defaultFetchContent(
+export async function fetchConversationBlocks(
   conversationId: string
 ): Promise<SessionFilmContentResult | null> {
   const db = await getContextInspectorDb();
@@ -311,7 +311,7 @@ export function mountSessionFilmRoutes(
 ): void {
   const fetchEvents = opts.overrideFetchEvents ?? defaultFetchEvents;
   const listSessions = opts.overrideListSessions ?? defaultListSessions;
-  const fetchContent = opts.overrideFetchContent ?? defaultFetchContent;
+  const fetchContent = opts.overrideFetchContent ?? fetchConversationBlocks;
 
   /**
    * GET /api/cockpit/session-film/sessions — picker source: filmable

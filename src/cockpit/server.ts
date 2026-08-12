@@ -102,6 +102,9 @@ import {
 } from "./auth";
 import { createPasskeyAuthRouter, requirePasskeySession } from "./passkey-auth";
 import { createLazyDrizzlePasskeyStore } from "./passkey-store";
+import { createConversationShareRoutes } from "./conversation-shares";
+import { createLazyDrizzleShareStore } from "./conversation-shares-store";
+import { assertScrubGate } from "@minsky/domain/transcripts/gource-exporter";
 import { cspMiddleware } from "./csp";
 import { getConfiguration } from "@minsky/domain/configuration/index";
 import { log } from "@minsky/shared/logger";
@@ -270,6 +273,14 @@ export interface CockpitServerOptions {
    * absent, the gate builds a lazily-resolved Drizzle store.
    */
   passkeyStore?: import("./passkey-auth").PasskeyStore;
+  /**
+   * Test-only seams for the mt#4024 share routes — the store, the scrub-gated
+   * content read, and the gate itself — so publish/revoke/render can be
+   * exercised with no database and no real transcript. Never set in production.
+   */
+  shareStore?: import("./conversation-shares").ShareStore;
+  shareFetchContent?: import("./conversation-shares").ConversationShareDeps["fetchContent"];
+  shareAssertScrubGate?: import("./conversation-shares").ConversationShareDeps["assertScrubGate"];
   /**
    * Test-only injection seams for the conversation-keyed live-tail endpoint
    * (mt#2749) — overrides the fs/tailer/timing primitives its
@@ -489,6 +500,50 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     });
   }
 
+  // Conversation share links (mt#4024). Mounted AFTER the passkey gate, so the
+  // mint/list/revoke routes inherit its protection; only `/api/shares/public/`
+  // is exempted, by `isPublicPath` rather than by mount order — one place
+  // decides what is public.
+  app.use(
+    createConversationShareRoutes({
+      store:
+        opts.shareStore ??
+        createLazyDrizzleShareStore(async () => {
+          const { getSharedPersistenceService } = await import("./shared-persistence");
+          const provider = await (await getSharedPersistenceService()).getProvider();
+          if (
+            provider === null ||
+            typeof provider !== "object" ||
+            !("getDatabaseConnection" in provider) ||
+            typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
+              "function"
+          ) {
+            return null;
+          }
+          return await (
+            provider as {
+              getDatabaseConnection: () => Promise<
+                import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+              >;
+            }
+          ).getDatabaseConnection();
+        }),
+      fetchContent:
+        opts.shareFetchContent ??
+        (async (conversationId: string) => {
+          const { fetchConversationBlocks } = await import("./routes/session-film");
+          return await fetchConversationBlocks(conversationId);
+        }),
+      assertScrubGate:
+        opts.shareAssertScrubGate ??
+        ((ingestedAt: string | null) => {
+          // Synchronously re-exported at module load below so the route can stay
+          // sync; see the import at the top of this file.
+          assertScrubGate(ingestedAt);
+        }),
+    })
+  );
+
   // NO permissive CORS is set anywhere in this file — that absence IS the
   // policy (same-origin only). There is no `cors` middleware and no
   // `Access-Control-Allow-Origin` response header, so a cross-origin
@@ -522,6 +577,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       // a ceremony is answered before it ever reaches here. This exemption is
       // what keeps that safe if the middleware order is ever changed.
       if (req.path.startsWith("/auth/")) {
+        next();
+        return;
+      }
+      // Publishing and revoking a share are not product mutations either
+      // (mt#4024) — they write only to the share table. Without this, the
+      // deployment where sharing is the whole point would be the one place a
+      // share cannot be minted or revoked. Same shape as the `/auth/` carve-out
+      // above, and `req.path` is mount-relative here for the same reason.
+      if (req.path.startsWith("/shares")) {
         next();
         return;
       }
