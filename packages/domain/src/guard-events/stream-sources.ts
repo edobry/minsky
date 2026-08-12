@@ -76,6 +76,7 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
   { stream: "build-claim-injection", guardName: "build-claim-injection" }, // dormant, no file yet
   { stream: "causal-premise", guardName: "causal-premise" },
   { stream: "chained-verification-commands", guardName: "chained-verification-commands" },
+  { stream: "block-concurrent-bulk-mutation", guardName: "block-concurrent-bulk-mutation" },
   { stream: "code-mechanism-assertion", guardName: "code-mechanism-assertion" },
   { stream: "constructed-identifier-batch", guardName: "constructed-identifier-batch" },
   {

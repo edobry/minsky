@@ -17,6 +17,7 @@ import {
   startTopologySweeper,
   startTranscriptSweepBackstop,
   startGuardEventsSweepBackstop,
+  startInterceptorAggregatesSweeper,
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
   startFollowUpSweeper,
@@ -428,6 +429,10 @@ export function createStartCommand(): Command {
       // reliably fire, per ADR-017/mt#2313); this periodic sweep is what
       // guarantees completeness regardless of how a conversation ended.
       const stopGuardEventsSweep = startGuardEventsSweepBackstop();
+      // Interceptor-aggregates refresh (mt#4009): computes the catalog-wide
+      // guard_events rollup + canary/health/calibration joins off the request
+      // path; the interceptor-aggregates widget serves only this snapshot.
+      const stopInterceptorAggregatesSweeper = startInterceptorAggregatesSweeper();
       // Conversation-title generation (mt#3321): fill `agent_transcripts.title`
       // for conversations that don't have one, so the cockpit labels a run by
       // what it's ABOUT instead of the first 60 characters of the opening
@@ -492,6 +497,7 @@ export function createStartCommand(): Command {
         stopTranscriptWatcher();
         stopTranscriptSweep();
         stopGuardEventsSweep();
+        stopInterceptorAggregatesSweeper();
         stopConversationTitleSweeper();
         stopConversationSummarySweeper();
         stopDispatchWatchdogSweeper();
