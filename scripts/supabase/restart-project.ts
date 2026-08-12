@@ -277,8 +277,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const tokenPreview = `${token.slice(0, 8)}...${token.slice(-4)}`;
-  console.log(`Token:       ${tokenPreview} (resolved from env/config)`);
+  // Length-only, per terminal-command-best-practices.mdc §Secret handling —
+  // `${K:0:4}`-style partial slicing is a partial leak, not a mitigation
+  // (mt#4017 criterion 2 enumeration flagged this line, which previously
+  // printed 12 raw characters of the token). Matches the length-only
+  // convention `scripts/deploy-minsky-mcp.ts`'s `maskShape()` already uses.
+  console.log(`Token:       (${token.length} chars, resolved from env/config)`);
   console.log(`Project ref: ${projectRef}`);
   console.log();
 
