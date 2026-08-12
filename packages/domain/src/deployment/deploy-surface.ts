@@ -75,35 +75,18 @@ const CONFIG_SURFACE_PATTERNS: readonly RegExp[] = [
  * test time and fails if this map diverges from them — with ONE documented,
  * named exception, below.
  *
- * NOT included: root `src/**` for minsky-mcp. It IS currently present in
- * `deploy-minsky-mcp.yml`'s `paths:` block (verified via `git blame` on
- * this repo: commit `0df155fb32`, 2026-06-12, unchanged since; present in
- * both the `push` and `pull_request` path lists). Both mt#3523's own
- * planning "Trigger truth" table and mt#4013 (filed specifically to own
- * this question) stated the OPPOSITE — that root `src/**` was NOT a
- * trigger — which this investigation (2026-08-12) found to be false.
- * Root `src/` also contains `src/cockpit/**`
- * (`.github/workflows/cockpit-preview.yml`'s own trigger paths confirm
- * cockpit's web source lives there), so as things stand a merge touching
- * ONLY `src/cockpit/web/**` DOES fire `deploy-minsky-mcp.yml`'s build+push
- * job today — an overlap neither mt#3523's planning nor mt#4013's spec
- * anticipated at the time either was written.
- *
- * Deliberately left OUT of this map rather than silently folded in:
- *   (a) mt#4013 owns whether root `src/**` should remain a minsky-mcp
- *       trigger at all; adding it here would pre-empt that decision by
- *       fait accompli rather than leaving it to be decided.
- *   (b) the cockpit-exclusion Acceptance Test (this module's test file,
- *       "cockpit inversion") was operator-approved via ask#7028 on the
- *       understanding that cockpit source isn't caught by anything else in
- *       the deploy surface — this finding means that understanding needs
- *       revisiting, which is mt#4013's call to make, not a silent
- *       scope-expansion here.
- *
- * `deploy-surface-workflow-drift.test.ts` carries an EXPLICIT, NAMED
- * carve-out for exactly this one path (not a blanket skip or a narrowed
- * comparison) — every OTHER divergence between the two workflow files and
- * this map still fails the drift test loudly.
+ * Root `src/**` -> minsky-mcp is INCLUDED as of mt#4013 (decided
+ * 2026-08-12). The workflow has carried `"src/**"` since commit
+ * `0df155fb32` (2026-06-12), and the decision is to KEEP it: the root
+ * Dockerfile COPYs the whole `src` tree into the minsky-mcp image, and the
+ * workflow's mt#2461 header defines the `paths:` filter as that COPY
+ * closure — dropping the path would open a silent-staleness window for
+ * exactly the code the deployed server runs. This subsumes
+ * `src/cockpit/**`: cockpit web source is a minsky-mcp deploy surface as a
+ * BUNDLED INPUT of that image, which refines (not contradicts) ask#7028's
+ * cockpit-inversion decision — the COCKPIT service is still not a
+ * merge-deploy target (mt#3996). The drift-test carve-out that reserved
+ * this entry for mt#4013's decision is removed in the same change.
  */
 export const DEPLOY_SURFACE_SERVICE_MAP: ReadonlyArray<{
   readonly pattern: RegExp;
@@ -126,6 +109,10 @@ export const DEPLOY_SURFACE_SERVICE_MAP: ReadonlyArray<{
   // ---- minsky-mcp only ----
   { pattern: /^\.dockerignore$/, services: ["minsky-mcp"] },
   { pattern: /^\.minsky\/config\.yaml$/, services: ["minsky-mcp"] },
+  // Root src tree — bundled wholesale into the minsky-mcp image
+  // (Dockerfile `COPY src ./src`); includes src/cockpit/** as a bundled
+  // input. Decision record: mt#4013 (see the map doc comment above).
+  { pattern: /^src\//, services: ["minsky-mcp"] },
 
   // ---- reviewer only ----
   // Broad: covers services/reviewer/src/**, services/reviewer/migrations/**,

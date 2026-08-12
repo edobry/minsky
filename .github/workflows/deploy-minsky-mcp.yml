@@ -11,8 +11,8 @@ name: Deploy MCP
 #
 # mt#2461 — paths filter scopes the trigger to minsky-mcp's actual build
 # closure (the root Dockerfile's COPY set + Dockerfile itself). Commits
-# that only touch services/cockpit/web/**, docs/**, or other unrelated
-# paths no longer trigger a Docker build or Railway redeploy, eliminating
+# that only touch docs/**, scripts/**, or other paths outside that COPY
+# closure no longer trigger a Docker build or Railway redeploy, eliminating
 # the ~10-20 unnecessary redeploys/day that were rotating Railway logs and
 # dropping in-flight requests. This `paths:` filter is the SINGLE SOURCE of
 # minsky-mcp's build closure: minsky-mcp is a GHCR image-based (sourceImage)
@@ -49,6 +49,10 @@ on:
       - "services/site/package.json"
       - "services/cockpit/package.json"
       - ".minsky/config.yaml"
+      # Root src tree: bundled wholesale into the image (`COPY src ./src`),
+      # so it stays a trigger — kept deliberately per mt#4013 (2026-08-12).
+      # This includes src/cockpit/** as a bundled input of THIS image; the
+      # cockpit service itself deploys only via cockpit-preview.yml.
       - "src/**"
       - ".github/workflows/deploy-minsky-mcp.yml"
   pull_request:

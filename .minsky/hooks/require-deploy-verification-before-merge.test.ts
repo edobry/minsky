@@ -23,12 +23,11 @@ const DEPLOY_CHANGE_TITLE = "feat: deploy change";
 const NO_SECTION_BODY = "## Summary\nno section";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
 const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
-// mt#3523 widened isDeploySurfaceFile to also cover services/reviewer/**
-// application source (deploy-reviewer.yml's own trigger paths), so
-// "services/reviewer/src/server.ts" is no longer a valid non-deploy
-// fixture. Root src/** (outside services/*) stays a genuine non-surface
-// path (mt#4013 carve-out — see deploy-surface.ts).
-const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("docs/architecture.md")];
+// mt#3523 widened isDeploySurfaceFile to services/reviewer/** application
+// source, and mt#4013 to root src/** (both are real workflow trigger
+// paths), so neither is a valid non-deploy fixture. scripts/** and docs/**
+// are outside every deploy workflow's paths: block.
+const NON_DEPLOY_FILES: PrFile[] = [f("scripts/app.ts"), f("docs/architecture.md")];
 
 /** The marker under test, extracted so the fence cases below share one spelling. */
 const DV_MARKER = "Deploy verification:";
@@ -260,7 +259,7 @@ describe("checkDeployVerification (mt#2353)", () => {
       ({ filename, status, previous_filename: null }) as unknown as PrFile;
 
     const crashingFiles: PrFile[] = [
-      nullPrevFile("src/app.ts"),
+      nullPrevFile("scripts/app.ts"),
       nullPrevFile(REVIEWER_RAILWAY_JSON),
       nullPrevFile("README.md", "added"),
     ];
