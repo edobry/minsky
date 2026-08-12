@@ -37,6 +37,7 @@ import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
+import { registerGuardEventsCommands } from "./guard-events";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
@@ -145,6 +146,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register transcript commands (transcripts.ingest — mt#1351)
   registerTranscriptCommands(container);
+
+  // Register guard-events commands (guard-events.ingest — mt#4035 / mt#3334 phase 3)
+  registerGuardEventsCommands(container);
 
   // Register attention commands (attention.report — mt#1071 / ADR-008)
   registerAttentionCommands(container);

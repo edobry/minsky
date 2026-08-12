@@ -75,3 +75,22 @@ export {
   FLAKINESS_DENIAL_PATTERNS,
   UNVERIFIED_MARKER,
 } from "./flakiness-attribution";
+
+export type {
+  AbsenceClaim,
+  ProbeObservation,
+  CapabilityAbsenceInput,
+  CapabilityAbsenceResult,
+} from "./capability-absence-escalation";
+export {
+  detectCapabilityAbsenceEscalation,
+  extractCapabilityAbsenceClaims,
+  classifyProbeChannel,
+  distinctProbeChannels,
+  isOperatorRoutedAskResult,
+  secondChannelFor,
+  CAPABILITY_ABSENCE_PATTERNS,
+  PROBE_CHANNEL_RULES,
+  MIN_INDEPENDENT_CHANNELS,
+  MAX_SUBJECT_CHARS,
+} from "./capability-absence-escalation";

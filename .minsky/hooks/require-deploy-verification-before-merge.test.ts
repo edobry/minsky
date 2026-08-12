@@ -3,6 +3,8 @@
 
 import { describe, expect, test, afterEach } from "bun:test";
 import {
+  FLAKE_IS_A_BLOCKER_GUIDANCE,
+  elideNegatedDeferrals,
   hasDeployVerification,
   hasNoDeployImpactTag,
   checkDeployVerification,
@@ -23,12 +25,17 @@ const DEPLOY_CHANGE_TITLE = "feat: deploy change";
 const NO_SECTION_BODY = "## Summary\nno section";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
 const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
-// mt#3523 widened isDeploySurfaceFile to also cover services/reviewer/**
-// application source (deploy-reviewer.yml's own trigger paths), so
-// "services/reviewer/src/server.ts" is no longer a valid non-deploy
-// fixture. Root src/** (outside services/*) stays a genuine non-surface
-// path (mt#4013 carve-out — see deploy-surface.ts).
-const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("docs/architecture.md")];
+// mt#3523 widened isDeploySurfaceFile to services/reviewer/** application
+// source, and mt#4013 to root src/** (both are real workflow trigger
+// paths), so neither is a valid non-deploy fixture. scripts/** and docs/**
+// are outside every deploy workflow's paths: block.
+const NON_DEPLOY_FILES: PrFile[] = [f("scripts/app.ts"), f("docs/architecture.md")];
+
+// mt#4013: root src/** is a minsky-mcp deploy surface (bundled into the
+// image; a live workflow trigger). A representative src/** file, exercised
+// directly against THIS gate below, so the widened classification is pinned
+// at the consumer that blocks merges — not only in the map's own tests.
+const ROOT_SRC_FILE: PrFile[] = [f("src/mcp/tools/example.ts")];
 
 /** The marker under test, extracted so the fence cases below share one spelling. */
 const DV_MARKER = "Deploy verification:";
@@ -147,7 +154,97 @@ describe("hasDeployVerification (mt#2353)", () => {
     const body = `${SECTION_HEADING}\ndeferred for now\n\n${SECTION_HEADING}\nRan deployment_wait-for-latest -> SUCCESS; /health 200.`;
     expect(hasDeployVerification(body)).toBe(true);
   });
+});
 
+/**
+ * A NEGATED "defer" is a commitment, not a punt (mt#4041).
+ *
+ * `DEFERRAL_PATTERN` had no notion of polarity, so a section that committed to
+ * the verification was rejected whenever it said what it would NOT do — and
+ * this guard's own deny message recommends exactly that phrasing ("NOT a
+ * license to defer"), so the careful author was the one who got blocked. Four
+ * merges across two sessions (PR #2916 twice; the mt#4022 session twice,
+ * mem#981).
+ */
+describe("hasDeployVerification — negated deferral is a commitment (mt#4041)", () => {
+  /**
+   * The section from PR #2916, verbatim, that this gate rejected twice. Kept
+   * as the literal text rather than a paraphrase: a paraphrase would let the
+   * regression pass while the real sentence still failed.
+   */
+  const PR_2916_SECTION = `${SECTION_HEADING}
+This PR touches \`packages/domain/**\` and \`src/adapters/**\`, which the minsky-mcp image bundles — a
+deploy surface (root \`src\` is a deploy trigger per mt#4013).
+
+I will run \`mcp__minsky__deployment_wait-for-latest\` immediately after merge, with \`notBefore\` set
+to the merge timestamp so a pre-merge deployment cannot satisfy it, and confirm it returns SUCCESS
+with the runtime started. A tool or auth flake is a blocker to reconnect
+and retry through, not grounds to defer.`;
+
+  test("accepts the exact PR #2916 section that was rejected", () => {
+    expect(hasDeployVerification(PR_2916_SECTION)).toBe(true);
+  });
+
+  test("NEGATIVE CONTROL: the pre-fix reject-list, run without elision, refuses that same section", () => {
+    // The whole defect was that this text reaches DEFERRAL_PATTERN unelided.
+    // Asserting the raw pattern still matches it — while the gate now accepts
+    // it — is what shows the fix is the elision and not a weakened reject-list.
+    expect(/\bdefer(?:red|ring|s)?\b/i.test(PR_2916_SECTION)).toBe(true);
+    expect(/\bdefer(?:red|ring|s)?\b/i.test(elideNegatedDeferrals(PR_2916_SECTION))).toBe(false);
+  });
+
+  test("accepts the phrasing this guard's OWN deny message recommends", () => {
+    // Criterion 3: the message must not steer authors into the trip-wire.
+    // Uses the exported constant, so a future reword of the message is checked
+    // here rather than discovered by the next blocked merge.
+    const body = `${SECTION_HEADING}\nWill run deployment_wait-for-latest after merge. ${FLAKE_IS_A_BLOCKER_GUIDANCE}`;
+    expect(hasDeployVerification(body)).toBe(true);
+  });
+
+  test.each([
+    "not a license to defer",
+    "not grounds to defer",
+    "never deferred",
+    "rather than defer",
+    "instead of deferring",
+    "this is not a deferral",
+    "won't defer",
+    "will not defer this",
+    "cannot defer the check",
+  ])("accepts a commitment carrying the disclaimer %p", (disclaimer) => {
+    const body = `${SECTION_HEADING}\nWill run deployment_wait-for-latest after merge and confirm SUCCESS — ${disclaimer}.`;
+    expect(hasDeployVerification(body)).toBe(true);
+  });
+
+  test("STILL rejects a real deferral that merely contains the word 'not'", () => {
+    // The narrowing must not become a loophole: this is the mt#2353
+    // Recurrence-3 sentence, and it carries a negation ("not-yet-deployed")
+    // that a clause-level negation check would have wrongly excused.
+    expect(
+      hasDeployVerification(`${SECTION_HEADING}\nDeferred to §10 because not-yet-deployed.`)
+    ).toBe(false);
+  });
+
+  test("STILL rejects a deferral sitting after a disclaimer in the same section", () => {
+    // The elision is bounded to three words so it cannot swallow a sentence
+    // and launder a later punt.
+    expect(
+      hasDeployVerification(
+        `${SECTION_HEADING}\nThis is not a deferral in spirit, but verification is deferred to a follow-up PR.`
+      )
+    ).toBe(false);
+  });
+
+  test("elision blanks the span rather than deleting it, so words cannot fuse", () => {
+    // Whitespace is deliberately NOT normalized: the residual only ever feeds a
+    // regex test, and collapsing it would be one more transformation to reason
+    // about. What matters is that "it," and "now" stay separate tokens.
+    expect(elideNegatedDeferrals("run it, not a license to defer now")).toBe("run it,   now");
+    expect(elideNegatedDeferrals("run it, not a license to defer now")).not.toContain("it,now");
+  });
+});
+
+describe("hasDeployVerification (mt#2353) — continued", () => {
   // --- Heading-form marker acceptance, no colon required (mt#2648) ---
 
   test("true for '## Deploy verification' heading with NO colon", () => {
@@ -232,6 +329,19 @@ describe("checkDeployVerification (mt#2353)", () => {
     expect(r.blocked).toBe(false);
   });
 
+  test("mt#4013: BLOCKS a root-src/** PR with no Deploy verification: section (widened surface reaches this gate)", () => {
+    const r = checkDeployVerification(ROOT_SRC_FILE, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
+    expect(r.blocked).toBe(true);
+    expect(r.deploySurfaceFiles).toEqual(["src/mcp/tools/example.ts"]);
+    expect(r.reason).toContain(DV_MARKER);
+  });
+
+  test("mt#4013: allows a root-src/** PR that carries the Deploy verification: section", () => {
+    const body = `${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS.`;
+    const r = checkDeployVerification(ROOT_SRC_FILE, DEPLOY_CHANGE_TITLE, body);
+    expect(r.blocked).toBe(false);
+  });
+
   test("allows a deploy-surface PR with heading-form section with no colon (mt#2648)", () => {
     const body = `## Deploy verification\nRan deployment_wait-for-latest → SUCCESS.`;
     const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, body);
@@ -260,7 +370,7 @@ describe("checkDeployVerification (mt#2353)", () => {
       ({ filename, status, previous_filename: null }) as unknown as PrFile;
 
     const crashingFiles: PrFile[] = [
-      nullPrevFile("src/app.ts"),
+      nullPrevFile("scripts/app.ts"),
       nullPrevFile(REVIEWER_RAILWAY_JSON),
       nullPrevFile("README.md", "added"),
     ];

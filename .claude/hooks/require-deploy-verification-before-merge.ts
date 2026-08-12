@@ -132,6 +132,56 @@ const DEFERRAL_PATTERN =
   /\b(?:defer(?:red|ring|s)?|will\s+verify(?:\s+it)?\s+later|verify(?:\s+it)?\s+later|not[\s-]?yet[\s-]?deployed|to\s+be\s+verified|pending\s+deploy(?:ment)?|verify\s+post-?merge)\b/i;
 
 /**
+ * Clauses that DISCLAIM deferral — elided before {@link DEFERRAL_PATTERN} runs.
+ *
+ * `DEFERRAL_PATTERN` matches the bare word `defer` with no notion of polarity,
+ * so a section that COMMITS to the verification was rejected whenever it said
+ * what it would NOT do. That is how a careful author writes the commitment,
+ * because this guard's own deny message says "a tool/auth flake is a BLOCKER …
+ * NOT a license to defer" — an author echoing that framing wrote the exact
+ * sentence the gate refuses. Four merges were blocked that way across two
+ * sessions (PR #2916 twice, and the mt#4022 session twice, mem#981) before
+ * anyone read the pattern.
+ *
+ * Elision rather than a smarter single regex, following
+ * `block-out-of-band-merge.ts`'s `elideMarkdownNonProse` (the shipped pattern
+ * ADR-024 rung 1 generalizes): remove the spans that cannot be evidence of a
+ * punt, then run the unchanged reject-list on the residual. That keeps the
+ * reject-list readable and makes the negation handling independently testable.
+ *
+ * Bounded to at most three words between the negator and the verb, so it
+ * cannot swallow a whole sentence and launder a real deferral sitting later in
+ * it. "deferred to §10 because not-yet-deployed" is untouched by this pattern —
+ * its `deferred` has no negator before it — and stays rejected.
+ */
+const NEGATED_DEFERRAL_PATTERN =
+  /\b(?:not|never|no|rather\s+than|instead\s+of|won'?t|will\s+not|cannot|can'?t|isn'?t|is\s+not)\s+(?:\w+[\s-]+){0,3}?defer(?:red|ring|s|ral)?\b/gi;
+
+/**
+ * The deny message's own guidance sentence, exported so the test suite can
+ * assert the gate ACCEPTS the phrasing the gate RECOMMENDS.
+ *
+ * Kept as one constant rather than inline prose because the two must not drift:
+ * a message that steers authors into the trip-wire is what turned a narrow
+ * pattern bug into four blocked merges (mem#719 — a detector whose correct
+ * output gets dismissed has lost the thing it exists for).
+ */
+export const FLAKE_IS_A_BLOCKER_GUIDANCE =
+  "A tool/auth flake is a BLOCKER (reconnect /mcp and retry), NOT a license to defer; " +
+  '"applied" / "pulumi up exit-0" is the ACTION, not the OUTCOME.';
+
+/**
+ * Blank out disclaimed-deferral spans so the reject-list sees only ASSERTED
+ * deferral. Exported for the test suite, which pins both directions.
+ *
+ * Replaces with a space rather than the empty string so two words either side
+ * of an elided span cannot fuse into a third that then matches something else.
+ */
+export function elideNegatedDeferrals(content: string): string {
+  return content.replace(NEGATED_DEFERRAL_PATTERN, " ");
+}
+
+/**
  * True when the PR body contains a `Deploy verification:` block with non-empty
  * content following the marker. Mirrors the mt#1459 `hasExecutionEvidence`
  * discipline: HTML comments stripped first; a `No Deploy verification:` negation
@@ -183,7 +233,10 @@ export function hasDeployVerification(prBody: string): boolean {
     // Deferral-text-is-not-evidence (mt#2353 Recurrence 3): a deferral-only
     // section does NOT satisfy the gate. Keep scanning in case a later, genuine
     // section exists.
-    if (DEFERRAL_PATTERN.test(content)) continue;
+    //
+    // Disclaimers are elided FIRST (mt#4041), so "not a license to defer" — a
+    // commitment — is no longer read as the punt it explicitly refuses.
+    if (DEFERRAL_PATTERN.test(elideNegatedDeferrals(content))) continue;
 
     return true;
   }
@@ -254,8 +307,7 @@ export function checkDeployVerification(
     `To unblock, choose one of:\n` +
     `  1. Add a \`Deploy verification\` section (any accepted form above) to the PR body committing to run ` +
     `\`mcp__minsky__deployment_wait-for-latest\` → SUCCESS (and confirm the runtime started) ` +
-    `AFTER merge. A tool/auth flake is a BLOCKER (reconnect /mcp and retry), NOT a license to ` +
-    `defer; "applied" / "pulumi up exit-0" is the ACTION, not the OUTCOME. ` +
+    `AFTER merge. ${FLAKE_IS_A_BLOCKER_GUIDANCE} ` +
     `(use \`mcp__minsky__session_pr_edit\` to update the body.)\n` +
     `  2. If this change truly has no deploy impact (e.g. a comment-only edit), prefix the PR ` +
     `title with \`[no-deploy-impact]\`.\n` +

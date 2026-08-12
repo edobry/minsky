@@ -361,6 +361,17 @@
         ]
       },
       {
+        "_comment": "mt#4035 — guard/calibration exhaust ingest, latency-optimization half; the cockpit sweep is the correctness layer (SessionEnd does not reliably fire, per ADR-017/mt#2313).",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-events-ingest-on-session-end.ts",
+            "timeout": 25,
+            "statusMessage": "Ingesting guard/calibration exhaust..."
+          }
+        ]
+      },
+      {
         "_comment": "mt#3161 run-state writer — records a SessionEnd HINT only. Per ADR-017, /exit and /clear do NOT fire SessionEnd, so its absence proves nothing; authoritative end/stall detection is the Phase 2 absence sweep.",
         "hooks": [
           {

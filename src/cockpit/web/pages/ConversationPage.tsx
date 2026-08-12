@@ -72,6 +72,7 @@
 import { useParams, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Share2 } from "lucide-react";
 import {
   RunDetail,
   basePathFor,
@@ -84,6 +85,8 @@ import {
   ConversationPresenceChip,
   ConversationActivityLine,
 } from "../components/ConversationPresenceChip";
+import { Button } from "../components/ui/button";
+import { PublishConversationDialog } from "../components/PublishConversationDialog";
 import { useTabs } from "../lib/tabs";
 import { useConversationAddress } from "../hooks/useConversationAddress";
 import { actuatorMayStillLink, type ActuatorSummary } from "../lib/conversation-address";
@@ -158,6 +161,9 @@ export function ConversationPage() {
 
   const addressResolved = addressState.status === "resolved";
   const [notFoundFor, setNotFoundFor] = useState<string | null>(null);
+  // Publish dialog (mt#4024) — state lives here rather than in the button so
+  // the dialog mounts outside `RunDetail`'s tab body and survives a tab switch.
+  const [publishOpen, setPublishOpen] = useState(false);
   // A ref, so the callback identity stays stable across the id changing.
   const dataIdRef = useRef(conversationId);
   dataIdRef.current = conversationId;
@@ -247,6 +253,12 @@ export function ConversationPage() {
 
   return (
     <div className={wrapperClass}>
+      <PublishConversationDialog
+        conversationId={resolved}
+        conversationLabel={label}
+        open={publishOpen}
+        onOpenChange={setPublishOpen}
+      />
       <RunDetail
         key={id}
         id={id}
@@ -254,15 +266,33 @@ export function ConversationPage() {
         resolvedConversationId={resolved}
         onConversationNotFound={handleNotFound}
         chrome={
-          <div className="flex flex-col gap-0.5">
-            <h1 className="truncate text-lg font-semibold" title={label}>
-              {label}
-            </h1>
-            {showIdSubline && (
-              <span className="font-mono text-xs text-muted-foreground" title={resolved}>
-                {resolved}
-              </span>
-            )}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <h1 className="truncate text-lg font-semibold" title={label}>
+                {label}
+              </h1>
+              {showIdSubline && (
+                <span className="font-mono text-xs text-muted-foreground" title={resolved}>
+                  {resolved}
+                </span>
+              )}
+            </div>
+            {/*
+              Publish (mt#4024). The affordance opens a confirmation that states
+              what becomes readable — it never mints on this click. Placed on
+              the conversation's own page because that is where the operator has
+              just read the thing they are deciding to publish.
+            */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="shrink-0 gap-1.5"
+              data-testid="share-conversation"
+              onClick={() => setPublishOpen(true)}
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Share
+            </Button>
           </div>
         }
         // mt#3554 — presence and activity moved onto the shared

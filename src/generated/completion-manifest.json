@@ -3578,7 +3578,7 @@
                 },
                 {
                   "flags": ["--expected-head-sha"],
-                  "description": "The commit you expect the REMOTE to be serving — pass the commitHash session_commit just returned (mt#3877). While the remote head differs from it, NO review is considered and the wait keeps polling, so arming the watcher before a push lands no longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in that window the superseded commit IS the current head, so it is admitted by exactly the filter meant to exclude it. The window is routine — session_commit regularly exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. On timeout the result carries expectedHeadShaUnreached naming the sha the remote never reached. Ignored on backends without HEAD-sha support, or with requireCurrentHead: false.",
+                  "description": "The commit you expect the REMOTE to be serving — pass the commitHash session_commit just returned (mt#3877). While the remote head differs from it, NO review is considered and the wait keeps polling, so arming the watcher before a push lands no longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in that window the superseded commit IS the current head, so it is admitted by exactly the filter meant to exclude it. The window is routine — session_commit regularly exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. On timeout the result carries expectedHeadShaUnreached naming the sha the remote never reached. Ignored on backends without HEAD-sha support, or with requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so session_commit's short commitHash can be passed through verbatim; values under 7 characters, or non-hex values, are rejected with an error rather than silently matching nothing.",
                   "takesValue": true
                 },
                 {
@@ -4781,7 +4781,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -4820,7 +4820,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -4840,7 +4840,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
@@ -5897,6 +5897,23 @@
               "flags": ["--clear-ask-id"],
               "description": "Ask ID to clear from any watermark's `openAskId` field (mt#2659). Pass it once `asks_list` confirms a previously-filed disposition ask has reached a terminal state (responded/closed/cancelled/expired) — clearing resumes the cadence detector's normal per-turn warning for the affected log(s). Independent of ack; applied before the sweep result is computed. Single ask ID (not an array) because one /calibration-review pass files exactly ONE ask covering all review-due logs in that pass, so exactly one id is ever cleared at a time in practice — this also sidesteps CLI array-flag delimiter ambiguity (comma-split vs repeatable flag) that the shared command-registry's CLI bridge does not currently resolve for array-typed Zod schemas.",
               "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "guard-events",
+          "description": "guard-events commands",
+          "subcommands": [
+            {
+              "name": "ingest",
+              "description": "Run one sweep tick of the guard/calibration exhaust ingest (mt#3334 phase 3): reads new content since each stream's persisted high-water mark and batch-inserts into guard_events (ON CONFLICT dedupe_key DO NOTHING). Incremental and idempotent — safe to re-run over an already-ingested span. Called by the SessionEnd hook (latency) and the cockpit sweep (correctness — SessionEnd does not reliably fire, per ADR-017/mt#2313).",
+              "options": [
+                {
+                  "flags": ["--max-records-per-stream-per-tick"],
+                  "description": "Cap on new records read per stream per invocation (bounds tick duration on a large backlog, e.g. a fresh-deploy fire-log with no prior ingest). Default: 20000.",
+                  "takesValue": true
+                }
+              ]
             }
           ]
         },

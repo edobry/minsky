@@ -86,6 +86,12 @@ const WeldHistoryPage = lazy(() =>
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
+// Published share links (mt#4024). The share PAGE itself is not routed here —
+// it mounts above the app shell in `main.tsx`, since it renders for someone
+// with no account. This is the operator's inventory of what is published.
+const SharedLinksPage = lazy(() =>
+  import("./pages/SharedLinksPage").then((m) => ({ default: m.SharedLinksPage }))
+);
 // Session film (mt#3184, watchable-world Phase 1) — route name is a working
 // label; naming is principal-reserved per the RFC.
 
@@ -589,6 +595,16 @@ export function App() {
             element={
               <ErrorBoundary id="memory-page">
                 <MemoryPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Published-share inventory (mt#4024) — what is currently readable
+              by anyone holding a link, and the revoke control for each. */}
+          <Route
+            path="/shares"
+            element={
+              <ErrorBoundary id="shared-links-page">
+                <SharedLinksPage />
               </ErrorBoundary>
             }
           />
