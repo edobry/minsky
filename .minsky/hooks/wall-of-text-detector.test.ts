@@ -114,6 +114,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { ARTIFACT_CAPTURE_MAX_CHARS } from "./judged-input-capture";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -1689,3 +1690,96 @@ describe("compiled .claude/hooks/ copy stays in sync with this source file", () 
   });
 });
 /* eslint-enable custom/no-real-fs-in-tests */
+
+// ---------------------------------------------------------------------------
+// Preceding-prompt capture (mt#4048) — AT1..AT4
+//
+// The override RESOLVES the principal prompt to decide suppression and used to
+// discard it, so a reviewer could see that it declined to fire but not what it
+// was looking at. mt#4031's two candidate causes are indistinguishable without
+// this.
+// ---------------------------------------------------------------------------
+
+describe("preceding-prompt capture (mt#4048)", () => {
+  /**
+   * Over-budget with NO lead labels, so `trigger` is exactly `over-budget`
+   * — the only leg the question-answer override guards, and therefore the
+   * only one where a prompt is resolved at all.
+   */
+  const STATUS_KEY = "precedingPromptStatus";
+
+  function plainOverBudgetReport(): string {
+    return words(900);
+  }
+
+  function recordFor(openingPrompt: string, report: string): Record<string, unknown> {
+    const outcome = run(
+      makeInput(),
+      makeCtx(transcriptWithFinalReportAndOpeningPrompt(openingPrompt, report)),
+      noDedupeDeps()
+    );
+    return outcome?.calibration as Record<string, unknown>;
+  }
+
+  test("AT1: a substantive question is captured on the record", () => {
+    const cal = recordFor("Why did the dedup miss on the second scan?", plainOverBudgetReport());
+    expect(cal[STATUS_KEY]).toBe("captured");
+    expect(cal["captureSchema"]).toBe(1);
+    const captured = cal["precedingPrompt"] as { excerpt: string; truncated: boolean };
+    expect(captured.excerpt).toContain("Why did the dedup miss");
+    expect(captured.truncated).toBe(false);
+    // Consistency: the override fired, and the recorded prompt is the one it
+    // fired on.
+    expect(cal["suppressedByQuestionAnswer"]).toBe(true);
+  });
+
+  test("AT2: a NON-question prompt is still captured — the not-fired case is what needs inspecting", () => {
+    const cal = recordFor("go ahead and ship it", plainOverBudgetReport());
+    expect(cal[STATUS_KEY]).toBe("captured");
+    const captured = cal["precedingPrompt"] as { excerpt: string };
+    expect(captured.excerpt).toContain("go ahead and ship it");
+    expect(cal["suppressedByQuestionAnswer"]).toBe(false);
+  });
+
+  test("AT3: an unresolved prompt is distinguishable from an empty one", () => {
+    // No principal prompt at all: the status says so rather than recording an
+    // empty string that would read as "the prompt was empty".
+    const outcome = run(
+      makeInput(),
+      makeCtx([assistantTextLine(60, plainOverBudgetReport())]),
+      noDedupeDeps()
+    );
+    const cal = outcome?.calibration as Record<string, unknown> | undefined;
+    if (cal !== undefined) {
+      expect(cal[STATUS_KEY]).not.toBe("captured");
+      expect(cal["precedingPrompt"]).toBeUndefined();
+    } else {
+      // No measurement at all for this shape is also acceptable; the point is
+      // that no record ever claims a captured prompt it did not resolve.
+      expect(outcome).toBeNull();
+    }
+  });
+
+  test("the capture is the ELIDED copy — a fenced paste never reaches the log", () => {
+    const secretish = "sk-live-DO-NOT-LOG-abcdefghijklmnop";
+    const cal = recordFor(
+      `Why is this failing?\n\n\`\`\`\n${secretish}\n\`\`\`\n`,
+      plainOverBudgetReport()
+    );
+    const captured = cal["precedingPrompt"] as { excerpt: string };
+    expect(captured.excerpt).not.toContain(secretish);
+    expect(captured.excerpt).toContain("Why is this failing");
+  });
+
+  test("AT4: capture is bounded by the shared documented cap", () => {
+    const cal = recordFor(`Why ${"padding ".repeat(4000)}?`, plainOverBudgetReport());
+    const captured = cal["precedingPrompt"] as {
+      excerpt: string;
+      truncated: boolean;
+      length: number;
+    };
+    expect(captured.truncated).toBe(true);
+    expect(captured.excerpt.length).toBeLessThanOrEqual(ARTIFACT_CAPTURE_MAX_CHARS + 1);
+    expect(captured.length).toBeGreaterThan(ARTIFACT_CAPTURE_MAX_CHARS);
+  });
+});
