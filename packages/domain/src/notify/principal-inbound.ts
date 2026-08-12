@@ -261,7 +261,16 @@ export function buildInboundEventPayload(
     return { ...base, rejectionReason: route.reason };
   }
 
-  const text = safeTruncate(message.text, MAX_STORED_TEXT);
+  // "head" — keep the OPENING of what the principal sent (mt#4065).
+  // `safeTruncate`'s `side` defaults to `"tail"`, which keeps the LAST
+  // `maxLen` code units, so an over-length message was stored starting
+  // mid-sentence with its opening dropped. This payload is an append-only
+  // AUDIT record — `InboundEventRecorder` in `principal-channel-poller.ts` is
+  // "one row per inbound update, before any side effect" — and a record
+  // answering "what did they send?" wants the first sentence. The
+  // `textTruncated` flag on the next line says the same thing: the intent is
+  // "we cut this", not "we kept the tail on purpose".
+  const text = safeTruncate(message.text, MAX_STORED_TEXT, "head");
   return {
     ...base,
     text,

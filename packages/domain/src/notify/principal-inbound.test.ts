@@ -9,6 +9,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildInboundEventPayload,
   inboundEventToken,
+  MAX_STORED_TEXT,
   routeInboundMessage,
   type InboundAuthorization,
 } from "./principal-inbound";
@@ -301,5 +302,54 @@ describe("routeInboundMessage — media (mt#3235)", () => {
   test("regression: a genuinely empty message is still rejected", () => {
     const route = routeInboundMessage(message({ text: "   " }), AUTH);
     expect(route).toEqual({ kind: "rejected", reason: "empty-text" });
+  });
+});
+
+describe("buildInboundEventPayload — over-length text keeps its OPENING (mt#4065)", () => {
+  /** Distinctive markers at each end, so the assertion is about CONTENT, not length. */
+  const OPENING = "FIRST-WORDS";
+  const CLOSING = "LAST-WORDS";
+
+  function overlongText(): string {
+    const filler = "x".repeat(MAX_STORED_TEXT);
+    return `${OPENING} ${filler} ${CLOSING}`;
+  }
+
+  function payloadFor(text: string) {
+    const msg = message({ text });
+    return buildInboundEventPayload(msg, routeInboundMessage(msg, AUTH));
+  }
+
+  test("the stored text starts with what the principal wrote first", () => {
+    // Asserting by CONTENT is the whole point. The sibling defect in PR #2935
+    // shipped past a test that checked only a length bound — which the
+    // wrong-direction truncation satisfies perfectly.
+    const payload = payloadFor(overlongText());
+    expect(payload.text?.startsWith(OPENING)).toBe(true);
+  });
+
+  test("the dropped end is the tail, not the head", () => {
+    const payload = payloadFor(overlongText());
+    expect(payload.text).not.toContain(CLOSING);
+  });
+
+  test("a truncated payload still carries the textTruncated flag", () => {
+    const payload = payloadFor(overlongText());
+    expect(payload.text?.length).toBe(MAX_STORED_TEXT);
+    expect(payload.textTruncated).toBe(true);
+  });
+
+  test("a message under the limit is stored byte-identical and unflagged", () => {
+    const short = "what is blocked on the reviewer?";
+    const payload = payloadFor(short);
+    expect(payload.text).toBe(short);
+    expect(payload.textTruncated).toBeUndefined();
+  });
+
+  test("a message exactly at the limit is not treated as truncated", () => {
+    const exact = "y".repeat(MAX_STORED_TEXT);
+    const payload = payloadFor(exact);
+    expect(payload.text).toBe(exact);
+    expect(payload.textTruncated).toBeUndefined();
   });
 });
