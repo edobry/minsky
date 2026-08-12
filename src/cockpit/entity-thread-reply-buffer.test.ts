@@ -24,6 +24,8 @@ import {
   MAX_PENDING_PER_THREAD,
   CLOCK_SKEW_TOLERANCE_MS,
   shouldReportPendingReplies,
+  blocksToStoredAgentReplies,
+  LOST_RETENTION_MS,
 } from "./entity-thread-reply-buffer";
 
 const LOCAL_ID = "entity-thread:ask:a902cba7-fd37-464a-842f-96fe38fe8bcc";
@@ -118,7 +120,10 @@ describe("EntityThreadReplyBuffer.buffer", () => {
     for (let i = 0; i < MAX_PENDING_PER_THREAD + 3; i++) {
       buffer.buffer(LOCAL_ID, `reply ${i}`, 1_000 + i);
     }
-    const report = buffer.report(LOCAL_ID);
+    // `now` is passed explicitly: `lost` counters expire after
+    // LOST_RETENTION_MS, so a default real-clock read against these synthetic
+    // timestamps would report the losses as already forgotten.
+    const report = buffer.report(LOCAL_ID, [], 1_000 + MAX_PENDING_PER_THREAD);
     expect(report.pending).toBe(MAX_PENDING_PER_THREAD);
     expect(report.lost).toBe(3);
   });
@@ -129,6 +134,66 @@ describe("EntityThreadReplyBuffer.buffer", () => {
     expect(report.pending).toBe(0);
     expect(report.lost).toBe(0);
     expect(report.oldestFailedAt).toBeNull();
+  });
+});
+
+/**
+ * PR #2913 R1 (BLOCKING) — the GET route reported a reply as pending while the
+ * same reply was already rendered in `blocks`, because only the drain knew how
+ * to decide "did this land?". The predicate is now shared; these pin both
+ * callers to it.
+ */
+describe("report reconciled against already-stored replies (PR #2913 R1)", () => {
+  const AT = 1_000_000;
+
+  test("a reply already present in the thread is not reported as pending", () => {
+    const buffer = new EntityThreadReplyBuffer();
+    buffer.buffer(LOCAL_ID, "Both filed.", AT);
+
+    // The commit landed; only the acknowledgement was lost. Reporting this as
+    // pending renders the reply AND a notice saying it could not be saved.
+    const stored = [{ content: "Both filed.", createdAtMs: AT + 5 }];
+    expect(buffer.report(LOCAL_ID, stored, AT).pending).toBe(0);
+    // Unreconciled, it is still pending — the queue was not mutated by the read.
+    expect(buffer.report(LOCAL_ID, [], AT).pending).toBe(1);
+  });
+
+  test("an identical reply from BEFORE the failure does not suppress the notice", () => {
+    const buffer = new EntityThreadReplyBuffer();
+    buffer.buffer(LOCAL_ID, "Checking.", AT);
+    const stored = [{ content: "Checking.", createdAtMs: AT - CLOCK_SKEW_TOLERANCE_MS - 60_000 }];
+    expect(buffer.report(LOCAL_ID, stored, AT).pending).toBe(1);
+  });
+
+  test("blocksToStoredAgentReplies takes agent blocks and drops unusable ones", () => {
+    const replies = blocksToStoredAgentReplies([
+      { type: "assistant-text", content: "kept", timestamp: "2026-08-11T03:29:35Z" },
+      { type: "user-prompt", content: "the operator's turn", timestamp: "2026-08-11T03:25:47Z" },
+      { type: "assistant-text", content: "no timestamp" },
+      { type: "assistant-text", content: "bad timestamp", timestamp: "not a date" },
+    ]);
+    // A block with no parsable instant is DROPPED, not defaulted: a fabricated
+    // timestamp would suppress a notice on evidence that does not exist.
+    expect(replies).toEqual([{ content: "kept", createdAtMs: Date.parse("2026-08-11T03:29:35Z") }]);
+  });
+});
+
+/** PR #2913 R1 (non-blocking) — `lost` counters must not accumulate forever. */
+describe("lost-counter retention", () => {
+  test("a loss is reported while it is still worth telling the operator about", () => {
+    const buffer = new EntityThreadReplyBuffer();
+    for (let i = 0; i < MAX_PENDING_PER_THREAD + 1; i++) {
+      buffer.buffer(LOCAL_ID, `reply ${i}`, 1_000);
+    }
+    expect(buffer.report(LOCAL_ID, [], 1_000 + LOST_RETENTION_MS - 1).lost).toBe(1);
+  });
+
+  test("and is forgotten past the retention window", () => {
+    const buffer = new EntityThreadReplyBuffer();
+    for (let i = 0; i < MAX_PENDING_PER_THREAD + 1; i++) {
+      buffer.buffer(LOCAL_ID, `reply ${i}`, 1_000);
+    }
+    expect(buffer.report(LOCAL_ID, [], 1_000 + LOST_RETENTION_MS + 1).lost).toBe(0);
   });
 });
 
@@ -248,7 +313,7 @@ describe("EntityThreadReplyBuffer.drain", () => {
     expect(store.turns).toHaveLength(0);
     // Still reported — a lost reply the operator is never told about is the
     // original defect wearing a different hat.
-    expect(buffer.report(LOCAL_ID).lost).toBe(1);
+    expect(buffer.report(LOCAL_ID, [], wayLater).lost).toBe(1);
   });
 
   test("a thread whose store read fails does not stall the others", async () => {

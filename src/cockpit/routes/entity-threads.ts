@@ -41,7 +41,11 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
-import { pendingReplyBuffer, shouldReportPendingReplies } from "../entity-thread-reply-buffer";
+import {
+  blocksToStoredAgentReplies,
+  pendingReplyBuffer,
+  shouldReportPendingReplies,
+} from "../entity-thread-reply-buffer";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
 import { describeServerPersistenceUnavailability } from "../db-providers";
 import {
@@ -235,9 +239,14 @@ export function mountEntityThreadRoutes(
       const existing = await findEntityThread(db, entityType, entityId);
       const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
       const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
-      // Read AFTER the blocks: a drain racing this read should be reflected as
-      // "landed in blocks", never as "both in blocks and still pending".
-      const pendingReport = pendingReplyBuffer.report(localId);
+      // Reconciled against the blocks just read, not reported raw (PR #2913 R1
+      // BLOCKING). In the commit-succeeded-but-ack-failed case the reply is
+      // ALREADY in `blocks` while still sitting in the queue until the next
+      // drain tick — reporting the queue as-is renders the reply and a notice
+      // saying it could not be saved, in the same response. The route holds the
+      // evidence to settle that, so it settles it here rather than waiting for
+      // an async drain.
+      const pendingReport = pendingReplyBuffer.report(localId, blocksToStoredAgentReplies(blocks));
       res.json({
         localId,
         entityType,

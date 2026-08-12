@@ -668,7 +668,18 @@ export function createEntityThreadReplyRecorder(
       const text = extractAssistantTextFromEvent(event.payload);
       if (!text) return;
       void appendEntityThreadTurn(db, { localId, role: "agent", content: text }).catch((err) => {
-        const report = pendingReplyBuffer.buffer(localId, text);
+        // The EVENT's instant, not the rejection's (PR #2913 R1 non-blocking):
+        // a slow failure path would push the watermark later than the reply
+        // actually was, which is the direction that makes the reconcile miss a
+        // turn that did land. Defensive parse — a malformed timestamp falls
+        // back to the buffer's own default rather than poisoning the watermark
+        // with NaN.
+        const observedAt = Date.parse(event.receivedAt);
+        const report = pendingReplyBuffer.buffer(
+          localId,
+          text,
+          Number.isNaN(observedAt) ? undefined : observedAt
+        );
         // `getLoggableErrorSummary`, not `err.message`: on a Drizzle failure the
         // message is the QUERY TEXT and the Postgres cause sits on `.cause`
         // (mt#3398). Reading `err.message` alone is why the four 2026-08-11 log

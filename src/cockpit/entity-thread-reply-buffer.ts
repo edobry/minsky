@@ -107,9 +107,96 @@ export const CLOCK_SKEW_TOLERANCE_MS = 30_000;
 
 export interface PendingReply {
   content: string;
-  /** Daemon-clock instant of the first failed append. The reconcile watermark. */
+  /** Instant the reply was observed, from the event. The reconcile watermark. */
   firstFailedAt: number;
   attempts: number;
+}
+
+/**
+ * The minimum an already-stored agent turn has to expose to be reconciled
+ * against a buffered reply.
+ *
+ * Deliberately structural rather than `EntityThreadTurn`: the GET route holds
+ * rendered BLOCKS, not turns, and requiring the full turn there would mean a
+ * second query for data the route already has in hand.
+ */
+export interface StoredAgentReply {
+  content: string;
+  createdAtMs: number;
+}
+
+/**
+ * Did this buffered reply in fact land?
+ *
+ * The single definition of that question — the drain and the GET route both
+ * call it, so the two cannot answer it differently. That mattered immediately:
+ * PR #2913 R1 (BLOCKING) caught the route reporting a reply as pending while
+ * the same reply was already rendered in `blocks`, because only the drain knew
+ * how to decide it.
+ *
+ * The timestamp bound is what separates the two candidates. A reply that landed
+ * carries a `created_at` at or after the moment it was observed; an identical
+ * reply from EARLIER in the thread is minutes or hours behind it, so the
+ * tolerance only has to beat clock skew (see {@link CLOCK_SKEW_TOLERANCE_MS}),
+ * never resolve a close call. Without the bound, a thread where the agent
+ * repeats itself would silently drop the newer reply — reintroducing this
+ * task's own bug through the fix for it.
+ */
+export function isReplyAlreadyStored(reply: PendingReply, stored: StoredAgentReply[]): boolean {
+  return stored.some(
+    (turn) =>
+      turn.content === reply.content &&
+      turn.createdAtMs >= reply.firstFailedAt - CLOCK_SKEW_TOLERANCE_MS
+  );
+}
+
+/**
+ * How long a `lost` count is kept after the fact (PR #2913 R1 non-blocking).
+ *
+ * The counters have to outlive their queue — an operator who was away needs to
+ * be told an answer is not coming back — but a long-lived daemon that never
+ * forgot them would accumulate one entry per thread that ever aged out.
+ *
+ * 24h, grounded in the originating incident's own shape: the thread went quiet
+ * at 23:38 local and the operator next looked at 12:12 the following day, so a
+ * retention that spans "the next time they sit down" is what makes the report
+ * useful. Shorter and the notice expires before it is read.
+ */
+export const LOST_RETENTION_MS = 24 * 60 * 60 * 1000;
+
+/** Agent turns only, projected to the shape {@link isReplyAlreadyStored} reads. */
+export function toStoredAgentReplies(turns: EntityThreadTurn[]): StoredAgentReply[] {
+  return turns
+    .filter((turn) => turn.role === "agent")
+    .map((turn) => ({ content: turn.content, createdAtMs: turn.createdAt.getTime() }));
+}
+
+/**
+ * The same projection from RENDERED BLOCKS, for the GET route.
+ *
+ * `assistant-text` is the block type an agent turn projects to
+ * (`turnToSnapshotBlock`'s `BLOCK_TYPE_BY_ROLE`); a block with no parsable
+ * timestamp is dropped rather than defaulted, because a fabricated instant
+ * would let {@link isReplyAlreadyStored} suppress a notice on evidence that
+ * does not exist.
+ */
+export function blocksToStoredAgentReplies(
+  blocks: ReadonlyArray<{ type?: string; content?: unknown; timestamp?: unknown }>
+): StoredAgentReply[] {
+  const replies: StoredAgentReply[] = [];
+  for (const block of blocks) {
+    if (block.type !== "assistant-text") continue;
+    if (typeof block.content !== "string" || typeof block.timestamp !== "string") continue;
+    const createdAtMs = Date.parse(block.timestamp);
+    if (Number.isNaN(createdAtMs)) continue;
+    replies.push({ content: block.content, createdAtMs });
+  }
+  return replies;
+}
+
+interface LostRecord {
+  count: number;
+  lastLostAt: number;
 }
 
 /**
@@ -166,35 +253,73 @@ const PRODUCTION_STORE: EntityThreadTurnStore = {
  */
 export class EntityThreadReplyBuffer {
   private readonly pending = new Map<string, PendingReply[]>();
-  private readonly lost = new Map<string, number>();
+  private readonly lost = new Map<string, LostRecord>();
 
   constructor(private readonly store: EntityThreadTurnStore = PRODUCTION_STORE) {}
 
   /**
    * Record a reply whose append failed.
    *
+   * `observedAt` should be the instant the EVENT arrived, not the instant the
+   * append rejected (PR #2913 R1 non-blocking): a slow failure path would
+   * otherwise push the watermark later than the reply actually was, which is
+   * the direction that makes {@link isReplyAlreadyStored} miss a turn that did
+   * land. Defaults to now only for callers with no event to read it from.
+   *
    * Returns the thread's report so the caller can name the depth in its log
    * line without a second lookup.
    */
-  buffer(localId: string, content: string, now: number = Date.now()): PendingReplyReport {
+  buffer(localId: string, content: string, observedAt: number = Date.now()): PendingReplyReport {
     const queue = this.pending.get(localId) ?? [];
-    queue.push({ content, firstFailedAt: now, attempts: 1 });
+    queue.push({ content, firstFailedAt: observedAt, attempts: 1 });
     while (queue.length > MAX_PENDING_PER_THREAD) {
       queue.shift();
-      this.lost.set(localId, (this.lost.get(localId) ?? 0) + 1);
+      this.recordLost(localId, observedAt);
     }
     this.pending.set(localId, queue);
-    return this.report(localId);
+    return this.report(localId, [], observedAt);
   }
 
-  report(localId: string): PendingReplyReport {
+  private recordLost(localId: string, now: number): void {
+    const existing = this.lost.get(localId);
+    this.lost.set(localId, { count: (existing?.count ?? 0) + 1, lastLostAt: now });
+  }
+
+  /**
+   * What to tell the operator about this thread.
+   *
+   * `stored` lets a caller that ALREADY holds the thread's agent turns exclude
+   * replies that in fact landed. The GET route passes the blocks it just read;
+   * without that, a committed-but-unacknowledged append is reported as pending
+   * while the very same reply is rendered above the notice — PR #2913 R1
+   * (BLOCKING). Non-mutating: the drain owns the queue, so a read cannot
+   * reorder or consume it.
+   */
+  report(
+    localId: string,
+    stored: StoredAgentReply[] = [],
+    now: number = Date.now()
+  ): PendingReplyReport {
     const queue = this.pending.get(localId) ?? [];
-    const oldest = queue[0];
+    const outstanding =
+      stored.length > 0 ? queue.filter((reply) => !isReplyAlreadyStored(reply, stored)) : queue;
+    const oldest = outstanding[0];
     return {
-      pending: queue.length,
-      lost: this.lost.get(localId) ?? 0,
+      pending: outstanding.length,
+      lost: this.lostCount(localId, now),
       oldestFailedAt: oldest ? new Date(oldest.firstFailedAt).toISOString() : null,
     };
+  }
+
+  /** Lost count, forgetting anything past {@link LOST_RETENTION_MS}. */
+  private lostCount(localId: string, now: number): number {
+    const record = this.lost.get(localId);
+    if (!record) return 0;
+    if (now - record.lastLostAt > LOST_RETENTION_MS) {
+      this.lost.delete(localId);
+      return 0;
+    }
+    return record.count;
   }
 
   /** Threads with at least one pending reply. Drives the drain loop's exit. */
@@ -228,9 +353,9 @@ export class EntityThreadReplyBuffer {
       const queue = this.pending.get(localId);
       if (!queue) continue;
 
-      let stored;
+      let storedAgentReplies: StoredAgentReply[];
       try {
-        stored = await this.store.listTurns(db, localId);
+        storedAgentReplies = toStoredAgentReplies(await this.store.listTurns(db, localId));
       } catch (err) {
         // The store is still unreachable. Leave the queue intact — this is the
         // condition the buffer exists for, not an error to act on.
@@ -247,7 +372,7 @@ export class EntityThreadReplyBuffer {
 
         if (now - reply.firstFailedAt > MAX_PENDING_AGE_MS) {
           queue.shift();
-          this.lost.set(localId, (this.lost.get(localId) ?? 0) + 1);
+          this.recordLost(localId, now);
           outcome.agedOut++;
           log.warn(
             `entity-thread reply buffer: giving up on a reply for ${localId} after ${MAX_PENDING_AGE_MS}ms — it is lost`
@@ -255,13 +380,7 @@ export class EntityThreadReplyBuffer {
           continue;
         }
 
-        const alreadyStored = stored.some(
-          (turn) =>
-            turn.role === "agent" &&
-            turn.content === reply.content &&
-            turn.createdAt.getTime() >= reply.firstFailedAt - CLOCK_SKEW_TOLERANCE_MS
-        );
-        if (alreadyStored) {
+        if (isReplyAlreadyStored(reply, storedAgentReplies)) {
           queue.shift();
           outcome.reconciled++;
           continue;
@@ -274,7 +393,7 @@ export class EntityThreadReplyBuffer {
             content: reply.content,
           });
           queue.shift();
-          stored.push(turn);
+          storedAgentReplies.push({ content: turn.content, createdAtMs: turn.createdAt.getTime() });
           outcome.appended++;
         } catch (err) {
           reply.attempts++;
