@@ -3,6 +3,8 @@ import {
   detectCapabilityDeferral,
   detectPermissionDeferral,
   detectDenialAnchoredDeferral,
+  detectAskJustificationAbsence,
+  summarizeAskJustificationEvaluation,
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
@@ -29,6 +31,8 @@ const FIXTURE_PATH = "/tmp/fixture.jsonl";
 /** The capability-deferral phrase behind this detector's first live fire. */
 const RAILWAY_ACCESS = "requires Railway access";
 const DEFERRAL_PROSE = `Deferred to operator: ${RAILWAY_ACCESS}.`;
+/** The generic directive's opening — asserted present on some surfaces, ABSENT on others. */
+const PROBE_DIRECTIVE = "Run the capability probe";
 const ASK_OPTION_LABEL = "ask-option-label";
 const CAPABILITY_PROSE = "capability-deferral-prose";
 const R5_LABEL = "You recover the reviewer service";
@@ -746,7 +750,7 @@ const denialResult = (id: string, text: string = DENIAL_NO_REASON): TranscriptLi
 });
 
 const asksCreate = (): TranscriptLine =>
-  assistantToolUse("mcp__minsky__asks_create", {
+  assistantToolUse(ASKS_CREATE_TOOL, {
     title: "The harness blocks the Railway write; please add a Bash permission rule.",
   });
 
@@ -912,7 +916,7 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     // Asserted on the directive's own wording, NOT on a token like "whoami":
     // that string also appears inside the quoted denied command, so it would
     // pass or fail for a reason unrelated to the directive.
-    expect(reminder).not.toContain("Run the capability probe");
+    expect(reminder).not.toContain(PROBE_DIRECTIVE);
   });
 
   // mt#3533's per-guard size test is GONE (mt#4002). `guard-feedback-shape.test.ts`
@@ -933,7 +937,275 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
       { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
     ]);
     expect(reminder).toContain("simpler shape");
-    expect(reminder).toContain("Run the capability probe");
+    expect(reminder).toContain(PROBE_DIRECTIVE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface E — ask-justification capability-absence (mt#3999)
+// ---------------------------------------------------------------------------
+
+const ASK_JUSTIFICATION = "ask-justification";
+
+/** The channel that lied in the anchor instance — and that surface A counts as a probe. */
+const CREDENTIALS_LIST_TOOL = "mcp__minsky__config_credentials_list";
+
+/** The independent channel that would have falsified it. */
+const AI_VALIDATE_TOOL = "mcp__minsky__ai_validate";
+
+/** The tool whose payload carries an ask justification. */
+const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
+
+/**
+ * ask#6754's claim, verbatim in substance (mt#3547, 2026-08-01): the agent read
+ * ONE channel, the credential store, which returned exit-0 JSON that silently
+ * omitted the provider — and then asked the operator to authorize pulling a
+ * PRODUCTION credential off Railway on that premise.
+ */
+const ANCHOR_JUSTIFICATION =
+  "I have no OpenAI key — the credential store has Anthropic and Google, not OpenAI. May I " +
+  "pull the production key off Railway so the replay corpus can run?";
+
+const OPERATOR_ROUTED_RESULT = JSON.stringify({
+  id: "ask-1",
+  state: "routed",
+  routingTarget: "operator",
+  transport: "inbox",
+});
+
+const POLICY_CLOSED_RESULT = JSON.stringify({
+  id: "ask-1",
+  state: "closed",
+  routingTarget: "policy",
+});
+
+function correlatedToolUse(
+  id: string,
+  name: string,
+  input: Record<string, unknown>
+): TranscriptLine {
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+  } as unknown as TranscriptLine;
+}
+
+function correlatedToolResult(id: string, content: string): TranscriptLine {
+  return {
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] },
+  } as unknown as TranscriptLine;
+}
+
+/** A turn that creates an ask, plus whatever channel calls preceded it. */
+function askTurn(options: {
+  justification?: string;
+  result?: string;
+  channels?: Array<{ name: string; input?: Record<string, unknown> }>;
+}): TranscriptLine[] {
+  const {
+    justification = ANCHOR_JUSTIFICATION,
+    result = OPERATOR_ROUTED_RESULT,
+    channels = [{ name: CREDENTIALS_LIST_TOOL }],
+  } = options;
+
+  const lines: TranscriptLine[] = [];
+  channels.forEach((channel, i) => {
+    lines.push(correlatedToolUse(`toolu_ch${i}`, channel.name, channel.input ?? {}));
+    lines.push(correlatedToolResult(`toolu_ch${i}`, "{}"));
+  });
+  lines.push(
+    correlatedToolUse("toolu_ask", ASKS_CREATE_TOOL, {
+      kind: "authorization.approve",
+      title: "Authorize pulling the production OpenAI key",
+      question: justification,
+    })
+  );
+  lines.push(correlatedToolResult("toolu_ask", result));
+  return lines;
+}
+
+describe("surface E — ask-justification capability-absence (mt#3999)", () => {
+  test("AT1: the anchor instance fires, and the advisory names the second channel", () => {
+    const matches = detectAskJustificationAbsence(askTurn({}));
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(ASK_JUSTIFICATION);
+    expect(matches[0]?.matchedPhrase).toContain("no OpenAI key");
+
+    const reminder = buildReminder(matches);
+    // SC2: the guidance names the CONCRETE second channel for the named
+    // subject, not "run a probe" — which is the failure, restated as advice.
+    expect(reminder).toContain("ai_providers_list");
+    expect(reminder).toContain("ai_validate --provider OpenAI");
+  });
+
+  test("AT1 crux: it fires even though the turn DID call a probe-listed tool", () => {
+    const turn = askTurn({});
+
+    // The distinction the whole surface rests on. `hasProbeEvidence` — what
+    // surfaces A and C suppress on — says this turn probed, because
+    // `config_credentials_list` is on its probe list. That call is exactly what
+    // produced the false premise, so suppressing here would blind the detector
+    // to its own anchor instance.
+    expect(hasProbeEvidence(turn)).toBe(true);
+    expect(detectAskJustificationAbsence(turn)).toHaveLength(1);
+  });
+
+  test("AT2: a genuine SECOND channel in the same turn suppresses it", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        channels: [
+          { name: CREDENTIALS_LIST_TOOL },
+          { name: AI_VALIDATE_TOOL, input: { provider: "openai" } },
+        ],
+      })
+    );
+    expect(matches).toEqual([]);
+  });
+
+  test("AT2b: two calls on the SAME channel are still one channel", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        channels: [
+          { name: CREDENTIALS_LIST_TOOL },
+          { name: "mcp__minsky__config_get", input: { key: "ai.providers" } },
+        ],
+      })
+    );
+    expect(matches).toHaveLength(1);
+  });
+
+  test("AT3: a justification asserting no non-existence does not fire", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        justification:
+          "Should the cockpit surface be called Attention or Inbox? Both read fine to me and " +
+          "this sets a precedent, so it is your call.",
+      })
+    );
+    expect(matches).toEqual([]);
+  });
+
+  test("AT4: an ask the router did NOT send to the operator does not fire", () => {
+    const matches = detectAskJustificationAbsence(askTurn({ result: POLICY_CLOSED_RESULT }));
+    // A policy-covered ask short-circuits to closed and reaches no human, so it
+    // spends none of the attention this surface is about.
+    expect(matches).toEqual([]);
+  });
+
+  test("AT4b: a quoted absence claim is not read as an asserted one", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        justification:
+          'The reviewer bot wrote "I have no OpenAI key" in its finding. Is that finding worth ' +
+          "acting on, or should I dismiss it?",
+      })
+    );
+    expect(matches).toEqual([]);
+  });
+
+  test("AT5: fired and non-fired turns both record the surface-E conjuncts", () => {
+    const fired = summarizeAskJustificationEvaluation(askTurn({}));
+    expect(fired).toEqual({
+      operatorRoutedAsks: 1,
+      absenceClaimPresent: true,
+      distinctChannels: 1,
+    });
+
+    const suppressed = summarizeAskJustificationEvaluation(
+      askTurn({
+        channels: [
+          { name: CREDENTIALS_LIST_TOOL },
+          { name: AI_VALIDATE_TOOL, input: { provider: "openai" } },
+        ],
+      })
+    );
+    expect(suppressed.absenceClaimPresent).toBe(true);
+    expect(suppressed.distinctChannels).toBe(2);
+
+    // The record carries them, so a review can recover the population by
+    // filtering rather than needing a separate denominator.
+    const record = buildEvaluationRecord(undefined, [], "", "prose-turn", fired);
+    expect(record["ask_justification"]).toEqual(fired);
+    expect(record["evaluated"]).toBe("prose-turn");
+  });
+
+  test("AT5b: distinctChannels is turn-level across MULTIPLE routed asks (PR #2920 R1)", () => {
+    const twoAsks: TranscriptLine[] = [
+      correlatedToolUse("toolu_c0", CREDENTIALS_LIST_TOOL, {}),
+      correlatedToolResult("toolu_c0", "{}"),
+      correlatedToolUse("toolu_c1", AI_VALIDATE_TOOL, { provider: "openai" }),
+      correlatedToolResult("toolu_c1", "{}"),
+      correlatedToolUse("toolu_a1", ASKS_CREATE_TOOL, { question: ANCHOR_JUSTIFICATION }),
+      correlatedToolResult("toolu_a1", OPERATOR_ROUTED_RESULT),
+      // A second routed ask whose `question` is NOT a string. The earlier
+      // implementation `continue`d before assigning the count, so this turn
+      // reported 0 channels despite having consulted two.
+      correlatedToolUse("toolu_a2", ASKS_CREATE_TOOL, { question: 42 }),
+      correlatedToolResult("toolu_a2", OPERATOR_ROUTED_RESULT),
+    ];
+
+    const summary = summarizeAskJustificationEvaluation(twoAsks);
+    expect(summary.operatorRoutedAsks).toBe(2);
+    expect(summary.distinctChannels).toBe(2);
+  });
+
+  test("AT6: surface E gets its OWN directive, not the probe one", () => {
+    const reminder = buildReminder([
+      { surface: ASK_JUSTIFICATION, matchedPhrase: "no OpenAI key", context: ANCHOR_JUSTIFICATION },
+    ]);
+    expect(reminder).toContain("ONE channel supports");
+    // The generic directive tells the agent to run a capability probe. On this
+    // surface it HAD run one — handing it that line invites reading a true
+    // positive as a false one (`guard-feedback-authoring.mdc §The directive has
+    // to fit the shape of the fire`).
+    expect(reminder).not.toContain(PROBE_DIRECTIVE);
+    expect(reminder).not.toContain("simpler shape");
+  });
+
+  test("AT6b: the anchor turn does not double-report across surfaces", () => {
+    const turn = askTurn({});
+    // The claim lives in the ask INPUT, not the assistant prose, so the prose
+    // surfaces see nothing — one incident, one record, which is the
+    // non-duplication property the A-vs-mt#2303 boundary test pins for the
+    // other direction.
+    expect(detectCapabilityDeferral(turn)).toEqual([]);
+    expect(detectPermissionDeferral(turn)).toEqual([]);
+    expect(detectDenialAnchoredDeferral(turn)).toEqual([]);
+    expect(detectAskJustificationAbsence(turn)).toHaveLength(1);
+  });
+
+  test("run() actually reports surface E — the wiring, not just the detector", () => {
+    // Every other test in this block calls `detectAskJustificationAbsence`
+    // directly, so deleting the surface from `run()`'s match list would leave
+    // them ALL green — the mt#3270 R1 shape this file's own comment warns
+    // about. This is the test that fails when the wiring goes.
+    const outcome = run(
+      { session_id: "s-e", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([userPrompt("run the replay corpus"), ...askTurn({}), userPrompt("next")])
+    );
+    const matches = outcome?.calibration?.["matches"] as Array<Record<string, unknown>> | undefined;
+    expect(matches?.some((m) => m["category"] === ASK_JUSTIFICATION)).toBe(true);
+  });
+
+  test("the calibration record keeps the shared matches shape", () => {
+    const matches = detectAskJustificationAbsence(askTurn({}));
+    const record = buildCalibrationRecord("sess-1", matches);
+    const entries = record["matches"] as Array<Record<string, unknown>>;
+
+    expect(entries[0]).toEqual({
+      category: ASK_JUSTIFICATION,
+      phrase: matches[0]?.matchedPhrase,
+      context: matches[0]?.context,
+    });
+    // `secondChannel` is advisory-only and must not leak into the record — the
+    // sweep parser reads this family without a per-detector branch.
+    expect(entries[0]).not.toHaveProperty("secondChannel");
+    const parsed = [record].map(
+      (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
+    );
+    expect(extractDistinctPhrases(parsed).size).toBe(1);
   });
 });
 

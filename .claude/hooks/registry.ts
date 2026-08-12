@@ -1857,9 +1857,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "operator-deferral",
     denyCapable: false,
     needsTranscript: true,
-    // MEASURED, not estimated (mt#3533). `buildReminder` at its saturated worst
-    // case — all three prose/denial surfaces matching at once, each `context` at
-    // its 240-char cap, so both directive branches render — is 1609 chars.
+    // MEASURED, not estimated (mt#3533; re-measured mt#3999). `buildReminder` at
+    // its saturated worst case — all FOUR prose/denial/ask-justification surfaces
+    // matching at once, each `context` at its 240-char cap and surface E's
+    // subject at `MAX_SUBJECT_CHARS`, so all three directive branches render — is
+    // 2068 chars. It was 1609 with three surfaces; mt#3999 added the fourth.
     // Bounded by construction: each detector returns at most one match and every
     // context is capped, so there is no unbounded axis (the property mt#3705
     // required after `guard-health-escalation-detector` was annotated off a
@@ -1873,7 +1875,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // measured against an empty string here. `operator-deferral-detector.test.ts`
     // now pins the render against this number directly; the structural gap in the
     // shape test is mt#4002.
-    attentionCost: { denialMessageSizeChars: 1650, optionCount: 1 },
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1909,10 +1911,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     denyCapable: false,
     needsTranscript: true,
     // Matches its sibling registration: same module, same renderer, so the same
-    // measured 1609 (mt#4002). It was left at 600 when mt#3533 corrected the
-    // sibling — the two registrations render identical text and only one was
-    // fixed, which the sweep caught.
-    attentionCost: { denialMessageSizeChars: 1650, optionCount: 1 },
+    // measured 2068 (mt#4002, re-measured mt#3999). It was left at 600 when
+    // mt#3533 corrected the sibling — the two registrations render identical text
+    // and only one was fixed, which the sweep caught. Kept in step deliberately:
+    // this surface never returns an `ask-justification` match, so the shared
+    // probe OVER-poses it, which is the safe direction for a ceiling.
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
     canary: {
       input: {
         transcript_path: "mt2889-canary-transcript",

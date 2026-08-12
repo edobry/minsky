@@ -68,7 +68,17 @@ import {
   findToolUseInputs,
   findDeniedToolCalls,
   findIndexedToolUses,
+  findToolCallsWithResults,
 } from "./transcript";
+import {
+  detectCapabilityAbsenceEscalation,
+  distinctProbeChannels,
+  isOperatorRoutedAskResult,
+  secondChannelFor,
+  MAX_SUBJECT_CHARS,
+  PROBE_SKILL_PREFIXES as DOMAIN_PROBE_SKILL_PREFIXES,
+} from "../../packages/domain/src/detectors/capability-absence-escalation";
+import type { ProbeObservation } from "../../packages/domain/src/detectors/capability-absence-escalation";
 import { isReshapedRetry, leadingTokenOf } from "./command-shape";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
@@ -117,7 +127,8 @@ export type DeferralSurface =
   | "capability-deferral-prose"
   | "permission-deferral-prose"
   | "ask-option-label"
-  | "denial-anchored";
+  | "denial-anchored"
+  | "ask-justification";
 
 export interface DeferralMatch {
   surface: DeferralSurface;
@@ -166,6 +177,22 @@ export interface DeferralMatch {
    * rather than assumed to still fit.
    */
   context: string;
+  /**
+   * The second channel this claim's SUBJECT should have been checked against
+   * (surface E only, mt#3999).
+   *
+   * Carried on the match rather than recomputed in the renderer because the
+   * subject is only available where the claim was matched, and the whole value
+   * of this surface's advisory is that it names a specific falsifier instead of
+   * repeating "run a probe" — which is the failure being detected, restated as
+   * advice.
+   *
+   * Not written to the calibration record: the record's shape is the shared
+   * `matches: {category, phrase, context}` family the sweep parser reads
+   * without a per-detector branch, and adding a field only one surface
+   * populates would break that uniformity for no measurement gain.
+   */
+  secondChannel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -435,21 +462,19 @@ export const PROBE_TOOL_NAME_PATTERN =
  * suppress a real deferral. Only services whose skill answers "do I have
  * access to this infra?" belong here; add a prefix when a new hosted-infra
  * skill family ships.
+ *
+ * **DERIVED from the domain list, not a second copy** (PR #2920 R1). Surface E's
+ * matcher needs the same allowlist to classify a skill load as a channel, and it
+ * cannot import from the hooks tree. The domain module is the single source; this
+ * wraps it in a Set for the `.has` lookup below. Add a prefix THERE.
+ *
+ * The sibling {@link PROBE_COMMAND_PATTERN} is deliberately NOT consolidated the
+ * same way: it and the domain's `shell-capability` channel rule are different
+ * sets on purpose. This one was narrowed by PR #2263 R1 (two members removed
+ * because they suppressed on non-probes), and merging it with a rule tuned for
+ * channel classification would silently undo that narrowing.
  */
-export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set([
-  "railway",
-  "cloudflare",
-  "supabase",
-  "github",
-  "gh",
-  "vercel",
-  "aws",
-  "gcloud",
-  "fly",
-  "heroku",
-  "docker",
-  "kubectl",
-]);
+export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set(DOMAIN_PROBE_SKILL_PREFIXES);
 
 /** True iff `skill` names a hosted-infra service skill (`railway:use-railway`). */
 export function isProbeSkill(skill: string): boolean {
@@ -645,6 +670,76 @@ export function detectDenialAnchoredDeferral(turnLines: TranscriptLine[]): Defer
           ? leadingTokenOf(deniedCommand)
           : (denial.toolName ?? "unknown-tool"),
         context: safeTruncate(deniedCommand ?? denial.toolName ?? "", 240, "head"),
+      },
+    ];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Surface E — ask-justification capability-absence (mt#3999)
+// ---------------------------------------------------------------------------
+
+/** `asks_create`, the only tool whose payload carries an ask JUSTIFICATION. */
+export const ASK_CREATE_TOOL_NAME_PATTERN = /(?:^|__)asks_create$/;
+
+/**
+ * Every tool call in the turn, reduced to what channel classification needs.
+ *
+ * Deliberately unfiltered — {@link classifyProbeChannel} decides what counts,
+ * and keeping that decision in the domain module is what lets it be tested
+ * without a transcript.
+ */
+export function collectProbeObservations(turnLines: TranscriptLine[]): ProbeObservation[] {
+  return findIndexedToolUses(turnLines).map((call) => ({
+    toolName: call.toolName,
+    command: typeof call.input["command"] === "string" ? call.input["command"] : undefined,
+    skill: typeof call.input["skill"] === "string" ? call.input["skill"] : undefined,
+  }));
+}
+
+/**
+ * Detect an operator-routed ask whose justification asserts a named capability
+ * does not exist, in a turn that consulted fewer than two distinct channels.
+ *
+ * **This surface does NOT use {@link hasProbeEvidence}, and that is the design.**
+ * On this task's anchor instance the agent DID probe — it called
+ * `config_credentials_list`, which is on that function's probe list — and that
+ * call is exactly what produced the false premise, returning exit-0 JSON that
+ * silently omitted the provider. A bare probe test would suppress this surface
+ * on the one incident it exists for. What was missing was a SECOND, independent
+ * channel, so the conjunct counts distinct channels instead.
+ *
+ * Erring toward firing follows this file's stated asymmetry: a false positive
+ * costs one glance at a calibration record, a false SUPPRESSION silently hides
+ * the failure the detector exists to catch.
+ *
+ * The routed-outcome conjunct reads the RESULT, not the input — `asks_create`
+ * has no `routingTarget` parameter, so the input side cannot see it.
+ */
+export function detectAskJustificationAbsence(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const probes = collectProbeObservations(turnLines);
+
+  for (const call of findToolCallsWithResults(turnLines)) {
+    if (!ASK_CREATE_TOOL_NAME_PATTERN.test(call.toolName)) continue;
+    if (!call.hasResult || !isOperatorRoutedAskResult(call.resultText)) continue;
+
+    const question = call.input["question"];
+    if (typeof question !== "string" || question.trim().length === 0) continue;
+
+    // Elided first so a justification QUOTING someone else's absence claim — a
+    // pasted error, a cited review comment — is not read as one it asserted.
+    const scanned = elideDoubleQuotedSpans(elideQuotedContexts(question));
+    const result = detectCapabilityAbsenceEscalation({ justification: scanned, probes });
+    const claim = result.claims[0];
+    if (!result.matched || !claim) continue;
+
+    return [
+      {
+        surface: "ask-justification",
+        matchedPhrase: claim.phrase,
+        context: safeTruncate(claim.excerpt, 240, "head"),
+        secondChannel: secondChannelFor(claim.subject, claim.phrase),
       },
     ];
   }
@@ -951,11 +1046,69 @@ function askEvaluationText(toolInput: Record<string, unknown> | undefined): stri
  */
 export type EvaluatedUnit = "prose-turn" | "ask-tool-call";
 
+/**
+ * Surface E's per-turn conjunct outcomes (mt#3999).
+ *
+ * Carried on the SAME `prose-turn` record rather than as a third
+ * {@link EvaluatedUnit}, and the reason is what that type means: the unit is the
+ * grain that was evaluated, and surface E's grain IS the completed turn — it
+ * runs in the same `UserPromptSubmit` pass as A/C/D. Its POPULATION is narrower
+ * (turns that created an operator-routed ask), and a population is a filter on a
+ * denominator, not a different one. `operatorRoutedAsks` is what a review
+ * filters on to get that population back, so no measurement is lost and one turn
+ * still produces exactly one record.
+ */
+export interface AskJustificationEvaluation {
+  /** `asks_create` calls in the turn whose RESULT said the router chose the operator. */
+  operatorRoutedAsks: number;
+  /** Whether any such justification carried a capability-absence claim. */
+  absenceClaimPresent: boolean;
+  /** Distinct probe channels the turn consulted — the conjunct that suppresses. */
+  distinctChannels: number;
+}
+
+/** Compute {@link AskJustificationEvaluation} for the turn, fired or not. */
+export function summarizeAskJustificationEvaluation(
+  turnLines: TranscriptLine[]
+): AskJustificationEvaluation {
+  const probes = collectProbeObservations(turnLines);
+  let operatorRoutedAsks = 0;
+  let absenceClaimPresent = false;
+
+  for (const call of findToolCallsWithResults(turnLines)) {
+    if (!ASK_CREATE_TOOL_NAME_PATTERN.test(call.toolName)) continue;
+    if (!call.hasResult || !isOperatorRoutedAskResult(call.resultText)) continue;
+    operatorRoutedAsks += 1;
+    const question = call.input["question"];
+    if (typeof question !== "string") continue;
+    const result = detectCapabilityAbsenceEscalation({
+      justification: elideDoubleQuotedSpans(elideQuotedContexts(question)),
+      probes,
+    });
+    if (result.claims.length > 0) absenceClaimPresent = true;
+  }
+
+  return {
+    operatorRoutedAsks,
+    absenceClaimPresent,
+    // Computed ONCE from the turn's probes, not read off the loop (PR #2920 R1).
+    // Channels are a property of the TURN — `detectCapabilityAbsenceEscalation`
+    // derives them from `probes` alone, which does not vary per ask — so the
+    // earlier per-iteration assignment could not actually differ between asks.
+    // It was still wrong on a path the review did not name: an ask whose
+    // `question` is not a string `continue`s BEFORE the assignment, so a turn
+    // with such an ask reported 0 channels while having consulted several. One
+    // turn-level computation has no such path, and reads as what it is.
+    distinctChannels: distinctProbeChannels(probes).length,
+  };
+}
+
 export function buildEvaluationRecord(
   sessionId: string | undefined,
   matches: DeferralMatch[],
   scannedText: string,
-  evaluated: EvaluatedUnit = "prose-turn"
+  evaluated: EvaluatedUnit = "prose-turn",
+  askJustification?: AskJustificationEvaluation
 ): Record<string, unknown> {
   return {
     timestamp: new Date().toISOString(),
@@ -964,6 +1117,7 @@ export function buildEvaluationRecord(
     fired: matches.length > 0,
     surfaces: matches.map((m) => m.surface),
     text_tail: safeTruncate(scannedText, EVALUATION_TAIL_CHARS, "tail"),
+    ...(askJustification ? { ask_justification: askJustification } : {}),
   };
 }
 
@@ -1048,7 +1202,21 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "security concern, stop and escalate."
     );
   }
-  if (matches.some((m) => m.surface !== "denial-anchored")) {
+  // Surface E owes its own directive for the same reason the denial surface
+  // does, and the mismatch here would be worse than generic: the generic branch
+  // below says "run the capability probe", and on this surface's anchor instance
+  // the agent HAD run one — a single channel that returned a clean, wrong
+  // answer. Handing it that line invites reading a true positive as false.
+  const askJustification = matches.find((m) => m.surface === "ask-justification");
+  if (askJustification) {
+    lines.push(
+      "This ask spends operator attention on a claim ONE channel supports. Check " +
+        `${askJustification.secondChannel ?? "a second, independent channel"} first — a clean ` +
+        "exit-0 listing can omit what a validation call confirms. If you did check two, say " +
+        "which, in the ask."
+    );
+  }
+  if (matches.some((m) => m.surface !== "denial-anchored" && m.surface !== "ask-justification")) {
     lines.push(
       "Run the capability probe BEFORE deferring, per `user-preferences.mdc §Probe before " +
         "deferring`: `which <cli> && <cli> whoami`; a `<service>:*` skill; `config_get` for the " +
@@ -1069,11 +1237,15 @@ export function buildReminder(matches: DeferralMatch[]): string {
  * (mt#4002).
  *
  * Bounded by construction on every axis: `run()` returns at most one match per
- * surface and there are three prose/denial surfaces, and every `context` is
- * capped at 240 chars by `extractMatchContext` / `safeTruncate`. Three matches
- * also means BOTH directive branches render, which is the real worst case —
- * posing only the denial branch would measure the axis this task changed rather
- * than the largest output (`guard-feedback-authoring.mdc`).
+ * surface and there are FOUR prose/denial/ask surfaces (mt#3999 added the
+ * fourth), and every `context` is capped at 240 chars by `extractMatchContext` /
+ * `safeTruncate`. Four matches also means ALL THREE directive branches render,
+ * which is the real worst case — posing only the branch a task changed measures
+ * that axis rather than the largest output (`guard-feedback-authoring.mdc`).
+ *
+ * Surface E's `secondChannel` is posed at its own ceiling too: the credential
+ * branch (the longer of the two) with the subject at `MAX_SUBJECT_CHARS`. That
+ * cap is what keeps this a proved ceiling rather than a saturated sample.
  */
 export function renderWorstCase(): string {
   const context = "x".repeat(240);
@@ -1081,6 +1253,12 @@ export function renderWorstCase(): string {
     { surface: "capability-deferral-prose", matchedPhrase: "p0", context },
     { surface: "permission-deferral-prose", matchedPhrase: "p1", context },
     { surface: "denial-anchored", matchedPhrase: "p2", context },
+    {
+      surface: "ask-justification",
+      matchedPhrase: "p3",
+      context,
+      secondChannel: secondChannelFor("s".repeat(MAX_SUBJECT_CHARS), "no OpenAI key"),
+    },
   ]);
 }
 
@@ -1105,19 +1283,26 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   try {
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
-    // Surface A, then C (mt#3463), then D (mt#3533). Each returns at most one
-    // match, and a turn that trips several is reported as all of them — they are
-    // different failures, not several names for one.
+    // Surface A, then C (mt#3463), then D (mt#3533), then E (mt#3999). Each
+    // returns at most one match, and a turn that trips several is reported as
+    // all of them — they are different failures, not several names for one.
     const matches = [
       ...detectCapabilityDeferral(turnLines),
       ...detectPermissionDeferral(turnLines),
       ...detectDenialAnchoredDeferral(turnLines),
+      ...detectAskJustificationAbsence(turnLines),
     ];
     // Recorded for EVERY evaluated turn, including the no-match case — that is
     // the half the calibration log cannot provide (see buildEvaluationRecord).
     appendEvaluationRecord(
       input.cwd,
-      buildEvaluationRecord(input.session_id, matches, extractAssistantText(turnLines) ?? "")
+      buildEvaluationRecord(
+        input.session_id,
+        matches,
+        extractAssistantText(turnLines) ?? "",
+        "prose-turn",
+        summarizeAskJustificationEvaluation(turnLines)
+      )
     );
     return toOutcome(matches, input.session_id);
   } catch (err) {
@@ -1212,16 +1397,23 @@ export async function main(): Promise<void> {
     } else {
       const turnLines = extractLastAssistantTurn(lines);
       if (turnLines.length > 0) {
-        // Same surfaces as `run()` (mt#3463, mt#3533). Wiring one entrypoint and
-        // not the other is the mt#3270 R1 shape.
+        // Same surfaces as `run()` (mt#3463, mt#3533, mt#3999). Wiring one
+        // entrypoint and not the other is the mt#3270 R1 shape.
         matches = [
           ...detectCapabilityDeferral(turnLines),
           ...detectPermissionDeferral(turnLines),
           ...detectDenialAnchoredDeferral(turnLines),
+          ...detectAskJustificationAbsence(turnLines),
         ];
         appendEvaluationRecord(
           input.cwd,
-          buildEvaluationRecord(input.session_id, matches, extractAssistantText(turnLines) ?? "")
+          buildEvaluationRecord(
+            input.session_id,
+            matches,
+            extractAssistantText(turnLines) ?? "",
+            "prose-turn",
+            summarizeAskJustificationEvaluation(turnLines)
+          )
         );
       }
     }

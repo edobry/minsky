@@ -1,8 +1,12 @@
 # operator-deferral-detector
 
-Two calibration-first, LOG-ONLY detection surfaces for the **operator-deferral family** —
+Calibration-first, LOG-ONLY detection surfaces for the **operator-deferral family** —
 the agent handing the principal an action it could have performed itself, without first
 running the capability probe `user-preferences.mdc §Probe before deferring` requires.
+
+**There are FIVE surfaces; sections A and B below were the original two.** The full set is
+enumerated under "The page says two surfaces above" — read that before assuming this page's
+opening sections are the whole detector.
 
 Source: `.minsky/hooks/operator-deferral-detector.ts` (generated copy:
 `.claude/hooks/operator-deferral-detector.ts` — do not hand-edit).
@@ -94,9 +98,9 @@ a **decision** being deferred to the principal in chat prose instead of through 
 substrate. This detector covers an **action** being deferred. A turn can legitimately fire
 both.
 
-## The page says "two surfaces" above; there are now FOUR
+## The page says "two surfaces" above; there are now FIVE
 
-Sections A and B predate the two added later. The full set:
+Sections A and B predate the three added later. The full set:
 
 **C. Permission-deferral prose (mt#3463)** — "I can, shall I?" rather than "I can't". It
 EXCLUDES genuinely destructive or principal-reserved actions, because for those the ask is
@@ -120,6 +124,51 @@ stop-and-escalate carve-out, where stopping is the correct response. That contro
 **SYNTHETIC**: zero of the 73 denials in the local corpus carried a security framing, so the
 regression test is built from mem#276's recorded 2026-04-23 reason string and is labeled
 synthetic in the test rather than presented as a replay.
+
+**E. Ask-justification capability-absence (mt#3999)** — an `asks_create` the router sent to
+the **operator**, whose justification asserts a named capability, credential, tool or flag
+does not exist, in a turn that consulted **fewer than two distinct channels**.
+
+Three things about this surface are easy to get wrong later, so they are recorded here.
+
+**It does NOT suppress on `hasProbeEvidence`, deliberately.** On its own anchor instance the
+agent HAD probed — it called `config_credentials_list`, which is on that function's probe list
+— and that call is exactly what produced the false premise, returning exit-0, well-formed JSON
+that silently omitted the provider. Suppressing on "did it probe at all" would blind this
+surface to the only incident it exists for. What was missing was a SECOND, independent channel
+(`ai_providers_list` and `ai_validate` both reported the credential present the whole time), so
+the conjunct counts DISTINCT channel families instead — `config-store` and `provider-validate`
+are different channels; two calls to the config store are one. Erring toward firing follows this
+detector's stated asymmetry: a false positive costs a glance at a record, a false suppression
+hides the failure silently.
+
+**The routed-outcome conjunct reads the RESULT, not the input.** `asks_create` has no
+`routingTarget` parameter — routing is computed downstream by `policyFirstRoute` from kind +
+severity plus a policy phase — so the input side is genuinely blind to it. The result is
+`RoutedAsk | SuspendedAsk | ElicitationClosedAsk` and all three carry the field, joined to the
+call by mt#3918's `findToolCallsWithResults`. A **policy-covered ask is EXCLUDED** rather than
+counted: it short-circuits to closed with `routingTarget: "policy"`, never reaches a human, and
+so spends none of the attention this surface is about.
+
+**Its phrase family is a THIRD one, not a widening of an existing corpus.** Measured before
+shipping, by running both existing corpora against the two recorded instances: surface A's
+`CAPABILITY_DEFERRAL_PATTERNS` matches NEITHER, and mt#3918's `NEGATIVE_EXISTENCE_PATTERNS`
+matches neither either. The shapes are distinct — surface A is deferral of an ACTION ("requires
+Railway access"), mt#3918 is absence of CALLERS ("nothing calls onProgress"), this is absence of
+a CAPABILITY ("I have no OpenAI key"). A test pins the mutual non-coverage in both directions,
+so a future widening of any of the three cannot silently start double-firing on one sentence.
+
+The anchor is **n=1** and the spec says so: only the credential instance (2026-08-01, mt#3547,
+ask#6754) occurred at an ask. The 90-minutes-later bun `--changed` instance was chat prose plus
+a build decision, with no ask at all — it belongs to surface A's population and is retained as
+evidence about the FAMILY's rate, not as a fixture. n=1 is proportionate because the increment
+is a surface on an existing detector; it would not carry a fifth standalone detector.
+
+Surface E's advisory has **its own directive**, per `guard-feedback-authoring.mdc §The directive
+has to fit the shape of the fire`. The generic branch says "run the capability probe", which on
+this surface is the wrong instruction and invites reading a true positive as a false one — so
+surface E is excluded from that branch and names the concrete second channel for the claim's
+subject instead.
 
 ### What the matcher does NOT treat as a deferral (mt#3865)
 
@@ -173,13 +222,22 @@ record silent for those reasons is not one the tune removed.
 
 ### The evaluation stream
 
-The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL FOUR surfaces,
+The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL FIVE surfaces,
 fired or not — the miss RATE is what ADR-024's rung decisions need, and a fire-only log cannot
 give it.
 
 Records carry `evaluated: "prose-turn" | "ask-tool-call"`. **Group by that field rather than
 pooling**: the two are different denominators — per completed turn versus per `AskUserQuestion`
 call — so a pooled rate is not a rate of anything.
+
+**Surface E did NOT add a third value, and that is a judgment about what the field means**
+(mt#3999). `evaluated` names the GRAIN that was evaluated, and surface E's grain is the completed
+turn — it runs in the same `UserPromptSubmit` pass as A/C/D. Its population is narrower (turns
+that created an operator-routed ask), and a population is a filter on a denominator, not a
+different one. So a qualifying turn still produces exactly ONE record, which carries an
+`ask_justification: {operatorRoutedAsks, absenceClaimPresent, distinctChannels}` object. Recover
+surface E's population by filtering on `operatorRoutedAsks > 0`; `distinctChannels` is the
+suppressing conjunct, so it is what a miss-rate review reads.
 
 Graduation threshold for surface D specifically: a `/calibration-review` pass over >=10
 classified fires, per ADR-024's ladder.
@@ -205,5 +263,11 @@ because it shipped — it works only when its fire-log proves it covered its spa
 - mt#1819, mt#1988 — the rule-tier fixes this escalates past
 - mt#1833 — the skill/rule tier that deferred the AskUserQuestion hook pending R5's evidence
 - mt#3154 — generalizes probe-before-deferring to the self-improvise (act) path; complementary surface
+- mt#3999 — surface E (ask-justification capability-absence); matcher in
+  `packages/domain/src/detectors/capability-absence-escalation.ts`
+- mt#3918 / `negative-existence-claim-detector.md` — the sibling absence-of-CALLERS detector,
+  whose `findToolCallsWithResults` join surface E reuses; the two corpora are pinned
+  mutually non-covering by test
+- mem#804 — the family's bridge memory, whose budget this slice spent
 - mem#582 (R5 incident, replayed as a test fixture) · mem#535 (R2/R4, owned by mt#2303)
 - mem#528 — why the tool-interleaved test fixture is mandatory for any turn-scanning hook
