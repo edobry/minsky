@@ -453,6 +453,16 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // requires a session, or signing in would require already being signed in.
     app.use(createPasskeyAuthRouter(passkeyDeps));
     app.use(requirePasskeySession(passkeyDeps));
+  } else {
+    // The SPA asks every cockpit whether it is gated. A local daemon must
+    // answer "no" EXPLICITLY: leaving the route unmounted would hand the
+    // question to the SPA catch-all, which answers unmatched GETs with
+    // index.html — an HTML 200 the client cannot distinguish from a real
+    // answer, and would fail closed on. That would lock the local daemon out
+    // of itself (mt#4023).
+    app.get("/api/auth/status", (_req, res) => {
+      res.json({ gated: false, authenticated: true, enrollmentOpen: false });
+    });
   }
 
   // NO permissive CORS is set anywhere in this file — that absence IS the

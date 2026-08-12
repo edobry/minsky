@@ -433,6 +433,29 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       expect(res.status).toBe(200);
     });
 
+    test("a LOCAL daemon answers /api/auth/status with gated:false (mt#4023)", async () => {
+      // Regression guard for a near-miss: if this route were simply left
+      // unmounted locally, the SPA catch-all would answer it with index.html —
+      // an HTML 200 the client fails closed on, locking the local daemon out
+      // of itself. The explicit answer is what keeps local behavior unchanged.
+      const s = await startTestServer({});
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/auth/status`);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain(CONTENT_TYPE_JSON);
+      expect(await res.json()).toMatchObject({ gated: false });
+    });
+
+    test("the GATED deployment reports gated:true and unauthenticated (mt#4023)", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: alwaysAuthenticatedPasskeyStore(),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/auth/status`);
+      expect(await res.json()).toMatchObject({ gated: true, authenticated: false });
+    });
+
     test("requires a passkey session — an unauthenticated request is rejected with 401 (mt#4023)", async () => {
       const s = await startTestServer({
         isPublicDeployment: true,
@@ -533,7 +556,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       closeList.push(s.close);
       const res = await fetch(`${s.url}/api/health`);
       expect(res.status).toBe(200);
-      expect(res.headers.get("content-type") ?? "").toContain("application/json");
+      expect(res.headers.get("content-type") ?? "").toContain(CONTENT_TYPE_JSON);
     });
 
     test("/assets/* still returns a JavaScript content type", async () => {

@@ -332,6 +332,11 @@ export function createPasskeyAuthRouter(deps: PasskeyAuthDeps): Router {
     void (async () => {
       try {
         res.json({
+          // `gated: true` says an auth gate is present here. The client cannot
+          // infer that from a 404, because the SPA catch-all answers unmatched
+          // GETs with index.html — an unmounted route looks like a successful
+          // HTML response, not a missing one.
+          gated: true,
           authenticated: await hasValidSession(resolved, req),
           enrollmentOpen: await enrollmentOpen(),
         });
