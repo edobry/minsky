@@ -222,11 +222,18 @@ export const INJECTION_ENABLED = true;
  */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_WALL_OF_TEXT";
 
-import {
-  CAPTURE_SCHEMA_FIELD,
-  CAPTURE_SCHEMA_VERSION,
-  captureArtifact,
-} from "./judged-input-capture";
+// PR #2928 R1: `captureArtifact` only — deliberately NOT `CAPTURE_SCHEMA_FIELD`.
+// That marker means "this writer captured its JUDGED input", and
+// `hasJudgedInputCapture` is what downstream consumers key on to decide whether
+// a record is re-classifiable. This detector's judged input is the report
+// (`excerpt` + `textHash`), captured on every record since long before the
+// shared scheme existed; the preceding prompt is an auxiliary, optional
+// capture of a DIFFERENT message. Stamping the marker here would have made
+// `hasJudgedInputCapture` true for some wall-of-text records and false for
+// others while the judged-text capture never changed. Whether this writer
+// should join the scheme for its judged text is mt#4001's census question,
+// not this task's.
+import { captureArtifact } from "./judged-input-capture";
 // The same elision every turn-text capture uses. Imported rather than
 // re-implemented, as `negative-existence-claim-detector.ts` already does.
 import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
@@ -1171,10 +1178,7 @@ function buildCalibrationRecord(
     // planning audit.
     precedingPromptStatus,
     ...(questionCheck.promptText !== undefined
-      ? {
-          [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
-          precedingPrompt: captureArtifact(elideBlocksAndQuotes(questionCheck.promptText)),
-        }
+      ? { precedingPrompt: captureArtifact(elideBlocksAndQuotes(questionCheck.promptText)) }
       : {}),
   };
 }

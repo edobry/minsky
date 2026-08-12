@@ -1724,8 +1724,8 @@ describe("preceding-prompt capture (mt#4048)", () => {
   test("AT1: a substantive question is captured on the record", () => {
     const cal = recordFor("Why did the dedup miss on the second scan?", plainOverBudgetReport());
     expect(cal[STATUS_KEY]).toBe("captured");
-    expect(cal["captureSchema"]).toBe(1);
     const captured = cal["precedingPrompt"] as { excerpt: string; truncated: boolean };
+    // The observable that matters: the recorded prompt IS the opening prompt.
     expect(captured.excerpt).toContain("Why did the dedup miss");
     expect(captured.truncated).toBe(false);
     // Consistency: the override fired, and the recorded prompt is the one it
@@ -1739,6 +1739,16 @@ describe("preceding-prompt capture (mt#4048)", () => {
     const captured = cal["precedingPrompt"] as { excerpt: string };
     expect(captured.excerpt).toContain("go ahead and ship it");
     expect(cal["suppressedByQuestionAnswer"]).toBe(false);
+  });
+
+  test("PR #2928 R1: the shared judged-input marker is NOT stamped for this capture", () => {
+    // `hasJudgedInputCapture` means "this writer captured its JUDGED input".
+    // The preceding prompt is a different message, so stamping the marker for it
+    // would make that predicate answer differently across records whose
+    // judged-text capture is identical.
+    const cal = recordFor("Why did the dedup miss?", plainOverBudgetReport());
+    expect(cal["precedingPrompt"]).toBeDefined();
+    expect(cal["captureSchema"]).toBeUndefined();
   });
 
   test("AT3: an unresolved prompt is distinguishable from an empty one", () => {
