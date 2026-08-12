@@ -249,6 +249,10 @@ import {
   withP0RecoveryMarker,
 } from "../packages/domain/src/deployment/monitor-p0-resolution";
 
+// mt#2782: the secondary alert channel's decisions — coalesce, payload shape,
+// and reading the response as an OUTCOME rather than a transport status.
+import { runAskAlert } from "../packages/domain/src/deployment/monitor-ask-alert";
+
 // ---------------------------------------------------------------------------
 // Service definitions — discovered at runtime from deploy.config.ts files
 // ---------------------------------------------------------------------------
@@ -1442,9 +1446,25 @@ async function resolveP0IfRecovered(
 const MINSKY_MCP_URL = "https://minsky-mcp-production.up.railway.app/mcp";
 const MCP_TIMEOUT_MS = 15_000;
 
-async function alertViaMcp(mcpAuthToken: string, subject: string, details: string): Promise<void> {
-  // Minimal JSON-RPC asks_create call over HTTP MCP.
-  // This path is fire-and-forget; any error is caught by the caller.
+async function alertViaMcp(
+  mcpAuthToken: string,
+  service: string,
+  failureClass: string,
+  subject: string,
+  details: string
+): Promise<void> {
+  // JSON-RPC asks_create over HTTP MCP (mt#2782).
+  //
+  // This path had never created an ask AND logged "sent successfully" every
+  // time, because it checked only the HTTP status — a JSON-RPC error comes back
+  // as 200 with an `error` member. Three things changed:
+  //   1. the registered tool name, not the Claude Code harness prefix;
+  //   2. declared params only (title/question/metadata), not subject/body/priority;
+  //   3. success is the RETURNED ASK ID. `parseAskCreateResponse` treats an
+  //      accepted call that created nothing as a failure, which is the case
+  //      "it didn't throw" cannot see.
+  // It also coalesces, so a sustained outage does not open one ask per 10-minute
+  // tick. Decisions live in the domain module; the fetches stay here.
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), MCP_TIMEOUT_MS);
 
@@ -1480,37 +1500,57 @@ async function alertViaMcp(mcpAuthToken: string, subject: string, details: strin
       throw new Error("MCP init response missing mcp-session-id header");
     }
 
-    // Call asks_create with a coordination.notify ask.
-    const callRes = await fetch(MINSKY_MCP_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${mcpAuthToken}`,
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-        "mcp-session-id": sessionId,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/call",
-        params: {
-          name: "mcp__minsky__asks_create",
-          arguments: {
-            kind: "coordination.notify",
-            subject,
-            body: details,
-            priority: "p0",
-          },
+    const callTool = async (id: number, name: string, args: object): Promise<unknown> => {
+      const res = await fetch(MINSKY_MCP_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${mcpAuthToken}`,
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "mcp-session-id": sessionId,
         },
-      }),
-      signal: controller.signal,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name, arguments: args },
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // Still checked — a transport failure is a real failure. It is just no
+        // longer treated as the ONLY way this can fail.
+        throw new Error(`MCP ${name} HTTP ${res.status}`);
+      }
+      // Deliberately untyped at this boundary: the two parsers in
+      // monitor-ask-alert.ts take `unknown` and do the narrowing, which is where
+      // the shape assertions are tested. Typing it here would be a claim about
+      // the wire format that nothing checks.
+      const parsed: unknown = await res.json();
+      return parsed;
+    };
+
+    // List -> decide -> create -> verify. The sequence lives in the domain
+    // module so it is testable end-to-end with an injected caller (PR #2888 R1);
+    // this shell owns only the session and the JSON-RPC envelope.
+    let nextRequestId = 2;
+    const result = await runAskAlert({
+      callTool: (name, args) => callTool(nextRequestId++, name, args),
+      service,
+      failureClass,
+      subject,
+      details,
     });
 
-    if (!callRes.ok) {
-      throw new Error(`MCP asks_create HTTP ${callRes.status}`);
+    if (result.outcome === "coalesced") {
+      console.log(
+        `[mcp] asks_create skipped — ask ${result.existingAskId} is already open for ` +
+          `${service}/${failureClass} (coalesced)`
+      );
+      return;
     }
 
-    console.log("[mcp] asks_create coordination.notify sent successfully");
+    console.log(`[mcp] asks_create created ask ${result.askId} for ${service}/${failureClass}`);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -2037,7 +2077,7 @@ async function main(): Promise<void> {
           // the raw class name ("check-failed") is not a sentence an operator
           // can act on, and a second mapping would drift from the first.
           const subject = `${issueTitle(svc.name, alert.class)} — GitHub issue ${issueUrl}`;
-          await alertViaMcp(mcpAuthToken, subject, alert.details);
+          await alertViaMcp(mcpAuthToken, svc.name, alert.class, subject, alert.details);
         } catch (err) {
           // Best-effort: log but NEVER suppress the primary path.
           console.warn(`  [mcp] secondary alert failed (non-fatal): ${err}`);
