@@ -1,6 +1,7 @@
 {
   "_generated": "by scripts/build-interceptor-catalog.ts — do not edit directly",
   "generatedFrom": [
+    ".minsky/hooks/interceptor-coordinates.ts",
     ".minsky/hooks/interceptor-descriptions.ts",
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
@@ -67,7 +68,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "ask-routing-deferral-detector",
@@ -82,7 +96,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "auto-session-title",
@@ -95,7 +127,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "bare-prohibition",
@@ -111,7 +157,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-concurrent-bulk-mutation",
@@ -126,7 +190,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-git-gh-cli",
@@ -138,7 +215,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-nested-fork-dispatch",
@@ -150,7 +240,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-out-of-band-merge",
@@ -162,7 +265,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-secret-file-read",
@@ -174,7 +290,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-subagent-bypass-merge",
@@ -189,7 +318,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "block-subagent-merge-without-grant",
@@ -204,7 +346,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "build-claim-injection-detector",
@@ -216,7 +371,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "bun-build-sync-check",
@@ -228,7 +397,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "calibration-review-cadence-detector",
@@ -244,7 +426,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "causal-premise-detector",
@@ -259,7 +455,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "chained-verification-commands",
@@ -274,7 +484,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "check-branch-fresh",
@@ -286,7 +510,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "check-generated-file-edit",
@@ -298,7 +535,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "check-guessed-session-path",
@@ -310,7 +560,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "check-task-spec-read",
@@ -322,7 +585,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "claude-hooks-compile-regen",
@@ -334,7 +610,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "code-formatting",
@@ -346,7 +635,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "code-mechanism-assertion-detector",
@@ -361,7 +663,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "compile-check",
@@ -373,7 +693,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "completion-manifest-regen",
@@ -385,7 +718,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "constructed-identifier-batch-detector",
@@ -400,7 +746,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "denier",
@@ -413,7 +773,16 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
     },
     {
       "guardName": "deploy-domain-check",
@@ -425,7 +794,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "dispatch-intent-write-gate",
@@ -437,7 +819,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "dockerfile-bun-build-regen",
@@ -449,7 +844,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "dockerfile-workspace-copy-regen",
@@ -461,7 +869,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "duplicate-check-search-provenance",
@@ -473,7 +894,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "duplicate-generated-content-check",
@@ -488,7 +927,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "duplicate-signature-scan",
@@ -500,7 +952,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "eslint-rule-tests",
@@ -512,7 +978,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "eslint-validation",
@@ -524,7 +1003,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "fast-related-tests",
@@ -536,7 +1028,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "first-guard",
@@ -549,7 +1054,16 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
     },
     {
       "guardName": "flakiness-control-detector",
@@ -564,7 +1078,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "guard-health-escalation-detector",
@@ -580,7 +1112,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "hook-permission-check",
@@ -592,7 +1138,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "immutable-migration-check",
@@ -604,7 +1163,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "inject-current-time",
@@ -616,7 +1188,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "inject-dispatch-watchdog",
@@ -628,7 +1214,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "inject-git-state",
@@ -640,7 +1240,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "inject-memory-capture",
@@ -652,7 +1266,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "inject-prod-state",
@@ -664,7 +1292,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "knowledge-acquisition-detector",
@@ -679,7 +1321,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "mcp-daemon-staleness-detector",
@@ -692,7 +1348,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "memory-search",
@@ -704,7 +1374,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "embedding",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "migration-collision-check",
@@ -716,7 +1400,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "migration-guard-and-duplicate-content-check",
@@ -729,7 +1426,20 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "authored",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "migration-guard-check",
@@ -741,7 +1451,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "migration-journal-check",
@@ -753,7 +1476,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "mt3612-live-rewrite",
@@ -766,7 +1502,16 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
     },
     {
       "guardName": "negative-existence-claim-detector",
@@ -781,7 +1526,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "node-shim-check",
@@ -793,7 +1552,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "nul-byte-check",
@@ -805,7 +1577,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "operator-deferral-ask-surface",
@@ -817,7 +1602,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "operator-deferral-detector",
@@ -832,7 +1631,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "overridden-guard",
@@ -845,7 +1658,16 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
     },
     {
       "guardName": "policy-coverage",
@@ -858,7 +1680,31 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        },
+        {
+          "type": "allow"
+        },
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard", "detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "pre-narration-detector",
@@ -870,7 +1716,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "rationalization-review",
@@ -883,7 +1747,16 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
     },
     {
       "guardName": "record-agent-dispatch",
@@ -895,7 +1768,28 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "mutate"
+        },
+        {
+          "type": "record",
+          "audience": "framework"
+        },
+        {
+          "type": "record",
+          "audience": "operator"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "record-turn-anchor",
@@ -908,7 +1802,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["canary"],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-checks-on-bypass-merge",
@@ -923,7 +1831,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-deploy-verification-before-merge",
@@ -938,7 +1859,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-duplicate-check-record",
@@ -953,7 +1887,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-execution-evidence-before-merge",
@@ -968,7 +1915,24 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard", "detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-growth-justification-before-merge",
@@ -983,7 +1947,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-review-before-merge",
@@ -998,7 +1975,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "require-session-for-main-workspace-edits",
@@ -1013,7 +2003,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "retrospective-completeness-detector",
@@ -1028,7 +2031,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["attentionCost", "canary"],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "retrospective-trigger-scanner",
@@ -1043,7 +2060,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "rules-compile-check",
@@ -1055,7 +2090,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "second-guard",
@@ -1068,7 +2116,16 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
     },
     {
       "guardName": "secret-scanning",
@@ -1080,7 +2137,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "silent-stretch-detector",
@@ -1095,7 +2165,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "skill-staleness-detector",
@@ -1111,7 +2199,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "standalone-duplicate-matcher",
@@ -1127,7 +2229,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "authored",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "embedding",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "stop-at-decision-scan",
@@ -1139,7 +2255,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["attentionCost", "canary"],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "substrate-bypass-detector",
@@ -1154,7 +2284,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "tasks-status-set-guard",
@@ -1166,7 +2314,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "turn-end-bare-ref-scan",
@@ -1182,7 +2343,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "turn-end-retro-scan",
@@ -1194,7 +2373,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "turn-end-unescalated-incident-scan",
@@ -1209,7 +2406,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "turn-end-untaken-action-scan",
@@ -1224,7 +2439,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "turn-end-unwalked-task-scan",
@@ -1239,7 +2472,25 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "type-check",
@@ -1251,7 +2502,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "unit-tests",
@@ -1264,7 +2528,20 @@
       "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "authored",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "validate-task-spec",
@@ -1276,7 +2553,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "variable-naming-check",
@@ -1288,7 +2578,20 @@
       "provenanceStatus": "implementation",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
-      "undescribed": false
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     },
     {
       "guardName": "wall-of-text-detector",
@@ -1300,7 +2603,21 @@
       "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": false
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
     }
   ]
 }

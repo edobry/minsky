@@ -1,9 +1,10 @@
 /**
- * Interceptors widget (mt#4010 slice 1)
+ * Interceptors widget (mt#4010 slice 1; axes added by mt#4056 slice 1b)
  *
  * Serves the interceptor catalog — one entry per declared interceptor, with its
- * stratum, description, failure classes, provenance and enumerated coverage
- * gaps — to the cockpit's `/interceptors` route.
+ * stratum, description, failure classes, provenance, enumerated coverage gaps,
+ * and (slice 1b) the three axes plus the computed family filters — to the
+ * cockpit's `/interceptors` route.
  *
  * The data is a STATIC generated artifact (`src/generated/interceptor-catalog.json`,
  * built by `scripts/build-interceptor-catalog.ts`), imported rather than read
@@ -41,6 +42,58 @@ export type InterceptorStratum = "registry" | "standalone" | "precommit" | "reti
 
 export type InterceptorCoverageGap = "tuningOwnership" | "attentionCost" | "canary";
 
+/** Axis 1 — where in the trajectory an interceptor sits (ontology §2). */
+export type InterceptionPoint =
+  | "PreToolUse"
+  | "PostToolUse"
+  | "Stop"
+  | "SubagentStop"
+  | "UserPromptSubmit"
+  | "SessionEnd"
+  | "MessageDisplay"
+  | "pre-commit"
+  | "merge-time";
+
+/** Axis 2 — the eight intervention types. */
+export type InterventionType =
+  | "deny"
+  | "allow"
+  | "inject"
+  | "mutate"
+  | "record"
+  | "notify-escalate"
+  | "delegate"
+  | "ask-and-pause";
+
+export type InterventionAudience = "agent" | "principal" | "operator" | "framework" | "review";
+
+export interface Intervention {
+  type: InterventionType;
+  /** Omitted where the type does not take one (`deny`, `allow`, `mutate`). */
+  audience?: InterventionAudience;
+}
+
+/** Axis 3 — how it decides. `structural` extends ADR-024's ladder (ontology §2). */
+export type DecisionMechanism = "constant" | "structural" | "lexical" | "embedding" | "model";
+
+/** Entity strata, dimension 2 — role on the trajectory (ontology §5). */
+export type InterceptorRole = "judge" | "feeder" | "infrastructure";
+
+/** Which coordinate a resolved entry could not establish. */
+export type CoordinateGap = "point" | "interventions" | "mechanism" | "role";
+
+/** Computed filters over axis 2, never stored kinds (ontology §4). */
+export type InterceptorFamily = "guard" | "detector" | "injector";
+
+/**
+ * ONE discriminated value, never two booleans — see the generator's
+ * `FamilyState` doc for why. `out-of-model` means "authored, and lands in no
+ * family by construction"; `unclassified` means "coordinates were never
+ * written down". A UI that renders both the same way is stating a falsehood
+ * about one of them.
+ */
+export type InterceptorFamilyState = "classified" | "out-of-model" | "unclassified";
+
 export interface InterceptorEntry {
   guardName: string;
   /** Null exactly when `undescribed` is true. */
@@ -57,6 +110,19 @@ export interface InterceptorEntry {
   registered: boolean;
   /** True when no authored description exists — the explicit gap marker. */
   undescribed: boolean;
+
+  // --- The three axes + computed families (mt#4056 slice 1b) ---
+  /** Null exactly when `coordinateGaps` contains `"point"`. */
+  point: InterceptionPoint | null;
+  pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  interventions: Intervention[];
+  mechanism: DecisionMechanism | null;
+  role: InterceptorRole | null;
+  coordinateGaps: CoordinateGap[];
+  families: InterceptorFamily[];
+  familyState: InterceptorFamilyState;
+  /** True for the names left unauthored BY DECISION, not by omission. */
+  deliberatelyUnauthored: boolean;
 }
 
 export interface FailureClassDefinition {
@@ -104,6 +170,141 @@ const VALID_STRATA: readonly string[] = [
 ];
 
 const VALID_PROVENANCE_STATUS: readonly string[] = ["implementation", "declaration-only", "none"];
+
+const VALID_POINTS: readonly string[] = [
+  "PreToolUse",
+  "PostToolUse",
+  "Stop",
+  "SubagentStop",
+  "UserPromptSubmit",
+  "SessionEnd",
+  "MessageDisplay",
+  "pre-commit",
+  "merge-time",
+];
+
+const VALID_POINT_SOURCES: readonly string[] = [
+  "registry",
+  "settings",
+  "stratum",
+  "authored",
+  "none",
+];
+
+const VALID_INTERVENTION_TYPES: readonly string[] = [
+  "deny",
+  "allow",
+  "inject",
+  "mutate",
+  "record",
+  "notify-escalate",
+  "delegate",
+  "ask-and-pause",
+];
+
+const VALID_AUDIENCES: readonly string[] = [
+  "agent",
+  "principal",
+  "operator",
+  "framework",
+  "review",
+];
+
+const VALID_MECHANISMS: readonly string[] = [
+  "constant",
+  "structural",
+  "lexical",
+  "embedding",
+  "model",
+];
+
+const VALID_ROLES: readonly string[] = ["judge", "feeder", "infrastructure"];
+
+const VALID_FAMILIES: readonly string[] = ["guard", "detector", "injector"];
+
+const VALID_FAMILY_STATES: readonly string[] = ["classified", "out-of-model", "unclassified"];
+
+const VALID_COORDINATE_GAPS: readonly string[] = ["point", "interventions", "mechanism", "role"];
+
+/**
+ * Validate one entry's axis coordinates.
+ *
+ * Split out from {@link validateEntry} to keep both under a readable length;
+ * the checks are the same class — closed unions the frontend switches on, plus
+ * the two CONSISTENCY invariants that make the gap markers trustworthy. Those
+ * two matter more than the union checks: a `point` that disagrees with its own
+ * gap list, or a `familyState` that disagrees with `families`, renders as a
+ * confident value derived from nothing, which is precisely the failure this
+ * catalog exists to make impossible.
+ */
+function validateEntryCoordinates(
+  e: Partial<InterceptorEntry>,
+  where: (detail: string) => string
+): void {
+  if (e.point !== null && !VALID_POINTS.includes(e.point as string)) {
+    throw new Error(where(`unknown interception point "${String(e.point)}"`));
+  }
+  if (!VALID_POINT_SOURCES.includes(e.pointSource as string)) {
+    throw new Error(where(`unknown pointSource "${String(e.pointSource)}"`));
+  }
+  if (!Array.isArray(e.coordinateGaps)) {
+    throw new Error(where("`coordinateGaps` is not an array"));
+  }
+  for (const gap of e.coordinateGaps) {
+    if (!VALID_COORDINATE_GAPS.includes(gap as string)) {
+      throw new Error(where(`unknown coordinate gap "${String(gap)}"`));
+    }
+  }
+  // `point` is null EXACTLY when it is reported as a gap. A non-null point
+  // alongside a "point" gap claims a resolved axis the resolver said it could
+  // not establish; the reverse renders a gap marker over real data.
+  if ((e.point === null) !== e.coordinateGaps.includes("point")) {
+    throw new Error(where("`point` null-ness disagrees with `coordinateGaps`"));
+  }
+
+  if (!Array.isArray(e.interventions)) {
+    throw new Error(where("`interventions` is not an array"));
+  }
+  for (const i of e.interventions) {
+    if (typeof i !== "object" || i === null || !VALID_INTERVENTION_TYPES.includes(i.type)) {
+      throw new Error(where(`unknown intervention type "${String(i?.type)}"`));
+    }
+    if (i.audience !== undefined && !VALID_AUDIENCES.includes(i.audience)) {
+      throw new Error(where(`unknown intervention audience "${String(i.audience)}"`));
+    }
+  }
+
+  if (e.mechanism !== null && !VALID_MECHANISMS.includes(e.mechanism as string)) {
+    throw new Error(where(`unknown decision mechanism "${String(e.mechanism)}"`));
+  }
+  if (e.role !== null && !VALID_ROLES.includes(e.role as string)) {
+    throw new Error(where(`unknown role "${String(e.role)}"`));
+  }
+
+  if (!Array.isArray(e.families)) {
+    throw new Error(where("`families` is not an array"));
+  }
+  for (const f of e.families) {
+    if (!VALID_FAMILIES.includes(f as string)) {
+      throw new Error(where(`unknown family "${String(f)}"`));
+    }
+  }
+  if (!VALID_FAMILY_STATES.includes(e.familyState as string)) {
+    throw new Error(where(`unknown familyState "${String(e.familyState)}"`));
+  }
+  // The discriminant must agree with the data it discriminates: a
+  // `classified` entry has families, and the two zero-family states do not.
+  if ((e.familyState === "classified") !== e.families.length > 0) {
+    throw new Error(where("`familyState` disagrees with `families`"));
+  }
+  if ((e.familyState === "unclassified") !== e.coordinateGaps.includes("interventions")) {
+    throw new Error(where("`familyState` unclassified-ness disagrees with `coordinateGaps`"));
+  }
+
+  if (typeof e.deliberatelyUnauthored !== "boolean") {
+    throw new Error(where("missing `deliberatelyUnauthored`"));
+  }
+}
 
 /**
  * Validate ONE row.
@@ -171,6 +372,8 @@ function validateEntry(entry: unknown, index: number): InterceptorEntry {
   if (!VALID_PROVENANCE_STATUS.includes(e.provenanceStatus as string)) {
     throw new Error(where(`unknown provenanceStatus "${String(e.provenanceStatus)}"`));
   }
+
+  validateEntryCoordinates(e, where);
 
   return e as InterceptorEntry;
 }
