@@ -768,7 +768,11 @@ describe("run() (dispatcher-compatible)", () => {
 // ---------------------------------------------------------------------------
 
 describe("filterStopFlagged (mt#2357 / mt#3950)", () => {
-  const R1_PHRASE = "I made a mistake";
+  // The phrase from the incident pair this task was filed on: session
+  // 947f77e0, records 2026-08-11T23:11:27Z (channel "stop") and
+  // 2026-08-12T00:30:18Z (prompt-time), byte-identical excerpts, both injected.
+  const R1_PHRASE =
+    "I need to stop and correct something in what I just committed — the default I chose is too permissive.";
   const r1Match = { family: "R1" as const, matchedPhrase: R1_PHRASE };
 
   const prevOpening: TranscriptLine = {
