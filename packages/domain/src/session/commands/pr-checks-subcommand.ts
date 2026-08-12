@@ -85,6 +85,12 @@ export interface SessionPrChecksDependencies {
    * wait mode (right before sleeping, when checks are still pending). See
    * `SessionPrWaitForReviewDependencies.onProgress` for the full rationale —
    * this is the checks-wait sibling of the same mechanism.
+   *
+   * mt#4020: in wait mode, ALSO invoked exactly once at the very start of
+   * the call, before session resolution and backend construction run — the
+   * only progress signal reachable during that setup phase, which previously
+   * had none at all (the incident this closes: a hang there produced no
+   * progress and no response, indistinguishable from a wedged connection).
    */
   onProgress?: (message: string) => void;
 }
@@ -116,39 +122,88 @@ export async function sessionPrChecks(
   const timeoutMs = (params.timeoutSeconds ?? 600) * 1000;
   const intervalMs = (params.intervalSeconds ?? 30) * 1000;
 
+  // mt#4020: in wait mode, compute the deadline for the WHOLE call — before
+  // any setup work runs — so `timeoutSeconds` bounds session resolution and
+  // backend construction too, not just the poll loop below. mt#2677 bounded
+  // every fetchChecks() call inside the loop to a deadline computed AFTER
+  // setup completed; that left setup itself (resolveSessionContextWithFeedback
+  // and sessionDB.getSession — both unbounded DB round-trips; createBackend's
+  // GitHubBackend construction is synchronous and was ruled out by reading
+  // it) able to hang with no bound and no onProgress reachable at all. The
+  // observed incident (PR #2891) sat silent for 1824s against a 900s
+  // timeoutSeconds — well past twice the deadline the loop alone could ever
+  // produce — which is the signature of an unbounded stall upstream of the
+  // loop, not a loop that overran its own bound.
+  const deadline = params.wait ? now() + timeoutMs : undefined;
+
   try {
-    // Resolve session
-    const resolvedContext = await resolveSessionContextWithFeedback({
-      sessionId: params.sessionId,
-      task: params.task,
-      repo: params.repo,
-      sessionProvider: sessionDB,
-      allowAutoDetection: true,
-    });
+    /**
+     * Setup: resolve the session, load its PR number, and construct the
+     * repository backend. In wait mode this is wrapped below with
+     * `withDeadline` against the SAME deadline the poll loop uses (mt#4020)
+     * — a stall here is bounded exactly like a stall inside the loop's
+     * fetchChecks() calls, not a separate unbounded budget.
+     */
+    async function runSetup(): Promise<{ prNumber: number; backend: RepositoryBackend }> {
+      const resolvedContext = await resolveSessionContextWithFeedback({
+        sessionId: params.sessionId,
+        task: params.task,
+        repo: params.repo,
+        sessionProvider: sessionDB,
+        allowAutoDetection: true,
+      });
 
-    const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
-    if (!sessionRecord) {
-      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
+      const sessionRecord = await sessionDB.getSession(resolvedContext.sessionId);
+      if (!sessionRecord) {
+        throw new ResourceNotFoundError(`Session '${resolvedContext.sessionId}' not found`);
+      }
+
+      // Require an existing PR
+      const prNumber = sessionRecord.pullRequest?.number;
+      if (!prNumber) {
+        throw new ResourceNotFoundError(
+          `No pull request found for session '${resolvedContext.sessionId}'. ` +
+            `Use 'minsky session pr create' to create a PR first.`
+        );
+      }
+
+      // Create repository backend from session record
+      const backend = await createBackend(sessionRecord, deps.sessionDB);
+      return { prNumber: prNumber as number, backend };
     }
 
-    // Require an existing PR
-    const prNumber = sessionRecord.pullRequest?.number;
-    if (!prNumber) {
-      throw new ResourceNotFoundError(
-        `No pull request found for session '${resolvedContext.sessionId}'. ` +
-          `Use 'minsky session pr create' to create a PR first.`
-      );
+    let setup: { prNumber: number; backend: RepositoryBackend };
+    if (deadline !== undefined) {
+      // mt#4020 / AT4 corollary: a pre-loop hang used to produce no progress
+      // AND no response — exactly the MCP idle-abort signature observed in
+      // the incident (deps.onProgress?.() was only ever reached inside the
+      // loop). One ping as setup begins gives a caller a signal the call is
+      // alive before the poll loop's own per-interval pings can start, so a
+      // genuinely slow (but working) setup is distinguishable from silence.
+      deps.onProgress?.("Resolving session and repository backend...");
+      try {
+        setup = await withDeadline(runSetup(), Math.max(0, deadline - now()));
+      } catch (ioError) {
+        if (!(ioError instanceof DeadlineExceededError)) throw ioError;
+        return {
+          allPassed: false,
+          summary: { total: 0, passed: 0, failed: 0, pending: 0 },
+          checks: [],
+          timedOut: true,
+        };
+      }
+    } else {
+      setup = await runSetup();
     }
 
-    // Create repository backend from session record
-    const backend = await createBackend(sessionRecord, deps.sessionDB);
+    const { prNumber, backend } = setup;
 
     /**
      * Inner helper: fetch checks via the backend's CI sub-interface.
      */
     async function fetchChecks(): Promise<ChecksResult> {
       log.debug(`Fetching checks for PR #${prNumber}`);
-      return backend.ci.getChecksForPR(prNumber as number);
+      return backend.ci.getChecksForPR(prNumber);
     }
 
     // Non-wait mode: single fetch
@@ -156,16 +211,32 @@ export async function sessionPrChecks(
       return fetchChecks();
     }
 
-    // Wait mode: poll until all checks complete or timeout
-    const deadline = now() + timeoutMs;
+    // params.wait is true here, so `deadline` was computed above. Narrowed
+    // without a non-null assertion — this branch is unreachable in practice.
+    if (deadline === undefined) {
+      throw new MinskyError("Internal error: deadline not computed for wait mode");
+    }
 
     // mt#2677: bound every fetchChecks() call to the wait's own overall
     // deadline (mirrors the same fix in pr-wait-for-review-subcommand.ts's
     // poll loop) — a stalled backend.ci.getChecksForPR() call with no
     // timeout of its own must not hang the wait past checksTimeoutSeconds.
-    // A DeadlineExceededError here is treated as "checks still pending" so
-    // the surrounding logic falls through to the same timedOut:true result
-    // the normal deadline-elapsed path returns.
+    //
+    // Three DeadlineExceededError catch sites exist in this function, and
+    // their return shapes deliberately differ — this is PRE-EXISTING
+    // behavior (mt#2677), unchanged by mt#4020's setup-phase addition, not a
+    // new divergence:
+    //   1. Setup-phase (above, mt#4020) and this FIRST fetchChecks() call
+    //      (mt#2677, below) both return IMMEDIATELY with a zeroed
+    //      `{timedOut:true}` result on timeout — there is no prior fetch's
+    //      data to preserve, so there is nothing to fall through to.
+    //   2. Each SUBSEQUENT fetchChecks() call inside the while loop (below)
+    //      instead `break`s, falling through to the
+    //      `if (!result.allPassed && result.summary.pending > 0)` check
+    //      after the loop — `result` still holds the LAST successful poll's
+    //      data, so returning `{...result, timedOut:true}` preserves that
+    //      partial progress (e.g. which specific checks were still pending)
+    //      instead of discarding it for a zeroed result.
     let result: ChecksResult;
     try {
       result = await withDeadline(fetchChecks(), Math.max(0, deadline - now()));
