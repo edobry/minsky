@@ -95,3 +95,23 @@ entrypoint with a transform-shaped outcome — not a second `settings.json` comm
 `docs/architecture/adr-029-numeric-short-ids-foundation.md` ·
 `.minsky/hooks/bare-entity-ref-scan.ts` (the detector whose `mt#` / `PR #` classes this largely
 retires on Claude Code) · mem#623 (the linked-reference-actionability family).
+
+## Short ids, via a cached map (mt#3914)
+
+The constraint above — short ids cannot be linkified here — was answered by a cache, not by
+giving this hook DB access. `ask#N` / `mem#N` / `ws#N` now linkify against a **short-id→UUID map**
+written out-of-band by `startShortIdMapSweeper` (a cockpit-side sweep), following ADR-028 D7(5)'s
+cache-and-sweep pattern.
+
+The hook cannot read the DB itself, and this is measured rather than assumed: a hook process's
+connect cap sits BELOW the measured cold-connect time (mt#3744 / mt#3879), so a direct read would
+resolve nothing while adding its full timeout to the hottest event in the harness.
+
+Coverage is therefore best-effort by construction, and the failure direction is fixed: **an
+unmapped id stays bare; a wrong target is never emitted.** An id minted since the last sweep, or
+any id at all when no cockpit is running, is simply not linked.
+
+Cost of carrying the map: measured **21ms per invocation with a 407KB map, against 20ms without**.
+
+The complement — the ids this path cannot resolve — is exactly what `turn-end-bare-ref-scan.md`
+flags, and mt#3960 made that scan read this same map so the two stay in step.

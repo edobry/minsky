@@ -133,3 +133,20 @@ None. There is no bypass env var — the hook is fail-safe by construction rathe
   bootstrap fix), mt#3046 (entry-point smoke test).
 - `guard-dispatcher-framework.md` — why this hook is standalone rather than a registry member.
 - `dispatch-watchdog-injection-hook.md` — the primary consumer of `ended_at`.
+
+## The PreToolUse half: the agent-dispatch record and its stamp (mt#2292)
+
+Everything above is the `SubagentStop` side. Its counterpart is a `PreToolUse` guard on the
+`Agent` tool that writes the `pending` `subagent_invocations` row on the **RAW spawn path** — the
+one `tasks_dispatch` / `session_generate_prompt` never see, because those tools write the row
+themselves.
+
+It also stamps the harness `(session_id, tool_use_id)` pair into the dispatch prompt via
+`updatedInput`, and **that stamp is the JOIN**: `PreToolUse` has no `agent_id`, `SubagentStop` has
+no `tool_use_id`, and nothing else connects the two events. The Stop side recovers the stamp from
+`agent_transcript_path` to close on the parent key.
+
+Posture: it never denies, and it **emits the stamp even when the DB write fails** — the prompt is
+sent either way, so a lost row must not also cost the correlation key.
+
+Override: `MINSKY_SKIP_AGENT_DISPATCH_RECORD=1`.
