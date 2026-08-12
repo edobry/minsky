@@ -477,6 +477,20 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
     const app = createCockpitServer({
       overrideToken: TEST_TOKEN,
       isPublicDeployment: true,
+      // mt#4023: the public deployment now carries a passkey gate, which would
+      // answer 401 before the router could answer 404 — and 401 cannot
+      // distinguish "route absent" from "auth blocked it", which is precisely
+      // what this test exists to tell apart. Authenticating past the gate keeps
+      // the 404 below meaning what it has always meant.
+      passkeyStore: {
+        listPasskeys: async () => [{ id: "p1", credentialId: "c1", publicKey: "", counter: 0 }],
+        findPasskeyByCredentialId: async () => null,
+        insertPasskey: async () => "p1",
+        updatePasskeyCounter: async () => {},
+        createSession: async () => {},
+        findValidSession: async () => ({ id: "s1" }),
+        deleteSession: async () => {},
+      },
       overrideDrivenSession: { registry, spawnFn },
     });
     const server: Server = createServer(app);
@@ -489,10 +503,13 @@ describe("POST /api/driven-session + /api/driven-session/:id/ws (mt#2750)", () =
 
     const res = await fetch(`http://127.0.0.1:${addr.port}${DRIVEN_SESSION_PATH}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: "minsky_cockpit_session=test",
+      },
       body: JSON.stringify({ cwd: SCRATCH_CWD }),
     });
-    // isPublicDeployment skips mutation-auth too (see server-security.test.ts),
+    // Authenticated past the mt#4023 passkey gate (see the store double above),
     // so a 404 here specifically confirms the route itself was never mounted
     // — not merely that auth blocked it.
     expect(res.status).toBe(404);

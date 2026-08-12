@@ -646,15 +646,48 @@ connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'`. `--dev` mode (
 
 Scope: this posture covers the **local** cockpit daemon only. The Railway-deployed
 `services/cockpit/src/server.ts` is a separate entrypoint that binds `0.0.0.0` deliberately for
-the platform proxy and is out of scope here. Because both entrypoints share the same
-`createCockpitServer()` factory, the Railway entrypoint passes `isPublicDeployment: true`
-(`CockpitServerOptions`), which skips the Host-header allowlist and the bearer-token/cookie
-mutation-auth for that deployment — its incoming `Host` header is a Railway-assigned public
-hostname that could never satisfy the loopback-only allowlist, and introducing a mutation
-bearer-token requirement to an already-shipped multi-consumer production surface is out of
-scope for this task. The CSP header and the no-CORS policy are additive/response-only, so they
-still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238) owns
-its own, distinct auth surface for that separate concern.
+the platform proxy. Because both entrypoints share the same `createCockpitServer()` factory, the
+Railway entrypoint passes `isPublicDeployment: true` (`CockpitServerOptions`), which skips the
+Host-header allowlist and the bearer-token/cookie mutation-auth for that deployment — its
+incoming `Host` header is a Railway-assigned public hostname that could never satisfy the
+loopback-only allowlist. The CSP header and the no-CORS policy are additive/response-only, so
+they still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238)
+owns its own, distinct auth surface for that separate concern.
+
+### The public deployment is passkey-gated (mt#4023)
+
+**`isPublicDeployment: true` does not mean "no auth."** It did until mt#4023, and the
+consequence was measured: on 2026-08-11 an unauthenticated `GET /api/tasks` against
+`cockpit-preview-production.up.railway.app` returned 500 live production tasks, and
+`/api/cockpit/session-film/sessions` returned 49 conversations. The flag still turns off the two
+loopback-shaped defenses above, but it now turns ON a WebAuthn passkey gate in their place.
+
+- **Deny by default.** `requirePasskeySession` (`src/cockpit/passkey-auth.ts`) rejects every
+  request without a valid session cookie with `401`. The public-path list is CLOSED — `/api/health`,
+  `/api/auth/*`, and the SPA shell plus its static assets — so a route added later is gated on
+  arrival rather than by anyone remembering to add it.
+- **`/api/health` stays public**, because the Railway healthcheck and the mt#1302 post-deploy
+  monitor both poll it unauthenticated.
+- **First-run enrollment is once-only.** Enrolling a passkey is permitted without a session only
+  while ZERO passkeys exist; after that it requires an existing session. That is what makes the
+  gate a gate rather than a race for whoever loads the URL second.
+- **Sessions are stored, not signed-stateless** (`cockpit_auth_sessions`), so revoking one is a
+  row delete with no secret to rotate. The cookie carries the `__Host-` prefix under TLS.
+- **Relying-party id.** `up.railway.app` is on the Public Suffix List, so the rpID must be the
+  full deployment hostname; `MINSKY_COCKPIT_RP_ID` / `MINSKY_COCKPIT_ORIGIN` override it. Moving
+  to a custom domain changes the rpID and therefore requires re-enrolling every passkey — a
+  credential is bound to the rpID it was created under.
+- **Fail-closed.** If the auth tables are missing or the database is unreachable, the gate returns
+  `503` and keeps denying; it does not fall open. Verified by booting the deploy entrypoint before
+  migration `0094` was applied: every data route still answered `401`.
+
+**Every cockpit answers `GET /api/auth/status`**, including the local daemon, which reports
+`{ gated: false }`. That route must never be left unmounted: the SPA catch-all answers unmatched
+GETs with `index.html`, and an HTML `200` is indistinguishable from a real answer to the client,
+which fails closed on it — leaving it unmounted locally would lock the local daemon out of itself.
+
+The local (`!isPublicDeployment`) path is otherwise unchanged: no passkey middleware is mounted,
+and the Host allowlist plus bearer/cookie mutation auth apply exactly as described above.
 
 ## Driven-session host and WS channel (Rung 2A, mt#2750)
 
