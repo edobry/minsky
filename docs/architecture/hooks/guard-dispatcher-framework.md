@@ -322,3 +322,26 @@ guards' standalone `if (import.meta.main)` CLI entrypoints.
 - `scripts/smoke-dispatch-userpromptsubmit.ts` — live end-to-end verification (dispatcher fire
   -> calibration write -> calibration-sweep parse)
 - Guessed-Session-Path Guard (below) — the pilot guard's own section
+
+## One injected block per event, not one per guard
+
+The dispatcher merges every guard's `additionalContext` into a **single** `hookSpecificOutput`.
+You do not get N separate injections — mt#3394 was filed on the opposite assumption and its
+planning pass falsified it.
+
+- **Order** is by the registration's optional `contextPriority` (higher first; equal keeps
+  registry order).
+- **The block is capped** at the exported `MERGED_CONTEXT_BUDGET_CHARS` in
+  `.minsky/hooks/dispatcher.ts`, whose doc comment carries the derivation. It is COMPUTED from the
+  registry's own `attentionCost` annotations, so **read the constant rather than any figure quoted
+  in prose** — a quoted number goes stale every time the corpus is trimmed, and did within a day
+  of mt#3479's re-derivation.
+- **Over budget, the lowest-priority fragments are dropped and NAMED in a trailing notice** —
+  never silently. A dropped fragment still writes its calibration record, so measurement is
+  unaffected by the drop.
+- **Separate events still mean separate blocks.** A `Stop` observer and a `UserPromptSubmit`
+  observer firing on the same turn produce two.
+
+The practical consequence for guard authors: an advisory's rendered size is a shared resource.
+Amend a guard's text by TRIMMING, not by raising its `attentionCost` annotation — raising one
+widens the injection budget for every turn in the repo (mem#865 records the worked case).

@@ -181,3 +181,16 @@ Also writes `.minsky/retrospective-trigger-evaluations.jsonl` — every evaluate
 not (the mt#3583 pattern). Separate file, since coverage-receipt reads calibration-record
 existence as fire-evidence. It closes the gap where a Rung-1 miss wrote nothing at all, leaving
 recall misses discoverable only by a human noticing.
+
+## The Stop↔prompt dedup keys on the resolver that produced the text (mt#3950)
+
+This scanner has a `Stop` sibling (`turn-end-retro-scan`), and the two must not both fire on one
+turn. The dedup key is the **turn key from the SAME resolver that produced the scanned text**.
+
+Re-deriving that key positionally — walking the transcript to find "the current turn" independently
+of how the text was obtained — names the PREVIOUS turn whenever the two walks disagree about
+boundaries, which they do on any tool-using turn (mem#528: tool-result messages carry
+`role: "user"`). The observed failure was 4 confirmed matches injected **twice**.
+
+The rule generalizes past this guard: when a dedup key identifies a unit of text, derive it from
+the same accessor that produced the text, never from a second walk over the same source.
