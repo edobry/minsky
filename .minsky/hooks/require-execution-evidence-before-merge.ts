@@ -649,9 +649,11 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  * between an accepted marker (mirrors `hasExecutionEvidence`'s accepted forms) and the
  * next heading or end-of-string. Used as the search text for AT-coverage matching. If
  * multiple evidence blocks exist, all are concatenated. Returns `""` when no evidence
- * marker is present — this is a plain text-extraction helper, deliberately independent
- * of `hasExecutionEvidence` (which stays byte-for-byte unchanged per mt#3033 constraint
- * 2) so neither function's behavior can regress the other's test suite.
+ * marker is present — this is a plain text-extraction helper whose code is separate from
+ * `hasExecutionEvidence` (which stays byte-for-byte unchanged, so this module's fix cannot
+ * regress a BLOCKING gate's test suite). Separate code, NOT separate accepted forms: the two
+ * sets are pinned equal by the parity test, for the reason `buildEvidenceMarkerPattern` below
+ * records. Reading the separation as licence to let the forms diverge is what shipped mt#4054.
  *
  * **mt#3316 FP-3 fix (originating incident: mt#3174 / PR #2264).** The scan ALSO covers
  * any PR-body section whose heading names "acceptance test(s)" — e.g. `### Acceptance
@@ -686,10 +688,40 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  */
 const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
 
+/**
+ * Builds the accepted-marker pattern for the extractor below. Recognizes the same forms
+ * `hasExecutionEvidence` does: a Markdown heading with an optional colon, or a plain label
+ * with a REQUIRED colon, the label optionally `**bold**`/`__bold__` (colon inside or outside)
+ * and optionally preceded by a `-`/`*`/`+` bullet.
+ *
+ * **Why this is a second construction rather than a shared one (mt#4054).** mt#3033 requires
+ * `hasExecutionEvidence` — a BLOCKING gate — to stay byte-for-byte unchanged, so its pattern
+ * is built inline in its own body and cannot be hoisted here without editing it. The forms
+ * therefore live in two places, and the thing that keeps them from drifting is the parity test
+ * (`ACCEPTED_MARKER_FORMS` in this module's test file), which asserts both functions against
+ * ONE table and fails if either accepts a form the other rejects. Do not add a form here
+ * without adding it to that table.
+ *
+ * That divergence is exactly what mt#4054 fixed: mt#3968 widened the blocking check to accept
+ * bold and bulleted labels and left the extractor's regex behind, so a PR body using
+ * `**Execution evidence:**` — a form the gate itself accepts — extracted to the empty string.
+ * Every executable acceptance test in such a PR then read as unaddressed no matter where its
+ * evidence sat, including correctly inside the block, and the gate's own prescribed remedy
+ * (move the references INSIDE the block) could not work. Retiring the duplication altogether
+ * is mt#4070.
+ */
+function buildEvidenceMarkerPattern(): RegExp {
+  const BULLET_PREFIX = "(?: {0,3}[-*+]\\s+)?";
+  const EMPHASIS = "(?:\\*\\*|__)?";
+  return new RegExp(
+    `^(?: {0,3}(#{1,6})\\s+execution evidence\\s*:?|${BULLET_PREFIX}${EMPHASIS}execution evidence${EMPHASIS}\\s*:${EMPHASIS})\\s*(.*)$`,
+    "im"
+  );
+}
+
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
-  const headingPattern =
-    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+  const headingPattern = buildEvidenceMarkerPattern();
   const lines = strippedBody.split("\n");
   const fenceInternal = computeFenceInternalLines(lines);
   const collected: string[] = [];
