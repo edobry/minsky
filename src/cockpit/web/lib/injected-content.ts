@@ -50,8 +50,19 @@
  * continuation text) splits into an injected segment plus a separate prose
  * segment — the injected span collapses, the prose does not.
  *
+ * **Bash-mode turns (mt#4058).** A `!`-prefixed command the operator types in
+ * the prompt is recorded as two `user` turns — `<bash-input>` carrying what
+ * they typed, then `<bash-stdout>…</bash-stdout><bash-stderr>…</bash-stderr>`
+ * carrying the captured terminal output. Neither was in the tag inventory, so
+ * both fell to the verbatim-prose path and rendered as raw XML under the
+ * operator's own label — the output turn especially, which contains none of
+ * their words. The output pair arrives CONCATENATED in one turn with one half
+ * routinely empty, which is why the turn-start loop consumes repeatedly and
+ * why an empty block is consumed WITHOUT emitting a span.
+ *
  * @see mt#2791 — this module
  * @see mt#3322 — order-tolerant wrapper matching, local-command kinds, ANSI stripping
+ * @see mt#4058 — the bash-mode family and empty-block suppression
  * @see packages/shared/src/harness-markup.ts — the shared tag inventory
  * @see packages/domain/src/transcripts/text-snippet.ts (mt#2784) — sibling detector
  *   for the conversation-LABEL surface (discards harness markup entirely rather
@@ -59,6 +70,7 @@
  * @see src/cockpit/web/widgets/ConversationView.tsx — the consumer
  */
 import {
+  BASH_MODE_TAGS,
   COMMAND_WRAPPER_TAGS,
   LOCAL_COMMAND_TAGS,
   TASK_NOTIFICATION_TAGS,
@@ -66,6 +78,7 @@ import {
   tagOpenSource,
 } from "@minsky/shared/harness-markup";
 import { INTERRUPTION_NOTICE_PREFIX } from "@minsky/shared/minsky-notices";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { stripAnsi } from "@minsky/shared/strip-ansi";
 
 /** Origin classification for one injected span. */
@@ -75,6 +88,9 @@ export type InjectedContentKind =
   | "system-reminder"
   | "local-command-output"
   | "local-command-caveat"
+  | "bash-command"
+  | "bash-output"
+  | "bash-error"
   | "task-notification"
   | "session-notice";
 
@@ -141,6 +157,13 @@ export const INJECTED_KIND_NOUN: Record<InjectedContentKind, string> = {
   "system-reminder": "system reminder",
   "local-command-output": "command output",
   "local-command-caveat": "harness caveat",
+  // mt#4058. The operator TYPED the bash command, so "bash command" names an
+  // origin the way "command" already does for a slash invocation — the turn is
+  // theirs, but its content is a command rather than prose. Its OUTPUT is not
+  // theirs at all, and gets the same noun the slash-command path uses.
+  "bash-command": "bash command",
+  "bash-output": "command output",
+  "bash-error": "command error",
   "task-notification": "task notification",
   // NOT "harness notice" (mt#3396): this text is MINSKY's own
   // (`INTERRUPTION_NOTICE_TEXT`), not the harness's. Naming it "harness" would
@@ -159,7 +182,39 @@ export const INJECTED_KIND_NOUN: Record<InjectedContentKind, string> = {
  * a second code path is how the two tag lists this module consumes drifted
  * apart in the first place.
  */
-const TURN_START_TAG_PRESENTATION: Record<string, { kind: InjectedContentKind; label: string }> = {
+interface TurnStartTagPresentation {
+  kind: InjectedContentKind;
+  /**
+   * The collapsed header's label: a fixed noun, or one derived from the
+   * block's own body. The derived form exists so a bash invocation names the
+   * command in its header the way `command: /model` already does — collapsing
+   * a turn is only acceptable when the header says what was collapsed.
+   */
+  label: string | ((body: string) => string);
+}
+
+/**
+ * Header label for a bash invocation: the command itself, bounded.
+ *
+ * Truncates from the HEAD — `safeTruncate`'s `side` defaults to `"tail"`, which
+ * keeps the LAST `maxLen` code units, so a long command would render its
+ * trailing arguments with the program name dropped (`bash: …--since='x'`).
+ * The whole point of the header is to say which command was collapsed, and the
+ * word that answers that is the first one. PR #2935 R1.
+ */
+function bashCommandLabel(body: string): string {
+  const firstLine = body.trim().split("\n", 1)[0]?.trim() ?? "";
+  if (firstLine.length === 0) return INJECTED_KIND_NOUN["bash-command"];
+  const shown = safeTruncate(firstLine, BASH_LABEL_MAX_CHARS, "head");
+  // An ellipsis only when something was actually dropped, so a header that
+  // fits is not made to look cut off.
+  return `bash: ${shown}${shown.length < firstLine.length ? "…" : ""}`;
+}
+
+/** Keeps a long one-liner from pushing the rest of the header off the row. */
+const BASH_LABEL_MAX_CHARS = 72;
+
+const TURN_START_TAG_PRESENTATION: Record<string, TurnStartTagPresentation> = {
   "local-command-stdout": {
     kind: "local-command-output",
     label: INJECTED_KIND_NOUN["local-command-output"],
@@ -168,6 +223,12 @@ const TURN_START_TAG_PRESENTATION: Record<string, { kind: InjectedContentKind; l
     kind: "local-command-caveat",
     label: INJECTED_KIND_NOUN["local-command-caveat"],
   },
+  // mt#4058 — the `!`-prefixed bash-mode family. Both output halves arrive in
+  // ONE turn, so the turn-start loop in `splitInjectedContent` consumes them
+  // as two consecutive blocks; each is listed here independently.
+  "bash-input": { kind: "bash-command", label: bashCommandLabel },
+  "bash-stdout": { kind: "bash-output", label: INJECTED_KIND_NOUN["bash-output"] },
+  "bash-stderr": { kind: "bash-error", label: INJECTED_KIND_NOUN["bash-error"] },
   "task-notification": {
     kind: "task-notification",
     label: INJECTED_KIND_NOUN["task-notification"],
@@ -187,7 +248,14 @@ function findNextBoundary(text: string, fromIndex: number): number {
 
 interface PrefixMatch {
   consumedLength: number;
-  span: InjectedSpan;
+  /**
+   * The span to render, or `undefined` when the block was consumed but has
+   * nothing worth showing (mt#4058). Consuming without emitting is the point:
+   * an empty `<bash-stdout></bash-stdout>` must not fall through to the prose
+   * path as raw tags, and must not render a collapsed header with nothing
+   * behind it either.
+   */
+  span?: InjectedSpan;
 }
 
 // Turn-start matchers, compiled ONCE at module load rather than per call
@@ -202,6 +270,7 @@ const WRAPPER_BLOCK_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = COMMA
 
 const TURN_START_TAG_MATCHERS: ReadonlyArray<{ tag: string; re: RegExp }> = [
   ...LOCAL_COMMAND_TAGS,
+  ...BASH_MODE_TAGS,
   ...TASK_NOTIFICATION_TAGS,
 ].map((tag) => ({ tag, re: new RegExp(`^\\s*${tagBlockSource(tag, true)}`, "i") }));
 
@@ -253,14 +322,23 @@ function matchTurnStartTagBlock(text: string): PrefixMatch | null {
     if (!match) continue;
     const presentation = TURN_START_TAG_PRESENTATION[tag];
     if (!presentation) continue;
+    // Terminal control bytes are captured verbatim by the harness; strip
+    // them so they don't reach the DOM as replacement glyphs.
+    const content = stripAnsi((match[1] ?? "").trim());
+    // An empty block is consumed and dropped, never rendered (mt#4058). The
+    // bash pair routinely carries one empty half — a `<bash-stdout></bash-stdout>`
+    // beside real stderr, or the reverse — and a collapsed header over nothing
+    // is noise the reader has to open to discover is empty.
+    if (content.length === 0) return { consumedLength: match[0].length };
     return {
       consumedLength: match[0].length,
       span: {
         kind: presentation.kind,
-        label: presentation.label,
-        // Terminal control bytes are captured verbatim by the harness; strip
-        // them so they don't reach the DOM as replacement glyphs.
-        content: stripAnsi((match[1] ?? "").trim()),
+        label:
+          typeof presentation.label === "function"
+            ? presentation.label(content)
+            : presentation.label,
+        content,
       },
     };
   }
@@ -416,7 +494,10 @@ export function splitInjectedContent(text: string): TextSegment[] {
   while (rest.length > 0) {
     const prefix = matchTurnStartInjection(rest);
     if (!prefix || prefix.consumedLength <= 0) break;
-    prefixSegments.push({ type: "injected", span: prefix.span });
+    // `consumedAny` is set whether or not a span was emitted: the text WAS
+    // recognized, so it must not fall back to the verbatim-prose path below
+    // just because the recognized block turned out to be empty (mt#4058).
+    if (prefix.span) prefixSegments.push({ type: "injected", span: prefix.span });
     rest = rest.slice(prefix.consumedLength);
     consumedAny = true;
   }
