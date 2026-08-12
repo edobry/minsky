@@ -61,7 +61,16 @@ export const OVERRIDE_ENV = "MINSKY_ALLOW_CONCURRENT_BULK_MUTATION";
  */
 const EXECUTE_FLAGS: readonly string[] = ["--execute", "--apply"];
 
-/** Matches a `scripts/<name>.ts` argument anywhere in a command segment. */
+/**
+ * Matches a `scripts/<name>.ts` argument anywhere in a command segment.
+ *
+ * POSIX-only by design (PR #2937 R1 NON-BLOCKING): this guard runs on `Bash` / `session_exec`
+ * commands, whose paths are forward-slash on every platform this repo targets, and the repo's own
+ * `scripts/` names are all `[\w.-]`. A path with an exotic character or a Windows separator is a
+ * MISS (no fire), never a false fire — so the narrow class degrades recall only, in the same
+ * direction as `chained-verification-commands`' stale-pattern-list note. Widen it if a script is
+ * ever added whose name this cannot match.
+ */
 const SCRIPT_PATH_PATTERN = /(?:^|[\s"'=/])((?:[\w./-]*\/)?scripts\/[\w.-]+\.ts)\b/;
 
 export interface BulkMutationInvocation {
@@ -188,9 +197,21 @@ export function decide(
   return { invocation, running: probe(invocation.scriptName) };
 }
 
-export function run(input: ToolHookInput, _ctx: DispatchContext): GuardOutcome | null {
-  if (process.env[OVERRIDE_ENV] === "1") return null;
+/** The fields every calibration record carries, whatever the outcome. */
+function recordBase(input: ToolHookInput, invocation: BulkMutationInvocation) {
+  return {
+    ts: new Date().toISOString(),
+    sessionId: input.session_id ?? null,
+    toolName: input.tool_name ?? null,
+    scriptPath: invocation.scriptPath,
+    flag: invocation.flag,
+    // The diversity axis is the SCRIPT, not the full command string: a raw command is near-unique
+    // and would satisfy a calibration sweep's distinct-phrase gate by construction (mt#3781).
+    phrase: invocation.scriptName,
+  };
+}
 
+export function run(input: ToolHookInput, _ctx: DispatchContext): GuardOutcome | null {
   const toolInput = input.tool_input ?? {};
   const command = typeof toolInput["command"] === "string" ? (toolInput["command"] as string) : "";
   if (!command) return null;
@@ -203,20 +224,27 @@ export function run(input: ToolHookInput, _ctx: DispatchContext): GuardOutcome |
     return invocation ? { calibration: { outcome: "clean", canary: true } } : null;
   }
 
+  // The override is checked AFTER the trigger, not before, so that using it leaves a RECORD
+  // (PR #2937 R1). Returning `null` up front made an overridden bulk mutation indistinguishable
+  // from a command this guard never governed — the one event most worth having in the log is a
+  // human deciding to run a second concurrent writer anyway. Checked after the trigger and before
+  // the probe: an override means the answer does not matter, so there is no reason to shell out.
+  const invocationForOverride = findBulkMutationInvocation(command);
+  if (process.env[OVERRIDE_ENV] === "1") {
+    if (!invocationForOverride) return null;
+    return {
+      calibration: {
+        ...recordBase(input, invocationForOverride),
+        concurrentCount: null,
+        outcome: "overridden",
+      },
+    };
+  }
+
   const { invocation, running } = decide(command, defaultProcessProbe);
   if (!invocation) return null;
 
-  const base = {
-    ts: new Date().toISOString(),
-    sessionId: input.session_id ?? null,
-    toolName: input.tool_name ?? null,
-    scriptPath: invocation.scriptPath,
-    flag: invocation.flag,
-    concurrentCount: running.length,
-    // The diversity axis is the SCRIPT, not the full command string: a raw command is near-unique
-    // and would satisfy a calibration sweep's distinct-phrase gate by construction (mt#3781).
-    phrase: invocation.scriptName,
-  };
+  const base = { ...recordBase(input, invocation), concurrentCount: running.length };
 
   if (running.length === 0) {
     return { calibration: { ...base, outcome: "clean" } };

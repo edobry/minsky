@@ -18,9 +18,12 @@ import {
   decide,
   findBulkMutationInvocation,
   OVERRIDE_ENV,
+  run,
   type ProcessProbe,
   type RunningProcess,
 } from "./block-concurrent-bulk-mutation";
+import type { DispatchContext } from "./registry";
+import type { ToolHookInput } from "./types";
 
 /** The script from the originating incident, reused as this file's worked example. */
 const BACKFILL_SCRIPT = "scripts/backfill-agent-tool-call-projection.ts";
@@ -170,5 +173,49 @@ describe("buildDenialReason", () => {
     const reason = buildDenialReason(invocation, oneRunning({ elapsed: null })(""));
     expect(reason).toContain(`PID ${OTHER_PID}`);
     expect(reason).not.toContain("running null");
+  });
+});
+
+describe("run — override is recorded, not silent (PR #2937 R1)", () => {
+  const ctx = {} as DispatchContext;
+  const inputFor = (command: string): ToolHookInput => ({
+    session_id: "sess-1",
+    cwd: "/tmp",
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+  });
+
+  const withOverride = <T>(fn: () => T): T => {
+    const prior = process.env[OVERRIDE_ENV];
+    process.env[OVERRIDE_ENV] = "1";
+    try {
+      return fn();
+    } finally {
+      if (prior === undefined) delete process.env[OVERRIDE_ENV];
+      else process.env[OVERRIDE_ENV] = prior;
+    }
+  };
+
+  test("an overridden bulk mutation still writes a calibration record", () => {
+    // The whole point: an override is a human deciding to run a second concurrent writer anyway,
+    // which is the single event most worth having in the log. Returning null made it
+    // indistinguishable from a command the guard never governed.
+    const outcome = withOverride(() => run(inputFor(`bun ${BACKFILL_SCRIPT} --execute`), ctx));
+    expect(outcome).not.toBeNull();
+    expect(outcome?.deny).toBeUndefined();
+    expect(outcome?.calibration?.["outcome"]).toBe("overridden");
+    expect(outcome?.calibration?.["scriptPath"]).toBe(BACKFILL_SCRIPT);
+  });
+
+  test("the override does NOT manufacture a record for a command the guard never governed", () => {
+    expect(withOverride(() => run(inputFor("bun test packages/"), ctx))).toBeNull();
+  });
+
+  test("an overridden run does not consult the process table", () => {
+    // No probe injection is available through `run`, so this asserts the observable proxy: the
+    // record carries a null count rather than a probed number.
+    const outcome = withOverride(() => run(inputFor(`bun ${BACKFILL_SCRIPT} --execute`), ctx));
+    expect(outcome?.calibration?.["concurrentCount"]).toBeNull();
   });
 });
