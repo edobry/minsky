@@ -31,6 +31,14 @@
 //      by the probe and a permission offer never engages that check at all.
 //      Excludes genuinely destructive / principal-reserved actions, where the
 //      ask is CORRECT — see PERMISSION_ESCALATION_EXCLUSIONS.
+//   D. DENIAL-ANCHORED deferral (mt#3533) — an escalation or deferral resting on
+//      a permission-denied `tool_result`, with no same-turn retry in a different
+//      COMMAND SHAPE. Unlike A and C this surface's anchor is a structured tool
+//      result rather than a phrase, which is the point: the prose that
+//      accompanies it is third-person about a tool ("the API was denied"), and
+//      four recorded instances each used different wording. Excludes a denial
+//      whose reason names a security concern, where stopping IS correct — see
+//      SECURITY_FRAMED_DENIAL_PATTERNS.
 //
 // All three surfaces are LOG-ONLY in v1 (`INJECTION_ENABLED = false`), per the
 // calibration-first ladder every sibling detector followed (mt#2057 → mt#2216
@@ -57,7 +65,10 @@ import {
   extractAssistantText,
   extractToolUseNames,
   findToolUseInputs,
+  findDeniedToolCalls,
+  findIndexedToolUses,
 } from "./transcript";
+import { isReshapedRetry, leadingTokenOf } from "./command-shape";
 import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -104,7 +115,8 @@ const CALIBRATION_LOG = ".minsky/operator-deferral-calibration.jsonl";
 export type DeferralSurface =
   | "capability-deferral-prose"
   | "permission-deferral-prose"
-  | "ask-option-label";
+  | "ask-option-label"
+  | "denial-anchored";
 
 export interface DeferralMatch {
   surface: DeferralSurface;
@@ -384,6 +396,123 @@ export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralM
         },
       ];
     }
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Surface D — denial-anchored deferral (mt#3533)
+// ---------------------------------------------------------------------------
+
+/**
+ * Denial reasons that name a SECURITY concern — mem#276's carve-out, and the
+ * load-bearing half of this surface exactly as
+ * {@link PERMISSION_ESCALATION_EXCLUSIONS} is for Surface C.
+ *
+ * mem#276 says the opposite of this surface for one specific case: when the
+ * refusal's own message frames the action as *"credential/permission
+ * exploration"* or *"work around a security block"*, the correct response is to
+ * STOP and escalate — not to look for another route. That rule exists to stop an
+ * agent hunting for a bypass around a deliberate security design, and training
+ * the opposite would be a far worse outcome than the miss this surface fixes.
+ *
+ * Scope of the evidence, stated because it bounds what these patterns can claim:
+ * across the 73 denials in this project's local transcript corpus (2026-08-11),
+ * ZERO carried a security framing — the reason tail was the canned message
+ * echoed back, or empty. The patterns below are therefore derived from mem#276's
+ * recorded 2026-04-23 instance rather than from observed corpus data, and their
+ * regression control is a SYNTHETIC fixture labeled as such.
+ */
+export const SECURITY_FRAMED_DENIAL_PATTERNS: RegExp[] = [
+  /\bcredential\b[^.!?\n]{0,20}\bexploration\b/i,
+  /\bpermission\b[^.!?\n]{0,20}\bexploration\b/i,
+  /\bwork(ing)?\s+around\b[^.!?\n]{0,30}\b(security|merge)\s+block\b/i,
+  /\bnot\s+a\s+user-authorized\s+action\b/i,
+  /\bbypass(ing)?\b[^.!?\n]{0,20}\bsecurity\b/i,
+  /\bsecurity\s+(design|boundary|control|policy)\b/i,
+];
+
+/**
+ * Tools whose invocation IS an escalation to the principal. A denial followed by
+ * one of these is the shape that costs a decision cycle.
+ */
+export const ESCALATION_TOOL_NAME_PATTERN = /^(AskUserQuestion|mcp__minsky__asks_create)$/;
+
+/** Tools whose `command` input carries a shell command shape worth comparing. */
+export const COMMAND_TOOL_NAMES: readonly string[] = ["Bash", "mcp__minsky__session_exec"];
+
+/**
+ * Detect an escalation or deferral resting on a permission denial that was never
+ * re-attempted in a different command shape.
+ *
+ * The anchor is a STRUCTURED tool result rather than a phrase, which is what
+ * makes this surface reach a class the three prose surfaces cannot: the agent's
+ * wording here is third-person about a tool ("the API was denied", "I couldn't
+ * read branch protection"), and every pattern corpus tuned to one such phrasing
+ * has missed the next one. ADR-024's ladder scopes itself to matching trigger
+ * PHRASES, so it governs the prose half of this trigger and not the denial half
+ * — the same boundary `chained-verification-commands-detector.ts` records for
+ * itself ("a command is not prose") and that ADR-034 sets for symbol naming.
+ *
+ * Three conjuncts, all deterministic:
+ *   1. a denial occurred, and its reason does not name a security concern;
+ *   2. the turn escalated — an `AskUserQuestion` / `asks_create` AFTER the
+ *      denial, or capability-deferral prose anywhere in the turn (the existing
+ *      Rung-1 corpus, reused rather than extended);
+ *   3. no intervening RESHAPED retry, per {@link isReshapedRetry}.
+ *
+ * Conjunct 2 accepts prose without an ordering test on purpose: the turn's
+ * assistant text is concatenated across the whole turn by
+ * {@link extractAssistantText}, so no position is available for it. Tool calls,
+ * which do carry position, are ordered.
+ */
+export function detectDenialAnchoredDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const denials = findDeniedToolCalls(turnLines);
+  if (denials.length === 0) return [];
+
+  const toolUses = findIndexedToolUses(turnLines);
+  const escalations = toolUses.filter((t) => ESCALATION_TOOL_NAME_PATTERN.test(t.toolName));
+  const commandCalls = toolUses.filter(
+    (t) => COMMAND_TOOL_NAMES.includes(t.toolName) && typeof t.input["command"] === "string"
+  );
+
+  const text = extractAssistantText(turnLines);
+  const scanned = text ? elideDoubleQuotedSpans(elideQuotedContexts(text)) : "";
+  const proseDefers = CAPABILITY_DEFERRAL_PATTERNS.some((pattern) => pattern.test(scanned));
+
+  for (const denial of denials) {
+    if (SECURITY_FRAMED_DENIAL_PATTERNS.some((pattern) => pattern.test(denial.reason))) continue;
+
+    const escalatedAfter = escalations.some((e) => e.index > denial.index);
+    if (!escalatedAfter && !proseDefers) continue;
+
+    const deniedCommand = denial.command;
+    if (
+      deniedCommand &&
+      commandCalls.some(
+        (c) =>
+          c.index > denial.index && isReshapedRetry(deniedCommand, c.input["command"] as string)
+      )
+    ) {
+      continue;
+    }
+
+    return [
+      {
+        surface: "denial-anchored",
+        // The diversity axis is the denied CHANNEL, not the command: two fires on
+        // two `railway` denials are one pattern, while `railway` and `gh` are two.
+        // A whole command string is near-unique per fire and would satisfy the
+        // sweep's diversity gate by construction — the inert-gate shape mt#3781
+        // removed from the other surfaces. The tool NAME is the wrong axis for
+        // the same reason in reverse: every shell denial is `Bash`, so it would
+        // collapse every distinct channel into one.
+        matchedPhrase: deniedCommand
+          ? leadingTokenOf(deniedCommand)
+          : (denial.toolName ?? "unknown-tool"),
+        context: safeTruncate(deniedCommand ?? denial.toolName ?? "", 240, "head"),
+      },
+    ];
   }
   return [];
 }
@@ -715,14 +844,32 @@ export function buildReminder(matches: DeferralMatch[]): string {
     // before the fix, so the guard's measured `attentionCost` is unchanged.
     lines.push(`  - (${m.surface}) "${m.context}"`);
   }
-  lines.push(
-    "",
-    "Run the capability probe BEFORE deferring, per `user-preferences.mdc §Probe before " +
-      "deferring`: `which <cli> && <cli> whoami`; a `<service>:*` skill; `config_get` for the " +
-      "named credential; `memory_search` for the service. If any probe returns available, DO " +
-      "THE WORK. If all fail, state the probe results inline so the deferral is justified.",
-    `Override: set ${OVERRIDE_ENV_VAR}=1 if this is genuinely not a deferral case.`
-  );
+  lines.push("");
+
+  // Per `guard-feedback-authoring.mdc §The directive has to fit the shape of the
+  // fire`: the denial-anchored surface's correct remedy is to re-issue the same
+  // command differently, which is a DIFFERENT action from running a capability
+  // probe. A guard that absorbs a new shape owes that shape its own directive —
+  // handing it the wrong one invites the agent to read a true positive as false.
+  // Both are emitted when a turn trips both; that pairing is this guard's worst
+  // case and is what its `worstCaseCanary` is posed at.
+  if (matches.some((m) => m.surface === "denial-anchored")) {
+    lines.push(
+      "A denial bounds the claim to the COMMAND you ran, not the capability. Re-issue the same " +
+        "channel in a simpler shape — the operation as the leading token, credentials inline — " +
+        "before escalating; a compound command matches no prefix rule. If the denial names a " +
+        "security concern, stop and escalate."
+    );
+  }
+  if (matches.some((m) => m.surface !== "denial-anchored")) {
+    lines.push(
+      "Run the capability probe BEFORE deferring, per `user-preferences.mdc §Probe before " +
+        "deferring`: `which <cli> && <cli> whoami`; a `<service>:*` skill; `config_get` for the " +
+        "named credential; `memory_search` for the service. If any probe returns available, DO " +
+        "THE WORK. If all fail, state the probe results inline so the deferral is justified."
+    );
+  }
+  lines.push(`Override: set ${OVERRIDE_ENV_VAR}=1 if this is genuinely not a deferral case.`);
   return lines.join("\n");
 }
 
@@ -747,12 +894,13 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   try {
     const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
-    // Surface A then Surface C (mt#3463). Both are prose surfaces over the same
-    // turn; each returns at most one match, and a turn that trips both is
-    // reported as both — they are different failures, not two names for one.
+    // Surface A, then C (mt#3463), then D (mt#3533). Each returns at most one
+    // match, and a turn that trips several is reported as all of them — they are
+    // different failures, not several names for one.
     const matches = [
       ...detectCapabilityDeferral(turnLines),
       ...detectPermissionDeferral(turnLines),
+      ...detectDenialAnchoredDeferral(turnLines),
     ];
     // Recorded for EVERY evaluated turn, including the no-match case — that is
     // the half the calibration log cannot provide (see buildEvaluationRecord).
@@ -853,9 +1001,13 @@ export async function main(): Promise<void> {
     } else {
       const turnLines = extractLastAssistantTurn(lines);
       if (turnLines.length > 0) {
-        // Same two prose surfaces as `run()` (mt#3463). Wiring one entrypoint
-        // and not the other is the mt#3270 R1 shape.
-        matches = [...detectCapabilityDeferral(turnLines), ...detectPermissionDeferral(turnLines)];
+        // Same surfaces as `run()` (mt#3463, mt#3533). Wiring one entrypoint and
+        // not the other is the mt#3270 R1 shape.
+        matches = [
+          ...detectCapabilityDeferral(turnLines),
+          ...detectPermissionDeferral(turnLines),
+          ...detectDenialAnchoredDeferral(turnLines),
+        ];
         appendEvaluationRecord(
           input.cwd,
           buildEvaluationRecord(input.session_id, matches, extractAssistantText(turnLines) ?? "")

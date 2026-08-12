@@ -1755,7 +1755,23 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     calibrationLog: "operator-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // MEASURED, not estimated (mt#3533). `buildReminder` at its saturated worst
+    // case — all three prose/denial surfaces matching at once, each `context` at
+    // its 240-char cap, so both directive branches render — is 1609 chars.
+    // Bounded by construction: each detector returns at most one match and every
+    // context is capped, so there is no unbounded axis (the property mt#3705
+    // required after `guard-health-escalation-detector` was annotated off a
+    // one-item canary).
+    //
+    // The prior 600 was ALREADY understated before this surface existed: the
+    // two-prose-match worst case measures 1049. It went unnoticed because
+    // `guard-feedback-shape.test.ts` renders the canary and reads
+    // `additionalContext`, which this guard leaves empty while
+    // INJECTION_ENABLED is false — so the enforced ceiling has always been
+    // measured against an empty string here. `operator-deferral-detector.test.ts`
+    // now pins the render against this number directly; the structural gap in the
+    // shape test is mt#4002.
+    attentionCost: { denialMessageSizeChars: 1650, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
