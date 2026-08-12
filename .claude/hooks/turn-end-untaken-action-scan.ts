@@ -136,8 +136,38 @@ const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
  * the R2 and R3 failing turns carried none of these markers.
  */
 const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
-  /\bwatcher\s+is\s+armed\b/i,
-  /\barmed\s+(?:a\s+)?(?:background\s+)?(?:watcher|poll|retry|wakeup)\b/i,
+  // mt#3948: the armed-watcher suppression, in BOTH word orders and over the full noun set.
+  //
+  // The two patterns these replace were each bound to one phrasing —
+  // `/\bwatcher\s+is\s+armed\b/` required the copula AND the noun `watcher`, and
+  // `/\barmed\s+(?:a\s+)?(?:background\s+)?(?:watcher|poll|retry|wakeup)\b/` required `armed` to
+  // PRECEDE the noun and allowed exactly one modifier. Four attested closing messages from the
+  // 2026-08-10 and 2026-08-11 review windows put the participle AFTER the noun, or inserted a
+  // different modifier, or named the wait `wait` rather than `watcher`, and all four fired on
+  // behavior `work-completion.mdc §External self-resolving waits` explicitly PRESCRIBES:
+  //
+  //   "I have a background wait armed on it — I'll merge and write the handoff when it fires."
+  //   "I have a blocking watcher armed on the checks — I'll merge the moment they go green."
+  //   "watcher armed, I'll merge when it's green."
+  //   "A background wait is armed; I'll merge when the timer fires."
+  //
+  // What is deliberately NOT bought with this: the suppression still keys on EVIDENCE THE WAIT
+  // EXISTS, never on naming a blocker. "I'll merge when the review lands" names no wait and
+  // keeps firing — the same line PR #2784 R1 drew when it rejected a broader `blocked only on
+  // ci` pattern. Both patterns require the literal `armed` adjacent to a wait noun; neither can
+  // match a message that merely mentions CI, a review, or a check.
+  //
+  // ADR-024 placement: this is a Rung-1 deterministic fix, the ladder's default, and the rung
+  // its Consequences name as plausibly sufficient for the precision axis at ~zero cost. If a
+  // THIRD distinct armed-watcher phrasing is filed against this set, that is the measured
+  // insufficiency of Rung 1 for this family and the next pass raises the rung rather than the
+  // pattern count — see the task's `## Planning Audit`.
+  //
+  // Participle BEFORE the noun: "armed a background wait", "armed the retry watcher".
+  /\barmed\s+(?:a|an|the)?\s*(?:[\w-]+\s+){0,2}?(?:watcher|wait|poll|retry|wakeup)\b/i,
+  // Participle AFTER the noun, with an optional copula: "watcher armed", "wait is armed",
+  // "watcher has been armed". Subsumes the retired `watcher\s+is\s+armed` entry.
+  /\b(?:watcher|wait|poll|retry|wakeup)\s+(?:is\s+|was\s+|has\s+been\s+)?armed\b/i,
   /\brunning\s+in\s+the\s+background\b/i,
   /\bi'?ll\s+report\s+(?:back\s+)?when\b/i,
   /\bwaiting\s+(?:for|on)\s+/i,
@@ -381,11 +411,27 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
       ? scanned.slice(scanned.length - TAIL_WINDOW_CHARS)
       : scanned;
 
+  // mt#3948: where `tail` starts inside `scanned`, so a match index in the tail can be mapped
+  // back to the whole message. `isAttributedStep` deliberately reads a 40-char window and needs
+  // no mapping; the handoff check below reads ALL preceding text and does.
+  const tailOffset = scanned.length - tail.length;
+
   const matches: UntakenActionMatch[] = [];
   for (const { family, re } of COMMITMENT_PATTERNS) {
     const m = re.exec(tail);
     if (!m) continue;
     if (ATTRIBUTABLE_FAMILIES.has(family) && isAttributedStep(tail, m.index)) continue;
+    // mt#3948: same per-family seam, different reason — inside a handoff/resume block, naming
+    // the next step is the block's deliverable rather than a deferral.
+    //
+    // Checked against `scanned`, not `tail`: a handoff block opens with its heading and runs for
+    // many lines, so in a real handoff message the heading is routinely ABOVE the 600-char tail
+    // window while the next-step sentence sits inside it. Passing `tail` here would have made
+    // the suppression work only on handoffs short enough to fit the window — which the attested
+    // fixture happens to be, so the tests would have passed and the real case would not.
+    if (ATTRIBUTABLE_FAMILIES.has(family) && isInHandoffBlock(scanned, tailOffset + m.index)) {
+      continue;
+    }
     matches.push({ family, matchedPhrase: m[0] });
   }
   return matches;
@@ -462,6 +508,43 @@ export function isAttributedStep(text: string, index: number): boolean {
   const before = text.slice(Math.max(0, index - ATTRIBUTION_LOOKBACK_CHARS), index);
   if (PERSONAL_ATTRIBUTION_PATTERN.test(before)) return false;
   return ATTRIBUTION_PATTERNS.some((re) => re.test(before));
+}
+
+/**
+ * A HANDOFF or RESUME block heading (mt#3948, absorbing CLOSED mt#3998).
+ *
+ * Inside a handoff, naming the next step IS the deliverable — the block exists to tell the next
+ * agent where to start. The 2026-08-11 window fired on exactly that:
+ *
+ *   "### Resume — New session … two PRs, a retrospective, a 13-hour data operation, and the
+ *    next step is a clean self-contained scope."
+ *
+ * Matched against a markdown HEADING rather than a bare mention of the word, because "handoff"
+ * appears constantly in ordinary prose about handoffs — a bare-word match would suppress a real
+ * commitment in any turn that discussed one. A heading is a structural claim about what the
+ * following text IS.
+ *
+ * Per-family and per-match, for the same reason `isAttributedStep` is: a global
+ * `SUPPRESSION_PATTERNS` entry would silence a genuine `ill-action` commitment that happens to
+ * share a message with a handoff block, and a handoff-carrying turn is exactly the kind of long
+ * closing message where a real commitment is most likely to also appear.
+ */
+const HANDOFF_BLOCK_HEADING = /^\s{0,3}#{1,6}\s*(?:\*\*)?\s*(?:resume|handoff)\b/im;
+
+/**
+ * Does a handoff/resume block open before `index`?
+ *
+ * Scans ALL preceding text, not a fixed window: the heading opens the block and the next-step
+ * sentence can sit many lines below it, which is why this cannot reuse
+ * `ATTRIBUTION_LOOKBACK_CHARS`.
+ */
+export function isInHandoffBlock(text: string, index: number): boolean {
+  // The slice below is not a display truncation: the prefix is fed straight to `.test()`, and
+  // `index` is a regex match index, which is always a code-unit boundary. Even if it did strand
+  // a lone surrogate at the prefix's tail, that cannot change whether a `^`-anchored heading
+  // matched EARLIER in the prefix — the only question asked here.
+  // eslint-disable-next-line custom/no-unsafe-string-truncation -- see the note above
+  return HANDOFF_BLOCK_HEADING.test(text.slice(0, index));
 }
 
 /**
