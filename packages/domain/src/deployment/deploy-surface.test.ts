@@ -10,6 +10,7 @@ import {
 const REVIEWER_DOCKERFILE = "services/reviewer/Dockerfile";
 const ROOT_DOCKERFILE = "Dockerfile";
 const DEPLOY_WORKFLOW = ".github/workflows/deploy.yml";
+const NON_SURFACE_DOC = "docs/architecture.md";
 
 describe("isDeploySurfaceFile", () => {
   test("matches infra tree files", () => {
@@ -44,8 +45,15 @@ describe("isDeploySurfaceFile", () => {
   });
 
   test("does not match a non-deploy-surface file", () => {
+    // NOTE root `src/**` deliberately does NOT appear here even though it's
+    // NOT a deploy-surface pattern per this module — see the mt#3523
+    // "cockpit inversion" tests below for why root src/** is carved out
+    // (mt#4013) rather than silently added.
     expect(isDeploySurfaceFile("src/domain/session/session.ts")).toBe(false);
-    expect(isDeploySurfaceFile("services/reviewer/src/index.ts")).toBe(false);
+    // mt#3523: services/reviewer/** application source IS now covered — see
+    // the "mt#3523 widened surface" describe block below for the positive
+    // case. This example moves to a genuinely non-surface path.
+    expect(isDeploySurfaceFile(NON_SURFACE_DOC)).toBe(false);
     expect(isDeploySurfaceFile("README.md")).toBe(false);
   });
 
@@ -160,11 +168,128 @@ describe("findAffectedServices", () => {
   });
 
   test("mixed changed-file set with no deploy-surface matches returns empty", () => {
-    const result = findAffectedServices(
-      ["packages/domain/src/session/commands/pr-subcommands.ts"],
-      available
-    );
+    const result = findAffectedServices([NON_SURFACE_DOC, "README.md"], available);
     expect(result.services).toEqual([]);
     expect(result.matchedFiles).toEqual([]);
+  });
+
+  // mt#3523 previously asserted a `packages/domain/src/**` file matched
+  // NOTHING here — that was the exact bug this task fixes. See the
+  // "mt#3523 widened surface" describe block below for the corrected
+  // (non-empty, minsky-mcp + reviewer) expectation.
+});
+
+// ---------------------------------------------------------------------------
+// mt#3523 widened surface — application source + manifests, per the
+// deploy-minsky-mcp.yml / deploy-reviewer.yml `paths:` blocks.
+// ---------------------------------------------------------------------------
+
+describe("mt#3523 widened surface", () => {
+  // Includes "minsky-mcp" (services/minsky-mcp/deploy.config.ts exists in
+  // this repo — it's the GHCR-image-based Railway service built from the
+  // ROOT Dockerfile, not services/minsky-mcp/Dockerfile) in addition to the
+  // `available` fixture above, which predates this task and omits it.
+  const availableAll = ["cockpit", "minsky-ops", "minsky-mcp", "reviewer", "site"];
+
+  // --- AT1: packages/domain/src/** -> exactly {minsky-mcp, reviewer} ---
+  test("AT1: isDeploySurfaceFile is true for packages/domain/src/**", () => {
+    expect(isDeploySurfaceFile("packages/domain/src/transcripts/turns.ts")).toBe(true);
+  });
+
+  test("AT1: findAffectedServices for only packages/domain/src/** yields exactly {minsky-mcp, reviewer}", () => {
+    const result = findAffectedServices(
+      ["packages/domain/src/session/commands/pr-subcommands.ts"],
+      availableAll
+    );
+    expect(result.services).toEqual(["minsky-mcp", "reviewer"]);
+    expect(result.matchedFiles).toEqual(["packages/domain/src/session/commands/pr-subcommands.ts"]);
+  });
+
+  // --- AT2: PR #2865 reproduction ---
+  test("AT2: PR #2865 shape (packages/domain/src/transcripts/** + tests) is a deploy surface for {minsky-mcp, reviewer}", () => {
+    const files = [
+      "packages/domain/src/transcripts/turns.ts",
+      "packages/domain/src/transcripts/turns.test.ts",
+      "packages/domain/src/transcripts/index.ts",
+    ];
+    const result = findAffectedServices(files, availableAll);
+    expect(result.services).toEqual(["minsky-mcp", "reviewer"]);
+    expect(result.matchedFiles).toEqual(files);
+  });
+
+  // --- AT3: cockpit inversion — src/cockpit/web/** + docs/** is NOT a surface ---
+  test("AT3: src/cockpit/web/** + docs/** is NOT a deploy surface and yields no services", () => {
+    const files = [
+      "src/cockpit/web/App.tsx",
+      "src/cockpit/web/components/Widget.tsx",
+      "docs/cockpit-ui.md",
+    ];
+    for (const file of files) {
+      expect(isDeploySurfaceFile(file)).toBe(false);
+    }
+    const result = findAffectedServices(files, availableAll);
+    expect(result.services).toEqual([]);
+    expect(result.matchedFiles).toEqual([]);
+  });
+
+  // --- AT4: docs-only PR is still NOT a deploy surface ---
+  test("AT4: a docs-only changed-file set is NOT a deploy surface", () => {
+    const files = [NON_SURFACE_DOC, "docs/testing-patterns.md", "README.md"];
+    const result = findAffectedServices(files, availableAll);
+    expect(result.services).toEqual([]);
+    expect(result.matchedFiles).toEqual([]);
+  });
+
+  // --- Reviewer's own application source (services/reviewer/**) ---
+  test("services/reviewer/src/** and migrations/** are deploy-surface files scoped to reviewer only", () => {
+    expect(isDeploySurfaceFile("services/reviewer/src/index.ts")).toBe(true);
+    expect(isDeploySurfaceFile("services/reviewer/migrations/pg/0001_init.sql")).toBe(true);
+    const result = findAffectedServices(
+      ["services/reviewer/src/index.ts", "services/reviewer/migrations/pg/0001_init.sql"],
+      availableAll
+    );
+    expect(result.services).toEqual(["reviewer"]);
+  });
+
+  // --- services/reviewer/package.json triggers BOTH services ---
+  test("services/reviewer/package.json affects both minsky-mcp and reviewer", () => {
+    const result = findAffectedServices(["services/reviewer/package.json"], availableAll);
+    expect(result.services).toEqual(["minsky-mcp", "reviewer"]);
+  });
+
+  // --- minsky-mcp-only manifests ---
+  test("minsky-mcp-only manifests (.dockerignore, .minsky/config.yaml) affect only minsky-mcp", () => {
+    expect(findAffectedServices([".dockerignore"], availableAll).services).toEqual(["minsky-mcp"]);
+    expect(findAffectedServices([".minsky/config.yaml"], availableAll).services).toEqual([
+      "minsky-mcp",
+    ]);
+  });
+
+  // --- reviewer-only manifest ---
+  test("bunfig.toml affects only reviewer", () => {
+    expect(findAffectedServices(["bunfig.toml"], availableAll).services).toEqual(["reviewer"]);
+  });
+
+  // --- shared manifests affect both ---
+  test("root package.json / bun.lock / tsconfig.json affect both minsky-mcp and reviewer", () => {
+    for (const file of ["package.json", "bun.lock", "tsconfig.json"]) {
+      expect(findAffectedServices([file], availableAll).services).toEqual([
+        "minsky-mcp",
+        "reviewer",
+      ]);
+    }
+  });
+
+  // --- root src/** is deliberately NOT a deploy surface (mt#4013 carve-out) ---
+  test("root src/** (outside src/cockpit/**) is NOT classified as a deploy surface (mt#4013 owns this)", () => {
+    // NOTE: this is a documented, deliberate gap, not an oversight — see the
+    // DEPLOY_SURFACE_SERVICE_MAP doc comment in deploy-surface.ts. Root
+    // src/** IS currently a live minsky-mcp trigger per
+    // deploy-minsky-mcp.yml's paths: block (verified via git blame), but
+    // adding it here would pre-empt mt#4013's decision and would also flip
+    // the AT3 cockpit-inversion result above (since src/cockpit/** nests
+    // under root src/**).
+    expect(isDeploySurfaceFile("src/mcp/tools/example.ts")).toBe(false);
+    expect(isDeploySurfaceFile("src/domain/session/session.ts")).toBe(false);
   });
 });

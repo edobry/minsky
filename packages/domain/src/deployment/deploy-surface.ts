@@ -13,16 +13,29 @@
  * the `session.pr.drive` post-merge deploy-watch mode (mt#2647) can never
  * drift apart on what counts as a deploy surface.
  *
+ * mt#3523 extended the pattern set from deploy CONFIG (Dockerfiles,
+ * railway.json, deploy workflows) to also cover application SOURCE and
+ * manifests whose merge actually triggers a service deploy — derived
+ * directly from the `paths:` blocks of `.github/workflows/deploy-minsky-mcp.yml`
+ * and `deploy-reviewer.yml` (the in-repo trigger authority; see
+ * `DEPLOY_SURFACE_SERVICE_MAP` below). `deploy-surface-workflow-drift.test.ts`
+ * re-parses those workflow files at test time and fails if this module
+ * diverges from them, closing the "list was hand-widened and drifted
+ * again" class mt#3023 and mt#3523 both instantiated.
+ *
  * @see mt#2353 — originating hook (PreToolUse merge gate + PostToolUse reminder)
  * @see mt#2647 — this module's consumer (`session.pr.drive` postMerge mode)
+ * @see mt#3023 — first hand-widening (root Dockerfile was missing)
+ * @see mt#3523 — second hand-widening (application source + manifests were missing)
  */
 
 /**
- * Anchored path patterns that constitute a deploy surface. Tested against
- * the repo-relative POSIX path (normalised: backslashes -> `/`, leading
- * `./` stripped).
+ * Deploy CONFIG-as-code patterns — Dockerfiles, Railway/deploy config, and
+ * deploy workflows themselves. Unscoped to a single service (matched here,
+ * not in `DEPLOY_SURFACE_SERVICE_MAP` below) are conservatively treated as
+ * broad-impact by `findAffectedServices`: watch more, miss nothing.
  */
-export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
+const CONFIG_SURFACE_PATTERNS: readonly RegExp[] = [
   // Pulumi / infra-as-code tree — not scoped to one service.
   /^infra\//,
   // Root Dockerfile — the `minsky-mcp` image. Railway auto-detects it at repo
@@ -48,9 +61,98 @@ export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
 ];
 
 /**
+ * Explicit path -> service(s) mapping (mt#3523) for deploy-surface entries
+ * whose trigger is SHARED across services, or narrower/broader than the
+ * single-service `services/<name>/...` scoping `extractServiceFromPath` +
+ * `findAffectedServices`'s broad-impact fallback can express on their own
+ * (e.g. "this path deploys exactly these TWO services", not "every
+ * service" or "one service, scoped by directory name").
+ *
+ * Each entry's `services` list is derived directly from the `on.push.paths`
+ * blocks of `.github/workflows/deploy-minsky-mcp.yml` (-> `minsky-mcp`) and
+ * `.github/workflows/deploy-reviewer.yml` (-> `reviewer`), read 2026-08-11/12.
+ * `deploy-surface-workflow-drift.test.ts` re-parses those workflow files at
+ * test time and fails if this map diverges from them — with ONE documented,
+ * named exception, below.
+ *
+ * NOT included: root `src/**` for minsky-mcp. It IS currently present in
+ * `deploy-minsky-mcp.yml`'s `paths:` block (verified via `git blame` on
+ * this repo: commit `0df155fb32`, 2026-06-12, unchanged since; present in
+ * both the `push` and `pull_request` path lists). Both mt#3523's own
+ * planning "Trigger truth" table and mt#4013 (filed specifically to own
+ * this question) stated the OPPOSITE — that root `src/**` was NOT a
+ * trigger — which this investigation (2026-08-12) found to be false.
+ * Root `src/` also contains `src/cockpit/**`
+ * (`.github/workflows/cockpit-preview.yml`'s own trigger paths confirm
+ * cockpit's web source lives there), so as things stand a merge touching
+ * ONLY `src/cockpit/web/**` DOES fire `deploy-minsky-mcp.yml`'s build+push
+ * job today — an overlap neither mt#3523's planning nor mt#4013's spec
+ * anticipated at the time either was written.
+ *
+ * Deliberately left OUT of this map rather than silently folded in:
+ *   (a) mt#4013 owns whether root `src/**` should remain a minsky-mcp
+ *       trigger at all; adding it here would pre-empt that decision by
+ *       fait accompli rather than leaving it to be decided.
+ *   (b) the cockpit-exclusion Acceptance Test (this module's test file,
+ *       "cockpit inversion") was operator-approved via ask#7028 on the
+ *       understanding that cockpit source isn't caught by anything else in
+ *       the deploy surface — this finding means that understanding needs
+ *       revisiting, which is mt#4013's call to make, not a silent
+ *       scope-expansion here.
+ *
+ * `deploy-surface-workflow-drift.test.ts` carries an EXPLICIT, NAMED
+ * carve-out for exactly this one path (not a blanket skip or a narrowed
+ * comparison) — every OTHER divergence between the two workflow files and
+ * this map still fails the drift test loudly.
+ */
+export const DEPLOY_SURFACE_SERVICE_MAP: ReadonlyArray<{
+  readonly pattern: RegExp;
+  readonly services: readonly string[];
+}> = [
+  // ---- Shared trigger paths: BOTH minsky-mcp and reviewer ----
+  { pattern: /^package\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^bun\.lock$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^tsconfig\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^packages\/shared\/package\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^packages\/shared\/tsconfig\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^packages\/shared\/src\//, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^packages\/domain\/package\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^packages\/domain\/tsconfig\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^packages\/domain\/src\//, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^services\/site\/package\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^services\/cockpit\/package\.json$/, services: ["minsky-mcp", "reviewer"] },
+  { pattern: /^services\/reviewer\/package\.json$/, services: ["minsky-mcp", "reviewer"] },
+
+  // ---- minsky-mcp only ----
+  { pattern: /^\.dockerignore$/, services: ["minsky-mcp"] },
+  { pattern: /^\.minsky\/config\.yaml$/, services: ["minsky-mcp"] },
+
+  // ---- reviewer only ----
+  // Broad: covers services/reviewer/src/**, services/reviewer/migrations/**,
+  // and (redundantly with the entry above, which additionally maps
+  // minsky-mcp) services/reviewer/package.json.
+  { pattern: /^services\/reviewer\//, services: ["reviewer"] },
+  { pattern: /^bunfig\.toml$/, services: ["reviewer"] },
+];
+
+/**
+ * Anchored path patterns that constitute a deploy surface. Tested against
+ * the repo-relative POSIX path (normalised: backslashes -> `/`, leading
+ * `./` stripped). Combines the config-as-code patterns above with the
+ * (regex-only, service-agnostic) patterns from `DEPLOY_SURFACE_SERVICE_MAP`
+ * — single source of truth, so the boolean predicate and the per-service
+ * mapping can never drift apart on WHICH files are deploy-surface files,
+ * only on which SERVICE(S) a given file maps to.
+ */
+export const DEPLOY_SURFACE_PATTERNS: readonly RegExp[] = [
+  ...CONFIG_SURFACE_PATTERNS,
+  ...DEPLOY_SURFACE_SERVICE_MAP.map((entry) => entry.pattern),
+];
+
+/**
  * LOCAL-APP deploy surface (mt#2976): the cockpit-tray native binary source.
  *
- * Unlike the Railway `DEPLOY_SURFACE_PATTERNS` above, a change here "deploys" to
+ * Unlike the Railway `DEPLOY_SURFACE_PATTERNS` above, a change here \"deploys\" to
  * the operator's local `/Applications` via `cockpit-tray/scripts/install-local.sh`
  * — and the tray's own Rust binary is NOT auto-rebuilt (only `src/cockpit/**` is,
  * mt#2297/mt#2299), so a merged change is invisible until the app is reinstalled
@@ -139,17 +241,28 @@ export function extractServiceFromPath(filename: string | null | undefined): str
  * `listServicesWithDeployConfig` in `./service-resolver`), determine which
  * services are "affected" by this PR's deploy-surface changes.
  *
- * Rules:
+ * Rules, checked in order for each deploy-surface file:
+ * - (mt#3523) A file matching one or more `DEPLOY_SURFACE_SERVICE_MAP`
+ *   entries affects exactly the union of those entries' `services` — this
+ *   takes priority because it expresses "this path deploys these specific
+ *   service(s)" more precisely than the two rules below can.
  * - A deploy-surface file scoped to one service (`services/<name>/...`)
- *   affects that service ONLY — provided it's a service that actually has
- *   a deploy config (otherwise there's nothing to watch for it).
+ *   NOT covered by the map above affects that service ONLY — provided it's
+ *   a service that actually has a deploy config (otherwise there's nothing
+ *   to watch for it).
  * - A deploy-surface file NOT scoped to one service (`infra/...`, a deploy
- *   workflow) is treated as affecting EVERY known service — infra and
- *   workflow changes are not service-local.
+ *   workflow) and NOT covered by the map above is treated as affecting
+ *   EVERY known service — infra and workflow changes are not service-local.
  * - Files that aren't deploy-surface files are ignored entirely.
+ *
+ * Every branch gates a resolved service against `availableServices` (a
+ * service listed in the map but with no `deploy.config.ts` has nothing to
+ * watch — silently skipped), matching the pre-existing behavior for the
+ * scoped-service and broad-impact rules.
  *
  * Pure function — takes the available-services list as an argument rather
  * than reading the filesystem itself, so it stays independently testable.
+ * Signature unchanged by mt#3523 — only the internal mapping grows.
  */
 export function findAffectedServices(
   changedFiles: readonly string[],
@@ -160,6 +273,18 @@ export function findAffectedServices(
   let broadImpact = false;
 
   for (const file of matchedFiles) {
+    const mapMatches = DEPLOY_SURFACE_SERVICE_MAP.filter((entry) => entry.pattern.test(file));
+    if (mapMatches.length > 0) {
+      for (const entry of mapMatches) {
+        for (const service of entry.services) {
+          if (availableServices.includes(service)) {
+            affected.add(service);
+          }
+        }
+      }
+      continue;
+    }
+
     const service = extractServiceFromPath(file);
     if (service !== undefined) {
       if (availableServices.includes(service)) {
@@ -169,7 +294,8 @@ export function findAffectedServices(
       // deploy.config.ts has nothing to watch — silently skipped.
       continue;
     }
-    // Not scoped to a single service (infra/, deploy workflow) -> broad impact.
+    // Not scoped to a single service (infra/, deploy workflow) and not in
+    // the explicit map -> broad impact.
     broadImpact = true;
   }
 

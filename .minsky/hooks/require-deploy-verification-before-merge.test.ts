@@ -23,7 +23,12 @@ const DEPLOY_CHANGE_TITLE = "feat: deploy change";
 const NO_SECTION_BODY = "## Summary\nno section";
 const f = (filename: string): PrFile => ({ filename, status: "modified" });
 const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
-const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("services/reviewer/src/server.ts")];
+// mt#3523 widened isDeploySurfaceFile to also cover services/reviewer/**
+// application source (deploy-reviewer.yml's own trigger paths), so
+// "services/reviewer/src/server.ts" is no longer a valid non-deploy
+// fixture. Root src/** (outside services/*) stays a genuine non-surface
+// path (mt#4013 carve-out — see deploy-surface.ts).
+const NON_DEPLOY_FILES: PrFile[] = [f("src/app.ts"), f("docs/architecture.md")];
 
 /** The marker under test, extracted so the fence cases below share one spelling. */
 const DV_MARKER = "Deploy verification:";
