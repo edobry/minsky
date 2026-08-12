@@ -115,14 +115,42 @@
 // interrogative. `detectSubstantiveQuestion` / `resolveQuestionAnswerCheck`
 // add a SECOND, independent suppression gate (`SUPPRESSION_QUESTION_ANSWER`)
 // alongside the depth-request override: unlike the depth-request lookback,
-// it anchors on the single OPENING prompt of the measured turn only, and it
-// is gated to the PURE `over-budget` trigger — a label-led report
-// (`lead-labels` or `both`) is NEVER excused by a preceding question, per
-// the spec's SC3. Every matched fire still logs (now via
-// `suppressedByQuestionAnswer` alongside `suppressedByDepthRequest`), and
-// `sessionHasLoggedTextAndSuppression`'s dedupe check now compares the
+// it originally anchored on the single OPENING prompt of the measured turn
+// only (widened by mt#3972 below), and it is gated to the PURE `over-budget`
+// trigger — a label-led report (`lead-labels` or `both`) is NEVER excused by
+// a preceding question, per the spec's SC3. Every matched fire still logs
+// (now via `suppressedByQuestionAnswer` alongside `suppressedByDepthRequest`),
+// and `sessionHasLoggedTextAndSuppression`'s dedupe check now compares the
 // COMBINED suppression verdict across both gates via the generalized
 // `isRecordSuppressed` helper.
+//
+// **mt#3972 — lookback widened past non-principal turn openers (2026-08-11
+// calibration review).** The single-opening-prompt anchor above under-covers
+// the shape a background-heavy session produces constantly: the principal
+// asks a substantive question, one or more harness-injected turns land
+// before the agent's answer (a `<task-notification>` background-task
+// completion notice, mt#3396; a `<system-reminder>` block, e.g. from
+// memory-search.ts or another hook's injected nudge — the "hook-continuation
+// message" case), and the turn that carries the answer OPENS with that
+// injected content rather than the question itself. `findOpeningPromptIndex`
+// still correctly identifies THAT line as the turn boundary (it IS a "real"
+// user prompt per `isRealUserPrompt` — it carries text, not a tool_result),
+// but it is not principal-authored, so anchoring on it directly reads "no
+// question" even though the principal asked one moments earlier. Confirmed
+// against the live 2026-08-11 calibration log (session `25a27bdb`): the
+// 17:21:47Z and 19:16:53Z fires both opened on exactly this shape and both
+// logged `suppressedByQuestionAnswer: false`. `resolveQuestionAnswerCheck`
+// now walks backward through the SAME `findRealPromptIndices` list
+// `recentUserPromptTexts` already draws from, skipping entries classified as
+// `isNonPrincipalTurnOpener`, until it finds the most recent PRINCIPAL
+// prompt — bounded to `QUESTION_ANSWER_LOOKBACK_TURNS` real-prompt slots (see
+// that constant for why the bound exists and how it was sized) so the
+// widening cannot regress into the exact FP risk that motivated the original
+// narrow anchor: an unbounded lookback would excuse ANY long report in a
+// question-heavy session, not just one genuinely answering the question that
+// triggered it. A question found several REAL PRINCIPAL turns back — i.e.
+// past another turn the principal actually typed, not past injected content
+// — still does NOT suppress; only non-principal openers are skipped.
 //
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured; its
@@ -141,6 +169,7 @@
 // @see mt#3112 — this task (live-injection flip + depth-request override); mt#2838 — the
 //   escalation budget this flip's disposition tripped; mt#2870 — RFC Phase-3 enforcement pair
 // @see mt#3718 — question-answer override widening (ask#6891 disposition)
+// @see mt#3972 — question-answer lookback widened past non-principal turn openers
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
@@ -686,23 +715,147 @@ export function detectSubstantiveQuestion(text: string): QuestionAnswerResult {
   return { matched: true };
 }
 
+// ---------------------------------------------------------------------------
+// mt#3972 — lookback widened past non-principal turn openers
+// ---------------------------------------------------------------------------
+
 /**
- * mt#3718 — the question-answer override's anchor. Unlike
+ * Prefixes that mark an otherwise-"real" user-role transcript line
+ * (`isRealUserPrompt` in transcript.ts returns true — it carries text, not a
+ * `tool_result`) as harness-injected content the PRINCIPAL did not type,
+ * rather than an actual operator prompt.
+ *
+ * Mirrors (in hand-rolled, prefix-only form) the tag inventory in
+ * `packages/shared/src/harness-markup.ts` — NOT imported, because
+ * `.minsky/hooks/` is dependency-free by SPEC.md invariant (no imports from
+ * `src/` or `packages/`), so this list is deliberately duplicated rather
+ * than shared:
+ *
+ *   - `<task-notification` — background-task completion notices (mt#3396):
+ *     the harness emits one of these as a WHOLE `user` turn when a
+ *     background task finishes. Confirmed against the live 2026-08-11
+ *     calibration incident's own transcript (session `25a27bdb`): the turn
+ *     opener immediately before both the 17:21:47Z and 19:16:53Z fires was
+ *     exactly a `<task-notification>` block with no other content.
+ *   - `<system-reminder` — harness reminder blocks. Every Minsky hook that
+ *     injects `additionalContext` wraps it in this tag (memory-search.ts,
+ *     skill-staleness-detector.ts, substrate-bypass-detector.ts, ...), so a
+ *     hook's injected nudge or continuation — the spec's "hook-continuation
+ *     message" case — is delivered the same way and is caught by the same
+ *     check.
+ *   - `[SYSTEM NOTIFICATION` — the plain-text preamble the current harness
+ *     wire format prepends ahead of a `<task-notification>` block (observed
+ *     directly in this file's own implementation session).
+ *
+ * Checked as a PREFIX of the trimmed text, matching how these tags open a
+ * block when they constitute the whole turn — the only shape
+ * `isRealUserPrompt` lets through as "real" in the first place.
+ */
+const NON_PRINCIPAL_OPENER_PREFIXES: readonly string[] = [
+  "<task-notification",
+  "<system-reminder",
+  "[SYSTEM NOTIFICATION",
+];
+
+/** True iff `text` opens with one of {@link NON_PRINCIPAL_OPENER_PREFIXES}. */
+export function isNonPrincipalTurnOpener(text: string): boolean {
+  const trimmed = text.trim();
+  return NON_PRINCIPAL_OPENER_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
+/**
+ * How many REAL user-prompt slots (at or before the opening prompt of the
+ * measured turn, the same population {@link recentUserPromptTexts} draws
+ * from) {@link findRecentPrincipalPromptIndex} scans backward through to find
+ * the most recent PRINCIPAL one.
+ *
+ * **Explicit and bounded, per the spec's SC1 — this is the guard against
+ * reopening the FP risk that motivated the original single-prompt anchor.**
+ * An unbounded lookback would excuse ANY long report in a question-heavy
+ * session merely because a question appears SOMEWHERE earlier in the
+ * transcript, regardless of whether it has anything to do with the report
+ * being measured — exactly the risk `resolveQuestionAnswerCheck`'s original
+ * mt#3718 doc comment cited as the reason to anchor narrowly in the first
+ * place. Bounding by REAL-PROMPT COUNT (not injected-turn count) keeps the
+ * window's actual reach small in the common case — reaching several
+ * non-principal openers back costs only ONE unit of "real" window, since a
+ * `<task-notification>`/`<system-reminder>` turn's own opener is itself one
+ * of the counted slots — while still covering the shape this task exists to
+ * fix: the live 2026-08-11 incident (session `25a27bdb`) shows bursts of
+ * several consecutive `<task-notification>` openers (parallel background
+ * subagents finishing near-simultaneously) between the principal's real
+ * question and the report answering it.
+ *
+ * Set to 5, matching the precedent of this file's OWN sibling
+ * `RETRO_INVOCATION_LOOKBACK_TURNS` (retrospective-trigger-scanner.ts) for
+ * "a bounded recent-turns window is on the order of a handful, not a
+ * multi-turn conversation stretch" — larger than
+ * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because THIS gate's window has to
+ * accommodate injected non-principal slots consuming budget that
+ * `DEPTH_REQUEST_LOOKBACK_TURNS` never has to (every slot it counts is
+ * already principal-authored), not because this gate is meant to look
+ * further into genuine principal-to-principal conversation history than that
+ * one does.
+ */
+export const QUESTION_ANSWER_LOOKBACK_TURNS = 5;
+
+/**
+ * Index of the most recent PRINCIPAL real user prompt at or before
+ * `throughIndex`, scanning back at most `lookback` real-prompt slots (the
+ * same list {@link recentUserPromptTexts} draws from) and skipping any
+ * {@link isNonPrincipalTurnOpener} hit. Returns `undefined` — fail CLOSED,
+ * i.e. the caller must treat the fire as unsuppressed — when no principal
+ * prompt is found within the bounded window, mirroring
+ * {@link findOpeningPromptIndex}'s and {@link resolveDepthCheck}'s posture.
+ */
+export function findRecentPrincipalPromptIndex(
+  lines: TranscriptLine[],
+  throughIndex: number,
+  lookback: number = QUESTION_ANSWER_LOOKBACK_TURNS
+): number | undefined {
+  const promptIndices = findRealPromptIndices(lines).filter((i) => i <= throughIndex);
+  const recent = promptIndices.slice(-lookback);
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const idx = recent[i] as number;
+    const line = lines[idx];
+    if (!line) continue;
+    if (!isNonPrincipalTurnOpener(extractUserPromptText(line))) return idx;
+  }
+  return undefined;
+}
+
+/**
+ * mt#3718's original anchor was the single OPENING prompt of the measured
+ * turn ONLY (via {@link findOpeningPromptIndex}) — deliberately narrower than
  * {@link resolveDepthCheck}'s multi-turn `DEPTH_REQUEST_LOOKBACK_TURNS`
- * lookback, this gate anchors on the single OPENING prompt of the measured
- * turn ONLY (via {@link findOpeningPromptIndex}) — deliberately narrower.
- * The ask#6891 disposition's shape is "the turn directly answers the
- * question that opened it," not "a question was asked at some point in the
- * recent conversation"; widening this to a lookback window would risk
- * excusing a report that runs long for reasons unrelated to the question
- * that actually triggered it. Fails CLOSED (treats the fire as unsuppressed)
- * when no opening-prompt index can be resolved, matching
- * `resolveDepthCheck`'s fail-closed posture.
+ * lookback: the ask#6891 disposition's shape was "the turn directly answers
+ * the question that opened it," not "a question was asked at some point in
+ * the recent conversation."
+ *
+ * mt#3972 widens that anchor ONE step: the opening prompt is not always
+ * PRINCIPAL-authored. A `<task-notification>` (background-task completion
+ * notice, mt#3396) or a `<system-reminder>` block (a hook's injected
+ * nudge/continuation, e.g. memory-search.ts) is a "real" user prompt for
+ * TURN-BOUNDARY purposes (`isRealUserPrompt` in transcript.ts correctly
+ * counts it — it carries text, not a `tool_result`) but not for "who asked
+ * the question this report is answering." {@link isNonPrincipalTurnOpener} names exactly
+ * these harness-injected shapes; {@link findRecentPrincipalPromptIndex} skips
+ * past them to the most recent PRINCIPAL prompt, bounded by
+ * {@link QUESTION_ANSWER_LOOKBACK_TURNS} so this does not regress into the
+ * unbounded-lookback FP risk the narrow anchor above was built to avoid — a
+ * question found past another REAL PRINCIPAL turn (not injected content)
+ * still does not suppress, only non-principal openers are skipped.
+ *
+ * Fails CLOSED (treats the fire as unsuppressed) when no opening-prompt
+ * index can be resolved, OR when no principal prompt is found within the
+ * bounded window, matching `resolveDepthCheck`'s fail-closed posture.
  */
 export function resolveQuestionAnswerCheck(lines: TranscriptLine[]): QuestionAnswerResult {
   const openingPromptIdx = findOpeningPromptIndex(lines);
   if (openingPromptIdx === undefined) return { matched: false };
-  const line = lines[openingPromptIdx];
+  const principalPromptIdx = findRecentPrincipalPromptIndex(lines, openingPromptIdx);
+  if (principalPromptIdx === undefined) return { matched: false };
+  const line = lines[principalPromptIdx];
   if (!line) return { matched: false };
   return detectSubstantiveQuestion(extractUserPromptText(line));
 }

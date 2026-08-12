@@ -54,9 +54,27 @@
  *   (different preceding context) logs BOTH occurrences, each with its own
  *   correct `suppressedByDepthRequest` value
  *
+ * Covers (mt#3972 acceptance tests — question-answer lookback widened past
+ * non-principal turn openers):
+ * - (AT1) the live 2026-08-11T17:21:47Z shape — principal question,
+ *   `<task-notification>` opener, 458-word over-budget report — suppresses
+ *   after the widening (negative control against the pre-tune anchor
+ *   recorded in the mt#3972 PR body)
+ * - (AT2) a lookback window with no principal question still fires
+ * - (AT3) a label-led report after a question still fires (SC3 preserved)
+ * - `isNonPrincipalTurnOpener` matches `<task-notification>`,
+ *   `<system-reminder>`, and the `[SYSTEM NOTIFICATION` preamble form
+ * - `findRecentPrincipalPromptIndex` skips non-principal openers, is bounded
+ *   by `QUESTION_ANSWER_LOOKBACK_TURNS`, and fails CLOSED outside the window
+ * - `resolveQuestionAnswerCheck` still does NOT skip past a genuine
+ *   principal turn that isn't a question, hunting for an older one (the
+ *   FP-risk bound SC1 requires)
+ *
  * @see mt#2870
  * @see mt#3028
  * @see mt#3112
+ * @see mt#3718
+ * @see mt#3972
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -87,6 +105,9 @@ import {
   QUESTION_MIN_WORDS,
   detectSubstantiveQuestion,
   resolveQuestionAnswerCheck,
+  QUESTION_ANSWER_LOOKBACK_TURNS,
+  isNonPrincipalTurnOpener,
+  findRecentPrincipalPromptIndex,
   run,
   type RunDeps,
 } from "./wall-of-text-detector";
@@ -113,6 +134,15 @@ const DEPTH_REQUEST_PHRASE_BARE = "walk me through everything";
 const QUESTION_ANSWER_PHRASE = "what happened with the deploy?";
 const QUESTION_ANSWER_PHRASE_BUN_BUG =
   "Is this a known, reported Bun bug, or something specific to our setup?";
+// mt#3972 — a multi-part question, mirroring the shape of the live
+// 2026-08-11T17:21:47Z record's opening question (session `25a27bdb`).
+const MULTI_PART_QUESTION =
+  "Help me understand more precisely: what's the actual mechanism here, why does it apply in this case, and how does it compare to the alternative we discussed?";
+// mt#3972 — non-principal turn-opener fixtures (task-notification /
+// system-reminder), matching the shapes `isNonPrincipalTurnOpener` matches.
+const TASK_NOTIFICATION_TEXT =
+  "<task-notification>\n<task-id>abc123</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>";
+const SYSTEM_REMINDER_TEXT = "<system-reminder>\nInjected reminder content.\n</system-reminder>";
 
 const BASE_TS = Date.parse("2026-07-17T10:00:00.000Z");
 
@@ -230,6 +260,24 @@ function transcriptWithFinalReportAndOpeningPrompt(
 /** A 500-word, pointer-free (no deeplinks/named refs) over-budget report — the mt#3112 AT shape. */
 function pointerFreeOverBudgetReport(): string {
   return `Status update, no pointers at all. ${words(500)}`;
+}
+
+/**
+ * A 458-word over-budget report — the mt#3972 AT1 fixture, matching the live
+ * 2026-08-11T17:21:47Z record's measured word count (session `25a27bdb`).
+ */
+function report458Words(): string {
+  return `Status update on the research thread. ${words(452)}`;
+}
+
+/** A turn opener the operator did not type — `isNonPrincipalTurnOpener` matches it (mt#3972). */
+function taskNotificationLine(offsetSeconds: number): TranscriptLine {
+  return userPromptLine(offsetSeconds, TASK_NOTIFICATION_TEXT);
+}
+
+/** A hook-injected reminder turn opener — `isNonPrincipalTurnOpener` matches it (mt#3972). */
+function systemReminderLine(offsetSeconds: number): TranscriptLine {
+  return userPromptLine(offsetSeconds, SYSTEM_REMINDER_TEXT);
 }
 
 // ---------------------------------------------------------------------------
@@ -715,10 +763,13 @@ describe("detectSubstantiveQuestion", () => {
 });
 
 describe("resolveQuestionAnswerCheck", () => {
-  test("anchors on the OPENING prompt only — a question outside the opening does not suppress", () => {
-    // Contrast with the depth-request override's multi-turn lookback: this
-    // gate has no lookback window at all. A question several turns back
-    // (not the opening prompt of the measured turn) must NOT suppress.
+  test("a REAL principal turn between a question and the opening does not suppress (bound preserved)", () => {
+    // mt#3972 widened this gate to skip NON-PRINCIPAL openers, but a
+    // genuine principal turn that intervenes — and isn't itself a question —
+    // still stops the walk: the gate must not keep hunting further back for
+    // an OLDER question once it lands on a real principal prompt. This is
+    // exactly the FP-risk guard SC1 requires preserved (it is what the
+    // original mt#3718 single-opening-prompt anchor protected against).
     const lines: TranscriptLine[] = [
       userPromptLine(0, QUESTION_ANSWER_PHRASE),
       assistantTextLine(1, "ok"),
@@ -740,6 +791,150 @@ describe("resolveQuestionAnswerCheck", () => {
 
   test("fails CLOSED when findOpeningPromptIndex cannot anchor", () => {
     expect(resolveQuestionAnswerCheck([userPromptLine(0, "only one prompt?")]).matched).toBe(false);
+  });
+
+  // mt#3972 — widened lookback past non-principal turn openers.
+  test("widens past a SINGLE task-notification opener to the principal's question", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok, digging in"),
+      taskNotificationLine(30),
+      assistantToolUseLine(31),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("widens past a SINGLE system-reminder opener to the principal's question", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok, digging in"),
+      systemReminderLine(30),
+      assistantToolUseLine(31),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("widens past MULTIPLE consecutive non-principal openers within the bound", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok, digging in"),
+      taskNotificationLine(10),
+      taskNotificationLine(20),
+      taskNotificationLine(30),
+      assistantToolUseLine(31),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("does NOT widen past QUESTION_ANSWER_LOOKBACK_TURNS non-principal openers (bound is enforced)", () => {
+    // Exactly QUESTION_ANSWER_LOOKBACK_TURNS real-prompt slots are consumed
+    // entirely by non-principal openers before the principal's question is
+    // reached — it has scrolled out of the bounded window, so this must NOT
+    // suppress. This is the SC1 bound doing its job: without it, this fixture
+    // would suppress too, on the grounds that a question exists SOMEWHERE in
+    // the transcript. Generated from the constant (rather than a hardcoded
+    // count) so the test tracks the bound if it is ever retuned.
+    const openers: TranscriptLine[] = Array.from(
+      { length: QUESTION_ANSWER_LOOKBACK_TURNS },
+      (_, i) => taskNotificationLine(10 * (i + 1))
+    );
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      ...openers,
+      assistantToolUseLine(200),
+      assistantTextLine(210, pointerFreeOverBudgetReport()),
+      userPromptLine(300, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isNonPrincipalTurnOpener / findRecentPrincipalPromptIndex — mt#3972
+// ---------------------------------------------------------------------------
+
+describe("isNonPrincipalTurnOpener", () => {
+  test("matches a task-notification block", () => {
+    expect(isNonPrincipalTurnOpener(TASK_NOTIFICATION_TEXT)).toBe(true);
+  });
+
+  test("matches a system-reminder block", () => {
+    expect(isNonPrincipalTurnOpener(SYSTEM_REMINDER_TEXT)).toBe(true);
+  });
+
+  test("matches the [SYSTEM NOTIFICATION preamble form", () => {
+    expect(
+      isNonPrincipalTurnOpener(
+        "[SYSTEM NOTIFICATION - NOT USER INPUT]\nAn automated event, not from the user."
+      )
+    ).toBe(true);
+  });
+
+  test("does not match an ordinary operator prompt", () => {
+    expect(isNonPrincipalTurnOpener(QUESTION_ANSWER_PHRASE)).toBe(false);
+    expect(isNonPrincipalTurnOpener(OPENING_PROMPT_TEXT)).toBe(false);
+  });
+
+  test("tolerates leading/trailing whitespace", () => {
+    expect(isNonPrincipalTurnOpener(`  \n${TASK_NOTIFICATION_TEXT}\n  `)).toBe(true);
+  });
+});
+
+describe("findRecentPrincipalPromptIndex", () => {
+  test("returns the opening prompt itself when it is already principal-authored", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "report"),
+      userPromptLine(2, "current prompt"),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 0)).toBe(0);
+  });
+
+  test("skips a single non-principal opener to find the principal prompt before it", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      taskNotificationLine(2),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 2)).toBe(0);
+  });
+
+  test("returns undefined when every prompt within the window is non-principal", () => {
+    const lines: TranscriptLine[] = [
+      taskNotificationLine(0),
+      systemReminderLine(1),
+      taskNotificationLine(2),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 2)).toBeUndefined();
+  });
+
+  test("respects an explicit lookback override smaller than QUESTION_ANSWER_LOOKBACK_TURNS", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      taskNotificationLine(1),
+      taskNotificationLine(2),
+    ];
+    // With the default lookback (5) the principal prompt at index 0 is
+    // reachable; with lookback=2 only the two notifications are in the
+    // window, so it is not.
+    expect(findRecentPrincipalPromptIndex(lines, 2)).toBe(0);
+    expect(findRecentPrincipalPromptIndex(lines, 2, 2)).toBeUndefined();
+  });
+
+  test("never reaches past throughIndex, even when later prompts exist", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, "prompt after throughIndex"),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 0)).toBe(0);
   });
 });
 
@@ -833,6 +1028,108 @@ describe("run — mt#3718 question-answer override", () => {
     expect(cal.suppressedByDepthRequest).toBe(true);
     expect(cal.suppressedByQuestionAnswer).toBe(false);
     expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+});
+
+describe("run — mt#3972 question-answer lookback widened past non-principal openers", () => {
+  // AT1 — reproduces the live 2026-08-11T17:21:47Z record's shape (session
+  // `25a27bdb`): a principal multi-part question, a SINGLE
+  // `<task-notification>` turn opener, then the 458-word over-budget report
+  // that answers the question. Negative control (run against the pre-mt#3972
+  // single-opening-prompt anchor): this exact fixture FIRES —
+  // `suppressedByQuestionAnswer: false` and `additionalContext` defined —
+  // because the opening prompt IS the task-notification, not the question.
+  // See the mt#3972 PR body's execution-evidence block for the recorded
+  // negative-control run.
+  test("(AT1) 17:21 shape suppresses after the widened lookback", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(600),
+      assistantToolUseLine(601),
+      assistantTextLine(700, report458Words()),
+      userPromptLine(800, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.wordCount).toBe(458);
+    expect(cal.trigger).toBe("over-budget");
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // SC2 — the sibling 2026-08-11T19:16:53Z record (475 words, same session)
+  // shares the identical general shape: a substantive principal question,
+  // then a `<task-notification>` opener, then the over-budget report
+  // answering it. (Direct verification against the raw session transcript,
+  // done for this task: the LITERAL immediate real prompt before that
+  // record's notification opener was a short post-interrupt aside — "i
+  // switched to fable btw" — not itself a question; per SC1's FP-risk bound
+  // this gate correctly stops there rather than skipping past a genuine
+  // principal turn to reach the substantive question two turns earlier. This
+  // fixture reproduces the GENERAL shape both records exemplify, per the
+  // spec's own framing of AT1 as "the 17:21 shape" rather than a byte-exact
+  // replay.)
+  test("(SC2) 19:16 shape suppresses after the widened lookback", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(900),
+      assistantToolUseLine(901),
+      assistantTextLine(1000, `Status update on the research thread. ${words(469)}`),
+      userPromptLine(1100, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.wordCount).toBe(475);
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // AT2 — the lookback window contains NO principal question (the one real
+  // prompt in the window is not a question) -> still fires, exactly as an
+  // ordinary unsuppressed report does today. This is the required control:
+  // widening the lookback must not turn into "suppress whenever ANY prompt
+  // exists nearby," only "suppress when a PRINCIPAL QUESTION is found."
+  test("(AT2) no principal question within the lookback window -> still fires", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, OPENING_PROMPT_TEXT), // not a question
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(600),
+      assistantToolUseLine(601),
+      assistantTextLine(700, report458Words()),
+      userPromptLine(800, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // AT3 — SC3: a label-led report is never excused by a preceding question,
+  // even across the widened lookback (trigger exclusion is unchanged).
+  test("(AT3) label-led report after a question with a task-notification opener -> still fires", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(600),
+      assistantToolUseLine(601),
+      assistantTextLine(700, labelHeavyReport()),
+      userPromptLine(800, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("both");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
   });
 });
 

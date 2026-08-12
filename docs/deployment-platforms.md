@@ -337,6 +337,27 @@ To add Vercel support:
 No agent-facing change is required. The three MCP tools route to the new adapter
 automatically once the service's `deploy.config.ts` declares `platform: "vercel"`.
 
+## Deploy-surface detection (separate from the adapter framework above)
+
+`packages/domain/src/deployment/deploy-surface.ts` answers a different question
+than everything above: not "how do I talk to a deployment platform" but "does
+this changed file actually trigger a deploy at all, and for which service(s)".
+It backs both the pre-merge deploy-verification gate
+(`.minsky/hooks/require-deploy-verification-before-merge.ts`) and the
+post-merge deploy watch (`session.pr.drive`'s `postMerge` mode, which calls
+`deployment_wait-for-latest` above only for the services `findAffectedServices`
+resolves).
+
+The pattern list (`DEPLOY_SURFACE_PATTERNS` / `DEPLOY_SURFACE_SERVICE_MAP`) is
+derived from — and drift-tested against — the `paths:` blocks of
+`.github/workflows/deploy-minsky-mcp.yml` and `deploy-reviewer.yml` (mt#3523).
+This document does NOT duplicate that pattern list: the code (with its
+module-level doc comments) and `deploy-surface-workflow-drift.test.ts` are the
+source of truth, kept in sync mechanically rather than by two hand-maintained
+lists agreeing by convention. See `packages/domain/src/deployment/deploy-surface.ts`
+for the current surface, including the documented root `src/**` carve-out
+pending mt#4013.
+
 ## Cross-references
 
 - `docs/deploy-minsky-railway.md` — Railway-specific runbook (deploy, config, env vars). The deployment-platform tools section there points back to this document for the platform-agnostic abstraction.

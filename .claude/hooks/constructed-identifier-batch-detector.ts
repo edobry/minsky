@@ -627,7 +627,10 @@ export function buildReminder(matches: BatchMatch[]): string {
     "PR number, ask uuid, memory id) before the minting call returns it.",
     "",
     "If the two calls are genuinely INDEPENDENT (the consuming call's text does not",
-    `reference the minted id), this is a false positive under calibration review — set ${OVERRIDE_ENV_VAR}=1.`,
+    "reference the minted id), this is a false positive — say so rather than complying.",
+    // Override advertisement removed (mt#4002) — see `guard-feedback-authoring.mdc`.
+    // The legitimate-halt branch it was attached to is kept: that IS part of the
+    // advisory shape; naming the env var is not.
   ].join("\n");
 }
 
@@ -660,8 +663,56 @@ export function buildConsumeBeforeMintReminder(matches: ConsumeBeforeMintMatch[]
     "in a source file the wrong id ships and is read as fact (mem#511; CLAUDE.md §Sequence",
     "Dependent Tool Calls).",
     "",
-    `If the id was legitimately known from outside this transcript, set ${OVERRIDE_ENV_VAR}=1.`,
+    "If the id was legitimately known from outside this transcript, say so rather",
+    "than complying.",
+    // Override advertisement removed (mt#4002) — see `guard-feedback-authoring.mdc`.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * This guard has TWO renderers for its two passes, so the probe returns the
+ * LARGER — measuring only one would bound only one, which is the single-axis
+ * under-posing `guard-feedback-authoring.mdc` warns about.
+ *
+ * **Growth-shaped, count axis NOT capped:** both renderers emit one line per
+ * match with no `…and N more` bound. Posed at a representative saturation; the
+ * cap is the preferred fix and belongs to this guard's owner.
+ *
+ * The casts are deliberate and measurement-only: both renderers read a handful
+ * of string fields and never touch `judged`, so constructing a full
+ * `ArtifactCapture` here would add coupling that buys the measurement nothing.
+ */
+export function renderWorstCase(): string {
+  const excerpt = "x".repeat(120);
+  const batch = buildReminder(
+    Array.from(
+      { length: 5 },
+      () =>
+        ({
+          mintTool: "mcp__minsky__tasks_create",
+          consumeTool: "mcp__minsky__session_pr_create",
+          consumeField: "body",
+          excerpt,
+        }) as BatchMatch
+    )
+  );
+  const consumeBeforeMint = buildConsumeBeforeMintReminder(
+    Array.from(
+      { length: 5 },
+      () =>
+        ({
+          consumeTool: "mcp__minsky__session_pr_create",
+          consumeField: "body",
+          writtenId: "mt#9999",
+          mintTool: "mcp__minsky__tasks_create",
+          mintedId: "mt#1234",
+          excerpt,
+        }) as ConsumeBeforeMintMatch
+    )
+  );
+  return batch.length >= consumeBeforeMint.length ? batch : consumeBeforeMint;
 }
 
 // ---------------------------------------------------------------------------

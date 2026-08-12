@@ -369,7 +369,10 @@ describe("buildReminder", () => {
     expect(reminder).toContain(SESSION_COMMIT);
     expect(reminder).toContain("message");
     expect(reminder).toContain("read the minting call's real result");
-    expect(reminder).toContain(OVERRIDE_ENV_VAR);
+    // Inverted (mt#4002) — see `guard-feedback-authoring.mdc`: override
+    // advertisement is banned from advisory text. The legitimate-halt branch it
+    // was attached to stays; only the env-var name is gone.
+    expect(reminder).not.toContain(OVERRIDE_ENV_VAR);
   });
 });
 

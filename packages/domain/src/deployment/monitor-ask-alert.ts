@@ -35,6 +35,14 @@
  * @see ask#7824 — the principal chose "fix and activate" over removing the path
  */
 
+// mt#4014: `import type` so an invented state is a COMPILE error rather than a
+// reviewer catch. Type-only, so it is erased at build and adds nothing to the
+// runtime module graph. The first version of TERMINAL_ASK_STATES below restated
+// this union from recall — inventing two members, omitting two, and reading the
+// wrong field name — and shipped past typecheck, lint and 24 unit tests that had
+// inherited the same invented vocabulary (PR #2888 R1).
+import type { AskState } from "../ask/types";
+
 /** Ask kind used for deploy alerts. Valid `AskKind`; the one field the old call got right. */
 export const MONITOR_ALERT_ASK_KIND = "coordination.notify";
 
@@ -138,7 +146,15 @@ export type AskAlertDecision =
  * `parseOpenAsksResponse`'s asymmetry. A state added to the enum later is
  * therefore handled correctly without touching this file.
  */
-const TERMINAL_ASK_STATES = new Set(["closed", "cancelled", "expired"]);
+// Constructed as `Set<AskState>` so the MEMBERS are checked against the union;
+// exposed as `ReadonlySet<string>` so lookups can pass a raw wire value without
+// a cast. That split is the point: the literal is validated where it is written,
+// and the boundary stays honest about receiving unvalidated strings.
+const TERMINAL_ASK_STATES: ReadonlySet<string> = new Set<AskState>([
+  "closed",
+  "cancelled",
+  "expired",
+]);
 
 /** True when the ask still represents an unresolved incident. */
 function isOpenAsk(state: string | undefined): boolean {

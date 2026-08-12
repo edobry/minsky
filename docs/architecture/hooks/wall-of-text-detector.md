@@ -60,15 +60,32 @@ gate — invisible to the review cadence. An ABSENT field is not the same as `[]
 before mt#3207 carry no field and count as injected.
 
 **mt#3718 — question-answer override.** A SECOND, independent suppression gate alongside the
-depth-request override: when the opening prompt of the measured turn itself reads as a
-substantive question (`detectSubstantiveQuestion` — non-empty, contains `?`, at least
-`QUESTION_MIN_WORDS` words), a report answering it is suppressed but still logged
-(`suppressedByQuestionAnswer: true`, `suppressionReasons: ["question-answer-override"]`). Two
-differences from the depth-request override: (1) it anchors on the single OPENING prompt only
-(`resolveQuestionAnswerCheck`), not a multi-turn lookback; (2) it applies ONLY to the pure
-`over-budget` trigger — a label-led report (`lead-labels` or `both`) is never excused by a
-preceding question. Approved by the 2026-08-04 calibration review (ask#6891, "Approve: keep 1,
-file tunes for 2 and 3").
+depth-request override: when the most recent PRINCIPAL prompt at or before the opening prompt of
+the measured turn reads as a substantive question (`detectSubstantiveQuestion` — non-empty,
+contains `?`, at least `QUESTION_MIN_WORDS` words), a report answering it is suppressed but still
+logged (`suppressedByQuestionAnswer: true`, `suppressionReasons: ["question-answer-override"]`).
+Two differences from the depth-request override: (1) it is bounded to
+`QUESTION_ANSWER_LOOKBACK_TURNS` real-prompt slots (`resolveQuestionAnswerCheck` /
+`findRecentPrincipalPromptIndex`), narrower than the depth-request override's own lookback and
+NOT a scan of every prompt in the window — it stops at the first PRINCIPAL prompt found, so a
+genuine principal turn that isn't a question still blocks it from reaching an older one; (2) it
+applies ONLY to the pure `over-budget` trigger — a label-led report (`lead-labels` or `both`) is
+never excused by a preceding question. Approved by the 2026-08-04 calibration review (ask#6891,
+"Approve: keep 1, file tunes for 2 and 3").
+
+**mt#3972 — lookback widened past non-principal turn openers.** The original mt#3718 anchor
+checked the turn's single opening prompt directly, which is frequently a harness-injected
+`<task-notification>` (background-task completion notice) or `<system-reminder>` block rather
+than the principal's own text — under-covering the extremely common background-heavy-session
+shape where the principal asks a question, one or more injected turns land before the agent's
+answer, and the answering turn's OPENING prompt is the injected content, not the question.
+`isNonPrincipalTurnOpener` names the harness-injected prefixes (`<task-notification`,
+`<system-reminder`, `[SYSTEM NOTIFICATION`); `findRecentPrincipalPromptIndex` walks backward
+through the real-prompt list, skipping those, to the most recent PRINCIPAL prompt, bounded by
+`QUESTION_ANSWER_LOOKBACK_TURNS` (5) — sized larger than `DEPTH_REQUEST_LOOKBACK_TURNS` (3)
+because this gate's window has to spend slots on injected non-principal turns that the
+depth-request gate never has to. Fails CLOSED (unsuppressed) when no principal prompt is found
+within the bound.
 
 Diversity axis for the calibration-review cadence machinery: distinct `session_id` values
 (like silent-stretch — there is no matched-phrase concept).
