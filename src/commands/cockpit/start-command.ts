@@ -16,6 +16,7 @@ import {
   startConversationSummarySweeper,
   startTopologySweeper,
   startTranscriptSweepBackstop,
+  startGuardEventsSweepBackstop,
   startDispatchWatchdogSweeper,
   startDeploySmokeSweeper,
   startFollowUpSweeper,
@@ -421,6 +422,12 @@ export function createStartCommand(): Command {
       // full-discovery ingest + embedding backfill to cover dropped FS events,
       // sessions missed while the daemon was down, and stale embeddings.
       const stopTranscriptSweep = startTranscriptSweepBackstop();
+      // Guard-events sweep backstop (mt#4035, mt#3334 phase 3): THE
+      // CORRECTNESS LAYER for the guard/calibration exhaust ingest — the
+      // SessionEnd hook is a latency optimization only (SessionEnd does not
+      // reliably fire, per ADR-017/mt#2313); this periodic sweep is what
+      // guarantees completeness regardless of how a conversation ended.
+      const stopGuardEventsSweep = startGuardEventsSweepBackstop();
       // Conversation-title generation (mt#3321): fill `agent_transcripts.title`
       // for conversations that don't have one, so the cockpit labels a run by
       // what it's ABOUT instead of the first 60 characters of the opening
@@ -484,6 +491,7 @@ export function createStartCommand(): Command {
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
+        stopGuardEventsSweep();
         stopConversationTitleSweeper();
         stopConversationSummarySweeper();
         stopDispatchWatchdogSweeper();
