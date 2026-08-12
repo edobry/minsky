@@ -30,7 +30,8 @@
 //      and asks anyway. Worse to miss than A, because A's claim is falsifiable
 //      by the probe and a permission offer never engages that check at all.
 //      Excludes genuinely destructive / principal-reserved actions, where the
-//      ask is CORRECT — see PERMISSION_ESCALATION_EXCLUSIONS.
+//      ask is CORRECT — see DESTRUCTIVE_EXCLUSIONS and
+//      PRINCIPAL_RESERVED_EXCLUSIONS.
 //   D. DENIAL-ANCHORED deferral (mt#3533) — an escalation or deferral resting on
 //      a permission-denied `tool_result`, with no same-turn retry in a different
 //      COMMAND SHAPE. Unlike A and C this surface's anchor is a structured tool
@@ -211,7 +212,8 @@ export const CAPABILITY_DEFERRAL_PATTERNS: RegExp[] = [
  * is the more expensive of the two to miss.
  *
  * LOG-ONLY, like the rest of this detector. Deliberately broad for calibration;
- * {@link PERMISSION_ESCALATION_EXCLUSIONS} carries the one narrowing that is
+ * {@link DESTRUCTIVE_EXCLUSIONS} and {@link PRINCIPAL_RESERVED_EXCLUSIONS}
+ * carry the one narrowing that is
  * NOT tuning — see there.
  */
 export const PERMISSION_DEFERRAL_PATTERNS: RegExp[] = [
@@ -244,8 +246,8 @@ export const PERMISSION_DEFERRAL_PATTERNS: RegExp[] = [
  *     `principal-context.mdc §Decisions Eugene reserves`.
  *
  * The two are declared SEPARATELY below because they are matched against
- * different windows (mt#3865). Both are re-exported concatenated as
- * {@link PERMISSION_ESCALATION_EXCLUSIONS}.
+ * different windows (mt#3865) — see {@link sentenceWithLead}. There is
+ * deliberately no aggregate of the two; the note beside them says why.
  */
 export const DESTRUCTIVE_EXCLUSIONS: RegExp[] = [
   // `drop` takes an optional article — "drop the table" is the natural phrasing
@@ -284,16 +286,13 @@ export const PRINCIPAL_RESERVED_EXCLUSIONS: RegExp[] = [
   /\bsets?\s+(a\s+)?(durable|standing)\b/i,
 ];
 
-/**
- * The two halves, concatenated. Retained as the module's exported name because
- * callers and tests address the exclusion set as one thing; the SPLIT is about
- * the window each half is matched against, not about what counts as an
- * exclusion.
- */
-export const PERMISSION_ESCALATION_EXCLUSIONS: RegExp[] = [
-  ...DESTRUCTIVE_EXCLUSIONS,
-  ...PRINCIPAL_RESERVED_EXCLUSIONS,
-];
+// The pre-mt#3865 name `PERMISSION_ESCALATION_EXCLUSIONS` is deliberately GONE
+// rather than kept as a concatenation of the two arrays above. An aggregate
+// nothing matches against is a second name for a concept whose whole point is
+// now that its two halves are matched DIFFERENTLY — a reader who reaches for
+// the aggregate gets an answer that is true of neither window. mt#3801's spec
+// still cites the old name; when it lands, the two halves and
+// {@link sentenceWithLead} are what its Success Criterion 5 is asking about.
 
 /**
  * Inline probe REPORTS in the prose itself — the exact form
@@ -542,7 +541,7 @@ export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralM
 /**
  * Denial reasons that name a SECURITY concern — mem#276's carve-out, and the
  * load-bearing half of this surface exactly as
- * {@link PERMISSION_ESCALATION_EXCLUSIONS} is for Surface C.
+ * {@link PRINCIPAL_RESERVED_EXCLUSIONS} is for Surface C.
  *
  * mem#276 says the opposite of this surface for one specific case: when the
  * refusal's own message frames the action as *"credential/permission

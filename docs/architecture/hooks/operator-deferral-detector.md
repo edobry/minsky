@@ -141,7 +141,10 @@ and acting on it would have degraded it. `NEGATION_LEAD_PATTERN` deliberately om
 pattern would swallow it.
 
 **The exclusion set is matched against two different windows, and that split is load-bearing.**
-`PERMISSION_ESCALATION_EXCLUSIONS` is now the concatenation of two exported halves:
+At the symbol level: the single `PERMISSION_ESCALATION_EXCLUSIONS` array is GONE, replaced by two
+exported arrays the matcher checks separately. No aggregate of the two is exported — an aggregate
+nothing matches against would describe neither window, which is the whole point of the split. The
+two halves:
 
 - `DESTRUCTIVE_EXCLUSIONS` stays scoped to the match SENTENCE. `/\bproduction\b/i` is a bare
   word, and sentence-scoping is what stops an incidental mention nearby from masking a real
