@@ -1476,14 +1476,16 @@ export function run(
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
-  // mt#3649: the exact text the CHAT-surface detector judged, hoisted so the
-  // calibration record can capture it. Without it a record carries the extracted
-  // claims but nothing to re-run a changed detector against, so "does this change
-  // alter what the existing surface detects?" could only ever be inferred.
+  // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
+  // can capture it — without it a record carries claims but nothing to re-run a
+  // changed detector against. ELIDED, never raw (PR #2926 R1): per
+  // `judged-input-capture.ts`, "the elision is what makes the wider window safe
+  // rather than a new exposure" — and it is also what the detector matches on,
+  // so it is the true replay input.
   let judgedText = "";
   try {
     const assistantText = extractAssistantText(turnLines);
-    judgedText = assistantText;
+    judgedText = elideBlocksAndQuotes(assistantText);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
@@ -1648,14 +1650,16 @@ export async function main(): Promise<void> {
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
-  // mt#3649: the exact text the CHAT-surface detector judged, hoisted so the
-  // calibration record can capture it. Without it a record carries the extracted
-  // claims but nothing to re-run a changed detector against, so "does this change
-  // alter what the existing surface detects?" could only ever be inferred.
+  // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
+  // can capture it — without it a record carries claims but nothing to re-run a
+  // changed detector against. ELIDED, never raw (PR #2926 R1): per
+  // `judged-input-capture.ts`, "the elision is what makes the wider window safe
+  // rather than a new exposure" — and it is also what the detector matches on,
+  // so it is the true replay input.
   let judgedText = "";
   try {
     const assistantText = extractAssistantText(turnLines);
-    judgedText = assistantText;
+    judgedText = elideBlocksAndQuotes(assistantText);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
