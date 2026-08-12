@@ -495,7 +495,9 @@ export function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
 } | null {
   // `to` is `/<segment>/<encodedId>` — first path segment maps 1:1 to a
   // RoutableEntityType (entityToPath's switch, inverted).
-  const match = /^\/(tasks|ask|memory|agents|changeset|conversation)\/(.+)$/.exec(tok.to);
+  const match = /^\/(tasks|ask|memory|agents|changeset|conversation|interceptors)\/(.+)$/.exec(
+    tok.to
+  );
   if (!match) return null;
   const [, segment, encodedId] = match;
   const SEGMENT_TO_TYPE: Record<string, RoutableEntityType> = {
@@ -505,6 +507,14 @@ export function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
     agents: "session",
     changeset: "changeset",
     conversation: "conversation",
+    // mt#4010. Agents do not EMIT this type in prose (cockpit-deeplinks.mdc
+    // keeps the emit set at five), but the codec accepts it, so a
+    // `minsky://interceptor/<guardName>` URI reaching Prose produces a link
+    // token here. Omitting the segment would render an anchor that navigates
+    // correctly but silently loses its entity identity — no hover card, no
+    // EntityRef treatment. An inverse of `entityToPath` that is missing a case
+    // is a latent bug regardless of who emits it.
+    interceptors: "interceptor",
   };
   const type = SEGMENT_TO_TYPE[segment as string];
   if (!type) return null;

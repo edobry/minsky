@@ -19,6 +19,7 @@
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
+import { regenerateInterceptorCatalog } from "./interceptor-catalog-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { resolveTsgoBinary } from "../utils/tsgo-binary";
 import { stat, readdir, readFile } from "fs/promises";
@@ -314,6 +315,18 @@ export class PreCommitHook {
       );
       if (!completionManifestResult.success) {
         return completionManifestResult;
+      }
+
+      // Step 1c: Interceptor-catalog regeneration (mt#4010). Same auto-fix-and-
+      // restage shape and same rationale as Step 1b: a mechanically-derived
+      // artifact with zero editorial content. Keeps the cockpit's
+      // `/interceptors` route from rendering data that no longer matches the
+      // authored descriptions it distills.
+      const interceptorCatalogResult = await this.instrumented("interceptor-catalog-regen", () =>
+        this.runInterceptorCatalogRegen()
+      );
+      if (!interceptorCatalogResult.success) {
+        return interceptorCatalogResult;
       }
 
       // Console-usage validation moved into ESLint as the `custom/no-raw-console`
@@ -1310,6 +1323,20 @@ export class PreCommitHook {
    */
   private async runDockerfileBunBuildRegen(): Promise<HookResult> {
     return regenerateDockerfileBunBuild({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
+  /**
+   * Thin wrapper over {@link regenerateInterceptorCatalog} (mt#4010): keep the
+   * cockpit's interceptor catalog in sync with the authored hook-tree data it
+   * distills. Auto-fixes and re-stages, like the completion-manifest step.
+   */
+  private async runInterceptorCatalogRegen(): Promise<HookResult> {
+    return regenerateInterceptorCatalog({
       projectRoot: this.projectRoot,
       runGit: (args) => this.runGitArgv(args),
       logLine: (line) => log.cli(line),

@@ -985,11 +985,13 @@ must always be a readable ref on its own). Full mechanism: `docs/rules-rationale
 
 Only the task `#` needs encoding (`mt#2370` → `mt%232370`). UUID ids are already URL-safe. PR numbers contain only digits and need no encoding.
 
-**These five are what you EMIT — the codec ACCEPTS a sixth (mt#3800).** `parseMinskyUri` also
-resolves `minsky://conversation/<agentSessionId>`, which is how `/cockpit` hands the tray the
-conversation the operator is sitting in. That is a machine-to-machine entry point, not a
-reference you write in prose: a conversation uuid is unreadable as a label and the reader is
-already inside the conversation. Keep emitting these five.
+**These five are what you EMIT — the codec ACCEPTS two more (mt#3800, mt#4010).** `parseMinskyUri`
+also resolves `minsky://conversation/<agentSessionId>`, which is how `/cockpit` hands the tray the
+conversation the operator is sitting in, and `minsky://interceptor/<guardName>`, which addresses a
+row in the `/interceptors` catalog. Both are in-system entry points rather than references you
+write in prose: a conversation uuid is unreadable as a label and the reader is already inside the
+conversation, and a guard name in chat is a code symbol, not an entity the principal navigates to.
+Keep emitting these five.
 
 ## Short ids (`mem#N` / `ask#N` / `ws#N`) are a LABEL form, not a link target
 
