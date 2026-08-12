@@ -113,15 +113,82 @@ function asDb(db: unknown): PostgresJsDatabase {
 }
 
 /**
+ * Which `(turn_index, ordinal)` keys the CURRENT derivation still emits, for
+ * one session's turn fixture — the fake's stand-in for the orphan DELETE's
+ * `NOT EXISTS (... AND ordinal < jsonb_array_length(t.tool_calls))` predicate
+ * (mt#3978).
+ *
+ * This simulates the predicate's INTENT, and is deliberately NOT evidence
+ * that the SQL is right: a fake evaluating drizzle's `sql` chunks would be
+ * pretending to implement Postgres, and a test passing against that pretence
+ * is evidence about the fake (the same reasoning `verify-turn-orphan-removal.ts`
+ * records for mt#3514). What the tests below DO establish is the surrounding
+ * behavior no live check covers cheaply: whether the delete is issued at all,
+ * under which conditions it is skipped, and whether its outcome reaches the
+ * result counters. The predicate itself is verified against real Postgres by
+ * `scripts/verify-projection-orphan-removal.ts`.
+ *
+ * Note it keys on the tool_calls array LENGTH, matching
+ * `jsonb_array_length`, not on how many blocks the upsert found writable — a
+ * malformed block still occupies its ordinal, so a row there is not an orphan.
+ */
+function liveProjectionKeys(sessionId: string, turnRows: FakeTurnRow[]): Set<string> {
+  const keys = new Set<string>();
+  for (const turn of turnRows) {
+    if (!Array.isArray(turn.toolCalls)) continue;
+    for (let ordinal = 0; ordinal < turn.toolCalls.length; ordinal++) {
+      keys.add(projectionKey({ agentSessionId: sessionId, turnIndex: turn.turnIndex, ordinal }));
+    }
+  }
+  return keys;
+}
+
+/** Apply the simulated orphan delete to the fake store; returns the removed rows. */
+function deleteOrphansFromStore(
+  projectionStore: Map<string, FakeProjectionRow>,
+  sessionId: string,
+  turnRows: FakeTurnRow[]
+): FakeProjectionRow[] {
+  const live = liveProjectionKeys(sessionId, turnRows);
+  const removed: FakeProjectionRow[] = [];
+  for (const [key, row] of [...projectionStore.entries()]) {
+    if (row.agentSessionId !== sessionId) continue;
+    if (live.has(key)) continue;
+    projectionStore.delete(key);
+    removed.push(row);
+  }
+  return removed;
+}
+
+interface FakeDbOptions {
+  /** Session this fake's turn fixture belongs to. Defaults to SESSION_A. */
+  sessionId?: string;
+  /** Appends the session id of every orphan DELETE the pipeline issues. */
+  deleteLog?: string[];
+  /** Make the orphan DELETE reject (drives orphanDeleteFailed). */
+  failDelete?: boolean;
+  /** Make the turn-row presence probe reject (must fail CLOSED — no delete). */
+  failTurnRowCountQuery?: boolean;
+  /** Turn index whose upsert rejects (drives turnsErrored > 0). */
+  failInsertForTurnIndex?: number;
+}
+
+/**
  * Minimal fake mimicking drizzle's fluent surface for
- * ToolCallProjectionPipeline.runForSession's THREE queries:
+ * ToolCallProjectionPipeline.runForSession's queries:
  *   (1) select({turnIndex, toolCalls, startedAt, endedAt}).from(turns).where(...)
  *       — production filters `jsonb_typeof(tool_calls) = 'array'` (mt#3360),
  *       so `turnRows` here should already be shaped as what THAT filter would
  *       let through (i.e. tests feed only array/null tool_calls, not string).
  *   (2) select({n: count(*)}).from(turns).where(...) — countSkippedNonArray
  *       (mt#3360) — `skippedNonArrayCount` is the canned answer.
- *   (3) insert(projection).values(...).onConflictDoUpdate(...)
+ *   (3) select({turnRowCount: count(*)}).from(turns).where(...) — the
+ *       zero-yield safety probe (mt#3978), answered from `turnRows` itself.
+ *       It is distinguishable from (2) only by its projection alias, which is
+ *       why production names that field for what it counts.
+ *   (4) insert(projection).values(...).onConflictDoUpdate(...)
+ *   (5) delete(projection).where(...).returning(...) — orphan removal (mt#3978),
+ *       simulated per `deleteOrphansFromStore` above.
  *
  * The where-clause condition is intentionally NOT introspected (matching
  * agent-spawns-pipeline.test.ts's precedent) — each test scopes turnRows to
@@ -130,17 +197,25 @@ function asDb(db: unknown): PostgresJsDatabase {
 function makeDb(
   turnRows: FakeTurnRow[],
   projectionStore: Map<string, FakeProjectionRow>,
-  skippedNonArrayCount = 0
+  skippedNonArrayCount = 0,
+  options: FakeDbOptions = {}
 ) {
+  const sessionId = options.sessionId ?? SESSION_A;
   return {
     select(fields?: Record<string, unknown>) {
       const isTurnsQuery = !!fields && "toolCalls" in fields;
       const isSkippedCountQuery = !!fields && "n" in fields;
+      const isTurnRowCountQuery = !!fields && "turnRowCount" in fields;
       return {
         from: (_table: unknown) => ({
           where: (_cond: unknown): Promise<unknown[]> => {
             if (isTurnsQuery) return Promise.resolve(turnRows);
             if (isSkippedCountQuery) return Promise.resolve([{ n: skippedNonArrayCount }]);
+            if (isTurnRowCountQuery) {
+              return options.failTurnRowCountQuery
+                ? Promise.reject(new Error("simulated turn-row presence probe failure"))
+                : Promise.resolve([{ turnRowCount: turnRows.length }]);
+            }
             return Promise.resolve([]);
           },
         }),
@@ -152,6 +227,12 @@ function makeDb(
           const rows = Array.isArray(values) ? values : [values];
           return {
             onConflictDoUpdate(_opts: unknown): Promise<void> {
+              if (
+                options.failInsertForTurnIndex !== undefined &&
+                rows.some((r) => r.turnIndex === options.failInsertForTurnIndex)
+              ) {
+                return Promise.reject(new Error("simulated upsert failure"));
+              }
               for (const row of rows) {
                 projectionStore.set(projectionKey(row), { ...row });
               }
@@ -159,6 +240,20 @@ function makeDb(
             },
           };
         },
+      };
+    },
+    delete(_table: unknown) {
+      return {
+        where: (_cond: unknown) => ({
+          returning: (_fields: unknown): Promise<Array<{ turnIndex: number }>> => {
+            options.deleteLog?.push(sessionId);
+            if (options.failDelete) {
+              return Promise.reject(new Error("simulated orphan delete failure"));
+            }
+            const removed = deleteOrphansFromStore(projectionStore, sessionId, turnRows);
+            return Promise.resolve(removed.map((r) => ({ turnIndex: r.turnIndex })));
+          },
+        }),
       };
     },
   };
@@ -302,11 +397,16 @@ describe("ToolCallProjectionPipeline", () => {
       select(fields?: Record<string, unknown>) {
         const isTurnsQuery = !!fields && "toolCalls" in fields;
         const isSkippedCountQuery = !!fields && "n" in fields;
+        const isTurnRowCountQuery = !!fields && "turnRowCount" in fields;
         return {
           from: (_table: unknown) => ({
             where: (_cond: unknown): Promise<unknown[]> => {
               if (isTurnsQuery) return Promise.resolve(turnRows);
               if (isSkippedCountQuery) throw new Error("simulated skipped-count query failure");
+              // Only the skipped-count query fails here — the presence probe
+              // answers truthfully, so the orphan delete still runs and this
+              // test isolates the diagnostic-count failure it is about.
+              if (isTurnRowCountQuery) return Promise.resolve([{ turnRowCount: turnRows.length }]);
               return Promise.resolve([]);
             },
           }),
@@ -325,6 +425,18 @@ describe("ToolCallProjectionPipeline", () => {
               },
             };
           },
+        };
+      },
+      delete(_table: unknown) {
+        return {
+          where: (_cond: unknown) => ({
+            returning: (_fields: unknown): Promise<Array<{ turnIndex: number }>> =>
+              Promise.resolve(
+                deleteOrphansFromStore(store, SESSION_A, turnRows).map((r) => ({
+                  turnIndex: r.turnIndex,
+                }))
+              ),
+          }),
         };
       },
     };
@@ -380,6 +492,199 @@ describe("ToolCallProjectionPipeline", () => {
 
     const row = store.get(projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 0 }));
     expect(row?.timestamp).toEqual(started);
+  });
+});
+
+// ── Orphan removal (mt#3978) ────────────────────────────────────────────────
+
+describe("orphan removal (mt#3978)", () => {
+  /** A row an EARLIER derivation wrote, seeded directly into the store. */
+  function priorDerivationRow(turnIndex: number, ordinal: number): FakeProjectionRow {
+    return {
+      agentSessionId: SESSION_A,
+      turnIndex,
+      ordinal,
+      toolName: "Bash",
+      server: null,
+      argFingerprint: computeArgFingerprint({ from: "an earlier derivation" }),
+      timestamp: null,
+    };
+  }
+
+  function seedPriorDerivation(
+    store: Map<string, FakeProjectionRow>,
+    keys: Array<[turnIndex: number, ordinal: number]>
+  ): void {
+    for (const [turnIndex, ordinal] of keys) {
+      store.set(
+        projectionKey({ agentSessionId: SESSION_A, turnIndex, ordinal }),
+        priorDerivationRow(turnIndex, ordinal)
+      );
+    }
+  }
+
+  /** One turn carrying `count` well-formed tool_use blocks. */
+  function turnWithToolCalls(turnIndex: number, count: number): FakeTurnRow {
+    return {
+      turnIndex,
+      toolCalls: Array.from({ length: count }, (_, i) => ({
+        type: "tool_use",
+        name: "Bash",
+        input: { i },
+      })),
+      startedAt: null,
+      endedAt: new Date(TS1),
+    };
+  }
+
+  test("AT1: a re-derivation emitting fewer keys leaves no rows at the dropped ones", async () => {
+    // Prior derivation: turn 0 had 3 tool calls, and a turn 5 existed at all.
+    // Current derivation: turn 0 has 2 tool calls, turn 5 is gone entirely —
+    // covering BOTH orphan classes (a vanished turn, and an ordinal past a
+    // surviving turn's current tool-call count).
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [
+      [0, 0],
+      [0, 1],
+      [0, 2],
+      [5, 0],
+      [5, 1],
+    ]);
+    expect(store.size).toBe(5);
+
+    const deleteLog: string[] = [];
+    const turnRows = [turnWithToolCalls(0, 2)];
+    const db = makeDb(turnRows, store, 0, { deleteLog });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(deleteLog).toEqual([SESSION_A]);
+    expect(result.orphansDeleted).toBe(3);
+    expect(result.orphanDeleteFailed).toBe(false);
+
+    // Exactly the two keys the current derivation emits survive.
+    expect([...store.keys()].sort()).toEqual(
+      [
+        projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 0 }),
+        projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 1 }),
+      ].sort()
+    );
+    // And they hold THIS derivation's content, not the earlier one's.
+    const survivor = store.get(
+      projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 0 })
+    );
+    expect(survivor?.argFingerprint).toBe(computeArgFingerprint({ i: 0 }));
+  });
+
+  test("AT2: a derivation that errors mid-write issues NO delete", async () => {
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [[9, 0]]); // stale: turn 9 no longer exists
+
+    const deleteLog: string[] = [];
+    const turnRows = [turnWithToolCalls(0, 1), turnWithToolCalls(1, 1)];
+    const db = makeDb(turnRows, store, 0, { deleteLog, failInsertForTurnIndex: 1 });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(result.turnsErrored).toBe(1);
+    // The degraded write is not compounded by a delete...
+    expect(deleteLog).toEqual([]);
+    expect(result.orphansDeleted).toBe(0);
+    expect(result.orphanDeleteFailed).toBe(false);
+    // ...so the stale row survives for a later clean run to remove.
+    expect(store.has(projectionKey({ agentSessionId: SESSION_A, turnIndex: 9, ordinal: 0 }))).toBe(
+      true
+    );
+  });
+
+  test("AT3: a session with NO turn rows keeps its whole projection", async () => {
+    // Turns have not been extracted yet, or were wiped upstream. Deleting here
+    // would destroy history on the strength of an upstream gap.
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [
+      [0, 0],
+      [1, 0],
+    ]);
+
+    const deleteLog: string[] = [];
+    const db = makeDb([], store, 0, { deleteLog });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(deleteLog).toEqual([]);
+    expect(result.orphansDeleted).toBe(0);
+    expect(result.orphanDeleteFailed).toBe(false);
+    expect(store.size).toBe(2);
+  });
+
+  test("turns exist but none carry tool calls: the projection IS emptied", async () => {
+    // The discriminator for AT3's guard: it keys on turn-row ABSENCE, not on a
+    // zero-row derivation. A session whose turns genuinely carry no tool calls
+    // has correctly derived an empty projection, and its stale rows must go.
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [
+      [0, 0],
+      [0, 1],
+    ]);
+
+    const deleteLog: string[] = [];
+    const turnRows: FakeTurnRow[] = [
+      { turnIndex: 0, toolCalls: null, startedAt: null, endedAt: new Date(TS1) },
+    ];
+    const db = makeDb(turnRows, store, 0, { deleteLog });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(deleteLog).toEqual([SESSION_A]);
+    expect(result.orphansDeleted).toBe(2);
+    expect(store.size).toBe(0);
+  });
+
+  test("a failing DELETE is reported as orphanDeleteFailed, not swallowed as a clean no-op", async () => {
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [[9, 0]]);
+
+    const turnRows = [turnWithToolCalls(0, 1)];
+    const db = makeDb(turnRows, store, 0, { failDelete: true });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    expect(result.orphanDeleteFailed).toBe(true);
+    expect(result.orphansDeleted).toBe(0);
+    // The upsert half still succeeded — a failed cleanup must not take the
+    // projection write down with it.
+    expect(result.toolCallsProjected).toBe(1);
+    expect(result.turnsErrored).toBe(0);
+    expect(store.has(projectionKey({ agentSessionId: SESSION_A, turnIndex: 9, ordinal: 0 }))).toBe(
+      true
+    );
+  });
+
+  test("a failing turn-row presence probe fails CLOSED, and says so", async () => {
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [[9, 0]]);
+
+    const deleteLog: string[] = [];
+    const turnRows = [turnWithToolCalls(0, 1)];
+    const db = makeDb(turnRows, store, 0, { deleteLog, failTurnRowCountQuery: true });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    // No delete on an unknown state...
+    expect(deleteLog).toEqual([]);
+    expect(store.has(projectionKey({ agentSessionId: SESSION_A, turnIndex: 9, ordinal: 0 }))).toBe(
+      true
+    );
+    // ...but it is NOT reported as a clean no-op, which would be
+    // indistinguishable from "the delete ran and found nothing".
+    expect(result.orphanDeleteFailed).toBe(true);
+    expect(result.orphansDeleted).toBe(0);
   });
 });
 
@@ -467,6 +772,142 @@ describe("projectToolCallsForAllTranscripts", () => {
     // aborting the whole run.
     expect(result.sessionsScanned).toBe(1);
     expect(result.sessionsProcessed).toBe(1);
+  });
+
+  test("aggregates orphansDeleted across sessions and counts failed deletes separately (mt#3978)", async () => {
+    // Two sessions with orphans and one whose DELETE throws. The aggregate is
+    // what the reconciliation run reports as its before/after delta, so a
+    // failed delete must not disappear into an otherwise-clean total.
+    const SESSION_ONE = "11111111-0000-0000-0000-000000000001";
+    const SESSION_TWO = "22222222-0000-0000-0000-000000000002";
+    const SESSION_FAILING = "33333333-0000-0000-0000-000000000003";
+
+    const turnsBySession: Record<string, FakeTurnRow[]> = {
+      [SESSION_ONE]: [
+        {
+          turnIndex: 0,
+          toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
+          startedAt: null,
+          endedAt: new Date(TS1),
+        },
+      ],
+      [SESSION_TWO]: [
+        {
+          turnIndex: 0,
+          toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
+          startedAt: null,
+          endedAt: new Date(TS1),
+        },
+      ],
+      [SESSION_FAILING]: [
+        {
+          turnIndex: 0,
+          toolCalls: [{ type: "tool_use", name: "Bash", input: {} }],
+          startedAt: null,
+          endedAt: new Date(TS1),
+        },
+      ],
+    };
+
+    const store = new Map<string, FakeProjectionRow>();
+    // Each session carries stale rows at a turn index its derivation no longer
+    // emits: 2 for SESSION_ONE, 1 for SESSION_TWO, 1 for the failing one.
+    const stale: Array<[string, number, number]> = [
+      [SESSION_ONE, 7, 0],
+      [SESSION_ONE, 7, 1],
+      [SESSION_TWO, 4, 0],
+      [SESSION_FAILING, 4, 0],
+    ];
+    for (const [agentSessionId, turnIndex, ordinal] of stale) {
+      store.set(projectionKey({ agentSessionId, turnIndex, ordinal }), {
+        agentSessionId,
+        turnIndex,
+        ordinal,
+        toolName: "Bash",
+        server: null,
+        argFingerprint: computeArgFingerprint({}),
+        timestamp: null,
+      });
+    }
+
+    const routeSession = (cond: unknown): string | undefined =>
+      extractRawScalars(cond).find((v) => typeof v === "string" && v in turnsBySession) as
+        | string
+        | undefined;
+
+    const db = {
+      select(fields?: Record<string, unknown>) {
+        const isTurnsQuery = !!fields && "toolCalls" in fields;
+        const isSkippedCountQuery = !!fields && "n" in fields;
+        const isTurnRowCountQuery = !!fields && "turnRowCount" in fields;
+        return {
+          from: (_table: unknown) => ({
+            where: (cond: unknown): Promise<unknown[]> => {
+              const sessionId = routeSession(cond);
+              if (isTurnsQuery) {
+                return Promise.resolve(sessionId ? (turnsBySession[sessionId] ?? []) : []);
+              }
+              if (isSkippedCountQuery) return Promise.resolve([{ n: 0 }]);
+              if (isTurnRowCountQuery) {
+                return Promise.resolve([
+                  { turnRowCount: sessionId ? (turnsBySession[sessionId]?.length ?? 0) : 0 },
+                ]);
+              }
+              return Promise.resolve([]);
+            },
+          }),
+        };
+      },
+      insert(_table: unknown) {
+        return {
+          values(values: FakeProjectionRow | FakeProjectionRow[]) {
+            const rows = Array.isArray(values) ? values : [values];
+            return {
+              onConflictDoUpdate(_opts: unknown): Promise<void> {
+                for (const row of rows) store.set(projectionKey(row), { ...row });
+                return Promise.resolve();
+              },
+            };
+          },
+        };
+      },
+      delete(_table: unknown) {
+        return {
+          where: (cond: unknown) => ({
+            returning: (_fields: unknown): Promise<Array<{ turnIndex: number }>> => {
+              const sessionId = routeSession(cond);
+              if (!sessionId) return Promise.resolve([]);
+              if (sessionId === SESSION_FAILING) {
+                return Promise.reject(new Error("simulated delete failure"));
+              }
+              return Promise.resolve(
+                deleteOrphansFromStore(store, sessionId, turnsBySession[sessionId] ?? []).map(
+                  (r) => ({ turnIndex: r.turnIndex })
+                )
+              );
+            },
+          }),
+        };
+      },
+    };
+
+    const fetchPage = async () => [
+      { agentSessionId: SESSION_ONE },
+      { agentSessionId: SESSION_TWO },
+      { agentSessionId: SESSION_FAILING },
+    ];
+
+    const result = await projectToolCallsForAllTranscripts(asDb(db), { fetchPage });
+
+    expect(result.orphansDeleted).toBe(3); // 2 + 1 + 0 (the failing one deleted none)
+    expect(result.orphanDeletesFailed).toBe(1);
+    // The failed delete is NOT an errored session: that session's upserts
+    // succeeded, it is merely still holding a stale row.
+    expect(result.sessionsErrored).toBe(0);
+    expect(result.sessionsProcessed).toBe(3);
+    expect(
+      store.has(projectionKey({ agentSessionId: SESSION_FAILING, turnIndex: 4, ordinal: 0 }))
+    ).toBe(true);
   });
 });
 
@@ -625,24 +1066,31 @@ describe("--pending-only target selection + repair (mt#3395, AT1)", () => {
   function makeMultiSessionDb(
     byId: Record<string, FakeTurnRow[]>,
     projectionStore: Map<string, FakeProjectionRow>,
-    onQueriedSession?: (sessionId: string) => void
+    onQueriedSession?: (sessionId: string) => void,
+    failDeleteFor?: (sessionId: string) => boolean
   ) {
+    const routeSession = (cond: unknown): string | undefined =>
+      extractRawScalars(cond).find((v) => typeof v === "string" && v in byId) as string | undefined;
+
     return {
       select(fields?: Record<string, unknown>) {
         const isTurnsQuery = !!fields && "toolCalls" in fields;
         const isSkippedCountQuery = !!fields && "n" in fields;
+        const isTurnRowCountQuery = !!fields && "turnRowCount" in fields;
         return {
           from: (_table: unknown) => ({
             where: (cond: unknown): Promise<unknown[]> => {
-              const scalars = extractRawScalars(cond);
-              const sessionId = scalars.find((v) => typeof v === "string" && v in byId) as
-                | string
-                | undefined;
+              const sessionId = routeSession(cond);
               if (isTurnsQuery) {
                 if (sessionId) onQueriedSession?.(sessionId);
                 return Promise.resolve(sessionId ? (byId[sessionId] ?? []) : []);
               }
               if (isSkippedCountQuery) return Promise.resolve([{ n: 0 }]);
+              if (isTurnRowCountQuery) {
+                return Promise.resolve([
+                  { turnRowCount: sessionId ? (byId[sessionId]?.length ?? 0) : 0 },
+                ]);
+              }
               return Promise.resolve([]);
             },
           }),
@@ -661,6 +1109,24 @@ describe("--pending-only target selection + repair (mt#3395, AT1)", () => {
               },
             };
           },
+        };
+      },
+      delete(_table: unknown) {
+        return {
+          where: (cond: unknown) => ({
+            returning: (_fields: unknown): Promise<Array<{ turnIndex: number }>> => {
+              const sessionId = routeSession(cond);
+              if (!sessionId) return Promise.resolve([]);
+              if (failDeleteFor?.(sessionId)) {
+                return Promise.reject(new Error(`simulated delete failure for ${sessionId}`));
+              }
+              return Promise.resolve(
+                deleteOrphansFromStore(projectionStore, sessionId, byId[sessionId] ?? []).map(
+                  (r) => ({ turnIndex: r.turnIndex })
+                )
+              );
+            },
+          }),
         };
       },
     };
