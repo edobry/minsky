@@ -469,6 +469,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "negative-existence-claim-detector",
+    {
+      description:
+        "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it returned at most one hit and the prose cites a task that already shipped the thing. Log-only.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("negative-existence-claim-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "code-mechanism-assertion-detector",
     {
       description:
