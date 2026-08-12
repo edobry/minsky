@@ -410,7 +410,11 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Injection text (gated by INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
-function buildInjectionReminder(matchedPhrases: string[]): string {
+// Exported (mt#4002) so the registry's `renderProbe` can measure what this guard
+// WOULD emit. While `INJECTION_ENABLED` is false the guard returns no
+// `additionalContext`, so `guard-feedback-shape.test.ts` was enforcing this
+// guard's declared ceiling against an empty string.
+export function buildInjectionReminder(matchedPhrases: string[]): string {
   const phraseLines = matchedPhrases.map((p) => `  - "${p}"`).join("\n");
   return [
     "[causal-premise-detector] Unverified causal/mechanism claim detected (mt#2216).",
@@ -424,9 +428,28 @@ function buildInjectionReminder(matchedPhrases: string[]): string {
     "Required: invoke /check-premise before asserting. List the premises this",
     "claim rests on and check the cheapest falsifier first (read the installed",
     "source / query the system's own record / grep).",
-    "",
-    "Memory: 3772c77d. Override: MINSKY_ACK_CAUSAL_PREMISE=1.",
+    // Incident provenance and override advertisement both removed (mt#4002):
+    // `guard-feedback-authoring.mdc` keeps them out of advisory text — the agent
+    // cannot look up a memory id from inside an injection, and offering it the
+    // exit is counterproductive. Both survived because this guard renders
+    // nothing at runtime, so the standard was never checked against real text.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * **This guard is GROWTH-SHAPED and its count axis is NOT capped.** The template
+ * is fixed, but `matchedPhrases` gets one line per pattern hit with no `…and N
+ * more` bound; only each phrase's LENGTH is capped, at the 120 chars
+ * `match[0].slice(0, 120)` imposes. So this is a saturated sample at a
+ * representative count, not a proof of ceiling — capping the count is the
+ * preferred fix per `guard-feedback-authoring.mdc`, and it belongs to this
+ * guard's owner rather than to the task that added the measurement.
+ */
+export function renderWorstCase(): string {
+  const phrase = "x".repeat(120);
+  return buildInjectionReminder(Array.from({ length: 8 }, () => phrase));
 }
 
 // ---------------------------------------------------------------------------

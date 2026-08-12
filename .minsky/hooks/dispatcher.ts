@@ -701,12 +701,42 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * The annotation is now 1650 and the top-five sum moves 4950 -> 6000, so the
  * budget moves by exactly the same +1050. This is the mt#3705 pattern again:
  * not a bigger budget for the same corpus, but the same corpus with one member
- * finally counted. It should come back DOWN when the advisory's per-match
- * evidence lines are trimmed — three of them at the 240-char `context` cap are
- * ~750 of the 1609, and that trimming belongs with mt#3865, which owns this
- * detector's text.
+ * finally counted.
+ *
+ * **And why it came straight back DOWN, 7206 -> 6156 (mt#4002).** The move above
+ * was the wrong half of a correct diagnosis. The annotation WAS understated — so
+ * were four others, by up to 3.6x, none of them visible because
+ * `guard-feedback-shape.test.ts` measures a guard's live `additionalContext` and
+ * a calibration-first guard emits none. But a guard whose `INJECTION_ENABLED` is
+ * false contributes ZERO chars to any turn, so putting it in the top-five bucket
+ * models a turn that cannot occur and sizes a shared per-turn budget for text
+ * that is never sent. mt#3997 faced the identical choice hours earlier and took
+ * the other branch, trimming its guard rather than growing this number.
+ *
+ * The bucket now excludes any guard declaring `renderProbe` — the marker for
+ * renders-but-does-not-inject — so it holds the five heaviest guards that
+ * ACTUALLY inject: dispatch-watchdog 1750, guard-health 1300, substrate-bypass
+ * 650, pre-narration 650, code-mechanism-assertion 600 = 4950, plus the 1190
+ * always-on floor and 16 chars of separators. That the total lands back on
+ * exactly the pre-mt#3533 number is arithmetic, not coincidence: the same five
+ * injecting guards were always the real bucket.
+ *
+ * **This constant is HAND-SET, and the exclusion above describes the DERIVATION,
+ * not a computation performed here (PR #2889 R2).** Nothing reads `renderProbe`
+ * at runtime to size the budget; the filter lives in `dispatcher.test.ts`, which
+ * asserts that the modelled turn fits this number. That split is deliberate and
+ * predates this change — the constant is meant to trend DOWN as guard text is
+ * trimmed, which an auto-sum would silently prevent (mt#3796 records the same
+ * reasoning, and explicitly rules auto-computation out of scope). The practical
+ * consequence for an editor: changing a top-five annotation does NOT move this
+ * number by itself. Re-derive it and edit it here, then run
+ * `dispatcher.test.ts` — the pre-commit gated runner excludes `.minsky/hooks/**`
+ * and will not catch the mismatch locally.
+ *
+ * A guard re-enters the bucket the day its posture flips and its `renderProbe`
+ * is deleted — at which point this number must be re-derived by hand again.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 7206;
+export const MERGED_CONTEXT_BUDGET_CHARS = 6156;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";
