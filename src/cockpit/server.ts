@@ -491,6 +491,17 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       // ceremonies are POSTs, and blocking them here would make the preview
       // deployment permanently un-signinable — the gate would deny every data
       // route while the only way through it returned 403.
+      //
+      // `req.path` is MOUNT-RELATIVE inside `app.use("/api", ...)`: Express
+      // strips the mount prefix, so a request to `/api/auth/passkey/login/start`
+      // arrives here as `/auth/passkey/login/start` (`req.originalUrl` keeps the
+      // full path). Verified directly, not assumed — PR #2902 R1 read this as
+      // matching the wrong path. Two tests in server-security.test.ts pin the
+      // behavior from the outside.
+      //
+      // Belt and braces: the auth router is mounted EARLIER than this guard, so
+      // a ceremony is answered before it ever reaches here. This exemption is
+      // what keeps that safe if the middleware order is ever changed.
       if (req.path.startsWith("/auth/")) {
         next();
         return;

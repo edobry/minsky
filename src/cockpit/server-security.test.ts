@@ -22,7 +22,7 @@
  * requirement — the deployment served the live corpus to anyone with the URL.
  * Those tests now assert the passkey gate instead.
  */
-import { describe, test, expect, afterEach, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
 import { createServer, request as httpRequest } from "http";
 import type { Server } from "http";
 import net from "net";
@@ -40,6 +40,8 @@ import { buildAllowedHosts } from "./auth";
 
 const TEST_TOKEN = "test-server-security-token";
 const CONTENT_TYPE_JSON = "application/json";
+/** Any token value works: the test stores accept whatever is presented. */
+const SESSION_COOKIE_HEADER = "minsky_cockpit_session=test";
 const CSP_HEADER = "content-security-policy";
 
 /** A deterministic, empty AskRepository — without this override the route
@@ -512,6 +514,53 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       expect(res.status).toBe(200);
     });
 
+    describe("preview-mode mutation guard interaction (mt#4023 PR #2902 R1)", () => {
+      let previousPreview: string | undefined;
+
+      beforeEach(() => {
+        previousPreview = process.env.MINSKY_COCKPIT_PREVIEW;
+        process.env.MINSKY_COCKPIT_PREVIEW = "true";
+      });
+
+      afterEach(() => {
+        if (previousPreview === undefined) delete process.env.MINSKY_COCKPIT_PREVIEW;
+        else process.env.MINSKY_COCKPIT_PREVIEW = previousPreview;
+      });
+
+      test("a passkey ceremony POST is not blocked by the preview mutation guard", async () => {
+        const s = await startTestServer({
+          isPublicDeployment: true,
+          passkeyStore: passkeyStoreWith(0, false),
+        });
+        closeList.push(s.close);
+        const res = await fetch(`${s.url}/api/auth/passkey/register/start`, {
+          method: "POST",
+          headers: { "Content-Type": CONTENT_TYPE_JSON },
+          body: "{}",
+        });
+        // 403 here would mean the deployment is permanently un-signinable:
+        // every data route denied, and the only way through returning 403.
+        expect(res.status).not.toBe(403);
+        expect(res.status).toBe(200);
+      });
+
+      test("a non-auth mutation IS still blocked once past the gate", async () => {
+        const s = await startTestServer({
+          isPublicDeployment: true,
+          passkeyStore: alwaysAuthenticatedPasskeyStore(),
+          ...emptyAskRepoOverride(),
+        });
+        closeList.push(s.close);
+        const res = await fetch(`${s.url}/api/asks/nonexistent/resolve`, {
+          method: "POST",
+          headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: SESSION_COOKIE_HEADER },
+          body: JSON.stringify({ responder: "operator", payload: {} }),
+        });
+        expect(res.status).toBe(403);
+        expect(await res.json()).toMatchObject({ preview: true });
+      });
+    });
+
     test("first-run enrollment is open while NO passkey exists (mt#4023 SC3)", async () => {
       const s = await startTestServer({
         isPublicDeployment: true,
@@ -551,7 +600,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       closeList.push(s.close);
       const res = await fetch(`${s.url}/api/auth/passkey/register/start`, {
         method: "POST",
-        headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: "minsky_cockpit_session=test" },
+        headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: SESSION_COOKIE_HEADER },
         body: "{}",
       });
       expect(res.status).toBe(200);
@@ -566,7 +615,7 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       closeList.push(s.close);
       const res = await fetch(`${s.url}/api/asks/nonexistent/resolve`, {
         method: "POST",
-        headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: "minsky_cockpit_session=test" },
+        headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: SESSION_COOKIE_HEADER },
         body: JSON.stringify({ responder: "operator", payload: {} }),
       });
       // 404, not 401: the gate passed and the route itself answered.
