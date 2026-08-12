@@ -360,12 +360,14 @@ for the current surface.
 Two consequences of the surface worth knowing without opening the code
 (mt#4013, 2026-08-12):
 
-- **Root `src/**`is a minsky-mcp deploy surface.** The root Dockerfile COPYs
-the whole`src`tree into the minsky-mcp image, so a PR touching root`src/**`redeploys minsky-mcp on merge — it therefore requires a`Deploy verification:`commitment in its body (the same requirement`packages/domain/src/**` PRs carry) and gets post-merge deploy
-  verification.
-- **`src/cockpit/**`counts as minsky-mcp surface, not cockpit.** Cockpit web
-source is a bundled input of the minsky-mcp image; the cockpit SERVICE
-still deploys only via`cockpit-preview.yml` (PR previews + close-restores)
+- Root `src/` is a minsky-mcp deploy surface. The root Dockerfile COPYs the
+  whole `src` tree into the minsky-mcp image, so a PR touching root `src/`
+  redeploys minsky-mcp on merge — it therefore requires a
+  `Deploy verification:` commitment in its body (the same requirement
+  `packages/domain/src/` PRs carry) and gets post-merge deploy verification.
+- `src/cockpit/` counts as minsky-mcp surface, not cockpit. Cockpit web
+  source is a bundled input of the minsky-mcp image; the cockpit SERVICE
+  still deploys only via `cockpit-preview.yml` (PR previews + close-restores)
   and is deliberately not a merge-deploy target (mt#3832, mt#3996).
 
 ## Cross-references
