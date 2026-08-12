@@ -999,6 +999,76 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#4044 — the same claim shape, on the two record types the sibling above
+  // cannot see, at the two seams it does not watch.
+  //
+  // mem#966 point 4 said to generalize past duplicate checks the day mt#4004
+  // shipped; the next instance landed the following day (mt#4024, commit
+  // 98e2ac5fd — a `Negative control —` block written before the control ran, and
+  // wrong). This registration adds the FIRST dispatcher wiring for
+  // `session_commit` / `session_pr_create` / `session_pr_edit`: settings.json
+  // carried those tool names already, but only on standalone hooks
+  // (`check-branch-fresh`, `dispatch-intent-write-gate`), never on the
+  // dispatcher — so no registry guard could reach a commit message until now.
+  //
+  // The two record types get DIFFERENT discharge rules, settled by replay rather
+  // than symmetry: "did a test run?" is discharged five times over in any real
+  // implementation session, so the negative-control half joins on the record's
+  // own SUBJECT against FAILING runs. Full argument in the module header.
+  // -------------------------------------------------------------------------
+  {
+    name: "evidence-record-provenance",
+    // RECORDER ONLY — no advisory, unlike the mt#4004 sibling, and the
+    // difference is measured rather than stylistic. Replaying the finished
+    // detector over 40 recent transcripts (`scripts/replay-evidence-provenance.ts
+    // <t> --all`) put the negative-control half at 20 fires in 80 records, and
+    // sampling those fires found them dominated by two false-positive classes
+    // neither join reaches: a prose record naming what was REVERTED rather than
+    // the test that went red, and a PR body edited in a later conversation than
+    // the run it reports. Injecting at that rate is the mem#719 failure mode —
+    // noise that trains the reader to discount the true positives. So this lands
+    // as an armed evidence stream and nothing else; the tune and the graduation
+    // to advisory are mt#4067, driven by the calibration data rather than by a
+    // second guess.
+    effects: [recorderEffect()],
+    // `advisory`: which prose counts as a record, and which call counts as its
+    // run, are both heuristics the calibration log exists to size. The join
+    // between them is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher:
+      "mcp__minsky__session_commit|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
+    module: () => import("./evidence-record-provenance").then((m) => ({ run: m.run })),
+    // Higher than the sibling's 5s because this one walks every tool RESULT body
+    // in the transcript, not just the tool-name list — the failing-run join needs
+    // what the calls returned. Still in-memory over lines the dispatcher already
+    // parsed; no IO of its own.
+    timeoutMs: 8000,
+    calibrationLog: "evidence-record-provenance",
+    // LOAD-BEARING, exactly as on the sibling (PR #2886 R1): `ctx.transcriptLines`
+    // is populated ONLY for a registration that declares this (D6), and the
+    // session's calls are this guard's entire discriminating half. Without it the
+    // guard records `skipped` on every live run — present, tested, green, inert.
+    needsTranscript: true,
+    // Calibration-first per ADR-024 and ask#6982; asserted in a test, not intended.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
+    // The canary carries a record claiming a control, in a canary process whose
+    // transcript is empty — so the healthy outcome is a RECORDED skip, this
+    // guard's honest answer to a claim it cannot adjudicate. Asserting `matched`
+    // would bake in the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_commit",
+        tool_input: {
+          message:
+            "fix(mt#0): canary\n\nNegative control — `canaryProbeSubject`: reverted, observed failing.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#3910 — chained verification commands, detected at the tool boundary.
   //
   // `terminal-command-best-practices.mdc §Verification Commands` bans this and
@@ -2742,204 +2812,9 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Matcher filtering
-// ---------------------------------------------------------------------------
-
-/**
- * Filter `registrations` to guards matching `event` and (for tool-scoped
- * registrations) `toolName`. A registration with no `matcher` always matches
- * once its `event` matches. A registration WITH a `matcher` but no `toolName`
- * supplied (the non-tool-event dispatch case) does not match — matchers are
- * meaningless without a tool name to test. Malformed matcher regex is
- * treated as non-matching (fail-open — a bad regex must never crash the
- * dispatcher).
- */
-export function getGuardsForEvent(
-  registrations: GuardRegistration[],
-  event: LifecycleEvent,
-  toolName?: string
-): GuardRegistration[] {
-  return registrations.filter((reg) => {
-    if (reg.event !== event) return false;
-    if (!reg.matcher) return true;
-    if (!toolName) return false;
-    try {
-      return new RegExp(reg.matcher).test(toolName);
-    } catch {
-      return false;
-    }
-  });
-}
-
-// ---------------------------------------------------------------------------
-// D7(2) — duplicate-registration check (registry-completeness lint)
-// ---------------------------------------------------------------------------
-
-export interface DuplicateRegistration {
-  a: string;
-  b: string;
-  event: LifecycleEvent;
-  /** The matcher token(s) shared by both registrations. */
-  sharedTokens: string[];
-}
-
-/**
- * Lifecycle events with NO tool-name concept — `matcher` is meaningless for
- * these (mirrors `getGuardsForEvent`'s "a matcher-less registration always
- * matches once its event matches" comment). Used by
- * {@link findDuplicateRegistrations} to scope the matcher-less-pair
- * exemption (R1 fix, mt#2652): the exemption is ONLY valid on these events.
- * `PreToolUse` and `PostToolUse` are tool-scoped — two matcher-less
- * registrations there genuinely both match every tool call, which IS a real
- * overlap risk and must still be flagged.
- */
-export const NON_TOOL_SCOPED_EVENTS: ReadonlySet<LifecycleEvent> = new Set([
-  "UserPromptSubmit",
-  "SessionStart",
-  "Stop",
-  "SubagentStop",
-  "SessionEnd",
-]);
-
-/**
- * Detect two registrations with the same event and an overlapping matcher —
- * ADR-028 D7(2)'s "duplicate-registration check". Two matchers "overlap"
- * when they share at least one literal `|`-delimited alternative token (a
- * conservative, false-positive-tolerant heuristic — exact regex
- * intersection is undecidable in general, and today's matcher strings are
- * always simple `|`-joined tool-name alternatives, never true regex
- * features).
- *
- * A registration with no matcher is treated as "matches everything." When
- * matched against a registration THAT HAS a matcher, this is a genuine
- * overlap risk (the matcher-less guard fires on every tool the matchered
- * guard's tokens name too) and is still flagged — on EVERY event, tool-scoped
- * or not. When BOTH registrations in a pair lack a matcher, the exemption is
- * narrower: it applies ONLY on {@link NON_TOOL_SCOPED_EVENTS} (Phase 2a,
- * mt#2652; scope-corrected R1) — there, a matcher-less registration is the
- * NORMAL, by-design shape (there is no tool name to match against), and
- * multiple independent guards legitimately share it — e.g. the six
- * UserPromptSubmit guidance detectors migrated in this phase. On a
- * TOOL-SCOPED event (`PreToolUse`/`PostToolUse`), two matcher-less
- * registrations genuinely BOTH match every tool call — that is exactly the
- * accidental-duplicate shape D7(2) exists to catch, so it is still flagged
- * there.
- */
-/**
- * Guard pairs that INTENTIONALLY share an event + matcher (mt#3282).
- *
- * The overlap heuristic below is deliberately false-positive-tolerant, and two
- * tool-scoped guards on the same matcher is a shape it cannot distinguish from
- * an accidental double-registration. The dispatcher supports it: on a matched
- * event `getGuardsForEvent` returns EVERY matching registration and
- * `runGuards` executes them in registry order, short-circuiting on the first
- * `deny` (D1 first-deny-wins). Neither guard shadows the other — a guard only
- * pre-empts a later one by denying, which blocks the call either way.
- *
- * An entry here is a DECLARATION, not a silencer: each pair must be listed
- * explicitly with a rationale, so a genuinely accidental duplicate (the shape
- * ADR-028 D7(2) exists to catch) still fails the check.
- *
- * Keys are the two guard names, order-insensitive.
- */
-export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  // Both inspect a Bash/session_exec command string for an unrelated defect:
-  // one for a constructed session path, one for a secret-bearing file read.
-  // Independent checks, independent overrides; running both is the point.
-  ["check-guessed-session-path", "block-secret-file-read"],
-  // Both inspect a `tasks_create` spec, at DIFFERENT tiers of the same concern
-  // (mt#3722). The first asks whether a duplicate check was RECORDED and denies
-  // when it was not — a literal-form presence test with no false-positive
-  // surface, which is why it can deny. The second asks whether that record's
-  // verdicts are TRUE, using heuristic token selection, and only ever warns.
-  // Deliberately NOT folded into one guard: a single registration would put the
-  // denying check and the calibration-first one behind one `denyCapable` flag,
-  // one attentionCost budget and one canary, making the deny path's
-  // zero-false-positive character depend on the scan's unmeasured one.
-  ["require-duplicate-check-record", "duplicate-signature-scan"],
-  // Third tier on the same `tasks_create` spec (mt#4004), and the reason all
-  // three are separate registrations rather than one: they ask three different
-  // questions about the same paragraph. Is the record PRESENT (deny), are its
-  // verdicts TRUE (warn), and did the search it claims actually RUN (warn).
-  // The third is the only one that reads SESSION state rather than the spec
-  // alone, so its false-positive surface is unrelated to the second's token
-  // heuristic and needs its own calibration log to be sized.
-  ["require-duplicate-check-record", "duplicate-check-search-provenance"],
-  ["duplicate-signature-scan", "duplicate-check-search-provenance"],
-  // Same Bash/session_exec command string, third unrelated defect (mt#3910):
-  // whether the call chains two or more VERIFICATION commands, which makes a
-  // non-zero exit unattributable. Orthogonal to both siblings on this matcher —
-  // a constructed session path and a secret-bearing read are properties of WHAT
-  // the command touches; this is a property of HOW MANY result-bearing commands
-  // share one invocation. Independent overrides; running all three is the point.
-  ["check-guessed-session-path", "chained-verification-commands"],
-  ["block-secret-file-read", "chained-verification-commands"],
-  // Fourth question about the same `tasks_create` spec (mt#3658), and unrelated
-  // to the other three: they all ask about the DUPLICATE CHECK — is the record
-  // present, are its verdicts true, did its search run — while this asks whether
-  // a claim about a test failure's MODE carries the control that would settle
-  // it. Different paragraph, different evidence, different override. Folding it
-  // into any of them would put a prose-vocabulary matcher, which has a real
-  // false-positive surface, behind a `denyCapable` flag or a token-selection
-  // canary sized for a different question.
-  ["flakiness-control-detector", "require-duplicate-check-record"],
-  ["flakiness-control-detector", "duplicate-signature-scan"],
-  ["flakiness-control-detector", "duplicate-check-search-provenance"],
-];
-
-/** Is this pair declared as an intentional co-registration? */
-export function isIntentionalPair(a: string, b: string): boolean {
-  return INTENTIONAL_MATCHER_PAIRS.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
-}
-
-export function findDuplicateRegistrations(
-  registrations: GuardRegistration[]
-): DuplicateRegistration[] {
-  const dupes: DuplicateRegistration[] = [];
-  const tokensOf = (matcher: string | undefined): Set<string> | null =>
-    matcher === undefined
-      ? null
-      : new Set(
-          matcher
-            .split("|")
-            .map((t) => t.trim())
-            .filter(Boolean)
-        );
-
-  for (let i = 0; i < registrations.length; i++) {
-    for (let j = i + 1; j < registrations.length; j++) {
-      const a = registrations[i];
-      const b = registrations[j];
-      if (!a || !b) continue;
-      if (a.event !== b.event) continue;
-      if (a.name === b.name) continue;
-      if (isIntentionalPair(a.name, b.name)) continue;
-
-      const aTokens = tokensOf(a.matcher);
-      const bTokens = tokensOf(b.matcher);
-      if (aTokens === null && bTokens === null && NON_TOOL_SCOPED_EVENTS.has(a.event)) {
-        // Both matcher-less on a non-tool-scoped event: the normal shape
-        // for a family of independent guards — not a duplicate registration.
-        continue;
-      }
-      if (aTokens === null || bTokens === null) {
-        // Either exactly one side is matcher-less (genuine overlap risk on
-        // any event), OR both sides are matcher-less on a TOOL-SCOPED event
-        // (both genuinely match every tool call — still a real duplicate).
-        dupes.push({
-          a: a.name,
-          b: b.name,
-          event: a.event,
-          sharedTokens: ["<matches everything>"],
-        });
-        continue;
-      }
-      const shared = [...aTokens].filter((t) => bTokens.has(t));
-      if (shared.length > 0) {
-        dupes.push({ a: a.name, b: b.name, event: a.event, sharedTokens: shared });
-      }
-    }
-  }
-  return dupes;
-}
+// Queries over this registry — matcher filtering and the ADR-028 D7(2)
+// duplicate-registration check — live in `./registry-queries` as of mt#4044.
+// Moved verbatim, not rewritten: this file sat exactly at the 1500-line
+// max-lines ceiling, so its capacity to hold registrations had become a
+// function of the lint budget. NOT re-exported from here — that would make the
+// import cycle this split exists to avoid.

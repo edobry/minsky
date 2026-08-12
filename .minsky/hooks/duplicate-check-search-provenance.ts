@@ -46,6 +46,9 @@ import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { extractToolUseNames } from "./transcript";
+// Imported for local use as well as re-exported below: `export … from` re-exports
+// without binding the name in this module's scope, and `run()` calls it.
+import { sessionRanASearch } from "./evidence-provenance-table";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -54,18 +57,13 @@ import { extractToolUseNames } from "./transcript";
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SEARCH_PROVENANCE";
 
 /**
- * Tools whose invocation discharges a claimed duplicate search.
- *
- * `refs_status` is included because a record may legitimately say it
- * cross-referenced specific candidate ids rather than running a similarity
- * query — that is a search of the task graph by another route, and refusing to
- * count it would manufacture false positives on a correct process.
+ * The search half of the discharge table now lives in
+ * `./evidence-provenance-table`, shared with the commit/PR-seam guard that
+ * mt#4044 added for the other two record types. Re-exported here unchanged so
+ * this module's public surface — and every caller and test that reads it — is
+ * exactly what it was; only the definition moved.
  */
-export const SEARCH_TOOL_NAMES: readonly string[] = [
-  "tasks_search",
-  "tasks_similar",
-  "refs_status",
-];
+export { SEARCH_TOOL_NAMES, sessionRanASearch } from "./evidence-provenance-table";
 
 /**
  * The sanctioned no-search record (`/create-task` Step 1a, and
@@ -137,20 +135,6 @@ export function claimsASearch(record: string | null): boolean {
   // is a false positive fired at an author who did nothing wrong.
   if (INSTRUCTION_RE.test(record)) return false;
   return SEARCH_CLAIM_RE.test(record);
-}
-
-/** True when any search tool was invoked in the transcript given. */
-export function sessionRanASearch(toolNames: readonly string[]): boolean {
-  return toolNames.some((raw) => {
-    // Transcripts carry both the MCP-prefixed and bare forms; normalize the
-    // separator too, since the dotted canonical name and the Claude-Desktop
-    // underscore alias are both registered spellings of one tool.
-    const normalized = raw
-      .replace(/^mcp__minsky__/, "")
-      .replace(/\./g, "_")
-      .toLowerCase();
-    return SEARCH_TOOL_NAMES.includes(normalized);
-  });
 }
 
 /** The advisory text. Never a denial — this guard cannot block. */

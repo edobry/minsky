@@ -302,6 +302,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "evidence-record-provenance",
+    {
+      description:
+        "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("evidence-record-provenance"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "chained-verification-commands",
     {
       description:

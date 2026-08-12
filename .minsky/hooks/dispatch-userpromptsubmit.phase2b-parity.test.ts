@@ -25,7 +25,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
-import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
+import { GUARD_REGISTRY } from "./registry";
+import { getGuardsForEvent } from "./registry-queries";
 import { hookChildEnv } from "./hook-child-env";
 
 /** Shared literal — the lifecycle event these fixtures all target. */

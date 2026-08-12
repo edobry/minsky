@@ -242,6 +242,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts",
             "timeout": 15,
             "statusMessage": "Checking branch freshness..."
+          },
+          {
+            "_comment": "mt#4044: the FIRST dispatcher entry on the commit/PR-body seam. These three tool names already appeared in this file, but only on standalone hooks (check-branch-fresh here, dispatch-intent-write-gate below), so no GUARD_REGISTRY guard could reach a commit message or a PR body until this entry existed — the mt#3823 defect class, caught in advance by registry.test.ts's parity block. Register new guards in .minsky/hooks/registry.ts, not as new commands here. Timeout is DERIVED (mt#3981): sum of the routed guards' budgets + DISPATCH_TIMEOUT_MARGIN_MS, asserted for equality by that same parity block.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 13,
+            "statusMessage": "Checking evidence-record provenance..."
           }
         ]
       },

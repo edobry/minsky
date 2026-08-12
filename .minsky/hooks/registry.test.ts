@@ -2,16 +2,14 @@ import { describe, test, expect } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#3823 parity block asserts against the REAL committed `.claude/settings.json`, which is the artifact under test: an injected or in-memory copy could not detect the live file losing a dispatcher registration, which is the entire defect class (two guards registered and never invoked). Same shape as the migration-journal read in tests/integration/short-id-conflict-inference.integration.test.ts — reading a committed source of truth, not faking test state.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { GUARD_REGISTRY, type GuardRegistration, type LifecycleEvent } from "./registry";
 import {
   getGuardsForEvent,
   findDuplicateRegistrations,
   isIntentionalPair,
   INTENTIONAL_MATCHER_PAIRS,
-  GUARD_REGISTRY,
   NON_TOOL_SCOPED_EVENTS,
-  type GuardRegistration,
-  type LifecycleEvent,
-} from "./registry";
+} from "./registry-queries";
 import { deriveDispatchTimeoutMs, DISPATCH_TIMEOUT_MARGIN_MS } from "./dispatch-timeout-budget";
 
 /** Representative non-tool-scoped event, used across the matcher-less-registration tests. */

@@ -36,7 +36,8 @@ import {
 import type { TranscriptLine } from "./transcript";
 import { readAnchor } from "./turn-anchor-store";
 import type { RecordedTurnAnchor } from "./turn-anchor-store";
-import { GUARD_REGISTRY, getGuardsForEvent } from "./registry";
+import { GUARD_REGISTRY } from "./registry";
+import { getGuardsForEvent } from "./registry-queries";
 import type {
   DispatchContext,
   GuardRegistration,
