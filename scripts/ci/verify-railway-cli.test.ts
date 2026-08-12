@@ -131,6 +131,19 @@ describe("verify-railway-cli.sh", () => {
     expect(output).not.toContain("::error::");
   });
 
+  it("clears whichever credential the CALLER names, not a hardcoded one (PR #2952 R1)", async () => {
+    // `deploy-reviewer.yml` picks between RAILWAY_REVIEWER_TOKEN and a
+    // RAILWAY_TOKEN fallback at runtime. Naming the wrong one would reproduce
+    // this task's own defect one workflow over — a message pointing the reader
+    // at a secret that is not in play — so the argument has to reach the text.
+    const bin = writeFakeCli(NON_EXECUTABLE_STUB, false);
+
+    const { output } = await runScript(bin, "RAILWAY_TOKEN");
+
+    expect(output).toContain("RAILWAY_TOKEN is NOT implicated");
+    expect(output).not.toContain(`${CREDENTIAL} is NOT implicated`);
+  });
+
   it("a MISSING binary fails the same way as a non-executable one", async () => {
     // Presence and runnability are different questions, and the observed
     // failure was the second. This pins that the script still catches the
