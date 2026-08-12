@@ -99,6 +99,38 @@ function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): b
 }
 
 /**
+ * Why this thread's agent is not running, when that is knowable (mt#4037).
+ *
+ * `live: false` alone cannot distinguish "the cockpit restarted and killed it"
+ * from "it exited on its own", and the panel has been telling the operator the
+ * second one either way — "The agent stopped before answering", which blames
+ * the agent for a daemon shutdown.
+ *
+ * `reconnecting` is exactly the durable evidence criterion 4 requires. Boot
+ * reconciliation builds that record FROM the persisted `driven_sessions` row
+ * (`driven-session-launch.ts`), for a row that was still non-terminal when the
+ * daemon stopped writing — i.e. an actuator that was alive when the process
+ * went away, rather than one that exited and wrote its own terminal status.
+ * The claim therefore survives the restart that produced it; it is not
+ * reconstructed from an in-memory registry the restart just cleared.
+ *
+ * Returns `undefined` — not a guess — whenever there is no record or the record
+ * is in any other state. Absent means UNKNOWN, the same discipline `live` and
+ * `originSeeded` follow, and the panel falls back to saying only what it can
+ * support.
+ */
+export function deriveAgentStopReason(
+  localId: string,
+  registry = drivenSessionRegistry
+): "cockpit-restart" | "unrecoverable" | undefined {
+  const record = registry.get(localId);
+  if (!record || hasLiveActuator(record)) return undefined;
+  if (record.status === "reconnecting") return "cockpit-restart";
+  if (record.status === "unrecoverable") return "unrecoverable";
+  return undefined;
+}
+
+/**
  * Lazy-cached SQL handle. `cacheNegative: false` — a failed probe is retried on
  * the next request rather than latched, so a thread recovers on its own when
  * the database comes back instead of staying dead for the daemon's lifetime.
@@ -254,6 +286,13 @@ export function mountEntityThreadRoutes(
         blocks,
         // mt#3402: the panel cannot tell "thinking" from "dead" without this.
         live: isThreadAgentLive(localId),
+        // mt#4037: WHY it is not live, when that is knowable from state the
+        // restart could not erase. Omitted when unknown — see
+        // `deriveAgentStopReason`.
+        ...(() => {
+          const stopReason = deriveAgentStopReason(localId);
+          return stopReason ? { agentStopReason: stopReason } : {};
+        })(),
         // mt#3367: whether the agent can reach the conversation that filed this
         // entity. Surfaced so the principal knows which grounding an answer has
         // — reachability is only ~46%, so "seeded" is not the safe assumption.
