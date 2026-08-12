@@ -352,4 +352,21 @@ describe("buildInboundEventPayload — over-length text keeps its OPENING (mt#40
     expect(payload.text).toBe(exact);
     expect(payload.textTruncated).toBeUndefined();
   });
+
+  test("the cut never severs a surrogate pair at the boundary (PR #2951 R1)", () => {
+    // Surrogate-safety is the reason `safeTruncate` exists at all — an unpaired
+    // surrogate survives JSON.stringify and then breaks the re-parser (mt#1598).
+    // The direction tests above use plain ASCII, so they cannot reach it; this
+    // puts a 4-byte emoji astride the exact cut.
+    const emoji = "🔍"; // two UTF-16 code units
+    const head = "z".repeat(MAX_STORED_TEXT - 1);
+    const payload = payloadFor(`${head}${emoji}${"tail".repeat(50)}`);
+
+    // The window shrinks by one to drop the lone high surrogate rather than
+    // keeping it, so the stored text is one shorter than the cap.
+    expect(payload.text).toBe(head);
+    expect(payload.textTruncated).toBe(true);
+    // The real assertion: no unpaired surrogate survived, so a round-trip works.
+    expect(JSON.parse(JSON.stringify({ t: payload.text })).t).toBe(head);
+  });
 });
