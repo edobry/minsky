@@ -1837,3 +1837,57 @@ describe("code-mechanism-assertion-detector main()/CLI-path E2E (mt#3002 R1)", (
     expect(ctx).toContain("code-mechanism-assertion-detector");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Judged-input capture (mt#3649) — AT1
+//
+// A record used to carry the extracted claims but nothing to re-run a changed
+// detector against. These assert the RECOVERED input is the same text the
+// detector judged, which is the whole premise the replay harness rests on.
+// ---------------------------------------------------------------------------
+
+describe("judged-input capture (mt#3649)", () => {
+  const CLAIM_TEXT = "The 1MB default `maxBuffer` is at its limit, and `executeCommand` clamps it.";
+
+  test("AT1: the record's captured input is recoverable and matches what was judged", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(CLAIM_TEXT),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const cal = outcome?.calibration as Record<string, unknown>;
+
+    // The schema marker is what makes a post-capture record distinguishable
+    // from a pre-capture one; without it a reader cannot tell "no claims" from
+    // "not re-classifiable".
+    expect(cal["captureSchema"]).toBe(1);
+
+    const captured = cal["judgedInput"] as {
+      excerpt: string;
+      hash: string;
+      length: number;
+      truncated: boolean;
+    };
+    // The recovered input IS the judged text, not a paraphrase or a pointer.
+    expect(captured.excerpt).toContain("maxBuffer");
+    expect(captured.excerpt).toContain("executeCommand");
+    expect(captured.truncated).toBe(false);
+    expect(captured.length).toBe(captured.excerpt.length);
+    expect(captured.hash).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  test("a record is written with the capture even when the claim set is empty of chat matches", () => {
+    // The capture must not be conditional on the chat surface matching, or the
+    // records that most need re-classification (the near-misses) are the ones
+    // that lack an input to replay.
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(CLAIM_TEXT),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines), ALWAYS_INJECT_DEPS);
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal["judgedInput"]).toBeDefined();
+  });
+});

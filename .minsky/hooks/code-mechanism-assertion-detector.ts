@@ -119,6 +119,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { claimSetSignature, shouldInjectClaimSet } from "./code-mechanism-assertion-dedup-store";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  captureArtifact,
+} from "./judged-input-capture";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -1471,8 +1476,14 @@ export function run(
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#3649: the exact text the CHAT-surface detector judged, hoisted so the
+  // calibration record can capture it. Without it a record carries the extracted
+  // claims but nothing to re-run a changed detector against, so "does this change
+  // alter what the existing surface detects?" could only ever be inferred.
+  let judgedText = "";
   try {
     const assistantText = extractAssistantText(turnLines);
+    judgedText = assistantText;
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
@@ -1559,6 +1570,13 @@ export function run(
       // before anyone proposes wiring it.
       artifactSurfaceClaims: artifactResult.claims,
       artifactSurfaceClaimCount: artifactResult.claims.length,
+      // mt#3649: the judged input itself, so a CHANGED detector can be replayed
+      // over this record rather than its effect inferred. Bounded and hashed by
+      // the shared mt#3607 capture. `captureSchema` marks the record
+      // re-classifiable; its ABSENCE marks a pre-capture record as
+      // unrecoverable rather than as clean.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedInput: captureArtifact(judgedText),
     },
   };
 
@@ -1630,8 +1648,14 @@ export async function main(): Promise<void> {
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#3649: the exact text the CHAT-surface detector judged, hoisted so the
+  // calibration record can capture it. Without it a record carries the extracted
+  // claims but nothing to re-run a changed detector against, so "does this change
+  // alter what the existing surface detects?" could only ever be inferred.
+  let judgedText = "";
   try {
     const assistantText = extractAssistantText(turnLines);
+    judgedText = assistantText;
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
@@ -1697,6 +1721,13 @@ export async function main(): Promise<void> {
       // before anyone proposes wiring it.
       artifactSurfaceClaims: artifactResult.claims,
       artifactSurfaceClaimCount: artifactResult.claims.length,
+      // mt#3649: the judged input itself, so a CHANGED detector can be replayed
+      // over this record rather than its effect inferred. Bounded and hashed by
+      // the shared mt#3607 capture. `captureSchema` marks the record
+      // re-classifiable; its ABSENCE marks a pre-capture record as
+      // unrecoverable rather than as clean.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedInput: captureArtifact(judgedText),
     });
   }
 
