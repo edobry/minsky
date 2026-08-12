@@ -473,11 +473,21 @@ describe("splitInjectedContent — bash-mode family (mt#4058)", () => {
     expect(firstSpan(BASH_INPUT_TURN).label).toBe("bash: minsky cockpit open");
   });
 
-  test("a long command is bounded in the label but kept whole in the content", () => {
+  test("a long command keeps its START, not its trailing args (PR #2935 R1)", () => {
+    // The first cut used safeTruncate's default side ("tail"), which keeps the
+    // LAST N code units — so this header read `bash: xxxx'` with `git log`
+    // dropped. The original test asserted only a length bound, which that
+    // defect satisfies perfectly; asserting the PREFIX is what catches it.
     const long = `git log --oneline --since='${"x".repeat(120)}'`;
     const span = firstSpan(`<bash-input> ${long}</bash-input>`);
-    expect(span.label.length).toBeLessThanOrEqual("bash: ".length + 72);
+    expect(span.label.startsWith("bash: git log --oneline --since=")).toBe(true);
+    expect(span.label.endsWith("…")).toBe(true);
+    expect(span.label.length).toBeLessThanOrEqual("bash: ".length + 72 + 1);
     expect(span.content).toBe(long);
+  });
+
+  test("a command that fits is not made to look truncated", () => {
+    expect(firstSpan(BASH_INPUT_TURN).label).not.toContain("…");
   });
 
   test("a multi-line command labels from its first line only", () => {

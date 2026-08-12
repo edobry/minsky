@@ -193,11 +193,22 @@ interface TurnStartTagPresentation {
   label: string | ((body: string) => string);
 }
 
-/** Header label for a bash invocation: the command itself, bounded. */
+/**
+ * Header label for a bash invocation: the command itself, bounded.
+ *
+ * Truncates from the HEAD — `safeTruncate`'s `side` defaults to `"tail"`, which
+ * keeps the LAST `maxLen` code units, so a long command would render its
+ * trailing arguments with the program name dropped (`bash: …--since='x'`).
+ * The whole point of the header is to say which command was collapsed, and the
+ * word that answers that is the first one. PR #2935 R1.
+ */
 function bashCommandLabel(body: string): string {
   const firstLine = body.trim().split("\n", 1)[0]?.trim() ?? "";
   if (firstLine.length === 0) return INJECTED_KIND_NOUN["bash-command"];
-  return `bash: ${safeTruncate(firstLine, BASH_LABEL_MAX_CHARS)}`;
+  const shown = safeTruncate(firstLine, BASH_LABEL_MAX_CHARS, "head");
+  // An ellipsis only when something was actually dropped, so a header that
+  // fits is not made to look cut off.
+  return `bash: ${shown}${shown.length < firstLine.length ? "…" : ""}`;
 }
 
 /** Keeps a long one-liner from pushing the rest of the header off the row. */
