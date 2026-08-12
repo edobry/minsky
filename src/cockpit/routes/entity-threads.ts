@@ -44,6 +44,7 @@ import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import {
   blocksToStoredAgentReplies,
   pendingReplyBuffer,
+  schedulePendingDrain,
   shouldReportPendingReplies,
 } from "../entity-thread-reply-buffer";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
@@ -232,6 +233,37 @@ export function mountEntityThreadRoutes(
   const startSession = options.startSession ?? startEntityThreadSession;
   const loadSeed = options.loadSeed ?? buildSeedForEntity;
 
+  // Arm the drain at daemon start (mt#4066, PR #2940 R1), completing the
+  // invariant the route-level arm below only holds while someone is looking:
+  // a non-empty buffer always has a live drain, checked at every point where
+  // the buffer can be observed to have entries.
+  //
+  // Today this is a no-op and the comment is the point: the buffer is process
+  // memory (mt#4036's docblock: "a restart loses it"), so at start it is
+  // ALWAYS empty and `schedulePendingDrain` returns on its own empty-buffer
+  // guard. It is here because that is a property of the CURRENT storage
+  // choice, not of the invariant — the moment buffered replies survive a
+  // restart (mt#4037's unshipped half), boot is exactly when a queue exists
+  // with no chain behind it, and a fix that has to be remembered THEN is a
+  // fix that will not be. Deliberately fire-and-forget: a db that cannot be
+  // resolved at boot is the normal degraded start, not an error to raise.
+  void (async () => {
+    try {
+      const db = await getEntityThreadDb();
+      if (db) schedulePendingDrain(db);
+    } catch (err) {
+      // Swallowed on purpose, and narrowly: this runs at MOUNT time, so an
+      // unhandled rejection here would surface as a boot-time crash (and in
+      // tests, as an unhandled-rejection failure in every suite that mounts
+      // these routes) for a call whose only job is to arm a timer over an
+      // empty queue. The failure it can produce — no db at boot — is the
+      // normal degraded start the GET route already answers with a 503.
+      log.debug(
+        `entity-thread reply buffer: no db to arm the drain against at start: ${getLoggableErrorSummary(err)}`
+      );
+    }
+  })();
+
   app.get("/api/entity-thread/:entityType/:entityId", async (req, res) => {
     const entityType = parseEntityType(req.params["entityType"]);
     if (typeof entityType !== "string") {
@@ -279,6 +311,16 @@ export function mountEntityThreadRoutes(
       // evidence to settle that, so it settles it here rather than waiting for
       // an async drain.
       const pendingReport = pendingReplyBuffer.report(localId, blocksToStoredAgentReplies(blocks));
+      // Liveness backstop (mt#4066). The drain chain is armed ONLY by a failed
+      // append and re-armed only by its own `.finally`, so a chain that ever
+      // stops with entries still queued waits for the next UNRELATED failed
+      // append to restart it. From the panel a reply nobody is retrying looks
+      // exactly like one that is — the notice says "retrying" either way — so
+      // the cheapest place to close that gap is the poll that renders it.
+      // `schedulePendingDrain` returns immediately when a timer is already
+      // armed or the buffer is empty, so the steady-state cost is a map walk,
+      // and a thread being polled is precisely when someone is waiting.
+      if (pendingReport.pending > 0) schedulePendingDrain(db);
       res.json({
         localId,
         entityType,
