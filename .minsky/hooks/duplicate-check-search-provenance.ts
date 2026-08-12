@@ -88,7 +88,21 @@ export const NO_CANDIDATES_LINE = "Duplicate check: no candidates found.";
  * provenance. Only the second asserts anything checkable about this session.
  */
 const SEARCH_CLAIM_RE =
-  /\b(?:searched|queried|ran\s+(?:a\s+)?(?:`?tasks[_.]s(?:earch|imilar)`?|search)|cross-referenced|grepped)\b|`?tasks[_.]s(?:earch|imilar)`?\s+(?:for|over|across)/i;
+  /\b(?:searched|queried|cross-referenced|grepped|ran\s+(?:a\s+)?(?:`?tasks[_.]s(?:earch|imilar)`?|search))\b/i;
+
+/**
+ * Instruction phrasings that must NOT count as provenance, checked before the
+ * claim pattern.
+ *
+ * PR #2886 R1 found the hole this closes: an earlier version also matched a
+ * bare tool name followed by `for`/`over`/`across`, so "run `tasks_search` for
+ * duplicates before filing" — an instruction — read as a claim to have searched.
+ * That inverted the module's own stated discriminator. Imperative openings are
+ * excluded explicitly rather than by hoping the past-tense pattern misses them,
+ * because a spec quoting the requirement next to satisfying it is common.
+ */
+const INSTRUCTION_RE =
+  /\b(?:run|search|check|use|invoke|call|do)\s+(?:a\s+)?`?tasks[_.]s(?:earch|imilar)`?|\bbefore\s+filing\b|\byou\s+(?:must|should)\b/i;
 
 /**
  * Extract the duplicate-check record's own text.
@@ -118,6 +132,10 @@ export function extractDuplicateCheckRecord(spec: string | null | undefined): st
 export function claimsASearch(record: string | null): boolean {
   if (!record) return false;
   if (record.trim().startsWith(NO_CANDIDATES_LINE)) return false;
+  // Instruction beats claim when both are present. The asymmetry is deliberate:
+  // a missed claim is a false negative (safe direction), a misread instruction
+  // is a false positive fired at an author who did nothing wrong.
+  if (INSTRUCTION_RE.test(record)) return false;
   return SEARCH_CLAIM_RE.test(record);
 }
 
@@ -218,12 +236,18 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
 
 if (import.meta.main) {
   try {
-    const input = await readInput<ToolHookInput>();
-    // A standalone invocation has no dispatcher-parsed transcript, so the
-    // guard's own "cannot adjudicate" branch is the correct outcome here.
-    const emptyCtx: DispatchContext = { transcriptLines: [] };
-    const outcome = run(input, emptyCtx);
-    for (const line of outcome?.auditLines ?? []) process.stderr.write(line);
+    // Deliberately does NOT call `run()`. This guard's discriminating input is
+    // `ctx.transcriptLines`, which only the dispatcher populates (D6) — so a
+    // standalone invocation could only ever reach the "cannot adjudicate"
+    // branch, and fabricating a DispatchContext to get there would be a
+    // stub that looks like a code path. The dispatcher is the only meaningful
+    // entry point; this one exists so the module is directly executable and
+    // reports why it did nothing.
+    await readInput<ToolHookInput>();
+    process.stderr.write(
+      "[duplicate-check-search-provenance] standalone invocation: this guard reads " +
+        "dispatcher-parsed transcript lines and has nothing to check outside it. No-op.\n"
+    );
     process.exit(0);
   } catch (err) {
     process.stderr.write(

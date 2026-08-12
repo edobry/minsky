@@ -84,6 +84,25 @@ describe("claimsASearch", () => {
     // requirement as often as they satisfy it.
     expect(claimsASearch("Duplicate check: run tasks_search before filing this.")).toBe(false);
   });
+
+  test("an instruction naming the tool WITH a target is still an instruction (R1)", () => {
+    // The hole PR #2886 R1 found: an earlier pattern matched a bare tool name
+    // followed by for/over/across, so this imperative read as provenance —
+    // inverting the module's own stated discriminator.
+    expect(claimsASearch("Duplicate check: run `tasks_search` for duplicates before filing.")).toBe(
+      false
+    );
+    expect(claimsASearch("Duplicate check: search tasks_similar across all statuses.")).toBe(false);
+  });
+
+  test("instruction beats claim when a record contains both", () => {
+    // A spec that quotes the requirement AND satisfies it should not fire; the
+    // asymmetry is deliberate, since a false positive lands on an author who
+    // did the work.
+    expect(
+      claimsASearch("Duplicate check: run tasks_search first. I searched and found mt#1.")
+    ).toBe(false);
+  });
 });
 
 describe("sessionRanASearch", () => {

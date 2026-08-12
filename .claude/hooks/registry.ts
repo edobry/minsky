@@ -897,7 +897,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "duplicate-check-search-provenance",
-    effects: [recorderEffect()],
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every path, and an `additionalContext` injection on the matched one
+    // (PR #2886 R1 — the injector declaration was missing while the module
+    // returned `additionalContext`, so the declaration under-described what
+    // ships).
+    effects: [recorderEffect(), advisoryEffect()],
     // `advisory`: which prose counts as CLAIMING a search is a heuristic, and
     // the calibration log exists to size it. The session-state half it gates on
     // is exact.
@@ -909,6 +914,15 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // dispatcher already parsed — no IO of its own, so this is generous.
     timeoutMs: 5000,
     calibrationLog: "duplicate-check-search-provenance",
+    // LOAD-BEARING (PR #2886 R1). `ctx.transcriptLines` is populated ONLY for a
+    // registration that declares this (D6), and the session's tool-call list is
+    // this guard's entire discriminating half. Without it the guard records
+    // `skipped` on every live run — present, tested, green, and inert. The unit
+    // tests could not catch that: they construct the context directly, so they
+    // exercise the module and say nothing about whether the dispatcher will
+    // hand it anything. `registry.test.ts` now asserts the coupling for every
+    // guard whose source reads `transcriptLines`.
+    needsTranscript: true,
     // Calibration-first per ADR-024 and ask#6982. The module asserts this in a
     // test rather than only intending it.
     denyCapable: false,
