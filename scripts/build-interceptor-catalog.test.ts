@@ -13,7 +13,11 @@ import { buildCatalog, collectOracleNames, type CatalogSources } from "./build-i
 import { INTERCEPTOR_DESCRIPTIONS } from "../.minsky/hooks/interceptor-descriptions";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 import type { RegistryFacts } from "../.minsky/hooks/interceptor-descriptions";
-import type { CoordinateResolutionInput } from "../.minsky/hooks/interceptor-coordinates";
+import {
+  DELIBERATELY_UNAUTHORED_NAMES,
+  OUT_OF_MODEL_NAMES,
+  type CoordinateResolutionInput,
+} from "../.minsky/hooks/interceptor-coordinates";
 import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
 
 /**
@@ -154,6 +158,78 @@ describe("the real corpus", () => {
     for (const entry of real.entries) {
       for (const c of entry.failureClasses) {
         expect(defined.has(c)).toBe(true);
+      }
+    }
+  });
+
+  // --- Axis coordinates (mt#4056 slice 1b) ---
+
+  test("every entry resolves an interception point OR enumerates it as a gap (AT1)", () => {
+    // Never a silent null: the resolver's contract is that an underivable axis
+    // is REPORTED, and the UI's gap markers are only trustworthy if that holds
+    // for the real corpus rather than for a fixture.
+    for (const entry of real.entries) {
+      expect(entry.point === null).toBe(entry.coordinateGaps.includes("point"));
+    }
+  });
+
+  test("family states partition the population (AT2)", () => {
+    // The per-family counts deliberately do NOT sum to the population —
+    // membership is not exclusive — so the STATE breakdown is the one that has
+    // to add up, and it is what the page renders as a sum.
+    const byState = (s: string): number => real.entries.filter((e) => e.familyState === s).length;
+    expect(byState("classified") + byState("out-of-model") + byState("unclassified")).toBe(
+      real.population
+    );
+  });
+
+  test("a classified entry has families; neither zero-family state does", () => {
+    for (const entry of real.entries) {
+      expect(entry.families.length > 0).toBe(entry.familyState === "classified");
+    }
+  });
+
+  test("the out-of-model set is exactly OUT_OF_MODEL_NAMES", () => {
+    // Pinned against the constant the coordinate module asserts as an exact
+    // set, so an entity joining or leaving this class is a visible diff here
+    // too rather than a quiet shift in what the catalog renders.
+    const computed = real.entries
+      .filter((e) => e.familyState === "out-of-model")
+      .map((e) => e.guardName)
+      .sort();
+    expect(computed).toEqual([...OUT_OF_MODEL_NAMES].sort());
+  });
+
+  test("the unclassified set is exactly the deliberately-unauthored names", () => {
+    // If this fails, a REAL interceptor lost its coordinates — the case the
+    // catalog must not render as an ordinary blank.
+    const computed = real.entries
+      .filter((e) => e.familyState === "unclassified")
+      .map((e) => e.guardName)
+      .sort();
+    expect(computed).toEqual([...DELIBERATELY_UNAUTHORED_NAMES].sort());
+    for (const entry of real.entries) {
+      if (entry.familyState === "unclassified") {
+        expect(entry.deliberatelyUnauthored).toBe(true);
+      }
+    }
+  });
+
+  test("every computed family is derivable from the entry's own intervention set", () => {
+    // The family words are FILTERS over axis 2, never stored kinds. This
+    // asserts the generator did not invent membership from anything else.
+    for (const entry of real.entries) {
+      const types = new Set(entry.interventions.map((i) => i.type));
+      if (entry.families.includes("guard")) {
+        expect(types.has("deny") || types.has("allow")).toBe(true);
+      }
+      if (entry.families.includes("injector")) {
+        expect(types.has("inject")).toBe(true);
+      }
+      if (entry.families.includes("detector")) {
+        expect(
+          entry.interventions.some((i) => i.type === "record" && i.audience === "review")
+        ).toBe(true);
       }
     }
   });
