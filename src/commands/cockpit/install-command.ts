@@ -1,6 +1,7 @@
 import path from "path";
 import { Command } from "commander";
-import { installDaemon, DEFAULT_DAEMON_PORT } from "../../cockpit/launchd";
+import { installDaemon } from "../../cockpit/launchd";
+import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
 
 export function createInstallCommand(): Command {
   const cmd = new Command("install");
@@ -8,16 +9,17 @@ export function createInstallCommand(): Command {
     "Install the cockpit as a macOS daemon (LaunchAgent) that starts on login and restarts on crash"
   );
   cmd
-    .option(
-      "--port <port>",
-      `Port for the daemon to listen on (default: ${DEFAULT_DAEMON_PORT})`,
-      DEFAULT_DAEMON_PORT.toString()
-    )
+    // mt#3988: no commander default — see `resolveCockpitPort`. The installed
+    // LaunchAgent plist bakes this port in, so resolving it from configuration
+    // is what keeps a headless install agreeing with the tray and the CLI.
+    .option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION)
     .option("--repo <path>", "Path to the minsky repo root (default: current directory)")
     .action(async (options) => {
-      const port = parseInt(options.port, 10);
-      if (isNaN(port) || port < 1 || port > 65535) {
-        console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
+      let port: number;
+      try {
+        port = resolveCockpitPort(options.port);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 

@@ -5,6 +5,16 @@ import type { Config } from "drizzle-kit";
 import { execSync } from "child_process";
 
 // Helper function to get PostgreSQL connection string from Minsky config system
+//
+// Forward note (mt#4017 gate (l)): this reads the connection string via a
+// subprocess (scripts/drizzle-config-loader.ts, whose stdout is now GATED —
+// see that script) specifically because drizzle-kit 0.31.2's `defineConfig`
+// has no top-level-await support, so this file can't just `await` the
+// config in-process. drizzle-team/drizzle-orm#4075 (shipped 1.0.0-beta.13)
+// added support for `defineConfig` to accept a promise or a function
+// returning one. On a future drizzle-kit 1.x upgrade, the correct move is
+// to DELETE the loader subprocess entirely and resolve the connection
+// string in-process — not to keep gating it.
 function getPostgresConnectionString(): string {
   // Environment variables set by Minsky's persistence migrate command
   // which loads the full configuration system and exports the necessary values
@@ -29,10 +39,18 @@ function getPostgresConnectionString(): string {
 
   // 3. Load from Minsky configuration system using helper script
   // This handles standalone drizzle-kit commands
+  //
+  // MINSKY_DRIZZLE_LOADER_GATE is the sanctioned-caller signal
+  // scripts/drizzle-config-loader.ts requires before it will print anything
+  // (mt#4017) — that script's stdout is a live credential, and without this
+  // gate it refuses and exits non-zero rather than emit it. Only THIS
+  // execSync call (drizzle-kit's own subprocess, never a Bash/session_exec
+  // tool call an agent issues) is meant to set it.
   try {
     const configOutput = execSync("bun ./scripts/drizzle-config-loader.ts", {
       encoding: "utf8",
       stdio: ["inherit", "pipe", "pipe"],
+      env: { ...process.env, MINSKY_DRIZZLE_LOADER_GATE: "1" },
     });
     const dbConfig = JSON.parse(configOutput.trim());
     if (dbConfig.postgres?.connectionString) {
@@ -77,6 +95,7 @@ export default {
     "./packages/domain/src/storage/schemas/conversation-run-state-schema.ts",
     "./packages/domain/src/storage/schemas/engprod-proposal-ledger-schema.ts",
     "./packages/domain/src/storage/schemas/telegram-channel-topics-schema.ts",
+    "./packages/domain/src/storage/schemas/guard-canary-runs-schema.ts",
   ],
   out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",

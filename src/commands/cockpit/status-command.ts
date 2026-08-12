@@ -1,20 +1,23 @@
 import { Command } from "commander";
-import { getDaemonStatus, DEFAULT_DAEMON_PORT } from "../../cockpit/launchd";
+import { getDaemonStatus } from "../../cockpit/launchd";
+import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
 
 export function createStatusCommand(): Command {
   const cmd = new Command("status");
   cmd.description("Check the status of the cockpit daemon");
   cmd
-    .option(
-      "--port <port>",
-      `Port to check (default: ${DEFAULT_DAEMON_PORT})`,
-      DEFAULT_DAEMON_PORT.toString()
-    )
+    // mt#3988: no commander default — `resolveCockpitPort` needs to see an
+    // unset flag to let `cockpit.port` apply. Checking the status of a
+    // different port than the daemon actually serves is the confusion this
+    // whole task exists to remove.
+    .option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION.replace("listen on", "check"))
     .option("--json", "Output status as JSON")
     .action(async (options) => {
-      const port = parseInt(options.port, 10);
-      if (isNaN(port) || port < 1 || port > 65535) {
-        console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
+      let port: number;
+      try {
+        port = resolveCockpitPort(options.port);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 

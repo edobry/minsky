@@ -8,7 +8,11 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { loadEnvironmentConfiguration, getEnvironmentConfiguration } from "./environment";
+import {
+  loadEnvironmentConfiguration,
+  getEnvironmentConfiguration,
+  HOOK_ONLY_ENV_VARS,
+} from "./environment";
 
 const TEST_POSTGRES_URL = "postgresql://user:pass@host:5432/db";
 
@@ -232,6 +236,62 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
     for (const key of HOOK_ONLY_KEYS) {
       expect(metadata.loadedVariables).not.toContain(key);
       expect(metadata.mappings[key]).toBeUndefined();
+    }
+  });
+
+  // mt#3997 (PR #2881 R1): the four cases above are a hand-picked SAMPLE, so a
+  // newly-registered hook-only var — like this task's own
+  // MINSKY_SKIP_MEMORY_CAPTURE_NOTICE — was covered by nothing. Adding one more
+  // sampled case per var does not scale and would drift the moment someone
+  // forgets. Assert the property over the WHOLE allowlist instead, so every
+  // future registration is covered on the day it lands.
+  test("EVERY registered hook-only var is excluded from config and metadata", () => {
+    const restore: Record<string, string | undefined> = {};
+    for (const key of HOOK_ONLY_ENV_VARS) {
+      restore[key] = process.env[key];
+      process.env[key] = "1";
+    }
+    try {
+      const { config, metadata } = getEnvironmentConfiguration();
+      for (const key of HOOK_ONLY_ENV_VARS) {
+        // No hook-only var may ever acquire a config dot-path mapping. This
+        // half is universal — there is no legitimate exception.
+        expect(metadata.mappings[key]).toBeUndefined();
+
+        // Absence from `loadedVariables` has exactly ONE sanctioned exception:
+        // MINSKY_PROJECT is deliberately surfaced for observability (mt#2414,
+        // documented at its call site) so operators get an audit trail for why
+        // a project resolved as it did — while still carrying no mapping.
+        // Pinned by name rather than skipped generically, so a SECOND silent
+        // exception fails this test instead of quietly joining the first.
+        if (key === "MINSKY_PROJECT") {
+          expect(metadata.loadedVariables).toContain(key);
+        } else {
+          expect(metadata.loadedVariables).not.toContain(key);
+        }
+      }
+      // And no hook-only var leaks a top-level key derived from its first
+      // underscore-delimited segment (the `force` / `skip` / `two` shape the
+      // sampled cases above check individually).
+      const leakedTopLevelKeys = new Set(
+        [...HOOK_ONLY_ENV_VARS].map(
+          (key) =>
+            key
+              .toLowerCase()
+              .replace(/^minsky_/, "")
+              .split("_")[0]
+        )
+      );
+      const polluted = Object.keys(config as Record<string, unknown>).filter((topLevel) =>
+        leakedTopLevelKeys.has(topLevel)
+      );
+      expect(polluted).toEqual([]);
+    } finally {
+      for (const key of HOOK_ONLY_ENV_VARS) {
+        const value = restore[key];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 });

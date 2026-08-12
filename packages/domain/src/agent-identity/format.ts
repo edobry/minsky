@@ -34,6 +34,22 @@ export interface ParsedAgentId {
 }
 
 /**
+ * Redact an agentId for log output: keep the kind and scope, truncate the id
+ * segment to its first 8 chars.
+ *
+ * Conversation UUIDs are attribution keys — logging them verbatim would link
+ * transcripts to infrastructure log sinks (PR #2390 R1). The stdio proxy and
+ * the shim each carry their own copy of this for bundle reasons; this one is
+ * for domain and server callers.
+ */
+export function redactAgentId(agentId: string): string {
+  const lastColon = agentId.lastIndexOf(":");
+  if (lastColon === -1) return `${agentId.slice(0, 8)}…`;
+  const id = agentId.slice(lastColon + 1);
+  return `${agentId.slice(0, lastColon + 1)}${id.slice(0, 8)}…`;
+}
+
+/**
  * Parse an agentId string into its components.
  *
  * Returns `null` for any malformed input so callers can safely fall back

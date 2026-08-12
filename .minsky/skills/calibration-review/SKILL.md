@@ -177,6 +177,27 @@ disposition MUST carry both:
    the `evidenceFields` it found. **If the verdict says `classifiable` and you
    are about to write "cannot classify", you are contradicting the tool — stop
    and re-read the records before writing anything down.**
+
+   **Read `classifiability.judgedText` beside it — they answer different
+   questions (mt#3898).** `verdict` says whether the records carry ANYTHING to
+   judge a fire by; `matches[].phrase` alone satisfies it.
+   `judgedText.recoverability` says whether you can re-read the text the
+   detector was looking at — `recoverable` / `partial` / `unrecoverable` /
+   `no-records`, with `capturedRecords` of `recordsAssessed`.
+
+   A log can be `classifiable` and `unrecoverable` at once, and that pair is the
+   one to watch: you can rate what MATCHED and not whether the match was right
+   in context. Say so in the disposition rather than reporting a bare FP rate —
+   an unrecoverable population cannot support one. On `partial`, bound the rate
+   to `capturedRecords` explicitly, exactly as §"A record without `captureSchema`"
+   already requires.
+
+   Originating incident (mem#623 R7, 2026-08-10): a pass on `bare-entity-ref`
+   read `classifiable`, correctly, and could establish which refs were flagged —
+   while every judged message was gone, so the question that mattered (was each
+   ref genuinely un-clickable in context?) was unanswerable. Nothing in the
+   output said so.
+
 2. **A check against the RAW JSONL, not this command's rendering.** Name the
    field you EXPECTED to find and did not — that expectation is yours to supply,
    not the tool's: `classifiability` reports the evidence it FOUND, and never

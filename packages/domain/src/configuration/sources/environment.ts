@@ -141,6 +141,12 @@ export const environmentMappings = {
   // but explicit entries are the house convention for every other section
   // above, and this documents intent + survives a future rename).
   MINSKY_COCKPIT_ALLOWED_HOSTS: "cockpit.allowedHosts",
+  // mt#3988: the port the cockpit daemon serves on AND the tray supervises.
+  // Mapped (not hook-only) because both the daemon and `config get` read it
+  // through the normal configuration tree; the tray reads the RESOLVED value
+  // via `minsky config get cockpit.port` rather than this variable directly,
+  // so the two cannot disagree.
+  MINSKY_COCKPIT_PORT: "cockpit.port",
 
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
@@ -207,6 +213,16 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
+  // mt#4017 — NOT hook-read: this one is read by scripts/drizzle-config-loader.ts,
+  // which calls loadConfiguration() itself, so the var is present in process.env
+  // when the loader's own environment source parses it. It is the sanctioned-
+  // caller gate signal drizzle.pg.config.ts sets on that script's subprocess
+  // environment before invoking it — the script refuses to print its stdout
+  // (a live DB connection string) without it. No config-schema home; without
+  // this entry the auto-mapping fallback would route it to
+  // `drizzle.loader.gate` and mt#1612 strict-mode validation would reject it,
+  // crashing the loader itself on the very invocation the gate exists to allow.
+  "MINSKY_DRIZZLE_LOADER_GATE",
   // Pre-push test-gate controls (.husky/pre-push -> scripts/run-tests-gated.ts).
   // Neither has a config-schema home, so without entries here the auto-mapping
   // fallback would route them to `skip.prepushTests` / `prepush.fullSuite` and
@@ -313,6 +329,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", // src/cockpit/server.ts (mt#2321) — cockpit transcript sweep-backstop cadence override (positive integer ms)
   "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
   "MINSKY_SKIP_PROD_STATE_INJECTION", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
+  "MINSKY_SKIP_MEMORY_CAPTURE_NOTICE", // .claude/hooks/inject-memory-capture.ts (mt#3997) — skip resident-memory capture notice
   "MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION", // .claude/hooks/inject-dispatch-watchdog.ts (mt#2646) — skip dispatch-watchdog injection
   "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
   // mt#2324 — process-only overrides read via the BRACKET form
@@ -461,6 +478,12 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "principalChannel.allowedUserIds": "csv",
   // Comma-separated list (mt#3641)
   "cockpit.allowedHosts": "csv",
+  // mt#3988: without this entry the env layer hands the schema the raw STRING
+  // and `cockpit.port`'s `z.number()` rejects it, so setting
+  // MINSKY_COCKPIT_PORT crashes config resolution instead of overriding the
+  // port. Registering the var in `environmentMappings` above is necessary but
+  // NOT sufficient — the conversion is declared here, separately.
+  "cockpit.port": "number",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",

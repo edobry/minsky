@@ -47,6 +47,26 @@ export const cockpitConfigSchema = z
      * list can carry a tailnet name while the bind stays loopback.
      */
     allowedHosts: z.array(z.string().min(1)).default([]),
+
+    /**
+     * TCP port the cockpit daemon serves on, and the port the tray supervises
+     * (mt#3988). Override via `MINSKY_COCKPIT_PORT`; `cockpit start --port`
+     * still wins over both.
+     *
+     * This exists to give the daemon and its supervisor ONE source of truth.
+     * Before it, `cockpit-tray/src-tauri/src/supervisor.rs` hardcoded
+     * `DAEMON_PORT = 3737` and `menu.rs` hardcoded the URL and a second port
+     * constant for the same-origin check — so a daemon started on any other
+     * port was invisible to the tray: not adopted, not controlled by
+     * Start/Stop/Restart, and liable to have a SECOND daemon spawned beside it
+     * on 3737. That happened on 2026-06-04 (a manual daemon on :4317 plus a
+     * tray-spawned one on :3737, with the browser reading the stale one).
+     *
+     * The tray does not re-implement this resolution: it shells out to
+     * `minsky config get cockpit.port` once at startup, so precedence is
+     * decided here and in one place only.
+     */
+    port: z.number().int().min(1).max(65535).default(3737),
   })
   .optional();
 

@@ -408,7 +408,8 @@ async function main(): Promise<void> {
         `    batch ${batchCount}: sessionsScanned=${partial.sessionsScanned} ` +
           `sessionsProcessed=${partial.sessionsProcessed} sessionsErrored=${partial.sessionsErrored} ` +
           `turnsScanned=${partial.turnsScanned} toolCallsProjected=${partial.toolCallsProjected} ` +
-          `skippedNonArray=${partial.skippedNonArray} lastId=${lastId}`
+          `skippedNonArray=${partial.skippedNonArray} orphansDeleted=${partial.orphansDeleted} ` +
+          `orphanDeletesFailed=${partial.orphanDeletesFailed} lastId=${lastId}`
       );
     },
   });
@@ -444,7 +445,14 @@ async function main(): Promise<void> {
     })
   );
 
-  const failed = result.sessionsErrored > 0 || (reconciliation?.sessionsMismatched ?? 0) > 0;
+  // A failed orphan DELETE counts as a failed run (mt#3978) even though the
+  // session's upserts succeeded: those sessions are still holding the stale
+  // rows this sweep exists to remove, and a reconciliation run that exits 0
+  // while leaving them behind reports a cleanup that did not happen.
+  const failed =
+    result.sessionsErrored > 0 ||
+    result.orphanDeletesFailed > 0 ||
+    (reconciliation?.sessionsMismatched ?? 0) > 0;
   process.exit(failed ? 1 : 0);
 }
 

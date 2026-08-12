@@ -44,10 +44,12 @@ use crate::watcher_web::is_editor_temp_file;
 // mt#3048 — turn-active pre-restart gate.
 // ---------------------------------------------------------------------------
 
-/// The mt#3048 "is any driven session mid-turn" signal endpoint. Same
-/// host:port convention as `supervisor::HEALTH_URL` (both address the local
-/// cockpit daemon on its fixed dev port).
-const TURN_ACTIVE_URL: &str = "http://localhost:3737/api/driven-session/turn-active";
+// The mt#3048 "is any driven session mid-turn" signal endpoint used to be a
+// third hardcoded `http://localhost:3737/...` constant here (mt#3988). It is
+// now built by `crate::port::turn_active_url` from the same resolved port the
+// supervisor probes and the webview loads — this endpoint gates AUTO-RESTART,
+// so a stale port would have failed open against the wrong daemon and restarted
+// the right one mid-turn.
 
 /// Bounded grace period an `AutoRestart` waits for a driven session's
 /// in-flight turn to finish before proceeding with the restart anyway. NOT
@@ -77,7 +79,7 @@ fn parse_turn_active_body(json: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Query `TURN_ACTIVE_URL`. Fails OPEN on ANY failure — connection error,
+/// Query the turn-active endpoint. Fails OPEN on ANY failure — connection error,
 /// non-2xx status, or an unparseable/malformed body all count as "not
 /// active" (`false`) — so a broken, slow, or not-yet-listening daemon never
 /// blocks the watcher's restart (mirrors `supervisor::poll_health_detail`'s
@@ -88,7 +90,8 @@ fn parse_turn_active_body(json: &serde_json::Value) -> bool {
 /// perceptible added latency, and a hung/absent daemon costs no more than
 /// that same bound before falling open.
 async fn turn_active(client: &reqwest::Client) -> bool {
-    let resp = match client.get(TURN_ACTIVE_URL).send().await {
+    let url = crate::port::turn_active_url(crate::port::cockpit_port());
+    let resp = match client.get(url).send().await {
         Ok(r) if r.status().is_success() => r,
         _ => return false,
     };

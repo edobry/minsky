@@ -930,15 +930,29 @@ export interface CalibrationLogResult {
    */
   suppressedSinceLastReview: number;
   /**
-   * `firesSinceLastReview` minus the suppressed ones — the count the review
-   * thresholds actually key off, because a suppressed detection is not an
-   * operator-facing fire (mt#3197).
+   * `firesSinceLastReview` minus the suppressed ones and the evaluation-only
+   * ones — the count the review thresholds actually key off, because neither
+   * a suppressed detection nor a no-match evaluation record is an
+   * operator-facing fire (mt#3197; evaluation-only widened in mt#3863).
    *
    * Records from detectors that don't record a suppression outcome, and
    * records predating the field, count as injected here: unknown is treated
    * as operator-facing so a missing outcome can never hide a real fire.
    */
   injectedFiresSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many carry no match and were never
+   * injected (mt#3863) — see `isEvaluationOnlyRecord`.
+   *
+   * A detector that writes a record on every turn regardless of outcome
+   * (retrospective-trigger's Rung-2 nominations; bare-entity-ref's
+   * record-only classes) produces mostly this population. Reported
+   * separately from `suppressedSinceLastReview` — a suppressed record DID
+   * match something and was withheld after the fact; an evaluation-only
+   * record never matched at all — so a reviewer can tell "detected then
+   * silenced" apart from "nothing was there."
+   */
+  evaluatedOnlySinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -1021,6 +1035,43 @@ export function isSuppressedRecord(record: CalibrationRecord): boolean {
 /** Does this record carry a suppression outcome at all? (mt#3197 back-compat) */
 export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
   return Array.isArray(record.suppressionReasons);
+}
+
+/**
+ * True when a record carries no match and nothing was injected (mt#3863).
+ *
+ * Some detectors write an EVALUATION record on every turn they run,
+ * regardless of outcome — retrospective-trigger's Rung-2 nomination path logs
+ * a record even when the nomination timed out or was never confirmed
+ * (`matches: []`), and bare-entity-ref logs a record for a message carrying
+ * ONLY log-only findings (`matches: []`, with the observations sitting in
+ * `logged_only` under `detectorFields` instead). Neither reached the
+ * operator. Counting them as fires is what kept these logs permanently
+ * `pastThreshold` — measured at 193 counted vs 8 actual for
+ * retrospective-trigger's 2026-08-08 review window, and 50 counted vs 3
+ * actual for bare-entity-ref's 2026-08-11 window (mt#3863).
+ *
+ * The discriminator is already in every record that can exhibit this shape:
+ * `matches` is populated ONLY when the detector actually found something —
+ * verified against every producer that parses through the shared
+ * matches-shape fallback branch in `parseCalibrationRecordCore` (the tail
+ * branch below), each of which appends its record whether or not `matches`
+ * ends up empty. `flagged_count` / `advisory_emitted`, the bare-entity-ref
+ * fields the mt#3863 spec also names, are redundant with this check rather
+ * than a second discriminator to apply: `matches` on that detector IS
+ * `flagged.map(...)`, so `matches.length === 0` and `flagged_count === 0`
+ * agree by construction.
+ *
+ * Deliberately scoped to record kinds that HAVE a `matches` field
+ * (`"matches" in record`). Detectors like `causal-premise` and
+ * `code-mechanism-assertion` gate the calibration WRITE itself on a match
+ * (`if (!result.matched) return null`), so `matchedPhrases` / `claims` are
+ * never empty in their logs — there is no evaluation-only population to
+ * exclude for those kinds, and this predicate returns `false` for them
+ * unconditionally rather than guessing at a shape they don't have.
+ */
+export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
+  return "matches" in record && record.matches.length === 0;
 }
 
 /**
@@ -1470,8 +1521,15 @@ export function computeLogResult(
   );
   const isRevisedAway = (r: CalibrationRecord): boolean =>
     r.session_id !== undefined && supersededKeys.has(`${r.session_id}::${r.timestamp}`);
+
+  // mt#3863: a record carrying no match and no injection never reached the
+  // operator either — same non-fire status as a suppressed detection, just a
+  // different mechanism (nothing was detected at all, rather than something
+  // detected-then-withheld). Reported as its own figure below
+  // (`evaluatedOnlySinceLastReview`) so a reviewer can tell the two apart.
+  const evaluatedOnlySinceLastReview = newRecords.filter(isEvaluationOnlyRecord).length;
   const injectedFiresSinceLastReview = newRecords.filter(
-    (r) => !isSuppressedRecord(r) && !isRevisedAway(r)
+    (r) => !isSuppressedRecord(r) && !isRevisedAway(r) && !isEvaluationOnlyRecord(r)
   ).length;
 
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
@@ -1492,6 +1550,7 @@ export function computeLogResult(
     firesSinceLastReview,
     suppressedSinceLastReview,
     injectedFiresSinceLastReview,
+    evaluatedOnlySinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,
@@ -1524,6 +1583,18 @@ export function computeLogResult(
  * a fire; they are not evidence for judging one, so they never make a log
  * classifiable on their own.
  */
+/**
+ * mt#3607's capture-schema marker key, named once and used twice.
+ *
+ * It is excluded from evidence (below) AND read as the recoverability signal
+ * (`hasCaptureMarker`). Those are opposite uses of the same key, which is
+ * exactly the pair a duplicated string literal would eventually split apart.
+ * Source of truth for the value is `CAPTURE_SCHEMA_FIELD` in
+ * `.minsky/hooks/judged-input-capture.ts`; it is restated rather than imported
+ * because domain code does not depend on the hooks tree.
+ */
+const CAPTURE_SCHEMA_KEY = "captureSchema";
+
 const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   "timestamp",
   "session_id",
@@ -1532,7 +1603,7 @@ const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   // captured; it is not itself something to judge a fire by. Listing it here
   // keeps a hypothetical record carrying the marker and nothing else from
   // reporting `classifiable` on the strength of its own bookkeeping.
-  "captureSchema",
+  CAPTURE_SCHEMA_KEY,
 ]);
 
 /**
@@ -1564,6 +1635,32 @@ function isVacuousEvidence(value: unknown): boolean {
 /** Whether a log's records carry anything a reviewer could classify a fire from. */
 export type ClassifiabilityVerdict = "classifiable" | "not-classifiable" | "no-records";
 
+/**
+ * Whether the TEXT a detector judged can still be read back (mt#3898).
+ *
+ * A sibling of {@link ClassifiabilityVerdict}, deliberately not folded into it:
+ * they answer different questions and a log can score well on one and badly on
+ * the other. `classifiable` means "these records carry SOMETHING to judge a
+ * fire by" — `matches[].phrase` alone satisfies it. This asks the narrower
+ * question a reviewer actually needs: "can I re-read what the detector was
+ * looking at?"
+ *
+ * The gap between them is not hypothetical. A `/calibration-review` pass on
+ * `bare-entity-ref` (2026-08-10, mem#623 R7) read `classifiable`, correctly,
+ * and could establish WHICH refs were flagged — while the messages those refs
+ * appeared in were gone, so the one question that mattered (was each ref
+ * genuinely un-clickable in context?) could not be answered at all. The pass
+ * had no way to learn that from the sweep's output.
+ */
+export type JudgedTextRecoverability = "recoverable" | "partial" | "unrecoverable" | "no-records";
+
+export interface JudgedTextAssessment {
+  recoverability: JudgedTextRecoverability;
+  /** Records carrying the mt#3607 capture marker. */
+  capturedRecords: number;
+  recordsAssessed: number;
+}
+
 export interface ClassifiabilityAssessment {
   verdict: ClassifiabilityVerdict;
   /**
@@ -1574,6 +1671,11 @@ export interface ClassifiabilityAssessment {
   evidenceFields: string[];
   /** How many records the verdict was computed over. */
   recordsAssessed: number;
+  /**
+   * Whether the judged text is recoverable — see {@link JudgedTextRecoverability}
+   * for why this is reported beside `verdict` rather than merged into it.
+   */
+  judgedText: JudgedTextAssessment;
 }
 
 /**
@@ -1614,9 +1716,63 @@ export interface ClassifiabilityAssessment {
  * them into one boolean is the conflation `coverage-receipt.ts` (mt#3502) was
  * split apart to end, so this does not repeat it.
  */
+/**
+ * The mt#3607 capture marker.
+ *
+ * Read from the PASSTHROUGH only, and that is provably the whole story rather
+ * than an omission: no per-kind parse branch names `captureSchema`, so
+ * `parseDetectorFields` routes it into `detectorFields` for every log kind —
+ * the same mechanism `NON_EVIDENCE_KEYS` documents one screen up ("a key like
+ * `captureSchema` reaches this loop rather than the one above — for every log
+ * at once", PR #2679 R1).
+ *
+ * An earlier draft also read the top level, on the theory that the
+ * execution-evidence parsers hoist it. A staged negative control disproved
+ * that: disabling the top-level read left every test green, including one
+ * written specifically to exercise it. The branch was dead code carrying a
+ * false rationale, so it is gone. If a future per-kind branch ever does name
+ * the marker, this needs a top-level read AND a test that fails without it.
+ *
+ * Marker-only, deliberately. A writer that captures under its own key —
+ * `wall-of-text`'s `textHash`, `retrospective-trigger`'s `transcript_excerpt` —
+ * reads as unrecoverable here, and that is the intended answer rather than a
+ * false negative: `judged-input-capture.ts` defines the marker as the contract
+ * (`hasJudgedInputCapture` is the same one-line predicate), and its own doc
+ * tells readers to treat its absence as "un-auditable". Matching a bespoke-key
+ * allowlist here would be a second list to drift, and would remove the only
+ * incentive to adopt the shared path.
+ */
+function hasCaptureMarker(record: CalibrationRecord): boolean {
+  const passthrough = (record as SharedCalibrationFields).detectorFields;
+  return typeof passthrough?.[CAPTURE_SCHEMA_KEY] === "number";
+}
+
+function assessJudgedText(records: CalibrationRecord[]): JudgedTextAssessment {
+  if (records.length === 0) {
+    return { recoverability: "no-records", capturedRecords: 0, recordsAssessed: 0 };
+  }
+  const capturedRecords = records.filter(hasCaptureMarker).length;
+  // `partial` is its own answer, not a rounding of the other two. Adoption
+  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
+  // shipped — and a reviewer facing a partial log can rate the captured half
+  // while knowing the rest is gone. Collapsing it either way would hide that.
+  const recoverability: JudgedTextRecoverability =
+    capturedRecords === 0
+      ? "unrecoverable"
+      : capturedRecords === records.length
+        ? "recoverable"
+        : "partial";
+  return { recoverability, capturedRecords, recordsAssessed: records.length };
+}
+
 export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
   if (records.length === 0) {
-    return { verdict: "no-records", evidenceFields: [], recordsAssessed: 0 };
+    return {
+      verdict: "no-records",
+      evidenceFields: [],
+      recordsAssessed: 0,
+      judgedText: assessJudgedText(records),
+    };
   }
 
   const fields = new Set<string>();
@@ -1650,6 +1806,7 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
     evidenceFields: [...fields].sort(),
     recordsAssessed: records.length,
+    judgedText: assessJudgedText(records),
   };
 }
 
