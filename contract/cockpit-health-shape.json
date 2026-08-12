@@ -5,7 +5,8 @@
   "consumedBy": [
     "src/cockpit/web/hooks/useSystemHealth.ts",
     "src/cockpit/web/components/Rail.tsx",
-    "cockpit-tray/src-tauri/src/supervisor.rs (health_ok, poll_health_detail)"
+    "cockpit-tray/src-tauri/src/supervisor.rs (health_ok, poll_health_detail)",
+    "cockpit-tray/src-tauri/src/supervisor/daemon_core.rs (probe_health — asserts `service`, mt#3815)"
   ],
   "fields": {
     "status": "string",
@@ -39,7 +40,7 @@
     "activeSessionCount": "number",
     "activeSessions": "array"
   },
-  "rustConsumedFields": ["db", "processStartedAtMs"],
+  "rustConsumedFields": ["service", "db", "processStartedAtMs"],
   "sample": {
     "status": "ok",
     "service": "minsky-cockpit",

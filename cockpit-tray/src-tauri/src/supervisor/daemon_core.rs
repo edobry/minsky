@@ -725,6 +725,13 @@ pub(crate) struct DaemonSpawnSpec<'a> {
     /// Filename within the daemon log directory that the child's stderr is
     /// appended to.
     pub(crate) stderr_log: &'a str,
+    /// Extra environment variables for the child, beyond `PATH` (mt#3815).
+    ///
+    /// Empty for the cockpit. The MCP entry uses it to disable mt#3764's
+    /// never-connected self-exit, which exists to reap an ABANDONED HTTP
+    /// listener — a condition supervision replaces. See
+    /// `registry::mcp_spawn_env` for the full argument.
+    pub(crate) extra_env: &'a [(&'a str, &'a str)],
 }
 
 /// Spawn a supervised daemon as a managed child in its own process group, with
@@ -737,6 +744,7 @@ pub(crate) fn spawn_daemon(spec: &DaemonSpawnSpec) -> io::Result<(Child, u32)> {
     cmd.args(spec.args)
         .current_dir(spec.cwd)
         .env("PATH", spec.path_env)
+        .envs(spec.extra_env.iter().copied())
         .stdin(Stdio::null())
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err));
@@ -827,6 +835,14 @@ pub(crate) struct SupervisedDaemon {
     /// probe, spawn, adoption decision and label in the loop provably refers to
     /// the same port (mt#3988).
     pub(crate) port: u16,
+    /// Path of its health endpoint — `/api/health` for the cockpit, `/health`
+    /// for the MCP daemon. Per-daemon since mt#3815; before that the whole
+    /// URL was a cockpit constant.
+    pub(crate) health_path: &'static str,
+    /// The `service` value its health body must carry for the supervisor to
+    /// treat it as this daemon (mt#3148). See [`HealthProbe::is_ours`] for why
+    /// a missing field fails rather than passes.
+    pub(crate) expected_service: &'static str,
 
     // --- Supervision state: driven by the poll loop. ---
     /// The managed child, when WE spawned it. `None` for an adopted daemon or
@@ -869,10 +885,17 @@ pub(crate) struct SupervisedDaemon {
 impl SupervisedDaemon {
     /// A record for a daemon that is not running yet: identity set, every piece
     /// of supervision state at its "nothing has happened" value.
-    pub(crate) fn new(labels: DaemonLabels, port: u16) -> Self {
+    pub(crate) fn new(
+        labels: DaemonLabels,
+        port: u16,
+        health_path: &'static str,
+        expected_service: &'static str,
+    ) -> Self {
         Self {
             labels,
             port,
+            health_path,
+            expected_service,
             child: None,
             last_spawn: None,
             last_status: None,
@@ -910,6 +933,174 @@ impl NoChildCounters {
         daemon.last_http_alert = self.last_http_alert;
         daemon.restart_timestamps = self.restart_timestamps;
         daemon.last_process_started_at_ms = self.last_process_started_at_ms;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Health probing (mt#3815).
+//
+// Before this, health lived in the cockpit policy layer: `health_ok` and
+// `poll_health_detail` closed over the cockpit's endpoint and parsed the
+// cockpit's `db` field. A registry entry needs the mechanism without the
+// cockpit's body shape, so the transport + identity half lives here and each
+// daemon's body-specific reading stays with its policy.
+// ---------------------------------------------------------------------------
+
+/// What a single health poll observed.
+///
+/// Deliberately carries the raw `body` alongside the two fields every daemon
+/// publishes: the generic half of the supervisor reads `status` and `service`,
+/// and a policy layer reads whatever else its own daemon emits (the cockpit's
+/// `db`) out of `body` without a second request.
+pub(crate) struct HealthProbe {
+    /// HTTP status, or `None` when nothing answered.
+    pub(crate) status: Option<u16>,
+    /// The `service` identity field (mt#3148). `None` when absent or the body
+    /// was not JSON.
+    pub(crate) service: Option<String>,
+    /// `processStartedAtMs`, used to detect a restart of a daemon we did not
+    /// spawn. `None` for a daemon that predates the field.
+    pub(crate) process_started_at_ms: Option<u64>,
+    /// The parsed body, for policy-specific fields.
+    pub(crate) body: Option<serde_json::Value>,
+}
+
+impl HealthProbe {
+    /// Nothing answered.
+    pub(crate) fn unreachable() -> Self {
+        Self {
+            status: None,
+            service: None,
+            process_started_at_ms: None,
+            body: None,
+        }
+    }
+
+    /// The daemon answered 2xx — the "healthy" half.
+    pub(crate) fn http_ok(&self) -> bool {
+        matches!(self.status, Some(s) if (200..300).contains(&s))
+    }
+
+    /// The endpoint ANSWERED and the body identifies the expected service.
+    ///
+    /// This — not the status code — is what the supervision decisions key on
+    /// (mt#3148). Two consequences worth stating, because each is a deliberate
+    /// choice rather than a side effect:
+    ///
+    /// - A **non-2xx** answer still counts as ours. The MCP daemon answers 503
+    ///   when persistence is unhealthy (mt#2949) and mt#3814's own adopt-or-fail
+    ///   treats that as a legitimate Minsky MCP answer. A supervisor that read
+    ///   503 as "not running" would respawn into a port its own daemon holds,
+    ///   and restarting cannot fix what a 503 reports.
+    /// - A **missing** `service` field is NOT ours. That is the fail-closed
+    ///   direction and the whole point of mt#3148: a probe whose output space
+    ///   does not separate the states it cares about carries no information, and
+    ///   an "absent means pass" carve-out reintroduces exactly the mt#3142 shape
+    ///   this assertion exists to catch. The visible consequence is a Conflict
+    ///   status naming the holder — not a silent double-spawn.
+    pub(crate) fn is_ours(&self, expected_service: &str) -> bool {
+        self.status.is_some() && self.service.as_deref() == Some(expected_service)
+    }
+}
+
+/// Extract the generic fields from a health response. Pure, so the identity
+/// assertion is testable without an HTTP hop.
+pub(crate) fn parse_health_body(status: u16, text: &str) -> HealthProbe {
+    let body: Option<serde_json::Value> = serde_json::from_str(text).ok();
+    let service = body
+        .as_ref()
+        .and_then(|v| v.get("service"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let process_started_at_ms = body
+        .as_ref()
+        .and_then(|v| v.get("processStartedAtMs"))
+        .and_then(|v| v.as_u64());
+    HealthProbe {
+        status: Some(status),
+        service,
+        process_started_at_ms,
+        body,
+    }
+}
+
+/// Poll one daemon's health endpoint. Never panics: any transport failure is
+/// reported as [`HealthProbe::unreachable`].
+pub(crate) async fn probe_health(
+    client: &reqwest::Client,
+    port: u16,
+    health_path: &str,
+) -> HealthProbe {
+    let url = format!("http://localhost:{port}{health_path}");
+    let resp = match client.get(url).send().await {
+        Ok(r) => r,
+        Err(_) => return HealthProbe::unreachable(),
+    };
+    let status = resp.status().as_u16();
+    match resp.text().await {
+        Ok(text) => parse_health_body(status, &text),
+        // The status is real even when the body could not be read; without a
+        // body there is no identity, so `is_ours` correctly says no.
+        Err(_) => HealthProbe {
+            status: Some(status),
+            service: None,
+            process_started_at_ms: None,
+            body: None,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Exit classification (mt#3815).
+//
+// mt#3814 gave the local MCP daemon its own identity-asserting adopt-or-fail on
+// `EADDRINUSE`, so a spawned daemon now has THREE intentional non-crash exits,
+// two of them exit-0. A supervisor that reads exit-0 as "it ran and finished"
+// or as "it crashed, respawn" is wrong in both directions.
+// ---------------------------------------------------------------------------
+
+/// Why a spawned daemon's process ended, as far as the supervisor can tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExitClass {
+    /// Exit 0 and our health endpoint now answers with the expected identity:
+    /// the child lost a benign bind race and an incumbent holds the port. Adopt
+    /// it — do NOT respawn, and do NOT count it toward the restart throttle.
+    AdoptedIncumbent,
+    /// Exit 0 with nothing serving: mt#3764's ppid-transition self-exit, or a
+    /// clean stop. Not a crash.
+    CleanStop,
+    /// Non-zero exit with a foreign listener holding the port. Surface it;
+    /// respawning into a port that will keep refusing is a spawn-storm.
+    Conflict,
+    /// Anything else — the daemon died and should be respawned (throttled).
+    Crash,
+}
+
+/// Classify a spawned daemon's exit.
+///
+/// The discriminator is a health RE-PROBE, not a match on mt#3814's
+/// `Adopting the incumbent` log line: that string is a contract mt#3814 never
+/// promised the supervisor, and matching it would couple two crates through
+/// prose. The health probe is the authority the rest of this module already
+/// uses, and it answers the question directly.
+///
+/// `reprobe_is_ours` is [`HealthProbe::is_ours`] taken AFTER the exit was
+/// observed; `port_held` is [`port_in_use`] at the same moment.
+pub(crate) fn classify_exit(
+    exit_code: Option<i32>,
+    reprobe_is_ours: bool,
+    port_held: bool,
+) -> ExitClass {
+    if reprobe_is_ours {
+        // Something of ours is serving the port even though our child is gone.
+        // Whatever the code, the correct response is to adopt rather than to
+        // spawn a second one.
+        return ExitClass::AdoptedIncumbent;
+    }
+    match exit_code {
+        Some(0) => ExitClass::CleanStop,
+        _ if port_held => ExitClass::Conflict,
+        _ => ExitClass::Crash,
     }
 }
 
@@ -1460,7 +1651,7 @@ mod tests {
     /// surface, not the syscall.
     #[test]
     fn a_second_daemon_needs_no_change_here() {
-        let mut second = SupervisedDaemon::new(TEST_LABELS, TEST_PORT);
+        let mut second = SupervisedDaemon::new(TEST_LABELS, TEST_PORT, "/health", "testd");
 
         // The record is driven by the same generic logic the cockpit daemon
         // runs on — reaching any of it requires no cockpit-shaped state.
@@ -1497,11 +1688,124 @@ mod tests {
             path_env: "/usr/bin:/bin",
             stdout_log: "testd-stdout.log",
             stderr_log: "testd-stderr.log",
+            extra_env: &[],
         };
         assert_eq!(spec.args, ["--serve", "4317"]);
         assert!(
             !spec.stderr_log.contains("cockpit"),
             "a second daemon writes its own logs"
         );
+
+        // ...and it carries its own health endpoint and identity, so the
+        // probe below can tell it from a different Minsky app on the same port.
+        assert_eq!(second.health_path, "/health");
+        assert_eq!(second.expected_service, "testd");
+    }
+
+    // -----------------------------------------------------------------------
+    // Health probing + identity assertion (mt#3815).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parses_the_generic_health_fields() {
+        let probe = parse_health_body(
+            200,
+            r#"{"status":"ok","service":"minsky-cockpit","processStartedAtMs":1735689600000,"db":"ok"}"#,
+        );
+        assert_eq!(probe.status, Some(200));
+        assert_eq!(probe.service.as_deref(), Some("minsky-cockpit"));
+        assert_eq!(probe.process_started_at_ms, Some(1_735_689_600_000));
+        // The body is retained so a policy layer reads its OWN fields without
+        // a second request — the cockpit's `db` is the live case.
+        assert_eq!(
+            probe
+                .body
+                .as_ref()
+                .and_then(|b| b.get("db"))
+                .and_then(|v| v.as_str()),
+            Some("ok")
+        );
+    }
+
+    /// AT4's classification half, and the reason this assertion exists at all
+    /// (mt#3148): a status-code-only check reports the WRONG service healthy.
+    #[test]
+    fn identity_assertion_rejects_a_different_minsky_service() {
+        let wrong = parse_health_body(200, r#"{"status":"ok","service":"minsky-reviewer"}"#);
+        assert!(
+            wrong.http_ok(),
+            "the negative control: a status-code-only check passes here"
+        );
+        assert!(
+            !wrong.is_ours("minsky-mcp"),
+            "a different Minsky service answering 200 is NOT our daemon"
+        );
+    }
+
+    #[test]
+    fn identity_assertion_fails_closed_on_a_missing_or_unparseable_body() {
+        let no_field = parse_health_body(200, r#"{"status":"ok"}"#);
+        assert!(
+            !no_field.is_ours("minsky-mcp"),
+            "absent identity fails rather than passes — an 'absent means pass' \
+             carve-out is the mt#3142 shape this check exists to catch"
+        );
+        let not_json = parse_health_body(200, "OK");
+        assert!(!not_json.is_ours("minsky-mcp"));
+        assert!(!HealthProbe::unreachable().is_ours("minsky-mcp"));
+        assert!(!HealthProbe::unreachable().http_ok());
+    }
+
+    /// The MCP daemon answers 503 when persistence is unhealthy (mt#2949), and
+    /// mt#3814's own adopt-or-fail treats that as a legitimate Minsky MCP
+    /// answer. Reading it as "not running" would respawn into a port our own
+    /// daemon holds.
+    #[test]
+    fn a_503_from_the_expected_service_is_still_ours() {
+        let degraded = parse_health_body(503, r#"{"status":"unhealthy","service":"minsky-mcp"}"#);
+        assert!(degraded.is_ours("minsky-mcp"), "answering, and it is ours");
+        assert!(!degraded.http_ok(), "but not healthy");
+    }
+
+    // -----------------------------------------------------------------------
+    // Exit classification (mt#3815).
+    // -----------------------------------------------------------------------
+
+    /// The benign adopt race (AT10): our spawn lost to an incumbent and exited
+    /// 0 having adopted it. Respawning here would spawn a second daemon; the
+    /// negative control is the `Crash` case below, which a supervisor treating
+    /// exit-0 as a crash would produce for this same input.
+    #[test]
+    fn exit_zero_with_our_service_serving_is_an_adopted_incumbent() {
+        assert_eq!(
+            classify_exit(Some(0), true, true),
+            ExitClass::AdoptedIncumbent
+        );
+        // The incumbent is what matters, not the code: a daemon killed by a
+        // signal (code None) while a replacement already serves is the same
+        // situation.
+        assert_eq!(
+            classify_exit(None, true, true),
+            ExitClass::AdoptedIncumbent,
+            "an incumbent of ours outranks the exit code"
+        );
+    }
+
+    /// mt#3764's ppid-transition self-exit and an operator's clean stop are
+    /// indistinguishable from here, and want the same treatment: not a crash.
+    #[test]
+    fn exit_zero_with_nothing_serving_is_a_clean_stop() {
+        assert_eq!(classify_exit(Some(0), false, false), ExitClass::CleanStop);
+    }
+
+    #[test]
+    fn nonzero_exit_against_a_foreign_listener_is_a_conflict() {
+        assert_eq!(classify_exit(Some(1), false, true), ExitClass::Conflict);
+    }
+
+    #[test]
+    fn nonzero_exit_with_a_free_port_is_a_crash() {
+        assert_eq!(classify_exit(Some(1), false, false), ExitClass::Crash);
+        assert_eq!(classify_exit(None, false, false), ExitClass::Crash);
     }
 }

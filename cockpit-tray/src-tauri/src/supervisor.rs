@@ -15,7 +15,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::launchd::try_evict_legacy_launchd;
-use crate::port::{cockpit_port, health_url};
+use crate::port::cockpit_port;
 use crate::watcher_backend::{
     cockpit_backend_root, cockpit_backend_src, newest_backend_mtime, start_backend_watcher,
 };
@@ -28,7 +28,8 @@ use crate::watcher_web::{
 // The supervised port is no longer a constant (mt#3988): it is resolved once at
 // startup by `crate::port::init` and read here via `cockpit_port()`, so the tray
 // supervises whatever port the daemon is configured to serve on. The health URL
-// is derived from that same value by `crate::port::health_url`.
+// is composed from that value and the entry's own health PATH by
+// `daemon_core::probe_health` (mt#3815).
 /// The daemon-agnostic supervision core (mt#3990). Everything in here would be
 /// identical for any supervised local daemon; this file is the COCKPIT policy
 /// layer that drives it. ADR-038 §Question 3's registry (mt#3815) consumes the
@@ -49,11 +50,20 @@ pub(crate) mod daemon_core;
 pub(crate) use daemon_core::{
     daemon_start_time, decide_action, format_duration, handle_health_down_no_child, kill_group,
     kill_pid, log_tail_last_line, open_log, path_env, pid_on_port, port_holder, port_in_use,
-    resolve_program, spawn_daemon, teardown, throttle_ok, DaemonAction, DaemonLabels,
-    DaemonSpawnSpec, NoChildCounters, NoChildEffect, SpawnedPgid, SupervisedDaemon, ALERT_COOLDOWN,
-    HTTP_FAILURE_POLL_THRESHOLD, POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD,
-    RESTART_STORM_WINDOW,
+    probe_health, resolve_program, spawn_daemon, teardown, throttle_ok, DaemonAction, DaemonLabels,
+    DaemonSpawnSpec, NoChildCounters, NoChildEffect, SpawnedPgid, SupervisedDaemon,
+    ALERT_COOLDOWN, HTTP_FAILURE_POLL_THRESHOLD, POLL_INTERVAL, RESPAWN_THROTTLE,
+    RESTART_STORM_THRESHOLD, RESTART_STORM_WINDOW,
 };
+
+/// The cockpit daemon's health endpoint and the identity its body must carry.
+///
+/// `/api/health` is the cockpit's path (the MCP daemon's is `/health`), and
+/// `minsky-cockpit` is its `service` value — asserted rather than inferred from
+/// the status code, per mt#3148. Both are per-daemon registry data now, so they
+/// sit beside `COCKPIT_LABELS` rather than inside the supervision core.
+pub(crate) const COCKPIT_HEALTH_PATH: &str = "/api/health";
+pub(crate) const COCKPIT_SERVICE: &str = "minsky-cockpit";
 
 /// Consecutive /api/health polls with db != "ok" before a principal alert fires.
 /// At POLL_INTERVAL = 5s → 24 polls ≈ 2 min (spec requirement: "DB degraded > 2 min").
@@ -376,6 +386,9 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str, p
         path_env: path,
         stdout_log: COCKPIT_STDOUT_LOG,
         stderr_log: COCKPIT_STDERR_LOG,
+        // The cockpit daemon needs no environment beyond PATH; the MCP entry
+        // is where `extra_env` earns its place (mt#3815).
+        extra_env: &[],
     }) {
         Ok((child, pid)) => {
             sup.daemon.child = Some(child);
@@ -423,13 +436,20 @@ fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool, p
     }
 }
 
+/// Whether the COCKPIT daemon is answering on `port` **and identifies itself as
+/// the cockpit** (mt#3815).
+///
+/// Before this the check was a bare 2xx. That could not tell the cockpit from
+/// any other Minsky service on the port — they are all built from the same
+/// monorepo and all answer 200 (mt#3148/mt#3142) — and the tray acts on the
+/// answer by adopting, restarting, or SIGTERMing the port holder. The assertion
+/// is fail-closed in both directions: a wrong `service`, and an absent one, both
+/// mean "not ours", which surfaces as a visible Conflict rather than a silent
+/// double-spawn. See `HealthProbe::is_ours`.
 async fn health_ok(client: &reqwest::Client, port: u16) -> bool {
-    client
-        .get(health_url(port))
-        .send()
+    probe_health(client, port, COCKPIT_HEALTH_PATH)
         .await
-        .map(|r| r.status().is_success())
-        .unwrap_or(false)
+        .is_ours(COCKPIT_SERVICE)
 }
 
 fn run_supervisor(
@@ -456,7 +476,12 @@ fn run_supervisor(
         // adoption decision and label below provably refers to the same port as
         // the daemon it belongs to (mt#3988).
         let mut sup = Sup {
-            daemon: SupervisedDaemon::new(COCKPIT_LABELS, cockpit_port()),
+            daemon: SupervisedDaemon::new(
+                COCKPIT_LABELS,
+                cockpit_port(),
+                COCKPIT_HEALTH_PATH,
+                COCKPIT_SERVICE,
+            ),
             last_build_label: None,
             daemon_source_mtime: None,
             consecutive_db_degraded: 0,
@@ -931,51 +956,45 @@ struct HealthDetail {
     process_started_at_ms: Option<u64>,
 }
 
-/// Poll /api/health and return watchdog-relevant fields. Never panics; on any
-/// network or parse failure the caller receives `http_ok: false` / `db: Unknown` /
-/// `process_started_at_ms: None`.
-async fn poll_health_detail(client: &reqwest::Client, port: u16) -> HealthDetail {
-    let resp = match client.get(health_url(port)).send().await {
-        Ok(r) if r.status().is_success() => r,
-        _ => {
-            return HealthDetail {
-                http_ok: false,
-                db: DbStatus::Unknown,
-                process_started_at_ms: None,
-            };
-        }
-    };
-    let text = match resp.text().await {
-        Ok(t) => t,
-        Err(_) => {
-            return HealthDetail {
-                http_ok: true,
-                db: DbStatus::Unknown,
-                process_started_at_ms: None,
-            };
-        }
-    };
-    let json: serde_json::Value = match serde_json::from_str(&text) {
-        Ok(v) => v,
-        Err(_) => {
-            return HealthDetail {
-                http_ok: true,
-                db: DbStatus::Unknown,
-                process_started_at_ms: None,
-            };
-        }
-    };
-    let db = match json.get("db").and_then(|v| v.as_str()) {
+/// Read the cockpit's `db` field out of a health body. Pure, and the ONE place
+/// the mapping lives — the generic probe does not know this field exists,
+/// because only the cockpit's `/api/health` publishes it.
+fn db_status_from_body(body: Option<&serde_json::Value>) -> DbStatus {
+    match body.and_then(|v| v.get("db")).and_then(|v| v.as_str()) {
         Some("ok") => DbStatus::Ok,
         Some("degraded") => DbStatus::Degraded,
         Some("unreachable") => DbStatus::Unreachable,
         _ => DbStatus::Unknown,
-    };
-    let process_started_at_ms = json.get("processStartedAtMs").and_then(|v| v.as_u64());
+    }
+}
+
+/// Poll /api/health and return watchdog-relevant fields. Never panics; on any
+/// network or parse failure the caller receives `http_ok: false` / `db: Unknown` /
+/// `process_started_at_ms: None`.
+///
+/// The transport, the `service` identity assertion and `processStartedAtMs` come
+/// from `daemon_core::probe_health` (mt#3815); what stays here is the `db` read,
+/// which is cockpit-only. `http_ok` now means "answering AND identified as the
+/// cockpit" rather than a bare 2xx — same widening as `health_ok` above, and for
+/// the same reason: this value drives the restart and takeover decisions.
+async fn poll_health_detail(client: &reqwest::Client, port: u16) -> HealthDetail {
+    let probe = probe_health(client, port, COCKPIT_HEALTH_PATH).await;
+    let ours = probe.is_ours(COCKPIT_SERVICE);
     HealthDetail {
-        http_ok: true,
-        db,
-        process_started_at_ms,
+        http_ok: ours,
+        // Only meaningful when the responder is actually the cockpit: a `db`
+        // field read off some other service's body would be nonsense fed to the
+        // DB-degraded watchdog.
+        db: if ours {
+            db_status_from_body(probe.body.as_ref())
+        } else {
+            DbStatus::Unknown
+        },
+        process_started_at_ms: if ours {
+            probe.process_started_at_ms
+        } else {
+            None
+        },
     }
 }
 
