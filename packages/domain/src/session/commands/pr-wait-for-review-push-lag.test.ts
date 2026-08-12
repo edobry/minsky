@@ -21,6 +21,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  MIN_ABBREVIATED_SHA_LENGTH,
+  headShaMatchesExpected,
   sessionPrWaitForReview,
   type SessionPrWaitForReviewDependencies,
 } from "./pr-wait-for-review-subcommand";
@@ -174,5 +176,119 @@ describe("sessionPrWaitForReview — expectedHeadSha (mt#3877)", () => {
         lastObservedHeadSha: STALE_SHA,
       });
     }
+  });
+});
+
+/**
+ * mt#4039: the comparison is PREFIX-anchored, because the value callers have is
+ * abbreviated.
+ *
+ * Every test above passes a full 40-character sha, which is why mt#3877 and its
+ * review round both missed this: `session_commit` returns `commitHash`
+ * ABBREVIATED and `/implement-task` §9 says to pass it through verbatim, so the
+ * documented flow could never match. On PR #2914 that suppressed two genuine
+ * reviews for a full 900s wait; the identical wait matched in 128s once the sha
+ * was expanded by hand. These tests use the abbreviated form deliberately.
+ */
+describe("sessionPrWaitForReview — abbreviated expectedHeadSha (mt#4039)", () => {
+  /** What `session_commit` actually returns for PUSHED_SHA. */
+  const PUSHED_SHA_ABBREVIATED = PUSHED_SHA.slice(0, 9);
+
+  test("an abbreviated sha matches the full remote head", async () => {
+    const deps = makePushLagDeps(2, { pushEverLands: true });
+
+    const result = await sessionPrWaitForReview(
+      {
+        sessionId: "s",
+        intervalSeconds: 5,
+        timeoutSeconds: 60,
+        expectedHeadSha: PUSHED_SHA_ABBREVIATED,
+      },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewId).toBe(2);
+    }
+  });
+
+  test("NEGATIVE CONTROL: strict equality — the pre-fix comparison — rejects this exact pair", () => {
+    // The bug was one `===`. Pinning it directly keeps the test above honest:
+    // if someone reverts to equality, the test above fails and this one records
+    // why. Without this, a reader cannot tell that the abbreviated case was
+    // ever broken.
+    expect(PUSHED_SHA === PUSHED_SHA_ABBREVIATED).toBe(false);
+    expect(headShaMatchesExpected(PUSHED_SHA, PUSHED_SHA_ABBREVIATED)).toBe(true);
+  });
+
+  test("a sha that is not a prefix still fails to match, and the timeout names it", async () => {
+    const deps = makePushLagDeps(0, { pushEverLands: false });
+
+    const result = await sessionPrWaitForReview(
+      { sessionId: "s", intervalSeconds: 5, timeoutSeconds: 10, expectedHeadSha: "deadbeef" },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.expectedHeadShaUnreached).toEqual({
+        expected: "deadbeef",
+        lastObservedHeadSha: STALE_SHA,
+      });
+    }
+  });
+
+  test("a too-short value is REJECTED up front, not matched promiscuously", async () => {
+    const deps = makePushLagDeps(2, { pushEverLands: true });
+
+    await expect(
+      sessionPrWaitForReview(
+        { sessionId: "s", intervalSeconds: 5, timeoutSeconds: 60, expectedHeadSha: "630" },
+        deps
+      )
+    ).rejects.toThrow(/at least 7 characters/);
+  });
+
+  test("a non-hex value is REJECTED — it could only ever suppress", async () => {
+    const deps = makePushLagDeps(2, { pushEverLands: true });
+
+    await expect(
+      sessionPrWaitForReview(
+        { sessionId: "s", intervalSeconds: 5, timeoutSeconds: 60, expectedHeadSha: "not-a-sha!" },
+        deps
+      )
+    ).rejects.toThrow(/hexadecimal commit sha/);
+  });
+});
+
+describe("headShaMatchesExpected (mt#4039)", () => {
+  test("an undefined on either side means no opinion, and matches", () => {
+    expect(headShaMatchesExpected(PUSHED_SHA, undefined)).toBe(true);
+    expect(headShaMatchesExpected(undefined, PUSHED_SHA)).toBe(true);
+    expect(headShaMatchesExpected(undefined, undefined)).toBe(true);
+  });
+
+  test("an exact full sha still matches — the fix widens, it does not replace", () => {
+    expect(headShaMatchesExpected(PUSHED_SHA, PUSHED_SHA)).toBe(true);
+    expect(headShaMatchesExpected(PUSHED_SHA, STALE_SHA)).toBe(false);
+  });
+
+  test("comparison is case-insensitive and tolerates surrounding whitespace", () => {
+    expect(headShaMatchesExpected(PUSHED_SHA, PUSHED_SHA.slice(0, 9).toUpperCase())).toBe(true);
+    expect(headShaMatchesExpected(PUSHED_SHA, `  ${PUSHED_SHA.slice(0, 9)}  `)).toBe(true);
+  });
+
+  test("below the minimum abbreviation it never matches, even as a real prefix", () => {
+    // Defense in depth behind the command-layer rejection: a 6-char prefix of
+    // the head is still refused, so no caller reaching the matcher by another
+    // path can match on a collision-prone stub.
+    expect(PUSHED_SHA.startsWith(PUSHED_SHA.slice(0, 6))).toBe(true);
+    expect(headShaMatchesExpected(PUSHED_SHA, PUSHED_SHA.slice(0, 6))).toBe(false);
+    expect(MIN_ABBREVIATED_SHA_LENGTH).toBe(7);
+  });
+
+  test("a value longer than the head cannot be a prefix of it", () => {
+    expect(headShaMatchesExpected(PUSHED_SHA.slice(0, 10), PUSHED_SHA)).toBe(false);
   });
 });

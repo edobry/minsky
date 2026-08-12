@@ -8,7 +8,7 @@
  */
 
 /* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so these launches need a real directory as their cwd — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
-import { describe, expect, test, afterAll } from "bun:test";
+import { describe, expect, test, afterAll, afterEach } from "bun:test";
 import { EventEmitter } from "events";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -42,6 +42,8 @@ import {
   taskToEntitySeed,
   type EntitySeedContext,
 } from "./entity-thread-launch";
+import { pendingReplyBuffer, stopPendingDrain } from "./entity-thread-reply-buffer";
+import { getLoggableErrorSummary, MAX_LOGGED_ERROR_CHARS } from "@minsky/domain/errors/index";
 
 const ASK_ID = "38b1c0de-0000-4000-8000-000000000000";
 const ASK_QUESTION = "Approve the schema change?";
@@ -504,6 +506,85 @@ describe("createEntityThreadReplyRecorder", () => {
   test("onSwap is a no-op — the thread is keyed by localId and survives the swap", () => {
     const recorder = createEntityThreadReplyRecorder(capturingDb().db as never, "t");
     expect(() => recorder.onSwap()).not.toThrow();
+  });
+
+  /**
+   * mt#4036 — a failed write must not silently discard the reply.
+   *
+   * The test above only asserts the recorder doesn't THROW, which was already
+   * true on 2026-08-11 while four replies were lost. Not-throwing and
+   * not-losing are independent properties; this covers the second one.
+   */
+  describe("a failed write is buffered rather than dropped (mt#4036)", () => {
+    afterEach(() => {
+      stopPendingDrain();
+      pendingReplyBuffer.reset();
+    });
+
+    test("the reply text survives the failure and is reported as pending", async () => {
+      pendingReplyBuffer.reset();
+      const failingDb = {
+        execute: async () => {
+          throw new Error("CONNECTION_CLOSED");
+        },
+      };
+      const recorder = createEntityThreadReplyRecorder(failingDb as never, RECORDER_THREAD_ID);
+      recorder.onEvent({
+        seq: 1,
+        receivedAt: "2026-08-11T03:29:35Z",
+        payload: {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "Both filed. mt#4030 and mt#4028." }] },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const report = pendingReplyBuffer.report(RECORDER_THREAD_ID);
+      expect(report.pending).toBe(1);
+      expect(report.oldestFailedAt).not.toBeNull();
+    });
+
+    test("a successful write buffers nothing", async () => {
+      pendingReplyBuffer.reset();
+      const cap = capturingDb();
+      const recorder = createEntityThreadReplyRecorder(cap.db as never, RECORDER_THREAD_ID);
+      recorder.onEvent({
+        seq: 1,
+        receivedAt: "2026-08-11T03:29:35Z",
+        payload: { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(pendingReplyBuffer.report(RECORDER_THREAD_ID).pending).toBe(0);
+    });
+  });
+
+  /**
+   * mt#4036 AT4 — the failure log must name the cause and must not emit the
+   * whole reply body.
+   *
+   * Asserted against the formatter the recorder passes its error to, given the
+   * REAL error shape the 2026-08-11 failures had: a Drizzle wrapper whose
+   * message is the full INSERT with the reply text interpolated as a parameter,
+   * wrapping the Postgres error that actually explains the failure. Reading
+   * `err.message` — what the recorder used to do — keeps the body and loses the
+   * cause; this checks the inversion.
+   */
+  test("the failure formatter keeps the cause and bounds the reply body (mt#4036)", () => {
+    const replyBody = "x".repeat(MAX_LOGGED_ERROR_CHARS * 2);
+    const drizzleError = new Error(
+      `Failed query: INSERT INTO entity_thread_turns ...\nparams: ${RECORDER_THREAD_ID},agent,${replyBody}`,
+      { cause: new Error("write CONNECTION_CLOSED aws-0-us-west-2.pooler.supabase.com:6543") }
+    );
+
+    const summary = getLoggableErrorSummary(drizzleError);
+
+    // The cause — absent from `err.message` entirely — is what makes the line
+    // diagnosable. Its absence is why the real incident's four log lines never
+    // said why the write failed.
+    expect(summary).toContain("CONNECTION_CLOSED aws-0-us-west-2.pooler.supabase.com");
+    // The body is bounded, not emitted whole.
+    expect(summary).not.toContain(replyBody);
+    expect(summary.length).toBeLessThan(replyBody.length);
   });
 });
 

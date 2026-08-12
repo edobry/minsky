@@ -41,6 +41,11 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
+import {
+  blocksToStoredAgentReplies,
+  pendingReplyBuffer,
+  shouldReportPendingReplies,
+} from "../entity-thread-reply-buffer";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
 import { describeServerPersistenceUnavailability } from "../db-providers";
 import {
@@ -91,6 +96,38 @@ import {
 function isThreadAgentLive(localId: string, registry = drivenSessionRegistry): boolean {
   const record = registry.get(localId);
   return record !== undefined && hasLiveActuator(record);
+}
+
+/**
+ * Why this thread's agent is not running, when that is knowable (mt#4037).
+ *
+ * `live: false` alone cannot distinguish "the cockpit restarted and killed it"
+ * from "it exited on its own", and the panel has been telling the operator the
+ * second one either way — "The agent stopped before answering", which blames
+ * the agent for a daemon shutdown.
+ *
+ * `reconnecting` is exactly the durable evidence criterion 4 requires. Boot
+ * reconciliation builds that record FROM the persisted `driven_sessions` row
+ * (`driven-session-launch.ts`), for a row that was still non-terminal when the
+ * daemon stopped writing — i.e. an actuator that was alive when the process
+ * went away, rather than one that exited and wrote its own terminal status.
+ * The claim therefore survives the restart that produced it; it is not
+ * reconstructed from an in-memory registry the restart just cleared.
+ *
+ * Returns `undefined` — not a guess — whenever there is no record or the record
+ * is in any other state. Absent means UNKNOWN, the same discipline `live` and
+ * `originSeeded` follow, and the panel falls back to saying only what it can
+ * support.
+ */
+export function deriveAgentStopReason(
+  localId: string,
+  registry = drivenSessionRegistry
+): "cockpit-restart" | "unrecoverable" | undefined {
+  const record = registry.get(localId);
+  if (!record || hasLiveActuator(record)) return undefined;
+  if (record.status === "reconnecting") return "cockpit-restart";
+  if (record.status === "unrecoverable") return "unrecoverable";
+  return undefined;
 }
 
 /**
@@ -234,6 +271,14 @@ export function mountEntityThreadRoutes(
       const existing = await findEntityThread(db, entityType, entityId);
       const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
       const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
+      // Reconciled against the blocks just read, not reported raw (PR #2913 R1
+      // BLOCKING). In the commit-succeeded-but-ack-failed case the reply is
+      // ALREADY in `blocks` while still sitting in the queue until the next
+      // drain tick — reporting the queue as-is renders the reply and a notice
+      // saying it could not be saved, in the same response. The route holds the
+      // evidence to settle that, so it settles it here rather than waiting for
+      // an async drain.
+      const pendingReport = pendingReplyBuffer.report(localId, blocksToStoredAgentReplies(blocks));
       res.json({
         localId,
         entityType,
@@ -241,6 +286,13 @@ export function mountEntityThreadRoutes(
         blocks,
         // mt#3402: the panel cannot tell "thinking" from "dead" without this.
         live: isThreadAgentLive(localId),
+        // mt#4037: WHY it is not live, when that is knowable from state the
+        // restart could not erase. Omitted when unknown — see
+        // `deriveAgentStopReason`.
+        ...(() => {
+          const stopReason = deriveAgentStopReason(localId);
+          return stopReason ? { agentStopReason: stopReason } : {};
+        })(),
         // mt#3367: whether the agent can reach the conversation that filed this
         // entity. Surfaced so the principal knows which grounding an answer has
         // — reachability is only ~46%, so "seeded" is not the safe assumption.
@@ -254,6 +306,15 @@ export function mountEntityThreadRoutes(
         ...(supportsOriginSeeding(entityType)
           ? { originSeeded: seed.originConversationId !== undefined }
           : {}),
+        // mt#4036: replies the agent produced that could not be written. Without
+        // this the panel renders a dropped reply as nothing at all, which reads
+        // as "the agent never answered" — the 2026-08-11 failure.
+        //
+        // OMITTED when there is nothing to say, following `originSeeded`'s
+        // discipline directly above: absent means "no unpersisted replies", and
+        // a daemon predating this field says nothing rather than reporting a
+        // reassuring zero it never actually checked.
+        ...(shouldReportPendingReplies(pendingReport) ? { pendingReplies: pendingReport } : {}),
       });
     } catch (err) {
       // mt#3398: `err.message` on a Drizzle failure is the QUERY TEXT — the
