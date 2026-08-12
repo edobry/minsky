@@ -31,7 +31,18 @@
  * TRIGGERS include the merge-gate factory, not just the raw writer. A merge gate reaches
  * the fire log through `makeRecordAndExit` and never names `recordFireLogEntry` at all,
  * so a rule keyed on the raw writer alone would miss all eleven of them — the exact
- * shape of the original gap, one level up.
+ * shape of the original gap, one level up. Triggers also follow ALIASED and NAMESPACE
+ * imports (PR #2901 R1): keying on the callee's spelling alone let a hook write fire-log
+ * records under any local name and escape the rule entirely.
+ *
+ * SATISFACTION is the field name anywhere, or a `"decided"` / `"crashed"` literal in a
+ * call-argument or object-property position. The literal branch is what makes the
+ * factory-mediated callers checkable at all — they pass the outcome POSITIONALLY, so the
+ * field name appears nowhere in their files. It is position-SCOPED (PR #2901 R1) because
+ * accepting the literal anywhere let a stray `const note = "decided";` satisfy the rule
+ * with every exit unmarked. Requiring the callee to resolve to a writer would be tighter
+ * still and would reject every real merge-gate caller, since each calls a LOCAL closure
+ * built from the factory rather than the factory itself.
  *
  * Coverage model (mirrors `require-hook-domain-bootstrap`, mt#3046/mt#3178): coverage is
  * declared in TWO places that MUST stay in sync — the `files` glob of the
@@ -60,7 +71,7 @@ import { sep as pathSep } from "node:path";
  * block in `eslint.config.js` — see the coverage-model note in the file header for what
  * breaks when they diverge.
  */
-const COVERED_ROOTS_POSIX = [".minsky/hooks"];
+export const COVERED_ROOTS_POSIX = [".minsky/hooks"];
 
 /**
  * Calls that put a record into the fire log.
@@ -90,6 +101,29 @@ const OUTCOME_VALUES = new Set(["decided", "crashed"]);
 
 /** The module that defines the field, and so cannot be required to consume it. */
 const FIRE_LOG_MODULE_BASENAME = "fire-log";
+
+/**
+ * Module specifiers the writer surface is imported from, matched as suffixes so both
+ * `./fire-log` and `../hooks/merge-gate-fire-log` land the same way. Used only for the
+ * alias mapping below — a call whose callee already carries a known name is a trigger
+ * regardless of how it got into scope.
+ */
+const WRITER_MODULE_SUFFIXES = ["fire-log", "merge-gate-fire-log"];
+
+/** String value of an import source, or null. */
+function sourceValue(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
+  if (node?.type === "TemplateLiteral" && node.expressions.length === 0) {
+    return node.quasis.map((q) => q.value.cooked ?? "").join("");
+  }
+  return null;
+}
+
+function isWriterModuleSpecifier(value) {
+  if (value == null) return false;
+  const withoutExt = value.replace(/\.[cm]?[jt]sx?$/, "");
+  return WRITER_MODULE_SUFFIXES.some((suffix) => withoutExt.endsWith(suffix));
+}
 
 function toPosix(filename) {
   return filename.split(pathSep).join("/");
@@ -136,16 +170,53 @@ export default {
     let satisfied = false;
     /** First node that proves this file writes to the fire log, plus what proved it. */
     let trigger = null;
+    /**
+     * R1: local names bound to the writer surface by an import, so an ALIASED import
+     * (`import { recordFireLogEntry as writeFire }`) is still a trigger. Without this a
+     * hook could write to the fire log under any local name and escape the rule entirely
+     * — a silent hole in exactly the enforcement this rule exists to provide.
+     */
+    const writerLocals = new Set();
+    /** Namespace imports of the writer modules, for `fireLog.recordFireLogEntry(...)`. */
+    const writerNamespaces = new Set();
 
     function noteTrigger(node, description) {
       if (!trigger) trigger = { node, description };
     }
 
     return {
+      ImportDeclaration(node) {
+        if (!isWriterModuleSpecifier(sourceValue(node.source))) return;
+        for (const spec of node.specifiers) {
+          if (spec.type === "ImportSpecifier") {
+            const imported = spec.imported?.name ?? spec.imported?.value;
+            if (imported && FIRE_LOG_WRITER_CALLEES.has(imported)) {
+              writerLocals.add(spec.local.name);
+            }
+          } else if (spec.type === "ImportNamespaceSpecifier") {
+            writerNamespaces.add(spec.local.name);
+          }
+        }
+      },
+
       CallExpression(node) {
         const name = calleeName(node);
-        if (name && FIRE_LOG_WRITER_CALLEES.has(name)) {
+        // A call whose callee carries a known writer name is a trigger however it got into
+        // scope; an aliased local is a trigger because the import bound it to one.
+        if (name && (FIRE_LOG_WRITER_CALLEES.has(name) || writerLocals.has(name))) {
           noteTrigger(node, `call to '${name}'`);
+          return;
+        }
+        // `import * as fireLog` → `fireLog.recordFireLogEntry(...)`.
+        const callee = node.callee;
+        if (
+          callee?.type === "MemberExpression" &&
+          callee.object?.type === "Identifier" &&
+          writerNamespaces.has(callee.object.name) &&
+          name &&
+          FIRE_LOG_WRITER_CALLEES.has(name)
+        ) {
+          noteTrigger(node, `call to '${callee.object.name}.${name}'`);
         }
       },
 
@@ -158,8 +229,22 @@ export default {
 
       // The positional form used by the merge-gate factory's call sites, where the field
       // name never appears.
+      //
+      // R1: SCOPED to a call-argument or object-property position. Accepting the literal
+      // anywhere meant a stray `const note = "decided";` satisfied the rule while every
+      // exit stayed unmarked — a false negative in the one direction that matters. The two
+      // positions kept are the two the real forms use: `recordAndExit("deny", undefined,
+      // "decided")` and `{ guardOutcome: "decided" }`. Requiring the callee itself to
+      // resolve to a writer would be tighter still and would reject every real merge-gate
+      // caller, since they all call a LOCAL closure built from the factory, not the
+      // factory.
       Literal(node) {
-        if (typeof node.value === "string" && OUTCOME_VALUES.has(node.value)) satisfied = true;
+        if (typeof node.value !== "string" || !OUTCOME_VALUES.has(node.value)) return;
+        const parent = node.parent;
+        if (!parent) return;
+        const isCallArgument = parent.type === "CallExpression" && parent.arguments.includes(node);
+        const isPropertyValue = parent.type === "Property" && parent.value === node;
+        if (isCallArgument || isPropertyValue) satisfied = true;
       },
 
       "Program:exit"(programNode) {

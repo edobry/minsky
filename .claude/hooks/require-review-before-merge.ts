@@ -1184,7 +1184,15 @@ async function main(): Promise<void> {
   // no-review deny below, via an empty array. They are NOT the same evidence: the first
   // means the gate's probe broke, the second is a real verdict. Track which one happened
   // so the fire-log record can say — without changing what is decided (both still deny).
-  let reviewsFetchFailed = false;
+  //
+  // R1: keyed on the SUBPROCESS RESULT first, not only on a parse throw. An earlier draft
+  // set this in the `catch` alone, which reads probe health off the STRING SHAPE of stdout:
+  // a `gh` call that fails but still emits parseable JSON — an empty array with the real
+  // error on stderr, or a wrapper normalizing a failure to `[]` — parses cleanly and would
+  // have been recorded `decided`. That is the exact misclassification this task exists to
+  // remove, reintroduced one layer down. Non-zero exit is the primary signal; the parse
+  // throw is the fallback for a zero-exit call that emitted garbage.
+  let reviewsFetchFailed = reviewsJson.exitCode !== 0;
   try {
     const raw = JSON.parse(reviewsJson.stdout.trim()) as Array<{
       body: string;
@@ -1410,7 +1418,13 @@ async function main(): Promise<void> {
       return recordAndExit("deny", overrideFields, "decided");
     }
   }
-  return recordAndExit("allow", overrideFields, "decided");
+  // mt#3920 R1, found by the class-not-instance scan the reviews-fetch finding prompted —
+  // the same shape, at a site the review did not name. All three CI sub-checks above are
+  // `else if (headSha)`-guarded, so an empty `headSha` skips every one of them and drops
+  // straight here. `resolvePrRefByBranch` returning a row without a head SHA is a degraded
+  // resolve, not a clean bill of health: marking it `decided` would let a gate that
+  // silently stopped checking CI report itself recovered on every merge.
+  return recordAndExit("allow", overrideFields, headSha ? "decided" : "crashed");
 }
 
 if (import.meta.main) {

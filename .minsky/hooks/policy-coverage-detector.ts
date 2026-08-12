@@ -331,8 +331,15 @@ if (import.meta.main) {
 
   // Only fire on covered write tools (Edit/Write/NotebookEdit + MCP session
   // file-write variants — see COVERED_TOOL_NAMES above).
+  //
+  // mt#3920 R1: routes through `finishRun` like every other terminal branch, instead of
+  // the bare `process.exit(0)` it used to take. That exit contradicted this entry point's
+  // own stated invariant three paragraphs up ("Every terminal branch below routes through
+  // here ... including the branches that decide 'nothing to do'"), and left the one class
+  // of invocation nothing recorded at all. No `guardOutcome`: this branch is above the
+  // fallible corpus load, so it is evidence of neither a clean decision nor a crash.
   if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
-    process.exit(0);
+    finishRun("allow");
   }
 
   // Apply action filter
