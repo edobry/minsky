@@ -878,6 +878,71 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#4004 — the duplicate-check record claims a search that never ran.
+  //
+  // Third guard on the same record, and the one that closes the gap between the
+  // other two: `require-duplicate-check-record` checks the line is PRESENT,
+  // `duplicate-signature-scan` checks its VERDICTS are true, neither asks
+  // whether the search RAN. Originating incident mt#4003 — a fabricated search
+  // narrative filed against four tasks that already owned the work; the
+  // signature scan caught it only because the false provenance happened to
+  // coincide with wrong verdicts.
+  //
+  // Unusually mechanizable for its family (`assertion-without-verification`,
+  // anchor mt#2544), which has repeatedly chosen "no detector, deliberately"
+  // because its members turn on whether a claim about the WORLD is true. This
+  // one is about the SESSION: the call is in the transcript's tool list or it is
+  // not. A phrase the pattern misses is a false NEGATIVE, never a false
+  // positive, which is what keeps it off ADR-024's regex arms-race.
+  // -------------------------------------------------------------------------
+  {
+    name: "duplicate-check-search-provenance",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every path, and an `additionalContext` injection on the matched one
+    // (PR #2886 R1 — the injector declaration was missing while the module
+    // returned `additionalContext`, so the declaration under-described what
+    // ships).
+    effects: [recorderEffect(), advisoryEffect()],
+    // `advisory`: which prose counts as CLAIMING a search is a heuristic, and
+    // the calibration log exists to size it. The session-state half it gates on
+    // is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-check-search-provenance").then((m) => ({ run: m.run })),
+    // A regex over one paragraph plus a membership test over lines the
+    // dispatcher already parsed — no IO of its own, so this is generous.
+    timeoutMs: 5000,
+    calibrationLog: "duplicate-check-search-provenance",
+    // LOAD-BEARING (PR #2886 R1). `ctx.transcriptLines` is populated ONLY for a
+    // registration that declares this (D6), and the session's tool-call list is
+    // this guard's entire discriminating half. Without it the guard records
+    // `skipped` on every live run — present, tested, green, and inert. The unit
+    // tests could not catch that: they construct the context directly, so they
+    // exercise the module and say nothing about whether the dispatcher will
+    // hand it anything. `registry.test.ts` now asserts the coupling for every
+    // guard whose source reads `transcriptLines`.
+    needsTranscript: true,
+    // Calibration-first per ADR-024 and ask#6982. The module asserts this in a
+    // test rather than only intending it.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // The canary carries a record claiming a search, in a canary process whose
+    // transcript is empty — so the healthy outcome is a RECORDED skip, which is
+    // this guard's honest answer to a claim it cannot adjudicate. Asserting
+    // `matched` here would bake in the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary provenance task",
+          spec: "## Context\n\nDuplicate check: searched `tasks_search` for canary; no candidates.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // mt#3910 — chained verification commands, detected at the tool boundary.
   //
   // `terminal-command-best-practices.mdc §Verification Commands` bans this and
@@ -2669,6 +2734,15 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // one attentionCost budget and one canary, making the deny path's
   // zero-false-positive character depend on the scan's unmeasured one.
   ["require-duplicate-check-record", "duplicate-signature-scan"],
+  // Third tier on the same `tasks_create` spec (mt#4004), and the reason all
+  // three are separate registrations rather than one: they ask three different
+  // questions about the same paragraph. Is the record PRESENT (deny), are its
+  // verdicts TRUE (warn), and did the search it claims actually RUN (warn).
+  // The third is the only one that reads SESSION state rather than the spec
+  // alone, so its false-positive surface is unrelated to the second's token
+  // heuristic and needs its own calibration log to be sized.
+  ["require-duplicate-check-record", "duplicate-check-search-provenance"],
+  ["duplicate-signature-scan", "duplicate-check-search-provenance"],
   // Same Bash/session_exec command string, third unrelated defect (mt#3910):
   // whether the call chains two or more VERIFICATION commands, which makes a
   // non-zero exit unattributable. Orthogonal to both siblings on this matcher —
