@@ -41,6 +41,11 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
+import {
+  blocksToStoredAgentReplies,
+  pendingReplyBuffer,
+  shouldReportPendingReplies,
+} from "../entity-thread-reply-buffer";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
 import { describeServerPersistenceUnavailability } from "../db-providers";
 import {
@@ -234,6 +239,14 @@ export function mountEntityThreadRoutes(
       const existing = await findEntityThread(db, entityType, entityId);
       const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
       const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
+      // Reconciled against the blocks just read, not reported raw (PR #2913 R1
+      // BLOCKING). In the commit-succeeded-but-ack-failed case the reply is
+      // ALREADY in `blocks` while still sitting in the queue until the next
+      // drain tick — reporting the queue as-is renders the reply and a notice
+      // saying it could not be saved, in the same response. The route holds the
+      // evidence to settle that, so it settles it here rather than waiting for
+      // an async drain.
+      const pendingReport = pendingReplyBuffer.report(localId, blocksToStoredAgentReplies(blocks));
       res.json({
         localId,
         entityType,
@@ -254,6 +267,15 @@ export function mountEntityThreadRoutes(
         ...(supportsOriginSeeding(entityType)
           ? { originSeeded: seed.originConversationId !== undefined }
           : {}),
+        // mt#4036: replies the agent produced that could not be written. Without
+        // this the panel renders a dropped reply as nothing at all, which reads
+        // as "the agent never answered" — the 2026-08-11 failure.
+        //
+        // OMITTED when there is nothing to say, following `originSeeded`'s
+        // discipline directly above: absent means "no unpersisted replies", and
+        // a daemon predating this field says nothing rather than reporting a
+        // reassuring zero it never actually checked.
+        ...(shouldReportPendingReplies(pendingReport) ? { pendingReplies: pendingReport } : {}),
       });
     } catch (err) {
       // mt#3398: `err.message` on a Drizzle failure is the QUERY TEXT — the
