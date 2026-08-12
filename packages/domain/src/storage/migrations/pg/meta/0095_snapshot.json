@@ -1,5 +1,5 @@
 {
-  "id": "4797ac68-de38-4331-9afe-d97aea3a7751",
+  "id": "6558cd87-23ff-4f4d-b306-f23ef684d1fd",
   "prevId": "99edf095-197f-4d0e-bddd-5ec5d9ded011",
   "version": "7",
   "dialect": "postgresql",
@@ -4947,7 +4947,7 @@
           "tableTo": "projects",
           "columnsFrom": ["project_id"],
           "columnsTo": ["id"],
-          "onDelete": "no action",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

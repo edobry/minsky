@@ -160,8 +160,8 @@ export const guardEventsTable = pgTable(
     /** Conversation id as recorded by the writer (`session_id` / `sessionId`), verbatim. */
     sessionId: text("session_id"),
 
-    /** Stamped at ingest from the record's cwd/session project — never by writers (mt#3518). */
-    projectId: uuid("project_id").references(() => projectsTable.id),
+    /** Stamped at ingest from the record's cwd/session project — never by writers (mt#3518). SET NULL on project deletion: events are append-only and outlive their project linkage (PR #2912 R1). */
+    projectId: uuid("project_id").references(() => projectsTable.id, { onDelete: "set null" }),
 
     /** The record's OWN timestamp. Nullable — see doc comment. */
     occurredAt: timestamp("occurred_at", { withTimezone: true }),
@@ -178,7 +178,7 @@ export const guardEventsTable = pgTable(
     /** The verbatim parsed record. Content-complete — promoted columns are conveniences. */
     payload: jsonb("payload").notNull(),
 
-    /** sha256 hex over `<stream>\n<verbatim line>` — the rebuild/idempotency key (see doc comment). */
+    /** sha256 hex over `<stream>\n<verbatim JSONL line>` (canonical element serialization for non-JSONL sources) — the rebuild/idempotency key (see doc comment). */
     dedupeKey: text("dedupe_key").notNull(),
 
     /** Originating file path at ingest time (provenance for rebuild audits; per-machine paths vary). */

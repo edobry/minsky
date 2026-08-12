@@ -15,7 +15,8 @@ CREATE TABLE "guard_events" (
 	"ingested_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "guard_events" ADD CONSTRAINT "guard_events_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "guard_events" ADD CONSTRAINT "guard_events_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+DROP INDEX IF EXISTS "uq_guard_events_dedupe_key";--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_guard_events_dedupe_key" ON "guard_events" USING btree ("dedupe_key");--> statement-breakpoint
 CREATE INDEX "idx_guard_events_guard_name_occurred_at" ON "guard_events" USING btree ("guard_name","occurred_at");--> statement-breakpoint
 CREATE INDEX "idx_guard_events_stream_occurred_at" ON "guard_events" USING btree ("stream","occurred_at");--> statement-breakpoint
