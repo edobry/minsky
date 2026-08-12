@@ -1912,3 +1912,144 @@ export function startConversationSummarySweeper(
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Guard-events exhaust sweep (mt#4035, mt#3334 phase 3)
+// ---------------------------------------------------------------------------
+
+const GUARD_EVENTS_SWEEP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const GUARD_EVENTS_SWEEP_TICK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+/** Injectable for tests; production wiring resolves the real DB + fs deps. */
+export interface GuardEventsSweepResult {
+  streamsChecked: number;
+  totalRead: number;
+  totalInserted: number;
+  totalErrors: number;
+}
+
+export interface GuardEventsSweepDeps {
+  runSweep: () => Promise<GuardEventsSweepResult>;
+}
+
+export interface GuardEventsSweepOptions {
+  intervalMs?: number;
+  deps?: GuardEventsSweepDeps;
+}
+
+/**
+ * Resolve the guard-events sweep cadence. An explicit
+ * `MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS` env override (positive-integer
+ * milliseconds) wins; otherwise the default.
+ */
+export function resolveGuardEventsSweepIntervalMs(): number {
+  const raw = process.env.MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS;
+  if (raw !== undefined && raw !== "") {
+    const parsed = Number.parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    log.warn("cockpit: ignoring invalid MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS", { raw });
+  }
+  return GUARD_EVENTS_SWEEP_INTERVAL_MS;
+}
+
+async function buildRealGuardEventsSweepDeps(): Promise<GuardEventsSweepDeps | null> {
+  const { getSharedPersistenceService } = await import("./shared-persistence");
+  const svc = await getSharedPersistenceService();
+  const provider = svc.getProvider();
+
+  if (
+    !("getDatabaseConnection" in provider) ||
+    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+  ) {
+    return null;
+  }
+  const sqlProvider = provider as {
+    getDatabaseConnection: () => Promise<
+      import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+    >;
+  };
+  const db = await sqlProvider.getDatabaseConnection();
+  if (!db) return null;
+
+  const runSweep = async (): Promise<GuardEventsSweepResult> => {
+    const { buildGuardEventsIngestDeps } = await import(
+      "@minsky/domain/guard-events/ingest-runtime"
+    );
+    const { runGuardEventsIngestSweep } = await import(
+      "@minsky/domain/guard-events/ingest-service"
+    );
+    const deps = buildGuardEventsIngestDeps(db);
+    const summary = await runGuardEventsIngestSweep(deps);
+    for (const s of summary.perStream) {
+      if (s.error) {
+        log.warn("cockpit: guard-events sweep: stream failed", {
+          stream: s.stream,
+          error: s.error,
+        });
+      }
+    }
+    return {
+      streamsChecked: summary.streamsChecked,
+      totalRead: summary.totalRead,
+      totalInserted: summary.totalInserted,
+      totalErrors: summary.totalErrors,
+    };
+  };
+
+  return { runSweep };
+}
+
+/**
+ * Start the periodic guard/calibration exhaust sweep in this cockpit process
+ * (mt#4035, mt#3334 phase 3).
+ *
+ * THE CORRECTNESS LAYER for this ingest — per ADR-017/mt#2313, the SessionEnd
+ * hook (`.minsky/hooks/guard-events-ingest-on-session-end.ts`) is a latency
+ * optimization only, since SessionEnd does not fire (or complete) on
+ * `/exit`, `/clear`, or an async kill. This sweep runs on a fixed cadence
+ * regardless of any SessionEnd event, so completeness does not depend on how
+ * a conversation happened to end. Every stream's dedupe key makes a full
+ * re-scan (a dropped/invalid HWM cursor) SAFE — the same property that makes
+ * this sweep and the SessionEnd hook safe to run concurrently.
+ *
+ * Sweeper convention (mirrors startTranscriptSweepBackstop): `running`-flag
+ * overlap guard + fail-open try/catch + boot tick + `setInterval`/`.unref()`
+ * via `createIntervalSweeper`.
+ *
+ * @returns stop function (clears the interval).
+ */
+export function startGuardEventsSweepBackstop(options?: GuardEventsSweepOptions): () => void {
+  const resolvedInterval = options?.intervalMs ?? resolveGuardEventsSweepIntervalMs();
+
+  return createIntervalSweeper({
+    name: "guard-events sweep backstop",
+    intervalMs: resolvedInterval,
+    tickTimeoutMs: GUARD_EVENTS_SWEEP_TICK_TIMEOUT_MS,
+    tick: async () => {
+      try {
+        const deps = options?.deps ?? (await buildRealGuardEventsSweepDeps());
+        if (!deps) {
+          log.debug("cockpit: guard-events sweep: no SQL-capable DB, skipping tick");
+          return;
+        }
+        const result = await deps.runSweep();
+        // SC2: a per-stream error is already logged inside runSweep above;
+        // this is the per-run observable summary line (SC2's "per-run
+        // observable" requirement). UNCONDITIONAL (mt#4035 R1) — a guarded
+        // log here made "swept 40 streams, found nothing new" indistinguishable
+        // from "this tick never ran at all" in the log stream. Every field
+        // that answers "did the sweep run, and what did it see" belongs on
+        // every tick, zero or not.
+        log.info("cockpit: guard-events sweep complete", {
+          streamsChecked: result.streamsChecked,
+          totalRead: result.totalRead,
+          totalInserted: result.totalInserted,
+          totalErrors: result.totalErrors,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("cockpit: guard-events sweep: unexpected error in tick", { message });
+      }
+    },
+  });
+}

@@ -5901,6 +5901,23 @@
           ]
         },
         {
+          "name": "guard-events",
+          "description": "guard-events commands",
+          "subcommands": [
+            {
+              "name": "ingest",
+              "description": "Run one sweep tick of the guard/calibration exhaust ingest (mt#3334 phase 3): reads new content since each stream's persisted high-water mark and batch-inserts into guard_events (ON CONFLICT dedupe_key DO NOTHING). Incremental and idempotent — safe to re-run over an already-ingested span. Called by the SessionEnd hook (latency) and the cockpit sweep (correctness — SessionEnd does not reliably fire, per ADR-017/mt#2313).",
+              "options": [
+                {
+                  "flags": ["--max-records-per-stream-per-tick"],
+                  "description": "Cap on new records read per stream per invocation (bounds tick duration on a large backlog, e.g. a fresh-deploy fire-log with no prior ingest). Default: 20000.",
+                  "takesValue": true
+                }
+              ]
+            }
+          ]
+        },
+        {
           "name": "smoke-test",
           "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
           "options": [
