@@ -1842,4 +1842,65 @@ mod tests {
         assert_eq!(classify_exit(Some(1), false, false), ExitClass::Crash);
         assert_eq!(classify_exit(None, false, false), ExitClass::Crash);
     }
+
+    // -----------------------------------------------------------------------
+    // Spawned-process-group bookkeeping (mt#3815).
+    //
+    // The two properties AT2 and AT5 rest on. Not a substitute for AT5's live
+    // run — `teardown` sends real signals, so what is pinned here is the
+    // BOOKKEEPING it iterates, not the kill.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn stopping_one_daemon_leaves_the_others_group_recorded() {
+        let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
+        record_spawned(&spawned, "cockpit", 111);
+        record_spawned(&spawned, "mcp", 222);
+
+        assert_eq!(take_spawned(&spawned, "mcp"), Some(222));
+        assert_eq!(
+            spawned.lock().expect("lock").as_slice(),
+            [("cockpit", 111)],
+            "stopping one entry must not forget the other's group — that is what \
+             makes killing one daemon leave the other running (AT2)"
+        );
+        assert_eq!(
+            take_spawned(&spawned, "mcp"),
+            None,
+            "taking twice is not an error, it is just gone"
+        );
+    }
+
+    #[test]
+    fn a_respawn_supersedes_the_group_it_replaced() {
+        let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
+        record_spawned(&spawned, "mcp", 222);
+        record_spawned(&spawned, "mcp", 333);
+        assert_eq!(
+            spawned.lock().expect("lock").as_slice(),
+            [("mcp", 333)],
+            "a stale group id would outlive its process and be signalled at quit"
+        );
+    }
+
+    #[test]
+    fn teardown_drains_every_recorded_group() {
+        let spawned: SpawnedPgids = Arc::new(Mutex::new(Vec::new()));
+        // Our OWN process group: `teardown` signals what it finds, so a test
+        // must not hand it a pgid belonging to anything else. SIGTERM to our
+        // own group would kill the test runner, so this deliberately records
+        // NOTHING killable and checks the drain instead — the half that was
+        // broken before mt#3815, when a single slot could only ever remember
+        // one daemon.
+        teardown(&spawned);
+        assert!(spawned.lock().expect("lock").is_empty());
+
+        record_spawned(&spawned, "cockpit", 111);
+        record_spawned(&spawned, "mcp", 222);
+        assert_eq!(
+            spawned.lock().expect("lock").len(),
+            2,
+            "both entries are recorded, so both are reachable at teardown (AT5)"
+        );
+    }
 }

@@ -988,6 +988,33 @@ async fn poll_entry(
     }
 
     if ours {
+        // Reap a child that died while an incumbent of ours took the port.
+        //
+        // Found by mt#3815's live acceptance run: the healthy branch returns
+        // before the child-exit branch below is ever reached, so an entry whose
+        // child lost a bind race kept a DEAD `Child` handle and a stale process
+        // group. Two things then disagree with reality — `handle_child_exit`
+        // never runs, so the entry never enters the ADOPTED state its status
+        // claims; and `do_stop` takes the dead child, kills its empty group, and
+        // therefore never stops the daemon actually serving, so Quit would leave
+        // it running (AT5). The pre-mt#3815 single-daemon loop had the same
+        // early return and the same latent hole.
+        let dead_child = match sup.daemon.child.as_mut().map(|c| c.try_wait()) {
+            Some(Ok(Some(status))) => Some(status.code()),
+            _ => None,
+        };
+        if let Some(code) = dead_child {
+            eprintln!(
+                "[cockpit-tray] {} child exited ({code:?}) but an incumbent of ours serves port {} — adopting it",
+                sup.daemon.labels.display_name, port
+            );
+            sup.daemon.child = None;
+            // Forget the group WITHOUT killing it: the incumbent is not in it,
+            // and the child that was is already gone.
+            let _ = take_spawned(spawned, sup.id.slug());
+            sup.daemon.daemon_started_at = adopted_start_time(sup, path);
+        }
+
         // Health restored — reset failure counter + cooldown.
         if sup.daemon.consecutive_http_failed > 0 {
             eprintln!(
