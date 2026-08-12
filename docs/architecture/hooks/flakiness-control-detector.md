@@ -59,9 +59,15 @@ a pass count would miss the most valuable case.
 
 ## Posture
 
-Calibration-first (mt#2263 ladder): it writes a record, does not block, and does not inject.
-`INJECTION_ENABLED` is `false`; `renderWorstCase()` still renders the advisory so the size ceiling
-is enforced against something real (mt#4002).
+Calibration-first (mt#2263 ladder), which in this family means log-only WITH a warning: it writes a
+record AND surfaces a WARN, and never denies. Not record-only — the spec asks for the warning (SC2,
+AT1), and the local precedent agrees; going silent as well would mean the agent filing the spec
+learns nothing until someone reviews the log, which is most of the value gone. What calibration
+buys is that the guard never DENIES while its false-positive rate is unmeasured.
+
+Because it injects, its ceiling is measured from a `worstCaseCanary` rather than a `renderProbe` —
+a probe is for a guard that renders but never injects, and leaving one here would exclude this
+guard from the `MERGED_CONTEXT_BUDGET_CHARS` bucket it genuinely contributes to (mt#4002).
 
 Its deny-tier neighbour on the same surface, `require-duplicate-check-record`, records why the two
 differ: a literal-form presence check has no recall/precision axes, so there is nothing to
