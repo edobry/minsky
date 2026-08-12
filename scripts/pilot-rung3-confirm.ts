@@ -26,6 +26,13 @@
  *
  * Usage:
  *   bun scripts/pilot-rung3-confirm.ts
+ *   bun scripts/pilot-rung3-confirm.ts --recovered <replay-out.json>
+ *
+ * `--recovered` takes the `--out` file of
+ * `scripts/replay-retrospective-trigger-calibration.ts` and runs each recovered
+ * turn through the same pipeline as an UNLABELED probe (mt#3931). Probes are
+ * reported per-turn and excluded from the pass/fail arithmetic; the exit code
+ * still reflects only the labeled corpus.
  */
 
 import { readFileSync } from "node:fs";
