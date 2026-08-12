@@ -131,6 +131,24 @@ _How_ it decides — i.e. what classifier, if any, it contains. ADR-024's ladder
 axis: none/constant · lexical (regex) · embedding · model. An interceptor that always fires has
 the trivial constant classifier.
 
+**Amended by mt#4038: the value set carries a fifth value, `structural`.** Authoring axis 3 for
+the whole corpus made the gap unmissable. ADR-024 scopes itself, in its own Context section, to
+"`UserPromptSubmit` **guidance hooks** … that detect behavioral trigger phrases in the agent's own
+output" — so all four of its rungs describe matching PROSE. Most of this corpus is not that: a
+migration-collision check, a status-transition validator, a required-checks merge gate and every
+pre-commit step evaluate a deterministic predicate over structured state. Calling those `constant`
+is false (they do not always fire); calling them `lexical` claims a prose matcher that is not
+there. `structural` names the case, and neither ADR-024 nor the ladder changes — the ladder still
+governs the detector family it was written for.
+
+Measured distribution over the 86 entities carrying authored coordinates (mt#4038): **structural
+56 · lexical 24 · constant 4 · embedding 2 · model 0.** So the value ADR-024 does not define
+covers about two thirds of the corpus, `lexical` covers the guidance-hook detectors it does
+govern, `embedding` has exactly two instances (`memory-search`, `standalone-duplicate-matcher`),
+and the rung-3 `model` end of the ladder is unexercised by any shipped interceptor.
+
+Role, dimension 2 of §5, over the same 86: **judge 72 · infrastructure 8 · feeder 6.**
+
 ---
 
 ## 3. Four amendments the axes require
@@ -222,6 +240,23 @@ and a constraint any genus had to satisfy.
 **A family word is a filter, so membership is not exclusive.** By amendment (a),
 `policy-coverage-detector` is both a guard and a detector. This is a property of the model, not a
 classification error to resolve.
+
+**The three words do not PARTITION the corpus (measured, mt#4038).** Computing the filters over
+the authored capability sets: guard 42 · detector 27 · injector 25 — and **8 entities land in none
+of them.** The three family words filter `deny`/`allow`, `record(review)`, and `inject`; nothing
+filters `mutate` or `record(framework)`. The eight are exactly the pre-commit regeneration steps
+(`code-formatting`, `claude-hooks-compile-regen`, `completion-manifest-regen`, the two Dockerfile
+regens) and the framework-state writers (`record-turn-anchor`, `record-agent-dispatch`,
+`auto-session-title`) — precisely the "feeders and infrastructure" §5 already names as the
+entities that surfaced as falsifiers because they do not judge.
+
+This is the corpus reporting a property of the model, not a gap to close by widening a capability
+set until something matches. **A catalog must render these as explicitly outside the family
+filters, never as a blank** — a blank says "we never classified this", which is a different and
+false claim. Whether to mint a fourth family word is a NAMING decision and therefore
+principal-reserved; the set is pinned as `OUT_OF_MODEL_NAMES` in
+`.minsky/hooks/interceptor-coordinates.ts` so a future entity joining or leaving the class is a
+visible diff rather than silent drift.
 
 ### The coordinates grammar
 

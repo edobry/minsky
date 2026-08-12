@@ -886,7 +886,10 @@ export const sessionPrWaitForReviewCommandParams = {
       "exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. " +
       "On timeout the result carries expectedHeadShaUnreached naming the sha the remote " +
       "never reached. Ignored on backends without HEAD-sha support, or with " +
-      "requireCurrentHead: false.",
+      "requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so " +
+      "session_commit's short commitHash can be passed through verbatim; values under 7 " +
+      "characters, or non-hex values, are rejected with an error rather than silently " +
+      "matching nothing.",
     required: false,
   },
   fullBody: {

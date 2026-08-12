@@ -17,6 +17,7 @@ import {
   deriveComposerState,
   deriveOriginNotice,
   derivePendingRepliesNotice,
+  deriveAgentStoppedNotice,
   derivePollInterval,
   fetchEntityThread,
   isThreadStranded,
@@ -431,6 +432,37 @@ describe("derivePendingRepliesNotice (mt#4036)", () => {
 
   test("an all-zero report says nothing", () => {
     expect(derivePendingRepliesNotice({ pending: 0, lost: 0, oldestFailedAt: null })).toBeNull();
+  });
+});
+
+/**
+ * mt#4037 — a restart-killed agent must not be reported as an agent that gave
+ * up, and the operator must be told they can get it back.
+ *
+ * On 2026-08-11 a cockpit restart killed a thread's agent mid-task and the
+ * panel said "The agent stopped before answering — send again to ask." That
+ * blames the agent for a daemon shutdown; the operator waited 12h34m.
+ */
+describe("deriveAgentStoppedNotice (mt#4037)", () => {
+  test("names the COCKPIT as what stopped the agent, not the agent", () => {
+    const notice = deriveAgentStoppedNotice("cockpit-restart");
+    expect(notice).toMatch(/cockpit restarted/i);
+    // The load-bearing half the stranded line lacked: a way back.
+    expect(notice).toMatch(/send anything/i);
+  });
+
+  test("says plainly when the conversation cannot be resumed at all", () => {
+    const notice = deriveAgentStoppedNotice("unrecoverable");
+    expect(notice).toMatch(/can't be resumed/i);
+    // Must still leave the operator a move, or the panel is a dead end.
+    expect(notice).toMatch(/start a fresh one/i);
+  });
+
+  test("UNKNOWN says NOTHING rather than inventing a cause", () => {
+    // Same discipline as `live` and `originSeeded`: a daemon that reports no
+    // reason must not be read as asserting one. The panel falls back to the
+    // vaguer stranded line, which is at least true.
+    expect(deriveAgentStoppedNotice(undefined)).toBeNull();
   });
 });
 

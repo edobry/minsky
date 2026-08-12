@@ -19,6 +19,7 @@ import {
   isPgRetryableConnectionError,
 } from "@minsky/domain/persistence/postgres-retry";
 import {
+  deriveAgentStopReason,
   mountEntityThreadRoutes,
   parseEntityType,
   parseMessageBody,
@@ -177,6 +178,52 @@ describe("supportsOriginSeeding (mt#3367, PR #2493 R1 BLOCKING)", () => {
     const originCapable = ENTITY_THREAD_SUPPORTED_TYPES.filter(supportsOriginSeeding);
     expect(originCapable.length).toBeGreaterThan(0);
     expect(originCapable.length).toBeLessThan(ENTITY_THREAD_SUPPORTED_TYPES.length);
+  });
+});
+
+/**
+ * mt#4037 — the panel's claim about a stopped agent must come from state the
+ * restart could not erase (criterion 4).
+ *
+ * `reconnecting` is that state: boot reconciliation builds it FROM the persisted
+ * `driven_sessions` row, for a row still non-terminal when the daemon stopped
+ * writing. Every other status is either live, or a terminal verdict the actuator
+ * wrote about itself — neither of which is evidence the cockpit killed it.
+ */
+describe("deriveAgentStopReason (mt#4037)", () => {
+  const LOCAL_ID = "entity-thread:ask:a902cba7";
+
+  function registryWith(record: unknown) {
+    return { get: (id: string) => (id === LOCAL_ID ? record : undefined) } as never;
+  }
+
+  /** The shape boot reconciliation registers for a resumable persisted row. */
+  function bootRecord(status: string) {
+    return { localId: LOCAL_ID, status, proc: undefined, harnessSessionId: "1b355295" };
+  }
+
+  test("a boot-reconciled record reports the cockpit as the cause", () => {
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("reconnecting")))).toBe(
+      "cockpit-restart"
+    );
+  });
+
+  test("an unresumable record says so instead", () => {
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("unrecoverable")))).toBe(
+      "unrecoverable"
+    );
+  });
+
+  test("an agent that exited on its own is NOT reported as a restart kill", () => {
+    // The actuator wrote its own terminal status, so the cockpit did not kill
+    // it. Claiming otherwise would tell the operator to re-send at a thread
+    // whose agent decided it was finished.
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("exited")))).toBeUndefined();
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("crashed")))).toBeUndefined();
+  });
+
+  test("no record at all is UNKNOWN, not a restart", () => {
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(undefined))).toBeUndefined();
   });
 });
 
