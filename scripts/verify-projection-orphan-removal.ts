@@ -24,7 +24,12 @@
  *      counts orphans whose whole turn vanished — so a bound like mt#3514's
  *      `turn_index >= N` would silently leave it behind. This is the case that
  *      justifies the anti-join over an index bound.
- *   3. Rows the current derivation DOES emit survive, and a session with no turn
+ *   3. A turn whose `tool_calls` is the double-encoded jsonb STRING shape
+ *      (mt#3360) keeps its rows, while a genuine orphan beside it still goes.
+ *      That shape IS a jsonb type distinction, so only the real database can
+ *      exhibit it — the in-memory fake has no jsonb, which is how the case
+ *      reached review uncovered (PR #2887 R1).
+ *   4. Rows the current derivation DOES emit survive, and a session with no turn
  *      rows keeps its whole projection (the zero-yield safety guard, live).
  *
  * Usage:
@@ -236,7 +241,66 @@ async function main(): Promise<number> {
         `live keys ${EXPECTED_LIVE.join(", ")} survived.`
     );
 
-    // 4. Zero-yield safety guard, live: with the turn rows gone (an upstream gap,
+    // 4. An UNREADABLE turn's rows are protected, live (PR #2887 R1). A turn
+    //    whose `tool_calls` is the double-encoded jsonb STRING shape (mt#3360)
+    //    is filtered out of the derivation's SELECT entirely, so on the
+    //    live-slot predicate alone every row it owns reads as an orphan. Only
+    //    the real database can exhibit this: the shape IS a jsonb type
+    //    distinction, and the in-memory fake has no jsonb.
+    await db.execute(
+      sql`INSERT INTO agent_transcript_turns (agent_session_id, turn_index, tool_calls)
+          VALUES (${SCRATCH_SESSION}, 7, to_jsonb('[{"type":"tool_use","name":"Bash"}]'::text))`
+    );
+    const unreadableShape = (await db.execute(
+      sql`SELECT jsonb_typeof(tool_calls) AS shape
+          FROM agent_transcript_turns
+          WHERE agent_session_id = ${SCRATCH_SESSION} AND turn_index = 7`
+    )) as Array<Record<string, unknown>>;
+    if (unreadableShape[0]?.["shape"] !== "string") {
+      console.error(
+        `FAIL: setup wrote turn 7 as jsonb '${String(unreadableShape[0]?.["shape"])}', ` +
+          `expected 'string' — the double-encoded shape was not reproduced, so this proves nothing.`
+      );
+      return 1;
+    }
+    await seedProjectionRow(db, 7, 0); // owned by the unreadable turn
+    await seedProjectionRow(db, 7, 1);
+    await seedProjectionRow(db, 8, 0); // a genuine orphan alongside it
+
+    const fourth = await pipeline.runForSession(SCRATCH_SESSION);
+    const afterUnreadable = await readProjectionKeys(db);
+    const EXPECTED_WITH_UNREADABLE = [...EXPECTED_LIVE, "7:0", "7:1"];
+
+    if (fourth.skippedNonArray !== 1) {
+      console.error(`FAIL: skippedNonArray = ${fourth.skippedNonArray}, expected 1`);
+      return 1;
+    }
+    if (fourth.orphansDeleted !== 1) {
+      console.error(
+        `FAIL: orphansDeleted = ${fourth.orphansDeleted}, expected 1 — only the genuine ` +
+          `orphan at 8:0 should go, and the unreadable turn's rows should stay.`
+      );
+      return 1;
+    }
+    if (afterUnreadable.join(",") !== EXPECTED_WITH_UNREADABLE.join(",")) {
+      console.error(
+        `FAIL: projection is ${afterUnreadable.join(", ") || "(empty)"}, ` +
+          `expected ${EXPECTED_WITH_UNREADABLE.join(", ")} — an unreadable turn's rows were ` +
+          `deleted as if the turn did not exist.`
+      );
+      return 1;
+    }
+    console.log(
+      "PASS: an unreadable (double-encoded) turn kept its rows while the genuine orphan 8:0 was removed."
+    );
+
+    // Restore the baseline for the next check.
+    await db.execute(
+      sql`DELETE FROM agent_tool_call_projection
+          WHERE agent_session_id = ${SCRATCH_SESSION} AND turn_index = 7`
+    );
+
+    // 5. Zero-yield safety guard, live: with the turn rows gone (an upstream gap,
     //    not a derivation result), the projection must be left alone.
     await db.execute(
       sql`DELETE FROM agent_transcript_turns WHERE agent_session_id = ${SCRATCH_SESSION}`
@@ -260,7 +324,7 @@ async function main(): Promise<number> {
     }
     console.log("PASS: a session with no turn rows kept its whole projection.");
 
-    console.log("\nverify-projection-orphan-removal: PASS (3/3)");
+    console.log("\nverify-projection-orphan-removal: PASS (4/4)");
     return 0;
   } finally {
     await removeScratchRows(db);

@@ -270,6 +270,21 @@ export class ToolCallProjectionPipeline {
    * an `ordinal` past a surviving turn's current tool-call count — which the
    * corpus measurement could not even see.
    *
+   * **Why an UNREADABLE turn is protected, not treated as empty (PR #2887 R1).**
+   * A turn whose `tool_calls` is the double-encoded jsonb STRING shape (mt#3360)
+   * satisfies neither half of the live-slot test — `jsonb_typeof` is not
+   * `'array'` — so on the first predicate alone every projection row for that
+   * turn reads as an orphan and is deleted. It is not one. A NULL `tool_calls`
+   * is a derivation RESULT ("this turn has no tool calls", and its stale rows
+   * should go); an unreadable one is an upstream DATA problem, and deleting
+   * against it destroys history the current derivation simply cannot re-emit —
+   * the same reasoning the zero-yield guard applies at session grain, applied
+   * here at turn grain. The second NOT EXISTS holds those rows back.
+   *
+   * Deliberately turn-scoped rather than session-scoped: skipping the whole
+   * session on one malformed turn would leave a 99-good-turn session
+   * unreconcilable forever. This protects exactly the at-risk rows.
+   *
    * **Why no advisory lock, unlike mt#3514.** That fix compared against a
    * SNAPSHOT count (`turns.length` read before the write), so a concurrent run
    * that extracted more turns could have its rows deleted as false orphans —
@@ -295,6 +310,14 @@ export class ToolCallProjectionPipeline {
                 AND t.tool_calls IS NOT NULL
                 AND jsonb_typeof(t.tool_calls) = 'array'
                 AND ${agentToolCallProjectionTable.ordinal} < jsonb_array_length(t.tool_calls)
+            )`,
+            sql`NOT EXISTS (
+              SELECT 1
+              FROM ${agentTranscriptTurnsTable} t
+              WHERE t.agent_session_id = ${agentToolCallProjectionTable.agentSessionId}
+                AND t.turn_index = ${agentToolCallProjectionTable.turnIndex}
+                AND t.tool_calls IS NOT NULL
+                AND jsonb_typeof(t.tool_calls) <> 'array'
             )`
           )
         )

@@ -143,17 +143,29 @@ function liveProjectionKeys(sessionId: string, turnRows: FakeTurnRow[]): Set<str
   return keys;
 }
 
-/** Apply the simulated orphan delete to the fake store; returns the removed rows. */
+/**
+ * Apply the simulated orphan delete to the fake store; returns the removed rows.
+ *
+ * `unreadableTurnIndexes` models the second NOT EXISTS (PR #2887 R1): turns
+ * whose `tool_calls` is the double-encoded jsonb STRING shape. They cannot
+ * appear in `turnRows` — production's main SELECT filters
+ * `jsonb_typeof = 'array'`, so the pipeline never fetches them — which is
+ * exactly why they need to be modelled separately here, and exactly how the
+ * defect hid: invisible to the derivation, visible to the DELETE.
+ */
 function deleteOrphansFromStore(
   projectionStore: Map<string, FakeProjectionRow>,
   sessionId: string,
-  turnRows: FakeTurnRow[]
+  turnRows: FakeTurnRow[],
+  unreadableTurnIndexes: readonly number[] = []
 ): FakeProjectionRow[] {
   const live = liveProjectionKeys(sessionId, turnRows);
+  const protectedTurns = new Set(unreadableTurnIndexes);
   const removed: FakeProjectionRow[] = [];
   for (const [key, row] of [...projectionStore.entries()]) {
     if (row.agentSessionId !== sessionId) continue;
     if (live.has(key)) continue;
+    if (protectedTurns.has(row.turnIndex)) continue;
     projectionStore.delete(key);
     removed.push(row);
   }
@@ -171,6 +183,12 @@ interface FakeDbOptions {
   failTurnRowCountQuery?: boolean;
   /** Turn index whose upsert rejects (drives turnsErrored > 0). */
   failInsertForTurnIndex?: number;
+  /**
+   * Turn indexes whose `tool_calls` is the double-encoded jsonb STRING shape —
+   * present in the table, absent from the pipeline's filtered SELECT, and
+   * protected from the DELETE (PR #2887 R1).
+   */
+  unreadableTurnIndexes?: readonly number[];
 }
 
 /**
@@ -250,7 +268,12 @@ function makeDb(
             if (options.failDelete) {
               return Promise.reject(new Error("simulated orphan delete failure"));
             }
-            const removed = deleteOrphansFromStore(projectionStore, sessionId, turnRows);
+            const removed = deleteOrphansFromStore(
+              projectionStore,
+              sessionId,
+              turnRows,
+              options.unreadableTurnIndexes
+            );
             return Promise.resolve(removed.map((r) => ({ turnIndex: r.turnIndex })));
           },
         }),
@@ -642,6 +665,46 @@ describe("orphan removal (mt#3978)", () => {
     expect(deleteLog).toEqual([SESSION_A]);
     expect(result.orphansDeleted).toBe(2);
     expect(store.size).toBe(0);
+  });
+
+  test("a turn whose tool_calls is UNREADABLE keeps its rows, while real orphans still go (PR #2887 R1)", async () => {
+    // The double-encoded jsonb STRING shape (mt#3360). Production's main SELECT
+    // filters `jsonb_typeof = 'array'`, so such a turn never reaches the
+    // derivation — and on the live-slot predicate alone every projection row it
+    // owns reads as an orphan. It is not one: a NULL tool_calls is a derivation
+    // RESULT, an unreadable one is an upstream DATA problem, and deleting
+    // against it destroys rows the current derivation cannot re-emit.
+    const store = new Map<string, FakeProjectionRow>();
+    seedPriorDerivation(store, [
+      [0, 0], // live
+      [3, 0], // owned by the unreadable turn 3
+      [3, 1],
+      [9, 0], // a genuine orphan: turn 9 does not exist at all
+    ]);
+
+    const deleteLog: string[] = [];
+    const turnRows = [turnWithToolCalls(0, 1)];
+    const db = makeDb(turnRows, store, /* skippedNonArrayCount */ 1, {
+      deleteLog,
+      unreadableTurnIndexes: [3],
+    });
+    const pipeline = new ToolCallProjectionPipeline(asDb(db));
+
+    const result = await pipeline.runForSession(SESSION_A);
+
+    // The delete DOES run — one malformed turn must not make a session
+    // unreconcilable — and removes only the genuine orphan.
+    expect(deleteLog).toEqual([SESSION_A]);
+    expect(result.skippedNonArray).toBe(1);
+    expect(result.orphansDeleted).toBe(1);
+    expect(result.orphanDeleteFailed).toBe(false);
+    expect([...store.keys()].sort()).toEqual(
+      [
+        projectionKey({ agentSessionId: SESSION_A, turnIndex: 0, ordinal: 0 }),
+        projectionKey({ agentSessionId: SESSION_A, turnIndex: 3, ordinal: 0 }),
+        projectionKey({ agentSessionId: SESSION_A, turnIndex: 3, ordinal: 1 }),
+      ].sort()
+    );
   });
 
   test("a failing DELETE is reported as orphanDeleteFailed, not swallowed as a clean no-op", async () => {
