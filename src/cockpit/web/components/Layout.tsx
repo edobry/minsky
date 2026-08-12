@@ -37,6 +37,7 @@ import { Rail } from "./Rail";
 import { TabBar } from "./TabBar";
 import { CommandPalette } from "./CommandPalette";
 import { TabKeyboardNav } from "./TabKeyboardNav";
+import { PeekHost } from "./PeekHost";
 import { TabsProvider } from "../lib/tabs";
 import { NewConversationProvider } from "../hooks/useNewConversation";
 
@@ -61,6 +62,12 @@ export function Layout({ children }: Props) {
           </div>
           <CommandPalette />
           <TabKeyboardNav />
+          {/* PeekHost (mt#3694) renders the entity side peek over this shell.
+              It sits here, a sibling of <main> rather than inside it, so the
+              underlying page keeps its scroll position and its mounted state
+              while a pane is open — the peek's whole point. It renders null
+              when no pane is open, so every un-peeked route pays nothing. */}
+          <PeekHost />
         </div>
       </NewConversationProvider>
     </TabsProvider>
