@@ -41,6 +41,36 @@
  * SAME-LENGTH whitespace, so offsets still address the same span) for its own
  * matching. Capture from that copy, never from the raw turn text — the elision
  * is what makes the wider window safe rather than a new exposure.
+ *
+ * ## Retention and redaction posture (mt#3872, decided 2026-08-12)
+ *
+ * The PR-body surfaces capture from an artifact that has NOT been elided — a PR
+ * body or a spec is stored as written. The posture for those captures, decided
+ * by the operator on ask#8157 rather than left implicit:
+ *
+ * - **Local-only.** Every calibration log is gitignored and none has ever been
+ *   committed — all 31 `.minsky/*.jsonl` files verified against `.gitignore`,
+ *   not assumed. The exposure is one working copy on one machine, and the PR
+ *   bodies these captures hold are already public on GitHub.
+ * - **Bounded and hashed.** {@link captureArtifact} stores at most
+ *   {@link ARTIFACT_CAPTURE_MAX_CHARS} code units plus a sha256 of the FULL
+ *   text, so an unbounded artifact cannot write an unbounded record.
+ * - **Never redacted, deliberately.** Not an oversight and not a TODO. A
+ *   redaction filter that matches nothing emits its input unchanged and is
+ *   indistinguishable from one that fired, which is how a prod DB password
+ *   leaked on 2026-08-01 (`terminal-command-best-practices.mdc §Secret
+ *   handling`). Adding a regex redactor here would buy exactly that false
+ *   assurance: a ten-pattern secret-shape scan over the whole live corpus (749
+ *   records across the three logs that carry captures — tokens, keys, JWTs,
+ *   bearer headers, credentialed URLs) returned ZERO matches, so such a filter
+ *   would sit here matching nothing while reading as protection.
+ * - **Remedy if a secret is ever captured: delete the local log.** These are
+ *   disposable calibration records with no retention requirement — there is no
+ *   recovery procedure to run and nothing downstream depends on the history.
+ *
+ * Re-open this decision if the logs ever become committed, shipped off-machine,
+ * or read by anything that outlives a local sweep; each of those removes a
+ * premise the posture rests on.
  */
 
 import { createHash } from "node:crypto";
