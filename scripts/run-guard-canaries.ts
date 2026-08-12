@@ -71,6 +71,18 @@ import { randomUUID } from "node:crypto";
 // outside any try/catch, and the failure is easy to misattribute to "DB
 // unavailable" instead of "polyfill missing".
 import "reflect-metadata";
+// mt#4007 R2 BLOCKING fix: STATIC, for the same reason as `reflect-metadata`
+// above — `persistCanaryRun`'s catch handler below must be able to format
+// ANY error without itself risking a throw. A `await import(...)` INSIDE a
+// catch block is not guarded by anything (it's the last handler), so a
+// resolution failure there — package mismatch, transient fs error — would
+// escape the catch, propagate out of `persistCanaryRun()`, and reach
+// `main()`'s `await persistCanaryRun(report)` before `process.exit(...)`,
+// defeating SC5's fail-open guarantee. Resolving it here, at module load,
+// means any failure to resolve `@minsky/shared/safe-truncate` surfaces
+// immediately and loudly (a normal top-level throw), long before the catch
+// handler could ever need it.
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 // Type-only imports erase at compile time, so they cannot load a domain
 // module ahead of the bootstrap in persistCanaryRun below.
 import type { CanaryReport } from "../.minsky/hooks/canary-runner";
@@ -96,10 +108,49 @@ const {
 const { STANDALONE_GUARD_CANARIES } = await import("./lib/standalone-guard-canaries");
 
 /**
+ * Duck-typed guard for a SQL-capable persistence provider (mt#4007 R2
+ * NON-BLOCKING #1).
+ *
+ * `instanceof PersistenceProvider` is unreliable here: under Bun's ESM
+ * module resolution, a `@minsky/domain/...` specifier resolved from
+ * `scripts/` can end up a DIFFERENT module instance than the one
+ * `createCliContainer()` built its provider against (duplicate module
+ * graphs) — in which case `instanceof` silently returns `false` even for a
+ * perfectly valid, fully SQL-capable provider. That would take the
+ * warn-and-skip branch below and defeat persistence with a valid provider
+ * registered, with nothing distinguishing it from "genuinely no DB". A
+ * structural check on exactly the members this function calls
+ * (`getDatabaseConnection`, `capabilities.sql`, `close`) is immune to that
+ * failure mode — it only cares what the value can DO, not which module
+ * constructed it.
+ */
+function isSqlCapablePersistenceProvider(value: unknown): value is {
+  capabilities: { sql: boolean };
+  getDatabaseConnection(): Promise<unknown>;
+  close(): Promise<void>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  const capabilities = candidate.capabilities;
+  return (
+    typeof capabilities === "object" &&
+    capabilities !== null &&
+    (capabilities as Record<string, unknown>).sql === true &&
+    typeof candidate.getDatabaseConnection === "function" &&
+    typeof candidate.close === "function"
+  );
+}
+
+/**
  * Persist one canary pass's evaluated outcomes to `guard_canary_runs`
  * (mt#4007). Best-effort and fail-open — see this file's module doc comment
  * ("Persistence") for why a bootstrap/connect/write failure must never touch
  * stdout or the exit code. Reports failures to stderr only.
+ *
+ * Invariant (mt#4007 R2 BLOCKING fix): NOTHING inside the `catch` block below
+ * may throw. Every symbol it references (`safeTruncate`) is a STATIC,
+ * module-load-time import — see the top-of-file comment on that import for
+ * why a dynamic `import()` inside a catch handler is unsafe here.
  */
 async function persistCanaryRun(report: CanaryReport): Promise<void> {
   const outcomes = buildPersistableOutcomes(report);
@@ -114,7 +165,6 @@ async function persistCanaryRun(report: CanaryReport): Promise<void> {
       "@minsky/domain/configuration"
     );
     const { createCliContainer } = await import("../src/composition/cli");
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     const { buildGuardCanaryHistoryRepository } = await import(
       "@minsky/domain/observability/guard-canary-history"
     );
@@ -124,19 +174,15 @@ async function persistCanaryRun(report: CanaryReport): Promise<void> {
     await container.initialize();
 
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-    if (!persistence || !(persistence instanceof PersistenceProvider)) {
+    if (!isSqlCapablePersistenceProvider(persistence)) {
       process.stderr.write(
-        "[run-guard-canaries] warn: no persistence provider available — skipping canary-history write\n"
+        persistence
+          ? "[run-guard-canaries] warn: persistence provider is not SQL-capable — skipping canary-history write\n"
+          : "[run-guard-canaries] warn: no persistence provider available — skipping canary-history write\n"
       );
       return;
     }
     persistenceToClose = persistence;
-    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-      process.stderr.write(
-        "[run-guard-canaries] warn: persistence provider is not SQL-capable — skipping canary-history write\n"
-      );
-      return;
-    }
 
     const db = await persistence.getDatabaseConnection();
     const repository = buildGuardCanaryHistoryRepository(db);
@@ -151,9 +197,9 @@ async function persistCanaryRun(report: CanaryReport): Promise<void> {
   } catch (err) {
     // A drizzle-orm/postgres-js query error's `.message` embeds the FULL SQL
     // statement plus every bound parameter (verified live: a 45-guard run
-    // produced a multi-KB single line) — safeTruncate keeps the stderr line
-    // readable without hiding that a failure occurred.
-    const { safeTruncate } = await import("@minsky/shared/safe-truncate");
+    // produced a multi-KB single line) — safeTruncate (statically imported
+    // at module load, see top of file) keeps the stderr line readable
+    // without hiding that a failure occurred.
     const rawMessage = err instanceof Error ? err.message : String(err);
     process.stderr.write(
       `[run-guard-canaries] warn: canary-history persistence failed (best-effort, swallowed): ${safeTruncate(
