@@ -322,6 +322,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
+  "MINSKY_COCKPIT_RP_ID", // src/cockpit/server.ts (mt#4023) — WebAuthn relying-party id for the public deployment; defaults to the Railway hostname. Changing it invalidates every enrolled passkey, since a credential is bound to the rpID it was created under.
+  "MINSKY_COCKPIT_ORIGIN", // src/cockpit/server.ts (mt#4023) — expected WebAuthn origin; defaults to `https://<rpID>`. Override only when the scheme or port differs from that default.
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest

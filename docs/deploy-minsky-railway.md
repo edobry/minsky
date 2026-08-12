@@ -901,3 +901,45 @@ This is v1 authentication:
 - Adequate while consumer count ≤ 3 and all consumers live in trusted infrastructure (Railway project, CI)
 
 Follow-up when those bounds are exceeded: JWT issuance from Minsky, per-agent claims, rotation protocol, audit log. File as a separate task when the situation demands it.
+
+## Cockpit preview: passkey gate (mt#4023)
+
+The `cockpit-preview` service (`https://cockpit-preview-production.up.railway.app`) is
+**passkey-gated and denies by default**. It previously served the live corpus to anyone with the
+URL — measured 2026-08-11: an unauthenticated `GET /api/tasks` returned 500 production tasks.
+
+**First run.** Open the URL. With no passkey registered, the sign-in screen offers _Set up a
+passkey_; completing that ceremony both enrolls the credential and signs you in. **That window is
+once-only** — once a passkey exists, enrolling another requires an existing session. If you lose
+every credential, delete the rows from `cockpit_passkeys` to reopen the bootstrap window.
+
+**Adding a second device.** Sign in first, then use _Add another passkey_ on the same screen.
+
+**What stays public:** `/api/health` (the healthcheck and the mt#1302 post-deploy monitor depend
+on it) and `/api/auth/*`. Everything else under `/api` requires a session.
+
+**Env vars** (both optional; defaults suit the current deployment):
+
+| Variable                | Default                                     | Notes                                                                                                                                              |
+| ----------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MINSKY_COCKPIT_RP_ID`  | `cockpit-preview-production.up.railway.app` | The WebAuthn relying-party id. Must be the full hostname — `up.railway.app` is on the Public Suffix List, so no shorter registrable suffix exists. |
+| `MINSKY_COCKPIT_ORIGIN` | `https://<rpID>`                            | Override only if scheme or port differs.                                                                                                           |
+
+**Moving to a custom domain invalidates every enrolled passkey.** A credential is bound to the
+rpID it was created under, so changing `MINSKY_COCKPIT_RP_ID` means re-enrolling. Plan for it
+rather than being surprised by a sign-in screen that rejects a working passkey.
+
+**Verifying the gate** (safe, read-only, no credential needed):
+
+```bash
+bun scripts/verify-cockpit-passkey-gate.ts
+# → 5/5 checks: health 200, auth status gated:true, data routes 401
+```
+
+**If sign-in returns 503**, the auth tables are missing or unreachable — check that migration
+`0094` applied. The gate fails CLOSED in that state: data routes keep returning 401, so a 503 is
+an availability problem, never an exposure.
+
+**Database note.** This service connects to the production database as the SELECT-only
+`minsky_preview` role, so migration `0094` grants write on exactly `cockpit_passkeys` and
+`cockpit_auth_sessions` — the only two tables it needs to write. See mem#973.
