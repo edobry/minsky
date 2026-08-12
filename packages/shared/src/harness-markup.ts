@@ -28,7 +28,9 @@
  *   - `<skill-name>` (112) — rule prose describing the `/<skill-name>` form.
  *
  * A `local-command-stderr` tag does NOT exist in the corpus; do not add one
- * on symmetry grounds without observing it first.
+ * on symmetry grounds without observing it first. (Note that `bash-stderr`,
+ * added below, is a DIFFERENT tag from a different family and was observed
+ * before being added — it is not a counter-example to that rule.)
  *
  * **Why `@minsky/shared` and not `@minsky/domain`,** given that both consumers
  * are transcript code and one of them lives in the domain layer: the cockpit
@@ -71,6 +73,26 @@ export const COMMAND_WRAPPER_TAGS = [
  */
 export const LOCAL_COMMAND_TAGS = ["local-command-stdout", "local-command-caveat"] as const;
 
+/**
+ * Bash-mode tags (mt#4058) — what the harness records when the operator types a
+ * `!`-prefixed command straight into the prompt, rather than invoking a slash
+ * command.
+ *
+ * Shape differs from {@link LOCAL_COMMAND_TAGS} in one way that matters to
+ * consumers: `bash-stdout` and `bash-stderr` arrive CONCATENATED inside a
+ * single turn — `<bash-stdout>…</bash-stdout><bash-stderr>…</bash-stderr>` —
+ * and one half is frequently EMPTY. A consumer that stops after the first
+ * matched block leaks the second as raw prose.
+ *
+ * Corpus counts (surveyed 2026-08-12 over `~/.claude/projects/**\/*.jsonl`, the
+ * same method as the 2026-07-29 survey above): 39 `bash-input`, 27
+ * `bash-stdout`, 21 `bash-stderr`, across 14 conversations. `bash-input` is
+ * role `user` and carries the operator's typed command; the stdout/stderr pair
+ * is also role `user` and carries none of their words at all, which is why it
+ * rendered under the operator's own label before this was added.
+ */
+export const BASH_MODE_TAGS = ["bash-input", "bash-stdout", "bash-stderr"] as const;
+
 /** Harness reminder blocks. Unlike the others, these interleave anywhere in a turn. */
 export const SYSTEM_REMINDER_TAGS = ["system-reminder"] as const;
 
@@ -94,6 +116,7 @@ export const TASK_NOTIFICATION_TAGS = ["task-notification"] as const;
 export const HARNESS_MARKUP_TAGS = [
   ...COMMAND_WRAPPER_TAGS,
   ...LOCAL_COMMAND_TAGS,
+  ...BASH_MODE_TAGS,
   ...SYSTEM_REMINDER_TAGS,
   ...TASK_NOTIFICATION_TAGS,
 ] as const;
