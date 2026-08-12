@@ -932,7 +932,18 @@ export function filterStopFlagged(
 const EXCERPT_WINDOW_CHARS = 80;
 
 /**
- * Excerpt plus judged-input identity for a fire that INJECTED (mt#3821).
+ * Judged-input identity, plus an excerpt when one can be located, for a fire
+ * that INJECTED (mt#3821).
+ *
+ * **Identity is unconditional; the excerpt is not** (PR #2938 R1). An earlier
+ * draft returned `null` whenever `indexOf` could not find the phrase, on the
+ * reasoning that stamping `captureSchema` without an excerpt would make
+ * `hasJudgedInputCapture` lie — the mt#4048 R1 mistake, avoided in reverse. It
+ * had the wrong subject. That predicate means the record identifies the text its
+ * writer judged, and the hash does identify it: a hash-bearing record is
+ * replayable through `scripts/replay-retrospective-trigger-calibration.ts`
+ * whether or not a phrase offset was recoverable. Only a failure to obtain the
+ * text at all leaves a record unmarked.
  *
  * Two things were wrong with the slice this replaces, and they are the same
  * thing seen twice. It cut from the RAW turn while every rung matched on the
@@ -944,28 +955,25 @@ const EXCERPT_WINDOW_CHARS = 80;
  * exposure. Both surfaces already elide before matching, so this only aligns
  * the record with what was judged.
  *
- * Returns `null` when the phrase is not locatable in the elided text, and the
- * caller then stamps NO capture marker: `hasJudgedInputCapture` means the
- * writer captured its judged input, so claiming it for an empty excerpt would
- * make the predicate lie (mt#4048 R1 made exactly that mistake in reverse).
+ * `excerpt` is the empty string when the phrase is not locatable — the same
+ * value the pre-mt#3821 writer stored in that case, so no consumer sees a new
+ * shape.
  */
 export function captureInjectedInput(
   fullText: string,
   matchedPhrase: string
-): { excerpt: string; capture: JudgedInputCapture } | null {
+): { excerpt: string; capture: JudgedInputCapture } {
   const elided = elideQuotedAndCodeContexts(fullText);
   const idx = elided.indexOf(matchedPhrase);
-  if (idx < 0) return null;
+  const capture: JudgedInputCapture = {
+    judgedTextHash: hashJudgedText(elided),
+    judgedTextLength: elided.length,
+    nominationContexts: [],
+  };
+  if (idx < 0) return { excerpt: "", capture };
   const start = Math.max(0, idx - EXCERPT_WINDOW_CHARS);
   const end = Math.min(elided.length, idx + matchedPhrase.length + EXCERPT_WINDOW_CHARS);
-  return {
-    excerpt: elided.slice(start, end),
-    capture: {
-      judgedTextHash: hashJudgedText(elided),
-      judgedTextLength: elided.length,
-      nominationContexts: [],
-    },
-  };
+  return { excerpt: elided.slice(start, end), capture };
 }
 
 /**
@@ -1313,10 +1321,8 @@ export async function run(
           ? extractLastUserMessage(lines)
           : extractAssistantText(runTurnLines);
       const captured = captureInjectedInput(fullText, firstMatch.matchedPhrase);
-      if (captured !== null) {
-        transcriptExcerpt = captured.excerpt;
-        injectedCapture = captured.capture;
-      }
+      transcriptExcerpt = captured.excerpt;
+      injectedCapture = captured.capture;
     } catch {
       // fail-open
     }
@@ -1480,10 +1486,8 @@ export async function main(): Promise<void> {
           ? extractLastUserMessage(lines)
           : extractAssistantText(mainTurnLines);
       const captured = captureInjectedInput(fullText, firstMatch.matchedPhrase);
-      if (captured !== null) {
-        transcriptExcerpt = captured.excerpt;
-        injectedCapture = captured.capture;
-      }
+      transcriptExcerpt = captured.excerpt;
+      injectedCapture = captured.capture;
     } catch {
       // fail-open
     }

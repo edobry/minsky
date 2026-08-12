@@ -43,9 +43,8 @@ describe("captureInjectedInput", () => {
     ].join("\n");
 
     const captured = captureInjectedInput(raw, "I was wrong about the schema");
-    expect(captured).not.toBeNull();
-    expect(captured?.excerpt).toContain("Now the real admission.");
-    expect(captured?.excerpt).not.toContain("Here is what the guard matches:");
+    expect(captured.excerpt).toContain("Now the real admission.");
+    expect(captured.excerpt).not.toContain("Here is what the guard matches:");
   });
 
   test("hashes the whole elided text, and the length describes that same text", () => {
@@ -53,16 +52,21 @@ describe("captureInjectedInput", () => {
     const elided = elideQuotedAndCodeContexts(raw);
     const captured = captureInjectedInput(raw, "I was wrong here.");
 
-    expect(captured?.capture.judgedTextHash).toBe(hashJudgedText(elided));
-    expect(captured?.capture.judgedTextLength).toBe(elided.length);
+    expect(captured.capture.judgedTextHash).toBe(hashJudgedText(elided));
+    expect(captured.capture.judgedTextLength).toBe(elided.length);
   });
 
-  test("returns null when the phrase is not locatable, so no marker is stamped", () => {
-    // The caller stamps `captureSchema` only from a non-null capture. A record
-    // claiming capture with an empty excerpt would make `hasJudgedInputCapture`
-    // report a re-classifiable record that carries nothing (the mt#4048 R1
-    // failure, inverted).
-    expect(captureInjectedInput("some unrelated prose", "a phrase not present")).toBeNull();
+  test("still identifies the judged text when the phrase is not locatable", () => {
+    // PR #2938 R1: an unlocatable phrase costs the EXCERPT, never the identity.
+    // A hash-bearing record is replayable through the reconstruction script
+    // whether or not an offset was recoverable, so withholding the marker here
+    // would strip a record that is in fact re-classifiable.
+    const raw = "some unrelated prose";
+    const captured = captureInjectedInput(raw, "a phrase not present");
+
+    expect(captured.excerpt).toBe("");
+    expect(captured.capture.judgedTextHash).toBe(hashJudgedText(elideQuotedAndCodeContexts(raw)));
+    expect(captured.capture.judgedTextLength).toBe(elideQuotedAndCodeContexts(raw).length);
   });
 });
 
@@ -101,12 +105,11 @@ describe("detectTriggerPhrasesWithNomination capture", () => {
 describe("the record fields a capture produces", () => {
   test("hasJudgedInputCapture is true for a record built from a capture", () => {
     const captured = captureInjectedInput("prose. I was wrong here. more prose.", "I was wrong");
-    expect(captured).not.toBeNull();
     const record: Record<string, unknown> = {
       matches: [{ family: "R1", phrase: "I was wrong" }],
-      transcript_excerpt: captured?.excerpt,
+      transcript_excerpt: captured.excerpt,
       captureSchema: 1,
-      judged_text_hash: captured?.capture.judgedTextHash,
+      judged_text_hash: captured.capture.judgedTextHash,
     };
     expect(hasJudgedInputCapture(record)).toBe(true);
   });
