@@ -53,17 +53,27 @@
  *   not assumed. The exposure is one working copy on one machine, and the PR
  *   bodies these captures hold are already public on GitHub.
  * - **Bounded and hashed.** {@link captureArtifact} stores at most
- *   {@link ARTIFACT_CAPTURE_MAX_CHARS} code units plus a sha256 of the FULL
- *   text, so an unbounded artifact cannot write an unbounded record.
+ *   {@link ARTIFACT_CAPTURE_MAX_CHARS} code units of the text, so an unbounded
+ *   artifact cannot write an unbounded record. Alongside it,
+ *   {@link hashJudgedText} stores a digest computed over the WHOLE text rather
+ *   than over the stored excerpt — which is what makes a truncated capture
+ *   still able to detect a mutated artifact. That digest is a 16-hex-character
+ *   (64-bit) PREFIX of the sha256, not the full one: sized to notice an
+ *   artifact that changed between the write and a re-check, and deliberately
+ *   not sized against an adversary constructing a collision. No security
+ *   property here rests on it.
  * - **Never redacted, deliberately.** Not an oversight and not a TODO. A
  *   redaction filter that matches nothing emits its input unchanged and is
  *   indistinguishable from one that fired, which is how a prod DB password
  *   leaked on 2026-08-01 (`terminal-command-best-practices.mdc §Secret
  *   handling`). Adding a regex redactor here would buy exactly that false
- *   assurance: a ten-pattern secret-shape scan over the whole live corpus (749
- *   records across the three logs that carry captures — tokens, keys, JWTs,
- *   bearer headers, credentialed URLs) returned ZERO matches, so such a filter
- *   would sit here matching nothing while reading as protection.
+ *   assurance. The basis for saying so is a measurement, bounded to what was
+ *   measured: on 2026-08-12 a ten-pattern secret-shape scan (tokens, keys,
+ *   JWTs, bearer headers, credentialed URLs) over the 749 records then present
+ *   across the three logs that carry captures matched nothing. That is a
+ *   statement about that corpus on that date, not a guarantee about future
+ *   records — reproduce it with `rg` over `.minsky/*-calibration.jsonl` before
+ *   citing it as current.
  * - **Remedy if a secret is ever captured: delete the local log.** These are
  *   disposable calibration records with no retention requirement — there is no
  *   recovery procedure to run and nothing downstream depends on the history.
