@@ -11,6 +11,12 @@
 import { createHash } from "node:crypto";
 import type { GuardEventFamily } from "./stream-sources";
 
+/** UTF-8 byte length without depending on the `Buffer` global (kept out of the
+ * ambient type environment some consuming projects check this file under). */
+export function utf8ByteLength(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
 // ---------------------------------------------------------------------------
 // Dedupe key (schema doc-comment contract, verbatim)
 // ---------------------------------------------------------------------------
@@ -112,7 +118,7 @@ export function splitCompleteLinesAndOffset(
 
   const complete = chunk.slice(0, lastNewline);
   const lines = complete.split("\n").filter((line) => line.trim().length > 0);
-  const consumedBytes = Buffer.byteLength(chunk.slice(0, lastNewline + 1), "utf-8");
+  const consumedBytes = utf8ByteLength(chunk.slice(0, lastNewline + 1));
   return { lines, newOffset: fromByte + consumedBytes };
 }
 

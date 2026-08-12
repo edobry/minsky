@@ -33,8 +33,15 @@
  * @see docs/architecture/guard-calibration-stream-inventory.md — the stream set
  * @see packages/domain/src/storage/schemas/guard-events-schema.ts — the target table
  */
-import { computeDedupeKey, canonicalizeForHash, extractPromotedFields } from "./parsing";
-import { resolveTailStart, splitCompleteLinesAndOffset, parseDisconnectLogArray } from "./parsing";
+import {
+  computeDedupeKey,
+  canonicalizeForHash,
+  extractPromotedFields,
+  resolveTailStart,
+  splitCompleteLinesAndOffset,
+  parseDisconnectLogArray,
+  utf8ByteLength,
+} from "./parsing";
 import type { GuardEventsHwmEntry, GuardEventsHwmState } from "./hwm-store";
 import type { GuardEventStreamSource } from "./stream-sources";
 
@@ -150,7 +157,7 @@ export function planJsonlStreamRows(
   if (!truncated) return { rows, newOffset, truncated: false };
 
   const consumedText = `${boundedLines.join("\n")}\n`;
-  const consumedBytes = Buffer.byteLength(consumedText, "utf-8");
+  const consumedBytes = utf8ByteLength(consumedText);
   return { rows, newOffset: start + consumedBytes, truncated: true };
 }
 
