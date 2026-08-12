@@ -998,6 +998,12 @@ if (import.meta.main) {
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision,
+      // mt#3920: `decided` unconditionally, and only because BOTH exits sit downstream of
+      // the check. This guard has no early exit and no fail-open: every invocation parses
+      // the command and runs `checkDenial` over each parsed sub-command before it can
+      // reach here, and the policy check is pure in-process matching with no probe to
+      // break. A future early exit added ABOVE this closure must not route through it.
+      guardOutcome: "decided",
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       // mt#3381: settle whether `agent_type` reaches a PreToolUse hook in
