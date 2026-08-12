@@ -11,7 +11,6 @@ import { describe, expect, test, afterEach } from "bun:test";
 import {
   run,
   buildAdvisory,
-  renderWorstCase,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
 } from "./flakiness-control-detector";
@@ -58,13 +57,18 @@ describe("flakiness-control-detector — adapter", () => {
     expect(run(input as unknown as ToolHookInput, CTX)).toBeNull();
   });
 
-  test("calibration-first: injection is OFF, so a fire carries no additionalContext", () => {
-    // Pinned rather than assumed: the whole population mt#4002 found had
-    // ceilings enforced against "" because injection was gated off. When this
-    // flips, this assertion is the thing that has to change deliberately.
-    expect(INJECTION_ENABLED).toBe(false);
+  test("log-only means a WARN AND a record — not silence (SC2/AT1)", () => {
+    // Both halves pinned, because the easy mistake is to read "calibration
+    // first" as record-only: the spec asks for the warning, and a guard that
+    // records without telling the agent leaves it to learn nothing until
+    // someone reviews the log.
+    expect(INJECTION_ENABLED).toBe(true);
     const outcome = run(createInput("It is flaky."), CTX);
-    expect(outcome?.additionalContext).toBeUndefined();
+
+    expect(outcome?.additionalContext).toContain("[flakiness-control]");
+    expect(outcome?.calibration).toBeDefined();
+    // And still not a deny — that is the half "calibration-first" does buy.
+    expect(outcome?.deny).toBeUndefined();
   });
 
   test("the override short-circuits to an audit line on stderr, never stdout", () => {
@@ -97,14 +101,18 @@ describe("flakiness-control-detector — advisory shape", () => {
     expect(attribution).toContain("Run the file alone");
   });
 
-  test("renderWorstCase stays under the declared ceiling and is saturated", () => {
-    const rendered = renderWorstCase();
+  test("the claim list is capped, with the overflow named rather than dropped", () => {
+    // The ceiling itself is enforced by `guard-feedback-shape.test.ts` against
+    // the registry's `worstCaseCanary`; this pins the cap that makes that
+    // ceiling a PROVED bound rather than a sample of an unbounded list.
+    const many = detectFlakinessAttribution(
+      "It is not load-dependent; the suite is flaky, intermittent, load-sensitive, " +
+        "fails under parallelism, passes in isolation, and is timing-dependent."
+    );
+    expect(many.claims.length).toBeGreaterThan(3);
 
-    // The registry declares 1000; the probe is what that ceiling is enforced
-    // against (mt#4002).
-    expect(rendered.length).toBeLessThanOrEqual(1000);
-    // Saturated on both axes: the claim list at its cap AND the overflow line.
-    expect(rendered).toContain("... and 2 more");
-    expect(rendered).toContain("FALSIFY");
+    const advisory = buildAdvisory(many);
+    expect(advisory).toContain("... and ");
+    expect(advisory.split("\n").filter((l) => l.startsWith("  - ")).length).toBe(3);
   });
 });

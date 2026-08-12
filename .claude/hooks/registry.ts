@@ -841,7 +841,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     event: "PreToolUse",
     matcher: "mcp__minsky__tasks_create",
     module: () => import("./flakiness-control-detector").then((m) => ({ run: m.run })),
-    renderProbe: () => import("./flakiness-control-detector").then((m) => m.renderWorstCase()),
+    // No `renderProbe`: this guard INJECTS (log-only means a WARN plus a
+    // record, per the spec's SC2), so its text is measurable from the canary
+    // like any other injecting guard — and a probe would exclude it from the
+    // `MERGED_CONTEXT_BUDGET_CHARS` bucket it genuinely contributes to
+    // (mt#4002). `worstCaseCanary` below poses the ceiling instead.
     timeoutMs: 5000,
     calibrationLog: "flakiness-control",
     denyCapable: false,
@@ -854,6 +858,24 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         tool_input: {
           title: "canary task",
           spec: "## Summary\n\nThe suite fails intermittently under load; it looks flaky.\n",
+        },
+      },
+      expects: "calibration",
+    },
+    // Saturates BOTH rendered axes at once: more claims than MAX_RENDERED_CLAIMS
+    // (so the `...and N more` line renders too) AND a denial among them (the
+    // longer of the two directive branches). Posing only the claim count would
+    // measure the shorter branch and understate the ceiling — the under-posing
+    // mt#3767 hit.
+    worstCaseCanary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec:
+            "It is not load-dependent and not timing-dependent; it fails deterministically. " +
+            "The suite is flaky, intermittent, load-sensitive, and only under parallelism; " +
+            "it passes in isolation and looks timing-dependent, a race-condition.\n",
         },
       },
       expects: "calibration",

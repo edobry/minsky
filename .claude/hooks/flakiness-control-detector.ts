@@ -59,13 +59,22 @@ import {
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_FLAKINESS_CONTROL";
 
 /**
- * Calibration-first (mt#2263 ladder). While false, `run` returns a calibration
- * record and no `additionalContext`, so the guard is measurable without
- * spending any agent attention. `renderWorstCase` still renders the injection
- * text so the size ceiling is enforced against something real (mt#4002) —
- * delete the probe when this flips.
+ * Calibration-first, which in this family means log-only WITH a warning — not
+ * record-only.
+ *
+ * The distinction is easy to get backwards, and the spec is explicit: SC2 says
+ * it "writes a calibration record and surfaces a WARN; it does NOT block", and
+ * AT1 asserts the WARN alongside a succeeding `tasks_create`. The local
+ * precedent agrees — the execution-evidence AT-coverage surface is described as
+ * log-only and does surface a WARN in `additionalContext`. What "calibration"
+ * buys is that the guard never DENIES while its false-positive rate is
+ * unmeasured; going silent as well would mean the agent filing the spec learns
+ * nothing until someone reviews the log, which is most of the value gone.
+ *
+ * `renderWorstCase` therefore measures text that is actually emitted, and the
+ * ceiling is enforced against it either way (mt#4002).
  */
-export const INJECTION_ENABLED = false;
+export const INJECTION_ENABLED = true;
 
 /** Claims enumerated in the advisory before it collapses to a count. */
 const MAX_RENDERED_CLAIMS = 3;
@@ -111,33 +120,6 @@ export function buildAdvisory(result: FlakinessAttributionResult): string {
   ];
 
   return lines.join("\n");
-}
-
-/**
- * Worst case: the claim list at its render cap AND the longer of the two
- * directive branches (the denial branch) AND the overflow line — saturated on
- * every axis at once, per `guard-feedback-authoring.mdc`.
- *
- * The claim axis IS capped at {@link MAX_RENDERED_CLAIMS} with an `…and N more`
- * line, so this is a proved ceiling rather than a sample. The only unbounded
- * input is a single phrase's length, and the matcher caps that at 120 chars.
- */
-export function renderWorstCase(): string {
-  const longestPhrase = "x".repeat(120);
-  const claims = Array.from({ length: MAX_RENDERED_CLAIMS + 2 }, (_, i) => ({
-    phrase: longestPhrase,
-    excerpt: "",
-    family: (i === 0 ? "denial" : "attribution") as "denial" | "attribution",
-    index: 0,
-  }));
-
-  return buildAdvisory({
-    matched: true,
-    claims,
-    hasIsolationControl: false,
-    hasUnverifiedMarker: false,
-    singleFileAcceptanceTestSuspected: true,
-  });
 }
 
 /** Dispatcher entry point (ADR-028 D1/D2). Returns null for silent allow. */

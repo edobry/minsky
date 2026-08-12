@@ -378,10 +378,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "operator-deferral-detector": "capped", // <=3 matches x 240-char contexts
   "operator-deferral-ask-surface": "capped", // same module, same renderer
   "calibration-review-cadence-detector": "capped", // ADVISORY_BUDGET_CHARS byte-budget fit (mt#3824)
-  // Capped on BOTH axes, not sampled: MAX_RENDERED_CLAIMS with an `...and N
-  // more` line, and each phrase bounded by the matcher's own 120-char cap
-  // (mt#3658).
-  "flakiness-control-detector": "capped",
+  // Capped on BOTH axes — MAX_RENDERED_CLAIMS with an `...and N more` line, and
+  // each phrase bounded by the matcher's own 120-char cap — and the ceiling is
+  // posed by a `worstCaseCanary` that saturates both at once, including the
+  // longer (denial) directive branch (mt#3658).
+  "flakiness-control-detector": WORST_CASE_CANARY,
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
