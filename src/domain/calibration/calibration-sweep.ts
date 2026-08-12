@@ -930,15 +930,29 @@ export interface CalibrationLogResult {
    */
   suppressedSinceLastReview: number;
   /**
-   * `firesSinceLastReview` minus the suppressed ones — the count the review
-   * thresholds actually key off, because a suppressed detection is not an
-   * operator-facing fire (mt#3197).
+   * `firesSinceLastReview` minus the suppressed ones and the evaluation-only
+   * ones — the count the review thresholds actually key off, because neither
+   * a suppressed detection nor a no-match evaluation record is an
+   * operator-facing fire (mt#3197; evaluation-only widened in mt#3863).
    *
    * Records from detectors that don't record a suppression outcome, and
    * records predating the field, count as injected here: unknown is treated
    * as operator-facing so a missing outcome can never hide a real fire.
    */
   injectedFiresSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many carry no match and were never
+   * injected (mt#3863) — see `isEvaluationOnlyRecord`.
+   *
+   * A detector that writes a record on every turn regardless of outcome
+   * (retrospective-trigger's Rung-2 nominations; bare-entity-ref's
+   * record-only classes) produces mostly this population. Reported
+   * separately from `suppressedSinceLastReview` — a suppressed record DID
+   * match something and was withheld after the fact; an evaluation-only
+   * record never matched at all — so a reviewer can tell "detected then
+   * silenced" apart from "nothing was there."
+   */
+  evaluatedOnlySinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -1021,6 +1035,43 @@ export function isSuppressedRecord(record: CalibrationRecord): boolean {
 /** Does this record carry a suppression outcome at all? (mt#3197 back-compat) */
 export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
   return Array.isArray(record.suppressionReasons);
+}
+
+/**
+ * True when a record carries no match and nothing was injected (mt#3863).
+ *
+ * Some detectors write an EVALUATION record on every turn they run,
+ * regardless of outcome — retrospective-trigger's Rung-2 nomination path logs
+ * a record even when the nomination timed out or was never confirmed
+ * (`matches: []`), and bare-entity-ref logs a record for a message carrying
+ * ONLY log-only findings (`matches: []`, with the observations sitting in
+ * `logged_only` under `detectorFields` instead). Neither reached the
+ * operator. Counting them as fires is what kept these logs permanently
+ * `pastThreshold` — measured at 193 counted vs 8 actual for
+ * retrospective-trigger's 2026-08-08 review window, and 50 counted vs 3
+ * actual for bare-entity-ref's 2026-08-11 window (mt#3863).
+ *
+ * The discriminator is already in every record that can exhibit this shape:
+ * `matches` is populated ONLY when the detector actually found something —
+ * verified against every producer that parses through the shared
+ * matches-shape fallback branch in `parseCalibrationRecordCore` (the tail
+ * branch below), each of which appends its record whether or not `matches`
+ * ends up empty. `flagged_count` / `advisory_emitted`, the bare-entity-ref
+ * fields the mt#3863 spec also names, are redundant with this check rather
+ * than a second discriminator to apply: `matches` on that detector IS
+ * `flagged.map(...)`, so `matches.length === 0` and `flagged_count === 0`
+ * agree by construction.
+ *
+ * Deliberately scoped to record kinds that HAVE a `matches` field
+ * (`"matches" in record`). Detectors like `causal-premise` and
+ * `code-mechanism-assertion` gate the calibration WRITE itself on a match
+ * (`if (!result.matched) return null`), so `matchedPhrases` / `claims` are
+ * never empty in their logs — there is no evaluation-only population to
+ * exclude for those kinds, and this predicate returns `false` for them
+ * unconditionally rather than guessing at a shape they don't have.
+ */
+export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
+  return "matches" in record && record.matches.length === 0;
 }
 
 /**
@@ -1470,8 +1521,15 @@ export function computeLogResult(
   );
   const isRevisedAway = (r: CalibrationRecord): boolean =>
     r.session_id !== undefined && supersededKeys.has(`${r.session_id}::${r.timestamp}`);
+
+  // mt#3863: a record carrying no match and no injection never reached the
+  // operator either — same non-fire status as a suppressed detection, just a
+  // different mechanism (nothing was detected at all, rather than something
+  // detected-then-withheld). Reported as its own figure below
+  // (`evaluatedOnlySinceLastReview`) so a reviewer can tell the two apart.
+  const evaluatedOnlySinceLastReview = newRecords.filter(isEvaluationOnlyRecord).length;
   const injectedFiresSinceLastReview = newRecords.filter(
-    (r) => !isSuppressedRecord(r) && !isRevisedAway(r)
+    (r) => !isSuppressedRecord(r) && !isRevisedAway(r) && !isEvaluationOnlyRecord(r)
   ).length;
 
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
@@ -1492,6 +1550,7 @@ export function computeLogResult(
     firesSinceLastReview,
     suppressedSinceLastReview,
     injectedFiresSinceLastReview,
+    evaluatedOnlySinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,

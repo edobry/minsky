@@ -70,6 +70,7 @@ function makeResult(
     firesSinceLastReview: 0,
     suppressedSinceLastReview: 0,
     injectedFiresSinceLastReview: 0,
+    evaluatedOnlySinceLastReview: 0,
     distinctPhrases: 0,
     atCountThreshold: false,
     lowDiversity: false,

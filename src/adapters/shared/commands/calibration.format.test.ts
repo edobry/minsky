@@ -32,6 +32,7 @@ function resultWith(
     firesSinceLastReview: recordsAssessed,
     suppressedSinceLastReview: 0,
     injectedFiresSinceLastReview: recordsAssessed,
+    evaluatedOnlySinceLastReview: 0,
     distinctPhrases: 3,
     lowDiversity: false,
     atCountThreshold: false,
@@ -79,5 +80,26 @@ describe("formatResult — judged-text recoverability", () => {
       const text = formatResult([resultWith(state, 1, 2)], []);
       expect(text).toContain(JUDGED_TEXT_LABEL);
     }
+  });
+});
+
+describe("formatResult — evaluated-only records (mt#3863)", () => {
+  test("the evaluated-only figure renders alongside the injected count", () => {
+    const result = resultWith("recoverable", 20, 20);
+    result.evaluatedOnlySinceLastReview = 185;
+    result.injectedFiresSinceLastReview = 8;
+    const text = formatResult([result], []);
+
+    expect(text).toContain("...evaluated-only:    185");
+    expect(text).toContain("...injected:          8");
+  });
+
+  test("no evaluated-only line when the figure is zero", () => {
+    const result = resultWith("recoverable", 20, 20);
+    result.evaluatedOnlySinceLastReview = 0;
+    result.suppressedSinceLastReview = 0;
+    const text = formatResult([result], []);
+
+    expect(text).not.toContain("...evaluated-only:");
   });
 });
