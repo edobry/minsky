@@ -681,11 +681,38 @@ fn bind_error_means_in_use(err: &io::Error) -> bool {
 // Process control.
 // ---------------------------------------------------------------------------
 
-/// Process-group id of the daemon WE spawned (`None` if adopted or not
-/// running). Shared so the quit / `RunEvent::Exit` path can tear it down
+/// Process-group ids of the daemons WE spawned, keyed by a stable per-daemon
+/// token. Shared so the quit / `RunEvent::Exit` path can tear them down
 /// synchronously even if the supervisor thread doesn't get to process a
 /// Shutdown command before the process exits.
-pub(crate) type SpawnedPgid = Arc<Mutex<Option<u32>>>;
+///
+/// Was a single `Option<u32>` until mt#3815, when the tray began supervising a
+/// registry: one slot could only ever remember the last daemon spawned, so
+/// quitting would have left the other one running. A `Vec` of pairs rather than
+/// a map — the registry has two entries, and teardown iterates all of them
+/// anyway.
+///
+/// The key is a `&'static str` rather than the policy layer's `DaemonId`
+/// because this module does not know the registry exists; the caller passes its
+/// own stable token (`DaemonId::slug`).
+pub(crate) type SpawnedPgids = Arc<Mutex<Vec<(&'static str, u32)>>>;
+
+/// Remember the process group of a daemon we just spawned, replacing any prior
+/// entry for the same key (a respawn supersedes the group it replaced).
+pub(crate) fn record_spawned(spawned: &SpawnedPgids, key: &'static str, pgid: u32) {
+    if let Ok(mut g) = spawned.lock() {
+        g.retain(|(k, _)| *k != key);
+        g.push((key, pgid));
+    }
+}
+
+/// Forget and return one daemon's process group — the stop path, which kills it
+/// itself.
+pub(crate) fn take_spawned(spawned: &SpawnedPgids, key: &str) -> Option<u32> {
+    let mut g = spawned.lock().ok()?;
+    let idx = g.iter().position(|(k, _)| *k == key)?;
+    Some(g.remove(idx).1)
+}
 
 pub(crate) fn kill_pid(pid: u32) {
     let _ = Command::new("/bin/kill")
@@ -757,11 +784,18 @@ pub(crate) fn spawn_daemon(spec: &DaemonSpawnSpec) -> io::Result<(Child, u32)> {
     Ok((child, pid))
 }
 
-/// Tear down the daemon we spawned, if any. Idempotent. Called from `main()`'s
-/// `RunEvent::Exit` handler.
-pub(crate) fn teardown(spawned: &SpawnedPgid) {
-    let pgid = spawned.lock().ok().and_then(|mut g| g.take());
-    if let Some(pgid) = pgid {
+/// Tear down EVERY daemon we spawned. Idempotent (the list is drained, so a
+/// second call finds nothing). Called from `main()`'s `RunEvent::Exit` handler.
+///
+/// Iterating all of them is AT5: quitting the tray must stop both registered
+/// daemons, not whichever one was spawned last.
+pub(crate) fn teardown(spawned: &SpawnedPgids) {
+    let groups: Vec<(&'static str, u32)> = match spawned.lock() {
+        Ok(mut g) => std::mem::take(&mut *g),
+        Err(_) => return,
+    };
+    for (key, pgid) in groups {
+        eprintln!("[cockpit-tray] teardown: SIGTERM process group {pgid} ({key})");
         kill_group(pgid);
     }
 }

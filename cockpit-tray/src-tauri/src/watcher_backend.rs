@@ -37,7 +37,7 @@ use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use tauri::{AppHandle, Manager};
 
-use crate::supervisor::{resolve_repo_root, SupervisorCmd, SupervisorHandle};
+use crate::supervisor::{resolve_repo_root, DaemonId, SupervisorCmd, SupervisorHandle};
 use crate::watcher_web::is_editor_temp_file;
 
 // ---------------------------------------------------------------------------
@@ -259,7 +259,9 @@ pub(crate) fn start_backend_watcher(
                     .unwrap_or(false)
             });
             if relevant {
-                let _ = tx.send(SupervisorCmd::AutoRestart);
+                // Addressed to the cockpit entry: this watcher watches the
+                // COCKPIT's backend source tree (mt#3815).
+                let _ = tx.send(SupervisorCmd::AutoRestart(DaemonId::Cockpit));
             }
         }
     })
