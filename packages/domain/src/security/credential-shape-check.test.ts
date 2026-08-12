@@ -9,7 +9,7 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { checkForUnmaskedCredentials } from "./credential-shape-check";
+import { checkForUnmaskedCredentials, globalRegexFor } from "./credential-shape-check";
 import { maskConnectionString } from "../persistence/connection-string";
 import { CREDENTIAL_SHAPES } from "../transcripts/credential-scrubber";
 
@@ -122,5 +122,37 @@ describe("checkForUnmaskedCredentials (mt#4022)", () => {
     // the mask. checkForUnmaskedCredentials must (and does, per AT2 above)
     // exclude this case — this assertion documents WHY the exclusion exists.
     expect(shape.regex.test(maskedRendering)).toBe(true);
+  });
+});
+
+// PR #2900 review (BLOCKING): matchAll throws on a non-global regex, which
+// would have violated checkForUnmaskedCredentials's "never throws" contract
+// if a future CREDENTIAL_SHAPES entry ever lost its `g` flag.
+describe("globalRegexFor (mt#4022 PR #2900 review — matchAll robustness)", () => {
+  test("returns a global regex unchanged", () => {
+    const alreadyGlobal = /foo/g;
+    expect(globalRegexFor(alreadyGlobal)).toBe(alreadyGlobal);
+  });
+
+  test("clones a non-global regex to a global one with the same source/flags", () => {
+    const nonGlobal = /foo/i;
+    const cloned = globalRegexFor(nonGlobal);
+    expect(cloned).not.toBe(nonGlobal);
+    expect(cloned.global).toBe(true);
+    expect(cloned.ignoreCase).toBe(true);
+    expect(cloned.source).toBe("foo");
+  });
+
+  test("a non-global regex scans correctly via matchAll after cloning (would otherwise throw)", () => {
+    const nonGlobal = /fake-shape-[0-9]+/;
+    const scanned = globalRegexFor(nonGlobal);
+    const matches = [..."fake-shape-1 and fake-shape-2".matchAll(scanned)];
+    expect(matches.map((m) => m[0])).toEqual(["fake-shape-1", "fake-shape-2"]);
+  });
+
+  test("every real CREDENTIAL_SHAPES regex is already global (documents why this has never fired)", () => {
+    for (const shape of CREDENTIAL_SHAPES) {
+      expect(globalRegexFor(shape.regex)).toBe(shape.regex);
+    }
   });
 });

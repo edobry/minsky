@@ -113,7 +113,7 @@ describe("computeCredentialCheckOutcome (mt#4022)", () => {
     if (outcome.status === "error") {
       // The reason string must never echo the underlying error's message —
       // see the module doc's "Never prints matched text, on any path".
-      expect(outcome.reason).toBe("input could not be read");
+      expect(outcome.reason).toBe("input file could not be read");
     }
   });
 });

@@ -165,7 +165,16 @@ export async function computeCredentialCheckOutcome(opts: {
     // module doc's "Never prints matched text, on any path". A file-read
     // error's message is normally just a path, but this command's contract
     // is to never echo caught-error text on any path, without exception.
-    return { status: "error", reason: "input could not be read" };
+    //
+    // The `reason` below is still MORE diagnostic than a single generic
+    // string (PR #2900 review, non-blocking) — but it is derived from OUR
+    // OWN call-site knowledge (which input mode was requested), never from
+    // the caught error's content, so it stays safe under the same
+    // never-echo-caught-text discipline.
+    const reason = opts.file
+      ? "input file could not be read"
+      : "no input source (pipe stdin, or pass --file)";
+    return { status: "error", reason };
   }
   return classifyCredentialCheck(text);
 }

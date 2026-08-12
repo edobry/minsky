@@ -116,6 +116,15 @@ const MASKED_FORM_CHECKS: Readonly<Record<string, (matchText: string) => boolean
  *
  * Pure and synchronous — never throws on ordinary string input, including
  * the empty string. Never returns matched text, only shape names.
+ *
+ * Robust to `CREDENTIAL_SHAPES` itself, not just to `text`: `String.matchAll`
+ * throws a `TypeError` on a non-global regex, and every shape today IS global
+ * (asserted directly in `credential-scrubber.test.ts`) — but this function's
+ * "never throws" contract should not silently depend on that invariant
+ * holding forever. `globalRegexFor` below scans with a global CLONE of any
+ * shape whose regex is missing the `g` flag, so a future misconfigured shape
+ * still gets scanned correctly instead of crashing the whole check (mt#4022
+ * PR #2900 review).
  */
 export function checkForUnmaskedCredentials(text: string): CredentialShapeCheckResult {
   const matchedShapes = new Set<string>();
@@ -125,9 +134,10 @@ export function checkForUnmaskedCredentials(text: string): CredentialShapeCheckR
   }
 
   for (const shape of CREDENTIAL_SHAPES) {
-    shape.regex.lastIndex = 0;
+    const scanRegex = globalRegexFor(shape.regex);
+    scanRegex.lastIndex = 0;
     const isMaskedForm = MASKED_FORM_CHECKS[shape.name];
-    for (const match of text.matchAll(shape.regex)) {
+    for (const match of text.matchAll(scanRegex)) {
       const matchText = match[0];
       if (isMaskedForm?.(matchText)) {
         continue;
@@ -140,4 +150,18 @@ export function checkForUnmaskedCredentials(text: string): CredentialShapeCheckR
     hasUnmaskedCredential: matchedShapes.size > 0,
     matchedShapes: [...matchedShapes],
   };
+}
+
+/**
+ * Returns `regex` unchanged if it already carries the `g` flag (the case
+ * for every `CREDENTIAL_SHAPES` entry today); otherwise returns a global
+ * CLONE with the same source and flags plus `g`. `String.matchAll` requires
+ * a global regex and throws `TypeError` otherwise — cloning here means a
+ * shape regex that loses its `g` flag in a future edit degrades to "still
+ * scanned correctly" rather than "the whole check throws."
+ *
+ * Exported for direct testing of this specific robustness property.
+ */
+export function globalRegexFor(regex: RegExp): RegExp {
+  return regex.global ? regex : new RegExp(regex.source, `${regex.flags}g`);
 }
