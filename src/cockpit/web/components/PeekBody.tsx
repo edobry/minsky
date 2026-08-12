@@ -38,6 +38,7 @@ import { entityToPath } from "../lib/entity-codec";
 import { TaskDetail } from "../widgets/TaskDetail";
 import { MemoryDetailBody } from "../widgets/MemoryDetail";
 import { ChangesetDetail, type ChangesetDetailPayload } from "../widgets/ChangesetDetail";
+import { fetchChangeset } from "../pages/ChangesetDetailPage";
 import { LoadingState } from "./LoadingState";
 import { ErrorState } from "./ErrorState";
 
@@ -57,16 +58,10 @@ export const PEEKABLE_WITH_BODY: readonly RoutableEntityType[] = ["task", "memor
  */
 function ChangesetPeekBody({ id }: { id: string }) {
   const query = useQuery<ChangesetDetailPayload | null, Error>({
+    // The page's own fetcher and key, imported rather than copied — a second
+    // copy of the URL and its 404 handling is a second thing that can drift.
     queryKey: ["changeset", id],
-    queryFn: async () => {
-      const res = await fetch(`/api/changeset/${encodeURIComponent(id)}`);
-      if (res.status === 404) return null;
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        throw new Error(`Failed to load changeset: ${res.status}${body ? ` — ${body}` : ""}`);
-      }
-      return (await res.json()) as ChangesetDetailPayload;
-    },
+    queryFn: () => fetchChangeset(id),
     staleTime: 30_000,
   });
 

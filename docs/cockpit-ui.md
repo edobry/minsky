@@ -51,6 +51,46 @@ All of them yield to text entry. The two tab chords are reserved by browsers for
 their own tab switching, so they fire only inside the cockpit tray window and are
 simply inert in a browser tab.
 
+## The side peek (mt#3694)
+
+Clicking an entity reference — an `mt#NNNN` in prose, an ask, a memory, a
+changeset, anywhere one is rendered — opens that entity in a **side pane over the
+current page** instead of navigating to it. The page behind stays exactly where
+it was: same scroll position, same loaded data, same URL path. Closing the pane
+costs one Esc and returns you to what you were reading, with nothing left behind.
+
+Peeking deliberately does **not** open a tab. The tab strip records where you have
+NAVIGATED; a peek is the path that does not navigate, which is the whole reason it
+is cheap.
+
+| Gesture                        | Does                                                      |
+| ------------------------------ | --------------------------------------------------------- |
+| Click a reference              | Peek it — **replacing** whatever pane is already open     |
+| `⇧`-click a reference          | **Hold** the current pane; the next click opens beside it |
+| `⌘`/`Ctrl`-click, middle-click | Promote: open as a full page (and therefore as a tab)     |
+| `Esc`                          | Close the newest pane (repeat to unwind held panes)       |
+| Browser Back                   | Close the newest pane                                     |
+| Header pin control             | Hold this pane, same as `⇧`-click                         |
+| Header ↗ control              | Open this pane's entity as a full page                    |
+
+**Holding is how you compare two things.** By default one pane is open at a time
+and each click reuses it, so reading down a conversation never accumulates panes.
+When you want to keep something on screen while you look at the next thing, hold
+it — and because every extra pane costs a deliberate gesture, there is no cap and
+nothing is ever evicted or buried behind something else.
+
+**A peek is addressable and disposable.** The open panes live in the URL as a
+`?peek=` parameter, so copying the link, sharing it, or reloading brings the same
+panes back. Nothing is persisted anywhere else: navigate away from the page you
+peeked FROM and the whole assembly is gone.
+
+Four entity types — asks, sessions, conversations and interceptors — do not have a
+peek body yet and show an "open as page" link instead of their details
+(mt#4069). That is deliberate rather than unfinished-looking-by-accident: a peek
+renders the same component the entity's full page renders, never a separate
+compact copy that could quietly drift out of agreement with it, so a type gets a
+pane body only once it has one to share.
+
 ## Plant Board (`/plant`)
 
 A single whole-system view: all of Minsky on one board, laid out on the VSM
