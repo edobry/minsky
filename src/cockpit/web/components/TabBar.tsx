@@ -38,6 +38,7 @@ import {
   AlertCircle,
   ChevronsRight,
   MessageSquare,
+  Filter,
 } from "lucide-react";
 import { useTabs, type EntityTab, type EntityTabKind } from "../lib/tabs";
 import { useEntityLabel } from "../lib/entity-labels";
@@ -56,6 +57,11 @@ const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string
   // observed-conversation kind). Retires with the kind itself; see
   // `lib/tabs.tsx`'s `EntityTabKind` docblock.
   driven: MessageSquare,
+  // mt#4010 — deliberately NOT a shield. Only ~46% of the corpus computes into
+  // the `guard` family; detectors and injectors intervene without blocking
+  // anything, and the three families are computed and non-exclusive (ontology
+  // §4). A neutral "something sits in this path" icon is the honest one.
+  interceptor: Filter,
 };
 
 const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
