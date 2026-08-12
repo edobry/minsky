@@ -336,6 +336,29 @@ jobs:
             sleep 5
           done
 
+          # The loop above can exit 0 on a BROKEN install, so npm's exit code is
+          # not evidence the CLI is usable (mt#4075).
+          #
+          # Observed on run 31645082761 (2026-08-12): attempt 1's postinstall
+          # could not fetch the binary (`ECONNRESET` on
+          # railway-v4.44.0-x86_64-unknown-linux-gnu.tar.gz), so the loop retried;
+          # attempt 2 printed `added 17 packages` and exited 0; every later
+          # invocation died with `env: 'railway': Permission denied` — the package
+          # was present without the executable its postinstall downloads. A
+          # stronger retry would not have helped, because the retry DID run and
+          # reported success. Only probing the binary distinguishes the states.
+          #
+          # This has to fail HERE rather than downstream: the redeploy loop below
+          # cannot tell a missing binary from a rejected credential, and its
+          # summary blames the token — which sends the reader to re-mint a
+          # production secret that was never wrong.
+          # The probe lives in a script, not inline here, for the reason
+          # `scripts/ci/docker-push-with-retry.sh` already records: workflow YAML
+          # cannot be driven into a chosen failure, so an inline copy is
+          # untestable. `scripts/ci/verify-railway-cli.test.ts` exercises both
+          # branches by putting a stand-in binary on RAILWAY_BIN.
+          ./scripts/ci/verify-railway-cli.sh "${DEPLOY_TOKEN_SOURCE}"
+
           # Railway identifiers from services/<svc>/deploy.config.ts, kept
           # inline to match the convention in this file and deploy-reviewer.yml.
           # No `railway link` is needed: a project-scoped RAILWAY_TOKEN carries
@@ -545,6 +568,11 @@ jobs:
           done <<< "${REDEPLOY_SERVICES}"
 
           if [ -n "${failed_services}" ]; then
-            echo "::error::railway redeploy failed for:${failed_services}. The token from the ${DEPLOY_TOKEN_SOURCE} secret is not valid for those services as either an account/workspace token or a project token — re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
+            # mt#4075: this message names the TOKEN as the cause, so it may only
+            # be reached once the CLI is known to run — the probe after the
+            # install step above guarantees that. Do not weaken the probe without
+            # rewording this, or a broken install lands here again and reads as a
+            # credential problem.
+            echo "::error::railway redeploy failed for:${failed_services}. The CLI was verified runnable before this loop, so this is a CREDENTIAL failure: the token from the ${DEPLOY_TOKEN_SOURCE} secret is not valid for those services as either an account/workspace token or a project token — re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
             exit 1
           fi

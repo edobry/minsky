@@ -405,12 +405,19 @@ jobs:
           # from `-e`, so its tailored error message still prints.
           set -euo pipefail
 
+          # DEPLOY_TOKEN_SOURCE names the secret ACTUALLY in use, mirroring the
+          # variable of the same name in deploy-minsky-mcp.yml (PR #2952 R1).
+          # The probe below clears a credential by name, and naming the wrong
+          # one on the fallback path would be this task's own defect — a
+          # message that sends the reader at a secret that is not involved.
           if [ -n "${RAILWAY_REVIEWER_TOKEN:-}" ]; then
             echo "Using RAILWAY_REVIEWER_TOKEN (per-project token, mt#3251)."
             RAILWAY_TOKEN="${RAILWAY_REVIEWER_TOKEN}"
+            DEPLOY_TOKEN_SOURCE="RAILWAY_REVIEWER_TOKEN"
           else
             echo "::warning::RAILWAY_REVIEWER_TOKEN is not set — falling back to the generic RAILWAY_TOKEN secret, which is NOT scoped to the minsky-reviewer project and is expected to fail. See services/reviewer/DEPLOY.md for the operator action that fixes this (mt#3251)."
             RAILWAY_TOKEN="${RAILWAY_TOKEN_FALLBACK:-}"
+            DEPLOY_TOKEN_SOURCE="RAILWAY_TOKEN"
           fi
           export RAILWAY_TOKEN
 
@@ -420,6 +427,17 @@ jobs:
           fi
 
           npm install -g @railway/cli
+
+          # Same probe as deploy-minsky-mcp.yml (mt#4075), and this file needs it
+          # MORE: that one retries the install three times, this one runs it once.
+          # npm's exit code reports on the package, not on the binary — the
+          # package's postinstall downloads the executable from GitHub releases
+          # and leaves a non-runnable stub when that download fails, which is
+          # what happened on run 31645082761 (2026-08-12) in the sibling
+          # workflow. Downstream, `railway whoami` and `railway redeploy` would
+          # both fail here and the error text points at the TOKEN's scope, so a
+          # failed install would read as a credential problem.
+          ./scripts/ci/verify-railway-cli.sh "${DEPLOY_TOKEN_SOURCE}"
 
           # Railway identifier from services/reviewer/deploy.config.ts (kept
           # inline, matching the pre-existing convention in this file and in
