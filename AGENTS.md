@@ -1730,6 +1730,9 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
 
 # User Preferences
 
+Incidents, worked examples, and extended rationale live in
+`docs/rules-rationale/user-preferences.md`; this rule carries the directives.
+
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
 
 - **Probe before deferring (mt#1819).** Before writing any of the phrases below in a PR body, spec `## Outcome` section, ask, status update, or chat — run a **tooling probe** to verify you actually lack the access you're about to claim is missing. Cost of a probe: ~30 seconds. Cost of a wrong deferral: 5–30 minutes of user attention plus a re-engagement cycle.
@@ -1753,18 +1756,13 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   - any restriction cited as settling the matter, in a turn where you are already writing to the principal
 
   **The probe question is availability-NOW, regardless of what the deferral defers TO.** All three
-  shapes assert the same thing — *I am unable to do this at this moment* — and all three need
-  evidence rather than assumption. What differs is the FORM the evidence takes: for the first two
-  it is a tool call (try it); for the third it is a question (ask). A deferral to a later time is
-  not self-justifying just because it names no person; it is a claim about your present capability
-  and needs the same evidence.
+  shapes assert the same thing — *I am unable to do this at this moment* — and need evidence, not
+  assumption. Only the FORM differs: a tool call for the first two, a question for the third.
 
-  **For the third shape the probe is: ASK, in this turn.** A restriction is a default, not a wall.
-  If you are already composing a message to the principal, the cost of adding the question is one
-  sentence; the cost of not asking is a round-trip plus an artifact that should not exist. The tell
-  is that the deferral reads as compliance — the sentence is TRUE, which is why it survives your own
-  review, and what it omits is that the principal was right there. **Filing a follow-up task to own
-  work you were not actually blocked on is the failure, not the mitigation.**
+  **For the third shape the probe is: ASK, in this turn.** A restriction is a default, not a wall,
+  and the cost of adding the question to a message you are already writing is one sentence. The
+  tell is that the deferral reads as compliance. **Filing a follow-up task to own work you were not
+  actually blocked on is the failure, not the mitigation.**
 
   **Where it genuinely stops:** an action that is destructive, or that falls under a nameable
   category in `principal-context.mdc §Decisions Eugene reserves`. The test is whether the principal
@@ -1775,32 +1773,32 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
   1. **CLI probe** — `which <cli> && <cli> whoami` (or equivalent auth-check) for the relevant tool.
   2. **Skill probe** — search the available-skills list (system reminder at session start) for `<service>:*` (e.g., `railway:use-railway`, `cloudflare:wrangler`).
   3. **Repo probe** — check `scripts/<service>/`, `services/<service>/<service>.config.ts`, or similar declarative-config sources.
-  4. **Memory probe** — `mcp__minsky__memory_search` for the service keyword. Relevant memories may name the canonical path (e.g., `feedback_railway_config_dot_path_fails_silently` names `scripts/railway/apply.ts` as the synthesizer entrypoint).
+  4. **Memory probe** — `mcp__minsky__memory_search` for the service keyword; a relevant memory may name the canonical path outright.
 
-  **If a probe returns "tooling is available"**, proceed with the action ONLY when it's in-scope under the current task's acceptance criteria AND safe (no destructive side-effects the spec hasn't authorized, no scope-expansion beyond what was planned). The probe just unblocks the assumption-of-unavailability; it doesn't override scope/safety gates.
+  **A probe returning "tooling is available" unblocks the assumption of unavailability — it does
+  NOT override scope or safety.** Proceed only when the action is also in-scope under the current
+  task's acceptance criteria and carries no destructive side-effect the spec hasn't authorized.
 
-  **If all probes fail OR the action is out-of-scope/unsafe even with tooling available**, state both the probe results AND the scope/safety basis inline so the deferral has visible justification: e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."` OR `"Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."` A bare deferral without inline probe results AND scope/safety basis is unjustified.
+  **When you do defer, name the probe results AND the scope/safety basis inline** — a bare deferral
+  without both is unjustified. Worked records of the justified shape (including the case where the
+  probe SUCCEEDS and the deferral still stands): `docs/rules-rationale/user-preferences.md §Worked
+  deferral records`.
 
   **Probe before SELF-IMPROVISING, not only before deferring (mt#3154).** The same probe fires on
   the opposite failure: not "I wrongly claim I lack access" but "I wrongly assume I know how to use
   it." Before hand-rolling a recovery on a hosted-infra surface (Railway, Cloudflare, Supabase, any
   external service), run the **skill probe** and **memory probe** first — a plausible-looking
-  command can succeed and still do nothing. No deferral prose is emitted on this path, so the tell
-  is the ACTION, not the wording. Pairs with `error-investigation.mdc §2-strikes counts wrong
-  OUTCOMES`. Incident: `docs/rules-rationale/user-preferences.md §Probe before self-improvising`.
+  command can succeed and still do nothing. No deferral prose is emitted here, so the tell is the
+  ACTION, not the wording. Pairs with `error-investigation.mdc §2-strikes counts wrong OUTCOMES`.
 
-  Dual of `decision-defaults.mdc §Build vs buy` step 4 (build-path-as-research); enforced also at
-  `/implement-task` §7 Preventive phase. Full incident + cross-reference detail:
-  `docs/rules-rationale/user-preferences.md §Probe before deferring`.
+  Dual of `decision-defaults.mdc §Build vs buy` step 4; enforced also at `/implement-task` §7.
+  Incidents + detail: `docs/rules-rationale/user-preferences.md §Probe before deferring`.
 
-- **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Multi-agent task graphs contain agents mid-planning, mid-implementation, or about-to-start that don't surface on a single status read.
+- **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Agents mid-planning or about-to-start surface on no single status read.
 
   **Canonical probe sequence** (run in order; first hit indicates a collision):
-  0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims (who has touched this task recently). Treat it as a **signal, not proof** — run probes 1–4 to confirm any hit:
-     - **Fresh claims with an `actorId` you can't account for → "possible other actor"**; go confirm below. For an undeclared caller `actorId` is an opaque `unknown:hash:<...>` (ADR-006) that **churns per process / staleness-respawn** — so "N claims" is NOT "N distinct agents," and your OWN prior-respawn claims read as "other." It says *when* to do the forensics, not *who* holds the task.
-     - **An empty result is "no claim visible," not "nobody"** — presence is best-effort and fire-and-forget; treat absence as inconclusive. (Claims self-stale at ~15 min; the default fresh-only view is what you want.)
-     - **After a `/clear`, a "fresh claim by another actor" may be YOUR OWN.** The proxy resolves the conversation id once at spawn, so your own touches read back under an unrecognized id. mt#3900 fixed this but the fix reaches a process only on MCP reconnect, so assume attribution is stale. Probing no longer refreshes what it reports (mt#3889), so `lastRefreshedAt` IS trustworthy.
-     - **PRECEDENCE when the two disagree: a fresh claim outranks a stale transcript.** They answer different questions — a claim says a PROCESS IS RUNNING; the id only labels WHO IT THINKS IT IS, which is what goes stale. So `ls -l ~/.claude/projects/<project>/<id>.jsonl` tests whether the ID IS TRUSTWORTHY, never whether a peer EXISTS: **an unconfirmable id means "unknown actor", never "no actor."** A seconds-old claim against a stale transcript is a live peer with an untrustworthy name — redispatching is the mt#3086/mt#3958 double-dispatch (mt#3812: refused 2026-08-10, peer then finished the work).
+  0. **Presence probe (mt#2562)** — `mcp__minsky__tasks_claims_list taskId:"mt#<id>"` is the cheapest first check: it returns live task-grain presence claims. Treat it as a **signal, not proof** — confirm any hit with probes 1–4. It says *when* to do the forensics, never *who* holds the task: an unfamiliar `actorId` may be your own, and an empty result is "no claim visible," not "nobody." How to read each output without over-reading it: `docs/rules-rationale/user-preferences.md §Reading the presence probe`.
+     - **PRECEDENCE when signals disagree: a fresh claim outranks a stale transcript.** A claim says a PROCESS IS RUNNING; the id only labels WHO IT THINKS IT IS, which is what goes stale. So a transcript's mtime tests whether the ID IS TRUSTWORTHY, never whether a peer EXISTS: **an unconfirmable id means "unknown actor", never "no actor."** Redispatching on one is the mt#3086/mt#3958 double-dispatch (mt#3812: refused 2026-08-10, peer then finished the work).
      - **One named cause, not the class (mt#3958):** a dispatched subagent writes to `<session-dir>/subagents/agent-<id>.jsonl`, not the parent's transcript — look there, or message it. An instance of the precedence, which also covers the causes nobody has hit.
   1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
   2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
@@ -1831,21 +1829,19 @@ origin) · mt#2527 (stage 2). Full index: `docs/rules-rationale/terminology-work
 
   **Working test:** if understanding the first three paragraphs requires knowing what a named internal label means, rewrite. Target: the situation plus the recommendation readable in under a minute (~300–400 words); full structured detail beneath or on request.
 
-  This does NOT weaken any skill's requirement to produce structured reports (gap reports, gate tables, premise audits). Those are records — produce them in full, but render them after the plain-language lead or into the durable artifact. Placement changes; rigor does not.
+  This does NOT weaken any skill's requirement to produce structured reports (gap reports, gate tables, premise audits). Produce them in full, but render them after the plain-language lead or into the durable artifact. Placement changes; rigor does not.
 
-  Full incident narrative: `docs/rules-rationale/user-preferences.md §Plain-language first`. See
-  `communication-contract.mdc` for the turn-end report shape this discipline specializes.
+  Incident: `docs/rules-rationale/user-preferences.md §Plain-language first`. See
+  `communication-contract.mdc` for the turn-end report shape this specializes.
 
 - **Progress heartbeats during tool-only stretches (mt#2824).** During research/build chains where several tool calls run back-to-back with no interstitial prose, emit a one-line status update — current activity plus a health signal (e.g., "still reading the auth module, no blockers" or "3 of 5 files migrated, tests pending") — at least every **10 minutes of wall-clock time OR 15 consecutive tool calls, whichever comes first.** A stretch below BOTH thresholds needs no heartbeat.
 
   Applies at **every altitude register, including executive-level summaries** (heartbeats are scroll lines the operator can glance at mid-stream, not notifications reserved for a final report). Content contract: one line, current activity + health signal — not a status essay. A genuine severity event (blocking error, unexpected destructive action, a finding that changes the plan) reports immediately regardless of where the cadence clock stands; don't hold it for the next scheduled heartbeat.
 
-  Detection-layer companion (log-only, no injection yet): `silent-stretch-detector.ts` logs to
-  `.minsky/silent-stretch-calibration.jsonl` when a stretch crosses the threshold without a
-  heartbeat. Full incident + cadence-grounding detail: `docs/rules-rationale/user-preferences.md
-  §Progress heartbeats`.
-
-  `communication-contract.mdc` cites this section's cadence for its "silence must be designed, not accidental" premise rather than restating the numbers — this bullet stays the single source of truth for heartbeat cadence.
+  Single source of truth for heartbeat cadence; `communication-contract.mdc`
+  cites it rather than restating the numbers. Detection-layer companion, log-only:
+  `.minsky/hooks/silent-stretch-detector.ts` (indexed in `hook-observers.mdc`). Cadence grounding + originating incident:
+  `docs/rules-rationale/user-preferences.md §Progress heartbeats`.
 
 - **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
 

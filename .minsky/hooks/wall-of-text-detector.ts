@@ -582,6 +582,24 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
     re: /\bbe (?:expansive|exhaustive|thorough|comprehensive|detailed|verbose)\b/i,
   },
   { name: "in-full-detail", re: /\bin (?:full|complete|great) detail\b/i },
+  // mt#4031 — evidence-based widening via the same signal the narrowness note
+  // above reserves for it, and the first one able to cite the PROMPT rather
+  // than infer it: mt#4048's `precedingPrompt` capture. Two over-budget records
+  // (2026-08-12T20:37:21.742Z, 523 words; 2026-08-12T20:38:13.955Z, 373 words)
+  // carry `suppressedByDepthRequest: false` beside a captured prompt opening
+  // `help me understand ...`, and `precedingPromptStatus: "captured"` on both
+  // rules OUT a lookback miss — the prompt was resolved and simply matched
+  // nothing. It matched nothing in the sibling gate either: neither prompt
+  // carries a question mark, so `detectSubstantiveQuestion` returns false at
+  // its `QUESTION_MARK_RE` guard before the word-count floor is reached. An
+  // imperative request for an explanation belongs on THIS path by that split.
+  //
+  // Deliberately matches the measured phrase and nothing adjacent — not
+  // "explain ...", not "i don't understand ...", neither of which appears in
+  // the evidence. Widening to the plausible neighborhood rather than to what
+  // the records name is how this list would become the arms race ADR-024
+  // §Context describes.
+  { name: "help-me-understand", re: /\bhelp me understand\b/i },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */
