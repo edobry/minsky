@@ -140,4 +140,42 @@ describe("deploy-surface workflow-paths drift (mt#3523)", () => {
       expect(paths).toContain(glob);
     }
   });
+
+  // Sentinel (PR #2892 R1 BLOCKING 3): a carve-out can go stale in TWO
+  // directions — the path could be REMOVED from the workflow (caught by
+  // the test above) or DEPLOY_SURFACE_PATTERNS could gain coverage for it
+  // (e.g. mt#4013 resolves in favor of keeping root src/** as a trigger)
+  // WITHOUT the carve-out being removed here, silently skipping a check
+  // that would now pass anyway. This test fails the moment that happens,
+  // forcing KNOWN_DIVERGENCES (and deploy-surface.ts's matching doc
+  // comment) to be updated rather than left stale indefinitely.
+  test("every KNOWN_DIVERGENCES entry is NOT already covered by DEPLOY_SURFACE_PATTERNS (remove the carve-out once coverage lands)", () => {
+    for (const key of KNOWN_DIVERGENCES) {
+      const glob = key.split("::")[1] as string;
+      const examplePath = globToExamplePath(glob);
+      expect(isDeploySurfaceFile(examplePath)).toBe(false);
+    }
+  });
+});
+
+describe("globToExamplePath (mt#3523)", () => {
+  // PR #2892 R1 BLOCKING 1: proves the "fail with an actionable message"
+  // behavior directly, rather than leaving it as an untested code path. An
+  // unrecognised glob shape in a future workflow edit must be loud, not
+  // silently mapped to a wrong (and therefore falsely-passing) example.
+  test("throws an actionable error for a glob shape neither `/**` nor a bare literal supports", () => {
+    expect(() => globToExamplePath("packages/*/package.json")).toThrow(
+      /Unsupported path-glob shape/
+    );
+    expect(() => globToExamplePath("services/reviewer/**/*.ts")).toThrow(
+      /Unsupported path-glob shape/
+    );
+  });
+
+  test("handles the two glob shapes actually used by the two live workflows", () => {
+    expect(globToExamplePath("packages/domain/src/**")).toBe(
+      "packages/domain/src/__drift-example__.ts"
+    );
+    expect(globToExamplePath("package.json")).toBe("package.json");
+  });
 });

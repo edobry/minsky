@@ -190,6 +190,7 @@ describe("mt#3523 widened surface", () => {
   // ROOT Dockerfile, not services/minsky-mcp/Dockerfile) in addition to the
   // `available` fixture above, which predates this task and omits it.
   const availableAll = ["cockpit", "minsky-ops", "minsky-mcp", "reviewer", "site"];
+  const REVIEWER_PACKAGE_JSON = "services/reviewer/package.json";
 
   // --- AT1: packages/domain/src/** -> exactly {minsky-mcp, reviewer} ---
   test("AT1: isDeploySurfaceFile is true for packages/domain/src/**", () => {
@@ -252,21 +253,50 @@ describe("mt#3523 widened surface", () => {
   });
 
   // --- services/reviewer/package.json triggers BOTH services ---
+  // PR #2892 R1 BLOCKING 2: services/reviewer/package.json matches TWO
+  // DEPLOY_SURFACE_SERVICE_MAP entries -- the specific
+  // /^services\/reviewer\/package\.json$/ -> [minsky-mcp, reviewer] AND the
+  // broad /^services\/reviewer\// -> [reviewer]. These tests prove the
+  // overlap is safe by construction (Set-based union + per-service
+  // availableServices gating, not entry ORDER or de-duplication) rather
+  // than asserting it once and hoping availableServices never changes.
   test("services/reviewer/package.json affects both minsky-mcp and reviewer", () => {
-    const result = findAffectedServices(["services/reviewer/package.json"], availableAll);
+    const result = findAffectedServices([REVIEWER_PACKAGE_JSON], availableAll);
     expect(result.services).toEqual(["minsky-mcp", "reviewer"]);
   });
 
+  test("services/reviewer/package.json invariant: overlapping map entries union correctly under varying availableServices", () => {
+    // minsky-mcp NOT available -> only reviewer (from either matching entry).
+    expect(
+      findAffectedServices([REVIEWER_PACKAGE_JSON], ["reviewer", "cockpit", "site"]).services
+    ).toEqual(["reviewer"]);
+
+    // reviewer NOT available -> only minsky-mcp (from the specific entry only;
+    // the broad entry contributes nothing extra since it only lists "reviewer").
+    expect(
+      findAffectedServices([REVIEWER_PACKAGE_JSON], ["minsky-mcp", "cockpit", "site"]).services
+    ).toEqual(["minsky-mcp"]);
+
+    // Neither available -> empty, not a crash or a phantom entry.
+    expect(findAffectedServices([REVIEWER_PACKAGE_JSON], ["cockpit", "site"]).services).toEqual([]);
+  });
+
   // --- minsky-mcp-only manifests ---
-  test("minsky-mcp-only manifests (.dockerignore, .minsky/config.yaml) affect only minsky-mcp", () => {
+  // PR #2892 R1 BLOCKING 4: named individually (not just covered implicitly
+  // by the workflow-drift test's generic loop) so a reader can see each
+  // manifest's expected service without cross-referencing the workflow file.
+  test("minsky-mcp-only manifest: .dockerignore (deploy-minsky-mcp.yml paths:)", () => {
     expect(findAffectedServices([".dockerignore"], availableAll).services).toEqual(["minsky-mcp"]);
+  });
+
+  test("minsky-mcp-only manifest: .minsky/config.yaml (deploy-minsky-mcp.yml paths:)", () => {
     expect(findAffectedServices([".minsky/config.yaml"], availableAll).services).toEqual([
       "minsky-mcp",
     ]);
   });
 
   // --- reviewer-only manifest ---
-  test("bunfig.toml affects only reviewer", () => {
+  test("reviewer-only manifest: bunfig.toml (deploy-reviewer.yml paths:)", () => {
     expect(findAffectedServices(["bunfig.toml"], availableAll).services).toEqual(["reviewer"]);
   });
 
