@@ -3,11 +3,12 @@
 // "it's flaky", or the denial "it fails deterministically" — while recording
 // neither the isolation control nor an `UNVERIFIED` marker (mt#3658).
 //
-// CALIBRATION-FIRST: `INJECTION_ENABLED = false`. The hook writes a calibration
-// record and nothing else; it does NOT block `tasks_create` and does not inject.
-// Flipping it is the graduation decision the calibration data exists to inform
-// (mt#2263 ladder), and it needs an operator disposition via
-// `/calibration-review` — not a maintainer's judgement here.
+// CALIBRATION-FIRST, which here means log-only WITH a warning: the hook writes
+// a calibration record AND surfaces a WARN, and never DENIES. Not silence —
+// see `INJECTION_ENABLED` below for why the spec asks for the warning.
+// What stays gated is the DENY, and flipping that is the graduation decision
+// the calibration data exists to inform (mt#2263 ladder); it needs an operator
+// disposition via `/calibration-review`, not a maintainer's judgement here.
 //
 // WHY IT IS NOT DENY-TIER LIKE ITS NEIGHBOUR. `require-duplicate-check-record`
 // ships denying on this same surface, and its own rationale says why the two
