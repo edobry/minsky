@@ -222,6 +222,22 @@ export const INJECTION_ENABLED = true;
  */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_WALL_OF_TEXT";
 
+// PR #2928 R1: `captureArtifact` only — deliberately NOT `CAPTURE_SCHEMA_FIELD`.
+// That marker means "this writer captured its JUDGED input", and
+// `hasJudgedInputCapture` is what downstream consumers key on to decide whether
+// a record is re-classifiable. This detector's judged input is the report
+// (`excerpt` + `textHash`), captured on every record since long before the
+// shared scheme existed; the preceding prompt is an auxiliary, optional
+// capture of a DIFFERENT message. Stamping the marker here would have made
+// `hasJudgedInputCapture` true for some wall-of-text records and false for
+// others while the judged-text capture never changed. Whether this writer
+// should join the scheme for its judged text is mt#4001's census question,
+// not this task's.
+import { captureArtifact } from "./judged-input-capture";
+// The same elision every turn-text capture uses. Imported rather than
+// re-implemented, as `negative-existence-claim-detector.ts` already does.
+import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
+
 const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
 
 /**
@@ -683,6 +699,16 @@ export const QUESTION_MIN_WORDS = 3;
 export interface QuestionAnswerResult {
   /** true iff the opening prompt reads as a substantive question. */
   matched: boolean;
+  /**
+   * The principal prompt this verdict was reached on, when one was resolvable
+   * (mt#4048). Present whether or not `matched` — the NOT-matched case is
+   * exactly what a calibration review needs to inspect, since that is the
+   * override declining to suppress.
+   *
+   * Absent means no prompt could be resolved, which is a different fact from
+   * an empty prompt and must stay distinguishable from it on the record.
+   */
+  promptText?: string;
 }
 
 /** The CJK/full-width question mark (U+FF1F) — see `QUESTION_MARK_RE` below. */
@@ -860,7 +886,8 @@ export function resolveQuestionAnswerCheck(lines: TranscriptLine[]): QuestionAns
   if (principalPromptIdx === undefined) return { matched: false };
   const line = lines[principalPromptIdx];
   if (!line) return { matched: false };
-  return detectSubstantiveQuestion(extractUserPromptText(line));
+  const promptText = extractUserPromptText(line);
+  return { ...detectSubstantiveQuestion(promptText), promptText };
 }
 
 // ---------------------------------------------------------------------------
@@ -1085,8 +1112,21 @@ function buildCalibrationRecord(
   m: WallOfTextMeasurement,
   textHash: string,
   suppressedByDepthRequest: boolean,
-  suppressedByQuestionAnswer: boolean
+  questionCheck: QuestionAnswerResult
 ): Record<string, unknown> {
+  const suppressedByQuestionAnswer = questionCheck.matched;
+  // mt#4048: the prompt the override judged. Three states, kept distinct
+  // because collapsing them is what made this unmeasurable:
+  //   captured   — a prompt was resolved; its text is on the record
+  //   unresolved — the check ran and found no principal prompt
+  //   not-checked— the check never ran (it only guards the over-budget leg)
+  const promptResolved = questionCheck.promptText !== undefined;
+  const precedingPromptStatus =
+    measurementIsOverBudget(m) === false
+      ? "not-checked"
+      : promptResolved
+        ? "captured"
+        : "unresolved";
   return {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
@@ -1129,7 +1169,23 @@ function buildCalibrationRecord(
       suppressedByDepthRequest,
       suppressedByQuestionAnswer
     ),
+    // mt#4048: the preceding principal prompt, so the question-answer
+    // override's misses are measurable instead of inferred (mt#4031). ELIDED
+    // per `judged-input-capture.ts` — "Capture from that copy, never from the
+    // raw turn text" — which means it is NOT byte-identical to what
+    // `detectSubstantiveQuestion` judged; that mismatch is accepted here
+    // because the alternative is storing raw operator input. See the task's
+    // planning audit.
+    precedingPromptStatus,
+    ...(questionCheck.promptText !== undefined
+      ? { precedingPrompt: captureArtifact(elideBlocksAndQuotes(questionCheck.promptText)) }
+      : {}),
   };
+}
+
+/** Whether the question-answer override was even consulted for this fire. */
+function measurementIsOverBudget(m: WallOfTextMeasurement): boolean {
+  return m.trigger === "over-budget";
 }
 
 // ---------------------------------------------------------------------------
@@ -1253,7 +1309,7 @@ export function run(
       measurement,
       textHash,
       depthCheck.matched,
-      questionCheck.matched
+      questionCheck
     ),
   };
 
@@ -1395,13 +1451,7 @@ export async function main(): Promise<void> {
     if (!alreadyLogged) {
       appendCalibrationRecord(
         input.cwd,
-        buildCalibrationRecord(
-          input,
-          measurement,
-          textHash,
-          depthCheck.matched,
-          questionCheck.matched
-        )
+        buildCalibrationRecord(input, measurement, textHash, depthCheck.matched, questionCheck)
       );
     }
   }
