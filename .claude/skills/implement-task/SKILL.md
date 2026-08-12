@@ -527,6 +527,13 @@ When the PR is authored by `minsky-ai[bot]` or another identity that the reviewe
 
 If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
 
+**Retrigger ONCE before escalating a verified false positive (mt#3729).** Reviewer verdicts are non-deterministic: a finding you have correctly verified as false may simply not reappear on a re-review of the SAME commit — and when it doesn't, the bypass, the `authorization.approve` Ask, and the operator-approved D8 grant were all avoidable. So once condition 4 holds, and before invoking ANY override path, call `mcp__minsky__reviewer_retrigger` and re-wait with `since` set to the prior review's timestamp.
+
+- **Cleared on re-review** → merge normally; no operator attention spent.
+- **Same finding re-fires** → the disagreement is durable, not a flake. Escalate NOW, citing both review ids as evidence.
+
+**Exactly once** — a second identical finding is the signal to escalate, not to retrigger again. This does NOT weaken `merge-coordination` §7b (which forbids a *blind* retrigger that discards an unread verdict's prose): this rung fires strictly after the review has been read and the finding verified false, so nothing diagnostic is thrown away. Full rationale, worked counter-example (mt#2921, where the re-fire made escalation correct), and the originating incident (PR #2640 — a false "generated file edited directly" finding paged the principal at 21:50; a retrigger returned APPROVED ~2 minutes later): `merge-coordination` §8a and memory `8b40f396` CORRECTION 3.
+
 - **Preferred audited bypass (in-band, mt#2215):** `session_pr_merge(task: "mt#<id>", forceBypass: true, bypassReason: "<evidence>")`. This is the in-band replacement for the raw `gh api PUT` below — no hand-run CLI. It requires a non-empty `bypassReason` and a present (non-DISMISSED) `CHANGES_REQUESTED` review (the false-positive / self-reversal / leakage-stale case; for reviewer ABSENCE use `acceptStaleReviewerSilence` instead), refuses on failing status checks or other merge blockers, auto-dismisses the blocking review using `bypassReason`, writes the canonical audit signature into the merge-commit body, always uses `merge_method=merge`, and triggers Minsky session cleanup. Use this when the conditions in the next bullet hold.
 - **Fallback — raw bypass via `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`** (only when the in-band `forceBypass` path is unavailable) when ALL of these hold:
   - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once).
