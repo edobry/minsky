@@ -353,20 +353,13 @@ export async function pushSessionCommitWithFallback(
   };
 }
 
-/**
- * Session PR creation parameters
- */
-export interface SessionPrParams {
-  session: string;
-  title?: string;
-  body?: string;
-  bodyPath?: string;
-  noStatusUpdate?: boolean;
-
-  skipConflictCheck?: boolean;
-  autoResolveDeleteConflicts?: boolean;
-  debug?: boolean;
-}
+// mt#3212: the hand-written `SessionPrParams` interface that used to live here
+// was deleted, along with the `sessionPrParamsSchema`/`SessionPrParams` pair in
+// `../schemas/session.ts`. Both were dead: this one served the `sessionPr()`
+// wrapper deleted below, and neither had a consumer left. The live PR contract
+// is `SessionPRParameters` (`../schemas/session-schemas.ts`), which
+// `session-pr-operations.ts` parses with — same treatment mt#3211 gave the
+// hand-written `SessionUpdateParams` noted below.
 
 // ❌ DELETED: sessionPr() wrapper function - redundant duplicate
 // This function was a wrapper around sessionPrFromParams (legacy implementation).
