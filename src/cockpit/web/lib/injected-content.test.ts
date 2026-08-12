@@ -445,3 +445,103 @@ describe("splitInjectedContent — notice with leading whitespace (PR #2515 R2)"
     expect(segments[1]).toEqual({ type: "prose", text: prose });
   });
 });
+
+// ── mt#4058: bash-mode turns (`!`-prefixed commands) ────────────────────────
+//
+// Both fixtures below are copied from real transcript lines. Before mt#4058
+// neither tag was in the inventory, so both turns fell to the verbatim-prose
+// path: the principal's screenshot showed `<bash-input>minsky cockpit open`
+// and `<bash-stdout>OPENED …</bash-stdout><bash-stderr></bash-stderr>` as two
+// consecutive turns rendered under the OPERATOR's own label.
+
+/** Verbatim, from the originating screenshot (conversation efb04b87). */
+const BASH_INPUT_TURN = "<bash-input> minsky cockpit open</bash-input>";
+
+/** Verbatim: the output pair arrives concatenated, stderr empty. */
+const BASH_OUTPUT_TURN =
+  "<bash-stdout>OPENED minsky://conversation/efb04b87-61e2-45b0-a63f-72092d1d3cf8</bash-stdout>" +
+  "<bash-stderr></bash-stderr>";
+
+describe("splitInjectedContent — bash-mode family (mt#4058)", () => {
+  test("bash-input becomes an injected span, not verbatim prose", () => {
+    const segments = splitInjectedContent(BASH_INPUT_TURN);
+    expect(segments.filter((s) => s.type === "prose")).toHaveLength(0);
+    expect(firstSpan(BASH_INPUT_TURN).kind).toBe("bash-command");
+  });
+
+  test("the bash-input header names the command, so collapsing hides nothing", () => {
+    expect(firstSpan(BASH_INPUT_TURN).label).toBe("bash: minsky cockpit open");
+  });
+
+  test("a long command is bounded in the label but kept whole in the content", () => {
+    const long = `git log --oneline --since='${"x".repeat(120)}'`;
+    const span = firstSpan(`<bash-input> ${long}</bash-input>`);
+    expect(span.label.length).toBeLessThanOrEqual("bash: ".length + 72);
+    expect(span.content).toBe(long);
+  });
+
+  test("a multi-line command labels from its first line only", () => {
+    const span = firstSpan("<bash-input> cd /tmp\nls -la\n</bash-input>");
+    expect(span.label).toBe("bash: cd /tmp");
+    expect(span.content).toContain("ls -la");
+  });
+
+  test("stdout and stderr are BOTH consumed from the one concatenated turn", () => {
+    const segments = splitInjectedContent(
+      "<bash-stdout>ok</bash-stdout><bash-stderr>warn</bash-stderr>"
+    );
+    // Two spans, no leaked prose: a matcher that stopped after the first block
+    // would leave the stderr half as raw XML.
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ span: { kind: "bash-output", content: "ok" } });
+    expect(segments[1]).toMatchObject({ span: { kind: "bash-error", content: "warn" } });
+  });
+
+  test("an empty half renders nothing at all — no collapsed header over nothing", () => {
+    const segments = splitInjectedContent(BASH_OUTPUT_TURN);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      type: "injected",
+      span: { kind: "bash-output", label: "command output" },
+    });
+  });
+
+  test("an empty stdout beside real stderr surfaces the stderr", () => {
+    const segments = splitInjectedContent(
+      "<bash-stdout></bash-stdout><bash-stderr>Environment not found.\n</bash-stderr>"
+    );
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({
+      span: { kind: "bash-error", content: "Environment not found." },
+    });
+  });
+
+  test("a wholly empty pair yields no segments, and never falls back to raw tags", () => {
+    // Both halves empty: the text was RECOGNIZED, so it must not reach the
+    // verbatim-prose path just because there was nothing to show.
+    const segments = splitInjectedContent("<bash-stdout></bash-stdout><bash-stderr></bash-stderr>");
+    expect(segments).toEqual([]);
+  });
+
+  test("ANSI escape bytes are stripped from bash output", () => {
+    const esc = String.fromCharCode(27);
+    const span = firstSpan(`<bash-stdout>done ${esc}[1mfast${esc}[22m</bash-stdout>`);
+    expect(span.content).toBe("done fast");
+    expect(span.content).not.toContain(esc);
+    // The visible bracket-digit residue an unstripped escape leaves behind.
+    expect(span.content).not.toContain("[1m");
+  });
+
+  test("prose merely MENTIONING a bash tag mid-sentence is returned verbatim", () => {
+    const input = "The <bash-input> wrapper is what carries the typed command.";
+    expect(splitInjectedContent(input)).toEqual([{ type: "prose", text: input }]);
+  });
+
+  test("a bash turn followed by operator prose splits into injected + prose", () => {
+    const prose = "\nthat opened the wrong conversation";
+    const segments = splitInjectedContent(BASH_INPUT_TURN + prose);
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: "injected", span: { kind: "bash-command" } });
+    expect(segments[1]).toEqual({ type: "prose", text: prose });
+  });
+});
