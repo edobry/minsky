@@ -1398,9 +1398,10 @@ way?"
 has a 15,000-char per-rule ceiling (mt#3676), enforced on the COMPILED contribution: measure with
 `bun run src/cli.ts compile --check --target claude.md`, never `wc -c` on the source. When your
 observer breaches it, move the narration into `docs/architecture/hooks/<name>.md` and compress the
-entry to trigger + status + override + pointer. `MINSKY_SKIP_SIZE_JUSTIFICATION` is the escape
-hatch, not the fix — the same argument `guard-feedback-authoring.mdc` makes about trimming text
-rather than raising an `attentionCost` annotation.
+entry to trigger + status + override + pointer. Two audited escape hatches sit on that path —
+`MINSKY_SKIP_SIZE_BUDGET` at commit (pre-commit) and `MINSKY_SKIP_SIZE_JUSTIFICATION` at merge —
+and neither is the fix, by the same argument `guard-feedback-authoring.mdc` makes about trimming
+text rather than raising an `attentionCost` annotation.
 
 **All observers on one event share ONE injected block.** The dispatcher merges every guard's
 `additionalContext` into a single `hookSpecificOutput` — not N separate injections (mt#3394 was
