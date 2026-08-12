@@ -337,10 +337,20 @@ export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewD
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
     lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
     // mt#3197: the positional count above includes detections that were
-    // suppressed before reaching the operator. Show the split so a reviewer
-    // never mistakes log volume for attention cost.
-    if (r.suppressedSinceLastReview > 0) {
-      lines.push(`    ...suppressed:        ${r.suppressedSinceLastReview} (never injected)`);
+    // suppressed before reaching the operator. mt#3863 widens the split with
+    // evaluation-only records — a record carrying no match at all, from a
+    // detector that logs on every turn regardless of outcome. Show all three
+    // so a reviewer never mistakes log volume (or evaluation volume) for
+    // attention cost.
+    if (r.suppressedSinceLastReview > 0 || r.evaluatedOnlySinceLastReview > 0) {
+      if (r.suppressedSinceLastReview > 0) {
+        lines.push(`    ...suppressed:        ${r.suppressedSinceLastReview} (never injected)`);
+      }
+      if (r.evaluatedOnlySinceLastReview > 0) {
+        lines.push(
+          `    ...evaluated-only:    ${r.evaluatedOnlySinceLastReview} (no match, mt#3863)`
+        );
+      }
       lines.push(`    ...injected:          ${r.injectedFiresSinceLastReview}`);
     }
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
@@ -750,6 +760,7 @@ export function registerCalibrationCommands(): void {
               firesSinceLastReview: r.firesSinceLastReview,
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
+              evaluatedOnlySinceLastReview: r.evaluatedOnlySinceLastReview,
               distinctPhrases: r.distinctPhrases,
               atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,
