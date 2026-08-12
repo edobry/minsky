@@ -237,12 +237,17 @@ export interface CockpitServerOptions {
    * loopback-only Host-header allowlist below. The mt#2538 local-daemon
    * hardening spec explicitly rules that deployment out of scope. Setting
    * this to `true` skips the Host-header allowlist and the bearer-token /
-   * cookie mutation-auth requirement entirely, preserving that deployment's
-   * pre-mt#2538 behavior exactly (it also skips generating/reading the local
-   * `~/.local/state/minsky/cockpit-token` file, which has no meaning for a
-   * multi-instance container deployment). The CSP header and the
+   * cookie mutation-auth requirement (it also skips generating/reading the
+   * local `~/.local/state/minsky/cockpit-token` file, which has no meaning for
+   * a multi-instance container deployment). The CSP header and the
    * no-permissive-CORS policy still apply — both are purely additive
    * response-header behavior with no request-handling impact.
+   *
+   * As of mt#4023 this flag SUBSTITUTES an auth mechanism rather than removing
+   * one: it mounts a WebAuthn passkey gate that denies every non-public route
+   * without a session. Until then it removed auth outright, and the deployment
+   * served the live corpus to anyone holding its URL. Do not read this flag as
+   * "no auth" — that reading is what the exposure was.
    */
   isPublicDeployment?: boolean;
   /**

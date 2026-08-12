@@ -117,6 +117,24 @@ function waitForWsOutcome(ws: WebSocket): Promise<"refused" | "opened"> {
  * PAST the gate — the gate's denial path needs no store behavior at all,
  * since a request with no cookie never gets as far as a lookup.
  */
+function passkeyStoreWith(enrolled: number, sessionValid: boolean): PasskeyStore {
+  return {
+    listPasskeys: async () =>
+      Array.from({ length: enrolled }, (_, i) => ({
+        id: `p${i}`,
+        credentialId: `c${i}`,
+        publicKey: "",
+        counter: 0,
+      })),
+    findPasskeyByCredentialId: async () => null,
+    insertPasskey: async () => "p1",
+    updatePasskeyCounter: async () => {},
+    createSession: async () => {},
+    findValidSession: async () => (sessionValid ? { id: "s1" } : null),
+    deleteSession: async () => {},
+  };
+}
+
 function alwaysAuthenticatedPasskeyStore(): PasskeyStore {
   return {
     listPasskeys: async () => [{ id: "p1", credentialId: "c1", publicKey: "", counter: 0 }],
@@ -491,6 +509,51 @@ describe("Cockpit daemon security hardening (mt#2538)", () => {
       });
       closeList.push(s.close);
       const res = await fetch(`${s.url}/api/health`);
+      expect(res.status).toBe(200);
+    });
+
+    test("first-run enrollment is open while NO passkey exists (mt#4023 SC3)", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: passkeyStoreWith(0, false),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/auth/passkey/register/start`, {
+        method: "POST",
+        headers: { "Content-Type": CONTENT_TYPE_JSON },
+        body: "{}",
+      });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ ceremonyId: expect.any(String) });
+    });
+
+    test("enrollment CLOSES once a passkey exists — the bootstrap window is not reusable (mt#4023 SC3)", async () => {
+      // The security property: whoever reaches the URL second cannot enroll
+      // themselves. Without this the gate would be a race, not a gate.
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: passkeyStoreWith(1, false),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/auth/passkey/register/start`, {
+        method: "POST",
+        headers: { "Content-Type": CONTENT_TYPE_JSON },
+        body: "{}",
+      });
+      expect(res.status).toBe(403);
+    });
+
+    test("an authenticated operator CAN still add another passkey (mt#4023 SC3)", async () => {
+      const s = await startTestServer({
+        isPublicDeployment: true,
+        passkeyStore: passkeyStoreWith(1, true),
+      });
+      closeList.push(s.close);
+      const res = await fetch(`${s.url}/api/auth/passkey/register/start`, {
+        method: "POST",
+        headers: { "Content-Type": CONTENT_TYPE_JSON, Cookie: "minsky_cockpit_session=test" },
+        body: "{}",
+      });
       expect(res.status).toBe(200);
     });
 
