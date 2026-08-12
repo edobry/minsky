@@ -77,10 +77,21 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_EVIDENCE_PROVENANCE";
 /**
  * The text this tool call is about to write, across the three seams.
  *
- * `session_pr_create` accepts the body either inline or as `bodyPath`; both are
- * read, because a body written to a file is the SAME claim and treating it as
- * absent would make the file form a silent bypass. A `bodyPath` that cannot be
- * read yields null rather than "" — see the skipped-vs-clean split in `run`.
+ * `session_pr_create` accepts the body either inline or as `bodyPath`; **both are
+ * read, unconditionally**, because a body written to a file is the SAME claim and
+ * treating it as absent would make the file form a silent bypass.
+ *
+ * PR #2941 R1 caught this reading `bodyPath` only when no inline field was
+ * present — and `session_pr_create` REQUIRES `title`, so on that seam `parts` is
+ * never empty and the file was never read at all. The bypass was not a corner
+ * case; it was the whole `--body-path` path, which is the shape `/prepare-pr`
+ * reaches for whenever a body is long. The guarded gate is now gone: every
+ * available source is appended.
+ *
+ * An unreadable `bodyPath` no longer discards the inline text either. Falling
+ * back to what IS readable can only lose a record (a false negative, the safe
+ * direction); returning null would downgrade a real claim to `skipped` on the
+ * strength of a missing file.
  */
 export function resolveArtifactText(toolInput: Record<string, unknown> | undefined): string | null {
   if (!toolInput) return null;
@@ -90,13 +101,12 @@ export function resolveArtifactText(toolInput: Record<string, unknown> | undefin
     if (typeof value === "string" && value.trim() !== "") parts.push(value);
   }
   const bodyPath = toolInput["bodyPath"];
-  if (parts.length === 0 && typeof bodyPath === "string" && bodyPath.trim() !== "") {
+  if (typeof bodyPath === "string" && bodyPath.trim() !== "") {
     try {
       parts.push(readFileSync(bodyPath, "utf8"));
     } catch {
-      // Unreadable body file: the claim is real but unavailable to us. Reported
-      // as `skipped` by the caller, never as clean.
-      return null;
+      // Unreadable: fall through to whatever inline text exists. Only a call
+      // with NO readable source at all is reported `skipped` by the caller.
     }
   }
   return parts.length > 0 ? parts.join("\n\n") : null;

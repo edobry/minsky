@@ -15,6 +15,10 @@
  * the whole backticked span cannot be the join key.
  */
 import { describe, test, expect } from "bun:test";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- the R1 regression is that a REAL `bodyPath` file was never read; an injected reader would assert that a fake agrees with the code, which is the one thing that cannot fail. Written to tmpdir and removed in a finally.
+import { writeFileSync, rmSync } from "node:fs";
+// eslint-disable-next-line custom/no-real-fs-in-tests -- the rule prefers a fixed '/mock/tmp', but this file writes a REAL file (see above), so a fixed path would race across parallel test files. The name is pid-suffixed and removed in a finally.
+import { tmpdir } from "node:os";
 import type { DispatchContext } from "./registry";
 import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
@@ -287,8 +291,31 @@ describe("resolveArtifactText", () => {
     expect(resolveArtifactText({ body: "b", title: "t" })).toBe("b\n\nt");
   });
 
-  test("an unreadable bodyPath yields null, so the caller records skipped not clean", () => {
-    expect(resolveArtifactText({ bodyPath: "/nonexistent/mt4044-body.md" })).toBeNull();
+  test("bodyPath is read even when a title is present — the R1 bypass", () => {
+    // PR #2941 R1. `session_pr_create` REQUIRES `title`, so gating the bodyPath
+    // read on "no inline field present" meant the file was never read on that
+    // seam at all: the whole `--body-path` shape was a silent bypass, not a
+    // corner case.
+    const path = `${tmpdir()}/mt4044-bodypath-${process.pid}.md`;
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import-site justification: a REAL file is the subject of this regression, since the defect was that the file was never read.
+    writeFileSync(path, "Negative control — `theSubject`: reverted, saw red.\n");
+    try {
+      const text = resolveArtifactText({ title: "a title", bodyPath: path });
+      expect(text).toContain("a title");
+      expect(text).toContain("Negative control");
+      // And it reaches the judgement, not just the string.
+      expect(judgeClaims(text ?? "", [])[0]?.kind).toBe("negative-control");
+    } finally {
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- cleanup for the real file written above.
+      rmSync(path, { force: true });
+    }
+  });
+
+  test("an unreadable bodyPath falls back to the inline text rather than discarding it", () => {
+    // Losing the file can only lose a record (safe direction); returning null
+    // would downgrade a real inline claim to `skipped` over a missing file.
+    expect(resolveArtifactText({ title: "kept", bodyPath: "/nonexistent/mt4044.md" })).toBe("kept");
+    expect(resolveArtifactText({ bodyPath: "/nonexistent/mt4044.md" })).toBeNull();
     expect(resolveArtifactText({})).toBeNull();
   });
 });
