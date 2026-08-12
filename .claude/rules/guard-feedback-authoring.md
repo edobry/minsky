@@ -122,6 +122,42 @@ measured 1668. The merged budget inherited the understatement, so it bound on or
 and silently dropped lower-priority reminders, which is the precise opposite of its documented
 intent.
 
+**A calibration-first guard needs a `renderProbe`, or its ceiling is enforced against nothing
+(mt#4002).** The check above measures a guard's live `additionalContext`, and a guard whose
+module gates injection off returns none — so for that whole population the ceiling was compared
+to `""` and passed at any declared value. Measured across it: five guards, ceilings declared
+400–1650, all measuring 0; five of six registrations understated, by up to 3.6x. Declare
+`renderProbe` on the registration, pointing at a `renderWorstCase()` the module exports, and pose
+it SATURATED on every axis at once. The two signatures:
+
+```ts
+// registry.ts — GuardRegistration
+renderProbe?: () => Promise<string>;
+
+// the guard module — exported so the probe can reach it
+export function renderWorstCase(): string;
+```
+
+Wire it exactly like `module`, self-importing so the registry stays lazy, and point it at the
+module rather than constructing the renderer's input in the registry — the guard owns its own
+input types and caps:
+
+```ts
+renderProbe: () => import("./my-detector").then((m) => m.renderWorstCase()),
+```
+
+`renderWorstCase()` builds the largest input its renderer can face and returns the rendered
+string; give it a doc comment naming which axes are capped and which are not. It carries a second meaning the budget derivation reads:
+a guard that renders but never injects contributes no chars to a real turn, so it is excluded
+from the top-five bucket `MERGED_CONTEXT_BUDGET_CHARS` sums — putting one there sizes a shared
+per-turn budget for text that is never sent. Delete the probe when the guard's gate flips.
+
+**Growth-shaped and uncapped is its own classification, not `capped`.** Where the probe's count
+axis has no `…and N more` bound, `guard-feedback-shape.test.ts` classifies the guard
+`render-probe-sample` — the annotation is then a saturated SAMPLE, not a proved ceiling. Three
+guards carry that today and each owes a cap; calling them capped would launder exactly what the
+classification receipt exists to expose.
+
 ## Adding a guard
 
 - Declare a `canary` (mt#2889) — the shape test can only measure guards it can trigger, and a
@@ -133,7 +169,12 @@ intent.
 
 ## Cross-references
 
-`.minsky/hooks/registry.ts` (`attentionCost`, `canary`) · `.minsky/hooks/dispatcher.ts`
-(`MERGED_CONTEXT_BUDGET_CHARS`) · `.minsky/hooks/guard-feedback-shape.test.ts` (the check) ·
+`.minsky/hooks/registry.ts` (`attentionCost`, `canary`, `worstCaseCanary`, `renderProbe`) ·
+the guard module's exported `renderWorstCase()` (what `renderProbe` calls) ·
+`.minsky/hooks/dispatcher.ts` (`MERGED_CONTEXT_BUDGET_CHARS`, hand-set — see the note there
+before changing a top-five annotation) · `.minsky/hooks/guard-feedback-shape.test.ts` (the check,
+the `FeedbackShape` classification including `render-probe-sample`, and the probe receipt) ·
+`.minsky/hooks/dispatcher.test.ts` (the modelled turn the budget is asserted against) ·
 `hook-files.mdc` (gate index) · `hook-observers.mdc` (observer index) · mt#3479 (this rule) ·
-mt#3394 (the merged budget this feeds).
+mt#3394 (the merged budget this feeds) · mt#4002 (`renderProbe` + the never-injecting exclusion) ·
+mt#3796 (why the budget is hand-set rather than auto-summed).

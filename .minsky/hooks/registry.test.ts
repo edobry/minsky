@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 // eslint-disable-next-line custom/no-real-fs-in-tests -- the mt#3823 parity block asserts against the REAL committed `.claude/settings.json`, which is the artifact under test: an injected or in-memory copy could not detect the live file losing a dispatcher registration, which is the entire defect class (two guards registered and never invoked). Same shape as the migration-journal read in tests/integration/short-id-conflict-inference.integration.test.ts — reading a committed source of truth, not faking test state.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   getGuardsForEvent,
@@ -176,6 +176,42 @@ describe("findDuplicateRegistrations", () => {
 
   test("current GUARD_REGISTRY has no duplicate registrations (regression guard)", () => {
     expect(findDuplicateRegistrations(GUARD_REGISTRY)).toEqual([]);
+  });
+
+  // PR #2886 R1. A guard that reads `ctx.transcriptLines` without declaring
+  // `needsTranscript` is not broken in any way its own unit tests can see: they
+  // construct the context directly, so the module works perfectly and the
+  // dispatcher hands it nothing. The result is a guard that is present, green
+  // and inert — the `work-completion.mdc §Invocation path` shape, one layer in.
+  //
+  // Source-text keyed rather than behavioral, deliberately: the coupling is
+  // between a module's code and its REGISTRATION, and no runtime exercise of
+  // either half can observe the other. `command-source-scan.ts` sets the
+  // precedent for asserting a registration property by reading source.
+  test("every guard reading ctx.transcriptLines declares needsTranscript", () => {
+    const hooksDir = new URL(".", import.meta.url).pathname;
+    const violations: string[] = [];
+
+    for (const reg of GUARD_REGISTRY) {
+      // The module path is not on the registration (it is a lazy import
+      // thunk), so match on the guard's own name — every guard module in this
+      // directory is named for its registration.
+      const modulePath = join(hooksDir, `${reg.name}.ts`);
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- the COMMITTED guard module is the artifact under test, exactly as the settings.json read below is. The assertion is that a module's source and its registration agree; an in-memory fixture would assert that a fixture agrees with itself, which is the one thing that cannot fail. Same justification as the import-site disable.
+      if (!existsSync(modulePath)) continue;
+
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- see above: reading the real module source IS the check.
+      const source = readFileSync(modulePath, "utf8");
+      const readsTranscript = /\bctx\.transcriptLines\b|\btranscriptLines\b/.test(source);
+      if (readsTranscript && !reg.needsTranscript) {
+        violations.push(
+          `${reg.name} reads transcriptLines but its registration omits needsTranscript — ` +
+            `the dispatcher will never populate it and the guard is inert`
+        );
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 
   // mt#3282: two tool-scoped guards may intentionally share a matcher — the
