@@ -18,9 +18,9 @@ Two checklists, both required. The first is about COMPLETENESS (does the message
 Run this before posting an escalation:
 
 1. **State the question in plain language**, not by referent. "Should I do A or B?" with A and B identified by label-only forces the user to look up what those labels mean. Restate the options inline.
-2. **Inline the full content of every option**, not just its name. A bulleted shape with one sentence each is the floor. If the options live in a spec or memory, copy the relevant text into the escalation — don't link.
+2. **Inline the full content of every option**, not just its name. A bulleted shape with one sentence each is the floor. If the options live in a spec or memory, copy the relevant text into the escalation — don't link. Copying the text is right; copying a NORMATIVE marker (`(recommended)`, `preferred`, a ranking) without its source is not — see item 4.
 3. **List the decision drivers** — the factors that distinguish the options. The user should see what _would_ tilt the choice, not infer it.
-4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override.
+4. **Make a recommendation** (with a clear "you decide" caveat). Withholding a recommendation pushes synthesis onto the user; offering one anchors and accelerates. The user can always override. **Say whose it is (mt#4051).** Derived this turn, it is yours. Carried from an ask, memory, spec, or handoff another agent wrote, it is theirs — name that source in the same sentence: _"ask#8004 marks this recommended; that label is a prior agent's framing, not mine."_ A copied marker reads as YOUR endorsement no matter how faithfully you reproduced it, because in the new surface you are its only available referent. See `claim-confidence.mdc §The corpus is agent-authored`.
 5. **Name what you do NOT need from the user** — what you can derive yourself from existing specs, code, or memory. Pruning the question reduces the response burden.
 
 Manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034) — becomes structural once that ships. Originating incident: `feedback_escalation_packaging.md` (mt#1316 shape A/B/C). Full narrative: `docs/rules-rationale/humility.md §Escalation packaging`.

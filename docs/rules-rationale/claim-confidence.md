@@ -165,11 +165,67 @@ less: what you retain is the intent, while the divergence lives in the specifics
 to citation. A rule you helped write reads as settled fact on the next pass, and there is nothing
 in the artifact to distinguish "we verified this" from "I decided this and wrote it down."
 
+### Worked example: a recommendation carried between surfaces (mt#4051)
+
+The clause above says an **Asserting** citation covers "a chosen framing." A recommendation is one,
+and the shape it fails in is not citation-in-prose — it is transit.
+
+**The incident (2026-08-12).** An agent resumed from handoff mem#977, dereferenced ask#8004 (an open
+transcript-storage mechanism decision filed by an earlier session), and put its four options to the
+principal via `AskUserQuestion`, carrying the first label verbatim: **"Switch to Postgres lines
+(recommended)."** It had derived none of that. Both source records disclaim the label explicitly —
+mem#977, which the agent had read that turn: _"the framing that it is preferable is an agent's, not
+independent"_; mem#773: _"Superseding ADR-025's mechanism is a principal decision and was NOT taken
+by an agent."_ The principal replied _"help me understand what in our analysis changed here to make
+you no longer recommend the object storage approach"_ — a question premised on analysis nobody had
+done. Cost: one wasted round-trip on a decision gating four tasks.
+
+**Why it is a distinct shape.** In its home artifact a recommendation is self-labelling. An ask
+carries a requestor; a memory carries an author; a handoff names whose framing it is. Those
+surfaces supply the attribution _around_ the string, so the string never carries it itself. Copy it
+into a new principal-facing surface and every carrier is left behind — and there the marker has one
+available referent: the agent presenting it.
+
+This is §Absence in a derived view's geometry applied to attribution rather than data: nothing is
+contradicted, there is no error to notice, only a gap. A quotation that drops its quotation marks
+does not look like a quotation; it looks like a sentence you wrote. That is why it passes the
+author's own review, and why faithfulness is the trap — reproducing the string exactly is what
+strips it.
+
+**Why the two shipped fixes did not contain it.** §A relayed claim is never `verified` (mt#3152)
+scopes to FACTUAL output from three intermediaries; a recommendation is not a claim, so a rule
+written about findings does not self-trigger. This section (mt#3599) does cover it on a careful
+reading, but every example it gives is factual-adjacent and its frame is citation-in-prose. Neither
+contemplates structured tool input as a destination. Recurrence-after-DONE against
+`family:assertion-without-verification`.
+
+**The check.** Before handing the principal an option set, ask of each preference marker: did I
+derive this THIS turn, or am I carrying it? If carrying, name the source in the same sentence. One
+clause suffices: _"ask#8004 marks this recommended; that label is a prior agent's framing, not
+mine."_
+
 ### Cross-references
 
 mt#3599 (this amendment, Leg B) · mt#3598 (the corpus audit) · mem#824 (the originating incident)
 · mem#664 (`family:principal-altitude` root) · ADR-037 (the forward control mechanism this
-amendment accompanies) · `user-preferences.mdc §Plain-language first`.
+amendment accompanies) · `user-preferences.mdc §Plain-language first` · mem#706
+(`family:assertion-without-verification` root) · `/escalation-packaging §Content checklist` items 2
+and 4 (the chokepoint check).
+
+For the normative-content extension above, three ids that are easy to confuse and are not the same
+record:
+
+- **mt#4051** — the task that shipped the extension (this rule amendment, the checklist items, and
+  this section).
+- **mt#4052** — the deterministic slice mt#4051 deferred: a calibration-first `PreToolUse` detector
+  for a preference marker carried into an `AskUserQuestion` option label without a named source.
+  Filed, TODO, with a recorded dependency on mt#4032. This is the mechanism that would have caught
+  the incident above; the prose here is the weaker tier and says so.
+- **mem#997** — `feedback_recommendation_loses_provenance_across_surfaces`, the bridge memory,
+  retired when mt#4052 ships. **Distinct from mem#977**
+  (`handoff_transcript_archive_premise_falsified_2026-08-11`), the handoff cited in the incident
+  narrative above as the record the agent read and whose disclaimer it dropped. The two differ by a
+  digit transposition and nothing else, so check the name before citing either.
 
 ## Absence in a derived view is not evidence of absence in the source
 
