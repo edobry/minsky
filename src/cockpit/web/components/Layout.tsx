@@ -15,9 +15,11 @@
  * its tab on visit. The global CommandPalette (⌘K) is mounted here so it is
  * available from every route, as is TabKeyboardNav (mt#3469), which needs to
  * sit INSIDE TabsProvider to reach `useTabs` — it renders nothing and exists
- * only to own the tab-switching key bindings. Children render inside <main> as-is; individual
- * pages control their own internal layout (Layout-flexibility mandate,
- * mt#2370).
+ * only to own the tab-switching key bindings. TabCloseBridge (mt#4059) sits
+ * there for the same reason and renders nothing either; it owns the
+ * `window.__minskyCloseActiveTab` global the tray's ⌘W menu item evals.
+ * Children render inside <main> as-is; individual pages control their own
+ * internal layout (Layout-flexibility mandate, mt#2370).
  *
  * `min-h-0` on the workspace column is load-bearing, not decorative (mt#3335).
  * Below `md` the root is `flex-col`, which makes that column a COLUMN-flex
@@ -37,6 +39,7 @@ import { Rail } from "./Rail";
 import { TabBar } from "./TabBar";
 import { CommandPalette } from "./CommandPalette";
 import { TabKeyboardNav } from "./TabKeyboardNav";
+import { TabCloseBridge } from "./TabCloseBridge";
 import { TabsProvider } from "../lib/tabs";
 import { NewConversationProvider } from "../hooks/useNewConversation";
 
@@ -61,6 +64,7 @@ export function Layout({ children }: Props) {
           </div>
           <CommandPalette />
           <TabKeyboardNav />
+          <TabCloseBridge />
         </div>
       </NewConversationProvider>
     </TabsProvider>
