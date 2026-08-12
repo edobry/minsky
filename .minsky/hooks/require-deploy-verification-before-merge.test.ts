@@ -29,6 +29,12 @@ const DEPLOY_FILES: PrFile[] = [f(INFRA_INDEX), f(REVIEWER_RAILWAY_JSON)];
 // are outside every deploy workflow's paths: block.
 const NON_DEPLOY_FILES: PrFile[] = [f("scripts/app.ts"), f("docs/architecture.md")];
 
+// mt#4013: root src/** is a minsky-mcp deploy surface (bundled into the
+// image; a live workflow trigger). A representative src/** file, exercised
+// directly against THIS gate below, so the widened classification is pinned
+// at the consumer that blocks merges — not only in the map's own tests.
+const ROOT_SRC_FILE: PrFile[] = [f("src/mcp/tools/example.ts")];
+
 /** The marker under test, extracted so the fence cases below share one spelling. */
 const DV_MARKER = "Deploy verification:";
 
@@ -228,6 +234,19 @@ describe("checkDeployVerification (mt#2353)", () => {
   test("allows a deploy-surface PR that has the Deploy verification: section", () => {
     const body = `${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS.`;
     const r = checkDeployVerification(DEPLOY_FILES, DEPLOY_CHANGE_TITLE, body);
+    expect(r.blocked).toBe(false);
+  });
+
+  test("mt#4013: BLOCKS a root-src/** PR with no Deploy verification: section (widened surface reaches this gate)", () => {
+    const r = checkDeployVerification(ROOT_SRC_FILE, DEPLOY_CHANGE_TITLE, NO_SECTION_BODY);
+    expect(r.blocked).toBe(true);
+    expect(r.deploySurfaceFiles).toEqual(["src/mcp/tools/example.ts"]);
+    expect(r.reason).toContain(DV_MARKER);
+  });
+
+  test("mt#4013: allows a root-src/** PR that carries the Deploy verification: section", () => {
+    const body = `${SECTION_HEADING}\nRan deployment_wait-for-latest → SUCCESS.`;
+    const r = checkDeployVerification(ROOT_SRC_FILE, DEPLOY_CHANGE_TITLE, body);
     expect(r.blocked).toBe(false);
   });
 

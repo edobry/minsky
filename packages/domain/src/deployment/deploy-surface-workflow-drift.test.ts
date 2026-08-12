@@ -153,6 +153,17 @@ describe("deploy-surface workflow-paths drift (mt#3523)", () => {
       expect(isDeploySurfaceFile(examplePath)).toBe(false);
     }
   });
+
+  // mt#4013 (PR #2908 review): the `/^src\//` -> minsky-mcp map entry is
+  // justified by the root Dockerfile bundling the whole src tree. If that
+  // COPY ever changes shape (selective src COPYs, tree moved), the map's
+  // premise is gone and the entry must be re-decided — fail here rather
+  // than leaving map, workflow, and Dockerfile to drift apart silently.
+  test("root Dockerfile still COPYs the whole src tree (the premise of the src/** -> minsky-mcp mapping)", () => {
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- reads the committed Dockerfile to assert the mapping's premise; the Dockerfile's content IS the thing under test (mt#4013)
+    const dockerfile = readFileSync(join(REPO_ROOT, "Dockerfile"), "utf8");
+    expect(dockerfile).toContain("COPY src ./src");
+  });
 });
 
 describe("globToExamplePath (mt#3523)", () => {
