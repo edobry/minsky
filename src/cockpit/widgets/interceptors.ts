@@ -95,6 +95,86 @@ export interface InterceptorsPayload {
  * Throws on mismatch; `fetch` below converts that into a DEGRADED widget, so
  * the cockpit says "this is broken" instead of showing a short corpus.
  */
+const VALID_STRATA: readonly string[] = [
+  "registry",
+  "standalone",
+  "precommit",
+  "retired",
+  "fixture",
+];
+
+const VALID_PROVENANCE_STATUS: readonly string[] = ["implementation", "declaration-only", "none"];
+
+/**
+ * Validate ONE row.
+ *
+ * The envelope check below is not sufficient on its own: an `entries` array of
+ * the right LENGTH carrying malformed rows satisfies every top-level
+ * assertion, and the damage then lands per-row in the UI — a missing
+ * `guardName` renders a nameless row whose detail link goes nowhere, and a
+ * `failureClasses` that is not an array throws inside the render instead of
+ * degrading the widget. Row-level failures are the ones that read as a
+ * plausible catalog, which is exactly the class this boundary exists to stop.
+ *
+ * Deliberately checks SHAPE, not the value domains the generator owns:
+ * `stratum` and `provenanceStatus` are closed unions the frontend switches on,
+ * so an unknown member is a real defect; `description` and the notes are free
+ * text and are only type-checked.
+ */
+function validateEntry(entry: unknown, index: number): InterceptorEntry {
+  const where = (detail: string): string =>
+    `interceptor catalog entry ${index} (${
+      typeof (entry as { guardName?: unknown })?.guardName === "string"
+        ? (entry as { guardName: string }).guardName
+        : "unnamed"
+    }): ${detail}`;
+
+  if (typeof entry !== "object" || entry === null) {
+    throw new Error(`interceptor catalog entry ${index} is not an object`);
+  }
+  const e = entry as Partial<InterceptorEntry>;
+
+  if (typeof e.guardName !== "string" || e.guardName === "") {
+    throw new Error(where("missing `guardName`"));
+  }
+  if (e.description !== null && typeof e.description !== "string") {
+    throw new Error(where("`description` is neither a string nor null"));
+  }
+  if (typeof e.undescribed !== "boolean") {
+    throw new Error(where("missing `undescribed`"));
+  }
+  // The invariant the catalog's honesty rests on: `description` is null
+  // EXACTLY when the entry is undescribed. A described row with a null
+  // description would render as a blank cell — the absence-vs-declaration
+  // conflation this surface exists to prevent.
+  if ((e.description === null) !== e.undescribed) {
+    throw new Error(where("`description` null-ness disagrees with `undescribed`"));
+  }
+  if (!Array.isArray(e.failureClasses) || e.failureClasses.some((c) => typeof c !== "string")) {
+    throw new Error(where("`failureClasses` is not an array of strings"));
+  }
+  if (!Array.isArray(e.provenance) || e.provenance.some((p) => typeof p !== "string")) {
+    throw new Error(where("`provenance` is not an array of strings"));
+  }
+  if (!Array.isArray(e.coverageGaps) || e.coverageGaps.some((g) => typeof g !== "string")) {
+    throw new Error(where("`coverageGaps` is not an array of strings"));
+  }
+  if (typeof e.registered !== "boolean") {
+    throw new Error(where("missing `registered`"));
+  }
+  if (e.stratum !== null && !VALID_STRATA.includes(e.stratum as string)) {
+    throw new Error(where(`unknown stratum "${String(e.stratum)}"`));
+  }
+  if (e.subject !== "trajectory" && e.subject !== "system") {
+    throw new Error(where(`unknown subject "${String(e.subject)}"`));
+  }
+  if (!VALID_PROVENANCE_STATUS.includes(e.provenanceStatus as string)) {
+    throw new Error(where(`unknown provenanceStatus "${String(e.provenanceStatus)}"`));
+  }
+
+  return e as InterceptorEntry;
+}
+
 export function parseCatalog(raw: unknown): InterceptorsPayload {
   if (typeof raw !== "object" || raw === null) {
     throw new Error("interceptor catalog is not an object");
@@ -123,7 +203,7 @@ export function parseCatalog(raw: unknown): InterceptorsPayload {
     population: c.population,
     divergence: c.divergence,
     failureClasses: c.failureClasses,
-    entries: c.entries,
+    entries: c.entries.map(validateEntry),
   };
 }
 

@@ -20,47 +20,79 @@
  * @see mt#4010 §Data-access decision
  * @see scripts/build-interceptor-catalog.ts
  */
+/* eslint-disable custom/no-real-fs-in-tests --
+ * This test's SUBJECT is the real source tree: it asserts that no file under
+ * `src/` imports the hook tree. Injecting a mock fs would make it assert
+ * nothing at all — the mock would become the only thing under test.
+ *
+ * The rule's actual targets are absent here: no fixture files are created on
+ * disk, no `tmpdir()`, no timestamp-unique paths, and therefore none of the
+ * parallel-test race conditions it exists to prevent. This is a read-only walk
+ * over tracked files.
+ *
+ * Recorded rather than quietly routed around: the PREVIOUS revision shelled out
+ * to `grep`, which this rule does not see but which reads the very same
+ * filesystem — through a binary whose flags differ between BSD and GNU, and
+ * whose non-zero exit is easy to misread as "no matches" (PR #2930 R1).
+ */
 import { describe, test, expect } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
 /**
- * Every `src/**` line that imports (or re-exports, or dynamically imports) a
- * path containing `.minsky/hooks`. Uses `grep` over the source tree rather than
- * an AST walk: the question is textual — does any module SPECIFIER name that
- * tree — and a specifier cannot hide from a specifier-shaped pattern.
+ * Matches a module SPECIFIER naming the hook tree — `from "…/.minsky/hooks/x"`,
+ * a bare `import "…"`, a dynamic `import(…)`, or a `require(…)`.
+ *
+ * Textual rather than an AST walk on purpose: the question IS textual — does
+ * any specifier name that tree — and a specifier cannot hide from a
+ * specifier-shaped pattern.
+ */
+const HOOK_TREE_IMPORT = /(from|import|require)\s*\(?\s*['"][^'"]*\.minsky\/hooks/;
+
+const SKIPPED_DIRS = new Set(["node_modules", "dist", "build", ".git"]);
+
+/** Every `*.ts` / `*.tsx` file under `dir`, recursively. */
+function sourceFilesUnder(dir: string): string[] {
+  const out: string[] = [];
+  for (const dirent of readdirSync(dir, { withFileTypes: true })) {
+    if (dirent.isDirectory()) {
+      if (SKIPPED_DIRS.has(dirent.name)) continue;
+      out.push(...sourceFilesUnder(join(dir, dirent.name)));
+      continue;
+    }
+    if (/\.tsx?$/.test(dirent.name) && !/\.(test|spec)\.tsx?$/.test(dirent.name)) {
+      out.push(join(dir, dirent.name));
+    }
+  }
+  return out;
+}
+
+/**
+ * Every `src/**` line that imports a path containing `.minsky/hooks`.
+ *
+ * Implemented with the filesystem rather than by shelling out to `grep`
+ * (PR #2930 R1): a subprocess adds a dependency on a binary whose flags differ
+ * between BSD and GNU, and its failure mode — a non-zero exit read as "no
+ * matches" — is the one this check must never have.
  */
 function findHookTreeImports(): string[] {
-  const result = Bun.spawnSync(
-    [
-      "grep",
-      "-rEn",
-      String.raw`(from|import|require)\s*\(?\s*['"][^'"]*\.minsky/hooks`,
-      "--include=*.ts",
-      "--include=*.tsx",
-      "src/",
-    ],
-    // `stderr: "pipe"` is required, not cosmetic: Bun's default is to INHERIT
-    // stderr, which types `result.stderr` as `never` and would leave the
-    // failure branch below unable to report why grep failed.
-    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" }
-  );
-
-  const stdout = result.stdout.toString();
-  // grep exits 1 with empty stdout when there are NO matches — the passing
-  // case. Any other non-zero exit is a real error and must not read as a pass:
-  // a grep that failed to run would otherwise report "no offenders" forever.
-  if (result.exitCode !== 0 && !(result.exitCode === 1 && stdout.trim() === "")) {
-    throw new Error(
-      `grep failed (exit ${result.exitCode}): ${result.stderr?.toString() || "no stderr"}`
-    );
+  const offenders: string[] = [];
+  for (const file of sourceFilesUnder(join(REPO_ROOT, "src"))) {
+    // `String(...)` rather than an encoding argument or `.toString()`: under
+    // this project's type setup every `readFileSync` overload widens to
+    // `string | Buffer`, and on that union `.split` does not exist and
+    // `.toString` resolves to the zero-argument signature. Coercing once is
+    // unambiguous and costs nothing on the string branch.
+    const lines = String(readFileSync(file)).split("\n");
+    lines.forEach((line, i) => {
+      if (HOOK_TREE_IMPORT.test(line)) {
+        offenders.push(`${file.slice(REPO_ROOT.length + 1)}:${i + 1}: ${line.trim()}`);
+      }
+    });
   }
-
-  return stdout
-    .split("\n")
-    .filter((line) => line.trim() !== "")
-    .filter((line) => !/\.(test|spec)\.tsx?:/.test(line));
+  return offenders;
 }
 
 describe("hook-tree import boundary (mt#4010 SC6)", () => {
@@ -70,17 +102,31 @@ describe("hook-tree import boundary (mt#4010 SC6)", () => {
   });
 
   test("the detector actually matches an import specifier (negative control)", () => {
-    // Without this, a broken pattern would report "no offenders" forever and
-    // the test above would pass while checking nothing.
-    const pattern = new RegExp(String.raw`(from|import|require)\s*\(?\s*['"][^'"]*\.minsky/hooks`);
-    expect(pattern.test(`import { X } from "../../.minsky/hooks/registry";`)).toBe(true);
+    // Tests the SAME constant the check above uses, not a copy of it: a
+    // duplicated pattern here could pass while the real one is broken, which
+    // is the failure this control exists to rule out.
+    expect(HOOK_TREE_IMPORT.test(`import { X } from "../../.minsky/hooks/registry";`)).toBe(true);
     expect(
-      pattern.test(`import { Y } from "../../../.minsky/hooks/interceptor-descriptions";`)
+      HOOK_TREE_IMPORT.test(`import { Y } from "../../../.minsky/hooks/interceptor-descriptions";`)
     ).toBe(true);
+    expect(HOOK_TREE_IMPORT.test(`await import("../../.minsky/hooks/registry")`)).toBe(true);
     // A mere mention in a comment or a string path is NOT an import and must
     // not trip the rule — several src files legitimately reference the tree in
     // prose and in `@see` tags.
-    expect(pattern.test(` * @see .minsky/hooks/guard-health.ts — the write side`)).toBe(false);
-    expect(pattern.test(`const p = ".minsky/hooks/registry.ts";`)).toBe(false);
+    expect(HOOK_TREE_IMPORT.test(` * @see .minsky/hooks/guard-health.ts — the write side`)).toBe(
+      false
+    );
+    expect(HOOK_TREE_IMPORT.test(`const p = ".minsky/hooks/registry.ts";`)).toBe(false);
+  });
+
+  test("the walk actually reaches source files (second negative control)", () => {
+    // A correct pattern over an EMPTY file list also reports zero offenders.
+    // Both halves have to be alive for the check above to mean anything.
+    const files = sourceFilesUnder(join(REPO_ROOT, "src"));
+    expect(files.length).toBeGreaterThan(100);
+    expect(files.some((f) => f.endsWith("src/cockpit/widgets/interceptors.ts"))).toBe(true);
+    // Tests are excluded by design — a test importing the hook tree never
+    // reaches the bundle.
+    expect(files.some((f) => /\.test\.tsx?$/.test(f))).toBe(false);
   });
 });
