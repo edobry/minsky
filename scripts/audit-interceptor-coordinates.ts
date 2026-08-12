@@ -28,10 +28,10 @@
 // streamed line-by-line and its absence is reported as SKIPPED rather than
 // failing — a bare checkout has no fire log, and that is not a defect.
 
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 import { INTERCEPTOR_DESCRIPTIONS } from "../.minsky/hooks/interceptor-descriptions";
 import {
@@ -42,10 +42,8 @@ import {
   familylessAuthoredNames,
   resolveCoordinates,
   unmappedEffects,
-  type CoordinateResolutionInput,
 } from "../.minsky/hooks/interceptor-coordinates";
-
-const REPO_ROOT = resolve(import.meta.dir, "..");
+import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
 
 /**
  * The exception list, imported from the module that owns it rather than
@@ -57,32 +55,6 @@ const DELIBERATELY_UNAUTHORED = new Set(DELIBERATELY_UNAUTHORED_NAMES);
 function fireLogPath(): string {
   const stateDir = process.env["MINSKY_STATE_DIR"] ?? join(homedir(), ".local", "state", "minsky");
   return join(stateDir, "fire-log.jsonl");
-}
-
-function buildInput(): CoordinateResolutionInput {
-  const registryEvents = new Map<string, string>();
-  for (const reg of GUARD_REGISTRY) registryEvents.set(reg.name, reg.event);
-
-  const settingsEvents = new Map<string, string>();
-  const settingsPath = join(REPO_ROOT, ".claude", "settings.json");
-  if (existsSync(settingsPath)) {
-    const settings = JSON.parse(readFileSync(settingsPath, "utf8")) as {
-      hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
-    };
-    for (const [event, matchers] of Object.entries(settings.hooks ?? {})) {
-      for (const matcher of matchers) {
-        for (const hook of matcher.hooks ?? []) {
-          const basename = (hook.command ?? "").match(/([a-z0-9-]+)\.ts/)?.[1];
-          if (basename) settingsEvents.set(basename, event);
-        }
-      }
-    }
-  }
-
-  const strata = new Map<string, string>();
-  for (const [name, desc] of INTERCEPTOR_DESCRIPTIONS) strata.set(name, desc.stratum);
-
-  return { registryEvents, settingsEvents, strata };
 }
 
 /** Stream the fire log, collecting distinct `guardName` values. */
@@ -126,7 +98,7 @@ interface AuditResult {
 }
 
 async function audit(): Promise<AuditResult> {
-  const input = buildInput();
+  const input = buildCoordinateResolutionInput();
   const path = fireLogPath();
   const fireLogRead = existsSync(path);
 

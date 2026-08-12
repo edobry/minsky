@@ -12,12 +12,16 @@
  * says so in copy rather than staying silent, so a reader can tell "not
  * answered yet" from "nothing to report". Health and cost arrive in slice 2.
  *
- * The three axes (interception point, intervention type, decision mechanism)
- * and the computed guard/detector/injector family filters are slice 1b — the
- * data landed in mt#4038 after this slice was cut.
+ * SLICE 1B (mt#4056) added the three axes — interception point, intervention
+ * type, decision mechanism — as per-row chips and as facet filters, plus the
+ * computed guard/detector/injector family filters. The two zero-family states
+ * render as DIFFERENT markers; see `FamilyChips` for why that is the point of
+ * the slice rather than a detail of it.
  *
- * @see mt#4010 — this task
+ * @see mt#4010 — slice 1 (the readable corpus)
+ * @see mt#4056 — slice 1b (the axes + family filters)
  * @see src/cockpit/web/hooks/useInterceptors.ts — the data source
+ * @see src/cockpit/web/components/InterceptorFacets.tsx — the facet controls + axis chips
  * @see docs/architecture/interceptors.md — the ontology this renders
  */
 import { useMemo, useState } from "react";
@@ -37,6 +41,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
+import {
+  AxisChips,
+  InterceptorFacetBar,
+  NO_FACETS,
+  matchesFacets,
+  type InterceptorFacets,
+} from "../components/InterceptorFacets";
 
 const ALL_CLASSES = "__all__";
 
@@ -80,6 +91,10 @@ function EntryRow({ entry }: { entry: InterceptorEntry }) {
         <p className="mt-0.5 text-[11px] text-muted-foreground">{entry.description}</p>
       )}
 
+      <div className="mt-1 text-[9px] font-mono">
+        <AxisChips entry={entry} />
+      </div>
+
       <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] font-mono text-muted-foreground/70">
         {entry.provenanceStatus === "declaration-only" && (
           <span title="No source module implements this — the pointer is a declaration site.">
@@ -105,12 +120,14 @@ export function InterceptorsPage() {
   const { data, isLoading, isError } = useInterceptors();
   const [query, setQuery] = useState("");
   const [failureClass, setFailureClass] = useState<string>(ALL_CLASSES);
+  const [facets, setFacets] = useState<InterceptorFacets>(NO_FACETS);
 
   const filtered = useMemo(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();
     return data.entries.filter((e) => {
       if (failureClass !== ALL_CLASSES && !e.failureClasses.includes(failureClass)) return false;
+      if (!matchesFacets(e, facets)) return false;
       if (q === "") return true;
       return (
         e.guardName.toLowerCase().includes(q) ||
@@ -118,7 +135,7 @@ export function InterceptorsPage() {
         e.failureClasses.some((c) => c.includes(q))
       );
     });
-  }, [data, query, failureClass]);
+  }, [data, query, failureClass, facets]);
 
   const grouped = useMemo(() => {
     const byStratum = new Map<InterceptorStratum | "unknown", InterceptorEntry[]>();
@@ -132,6 +149,18 @@ export function InterceptorsPage() {
   }, [filtered]);
 
   const undescribedCount = data?.entries.filter((e) => e.undescribed).length ?? 0;
+
+  // The family-STATE counts partition the population; the per-family counts do
+  // NOT (an entity can be both a guard and a detector, ontology amendment (a)),
+  // so only this breakdown is presented as a sum.
+  const familyStates = useMemo(() => {
+    const entries = data?.entries ?? [];
+    return {
+      classified: entries.filter((e) => e.familyState === "classified").length,
+      outOfModel: entries.filter((e) => e.familyState === "out-of-model").length,
+      unclassified: entries.filter((e) => e.familyState === "unclassified").length,
+    };
+  }, [data]);
 
   return (
     <div className="p-4 w-full max-w-4xl mx-auto" data-testid="interceptors-page">
@@ -173,6 +202,12 @@ export function InterceptorsPage() {
             <span>
               <strong className="text-foreground">{Object.keys(data.failureClasses).length}</strong>{" "}
               failure classes
+            </span>
+            <span data-testid="interceptors-family-state-summary">
+              <strong className="text-foreground">{familyStates.classified}</strong> in a family ·{" "}
+              <strong className="text-foreground">{familyStates.outOfModel}</strong> outside the
+              model · <strong className="text-warn-amber">{familyStates.unclassified}</strong>{" "}
+              unclassified
             </span>
           </div>
 
@@ -226,6 +261,10 @@ export function InterceptorsPage() {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="mb-3">
+            <InterceptorFacetBar facets={facets} onChange={setFacets} />
           </div>
 
           {failureClass !== ALL_CLASSES && data.failureClasses[failureClass] && (
