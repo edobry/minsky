@@ -22,10 +22,15 @@ import { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
-import type { SessionContextSnapshotBlock } from "@minsky/domain/context/types";
 import { buildConversationThread, prepareThreadTurns } from "../lib/conversation-thread-model";
 import { buildTurnNodes } from "../components/ConversationTurnView";
 import type { EntityIndex } from "../lib/entity-linkifier";
+import {
+  getPublicShare,
+  ShareFetchError,
+  type PublicShare,
+  type ShareFailure,
+} from "../lib/shares-client";
 import { formatDatedRange } from "../lib/conversation-timeline";
 
 /**
@@ -38,43 +43,6 @@ import { formatDatedRange } from "../lib/conversation-timeline";
  * behind the gate.
  */
 const NO_ENTITY_INDEX: EntityIndex = new Map();
-
-interface SharePayload {
-  conversationId: string;
-  label: string | null;
-  createdAt: string;
-  blocks: SessionContextSnapshotBlock[];
-}
-
-/** Why a share page cannot be shown — each with its own thing to say. */
-type ShareFailure = "revoked" | "unknown" | "unpublishable" | "error";
-
-class ShareFetchError extends Error {
-  constructor(readonly failure: ShareFailure) {
-    super(failure);
-    this.name = "ShareFetchError";
-  }
-}
-
-async function fetchShare(token: string): Promise<SharePayload> {
-  const res = await fetch(`/api/shares/public/${encodeURIComponent(token)}`);
-  if (!res.ok) {
-    if (res.status === 410) throw new ShareFetchError("revoked");
-    if (res.status === 404) throw new ShareFetchError("unknown");
-    if (res.status === 422) throw new ShareFetchError("unpublishable");
-    throw new ShareFetchError("error");
-  }
-  const json = (await res.json()) as Partial<SharePayload>;
-  if (!Array.isArray(json.blocks) || typeof json.conversationId !== "string") {
-    throw new ShareFetchError("error");
-  }
-  return {
-    conversationId: json.conversationId,
-    label: typeof json.label === "string" ? json.label : null,
-    createdAt: typeof json.createdAt === "string" ? json.createdAt : "",
-    blocks: json.blocks,
-  };
-}
 
 const FAILURE_COPY: Record<ShareFailure, { heading: string; detail: string }> = {
   revoked: {
@@ -112,9 +80,9 @@ function ShareMessage({ failure }: { failure: ShareFailure }) {
 export function SharedConversationPage() {
   const { token } = useParams<{ token: string }>();
 
-  const query = useQuery<SharePayload, Error>({
+  const query = useQuery<PublicShare, Error>({
     queryKey: ["share", token],
-    queryFn: () => fetchShare(token ?? ""),
+    queryFn: () => getPublicShare(token ?? ""),
     enabled: Boolean(token),
     // A 404/410/422 is the final answer about this link; retrying only delays
     // the explanation the reader is owed.
