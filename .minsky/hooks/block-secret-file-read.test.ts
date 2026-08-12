@@ -9,6 +9,8 @@
 import { describe, test, expect } from "bun:test";
 import {
   findSecretReads,
+  findSecretScriptInvocation,
+  findSecretScriptInvocations,
   findInToolInput,
   filePathCandidates,
   isSecretPath,
@@ -20,6 +22,7 @@ import {
   isOverrideSet,
   run,
   OVERRIDE_ENV_VAR,
+  SECRET_EMITTING_SCRIPT_PATTERNS,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -450,6 +453,206 @@ describe("mt#3703 — the two false-positive classes", () => {
 
     test("a pattern-only grep (reading stdin) drops it and finds no file", () => {
       expect(filePathCandidates("grep", ["grep", "credentials"])).toEqual([]);
+    });
+  });
+});
+
+describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
+  // Shared constants (custom/no-magic-string-duplication): the loader's path
+  // in its two conventional forms, and the canonical invocation command.
+  const LOADER_REL = "scripts/drizzle-config-loader.ts";
+  const LOADER_DOT_REL = `./${LOADER_REL}`;
+  const BUN_LOADER_CMD = `bun ${LOADER_DOT_REL}`;
+
+  // AT3: attempt the guard's covered invocation → denied, with the denial
+  // naming a non-emitting alternative.
+  describe("findSecretScriptInvocations — direct invocations are denied", () => {
+    const denied = [
+      BUN_LOADER_CMD,
+      `bun ${LOADER_REL}`,
+      `bunx ${LOADER_REL}`,
+      `node ${LOADER_REL}`,
+      `ts-node ${LOADER_REL}`,
+      LOADER_DOT_REL,
+      LOADER_REL,
+    ];
+    for (const cmd of denied) {
+      test(`denies: ${cmd}`, () => {
+        const hits = findSecretScriptInvocations(cmd);
+        expect(hits.length).toBe(1);
+        expect(hits[0]?.kind).toBe("script-invocation");
+        expect(hits[0]?.path).toContain("drizzle-config-loader.ts");
+      });
+    }
+
+    test("denied even with the sanctioned gate env var set inline", () => {
+      // There is no safe way to invoke it directly, per the guard's own
+      // denial text — setting the gate var in the command itself does not
+      // exempt it, since the guard fires before the process even starts.
+      const hits = findSecretScriptInvocations(`MINSKY_DRIZZLE_LOADER_GATE=1 ${BUN_LOADER_CMD}`);
+      expect(hits.length).toBe(1);
+    });
+
+    test("caught anywhere in a pipeline or sequence, not just the head", () => {
+      const hits = findSecretScriptInvocations(`echo start && ${BUN_LOADER_CMD}`);
+      expect(hits.length).toBe(1);
+      expect(hits[0]?.reader).toBe("bun");
+    });
+
+    test("sudo/env-assignment prefixes do not evade it", () => {
+      expect(findSecretScriptInvocations(`sudo bun ${LOADER_REL}`).length).toBe(1);
+    });
+  });
+
+  describe("ordinary drizzle-kit / DB-check commands are unaffected", () => {
+    const allowed = [
+      // The sanctioned caller invokes the loader via a Node/Bun SUBPROCESS
+      // (execSync) from inside a drizzle-kit process — never a Bash/
+      // session_exec tool call, so these never reach the guard at all. The
+      // commands below are what an AGENT actually types, and none of them
+      // name the loader script.
+      "bun run db:generate:pg",
+      "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
+      "bun run db:migrate:apply",
+      "bun run src/cli.ts persistence check",
+      "bun test drizzle.pg.config.test.ts",
+      // Reading the SOURCE of the loader (not invoking it) is unaffected —
+      // this is the file-read check's own source-extension carve-out, and
+      // it is unrelated to the new script-invocation check.
+      `cat ${LOADER_REL}`,
+      `grep -n GATE_ENV_VAR ${LOADER_REL}`,
+      // A DIFFERENT script that merely mentions the loader by name in a
+      // comment/string is not itself the loader.
+      "bun scripts/verify-npm-pack-install.ts",
+    ];
+    for (const cmd of allowed) {
+      test(`allows: ${cmd}`, () => {
+        expect(findSecretScriptInvocations(cmd)).toEqual([]);
+      });
+    }
+  });
+
+  describe("findSecretScriptInvocation — the discriminator in isolation", () => {
+    test("matches an interpreter-prefixed invocation", () => {
+      expect(findSecretScriptInvocation("bun", ["bun", LOADER_DOT_REL])).toBe(LOADER_DOT_REL);
+    });
+
+    test("matches direct execution via the script's own shebang", () => {
+      expect(findSecretScriptInvocation(LOADER_REL, [LOADER_REL])).toBe(LOADER_REL);
+    });
+
+    test("returns null for an unrelated script", () => {
+      expect(findSecretScriptInvocation("bun", ["bun", "scripts/smoke-setup-db.ts"])).toBeNull();
+    });
+
+    test("SECRET_EMITTING_SCRIPT_PATTERNS names the loader", () => {
+      expect(SECRET_EMITTING_SCRIPT_PATTERNS.some((re) => re.test(LOADER_REL))).toBe(true);
+    });
+  });
+
+  describe("buildDenialReason — the script-invocation branch", () => {
+    const hits = findSecretScriptInvocations(BUN_LOADER_CMD);
+
+    test("names the blocked invocation", () => {
+      expect(buildDenialReason(hits)).toContain("drizzle-config-loader.ts");
+    });
+
+    test("names the non-emitting alternative (AT3)", () => {
+      expect(buildDenialReason(hits)).toContain("persistence check");
+    });
+
+    test("does not pull in the file-read-only redaction warning", () => {
+      // That guidance is specific to a file-read hit and would be
+      // misleading advice for a script that always prints by design.
+      expect(buildDenialReason(hits)).not.toContain("redaction");
+    });
+
+    test("names the override", () => {
+      expect(buildDenialReason(hits)).toContain(OVERRIDE_ENV_VAR);
+    });
+  });
+
+  describe("run() — dispatcher entry point denies the script invocation", () => {
+    function hookInput(toolName: string, toolInput: Record<string, unknown>) {
+      return {
+        session_id: "block-secret-file-read-test",
+        cwd: "/test/cwd",
+        hook_event_name: "PreToolUse",
+        tool_name: toolName,
+        tool_input: toolInput,
+      } as import("./types").ToolHookInput;
+    }
+    const CTX = {} as import("./registry").DispatchContext;
+
+    test("denies a direct loader invocation via Bash", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      delete process.env[OVERRIDE_ENV_VAR];
+      try {
+        const out = run(hookInput("Bash", { command: BUN_LOADER_CMD }), CTX);
+        expect(out?.deny).toBeDefined();
+        expect(out?.deny?.reason).toContain("persistence check");
+      } finally {
+        if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+
+    test("denies via session_exec the same way as Bash", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      delete process.env[OVERRIDE_ENV_VAR];
+      try {
+        const out = run(
+          hookInput("mcp__minsky__session_exec", {
+            command: `bun ${LOADER_REL}`,
+            task: "mt#4017",
+          }),
+          CTX
+        );
+        expect(out?.deny).toBeDefined();
+      } finally {
+        if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+
+    test("the shared override allows it and leaves an audit line", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      process.env[OVERRIDE_ENV_VAR] = "1";
+      try {
+        const out = run(hookInput("Bash", { command: BUN_LOADER_CMD }), CTX);
+        expect(out?.deny).toBeUndefined();
+        expect(out?.auditLines?.[0]).toContain("OVERRIDE");
+      } finally {
+        if (prev === undefined) delete process.env[OVERRIDE_ENV_VAR];
+        else process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+
+    test("an ordinary drizzle-kit command is unaffected", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      delete process.env[OVERRIDE_ENV_VAR];
+      try {
+        const out = run(hookInput("Bash", { command: "bun run db:generate:pg" }), CTX);
+        expect(out).toBeNull();
+      } finally {
+        if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+  });
+
+  describe("findInToolInput — dedupes across both hit shapes", () => {
+    test("a repeated identical script invocation counts once", () => {
+      const hits = findInToolInput({
+        command: `${BUN_LOADER_CMD} && ${BUN_LOADER_CMD}`,
+      });
+      expect(hits.length).toBe(1);
+    });
+
+    test("a file-read hit and a script-invocation hit in the same command both surface", () => {
+      const hits = findInToolInput({
+        command: `cat ~/.aws/credentials && ${BUN_LOADER_CMD}`,
+      });
+      expect(hits.length).toBe(2);
+      const kinds = hits.map((h) => h.kind).sort();
+      expect(kinds).toEqual(["file-read", "script-invocation"]);
     });
   });
 });

@@ -16,6 +16,13 @@
 //                            a prod Postgres password: the value uses the
 //                            `postgresql://` scheme, so the redaction matched
 //                            NOTHING and passed its input through verbatim.
+//   R4 2026-08-11 (mt#4017, ask#8065) — `bun ./scripts/drizzle-config-loader.ts`,
+//                            run directly to check DB access, printed the same
+//                            Supabase pooler password as R3 (second exposure of
+//                            that credential in 11 days). No secret-bearing PATH
+//                            appears in that command at all — the credential
+//                            arrives in the script's OUTPUT, not from reading a
+//                            file. See §Script invocations below.
 //
 // R3 is why this guard denies the READ rather than trying to scrub the output:
 // a hand-written redaction that matches nothing is indistinguishable from one
@@ -33,10 +40,28 @@
 // both deny-from-day-one. The cost asymmetry agrees: a false positive costs one
 // retry with `grep -c`; a miss costs a credential that cannot be recalled.
 //
+// ## Script invocations (mt#4017, R4)
+//
+// R4 is the same matcher CLASS as the file-read check above, not a new guard:
+// a fixed list of secret-EMITTING scripts, matched against a structured
+// command string, no paraphrase axis — the reasoning two paragraphs up
+// transfers without modification. `SECRET_EMITTING_SCRIPT_PATTERNS` /
+// `findSecretScriptInvocations` below deny a direct invocation of a script
+// whose stdout is a credential BY DESIGN (currently just
+// `scripts/drizzle-config-loader.ts`), the same way the check above denies a
+// reader+secret-path pair. There is no "sanctioned invocation" carve-out here:
+// this guard only ever sees Bash/`session_exec` tool calls an AGENT issues —
+// the one sanctioned caller (`drizzle.pg.config.ts`) invokes the script via a
+// Node/Bun subprocess (`execSync`) from INSIDE a drizzle-kit process, never as
+// a tool call, so it is structurally invisible here and unaffected by this
+// extension.
+//
 // Fail-open: any error allows the call (exit 0). Override:
-// MINSKY_ALLOW_SECRET_FILE_READ=1.
+// MINSKY_ALLOW_SECRET_FILE_READ=1 (covers both the file-read and
+// script-invocation checks — one guard, one override).
 //
 // @see mt#3282 — this guard
+// @see mt#4017 — the script-invocation (command-OUTPUT) extension
 // @see mt#2763 — the prose rule + ingest scrubber this is the missing tier of
 // @see .minsky/hooks/check-guessed-session-path.ts — PreToolUse deny template
 // @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md — D1/D2
@@ -202,10 +227,18 @@ export const SAFE_INSPECTORS: readonly string[] = [
 export interface SecretReadHit {
   /** The pipeline segment that triggered the hit, trimmed. */
   segment: string;
-  /** The reader program that would emit the content. */
+  /** The reader program that would emit the content, or the interpreter for a script invocation. */
   reader: string;
-  /** The secret-bearing path token found in that segment. */
+  /** The secret-bearing path token found in that segment, or the invoked script's path. */
   path: string;
+  /**
+   * Which shape produced this hit (mt#4017). `"file-read"` is a reader+
+   * secret-path pair (the original R1-R3 shape); `"script-invocation"` is a
+   * direct invocation of a script whose stdout is a credential by design
+   * (R4) — there is no separate reader/emitting-flag distinction to make,
+   * the invocation itself IS the hit.
+   */
+  kind: "file-read" | "script-invocation";
 }
 
 /**
@@ -359,6 +392,24 @@ export function programOf(tokens: string[]): string | null {
 }
 
 /**
+ * The RAW first program token — the same skip logic as {@link programOf}
+ * (env assignments, `sudo`/`command`/`time`/`nohup`), but WITHOUT stripping
+ * a directory prefix. `programOf` reduces `scripts/drizzle-config-loader.ts`
+ * to the basename `drizzle-config-loader.ts` for identifying which READER
+ * program ran; a direct shebang invocation of a secret-emitting script needs
+ * the full path, since `SECRET_EMITTING_SCRIPT_PATTERNS` matches on the
+ * `scripts/` directory prefix.
+ */
+function rawProgramToken(tokens: string[]): string | null {
+  for (const t of tokens) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t)) continue; // env assignment
+    if (t === "sudo" || t === "command" || t === "time" || t === "nohup") continue;
+    return t;
+  }
+  return null;
+}
+
+/**
  * Would this invocation EMIT the file's content? Conditional readers are
  * non-emitting when given a count/quiet/list flag.
  */
@@ -400,8 +451,72 @@ export function findSecretReads(command: string): SecretReadHit[] {
     const hasInputRedirect = /<\s*[^\s<>|]*$/.test(segment.slice(0, segment.indexOf(secretToken)));
 
     if (isEmittingInvocation(program, tokens) || hasInputRedirect) {
-      hits.push({ segment, reader: program, path: secretToken });
+      hits.push({ segment, reader: program, path: secretToken, kind: "file-read" });
     }
+  }
+  return hits;
+}
+
+/**
+ * Scripts whose stdout carries a live credential BY DESIGN — running them
+ * directly (rather than as a subprocess of their sanctioned, gated caller)
+ * always prints the value, with no reader/emitting-flag distinction to make
+ * (mt#4017 criterion 2 enumerated every in-repo script whose stdout carries a
+ * credential; this is the entry with no other available mitigation —
+ * `scripts/drizzle-config-loader.ts` gates itself against its OWN sanctioned
+ * caller, but that gate cannot stop an agent from invoking it directly).
+ */
+export const SECRET_EMITTING_SCRIPT_PATTERNS: readonly RegExp[] = [
+  /(^|\/)scripts\/drizzle-config-loader\.ts$/,
+];
+
+/** Interpreters that execute a `.ts` script file given its path as an argument. */
+const SCRIPT_INTERPRETERS: ReadonlySet<string> = new Set(["bun", "bunx", "node", "ts-node", "tsx"]);
+
+/**
+ * Does this segment directly invoke a known secret-emitting script? Matches
+ * both interpreter-prefixed invocation (`bun ./scripts/x.ts`) and direct
+ * execution via the script's own shebang (`./scripts/x.ts`, `scripts/x.ts`).
+ */
+export function findSecretScriptInvocation(program: string, tokens: string[]): string | null {
+  // Interpreter-prefixed: the script path is one of the ARGUMENTS (raw
+  // tokens — programOf's basename-stripping never touched these).
+  if (SCRIPT_INTERPRETERS.has(program)) {
+    for (const c of tokens.slice(1)) {
+      if (SECRET_EMITTING_SCRIPT_PATTERNS.some((re) => re.test(c))) return c;
+    }
+    return null;
+  }
+  // Direct execution via the script's own shebang: `program` here is
+  // ALREADY the basename `programOf` reduced it to, which has lost the
+  // `scripts/` prefix the pattern matches on — use the raw token instead.
+  const raw = rawProgramToken(tokens);
+  if (raw && SECRET_EMITTING_SCRIPT_PATTERNS.some((re) => re.test(raw))) return raw;
+  return null;
+}
+
+/**
+ * Find segments that directly invoke a known secret-emitting script — the
+ * command-OUTPUT sibling of {@link findSecretReads} (mt#4017 criterion 3). A
+ * file-read hit requires a reader+path pair in the same segment; here the
+ * invocation itself IS the hit, so there is nothing else to check per
+ * segment once the script is named.
+ */
+export function findSecretScriptInvocations(command: string): SecretReadHit[] {
+  const hits: SecretReadHit[] = [];
+  if (!command) return hits;
+
+  for (const segment of splitSegments(command)) {
+    const tokens = tokenize(segment);
+    if (tokens.length === 0) continue;
+
+    const program = programOf(tokens);
+    if (!program) continue;
+
+    const script = findSecretScriptInvocation(program, tokens);
+    if (!script) continue;
+
+    hits.push({ segment, reader: program, path: script, kind: "script-invocation" });
   }
   return hits;
 }
@@ -415,13 +530,13 @@ export function collectStrings(toolInput: Record<string, unknown>): string[] {
   return out;
 }
 
-/** Scan a tool_input for all distinct secret-read hits. */
+/** Scan a tool_input for all distinct secret-read AND secret-script-invocation hits. */
 export function findInToolInput(toolInput: Record<string, unknown>): SecretReadHit[] {
   const hits: SecretReadHit[] = [];
   const seen = new Set<string>();
   for (const s of collectStrings(toolInput)) {
-    for (const hit of findSecretReads(s)) {
-      const key = `${hit.reader}::${hit.path}`;
+    for (const hit of [...findSecretReads(s), ...findSecretScriptInvocations(s)]) {
+      const key = `${hit.kind}::${hit.reader}::${hit.path}`;
       if (seen.has(key)) continue;
       seen.add(key);
       hits.push(hit);
@@ -439,31 +554,57 @@ export function findInToolInput(toolInput: Record<string, unknown>): SecretReadH
  * is load-bearing: R3 happened to an agent who DID redact.
  */
 export function buildDenialReason(hits: SecretReadHit[]): string {
-  const list = hits.map((h) => `  - ${h.reader} … ${h.path}`).join("\n");
-  return [
-    "This command would print the contents of a file that holds credentials.",
+  const fileHits = hits.filter((h) => h.kind !== "script-invocation");
+  const scriptHits = hits.filter((h) => h.kind === "script-invocation");
+
+  const lines: string[] = [
+    "This command would print credentials into the persisted, ingested transcript.",
     "Shell output goes into the persisted transcript AND to the model provider,",
     "so the value is durable and off-machine before anyone can react.",
     "",
-    "Blocked read(s):",
-    list,
-    "",
-    "Do NOT pipe the output through a redaction filter instead. A sed/awk pattern",
-    "that fails to match emits its input UNCHANGED, and nothing in the output",
-    "distinguishes that from a redaction that worked — this is exactly how a",
-    "production DB password leaked on 2026-08-01 (mt#3282, mem#808).",
-    "",
-    "Use a form that cannot emit the value:",
-    "  grep -c connectionString <file>     # count, not the line",
-    "  grep -q connectionString <file>     # exit status only",
-    "  test -f <file> && echo present",
-    "",
+  ];
+
+  if (fileHits.length > 0) {
+    lines.push(
+      "Blocked read(s):",
+      fileHits.map((h) => `  - ${h.reader} … ${h.path}`).join("\n"),
+      "",
+      "Do NOT pipe the output through a redaction filter instead. A sed/awk pattern",
+      "that fails to match emits its input UNCHANGED, and nothing in the output",
+      "distinguishes that from a redaction that worked — this is exactly how a",
+      "production DB password leaked on 2026-08-01 (mt#3282, mem#808).",
+      "",
+      "Use a form that cannot emit the value:",
+      "  grep -c connectionString <file>     # count, not the line",
+      "  grep -q connectionString <file>     # exit status only",
+      "  test -f <file> && echo present",
+      ""
+    );
+  }
+
+  if (scriptHits.length > 0) {
+    lines.push(
+      "Blocked invocation(s) — this script's stdout IS a credential by design:",
+      scriptHits.map((h) => `  - ${h.reader} ${h.path}`).join("\n"),
+      "",
+      "It runs unattended only as a subprocess of its sanctioned, gated caller;",
+      "there is no safe way to invoke it directly, with or without extra flags.",
+      "",
+      "To check whether the DB is configured without printing the credential, use:",
+      "  bun run src/cli.ts persistence check      # or the persistence_check MCP tool",
+      ""
+    );
+  }
+
+  lines.push(
     "If you need the value itself, read it into a variable without printing it,",
     "or route through a masked surface (the cockpit credentials widget,",
     "`config_credentials_add`, or the platform's env-var UI).",
     "",
-    `Override (only when the file provably holds no secret): set ${OVERRIDE_ENV_VAR}=1.`,
-  ].join("\n");
+    `Override (only when the file provably holds no secret): set ${OVERRIDE_ENV_VAR}=1.`
+  );
+
+  return lines.join("\n");
 }
 
 /** True when the override env var is set to an affirmative value. */
