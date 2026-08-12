@@ -146,9 +146,11 @@ commit message until the entry existed — the mt#3823 defect class, caught in a
 guards' budgets plus `DISPATCH_TIMEOUT_MARGIN_MS`, asserted for equality by that same block.
 
 Landing the registration also pushed `.minsky/hooks/registry.ts` past the 1500-line `max-lines`
-error tier — it sat exactly at the ceiling — so the registry's query layer moved to
-`.minsky/hooks/registry-queries.ts`. Data versus queries over it, one-way import; a file-level
-disable would have removed the signal instead of the cause.
+error tier — it sat exactly at the ceiling, so the registry's capacity to hold guards had become a
+function of the lint budget. This PR briefly carried its own split to make room; mt#4055 landed the
+same refactor on main first (`registry-matcher-pairs.ts`), so the rival split was dropped at rebase
+and its headroom is what the new registration now uses. Two competing splits of one file is worse
+than either.
 
 ## Cross-references
 

@@ -332,6 +332,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "block-concurrent-bulk-mutation",
+    {
+      description:
+        "Denies invoking a `scripts/*.ts` with an execute-class flag (`--execute`/`--apply`) while another process is already running that same script. Keys on the concurrency rather than on a curated list of dangerous scripts. First execution-surface member of the duplication-gate family — every sibling binds to a task-graph surface.",
+      failureClasses: ["duplicate-work"],
+      provenance: [hook("block-concurrent-bulk-mutation"), HOOK_FILES_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "block-secret-file-read",
     {
       description:

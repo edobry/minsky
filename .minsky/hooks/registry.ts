@@ -1215,6 +1215,57 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#4055: the duplication-gate family's first EXECUTION-surface member.
+  // Every sibling gate binds to a task-graph surface (`tasks_create`,
+  // `session_start`, `tasks_dispatch`), so `bun scripts/<x>.ts --execute`
+  // reached production through no check at all — which is how two concurrent
+  // full-keyset backfills ran against one production table for ~50 minutes on
+  // 2026-08-12. See mem#999.
+  // -------------------------------------------------------------------------
+  {
+    name: "block-concurrent-bulk-mutation",
+    // BOTH effects, and the recorder is load-bearing (PR #2937 R3): this guard denies AND writes
+    // a calibration record on every governed command — including the `overridden` outcome, which
+    // is the whole point of recording the override rather than returning null. Declaring only the
+    // enforcement effect left the records with nowhere to land: emitted by `run`, dropped by the
+    // dispatcher for want of a `calibrationLog`. Silent, and exactly the shape of defect this
+    // guard's own docblock warns about elsewhere.
+    effects: [enforcementEffect(), recorderEffect()],
+    // `invariant`: "do not start a second copy of a script that is already
+    // running" is not a threshold an operator tunes. The escape is the
+    // documented override on the individual call, not a knob.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-concurrent-bulk-mutation").then((m) => ({ run: m.run })),
+    // Two short-lived subprocess calls (`pgrep`, then `ps` on the matched pids),
+    // and only on a command that already matched the pure trigger.
+    timeoutMs: 5000,
+    calibrationLog: "block-concurrent-bulk-mutation",
+    denyCapable: true,
+    // MEASURED against buildDenialReason()'s fixed body plus one process entry
+    // — ~780 chars. The per-process line adds ~140 chars, and a collision with
+    // more than two other runs is not a shape worth budgeting for. One
+    // remediation option (the MINSKY_ALLOW_CONCURRENT_BULK_MUTATION override).
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    // Expects `calibration`, NOT `deny`, and that is deliberate: the deny
+    // depends on the HOST's process table, which a canary cannot arrange
+    // without actually starting a second process. So the canary exercises the
+    // real trigger (pure, string-driven) and stops there — `run` short-circuits
+    // in canary mode before the probe, so no canary shells out. The deny path's
+    // own coverage lives in block-concurrent-bulk-mutation.test.ts, where the
+    // probe is injected.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "bun scripts/backfill-agent-tool-call-projection.ts --execute",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
   // Phase 2a dispatcher slot in the pre-migration settings.json order.
   // -------------------------------------------------------------------------
@@ -2812,9 +2863,43 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
 ];
 
-// Queries over this registry — matcher filtering and the ADR-028 D7(2)
-// duplicate-registration check — live in `./registry-queries` as of mt#4044.
-// Moved verbatim, not rewritten: this file sat exactly at the 1500-line
-// max-lines ceiling, so its capacity to hold registrations had become a
-// function of the lint budget. NOT re-exported from here — that would make the
-// import cycle this split exists to avoid.
+// ---------------------------------------------------------------------------
+// Matcher filtering
+// ---------------------------------------------------------------------------
+
+/**
+ * Filter `registrations` to guards matching `event` and (for tool-scoped
+ * registrations) `toolName`. A registration with no `matcher` always matches
+ * once its `event` matches. A registration WITH a `matcher` but no `toolName`
+ * supplied (the non-tool-event dispatch case) does not match — matchers are
+ * meaningless without a tool name to test. Malformed matcher regex is
+ * treated as non-matching (fail-open — a bad regex must never crash the
+ * dispatcher).
+ */
+export function getGuardsForEvent(
+  registrations: GuardRegistration[],
+  event: LifecycleEvent,
+  toolName?: string
+): GuardRegistration[] {
+  return registrations.filter((reg) => {
+    if (reg.event !== event) return false;
+    if (!reg.matcher) return true;
+    if (!toolName) return false;
+    try {
+      return new RegExp(reg.matcher).test(toolName);
+    } catch {
+      return false;
+    }
+  });
+}
+
+// The D7(2) duplicate-registration check moved to ./registry-matcher-pairs (mt#4055),
+// alongside the intentional-pair list it consults — one overlap concern, one module.
+// Re-exported so every existing importer is unaffected.
+export {
+  INTENTIONAL_MATCHER_PAIRS,
+  isIntentionalPair,
+  NON_TOOL_SCOPED_EVENTS,
+  findDuplicateRegistrations,
+} from "./registry-matcher-pairs";
+export type { DuplicateRegistration } from "./registry-matcher-pairs";

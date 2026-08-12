@@ -321,6 +321,132 @@ describe("hasExecutionEvidence — bolded / bulleted label forms (mt#3968)", () 
   });
 });
 
+// ---------------------------------------------------------------------------
+// Marker-form parity (mt#4054)
+// ---------------------------------------------------------------------------
+
+/**
+ * The ONE table both marker-recognizing functions are asserted against.
+ *
+ * `hasExecutionEvidence` (the blocking gate) and `extractExecutionEvidenceText` (the
+ * AT/SC-coverage search text) build their patterns separately, because mt#3033 requires the
+ * blocking one to stay byte-for-byte unchanged. Two independently-maintained fixture lists is
+ * how they drifted: mt#3968 widened the gate to accept bold and bulleted labels and left the
+ * extractor behind for two weeks, so a PR body using `**Execution evidence:**` satisfied the
+ * gate and extracted to `""` — every executable AT in it read as unaddressed regardless of
+ * where the evidence sat.
+ *
+ * Adding a form here asserts it against BOTH. That is the property: a future widening either
+ * lands in both functions or fails this test.
+ */
+const ACCEPTED_MARKER_FORMS: [label: string, body: string, accepted: boolean][] = [
+  ["plain label with colon", "Execution evidence: 5 pass", true],
+  ["heading, no colon", "## Execution evidence\n\n5 pass", true],
+  ["heading, trailing colon", "### Execution evidence:\n\n5 pass", true],
+  ["bold, colon inside", "**Execution evidence:**\n\n```\n5 pass\n```", true],
+  ["bold, colon outside", "**Execution evidence**: 5 pass", true],
+  ["underscore emphasis", "__Execution evidence:__ 5 pass", true],
+  ["bulleted (-) + bold", "- **Execution evidence:** 5 pass", true],
+  ["bulleted (*) + bold", "* **Execution evidence:** 5 pass", true],
+  ["bulleted (+) + bold", "+ **Execution evidence:** 5 pass", true],
+  ["bulleted, no emphasis", "- Execution evidence: 5 pass", true],
+  ["uppercase", "EXECUTION EVIDENCE: all passed", true],
+  // Negatives — what must NOT flip when a form is added above.
+  ["bare prose (colon rule)", "we should add execution evidence here", false],
+  ["mid-sentence with colon", "This PR lacks execution evidence: none was run", false],
+  ["negation", "No Execution evidence: this PR has no tests", false],
+  ["bolded negation", "**No execution evidence:**\n\ncontent", false],
+  [
+    "marker only inside a fence (mt#3530)",
+    "## S\n\n```\n**Execution evidence:**\n5 pass\n```",
+    false,
+  ],
+  ["marker in an HTML comment", "## S\n\n<!-- Execution evidence: 5 pass -->", false],
+  ["marker with no content beneath", "## Summary\n\nFoo.\n\n## Execution evidence:", false],
+];
+
+describe("marker-form parity between the gate and the extractor (mt#4054)", () => {
+  it.each(ACCEPTED_MARKER_FORMS)("hasExecutionEvidence — %s", (_label, body, accepted) => {
+    expect(hasExecutionEvidence(body)).toBe(accepted);
+  });
+
+  it.each(ACCEPTED_MARKER_FORMS)("extractExecutionEvidenceText — %s", (_label, body, accepted) => {
+    // Non-empty extraction is the extractor's analogue of the gate's boolean: an empty
+    // extraction means the AT/SC scan searches nothing, which is the mt#4054 defect.
+    expect(extractExecutionEvidenceText(body).trim().length > 0).toBe(accepted);
+  });
+
+  it("extracts the SAME content whether the label is decorated or plain", () => {
+    // The discriminating assertion: identical bodies, identical evidence, only the label's
+    // markup differs. Pre-fix the bold form yielded "" while the plain form yielded the
+    // block — which is how a correctly-authored PR read as having no evidence at all.
+    const evidence = ["", "```", "$ bun test ./x", " 12 pass 0 fail", "```"].join("\n");
+    const bold = `## Testing\n\n**Execution evidence:**${evidence}`;
+    const plain = `## Testing\n\nExecution evidence:${evidence}`;
+    expect(extractExecutionEvidenceText(bold)).toBe(extractExecutionEvidenceText(plain));
+    expect(extractExecutionEvidenceText(bold)).toContain("12 pass");
+  });
+});
+
+// PR #2929 (mt#4032) — the originating incident, replayed against its ACTUAL body.
+// The gate fired "3 of 3 unaddressed" twice, the second time AFTER the author applied the
+// remedy the gate itself prescribed (move the AT references INSIDE the evidence block).
+// The remedy could not work: the block was never extracted, because the label was bold.
+describe("PR #2929 regression — bold label, ATs inside the block (mt#4054)", () => {
+  // Verbatim from mt#4032's spec.
+  const SPEC = `## Acceptance Tests
+
+1. \`bun run src/cli.ts compile --check\` passes with the rule under 12,000 chars; the number is
+   recorded in this spec.
+2. For each entry compressed, its docs page contains the moved text — grep one distinctive
+   phrase per move and record the hits.
+3. Adding a synthetic 300-char observer entry still passes the per-rule ceiling, demonstrating
+   the headroom rather than asserting it.
+`;
+
+  // Excerpted from PR #2929's body — the label line and the AT references are byte-for-byte
+  // as merged; the pasted command output between them is elided for length.
+  const PR_BODY = `## Testing
+
+**Execution evidence:**
+
+\`\`\`
+$ bun run src/cli.ts compile --check --target claude.md
+      "id": "hook-observers",
+      "size": 10765
+  "perRuleViolations": [],
+
+=== AT1 — "compile --check passes with the rule under 12,000 chars; the number is recorded in
+=== this spec." PASS: 10,765 compiled chars, perRuleViolations: [] (output above).
+
+=== AT2 — "For each entry compressed, its docs page contains the moved text — grep one
+=== distinctive phrase per move and record the hits." PASS: 13 of 13 hit.
+
+=== AT3 — "Adding a synthetic 300-char observer entry still passes the per-rule ceiling,
+=== demonstrating the headroom rather than asserting it." PASS, run at 434 chars.
+\`\`\`
+`;
+
+  it("extracts non-empty evidence text", () => {
+    expect(extractExecutionEvidenceText(PR_BODY).length).toBeGreaterThan(0);
+  });
+
+  it("resolves all three ATs as referenced by number", () => {
+    const evidenceText = extractExecutionEvidenceText(PR_BODY);
+    const ats = parseAcceptanceTests(SPEC);
+    expect(ats).toHaveLength(3);
+    for (const at of ats) {
+      expect(isAtReferencedByNumber(at, evidenceText)).toBe(true);
+    }
+  });
+
+  it("reports no unaddressed ATs", () => {
+    const coverage = checkAcceptanceTestCoverage(SPEC, "implementation", PR_BODY);
+    expect(coverage.applicable).toBe(true);
+    expect(coverage.unaddressedAts).toEqual([]);
+  });
+});
+
 describe("hasExecutionEvidence", () => {
   it("detects '## Execution evidence:' heading with content on next line", () => {
     const body = `## Summary\nSome PR.\n\n## Execution evidence:\nbun test passed\n`;

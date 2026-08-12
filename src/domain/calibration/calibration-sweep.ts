@@ -199,6 +199,7 @@ export interface CalibrationLogEntry {
     | "operator-instruction-trigger"
     | "agent-dispatch-record"
     | "chained-verification-commands"
+    | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
     | "generic-matches";
   /**
@@ -1870,6 +1871,7 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "operator-instruction-trigger": true,
   "agent-dispatch-record": true,
   "chained-verification-commands": true,
+  "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
   "generic-matches": true,
 };
@@ -2708,6 +2710,20 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "retrospective-completeness": "retrospective-completeness-detector",
   "stop-at-decision": "stop-at-decision-scan",
 };
+
+/**
+ * The guard name a calibration log's state attaches to, in the FIRE-LOG
+ * name-space (mt#4009). The fire-log population uses `GuardRegistration`
+ * names (`wall-of-text-detector`, `turn-end-bare-ref-scan`, ...), which is
+ * exactly what {@link CALIBRATION_NAME_TO_GUARD_NAME} maps to — exported as
+ * a function so consumers joining calibration state onto fire-log-derived
+ * rows share THIS mapping instead of minting a second one (the
+ * `stream-sources.ts` per-stream labels are a different name-space and do
+ * NOT join against fire-log rows).
+ */
+export function guardNameForCalibrationLog(logName: string): string {
+  return CALIBRATION_NAME_TO_GUARD_NAME[logName] ?? logName;
+}
 
 /**
  * Map ONE legacy calibration record to the fire-log schema's decision axis.
