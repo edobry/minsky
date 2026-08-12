@@ -26,7 +26,9 @@ import { extractDistinctPhrases } from "../../src/domain/calibration/calibration
 // ---------------------------------------------------------------------------
 
 const FIXTURE_PATH = "/tmp/fixture.jsonl";
-const DEFERRAL_PROSE = "Deferred to operator: requires Railway access.";
+/** The capability-deferral phrase behind this detector's first live fire. */
+const RAILWAY_ACCESS = "requires Railway access";
+const DEFERRAL_PROSE = `Deferred to operator: ${RAILWAY_ACCESS}.`;
 const ASK_OPTION_LABEL = "ask-option-label";
 const CAPABILITY_PROSE = "capability-deferral-prose";
 const R5_LABEL = "You recover the reviewer service";
@@ -664,7 +666,7 @@ describe("calibration-first posture", () => {
     const reminder = buildReminder([
       {
         surface: CAPABILITY_PROSE,
-        matchedPhrase: "requires Railway access",
+        matchedPhrase: RAILWAY_ACCESS,
         context: "Deferred — this requires Railway access.",
       },
     ]);
@@ -925,12 +927,220 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     const reminder = buildReminder([
       {
         surface: CAPABILITY_PROSE,
-        matchedPhrase: "requires Railway access",
+        matchedPhrase: RAILWAY_ACCESS,
         context: DEFERRAL_PROSE,
       },
       { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
     ]);
     expect(reminder).toContain("simpler shape");
     expect(reminder).toContain("Run the capability probe");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3865 — the tune. Every fixture below is the VERBATIM `context` string from
+// `.minsky/operator-deferral-calibration.jsonl`, at the timestamp named in the
+// case label, except where a case says otherwise and explains why.
+// ---------------------------------------------------------------------------
+
+/**
+ * AT1 — must not fire. Each entry is a rated FALSE POSITIVE from one of the
+ * three calibration windows, with the cause it belongs to.
+ */
+const TUNE_FALSE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  [
+    "Cause A / 2026-08-10T10:32 — a prohibition, not a request",
+    "Then — no needed. Don't paste the token into this chat; I don't need to see it.",
+  ],
+  ["Cause A / 2026-08-10T10:35 — the same, in a bulleted list", "- **Don't paste the token here."],
+  [
+    "Cause C / 2026-08-10T15:18 — names a standing instruction AND asks in the same message",
+    "I'm not spawning it; your setup says not to call the Agent tool unless you ask. " +
+      "Flagging it because there's no third auto-resume: say the word and I'll redispatch " +
+      "the prepared continuation prompt.",
+  ],
+  [
+    "SC7 / 2026-08-11T22:40 — declines to START new work, on the turn's own budget",
+    "I'm stopping here for a plain reason rather than a scope one: this turn has run long " +
+      "enough that I'd rather start that investigation with fresh context than tail-end it. " +
+      "Say the word and I'll pick up either.",
+  ],
+  [
+    "SC7 / 2026-08-12T03:18 — declines to START new work, to avoid derailing a live process",
+    "Not planning mt#4025 further right now — the research planner is still running and I'd " +
+      "rather not derail it. Say the word and I'll walk it after.",
+  ],
+  [
+    "Class C / 2026-08-12T03:25 — reserved category named in the PRECEDING sentence",
+    "Both are standing-default changes, so I'm not making them unilaterally. Want me to pick " +
+      "mt#3711 back up, and file the channel-awareness gap separately?",
+  ],
+];
+
+/**
+ * AT2 — must still fire. Every rated REAL POSITIVE whose context survives in
+ * the log, verbatim. This half is the load-bearing one: a suppression that
+ * quietly takes a real positive with it is a worse outcome than the false
+ * positives being tuned away, because the miss leaves no trace anywhere.
+ */
+const TUNE_REAL_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  [
+    "2026-08-05T23:22 — an in-authority refactor",
+    "Worth noting the same argument applies to any other command whose body is pure side " +
+      "effect. Want me to convert it?",
+  ],
+  [
+    "2026-08-06T18:52 — a PR the agent could open",
+    "It stopped without opening a PR, so the work is committed but parked on its branch. Say " +
+      "the word and I'll open the PR for it, or leave it for whoever owns that thread.",
+  ],
+  [
+    "2026-08-08T08:24 — carries a `since` REASON and is still a real deferral",
+    "I'd fold this into one task — collapse per-message chrome into per-run, actor labels " +
+      "instead of role labels, elapsed instead of absolute time, and read/write visual " +
+      "weighting — since they're all the same underlying fix. Want me to file it?",
+  ],
+  [
+    "2026-08-09T00:06 — file-it-yourself under decision-defaults",
+    "It's documented in the workflow header, and mt#3616 just went DONE, so **nothing open " +
+      "tracks it** — my search turned up no task. Say the word and I'll file one; I didn't " +
+      "want to mint a task you may prefer to just do.",
+  ],
+  [
+    "2026-08-09T00:07 — a verification the probe rule says to just run",
+    "Both are quick to verify and both bear on the design. Say the word and I'll check them.",
+  ],
+  [
+    "2026-08-10T15:36 — recovering the agent's own uncommitted work",
+    "Flagging rather than filing an ask, since you're in this conversation: the risk is 10 " +
+      "files of staged work in session that no commit covers. Say the word if you want me to " +
+      "recover it.",
+  ],
+  [
+    "2026-08-11T22:48 — messaging a peer agent, which the agent can do",
+    "No recovery attempt was consumed and I've taken no action. Confirming that peer is " +
+      "genuinely done is yours to make — I can message it if you'd like.",
+  ],
+  [
+    "2026-08-11T23:37 — a check the agent can re-run",
+    "Merged (verified-1a) — deployed: unverified. Say the word and I'll re-run that check.",
+  ],
+  [
+    "2026-08-12T01:31 — both halves are file-it-yourself",
+    "Want me to patch the memory and open that task?",
+  ],
+];
+
+describe("mt#3865 — false positives the tune removes (AT1)", () => {
+  test.each(TUNE_FALSE_POSITIVES)("stays silent: %s", (_label, prose) => {
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("Class B — a deferral ATTRIBUTED to a document is not one being made", () => {
+    // RECONSTRUCTED, not verbatim, and the reason is the defect mt#3649 owns:
+    // the stored context for 2026-08-08T21:40 is capped at 240 chars and ends
+    // mid-word at "the ADR's auth section told rea", BEFORE the matched phrase
+    // `paste a bearer token`. Nothing can be replayed from that. The clause is
+    // reconstructed from the visible prefix; the reported-speech frame it turns
+    // on is fully visible in the record.
+    const prose =
+      "I fixed a blocking security finding in it along the way: the ADR's auth section told " +
+      "readers to paste a bearer token into the chat.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("Class B — an ENUMERATED open question describes an RFC's structure", () => {
+    const prose =
+      "The prefilter question is deferred to the principal as open question (b); the RFC " +
+      "should provide the option set rather than pick one.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+  });
+});
+
+describe("mt#3865 — real positives the tune must preserve (AT2)", () => {
+  test.each(TUNE_REAL_POSITIVES)("still fires: %s", (_label, prose) => {
+    const matches = [
+      ...detectCapabilityDeferral([assistantText(prose)]),
+      ...detectPermissionDeferral([assistantText(prose)]),
+    ];
+    expect(matches.length).toBeGreaterThan(0);
+  });
+});
+
+describe("mt#3865 — the negation guard is bounded (AT1 controls)", () => {
+  test("an UNNEGATED request for the same secret still fires", () => {
+    const matches = detectCapabilityDeferral([
+      assistantText("Paste the token into this chat so I can use it."),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("a negated CAPABILITY claim is not a prohibition — 'will not be able to' still fires", () => {
+    // `not` alone is deliberately absent from NEGATION_LEAD_PATTERN: this
+    // sentence IS the deferral the surface exists to catch, and a bare-`not`
+    // pattern would swallow it.
+    const matches = detectCapabilityDeferral([
+      assistantText("I will not be able to proceed until you provide the token."),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("a prohibition does not hide a REAL deferral elsewhere in the turn", () => {
+    // The suppressed match continues to the next pattern rather than returning.
+    const matches = detectCapabilityDeferral([
+      assistantText(`Don't paste the token here.\nSeparately, this ${RAILWAY_ACCESS}.`),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedPhrase).toContain(RAILWAY_ACCESS);
+  });
+});
+
+describe("mt#3865 — the widened window does not widen the destructive half (AT5)", () => {
+  test("a reserved category in the PRECEDING sentence now suppresses", () => {
+    const prose = "That would set a durable default for every later turn. Want me to apply it?";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("'production' in the PRECEDING sentence does NOT suppress an unrelated ask", () => {
+    // The over-suppression the widening risks. The destructive half stays
+    // sentence-scoped precisely so this keeps firing; widening it to the lead
+    // sentence would make an incidental mention of prod mask a real ask.
+    const prose = "The production logs were clean when I checked. Want me to commit the changelog?";
+    expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+
+  test("'production' in the MATCH sentence still suppresses", () => {
+    const prose = "The changelog is drafted. Want me to deploy it to production?";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+});
+
+describe("mt#3865 — rule-discussion suppression is a REGRESSION PIN, not new (AT3)", () => {
+  // This behaviour shipped in mt#3273, two weeks before the spec section that
+  // asked for it as a fix. Pinned here so a future elision change cannot
+  // silently undo it — and labelled, because a test that passed before the
+  // change is evidence of nothing unless it says so.
+  const RULE_QUOTATION =
+    'ty-deferral prose ("requires Railway access") when the turn shows no probe; ' +
+    "Surface B catches the same";
+
+  test("the quoted rule text does not fire", () => {
+    expect(detectCapabilityDeferral([assistantText(RULE_QUOTATION)])).toEqual([]);
+  });
+
+  test("the same phrase UNQUOTED does fire — the control that makes the pin meaningful", () => {
+    expect(
+      detectCapabilityDeferral([assistantText("This requires Railway access, so it's on you.")])
+    ).toHaveLength(1);
+  });
+
+  test("a suppressed turn still produces an evaluation record", () => {
+    const record = buildEvaluationRecord("s-3865", [], RULE_QUOTATION);
+    expect(record["fired"]).toBe(false);
+    expect(record["session_id"]).toBe("s-3865");
+    // The half a fire-only log cannot give: the scanned text is retained, so a
+    // suppression can be re-rated later as a miss if it turns out to be one.
+    expect(record["text_tail"]).toContain(RAILWAY_ACCESS);
   });
 });

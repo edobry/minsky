@@ -1,0 +1,136 @@
+#!/usr/bin/env bun
+/**
+ * Replay the operator-deferral calibration log through the CURRENT matcher and
+ * report, per record, whether it still fires (mt#3865 AT4).
+ *
+ * **What this can and cannot measure.** The records carry no input text — only
+ * `phrase` and a `context` capped at `MATCH_CONTEXT_MAX_CHARS` (240). mt#3649
+ * owns that gap. So the replay runs over CONTEXT strings, not original turns,
+ * and three things follow that must not be papered over:
+ *
+ *   1. Records written before `captureSchema: 1` have NO context at all. They
+ *      are reported as `unreplayable`, not as passes.
+ *   2. A context truncated before the offered action cannot be rated by a
+ *      human either; it is replayed, but its verdict is worth less.
+ *   3. A context is a WINDOW, so a suppression cue that sat outside it in the
+ *      original turn is absent here — this replay can therefore report a fire
+ *      the live matcher would suppress, never the reverse.
+ *
+ * The denominator is printed explicitly for that reason. Exit code is 0 when
+ * the replay completes; it is a MEASUREMENT, not a gate.
+ *
+ * The calibration log is a live, gitignored artifact — it exists in the main
+ * workspace, not in a session clone — so the path is an argument:
+ *
+ *   bun scripts/replay-operator-deferral-calibration.ts [path-to-log]
+ *
+ * defaulting to this checkout's `.minsky/operator-deferral-calibration.jsonl`.
+ */
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import {
+  CAPABILITY_DEFERRAL_PATTERNS,
+  PERMISSION_DEFERRAL_PATTERNS,
+  detectCapabilityDeferral,
+  detectPermissionDeferral,
+} from "../.minsky/hooks/operator-deferral-detector";
+import type { TranscriptLine } from "../.minsky/hooks/transcript";
+
+const LOG =
+  process.argv[2] ??
+  resolve(import.meta.dir, "..", ".minsky", "operator-deferral-calibration.jsonl");
+
+interface LoggedMatch {
+  category?: string;
+  phrase?: string;
+  context?: string;
+}
+interface LoggedRecord {
+  timestamp?: string;
+  captureSchema?: number;
+  matches?: LoggedMatch[];
+}
+
+const asTurn = (text: string): TranscriptLine[] => [
+  {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  },
+];
+
+function firesNow(context: string): string[] {
+  return [
+    ...detectCapabilityDeferral(asTurn(context)),
+    ...detectPermissionDeferral(asTurn(context)),
+  ].map((m) => m.surface);
+}
+
+/**
+ * Whether any trigger pattern matches the context AT ALL, ignoring every
+ * suppression. This is the replay's "before" — and the reason it is needed is
+ * that a stored context is a 240-char WINDOW around the match, which for
+ * several records does not contain the matched phrase itself. Without this
+ * split, a record silent because its phrase was truncated away is
+ * indistinguishable from one this change deliberately suppressed, and the
+ * delta would be overstated by exactly that many records.
+ */
+function phrasePresent(context: string): boolean {
+  return [...CAPABILITY_DEFERRAL_PATTERNS, ...PERMISSION_DEFERRAL_PATTERNS].some((p) =>
+    p.test(context)
+  );
+}
+
+function main(): void {
+  const lines = readFileSync(LOG, "utf8").split("\n").filter(Boolean);
+
+  let total = 0;
+  let unreplayable = 0;
+  const phraseTruncated: Array<{ ts: string; phrase: string; context: string }> = [];
+  const stillFires: Array<{ ts: string; phrase: string; context: string }> = [];
+  const nowQuiet: Array<{ ts: string; phrase: string; context: string }> = [];
+
+  for (const line of lines) {
+    let record: LoggedRecord;
+    try {
+      record = JSON.parse(line) as LoggedRecord;
+    } catch {
+      console.error(`SKIP: unparseable line`);
+      continue;
+    }
+    for (const match of record.matches ?? []) {
+      total += 1;
+      const context = match.context?.trim();
+      const ts = record.timestamp ?? "(no timestamp)";
+      const phrase = match.phrase ?? "(no phrase)";
+      if (!context) {
+        unreplayable += 1;
+        continue;
+      }
+      const entry = { ts, phrase, context };
+      if (!phrasePresent(context)) phraseTruncated.push(entry);
+      else if (firesNow(context).length > 0) stillFires.push(entry);
+      else nowQuiet.push(entry);
+    }
+  }
+
+  const rateable = stillFires.length + nowQuiet.length;
+  console.log(`records with a match:            ${total}`);
+  console.log(`  no context at all:             ${unreplayable}   <- pre-captureSchema; mt#3649`);
+  console.log(`  phrase truncated out of window: ${phraseTruncated.length}   <- silent for a`);
+  console.log(`                                       reason this change did not cause`);
+  console.log(`  RATEABLE (before = fires):     ${rateable}`);
+  console.log(`    after: still fires:          ${stillFires.length}`);
+  console.log(`    after: suppressed:           ${nowQuiet.length}`);
+
+  console.log(`\n--- suppressed by this change (${nowQuiet.length}) ---`);
+  for (const e of nowQuiet) console.log(`${e.ts}  [${e.phrase}]\n    ${e.context}\n`);
+
+  console.log(`--- phrase truncated out of the stored window (${phraseTruncated.length}) ---`);
+  for (const e of phraseTruncated) console.log(`${e.ts}  [${e.phrase}]`);
+
+  console.log(`\n--- still fires (${stillFires.length}) ---`);
+  for (const e of stillFires) console.log(`${e.ts}  [${e.phrase}]\n    ${e.context}\n`);
+}
+
+main();
