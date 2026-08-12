@@ -164,6 +164,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "rules.presets",
   "rules.search",
   "rules.update",
+  "security.check-credentials",
   "session.apply_post_merge_state_sync",
   "session.attached",
   "session.bindings.refresh",

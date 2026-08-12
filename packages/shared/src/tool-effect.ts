@@ -254,6 +254,9 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "rules.presets": "reads",
   "rules.search": "reads",
 
+  // --- security -------------------------------------------------------------
+  "security.check-credentials": "reads", // scans text for credential shapes; never mutates state
+
   // --- session --------------------------------------------------------------
   "session.apply_post_merge_state_sync": "mutates",
   "session.cleanup": "mutates",

@@ -825,6 +825,23 @@ UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `p
 a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
 Never `producer | gh secret set` (empty stdin writes an EMPTY secret): capture → guard → write.
 
+**Do not hand-roll the filter — a sanctioned check exists (mt#4022).** A hand-written pattern is a
+hypothesis about the text, not a measurement of it, and this has already failed in both directions
+eleven days apart: mem#808 (a `postgres://`-only pattern silently passed a `postgresql://`
+credential through unchanged) and mem#972 (a pattern that also matched `maskConnectionString`'s own
+`://***:***@` redaction, reporting a correctly-masked command as a leak). Pipe the candidate output
+through the vetted shape list instead of writing a new regex:
+
+```bash
+producer | minsky security check-credentials --quiet
+```
+
+Exit 0 = checked, clean. Exit 1 = checked, an unmasked credential shape was found — the command's
+own output never prints the matched text, on any path, including its error path (exit 2 = the
+check itself did not complete — never conflated with a clean pass). Reuses the same shape list the
+transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
+already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
+
 File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
 discipline-tier. Recipes + leak-containment runbook:
 `docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.

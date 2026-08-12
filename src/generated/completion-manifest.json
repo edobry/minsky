@@ -7101,6 +7101,27 @@
       ]
     },
     {
+      "name": "security",
+      "description": "SECURITY commands",
+      "subcommands": [
+        {
+          "name": "check-credentials",
+          "description": "Check text (stdin, --file, or --text) for unmasked credential shapes. Exit 0 = clean, 1 = hit, 2 = did not complete.",
+          "options": [
+            {
+              "flags": ["--file"],
+              "description": "Read the text to check from this file path instead of stdin",
+              "takesValue": true
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress this command's own stdout/stderr text on every path (clean, hit, or error); rely on the exit code alone"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "mcp",
       "description": "Model Context Protocol (MCP) server commands",
       "subcommands": [
