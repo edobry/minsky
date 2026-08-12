@@ -8,7 +8,11 @@
 import { describe, test, expect } from "bun:test";
 import { classifyTurnOrigin } from "./turn-origin";
 import type { PreparedElement } from "../components/ConversationElementRenderers";
-import { INJECTED_KIND_NOUN, type InjectedContentKind } from "./injected-content";
+import {
+  INJECTED_KIND_NOUN,
+  splitInjectedContent,
+  type InjectedContentKind,
+} from "./injected-content";
 
 function injected(kind: InjectedContentKind): PreparedElement {
   return { kind: "injected", span: { kind, label: `${kind}: x`, content: "…" } };
@@ -160,5 +164,48 @@ describe("classifyTurnOrigin — no signal", () => {
     // Returning null (not `operator`) is the point: silently promoting unknown
     // content to the operator's label is the defect this module removes.
     expect(classifyTurnOrigin(userTurn([]))).toBeNull();
+  });
+});
+
+describe("classifyTurnOrigin — bash-mode turns, end to end (mt#4058)", () => {
+  // The hand-built `injected(kind)` helper above cannot catch this defect: it
+  // presupposes the classification that was missing. These cases start from the
+  // RAW transcript text, which is what actually reached the renderer and came
+  // back labeled as the operator's own message.
+  function turnFromRawText(raw: string) {
+    const elements: PreparedElement[] = splitInjectedContent(raw).map((seg) =>
+      seg.type === "prose" ? { kind: "text", text: seg.text } : { kind: "injected", span: seg.span }
+    );
+    return classifyTurnOrigin(userTurn(elements));
+  }
+
+  test("captured terminal output is NOT attributed to the operator", () => {
+    // The originating screenshot: this turn contains none of the operator's
+    // words and rendered under their label.
+    expect(
+      turnFromRawText(
+        "<bash-stdout>OPENED minsky://conversation/efb04b87</bash-stdout><bash-stderr></bash-stderr>"
+      )
+    ).toEqual({ kind: "harness", label: "command output" });
+  });
+
+  test("a stderr-only turn is labeled as an error, not as the operator", () => {
+    expect(turnFromRawText("<bash-stdout></bash-stdout><bash-stderr>boom</bash-stderr>")).toEqual({
+      kind: "harness",
+      label: "command error",
+    });
+  });
+
+  test("the command the operator typed is labeled as a bash command", () => {
+    expect(turnFromRawText("<bash-input> minsky cockpit open</bash-input>")).toEqual({
+      kind: "harness",
+      label: "bash command",
+    });
+  });
+
+  test("a bash turn carrying the operator's own continuation stays theirs", () => {
+    expect(turnFromRawText("<bash-input> ls</bash-input>\nwhy did that print nothing?")).toEqual({
+      kind: "operator",
+    });
   });
 });
