@@ -47,7 +47,7 @@
 // information (mem#704). Re-point this at the archive once that ingest and
 // mt#2682's backfill land.
 
-import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
+import { createReadStream, existsSync, lstatSync, readdirSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -59,6 +59,12 @@ import { HARNESS_MARKUP_TAGS } from "../packages/shared/src/harness-markup";
  * point of carrying them here is that a sweep which re-nominates them every run
  * teaches its reader to skim the output.
  */
+// NOT centralized into `@minsky/shared/harness-markup` (PR #2947 R1 raised the
+// drift risk, non-blocking). The inventory records these as PROSE in its
+// docblock — narrative, not a data structure — and lifting them into an
+// exported constant would put a dev-tool concern in a browser-bundled module
+// for three entries. Deliberate duplication with a pointer; revisit if the
+// inventory ever grows an exclusion this script does not carry.
 const EXCLUSIONS: ReadonlyMap<string, string> = new Map([
   ["command", "CLI help text (`exec [options] <command>`, `git <command> [<revision>...]`)"],
   ["command-digest", "a code comment describing an id format"],
@@ -83,8 +89,21 @@ export interface TagFinding {
 }
 
 export interface ScanReport {
-  conversationsScanned: number;
+  /**
+   * Files that yielded at least one `user` turn — NOT every `.jsonl` present.
+   * The two differ (1553 vs 1556 on the corpus this shipped against), and the
+   * whole purpose of these counts is that a reader can compare them to
+   * something, so the narrower number gets the narrower name.
+   */
+  filesWithUserTurns: number;
   turnsExamined: number;
+  /**
+   * Turns whose turn-start run hit {@link MAX_BLOCKS_PER_TURN}, so tags past
+   * the cap were not examined. Reported rather than swallowed: a sweep that
+   * prints a clean result while having skipped input is the exact shape this
+   * task exists to remove (PR #2947 R1).
+   */
+  turnsTruncatedAtCap: number;
   findings: TagFinding[];
 }
 
@@ -98,24 +117,46 @@ export interface ScanReport {
  */
 const TURN_START_TAG = /^\s*<([a-z][a-z0-9-]*)(?:\s[^>]*)?>([\s\S]*?)<\/\1>/;
 
-/** Defensive bound on one turn's consumable run — the harness emits at most a few. */
+/**
+ * Defensive bound on one turn's consumable run.
+ *
+ * Not a claim that 8 is enough — it is a runaway guard. Measured on the corpus
+ * this shipped against: `turnsTruncatedAtCap` was 0 across 12,140 turns, which
+ * establishes that nothing REACHED the cap, not what the true maximum run is.
+ * Because it COULD silently drop a longer family's later tags, hitting it is
+ * counted and reported rather than swallowed (`ScanReport.turnsTruncatedAtCap`).
+ */
 const MAX_BLOCKS_PER_TURN = 8;
 
 const KNOWN_TAGS: ReadonlySet<string> = new Set<string>(HARNESS_MARKUP_TAGS);
 
+export interface TurnStartTagsResult {
+  tags: string[];
+  /** True when the cap stopped the scan with text still unconsumed. */
+  truncated: boolean;
+}
+
 /** Every turn-start tag name in `text`, in order, consuming a contiguous run. */
 export function turnStartTags(text: string): string[] {
-  const found: string[] = [];
+  return scanTurnStartTags(text).tags;
+}
+
+/** {@link turnStartTags}, plus whether the cap cut the run short. */
+export function scanTurnStartTags(text: string): TurnStartTagsResult {
+  const tags: string[] = [];
   let rest = text;
   for (let i = 0; i < MAX_BLOCKS_PER_TURN; i++) {
     const match = TURN_START_TAG.exec(rest);
     if (!match) break;
     const tag = match[1];
     if (tag === undefined) break;
-    found.push(tag);
+    tags.push(tag);
     rest = rest.slice(match[0].length);
   }
-  return found;
+  // Truncated only when the cap was reached AND another block was waiting —
+  // a turn with exactly MAX_BLOCKS_PER_TURN blocks lost nothing.
+  const truncated = tags.length === MAX_BLOCKS_PER_TURN && TURN_START_TAG.test(rest);
+  return { tags, truncated };
 }
 
 /** True when the tag is neither in the inventory nor a recorded prose lookalike. */
@@ -127,46 +168,68 @@ export function isUnknownTag(tag: string): boolean {
 const SAMPLE_CHARS = 90;
 
 /**
- * The pure core: turns in, report out. Every IO decision — where the corpus
- * lives, whether it exists, how a line parses — belongs to the caller, so this
- * is testable without a transcript directory.
+ * The pure core: fold turns in one at a time, read the report out.
+ *
+ * Incremental by design (PR #2947 R1). The first cut collected every turn into
+ * an array before counting, which made the header's "streamed rather than read
+ * whole" true of each FILE and false of the CORPUS — thousands of transcripts
+ * would land in RAM at once. Folding as we go bounds memory by the number of
+ * distinct unknown tags, which is what the counts are anyway.
+ *
+ * Every IO decision — where the corpus lives, whether it exists, how a line
+ * parses — belongs to the caller, so this is testable without a transcript
+ * directory.
  */
-export function scanTurns(turns: Iterable<ScannedTurn>): ScanReport {
-  const occurrences = new Map<string, number>();
-  const conversations = new Map<string, Set<string>>();
-  const samples = new Map<string, string>();
-  const seenConversations = new Set<string>();
-  let turnsExamined = 0;
+export class TagScanAccumulator {
+  private readonly occurrences = new Map<string, number>();
+  private readonly conversations = new Map<string, Set<string>>();
+  private readonly samples = new Map<string, string>();
+  private readonly seenFiles = new Set<string>();
+  private turnsExamined = 0;
+  private turnsTruncatedAtCap = 0;
 
-  for (const turn of turns) {
-    seenConversations.add(turn.conversationId);
-    turnsExamined += 1;
-    for (const tag of turnStartTags(turn.text)) {
+  add(turn: ScannedTurn): void {
+    this.seenFiles.add(turn.conversationId);
+    this.turnsExamined += 1;
+    const { tags, truncated } = scanTurnStartTags(turn.text);
+    if (truncated) this.turnsTruncatedAtCap += 1;
+    for (const tag of tags) {
       if (!isUnknownTag(tag)) continue;
-      occurrences.set(tag, (occurrences.get(tag) ?? 0) + 1);
-      const convos = conversations.get(tag) ?? new Set<string>();
+      this.occurrences.set(tag, (this.occurrences.get(tag) ?? 0) + 1);
+      const convos = this.conversations.get(tag) ?? new Set<string>();
       convos.add(turn.conversationId);
-      conversations.set(tag, convos);
-      if (!samples.has(tag))
-        samples.set(tag, turn.text.slice(0, SAMPLE_CHARS).replace(/\n/g, "\\n"));
+      this.conversations.set(tag, convos);
+      if (!this.samples.has(tag)) {
+        this.samples.set(tag, turn.text.slice(0, SAMPLE_CHARS).replace(/\n/g, "\\n"));
+      }
     }
   }
 
-  const findings: TagFinding[] = [...occurrences.entries()]
-    .map(([tag, count]) => ({
-      tag,
-      occurrences: count,
-      conversations: conversations.get(tag)?.size ?? 0,
-      sample: samples.get(tag) ?? "",
-    }))
-    // Most-occurring first: a family shows up as a cluster, a fluke as a tail.
-    .sort((a, b) => b.occurrences - a.occurrences || a.tag.localeCompare(b.tag));
+  report(): ScanReport {
+    const findings: TagFinding[] = [...this.occurrences.entries()]
+      .map(([tag, count]) => ({
+        tag,
+        occurrences: count,
+        conversations: this.conversations.get(tag)?.size ?? 0,
+        sample: this.samples.get(tag) ?? "",
+      }))
+      // Most-occurring first: a family shows up as a cluster, a fluke as a tail.
+      .sort((a, b) => b.occurrences - a.occurrences || a.tag.localeCompare(b.tag));
 
-  return {
-    conversationsScanned: seenConversations.size,
-    turnsExamined,
-    findings,
-  };
+    return {
+      filesWithUserTurns: this.seenFiles.size,
+      turnsExamined: this.turnsExamined,
+      turnsTruncatedAtCap: this.turnsTruncatedAtCap,
+      findings,
+    };
+  }
+}
+
+/** {@link TagScanAccumulator} over an in-memory sequence — the test-path shape. */
+export function scanTurns(turns: Iterable<ScannedTurn>): ScanReport {
+  const acc = new TagScanAccumulator();
+  for (const turn of turns) acc.add(turn);
+  return acc.report();
 }
 
 // ── IO shell ────────────────────────────────────────────────────────────────
@@ -187,7 +250,11 @@ function jsonlFiles(root: string): string[] {
     const path = join(root, entry);
     let isDir: boolean;
     try {
-      isDir = statSync(path).isDirectory();
+      // `lstatSync`, not `statSync` (PR #2947 R1): a symlinked directory
+      // pointing at an ancestor would otherwise recurse forever. Not following
+      // links at all is the cheapest cycle guard, and the corpus is a flat
+      // per-project tree of real directories.
+      isDir = lstatSync(path).isDirectory();
     } catch {
       continue; // a vanished or unreadable entry is not a scan failure
     }
@@ -249,20 +316,32 @@ async function* readCorpus(files: string[]): AsyncGenerator<ScannedTurn> {
   }
 }
 
-/** `scanTurns` over an async source — same logic, streamed input. */
+/**
+ * Fold the corpus into a report WITHOUT materializing it (PR #2947 R1).
+ * Nothing accumulates here but the accumulator's own counters.
+ */
 async function scanCorpus(files: string[]): Promise<ScanReport> {
-  const turns: ScannedTurn[] = [];
-  for await (const turn of readCorpus(files)) turns.push(turn);
-  return scanTurns(turns);
+  const acc = new TagScanAccumulator();
+  for await (const turn of readCorpus(files)) acc.add(turn);
+  return acc.report();
 }
 
-function renderText(report: ScanReport, root: string): string {
+function renderText(report: ScanReport, root: string, filesDiscovered: number): string {
   const lines: string[] = [];
   // The corpus size leads, on every run including a clean one — see the header.
+  // BOTH file counts, because they differ and a reader comparing to a raw
+  // `find | wc -l` should not have to guess which one this is (PR #2947 R1).
   lines.push(
-    `Scanned ${report.conversationsScanned} conversation file(s), ` +
-      `${report.turnsExamined} user turn(s), under ${root}`
+    `Scanned ${filesDiscovered} .jsonl file(s) under ${root}; ` +
+      `${report.filesWithUserTurns} carried a user turn, ` +
+      `${report.turnsExamined} user turn(s) examined`
   );
+  if (report.turnsTruncatedAtCap > 0) {
+    lines.push(
+      `WARNING: ${report.turnsTruncatedAtCap} turn(s) hit the ${MAX_BLOCKS_PER_TURN}-block ` +
+        `scan cap — tags past it were NOT examined, so this report is incomplete for those turns.`
+    );
+  }
   if (report.findings.length === 0) {
     lines.push("No unknown turn-start tags. The inventory covers this corpus.");
     return lines.join("\n");
@@ -303,6 +382,10 @@ if (import.meta.main) {
   }
 
   const report = await scanCorpus(files);
-  console.log(json ? JSON.stringify(report, null, 2) : renderText(report, root));
+  console.log(
+    json
+      ? JSON.stringify({ ...report, filesDiscovered: files.length }, null, 2)
+      : renderText(report, root, files.length)
+  );
   process.exit(failOnUnknown && report.findings.length > 0 ? 1 : 0);
 }

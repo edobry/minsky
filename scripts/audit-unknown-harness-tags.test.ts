@@ -8,7 +8,13 @@
  * close.
  */
 import { describe, test, expect } from "bun:test";
-import { isUnknownTag, scanTurns, turnStartTags } from "./audit-unknown-harness-tags";
+import {
+  isUnknownTag,
+  scanTurns,
+  scanTurnStartTags,
+  TagScanAccumulator,
+  turnStartTags,
+} from "./audit-unknown-harness-tags";
 
 /** A tag no harness emits, so it is unknown by construction and stays that way. */
 const NOVEL_TAG = "sandwich-mode";
@@ -64,6 +70,27 @@ describe("turnStartTags — conservatism mirrors the render surface", () => {
     const many = Array.from({ length: 30 }, (_, i) => `<t-${i}>x</t-${i}>`).join("");
     expect(turnStartTags(many).length).toBeLessThanOrEqual(8);
   });
+
+  test("hitting the cap is REPORTED, not swallowed (PR #2947 R1)", () => {
+    // A sweep that skips input while printing a clean result is the exact
+    // shape this task exists to remove; the cap is a runaway guard, so its
+    // effect has to be visible.
+    const many = Array.from({ length: 30 }, (_, i) => `<t-${i}>x</t-${i}>`).join("");
+    expect(scanTurnStartTags(many).truncated).toBe(true);
+  });
+
+  test("a run that fits under the cap is not flagged as truncated", () => {
+    expect(scanTurnStartTags("<alpha-one>a</alpha-one><beta-two>b</beta-two>").truncated).toBe(
+      false
+    );
+  });
+
+  test("a run of EXACTLY the cap lost nothing, so it is not flagged either", () => {
+    const exact = Array.from({ length: 8 }, (_, i) => `<t-${i}>x</t-${i}>`).join("");
+    const result = scanTurnStartTags(exact);
+    expect(result.tags).toHaveLength(8);
+    expect(result.truncated).toBe(false);
+  });
 });
 
 describe("isUnknownTag — known and recorded-prose tags are not nominated", () => {
@@ -102,16 +129,32 @@ describe("scanTurns — the report a reader acts on", () => {
     // empty case reachable — the local JSONL is declared throw-away.
     const report = scanTurns([turn("just an ordinary message", "a"), turn("another", "b")]);
     expect(report.findings).toEqual([]);
-    expect(report.conversationsScanned).toBe(2);
+    expect(report.filesWithUserTurns).toBe(2);
     expect(report.turnsExamined).toBe(2);
   });
 
   test("an empty corpus reports zeroes rather than looking like a clean scan", () => {
     expect(scanTurns([])).toEqual({
-      conversationsScanned: 0,
+      filesWithUserTurns: 0,
       turnsExamined: 0,
+      turnsTruncatedAtCap: 0,
       findings: [],
     });
+  });
+
+  test("the report counts files that CARRIED a turn, which is what it says", () => {
+    // PR #2947 R1: the header used to call this "conversation file(s)", which
+    // reads as every .jsonl present. A file with no user turn never reaches
+    // the accumulator, so the two numbers genuinely differ (1553 vs 1556 on
+    // the shipping corpus) and the narrower one now has the narrower name.
+    const report = scanTurns([turn("x", "a"), turn("y", "a")]);
+    expect(report.filesWithUserTurns).toBe(1);
+    expect(report.turnsExamined).toBe(2);
+  });
+
+  test("a turn that hit the scan cap is counted in the report", () => {
+    const many = Array.from({ length: 30 }, (_, i) => `<t-${i}>x</t-${i}>`).join("");
+    expect(scanTurns([turn(many)]).turnsTruncatedAtCap).toBe(1);
   });
 
   test("occurrences and conversation spread are counted separately", () => {
@@ -154,5 +197,31 @@ describe("scanTurns — the report a reader acts on", () => {
     const report = scanTurns([turn("<system-reminder>injected</system-reminder>")]);
     expect(report.findings).toEqual([]);
     expect(report.turnsExamined).toBe(1);
+  });
+});
+
+describe("TagScanAccumulator — folding incrementally matches folding all at once", () => {
+  test("adding turns one at a time yields the same report as scanTurns", () => {
+    // The property that makes the streaming rewrite safe (PR #2947 R1): the
+    // corpus is folded turn-by-turn rather than collected first, so the two
+    // paths must agree exactly.
+    const turns = [
+      turn(`<${NOVEL_TAG}>a</${NOVEL_TAG}>`, "c1"),
+      turn("ordinary prose", "c1"),
+      turn(`<${NOVEL_TAG}>b</${NOVEL_TAG}>`, "c2"),
+      turn("<system-reminder>known</system-reminder>", "c2"),
+    ];
+    const acc = new TagScanAccumulator();
+    for (const t of turns) acc.add(t);
+    expect(acc.report()).toEqual(scanTurns(turns));
+  });
+
+  test("a fresh accumulator reports an empty scan", () => {
+    expect(new TagScanAccumulator().report()).toEqual({
+      filesWithUserTurns: 0,
+      turnsExamined: 0,
+      turnsTruncatedAtCap: 0,
+      findings: [],
+    });
   });
 });
