@@ -65,6 +65,17 @@ export {
   SEARCH_COMMAND_LEADERS,
 } from "./negative-existence-claim";
 
+export type { FlakinessClaim, FlakinessAttributionResult } from "./flakiness-attribution";
+export {
+  detectFlakinessAttribution,
+  extractFlakinessClaims,
+  hasIsolationControl,
+  hasUnverifiedMarkerNearClaim,
+  FLAKINESS_ATTRIBUTION_PATTERNS,
+  FLAKINESS_DENIAL_PATTERNS,
+  UNVERIFIED_MARKER,
+} from "./flakiness-attribution";
+
 export type {
   AbsenceClaim,
   ProbeObservation,
