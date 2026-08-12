@@ -24,13 +24,79 @@
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SessionProviderInterface } from "@minsky/domain/session";
 import type { TaskServiceInterface } from "@minsky/domain/tasks";
-import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
+import type {
+  BasePersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
+import type { MemoryLookup, AskLookup } from "./short-id-fetch";
 
 export interface DomainServices {
   container: AppContainerInterface;
   sessionProvider: SessionProviderInterface;
   taskService: TaskServiceInterface;
   persistenceProvider: BasePersistenceProvider;
+  /**
+   * `mem#N` / `ask#N` criteria-reference lookups (mt#3964) — see
+   * `short-id-fetch.ts`'s module doc for why these are built here rather
+   * than reusing a cockpit-style cached short-id map: the reviewer is a
+   * separately deployed service and must not depend on the cockpit daemon
+   * being up. `ws#N` needs no equivalent field — `sessionProvider` above
+   * already resolves it via `getSession`.
+   */
+  memoryLookup: MemoryLookup;
+  askLookup: AskLookup;
+}
+
+/**
+ * Resolve a raw drizzle db connection from `persistenceProvider`, or null
+ * when it lacks SQL capability. Mirrors `src/adapters/shared/commands/refs.ts`'s
+ * `getDb(container)` helper — same capability check, same
+ * `getDatabaseConnection()` call — since `refs.status`'s ask/memory/workspace
+ * resolvers face exactly the same "resolve a short id against its own table"
+ * problem this module solves for the reviewer.
+ *
+ * Deliberately NOT captured once at boot and reused: `getDatabaseConnection()`
+ * is called fresh on each lookup so a pool recycle (mt#3721's lesson, applied
+ * here defensively) can't leave a stale handle behind.
+ */
+async function getSqlDb(
+  provider: BasePersistenceProvider
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any | null> {
+  if (!provider.capabilities.sql) return null;
+  const sqlProvider = provider as SqlCapablePersistenceProvider;
+  if (typeof sqlProvider.getDatabaseConnection !== "function") return null;
+  return (await sqlProvider.getDatabaseConnection()) ?? null;
+}
+
+/**
+ * Build a `MemoryLookup` over `persistenceProvider`. Uses the standalone
+ * `getMemoryRecordById` (mt#3964) rather than constructing a full
+ * `MemoryService` — that would additionally require an `embeddingService`
+ * and `vectorStorage`, neither of which a by-id content read touches, and
+ * the reviewer has no other reason to hold an embedding client.
+ */
+function buildMemoryLookup(persistenceProvider: BasePersistenceProvider): MemoryLookup {
+  return {
+    async get(id: string) {
+      const db = await getSqlDb(persistenceProvider);
+      if (!db) return null;
+      const { getMemoryRecordById } = await import("@minsky/domain/memory");
+      return getMemoryRecordById(db, id);
+    },
+  };
+}
+
+/** Build an `AskLookup` over `persistenceProvider`, mirroring `buildMemoryLookup` above. */
+function buildAskLookup(persistenceProvider: BasePersistenceProvider): AskLookup {
+  return {
+    async getById(id: string) {
+      const db = await getSqlDb(persistenceProvider);
+      if (!db) return null;
+      const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
+      return new DrizzleAskRepository(db).getById(id);
+    },
+  };
 }
 
 /**
@@ -52,6 +118,8 @@ export async function bootDomainContainer(): Promise<DomainServices> {
   const sessionProvider = container.get("sessionProvider");
   const taskService = container.get("taskService");
   const persistenceProvider = container.get("persistence");
+  const memoryLookup = buildMemoryLookup(persistenceProvider);
+  const askLookup = buildAskLookup(persistenceProvider);
 
-  return { container, sessionProvider, taskService, persistenceProvider };
+  return { container, sessionProvider, taskService, persistenceProvider, memoryLookup, askLookup };
 }

@@ -37,9 +37,6 @@ export function registerSessionTools(
       "session.update": {
         description: "Update a session with the latest changes",
       },
-      "session.approve": {
-        description: "Approve a session pull request",
-      },
       "session.pr.create": {
         description: "Create a pull request for a session",
       },

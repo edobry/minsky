@@ -4,6 +4,7 @@
    IS the contract under test, mirroring src/cockpit/prod-state-cache.test.ts's identical
    justification for the same rule. */
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -27,7 +28,12 @@ import {
 
 // Shared `bun test` invocation args, reused across several real-subprocess
 // tests below.
-const BUN_TEST_PRELOAD_ARGS = ["--preload", "./tests/setup.ts", "--timeout=15000"];
+// mt#3704 — see run-tests-main.test.ts for why this derives from the constant.
+const BUN_TEST_PRELOAD_ARGS = [
+  "--preload",
+  "./tests/setup.ts",
+  `--timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS}`,
+];
 
 // The real, currently-existing file pair in this repo whose relative paths
 // exhibit the R1-review-discovered substring collision (see

@@ -113,8 +113,19 @@ let stateDirWithSession: string;
 /** A fake `MINSKY_STATE_DIR` containing no session workspaces at all. */
 let emptyStateDir: string;
 
+/**
+ * Bun's `spawnSync` TYPES pin `stdin` to `"ignore"` (bun.d.ts fixes the `In`
+ * type parameter), even though the runtime accepts a data stdin — which is what
+ * these gate subprocesses are fed. The cast is the narrowest way to say "the
+ * runtime supports this and the types do not"; it is confined to this helper so
+ * no call site repeats it. mt#2900.
+ */
+function stdinData(text: string): "ignore" {
+  return new TextEncoder().encode(text) as unknown as "ignore";
+}
+
 function git(cwd: string, ...args: string[]): void {
-  const r = Bun.spawnSync(["git", ...args], { cwd });
+  const r = Bun.spawnSync(["git", ...args], { cwd, stderr: "pipe" });
   if (r.exitCode !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${r.stderr.toString()}`);
   }
@@ -460,7 +471,13 @@ function runGate(gate: string, input: ToolHookInput): GateRun {
   const stateDir = mkdtempSync(join(tmpdir(), "mt3355-state-"));
   try {
     const result = Bun.spawnSync(["bun", join(HOOKS_DIR, `${gate}.ts`)], {
-      stdin: Buffer.from(JSON.stringify(input)),
+      stdin: stdinData(JSON.stringify(input)),
+      // Explicit "pipe" (mt#2900): without it the overload resolves to the
+      // variant where stdout is not captured, so `result.stdout` types as
+      // `never` and the stdin Buffer has nowhere to go. This matches the
+      // runtime default — the option is stating what already happens.
+      stdout: "pipe",
+      stderr: "pipe",
       env: { ...process.env, MINSKY_STATE_DIR: stateDir },
     });
     const logPath = join(stateDir, "fire-log.jsonl");
@@ -474,7 +491,7 @@ function runGate(gate: string, input: ToolHookInput): GateRun {
 }
 
 describe("gate subprocess behavior (AT1 / AT2 / AT5)", () => {
-  test.each(PRE_REPO_GATES)(
+  test.each([...PRE_REPO_GATES])(
     "%s: a sessionId-only merge from a task branch resolves and does NOT exit silently",
     (gate) => {
       // AT1 negative control. Before mt#3355 this input produced a bare `allow` with no
@@ -490,7 +507,7 @@ describe("gate subprocess behavior (AT1 / AT2 / AT5)", () => {
     }
   );
 
-  test.each(PRE_REPO_GATES)(
+  test.each([...PRE_REPO_GATES])(
     "%s: neither selector, cwd on main -> operator-visible warning and decision 'warn'",
     (gate) => {
       // AT2 unresolvable control. Asserts on the fire-log line, not just stdout — the whole
@@ -503,7 +520,7 @@ describe("gate subprocess behavior (AT1 / AT2 / AT5)", () => {
     }
   );
 
-  test.each(PRE_REPO_GATES)(
+  test.each([...PRE_REPO_GATES])(
     "%s: an explicit tool_input.task still records source 'tool_input' (regression floor)",
     (gate) => {
       // AT4 / AT5 positive control: the resolver is additive and must not change behavior

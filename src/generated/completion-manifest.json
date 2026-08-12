@@ -2335,7 +2335,7 @@
         },
         {
           "name": "dispatch-recover",
-          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
+          "description": "Server-side detect/classify/prepare for a died/stalled subagent dispatch (mt#2831): captures session state, classifies the outcome, and returns a ready-to-dispatch continuation prompt. Does NOT dispatch anything — the caller must redispatch the returned prompt via the Agent tool. A healthy in-flight dispatch is left untouched (returns status: \"healthy\") — as of mt#3086 this check ALSO consults recent presence-claim (session-scoped MCP tool-call) activity, not just commits, so a dispatch that is quietly working (reading code, running tests, no commit yet) is no longer misclassified as dead; see the activitySource field on a healthy result (\"commit\" | \"presence\" | \"dispatch-start\") for which signal decided it. mt#3952: presence alone no longer holds a healthy verdict indefinitely; see progressNote on a recover/escalate result. Refuses a 3rd attempt for the same dispatch chain (returns status: \"escalate\"). mt#3121: if a DIFFERENT actor holds a fresh TASK-grain presence claim (a peer conversation actively working the task), returns status: \"contested\" WITHOUT consuming an attempt, since redispatching would collide with that live actor. If the dispatch tracker itself is unavailable, degrades to actionable manual-recovery guidance instead of a bare error (returns status: \"tracker-unavailable\"). An \"escalate\" result is NOT a finding that the dispatch is dead — it only means the 2-attempt auto-resume bound is reached. Its `escalation.probe` carries the live workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus `workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). CAUTION (mt#3958): `workspaceMtimeAgoMs` only advances on a DIRTY-FILE WRITE — an agent that is reading code, running tests, or otherwise working without touching the working tree produces no write, so this clock reads 'no recent writes,' NOT 'no agent.' Do not treat a large `workspaceMtimeAgoMs` alone as evidence of death; it is silent in exactly the state a live-but-reading agent produces. DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive or a hasty manual override) puts TWO agents in the SAME Minsky session workspace at once. Observed symptoms from the originating incident: uncommitted work appearing that the new attempt didn't write, a merge conflict resolving and committing out from under the new attempt between two of its own status checks, a `git push` rejected as \"remote already at a newer commit,\" and a PR already existing with the same diagnosis the new attempt was about to produce. Both attempts CAN converge on a correct end state (idempotent work + luck), but this is not guaranteed — treat any of these symptoms as a signal to stop and check whether another attempt is genuinely still running before continuing.",
           "arguments": [
             {
               "name": "taskId",
@@ -2641,7 +2641,7 @@
         },
         {
           "name": "exec",
-          "description": "Execute a shell command in a session's working directory. The session directory is resolved automatically from `task` or `sessionId` — never substitute `git -C <path>` or `cd <path> && cmd`. Use session_exec for commands that have no dedicated MCP tool (build, test, format, custom scripts). For git operations there are dedicated MCP tools (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) — prefer those. The block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec the same way it denies them on Bash (mt#1196). Inside a session, the carved-out commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via session_exec because they're the recommended escape hatch.",
+          "description": "Execute a shell command in a session's working directory. The session directory is resolved automatically from `task` or `sessionId` — never substitute `git -C <path>` or `cd <path> && cmd`. Use session_exec for commands that have no dedicated MCP tool (build, test, format, custom scripts). For git operations there are dedicated MCP tools (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) — prefer those. The block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec the same way it denies them on Bash (mt#1196). Inside a session, the carved-out commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via session_exec because they're the recommended escape hatch. TIMEOUT: a command is KILLED after `timeout` ms (default 30s, max 120s) — the result then carries `timedOut: true`, `failureKind: \"timeout\"` and `descendantsMaySurvive: true` rather than a bare `exitCode: 1`. Do NOT retry on a timeout as though the command had failed: it may have done part of its work, and anything it spawned can outlive the kill. For work that may exceed the cap, launch it detached (`nohup … &`) and read a log file instead.",
           "options": [
             {
               "flags": ["--session-id"],
@@ -3574,7 +3574,12 @@
                 },
                 {
                   "flags": ["--require-current-head"],
-                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support."
+                  "description": "When true (default), only a review whose commit SHA matches the PR's current HEAD counts as a match, so a stale review of a superseded commit no longer resolves a re-review wait (mt#2586). Set false to accept any review regardless of commit (pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself mean the returned review is the reviewer's STANDING VERDICT. Several reviews from one reviewer can sit on the same HEAD, in which case this filter admits all of them; the tool separately resolves the reviewer's latest decision-bearing review and returns that, whatever its state."
+                },
+                {
+                  "flags": ["--expected-head-sha"],
+                  "description": "The commit you expect the REMOTE to be serving — pass the commitHash session_commit just returned (mt#3877). While the remote head differs from it, NO review is considered and the wait keeps polling, so arming the watcher before a push lands no longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in that window the superseded commit IS the current head, so it is admitted by exactly the filter meant to exclude it. The window is routine — session_commit regularly exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. On timeout the result carries expectedHeadShaUnreached naming the sha the remote never reached. Ignored on backends without HEAD-sha support, or with requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so session_commit's short commitHash can be passed through verbatim; values under 7 characters, or non-hex values, are rejected with an error rather than silently matching nothing.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--full-body"],
@@ -3664,6 +3669,11 @@
                 {
                   "flags": ["--deploy-interval-seconds"],
                   "description": "postMerge mode only: poll cadence for each deployment wait (default 10).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--merged-at"],
+                  "description": "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). Bounds each deployment wait so a deployment predating the merge cannot satisfy it. Omit and the watch accepts whatever deployment is newest — the result then reports deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence this merge deployed (mt#3890).",
                   "takesValue": true
                 }
               ]
@@ -4771,7 +4781,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -4783,7 +4793,7 @@
               "subcommands": [
                 {
                   "name": "credentials.list",
-                  "description": "List configured credentials (values never displayed)",
+                  "description": "List credential entries: managed providers plus schema-defined AI provider keys (presence only, values never displayed). Use `ai providers list` for AI provider status.",
                   "options": [
                     {
                       "flags": ["--json"],
@@ -4810,7 +4820,7 @@
                     {
                       "name": "provider",
                       "required": true,
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram)"
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
                     }
                   ]
                 }
@@ -4830,7 +4840,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
@@ -5000,6 +5010,10 @@
               "flags": ["--model"],
               "description": "Model to use for fast-apply",
               "takesValue": true
+            },
+            {
+              "flags": ["--allow-shrink"],
+              "description": "Override the collapse guard, which refuses a fast-apply result dramatically smaller than the original file. Set true only when the large deletion is intentional."
             },
             {
               "flags": ["--dry-run"],
@@ -5465,6 +5479,10 @@
                   "flags": ["--editor"],
                   "description": "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--acknowledge-form-warnings"],
+                  "description": "When true, bypass the form-lint hard-reject (mt#3929) for this edit call. The same escape asks_create offers: use it when the ask is genuinely long/complex and the violation is warranted, or when repairing one field of an ask whose pre-existing body already violates. Without it, an edit whose RESULTING question/options fail any form-lint check is rejected."
                 }
               ],
               "arguments": [
@@ -5798,6 +5816,11 @@
                   "flags": ["--poll-interval-seconds"],
                   "description": "Poll cadence. Default: 10 seconds.",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--not-before"],
+                  "description": "ISO8601 lower bound on the deployment's creation time. A deployment created BEFORE this instant will not satisfy the wait — the call keeps polling for a newer one and fails with NoDeploymentSinceError if none appears. Pass the merge timestamp when verifying that a specific merge deployed: without it this returns whatever is latest, which can be an arbitrarily old deployment and will report SUCCESS for a deploy that never ran (mt#3890).",
+                  "takesValue": true
                 }
               ]
             },
@@ -5859,6 +5882,11 @@
             {
               "flags": ["--json"],
               "description": "Output results as JSON instead of human-readable text."
+            },
+            {
+              "flags": ["--review-token"],
+              "description": "The `reviewToken` returned by the READ-ONLY sweep whose records you classified (mt#3906). REQUIRED with ack:true. It carries the per-log fire counts as of that read, so the watermark records what was actually reviewed instead of whatever the log has grown to by ack time — records that arrive mid-pass stay unreviewed and are reported as `midPassArrivals` rather than silently marked seen. A token that is malformed, or that claims more records than the log holds, is REJECTED (no watermark moves); one whose count sits below an existing watermark is raised to it.",
+              "takesValue": true
             },
             {
               "flags": ["--ask-id"],
@@ -7078,6 +7106,27 @@
       ]
     },
     {
+      "name": "security",
+      "description": "SECURITY commands",
+      "subcommands": [
+        {
+          "name": "check-credentials",
+          "description": "Check text (stdin, --file, or --text) for unmasked credential shapes. Exit 0 = clean, 1 = hit, 2 = did not complete.",
+          "options": [
+            {
+              "flags": ["--file"],
+              "description": "Read the text to check from this file path instead of stdin",
+              "takesValue": true
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress this command's own stdout/stderr text on every path (clean, hit, or error); rely on the exit code alone"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "mcp",
       "description": "Model Context Protocol (MCP) server commands",
       "subcommands": [
@@ -7121,6 +7170,10 @@
             {
               "flags": ["--require-auth"],
               "description": "Require bearer-token auth on the HTTP MCP endpoint (token from MINSKY_MCP_AUTH_TOKEN env)"
+            },
+            {
+              "flags": ["--local-daemon"],
+              "description": "Run as the shared local MCP daemon (mt#3814, ADR-038): implies --http, defaults to 127.0.0.1:48765, generates and uses the 0600 bearer token, writes a discovery file, adopts-or-fails on a port conflict, and reaps idle sessions after 10 minutes instead of the hosted 2h default (override with MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS)"
             }
           ]
         },
@@ -7659,7 +7712,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port to listen on (default: 3737)",
+              "description": "Port to listen on (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             },
             {
@@ -7691,7 +7744,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port for the daemon to listen on (default: 3737)",
+              "description": "Port to listen on (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             },
             {
@@ -7711,7 +7764,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port to check (default: 3737)",
+              "description": "Port to check (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             },
             {
@@ -7727,6 +7780,27 @@
         {
           "name": "restart",
           "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+        },
+        {
+          "name": "url",
+          "description": "Print the base URL of the running cockpit serving this workspace",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output the full cockpit state as JSON"
+            }
+          ]
+        },
+        {
+          "name": "open",
+          "description": "Open a conversation in the cockpit's conversation view",
+          "options": [
+            {
+              "flags": ["--conversation"],
+              "description": "Conversation (harness agent-session) id; defaults to $CLAUDE_CODE_SESSION_ID",
+              "takesValue": true
+            }
+          ]
         }
       ]
     },

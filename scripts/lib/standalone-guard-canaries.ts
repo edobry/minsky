@@ -20,10 +20,12 @@
  */
 
 import type { StandaloneGuardCanary } from "../../.minsky/hooks/canary-runner";
+import { enforcementEffect, advisoryEffect, recorderEffect } from "../../.minsky/hooks/registry";
 
 export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   {
     guardName: "block-git-gh-cli",
+    effects: [enforcementEffect()],
     expects: "deny",
     check: async () => {
       const { checkDenial, parseCommands } = await import("../../.minsky/hooks/block-git-gh-cli");
@@ -35,6 +37,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   },
   {
     guardName: "require-session-for-main-workspace-edits",
+    effects: [enforcementEffect()],
     expects: "deny",
     check: async () => {
       const { checkFilePathDenial, MAIN_WORKSPACE } = await import(
@@ -53,6 +56,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   },
   {
     guardName: "tasks-status-set-guard",
+    effects: [enforcementEffect()],
     expects: "deny",
     check: async () => {
       const { checkTransition } = await import("../../.minsky/hooks/tasks-status-set-guard");
@@ -67,6 +71,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   },
   {
     guardName: "validate-task-spec",
+    effects: [enforcementEffect()],
     expects: "deny",
     check: async () => {
       const { validateSpecContent } = await import("../../.minsky/hooks/validate-task-spec");
@@ -79,6 +84,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   },
   {
     guardName: "check-generated-file-edit",
+    effects: [enforcementEffect()],
     expects: "deny",
     check: async () => {
       const { scanFileForBanner } = await import("../../.minsky/hooks/check-generated-file-edit");
@@ -101,6 +107,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
   },
   {
     guardName: "check-task-spec-read",
+    effects: [enforcementEffect()],
     expects: "deny",
     check: async () => {
       const { resolveTargetTaskId, specWasSurfacedInAnyTranscript } = await import(
@@ -138,6 +145,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     // additionalContext-shaped expectation (canary-runner's
     // evaluateCanaryOutcome maps "warn" to a non-empty additionalContext).
     guardName: "drive-ready-to-implementation",
+    effects: [advisoryEffect()],
     expects: "warn",
     check: async () => {
       const { decideReminder } = await import("../../.minsky/hooks/drive-ready-to-implementation");
@@ -174,6 +182,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     // detector from a dormant one, and the investigation started from the
     // wrong hypothesis.
     guardName: "policy-coverage",
+    effects: [advisoryEffect(), recorderEffect()],
     expects: "warn",
     // mt#3502: the join key the coverage-receipt check uses to find this
     // guard's invocations in the fire log. Without it the check has no
@@ -242,6 +251,11 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     // declare its calibration log — so its two logs read as `Unmapped` while
     // the evidence they needed was already in the fire log.
     guardName: "require-execution-evidence-before-merge",
+    effects: [
+      enforcementEffect(),
+      recorderEffect("execution-evidence-at-coverage"),
+      recorderEffect("execution-evidence-test-first"),
+    ],
     expects: "deny",
     // TWO logs from one guard: the gate writes `execution-evidence-at-coverage`
     // itself and `execution-evidence-test-first` through `test-first-evidence.ts`,
@@ -271,6 +285,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     // evidence to join to, and the evidence is unreachable without the
     // declaration. It had neither.
     guardName: "bare-prohibition",
+    effects: [advisoryEffect(), recorderEffect()],
     // Calibration-mode detector (mt#3167 tracks graduation): a detected bare
     // prohibition records and warns rather than denying, so `warn` is the
     // outcome-shaped expectation, as with `policy-coverage` above.
@@ -289,8 +304,9 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
           false
         );
 
-      // A prohibition with no basis and no licence to falsify it is the class
-      // this guard exists for...
+      // A prohibition with no basis is the class this guard exists for — since
+      // mt#3167 that is the ONLY firing category, the licence-to-falsify one
+      // having been retired at 8/8 measured false positives...
       const bare = dispatchWith(
         "Do not attempt to use the Railway CLI — it is blocked in this environment."
       );

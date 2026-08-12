@@ -128,8 +128,9 @@ export type SubagentInvocationInput = SubagentInvocationInsert;
  * - `total` — total rows in the table (all-time, not windowed).
  * - `lastDispatch` — ISO-8601 timestamp of the most recent `startedAt`, or
  *   null if the table is empty.
- * - `byOutcome` — count per outcome class (all 6 enum values present,
- *   defaulting to 0 for classes with no rows).
+ * - `byOutcome` — count per outcome value (all 8 enum values present,
+ *   defaulting to 0 for values with no rows). See the field's own JSDoc on
+ *   `SubagentDispatchCadence` for which two are not classifications.
  * - `byAgentType` — count per `agentType` string.
  * - `byModel` — count per `actualModel` string (mt#2796). Rows with a null
  *   `actualModel` (not yet classified at Stop time, or the classifier found
@@ -145,11 +146,12 @@ export interface SubagentDispatchCadence {
   /** ISO-8601 timestamp of the most recent startedAt, or null. */
   lastDispatch: string | null;
   /**
-   * Count per outcome class. All 7 values are always present — the 6 terminal classes plus
-   * `pending` (mt#1770), which is the dispatch-time placeholder rather than a classification.
-   * The record is built by folding over `SUBAGENT_INVOCATION_OUTCOME_VALUES`, so it extends
-   * automatically with the enum; a reader summing "failures" must exclude `pending`, which
-   * means "no outcome observed yet," not a bad one.
+   * Count per outcome class. All 8 values are always present — the 6 workspace-derived classes,
+   * `pending` (mt#1770), and `no-workspace` (mt#3894). The record is built by folding over
+   * `SUBAGENT_INVOCATION_OUTCOME_VALUES`, so it extends automatically with the enum. A reader
+   * summing "failures" must exclude BOTH of the last two: `pending` means "no outcome observed
+   * yet," and `no-workspace` means "the subagent had no workspace to observe an outcome in" —
+   * neither is a bad outcome.
    */
   byOutcome: Record<SubagentInvocationOutcome, number>;
   /** Count per agentType. Only types that appear in the table. */
@@ -382,6 +384,23 @@ export class SubagentDispatchTracker {
         targetRow = byId[0];
       }
 
+      // mt#2292: the parent-side dispatch key, tried BEFORE the subagentSessionId
+      // heuristic because it is exact where that one is a guess. One `Agent` tool
+      // call has exactly one `(parent_agent_session_id, parent_tool_use_id)` pair
+      // and the pair is backed by a UNIQUE index, so a match is THE row for that
+      // dispatch — no open-row/most-recent tiebreak is needed or possible.
+      //
+      // Ordering matters on the Stop path, where BOTH keys are often available:
+      // the subagentSessionId heuristic cannot tell two dispatches into the same
+      // Minsky workspace apart (that is the retry-chain ambiguity documented on
+      // `_selectHeuristicUpsertTarget`), while the parent key can.
+      if (!targetRow && input.parentAgentSessionId != null && input.parentToolUseId != null) {
+        targetRow = await this._selectParentKeyUpsertTarget(
+          input.parentAgentSessionId,
+          input.parentToolUseId
+        );
+      }
+
       if (!targetRow && input.subagentSessionId != null) {
         targetRow = await this._selectHeuristicUpsertTarget(input.subagentSessionId);
       }
@@ -436,6 +455,16 @@ export class SubagentDispatchTracker {
       // Co-located with the subagent.failed branch above; the two are
       // mutually exclusive (rate-limited emits neither). Best-effort —
       // EventEmitter.emit() never throws.
+      //
+      // `no-workspace` (mt#3894) deliberately emits NEITHER event, joining
+      // `rate-limited`. This is a decision, not a fall-through, and the
+      // distinction matters because both look identical from outside: a member
+      // matching neither branch is silently absent from `subagent.failed` AND
+      // `subagent.completed`. `subagent.failed` would recreate the false-crash
+      // harm mt#1770 removed — asserting a failure nobody observed — and
+      // `subagent.completed` would assert a success nobody observed either. The
+      // row itself carries the fact; neither stream should claim more than that.
+      // Pinned by "emits neither event for no-workspace" in the sibling test.
       if (
         this.eventEmitter &&
         (input.outcome === "completed-with-pr" ||
@@ -482,6 +511,44 @@ export class SubagentDispatchTracker {
    * without the strong `id` binding this heuristic still picks the more recent one).
    * The strong-binding `id` path is what actually eliminates that residual case.
    */
+  /**
+   * Select the UPDATE target for the parent-key upsert path (mt#2292): the row
+   * for one specific `Agent` tool call, identified by the harness's own
+   * `(session_id, tool_use_id)` pair.
+   *
+   * Unlike {@link _selectHeuristicUpsertTarget} this needs no two-pass
+   * open-row/most-recent selection, because the pair is unique by construction —
+   * `idx_subagent_invocations_parent_tool_use_id` is a UNIQUE index, and a
+   * tool_use id names exactly one call within its conversation. At most one row
+   * can match, so there is nothing to disambiguate and no residual
+   * misattribution window of the kind that path documents.
+   *
+   * Returns undefined when no row carries the pair — the dispatch-side write
+   * never landed, or this is a Stop for a subagent spawned before mt#2292
+   * shipped. The caller falls through to the older keys, so absence degrades to
+   * the pre-mt#2292 behavior rather than dropping the write.
+   */
+  private async _selectParentKeyUpsertTarget(
+    parentAgentSessionId: string,
+    parentToolUseId: string
+  ): Promise<{ id: string; agentType: string; taskId: string } | undefined> {
+    const [row] = await this.db
+      .select({
+        id: subagentInvocationsTable.id,
+        agentType: subagentInvocationsTable.agentType,
+        taskId: subagentInvocationsTable.taskId,
+      })
+      .from(subagentInvocationsTable)
+      .where(
+        and(
+          eq(subagentInvocationsTable.parentAgentSessionId, parentAgentSessionId),
+          eq(subagentInvocationsTable.parentToolUseId, parentToolUseId)
+        )
+      )
+      .limit(1);
+    return row;
+  }
+
   private async _selectHeuristicUpsertTarget(
     subagentSessionId: string
   ): Promise<{ id: string; agentType: string; taskId: string } | undefined> {

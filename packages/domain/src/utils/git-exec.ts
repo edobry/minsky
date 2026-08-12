@@ -12,7 +12,7 @@ import {
   createGitTimeoutErrorMessage,
   createMergeConflictErrorMessage,
 } from "../errors/enhanced-error-templates";
-import { MinskyError, getErrorMessage } from "../errors/index";
+import { GitOperationTimeoutError, MinskyError, getErrorMessage } from "../errors/index";
 
 /**
  * Check whether `startDir` is inside a git work tree by walking up the
@@ -114,7 +114,14 @@ export async function execGitWithTimeout(
         { label: "Command", value: fullCommand },
         { label: "Execution time", value: `${executionTimeMs}ms` },
       ]);
-      throw new MinskyError(errorMessage);
+      throw new GitOperationTimeoutError(
+        errorMessage,
+        operation,
+        timeout,
+        fullCommand,
+        workdir,
+        executionTimeMs
+      );
     }
 
     // Handle merge conflicts with enhanced error messages

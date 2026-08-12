@@ -48,12 +48,16 @@ import {
 
 import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY_RAW = process.env.OPENAI_API_KEY;
 
-if (!OPENAI_API_KEY) {
+if (!OPENAI_API_KEY_RAW) {
   console.log("SKIP: OPENAI_API_KEY not set; skipping live replay test.");
   process.exit(0);
 }
+
+// Module-level narrowing does not reach into main()'s closure, so bind the
+// checked value to a `string`-typed constant here.
+const OPENAI_API_KEY: string = OPENAI_API_KEY_RAW;
 
 const GITHUB_TOKEN = resolveGitHubTokenOrSkip();
 

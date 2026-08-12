@@ -16,7 +16,7 @@ Index last audited: 2026-07-06 (mt#2610 dead-code sweep).
 | `fix-variable-naming.ts`         | Auto-fixes non-ASCII variable names found by `check-variable-naming.ts`.                                                                                                                                                                                                                                                                                                                     |
 | `create-github-app.ts`           | Creates a GitHub App via the manifest flow. Canonical user-facing path is `minsky setup github-app` (mt#1087) — this is the underlying script.                                                                                                                                                                                                                                               |
 | `deploy-minsky-mcp.ts`           | Deployment helper for the hosted Minsky MCP server on Railway (mt#1130).                                                                                                                                                                                                                                                                                                                     |
-| `drizzle-config-loader.ts`       | Loads DB credentials from Minsky config for `drizzle-kit` (works around its lack of top-level-await support).                                                                                                                                                                                                                                                                                |
+| `drizzle-config-loader.ts`       | Loads DB credentials from Minsky config for `drizzle-kit` (works around its lack of top-level-await support). Its stdout IS a live credential; **gated** (mt#4017) — refuses and exits non-zero unless `MINSKY_DRIZZLE_LOADER_GATE=1` is set, which only `drizzle.pg.config.ts`'s own subprocess call sets. Do not invoke directly.                                                          |
 | `generate-bootstrap-snapshot.ts` | Regenerates the fresh-DB bootstrap snapshot (mt#2439). Wired: `bun run db:generate:bootstrap-snapshot`.                                                                                                                                                                                                                                                                                      |
 | `generate-icons.ts`              | Generates icon assets from `assets/icon/minsky-icon.svg`. Wired: `bun run icons:generate`.                                                                                                                                                                                                                                                                                                   |
 | `set-branch-protection.ts`       | Applies the mt#1938 branch-protection config to `edobry/minsky:main`. Dry-run by default; `--execute` to apply. Canonical audit-logged write path (see CLAUDE.md `§Turnkey, not portal`).                                                                                                                                                                                                    |
@@ -79,17 +79,20 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `live-verify-presence-write.ts`          | `writeTaskClaim` per-call repo fallback path (mt#2567)                                        |
 | `test-provenance-e2e.ts`                 | `AuthorshipJudge` against a real Claude Code JSONL transcript via the Anthropic API (mt#1081) |
 | `verify-cockpit-shell-scroll.ts`         | cockpit shell scroll/geometry invariants in a real browser (mt#3335 / mt#3338)                |
+| `verify-conversation-footer-stack.ts`    | conversation bottom-edge controls stack without overlapping, in a real browser (mt#3843)      |
 | `verify-conversation-live-tail.ts`       | conversation live-tail scroll behavior in a real browser (mt#3376 / mt#3445)                  |
 | `verify-conversation-orientation.ts`     | conversation scroll-driven reveal + position hold in a real browser (mt#3688)                 |
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
+| `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)  |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
 | `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
 
 ### Running the browser-driving scripts
 
-`verify-cockpit-shell-scroll.ts`, `verify-conversation-live-tail.ts`, and
-`verify-conversation-orientation.ts`, and `verify-session-film-panes.ts` are the scripts here that
+`verify-cockpit-shell-scroll.ts`, `verify-conversation-footer-stack.ts`,
+`verify-conversation-live-tail.ts`, `verify-conversation-orientation.ts`,
+`verify-driven-session-scrollport.ts`, and `verify-session-film-panes.ts` are the scripts here that
 drive a real browser, so their shared prerequisites are worth stating (everything below is checked
 at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
 absent).
@@ -121,11 +124,18 @@ than asserting on it), use chrome-devtools-mcp per `src/cockpit/CLAUDE.md` §Ope
    driven-session API calls) and by `verify-conversation-orientation.ts` (which reads the agents
    widget and a snapshot to find a long enough transcript); `verify-cockpit-shell-scroll.ts` and
    `verify-session-film-panes.ts` make no authed request and do not require it.
+   `verify-driven-session-scrollport.ts` reads `GET /api/driven-session` only to pick an id for the
+   route, and skips when that list is empty.
 
 `verify-conversation-orientation.ts` additionally needs some ingested conversation longer than 150
 turns, which it discovers from the agents widget — `MINSKY_CONVERSATION_ID` names one explicitly.
 Unlike its live-tail sibling it spawns no agent and costs no tokens: it only reads an
 already-ingested transcript, so it is the cheaper of the two to run.
+
+`verify-conversation-footer-stack.ts` needs a conversation the cockpit currently reports as LIVE or
+STALLED — the two presence values under which the activity strip renders at all — and discovers one
+from the agents widget, or takes a conversation id as its first argument. It spawns nothing and
+mutates nothing, but the state it needs is transient: with no agent working it SKIPs.
 
 `verify-session-film-panes.ts` has one further precondition: at least one filmable conversation,
 which it looks up via `GET /api/cockpit/session-film/sessions`. A fresh database has none — that

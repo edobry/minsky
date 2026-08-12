@@ -93,13 +93,18 @@ import type { ConversationPresenceRoutesOptions } from "./routes/conversation-pr
 import type { DrivenSessionRoutesOptions } from "./routes/driven-sessions";
 import {
   buildAllowedHosts,
+  buildOffBoxHostSet,
   cookieBootstrapMiddleware,
   getOrCreateCockpitToken,
   hostAllowlistMiddleware,
   isLoopbackHost,
   mutationAuthMiddleware,
 } from "./auth";
+import { createPasskeyAuthRouter, requirePasskeySession } from "./passkey-auth";
+import { createLazyDrizzlePasskeyStore } from "./passkey-store";
 import { cspMiddleware } from "./csp";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import { log } from "@minsky/shared/logger";
 
 export type { CredentialModuleOverride } from "./routes/credentials";
 
@@ -117,6 +122,59 @@ const INDEX_HTML = cockpitIndexHtml(__dirname);
  * body-parser's 100kb default. See the `express.json` callsite below.
  */
 export const JSON_BODY_LIMIT = "256kb";
+
+/**
+ * Resolve the operator-configured extra Host-header allowlist entries
+ * (mt#3641). `override` (test-only, `CockpitServerOptions.extraAllowedHosts`)
+ * takes precedence; otherwise reads `cockpit.allowedHosts` from Minsky
+ * configuration. An unavailable/unparseable config degrades to no extra
+ * hosts — the same restrictive default the daemon had before this option
+ * existed — mirroring the fail-open posture `principal-channel-launch.ts`'s
+ * `readPrincipalChannelSection` takes for a missing/broken config: the
+ * daemon must still boot.
+ */
+function resolveExtraAllowedHosts(override?: readonly string[]): string[] {
+  if (override) return [...override];
+  try {
+    return [...(getConfiguration().cockpit?.allowedHosts ?? [])];
+  } catch (err) {
+    log.warn("[cockpit] could not read cockpit.allowedHosts config; no extra hosts allowed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return [];
+  }
+}
+
+/**
+ * `app.locals` key the resolved Host-header allowlist is published under
+ * (mt#3641 PR #2721 R1). `createCockpitServer` is the ONE place that resolves
+ * `cockpit.allowedHosts` config into a concrete `Set<string>` — every other
+ * consumer of that resolved set (today: `start-command.ts`'s WS-attach call)
+ * must read it back via {@link getResolvedAllowedHosts} rather than calling
+ * `buildAllowedHosts`/`resolveExtraAllowedHosts` a second time. Two
+ * independent derivations of the same fact drift the moment either call site
+ * grows an argument; a single resolution consumed by reference cannot.
+ */
+const ALLOWED_HOSTS_LOCALS_KEY = "cockpitAllowedHosts";
+
+/**
+ * Read back the Host-header allowlist `createCockpitServer` resolved for
+ * `app` — the SAME `Set<string>` instance `hostAllowlistMiddleware` and
+ * `cookieBootstrapMiddleware`'s `offBoxHosts` gate are enforcing against, not
+ * a re-derivation. Throws if called on an app `createCockpitServer` never
+ * built (a programming error, not a runtime condition to degrade from).
+ */
+export function getResolvedAllowedHosts(app: express.Express): Set<string> {
+  const value: unknown = app.locals[ALLOWED_HOSTS_LOCALS_KEY];
+  if (!(value instanceof Set)) {
+    throw new Error(
+      "getResolvedAllowedHosts: app.locals.cockpitAllowedHosts is missing — " +
+        "this app was not built by createCockpitServer, or createCockpitServer " +
+        "no longer populates it."
+    );
+  }
+  return value;
+}
 
 /** Options accepted by createCockpitServer */
 export interface CockpitServerOptions {
@@ -163,6 +221,15 @@ export interface CockpitServerOptions {
    */
   host?: string;
   /**
+   * Test-only override for the operator-configured extra Host-header
+   * allowlist entries (mt#3641). When absent (production), these are read
+   * from `cockpit.allowedHosts` config (`MINSKY_COCKPIT_ALLOWED_HOSTS`) —
+   * see `resolveExtraAllowedHosts` below. Passing this directly lets tests
+   * exercise the tailnet-Host allowlist addition and the off-box cookie gate
+   * without writing a real config file. Never set in production.
+   */
+  extraAllowedHosts?: readonly string[];
+  /**
    * Set ONLY by `services/cockpit/src/server.ts`, the Railway-deployed
    * entrypoint — a separate consumer of this shared factory that binds
    * `0.0.0.0` deliberately for the platform proxy and is reached via a
@@ -170,14 +237,39 @@ export interface CockpitServerOptions {
    * loopback-only Host-header allowlist below. The mt#2538 local-daemon
    * hardening spec explicitly rules that deployment out of scope. Setting
    * this to `true` skips the Host-header allowlist and the bearer-token /
-   * cookie mutation-auth requirement entirely, preserving that deployment's
-   * pre-mt#2538 behavior exactly (it also skips generating/reading the local
-   * `~/.local/state/minsky/cockpit-token` file, which has no meaning for a
-   * multi-instance container deployment). The CSP header and the
+   * cookie mutation-auth requirement (it also skips generating/reading the
+   * local `~/.local/state/minsky/cockpit-token` file, which has no meaning for
+   * a multi-instance container deployment). The CSP header and the
    * no-permissive-CORS policy still apply — both are purely additive
    * response-header behavior with no request-handling impact.
+   *
+   * As of mt#4023 this flag SUBSTITUTES an auth mechanism rather than removing
+   * one: it mounts a WebAuthn passkey gate that denies every non-public route
+   * without a session. Until then it removed auth outright, and the deployment
+   * served the live corpus to anyone holding its URL. Do not read this flag as
+   * "no auth" — that reading is what the exposure was.
    */
   isPublicDeployment?: boolean;
+  /**
+   * Which credential a public deployment presents (mt#4023). `"passkey"` is the
+   * only value, and the default — there is deliberately no `"none"`, because an
+   * unauthenticated public deployment is the exposure this gate closed, not a
+   * configuration anyone should be able to select.
+   *
+   * It exists so the call site DECLARES its auth posture instead of implying it.
+   * `isPublicDeployment: true` alone once meant "no auth"; a reader had to know
+   * that had changed. Naming the mode makes the intent local to the call, and
+   * gives a second mode somewhere to land without every existing public
+   * deployment silently inheriting whichever one ships first.
+   */
+  publicAuth?: "passkey";
+  /**
+   * Test-only seam for the mt#4023 passkey gate: supplies the credential/session
+   * store the gate reads, so a test can exercise the authenticated path without
+   * a database or a real WebAuthn ceremony. Never set in production — when
+   * absent, the gate builds a lazily-resolved Drizzle store.
+   */
+  passkeyStore?: import("./passkey-auth").PasskeyStore;
   /**
    * Test-only injection seams for the conversation-keyed live-tail endpoint
    * (mt#2749) — overrides the fs/tailer/timing primitives its
@@ -271,7 +363,17 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // and no-CORS policy are additive/response-only, so they still apply.
   const localAuthEnabled = !opts.isPublicDeployment;
   const cockpitToken = localAuthEnabled ? (opts.overrideToken ?? getOrCreateCockpitToken()) : null;
-  const allowedHosts = buildAllowedHosts(opts.host);
+  // Operator-configured extra Host name(s) — e.g. a Tailscale MagicDNS name
+  // (mt#3641) — layered onto the allowlist ADDITIVELY (never a wildcard/bypass;
+  // see buildAllowedHosts's docblock). Resolved once here so both the
+  // allowlist and the off-box cookie gate below agree on the same list.
+  const extraAllowedHosts = resolveExtraAllowedHosts(opts.extraAllowedHosts);
+  const allowedHosts = buildAllowedHosts(opts.host, extraAllowedHosts);
+  // Publish the resolved allowlist for out-of-band consumers (mt#3641 PR
+  // #2721 R1) — start-command.ts's WS-attach call reads this back via
+  // `getResolvedAllowedHosts` instead of re-deriving it, so the HTTP path
+  // and the WS path are the same Set BY CONSTRUCTION, not by convention.
+  app.locals[ALLOWED_HOSTS_LOCALS_KEY] = allowedHosts;
   // Loopback bind unless `--host` opted into a routable address. Gates the
   // plain-HTTP cookie bootstrap (mt#2538 R1): non-loopback binds require an
   // explicit Authorization header rather than a Secure-less cookie.
@@ -304,8 +406,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // Cookie bootstrap: mints the `minsky_cockpit` cookie on the first GET so
     // the SPA's same-origin mutation fetches work without any URL/localStorage
     // token plumbing. Also accepts `?token=<t>` as an explicit bootstrap for a
-    // future non-loopback opt-in consumer. See ./auth.ts.
-    app.use(cookieBootstrapMiddleware(cockpitToken, isLoopbackBind));
+    // future non-loopback opt-in consumer. See ./auth.ts. `buildOffBoxHostSet`
+    // (mt#3641) withholds the cookie for a request whose Host matches one of
+    // the operator-configured extra hosts, regardless of `isLoopbackBind` —
+    // once a tailnet name is allowlisted the daemon is reachable off-box by
+    // construction, even while bound to loopback (Tailscale's own recommended
+    // posture, see this file's docblock).
+    app.use(
+      cookieBootstrapMiddleware(cockpitToken, isLoopbackBind, buildOffBoxHostSet(extraAllowedHosts))
+    );
 
     // Mutation auth: every non-GET/HEAD/OPTIONS request needs the bearer
     // token (Authorization header) or the bootstrap cookie. Read-only
@@ -315,6 +424,69 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     // tier. The Rung 2A WS channel (mt#2750) will REQUIRE the token. See
     // ./auth.ts.
     app.use(mutationAuthMiddleware(cockpitToken));
+  }
+
+  if (opts.isPublicDeployment) {
+    // Passkey gate for the publicly-reachable deployment (mt#4023).
+    //
+    // This is the branch that used to have NO credential of any kind: the
+    // `isPublicDeployment` flag turns off the Host allowlist and the
+    // mutation-auth middleware above (both are loopback-shaped and cannot be
+    // satisfied by a Railway hostname), which left the live corpus readable by
+    // anyone holding the URL. WebAuthn is the credential that branch lacked.
+    //
+    // The relying-party id must be the deployment's full hostname —
+    // `up.railway.app` is on the Public Suffix List, so there is no shorter
+    // registrable suffix to scope a credential to. Overridable by env for a
+    // future custom domain (which requires re-enrolling the passkey).
+    // Read rather than ignored, so the option is load-bearing instead of
+    // decorative: the mode the call site declares is the mode that mounts.
+    const publicAuth = opts.publicAuth ?? "passkey";
+    if (publicAuth !== "passkey") {
+      throw new Error(`Unsupported publicAuth mode for a public cockpit deployment: ${publicAuth}`);
+    }
+    const rpID = process.env.MINSKY_COCKPIT_RP_ID ?? "cockpit-preview-production.up.railway.app";
+    const passkeyDeps = {
+      store:
+        opts.passkeyStore ??
+        createLazyDrizzlePasskeyStore(async () => {
+          const { getSharedPersistenceService } = await import("./shared-persistence");
+          const provider = await (await getSharedPersistenceService()).getProvider();
+          if (
+            provider === null ||
+            typeof provider !== "object" ||
+            !("getDatabaseConnection" in provider) ||
+            typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
+              "function"
+          ) {
+            return null;
+          }
+          return await (
+            provider as {
+              getDatabaseConnection: () => Promise<
+                import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+              >;
+            }
+          ).getDatabaseConnection();
+        }),
+      rpID,
+      origin: process.env.MINSKY_COCKPIT_ORIGIN ?? `https://${rpID}`,
+    };
+
+    // Order matters: the auth routes must be reachable BEFORE the gate that
+    // requires a session, or signing in would require already being signed in.
+    app.use(createPasskeyAuthRouter(passkeyDeps));
+    app.use(requirePasskeySession(passkeyDeps));
+  } else {
+    // The SPA asks every cockpit whether it is gated. A local daemon must
+    // answer "no" EXPLICITLY: leaving the route unmounted would hand the
+    // question to the SPA catch-all, which answers unmatched GETs with
+    // index.html — an HTML 200 the client cannot distinguish from a real
+    // answer, and would fail closed on. That would lock the local daemon out
+    // of itself (mt#4023).
+    app.get("/api/auth/status", (_req, res) => {
+      res.json({ gated: false, authenticated: true, enrollmentOpen: false });
+    });
   }
 
   // NO permissive CORS is set anywhere in this file — that absence IS the
@@ -331,6 +503,25 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   if (process.env.MINSKY_COCKPIT_PREVIEW === "true") {
     app.use("/api", (req, res, next) => {
       if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+        next();
+        return;
+      }
+      // Authentication is not a product mutation (mt#4023). The passkey
+      // ceremonies are POSTs, and blocking them here would make the preview
+      // deployment permanently un-signinable — the gate would deny every data
+      // route while the only way through it returned 403.
+      //
+      // `req.path` is MOUNT-RELATIVE inside `app.use("/api", ...)`: Express
+      // strips the mount prefix, so a request to `/api/auth/passkey/login/start`
+      // arrives here as `/auth/passkey/login/start` (`req.originalUrl` keeps the
+      // full path). Verified directly, not assumed — PR #2902 R1 read this as
+      // matching the wrong path. Two tests in server-security.test.ts pin the
+      // behavior from the outside.
+      //
+      // Belt and braces: the auth router is mounted EARLIER than this guard, so
+      // a ceremony is answered before it ever reaches here. This exemption is
+      // what keeps that safe if the middleware order is ever changed.
+      if (req.path.startsWith("/auth/")) {
         next();
         return;
       }

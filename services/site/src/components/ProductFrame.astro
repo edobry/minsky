@@ -1,25 +1,52 @@
 ---
-// Product frame — the right-side product-proof surface for the hero
-// and substrate-walkthrough sections. The default (no slot) renders a
+// Product frame — the product-proof surface used by the hero, the task
+// journey, and the fit-check section. The default (no slot) renders a
 // terminal-style placeholder that exercises the brand tokens so the
 // layout reads even before real screenshots land.
+//
+// `chromeTitle` labels the frame with the surface actually captured. The
+// previous build hard-coded "minsky · session" onto every frame including
+// captures of GitHub and the cockpit, which reads as a fabricated chrome
+// on view-source inspection (mt#3838 evaluation).
+//
+// `tone="foreign"` mattes a capture of somebody else's surface — chiefly
+// the light-mode GitHub review shot, which was the only white object on an
+// otherwise dark page. The image itself is never filtered or recolored:
+// it is the falsifiable artifact behind the review claim, so it is inset
+// on a matte rather than altered.
+
+interface Props {
+  /**
+   * Label shown in the frame's chrome bar. REQUIRED, and deliberately without a
+   * default: the defect this prop exists to fix was a hard-coded
+   * "minsky · session" silently mislabeling captures of GitHub and the cockpit.
+   * A default would let that regression back in the moment a new caller forgets
+   * the prop — the failure would be invisible, because a wrong label renders
+   * exactly as convincingly as a right one.
+   */
+  chromeTitle: string;
+  /** "foreign" mattes a capture of an external surface. */
+  tone?: "native" | "foreign";
+}
+
+const { chromeTitle, tone = "native" } = Astro.props;
 ---
 
-<div class="product-frame">
+<div class:list={["product-frame", tone === "foreign" && "foreign"]}>
   <div class="chrome-bar" aria-hidden="true">
     <span class="dot dot-r"></span>
     <span class="dot dot-y"></span>
     <span class="dot dot-g"></span>
-    <span class="chrome-title">minsky · session task/mt-1934</span>
+    <span class="chrome-title">{chromeTitle}</span>
   </div>
   <div class="product-surface">
     <slot>
-      <pre class="terminal"><span class="prompt">›</span> <span class="cmd">minsky session start mt#1934</span>
-<span class="muted">[ok]</span> session <span class="signal">a23c1326</span> · branch <span class="signal">task/mt-1934</span>
-<span class="muted">[ok]</span> task <span class="signal">mt#1934</span> · READY → IN-PROGRESS
+      <pre class="terminal"><span class="prompt">›</span> <span class="cmd">minsky session start --task &lt;id&gt;</span>
+<span class="muted">[ok]</span> session <span class="signal">a23c1326</span> · branch <span class="signal">task/&lt;id&gt;</span>
+<span class="muted">[ok]</span> task <span class="signal">&lt;id&gt;</span> · READY → IN-PROGRESS
 
-<span class="prompt">›</span> <span class="cmd">minsky session pr create --task mt#1934</span>
-<span class="muted">[ok]</span> PR <span class="signal">#1184</span> opened
+<span class="prompt">›</span> <span class="cmd">minsky session pr create --title "..."</span>
+<span class="muted">[ok]</span> PR opened
 <span class="muted">[wait]</span> minsky-reviewer[bot] reviewing<span class="cursor">_</span></pre>
     </slot>
   </div>
@@ -81,6 +108,21 @@
     height: auto;
     border-radius: 4px;
   }
+
+  /* Matte for captures of an external, light-mode surface. Padding plus a
+     recessed backdrop seats the shot as an embedded document instead of
+     letting it read as the page's own panel. */
+  .product-frame.foreign .product-surface {
+    padding: 1.75rem;
+    background-color: color-mix(in oklch, var(--color-bg-base) 70%, #000 30%);
+  }
+  .product-frame.foreign .product-surface :global(picture),
+  .product-frame.foreign .product-surface :global(img) {
+    border-radius: 3px;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 14%, transparent);
+    box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.65);
+  }
+
   .terminal {
     font-family: var(--font-mono);
     font-size: 0.875rem;

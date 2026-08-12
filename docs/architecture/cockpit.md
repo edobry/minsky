@@ -411,7 +411,11 @@ POST /api/follow-ups/:id/cancel — cancel a still-pending follow-up
 registrant like every other sweep in this file, so its liveness
 (lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
 covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
-(next section) under the name `"scheduled follow-ups"`.
+(next section) under the name `"scheduled follow-ups"`. Those fields cover the
+SCHEDULING layer only; this sweep does not yet report a domain outcome, so its
+`reportsDomainOutcome` is `false` and whether its work is succeeding is not
+currently visible anywhere (mt#3684 added the channel; migrating each sweep onto
+it is separate work).
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -441,23 +445,48 @@ GET /api/sweeps
     {
       "name": "prod-state refresh",
       "intervalMs": 600000,
+      // Scheduling layer: did the timer fire, and did the callback return?
       "lastAttemptAt": "2026-07-17T13:00:00.000Z",
       "lastSuccessAt": "2026-07-17T13:00:00.050Z",
       "lastErrorAt": null,
       "consecutiveFailures": 0,
       "reinits": 0,
       "metaRestarts": 0,
+      // Domain layer (mt#3684): did the sweep's WORK succeed?
+      "reportsDomainOutcome": true,
+      "lastDomainSuccessAt": "2026-07-17T13:00:00.050Z",
+      "lastDomainFailureAt": null,
+      "consecutiveDomainFailures": 0,
     },
   ],
 }
 ```
 
+**The two groups of fields answer different questions, and reading one for the
+other is what made a 13-hour outage invisible (mt#3684).** The scheduling
+fields report that the timer fired and the tick function returned. Because the
+factory's `tick` contract asks each sweep to apply its own fail-open try/catch,
+a tick that failed still RETURNS — so on 2026-08-06 this endpoint showed
+`lastSuccessAt` one minute old and `consecutiveFailures: 0` while the
+prod-state sweep had been failing every tick for 13 hours. That reading was
+correct about scheduling and silent about the outage.
+
+A tick may therefore also report its own outcome (return `{ ok: boolean }`),
+recorded in the `*Domain*` fields. `reportsDomainOutcome` is `false` for a
+sweep that reports nothing — read the other three as meaningless in that case,
+NOT as healthy. `reinits` counts a sweep's own bounded self re-init (below);
+`metaRestarts` counts a meta-watchdog-triggered force-restart. A domain failure
+deliberately drives neither: re-init recovers a wedged tick, and mt#3682
+established that restarting the interval does nothing for a failure below the
+sweep.
+
 This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
-(`transcriptSweep`, `dispatchWatchdogSweep`) — it reports the SCHEDULING
-layer's liveness uniformly across all six sweeps, including the three (ask
-advancement, topology, deploy.smoke) that have no domain-specific tracker of
-their own. `reinits` counts a sweep's own bounded self re-init (below);
-`metaRestarts` counts a meta-watchdog-triggered force-restart.
+(`prodStateSweep`, `transcriptSweep`, `dispatchWatchdogSweep`). Those cover 3
+of the 11 registered sweeps; the other 8 — ask advancement, stale-ask close,
+topology, deploy.smoke, scheduled follow-ups, conversation presence,
+conversation title, conversation summary — have no domain-specific tracker of
+their own, which is why the domain fields above exist on the shared registry
+rather than being deferred to a per-sweep tracker that may not exist.
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the
@@ -617,15 +646,48 @@ connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'`. `--dev` mode (
 
 Scope: this posture covers the **local** cockpit daemon only. The Railway-deployed
 `services/cockpit/src/server.ts` is a separate entrypoint that binds `0.0.0.0` deliberately for
-the platform proxy and is out of scope here. Because both entrypoints share the same
-`createCockpitServer()` factory, the Railway entrypoint passes `isPublicDeployment: true`
-(`CockpitServerOptions`), which skips the Host-header allowlist and the bearer-token/cookie
-mutation-auth for that deployment — its incoming `Host` header is a Railway-assigned public
-hostname that could never satisfy the loopback-only allowlist, and introducing a mutation
-bearer-token requirement to an already-shipped multi-consumer production surface is out of
-scope for this task. The CSP header and the no-CORS policy are additive/response-only, so they
-still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238) owns
-its own, distinct auth surface for that separate concern.
+the platform proxy. Because both entrypoints share the same `createCockpitServer()` factory, the
+Railway entrypoint passes `isPublicDeployment: true` (`CockpitServerOptions`), which skips the
+Host-header allowlist and the bearer-token/cookie mutation-auth for that deployment — its
+incoming `Host` header is a Railway-assigned public hostname that could never satisfy the
+loopback-only allowlist. The CSP header and the no-CORS policy are additive/response-only, so
+they still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238)
+owns its own, distinct auth surface for that separate concern.
+
+### The public deployment is passkey-gated (mt#4023)
+
+**`isPublicDeployment: true` does not mean "no auth."** It did until mt#4023, and the
+consequence was measured: on 2026-08-11 an unauthenticated `GET /api/tasks` against
+`cockpit-preview-production.up.railway.app` returned 500 live production tasks, and
+`/api/cockpit/session-film/sessions` returned 49 conversations. The flag still turns off the two
+loopback-shaped defenses above, but it now turns ON a WebAuthn passkey gate in their place.
+
+- **Deny by default.** `requirePasskeySession` (`src/cockpit/passkey-auth.ts`) rejects every
+  request without a valid session cookie with `401`. The public-path list is CLOSED — `/api/health`,
+  `/api/auth/*`, and the SPA shell plus its static assets — so a route added later is gated on
+  arrival rather than by anyone remembering to add it.
+- **`/api/health` stays public**, because the Railway healthcheck and the mt#1302 post-deploy
+  monitor both poll it unauthenticated.
+- **First-run enrollment is once-only.** Enrolling a passkey is permitted without a session only
+  while ZERO passkeys exist; after that it requires an existing session. That is what makes the
+  gate a gate rather than a race for whoever loads the URL second.
+- **Sessions are stored, not signed-stateless** (`cockpit_auth_sessions`), so revoking one is a
+  row delete with no secret to rotate. The cookie carries the `__Host-` prefix under TLS.
+- **Relying-party id.** `up.railway.app` is on the Public Suffix List, so the rpID must be the
+  full deployment hostname; `MINSKY_COCKPIT_RP_ID` / `MINSKY_COCKPIT_ORIGIN` override it. Moving
+  to a custom domain changes the rpID and therefore requires re-enrolling every passkey — a
+  credential is bound to the rpID it was created under.
+- **Fail-closed.** If the auth tables are missing or the database is unreachable, the gate returns
+  `503` and keeps denying; it does not fall open. Verified by booting the deploy entrypoint before
+  migration `0094` was applied: every data route still answered `401`.
+
+**Every cockpit answers `GET /api/auth/status`**, including the local daemon, which reports
+`{ gated: false }`. That route must never be left unmounted: the SPA catch-all answers unmatched
+GETs with `index.html`, and an HTML `200` is indistinguishable from a real answer to the client,
+which fails closed on it — leaving it unmounted locally would lock the local daemon out of itself.
+
+The local (`!isPublicDeployment`) path is otherwise unchanged: no passkey middleware is mounted,
+and the Host allowlist plus bearer/cookie mutation auth apply exactly as described above.
 
 ## Driven-session host and WS channel (Rung 2A, mt#2750)
 

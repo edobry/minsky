@@ -1,22 +1,40 @@
 ---
+// Home page — the six-beat reframe (mt#3838, Amendment 2).
+//
+// Every section answers a question the visitor actually arrived with, in
+// the order they ask them: what is this and does it fit my stack (Hero),
+// is my situation the one this is for (Problem), what does it do to one
+// of my tasks (TaskJourney), does it work with what I run (FitCheck), is
+// it real and alive (Proof), can I run it tonight (GetStarted).
+//
+// Retired here: "Two doors" (the visitor was asked to self-categorize
+// before seeing anything work), "The idea" as a top-of-page section, and
+// "Eight surfaces, one environment." with its subsystem sequencing. The
+// thesis register those carried now lives in the /structure-gap essay.
 import BaseLayout from "../layouts/BaseLayout.astro";
 import Header from "../components/Header.astro";
 import Hero from "../components/Hero.astro";
-import CoProductRow from "../components/CoProductRow.astro";
-import SubstrateWalkthrough from "../components/SubstrateWalkthrough.astro";
+import ProblemSection from "../components/ProblemSection.astro";
+import TaskJourney from "../components/TaskJourney.astro";
+import FitCheck from "../components/FitCheck.astro";
+import ProofSection from "../components/ProofSection.astro";
+import GetStartedTeaser from "../components/GetStartedTeaser.astro";
 import SiteFooter from "../components/SiteFooter.astro";
 
-const title = "Minsky — the cyberbrain for software organizations";
+const title = "Minsky — the environment your coding agents work inside";
 const description =
-  "Minsky orchestrates tasks, sessions, and review across a flock of agents — a substrate that extends one principal's cognition, not a synthetic workforce that replaces your team.";
+  "Isolated workspaces per task, review by a model that didn't write the code, and memory that outlives the session. A self-hosted CLI, MCP server, and cockpit that runs under the coding harness you already use.";
 ---
 
 <BaseLayout title={title} description={description}>
   <Header />
   <main>
     <Hero />
-    <CoProductRow />
-    <SubstrateWalkthrough />
+    <ProblemSection />
+    <TaskJourney />
+    <FitCheck />
+    <ProofSection />
+    <GetStartedTeaser />
   </main>
   <SiteFooter />
 </BaseLayout>

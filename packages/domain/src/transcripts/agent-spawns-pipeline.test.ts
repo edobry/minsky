@@ -23,6 +23,7 @@ import {
   extractChildSessionIdFromMetadata,
 } from "./agent-spawns-pipeline";
 import type { SpawnsPipelineRunResult } from "./agent-spawns-pipeline";
+import { CHILD_AGENT_SESSION_ID_KEY } from "./turn-extractor";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -213,10 +214,14 @@ function makeAgentToolCall(
     type: "tool_use",
     id: opts.id ?? "toolu_agent_1",
     name: "Agent",
+    // mt#3962: the child id is projected onto the CALL from the Agent tool's
+    // RESULT, not carried in its input. The input never held one — across all
+    // 2,583 Agent calls in the corpus its keys are description/prompt/
+    // subagent_type/model/run_in_background/isolation.
+    ...(opts.sessionId !== undefined ? { [CHILD_AGENT_SESSION_ID_KEY]: opts.sessionId } : {}),
     input: {
       ...(opts.subagentType !== undefined ? { subagent_type: opts.subagentType } : {}),
       ...(opts.runInBackground !== undefined ? { run_in_background: opts.runInBackground } : {}),
-      ...(opts.sessionId !== undefined ? { session_id: opts.sessionId } : {}),
       prompt: "Do the task.",
     },
   };
@@ -324,7 +329,7 @@ describe("extraction helpers", () => {
   });
 
   describe("extractChildSessionIdFromMetadata", () => {
-    test("returns session_id string when present in input", () => {
+    test("returns the child id projected from the Agent call's result", () => {
       const call = makeAgentToolCall({ sessionId: SESSION_CHILD });
       expect(
         extractChildSessionIdFromMetadata(
@@ -333,7 +338,7 @@ describe("extraction helpers", () => {
       ).toBe(SESSION_CHILD);
     });
 
-    test("returns null when session_id is absent", () => {
+    test("returns null when the projected child id is absent", () => {
       const call = makeAgentToolCall();
       expect(
         extractChildSessionIdFromMetadata(
@@ -344,6 +349,23 @@ describe("extraction helpers", () => {
 
     test("returns null when input is missing", () => {
       const call = { type: "tool_use", name: "Agent" };
+      expect(
+        extractChildSessionIdFromMetadata(
+          call as Parameters<typeof extractChildSessionIdFromMetadata>[0]
+        )
+      ).toBeNull();
+    });
+
+    test("ignores a session_id on the call's INPUT — the pre-mt#3962 read", () => {
+      // Negative control for the defect this replaced: the old implementation
+      // read input.session_id, a key the harness has never sent. A fixture
+      // carrying one must NOT resolve, or the old path is still live.
+      const call = {
+        type: "tool_use",
+        id: "toolu_agent_1",
+        name: "Agent",
+        input: { session_id: SESSION_CHILD, prompt: "Do the task." },
+      };
       expect(
         extractChildSessionIdFromMetadata(
           call as Parameters<typeof extractChildSessionIdFromMetadata>[0]
@@ -480,6 +502,171 @@ describe("AgentSpawnsPipeline", () => {
       expect(result.childUnresolved).toBe(1);
       const row = spawnsStore.get(`${SESSION_PARENT}:toolu_agent_1`);
       expect(row?.childAgentSessionId).toBeNull();
+    });
+  });
+
+  describe("sibling spawns in one turn (mt#3702)", () => {
+    // The cwd-time heuristic takes the parent session, the parent cwd, and the
+    // TURN's endedAt — none of which vary per Agent call. So on a turn that
+    // dispatched two agents it runs the same lookup twice and hands both calls
+    // the same answer: each lookup individually "unambiguous", the true mapping
+    // two-to-one. Measured on prod 2026-08-11: 27 turns served the cockpit two
+    // badges pointing at one child, and 0 of 159 multi-spawn turns have EVER
+    // resolved to distinct children.
+    const TWO_CALL_TURN: FakeTurnRow = {
+      agentSessionId: SESSION_PARENT,
+      turnIndex: 0,
+      toolCalls: [
+        makeAgentToolCall({ id: "toolu_agent_1", subagentType: "general-purpose" }),
+        makeAgentToolCall({ id: "toolu_agent_2", subagentType: "claude-code-guide" }),
+      ],
+      endedAt: TS_SPAWN,
+      parentCwd: CWD,
+    };
+
+    // One candidate child in the window — the exact shape that produced the
+    // wrong links, since the single candidate makes each per-call lookup look
+    // unambiguous.
+    const ONE_CANDIDATE: FakeTranscriptRow[] = [
+      { agentSessionId: SESSION_PARENT, cwd: CWD, startedAt: null },
+      { agentSessionId: SESSION_CHILD, cwd: CWD, startedAt: _TS_CHILD_START },
+    ];
+
+    test("AT1: two Agent calls with one candidate resolve NEITHER, and are counted as refusals", async () => {
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({ turnRows: [TWO_CALL_TURN], transcriptRows: ONE_CANDIDATE, spawnsStore });
+
+      const result = await makePipeline(db).run();
+
+      expect(result.childRefusedSiblingSpawn).toBe(2);
+      expect(result.childLinkedFromHeuristic).toBe(0);
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_1`)?.childAgentSessionId).toBeNull();
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_2`)?.childAgentSessionId).toBeNull();
+    });
+
+    test("a refusal is NOT also counted as unresolved — the outcomes partition (PR #2842 R1)", () => {
+      // The counters have to partition `spawnsWritten`, or the split that
+      // `childRefusedSiblingSpawn` exists to provide is worse than useless: a
+      // reader sees a refusal population AND an inflated miss rate describing
+      // the same calls, and the four numbers sum to more than the rows written.
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({ turnRows: [TWO_CALL_TURN], transcriptRows: ONE_CANDIDATE, spawnsStore });
+
+      return makePipeline(db)
+        .run()
+        .then((result) => {
+          expect(result.childUnresolved).toBe(0);
+          expect(
+            result.childLinkedFromMetadata +
+              result.childLinkedFromHeuristic +
+              result.childRefusedSiblingSpawn +
+              result.childUnresolved
+          ).toBe(result.spawnsWritten);
+        });
+    });
+
+    test("AT2: a single-call turn with one candidate still resolves — the refusal is scoped, not blanket", async () => {
+      // The case the heuristic genuinely handles. A fix that silenced this too
+      // would trade a wrong-link bug for a coverage regression, and the rate is
+      // already only 29%.
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({
+        turnRows: [makeSpawnTurn()],
+        transcriptRows: ONE_CANDIDATE,
+        spawnsStore,
+      });
+
+      const result = await makePipeline(db).run();
+
+      expect(result.childRefusedSiblingSpawn).toBe(0);
+      expect(result.childLinkedFromHeuristic).toBe(1);
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_1`)?.childAgentSessionId).toBe(
+        SESSION_CHILD
+      );
+    });
+
+    test("AT3: a sibling turn whose child was never ingested is refused, not errored", async () => {
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({
+        turnRows: [TWO_CALL_TURN],
+        transcriptRows: [{ agentSessionId: SESSION_PARENT, cwd: CWD, startedAt: null }],
+        spawnsStore,
+      });
+
+      const result = await makePipeline(db).run();
+
+      expect(result.spawnsErrored).toBe(0);
+      expect(result.childRefusedSiblingSpawn).toBe(2);
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_2`)?.childAgentSessionId).toBeNull();
+    });
+
+    test("AT4: idempotent — a second run refuses identically and writes no new rows", async () => {
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({ turnRows: [TWO_CALL_TURN], transcriptRows: ONE_CANDIDATE, spawnsStore });
+      const pipeline = makePipeline(db);
+
+      const first = await pipeline.run();
+      const sizeAfterFirst = spawnsStore.size;
+      const second = await pipeline.run();
+
+      expect(second.childRefusedSiblingSpawn).toBe(first.childRefusedSiblingSpawn);
+      expect(spawnsStore.size).toBe(sizeAfterFirst);
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_1`)?.childAgentSessionId).toBeNull();
+    });
+
+    test("a three-call turn refuses all three — the rule is per-turn, not a two-call special case", async () => {
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({
+        turnRows: [
+          {
+            ...TWO_CALL_TURN,
+            toolCalls: [
+              makeAgentToolCall({ id: "toolu_agent_1" }),
+              makeAgentToolCall({ id: "toolu_agent_2" }),
+              makeAgentToolCall({ id: "toolu_agent_3" }),
+            ],
+          },
+        ],
+        transcriptRows: ONE_CANDIDATE,
+        spawnsStore,
+      });
+
+      const result = await makePipeline(db).run();
+
+      expect(result.childRefusedSiblingSpawn).toBe(3);
+      expect(result.childLinkedFromHeuristic).toBe(0);
+    });
+
+    test("metadata still wins on a sibling turn — the refusal only bounds the heuristic", async () => {
+      // Nothing populates the metadata path today (mt#3962), but the branch
+      // order matters: once a per-call id exists, siblings MUST resolve rather
+      // than inherit this refusal. Pinning it now means mt#3962 cannot ship a
+      // per-call id that this guard silently swallows.
+      const spawnsStore = new Map<string, FakeSpawnRow>();
+      const db = makeDb({
+        turnRows: [
+          {
+            ...TWO_CALL_TURN,
+            toolCalls: [
+              makeAgentToolCall({ id: "toolu_agent_1", sessionId: SESSION_CHILD }),
+              makeAgentToolCall({ id: "toolu_agent_2", sessionId: _SESSION_CHILD2 }),
+            ],
+          },
+        ],
+        transcriptRows: ONE_CANDIDATE,
+        spawnsStore,
+      });
+
+      const result = await makePipeline(db).run();
+
+      expect(result.childLinkedFromMetadata).toBe(2);
+      expect(result.childRefusedSiblingSpawn).toBe(0);
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_1`)?.childAgentSessionId).toBe(
+        SESSION_CHILD
+      );
+      expect(spawnsStore.get(`${SESSION_PARENT}:toolu_agent_2`)?.childAgentSessionId).toBe(
+        _SESSION_CHILD2
+      );
     });
   });
 

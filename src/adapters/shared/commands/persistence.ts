@@ -149,6 +149,9 @@ export function registerPersistenceCommands(
     id: "persistence.migrate",
     category: CommandCategory.PERSISTENCE,
     name: "migrate",
+    // mt#3924: drift-gated — runs schema migrations; stale migration code against a
+    // newer database is the corruption path the gate exists for.
+    mutating: true,
     description:
       "Migrate session database between backends, or run schema migrations when no target is provided",
     requiresSetup: false,
@@ -465,6 +468,17 @@ export function registerPersistenceCommands(
         }
 
         return {
+          // Suppress the formatter's trailing status line only when this run
+          // actually printed a VERDICT, which is the same condition that gates
+          // the "📊 Validation Results / Status:" block above (mt#3961, PR
+          // #2859 R1).
+          //
+          // The per-check ✅ lines are not a verdict. On the happy path without
+          // `--report` they are all that prints, and the formatter's
+          // "✅ Success" is what tells the operator the run passed overall —
+          // suppressing it there would remove the outcome rather than a
+          // duplicate of it.
+          ...(report || !validationResult.success ? { printed: true } : {}),
           success: validationResult.success,
           backend: targetBackend,
           sourceInfo,

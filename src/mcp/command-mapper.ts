@@ -293,6 +293,12 @@ export class CommandMapper {
      */
     mutating?: boolean;
     /**
+     * When true, invoking this tool must NOT write a presence claim — it reads
+     * presence, and a probe that refreshes what it reports is useless (mt#3889,
+     * mt#3903). Carried through from `CommandDefinition.readsPresence`.
+     */
+    readsPresence?: boolean;
+    /**
      * mt#1751: when explicitly `false`, this command does NOT require the DI
      * container to be initialized — the CallTool handler skips the init
      * await for it. Default (unset/`true`) is to await DI init, which is
@@ -335,6 +341,7 @@ export class CommandMapper {
         description: command.description,
         inputSchema,
         mutating: command.mutating,
+        readsPresence: command.readsPresence,
         requiresInit: command.requiresInit,
         handler: async (args, progress) => {
           try {
@@ -378,6 +385,7 @@ export class CommandMapper {
         description: command.description,
         inputSchema,
         mutating: command.mutating,
+        readsPresence: command.readsPresence,
         requiresInit: command.requiresInit,
         getHandler: async () => {
           const resolvedFn = await lazyGetHandler();

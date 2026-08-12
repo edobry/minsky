@@ -29,6 +29,18 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
+  # Inert on this workflow's pinned 1.2.21 (no streaming install to disable);
+  # set so mt#3680 need not remember it when moving the pin forward.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
+
 jobs:
   cold-start-cockpit-web:
     name: cold-start-cockpit-web
@@ -37,15 +49,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # HELD at 1.2.21 — same cause as cold-start-hooks.yml (mt#3561).
-      # `smoke-cold-start-cockpit-web.ts` spawns the bundle from a temp
-      # installed layout without `--preload reflect-metadata`; on 1.3.x that
-      # path hits the tsyringe polyfill error on Linux. mt#3680 owns the fix
-      # and this pin's removal. Escalation threshold: 10 days.
+      # Held at 1.2.21 from mt#3561 until mt#3680 — same cause as
+      # cold-start-hooks.yml: this smoke spawns the bundle from a temp installed
+      # layout with no `--preload reflect-metadata`, which the bundle could not
+      # survive on 1.3.x. mt#3680 fixed the bundle, so the pin matches every
+      # other workflow again.
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.2.21"
+          bun-version: "1.3.14"
 
       # DELIBERATE cache scope, matching cold-start-hooks.yml: only Bun's
       # download cache is cached — every run performs a true cold
@@ -59,7 +71,7 @@ jobs:
             bun-install-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       - name: Build production bundle
         run: bun run build

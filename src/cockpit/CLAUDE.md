@@ -60,6 +60,12 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 "Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, the `/plant/interlock-history` page); "weld" survives at most as a verb ("welding an interlock").
 
+**The genus noun is `interceptor` (ask#7119, closed 2026-08-11).** The ~90-entity enforcement corpus — merge gates, PreToolUse denials, Stop scanners, per-turn injections, calibration recorders, pre-commit checks — is named **interceptors**; **guard**, **detector**, and **injector** are COMPUTED family words (filters over intervention type: deny/allow, calibration-first record, and inject respectively), not assigned labels. The activity noun is "interception"; the catalog route is `/interceptors`, and a catalog deeplink type follows the same noun. Describe an individual entity by its coordinates — `<interception point> + <intervention type(s)> + <decision mechanism>` — when precision matters.
+
+**This does NOT reopen mt#2626, and the paragraph above stands unchanged:** "hook" stays registration mechanics (the MCP Interceptors WG charter makes the same split, ruling client-specific hook internals out of protocol scope), and "interlock" stays the plant-UI deny noun in shipped copy. Nor does it rename any code or storage: `guardName` fire-log keys are not migrated — new code reaches interceptor vocabulary via a read-side alias only.
+
+Full model — the three axes, the four amendments the codebase audit forced, the entity strata, and the MCP disambiguation — is [`docs/architecture/interceptors.md`](../../docs/architecture/interceptors.md). Read it before writing cockpit copy or component names for any surface that renders this corpus.
+
 ## Design vocabulary
 
 **Declared design system (mt#2915).** [`docs/design-system.md`](../../docs/design-system.md) is the declared design-system artifact for cockpit: type scale, spacing-scale decision, component inventory with interaction states, status/severity color semantics (incl. the red-scarcity rule), and the icon decision. `docs/brand-system.md` remains the color/typography/motion source of truth; `design-system.md` is the layer brand-system.md explicitly defers (components, spacing, interaction states) plus the cockpit-specific type scale. Read both before a cockpit visual or component decision.

@@ -171,6 +171,99 @@ mt#3599 (this amendment, Leg B) · mt#3598 (the corpus audit) · mem#824 (the or
 · mem#664 (`family:principal-altitude` root) · ADR-037 (the forward control mechanism this
 amendment accompanies) · `user-preferences.mdc §Plain-language first`.
 
+## Absence in a derived view is not evidence of absence in the source
+
+Expansion of the rule's §Bound a negative claim → data-existence paragraph (mt#3849). The rule
+states the bound; this section says why the class is hard to catch and what the cheap check is.
+
+### The distinction
+
+A **derived view** is anything that presents the source rather than being it: a parsed record, a
+type signature, a rendered screen, an accessor's return value, a search index. Each is built to
+answer a particular question and is _accurate about itself_.
+
+The failure is treating that view's silence as the source's silence. It is not a verification
+skip — in most instances of this class, verification **ran**. A field was read; a probe executed; a
+render observed. What was skipped is narrower: confirming that the view consulted is one that would
+_show_ the thing whose absence is being claimed.
+
+### Why it survives checks that catch wrong values
+
+A wrong VALUE has a witness — read the source, see the disagreement. An absence has none. The
+derived view returns nothing, the source is never opened, and there is no discrepancy for any
+later check to trip over. So this class passes same-turn-read requirements, passes "did you
+verify," and passes review, because every one of those confirms that _a_ read happened rather than
+that the read _could have falsified the claim_. It is the mem#704 property — a probe whose output
+is identical whether or not the claim is true carries no information — applied to negatives.
+
+### Worked examples (2026-08-08, one session)
+
+| Derived view read                               | Primary source not read                       | Wrong conclusion                                                                              |
+| ----------------------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| A screenshot of the cockpit conversation view   | `ConversationView.tsx`                        | "one role label per API message" — labeling is per TURN; the defect was upstream segmentation |
+| `SharedCommand.mutating`'s type signature       | its 13 call sites + `checkDriftGate`          | "no registry field marks a tool as mutating" — it exists, scoped to a drift-gate allowlist    |
+| A `tool_result` content block, via a live probe | the JSONL record's SIBLING fields             | "the metadata never enters the transcript" — `toolUseResult` carried it; our ingest drops it  |
+| The same screenshot                             | `conversation-timeline.ts`'s documented basis | "inter-turn gaps aren't marked" — marked, at a p99 threshold derived from 36,310 samples      |
+
+The third is the originating incident for the rule change: it is a verbatim violation of the
+capability-shaped bound mt#3162 had already shipped, missed because the claim's surface was data
+rather than capability.
+
+### The check
+
+Before writing a negative into a durable artifact, name the view you actually read and ask whether
+that view would show the thing if it were there. If the answer is no — or unknown — the honest
+label is "absent from `<view>`", and the falsifier is one read of the primary source: the raw file
+behind the parser, the call sites behind the type, the component behind the screenshot.
+
+### The fourth surface: your own recent output (mt#3904)
+
+A guard fire quotes the phrase that tripped it precisely so the agent can recognize a false
+positive instead of complying blindly. That invitation carries no evidentiary bar, which makes
+"that's a false positive" a costless exit — available at the moment of maximum motivation to take
+one, since a fire is a demand for more work, usually at turn end.
+
+Recognizing an FP is itself a claim about text, and its usual shape is a data-existence negative:
+"the quoted phrase doesn't appear in my message." The derived view is recollection of one's own
+output; the primary source is the transcript. This surface is harder than the three above because
+the question does not present as a lookup at all — "did I write X?" feels like introspection, and
+introspection has no file to open.
+
+Incident, 2026-08-10. A `turn-end-untaken-action` fire quoted `next-up: "next step is"`. The
+response was that the quoted phrase "doesn't appear in my message." It did appear — "…and the
+documented **next step is** bypass merge" — inside the guard's 600-character tail window
+(`TAIL_WINDOW_CHARS`, `.minsky/hooks/turn-end-untaken-action-scan.ts`). The follow-up check then
+grepped the NEWEST transcript file, which belonged to a different conversation, and read the
+resulting `0 matches` as confirmation; it would have been reported as vindication had the
+principal not asked. Two failures stacked: a negative asserted from a derived view, then a
+falsifier run against an unverified source.
+
+The remedy is to make the claim carry its evidence, which also splits it into two kinds that are
+settled differently:
+
+| Kind               | The claim                                    | What settles it                                                                                             |
+| ------------------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **pattern-false**  | the quoted text is not present               | grepping the transcript holding THIS conversation — located first, by grepping a distinctive string from it |
+| **semantic-false** | the text is present but the fire misreads it | argument, with the quoted text acknowledged rather than denied                                              |
+
+A genuine semantic-false defense was available in the incident and went unused: the phrase sat
+inside a handoff message describing a documented process step, not an announcement of the agent's
+own next action. The unfalsifiable claim was reached for because it was faster.
+
+Placement follows from the same reasoning. `guard-feedback-authoring.mdc` is where the quoted-
+evidence invitation is written, but it is path-scoped to `.minsky/hooks/**` — it loads for the
+guard AUTHOR, while the FP claim is made at `Stop`, in an arbitrary session, with no hook file
+open. The bar therefore lives here, in an always-loaded rule, with a two-line pointer left for the
+author.
+
+### Why containments keep arriving late
+
+The corpus's negative-claim disciplines are scoped by SURFACE — capability claims (mt#3162),
+identity claims (mt#3844's `/check-premise` cue (k)), now data claims. The underlying error is
+scoped by EPISTEMICS: derived view versus primary source. As long as fixes are filed per surface,
+each new surface gets its own incident first. That is the argument recorded on the family anchor
+(mt#2544) for treating this generalization as the durable content rather than the fourth cue.
+
 ## Enforcement surfaces (not in the rule) + cross-references
 
 Vocabulary only; enforcement is the conditional siblings under parent **mt#2544**: **mt#2923**

@@ -49,8 +49,21 @@ function fakeReader(contents: Record<string, string>): (absPath: string) => stri
     if (!tag) {
       throw new Error(`fakeReader: no fixture content for path ${absPath}`);
     }
-    return contents[tag];
+    return fixture(contents, tag);
   };
+}
+
+/**
+ * Fixture lookup that fails loudly rather than yielding `undefined`.
+ *
+ * Indexing a `Record<string, string>` is `string | undefined` under
+ * `noUncheckedIndexedAccess`, and hashing `undefined` would silently produce a
+ * hash that matches nothing — a green test asserting the wrong thing.
+ */
+function fixture(contents: Record<string, string>, tag: string): string {
+  const sql = contents[tag];
+  if (sql === undefined) throw new Error(`fixture: no content for tag ${tag}`);
+  return sql;
 }
 
 // ---------------------------------------------------------------------------
@@ -508,8 +521,8 @@ describe("resolvePendingMigrations", () => {
       // NEITHER local file. Raw count math would compute
       // `Math.max(3 - 4, 0) = 0 pending` — the exact false-0 this task fixes.
       const appliedHashes = new Set<string>([
-        computeMigrationHash(contents["0000_initial"]),
-        computeMigrationHash(contents["0001_second"]),
+        computeMigrationHash(fixture(contents, "0000_initial")),
+        computeMigrationHash(fixture(contents, "0001_second")),
         "orphan-hash-from-historical-squash-1",
         "orphan-hash-from-historical-squash-2",
       ]);
@@ -541,7 +554,9 @@ describe("resolvePendingMigrations", () => {
 
     // Only the first migration has been applied — the common/expected shape
     // (ledger behind the file tree).
-    const appliedHashes = new Set<string>([computeMigrationHash(contents["0000_initial"])]);
+    const appliedHashes = new Set<string>([
+      computeMigrationHash(fixture(contents, "0000_initial")),
+    ]);
     expect(appliedHashes.size).toBeLessThan(entries.length);
 
     const pending = resolvePendingMigrations(
@@ -564,8 +579,8 @@ describe("resolvePendingMigrations", () => {
       "0001_second": SQL_SECOND,
     };
     const appliedHashes = new Set<string>([
-      computeMigrationHash(contents["0000_initial"]),
-      computeMigrationHash(contents["0001_second"]),
+      computeMigrationHash(fixture(contents, "0000_initial")),
+      computeMigrationHash(fixture(contents, "0001_second")),
     ]);
 
     const pending = resolvePendingMigrations(
@@ -633,8 +648,8 @@ describe("resolvePendingMigrations", () => {
         // throws for it, simulating an unreadable/missing file on disk.
       };
       const appliedHashes = new Set<string>([
-        computeMigrationHash(contents["0000_initial"]),
-        computeMigrationHash(contents["0002_second"]),
+        computeMigrationHash(fixture(contents, "0000_initial")),
+        computeMigrationHash(fixture(contents, "0002_second")),
       ]);
 
       const pending = resolvePendingMigrations(
@@ -784,6 +799,11 @@ describe("computeMigrationHash matches drizzle-orm (hash-scheme-drift guard)", (
       const fileContent = readFileSync(join(migrationsFolder, `${entry.tag}.sql`), "utf8");
       const ourHash = computeMigrationHash(fileContent);
       const drizzleHash = drizzleMigrations[i]?.hash;
+      // Assert presence separately: `toBe(undefined)` would pass vacuously if
+      // the journal were shorter than the entry list.
+      if (drizzleHash === undefined) {
+        throw new Error(`drizzle journal has no entry at index ${i}`);
+      }
       expect(ourHash).toBe(drizzleHash);
     });
   });

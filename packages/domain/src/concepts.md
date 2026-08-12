@@ -72,7 +72,7 @@ The `prState` field provides intelligent caching for PR workflow operations:
 1. **Creation**: `minsky session start` creates a new session workspace
 2. **Implementation**: Developer implements features in the isolated session
 3. **PR Creation**: `minsky session pr` creates a PR branch with state tracking
-4. **Approval**: `minsky session approve` merges the PR and updates state
+4. **Approval**: `minsky session pr approve` merges the PR and updates state
 5. **Cleanup**: Session state is maintained for audit and troubleshooting
 
 ### Workspace

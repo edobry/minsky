@@ -50,6 +50,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+} from "./judged-input-capture";
 import { createHash } from "node:crypto";
 import { cappedEvidenceLines } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
@@ -109,6 +114,24 @@ export type DeferralClass = "principal-reserved" | "deferral-menu";
 export interface DeferralMatch {
   cls: DeferralClass;
   matchedPhrase: string;
+  /**
+   * The sentence or clause containing `matchedPhrase` (mt#3607).
+   *
+   * SEPARATE from `matchedPhrase`, for the reason `pre-narration`'s equivalent
+   * field records: `extractDistinctPhrases`
+   * (`src/domain/calibration/calibration-sweep.ts`) keys this log's diversity
+   * axis on `matches[].phrase`, and sentences are near-unique, so widening THAT
+   * field would make every record distinct and destroy the count that decides
+   * when this log gets reviewed.
+   *
+   * What it buys: ask#7052's finding was that a real deferral and a courtesy
+   * offer are INDISTINGUISHABLE from the bare phrase. `"your call?"` appears
+   * verbatim in both "I can't decide this — your call?" and "I've done X; want
+   * Y too, or your call?" — one is the fire this detector exists for, the other
+   * is the dominant false positive, and only the surrounding sentence separates
+   * them.
+   */
+  context: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -260,7 +283,20 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
       ) {
         continue;
       }
-      matches.push({ cls, matchedPhrase: m[0].trim() });
+      matches.push({
+        cls,
+        matchedPhrase: m[0].trim(),
+        // Captured from `scanned`, the ELIDED copy — never from `text`. Both
+        // elision helpers blank their spans with same-length whitespace, so
+        // `m.index` addresses the same span in `scanned`, and anything the
+        // agent pasted inside a fence or a quoted span is already blanked
+        // before it can reach the log (mt#3607).
+        // `leadSentences: 1` — this corpus's phrases are frequently whole
+        // sentences ("What's your call?"), where the containing sentence alone
+        // is byte-identical between a real deferral and a courtesy offer. See
+        // `MatchContextOptions.leadSentences` for the measured distribution.
+        context: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 1 }),
+      });
       break;
     }
   }
@@ -275,6 +311,19 @@ export function turnHasAsksCreate(turnLines: TranscriptLine[]): boolean {
 // ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
+
+/**
+ * Project matches into their calibration-record shape.
+ *
+ * Declared ONCE and used by BOTH write paths (the dispatcher-hosted guard and
+ * the standalone-CLI entrypoint) deliberately: the projection was duplicated
+ * literally before mt#3607, so adding `context` to one and not the other would
+ * have produced a log whose records disagree about their own shape depending on
+ * which path wrote them — with nothing failing.
+ */
+function calibrationMatches(matches: DeferralMatch[]): Array<Record<string, unknown>> {
+  return matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase, context: m.context }));
+}
 
 function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): void {
   try {
@@ -432,7 +481,7 @@ export function run(
   // text after detection.
   let assistantText = "";
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     // mt#3207: detect FIRST, suppress SECOND. This gate used to return before
     // detection ran, so a deferral phrase in a turn that also routed an ask
@@ -479,7 +528,8 @@ export function run(
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       injection_enabled: INJECTION_ENABLED,
-      matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      matches: calibrationMatches(matches),
       suppressionReasons,
     },
   };
@@ -579,7 +629,8 @@ export async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
-    matches: matches.map((m) => ({ class: m.cls, phrase: m.matchedPhrase })),
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    matches: calibrationMatches(matches),
     suppressionReasons,
   });
 

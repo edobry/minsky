@@ -1,3 +1,7 @@
+/* eslint-disable max-lines -- comprehensive merge-gate test suite covering every accepted/
+   rejected marker-form permutation across several review rounds (mt#2648, mt#3033, mt#3350,
+   mt#3530, mt#3968); the file sits at the repo's line-count ceiling from legitimate coverage
+   growth, not bloat, and splitting it is a separate refactor, out of scope for a review round. */
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 /* eslint-disable custom/no-real-fs-in-tests -- the `runAtCoverageCalibration` /
    `appendAtCoverageCalibration` regression tests below exercise the real, unmocked
@@ -107,9 +111,10 @@ describe("isTestFile", () => {
     expect(isTestFile("src/testHelpers.ts")).toBe(false);
   });
 
-  it("does not match .test.tsx", () => {
-    expect(isTestFile("src/components/Foo.test.tsx")).toBe(false);
-  });
+  // The `.tsx` cases moved to `./pr-file-predicates.test.ts` when mt#3868 widened the predicate
+  // — this file was already at the max-lines ceiling, and the predicate had no test file of its
+  // own. A case asserting `isTestFile(".test.tsx") === false` used to live here; mt#3868 reverses
+  // it, and that reversal is documented at its new home.
 });
 
 // ---------------------------------------------------------------------------
@@ -293,6 +298,26 @@ describe("hasExecutionEvidence — fence awareness (mt#3530)", () => {
       "  bun test ./y -> 3 pass, 0 fail",
     ].join("\n");
     expect(hasExecutionEvidence(body)).toBe(true);
+  });
+});
+
+// mt#3968: bold/bullet label widening -- mirrors the sibling negative-control matcher
+// (mt#3778). Cases map 1:1 to the spec's numbered ATs; negatives are what must NOT flip.
+// PR #2854 R2: added AT1b (colon outside bold) and the `*`/`+` bullet forms -- the code
+// already accepted all three bullet markers (see BULLET_PREFIX), this locks them in.
+describe("hasExecutionEvidence — bolded / bulleted label forms (mt#3968)", () => {
+  const cases: [string, string, boolean][] = [
+    ["AT1: colon inside bold", "**Execution evidence:**\n\n```\n5 pass\n```", true],
+    ["AT1b: colon outside bold", "**Execution evidence**: 5 pass", true],
+    ["AT2: bolded + bulleted (-)", "- **Execution evidence:** 5 pass", true],
+    ["bulleted (*)", "* **Execution evidence:** 5 pass", true],
+    ["bulleted (+)", "+ **Execution evidence:** 5 pass", true],
+    ["AT3: bare prose (colon rule)", "we should add execution evidence here", false],
+    ["AT4: bolded negation (negation guard)", "**No execution evidence:**\n\ncontent", false],
+    ["AT5: bolded marker in a fence (mt#3530)", "## S\n\n```\n**Execution evidence:**\n```", false],
+  ];
+  it.each(cases)("%s", (_label, body, expected) => {
+    expect(hasExecutionEvidence(body)).toBe(expected);
   });
 });
 
@@ -796,10 +821,10 @@ function makeExecFn(responses: Array<{ match: string; exitCode: number; stdout: 
     const joined = cmd.join(" ");
     for (const r of responses) {
       if (joined.includes(r.match)) {
-        return { exitCode: r.exitCode, stdout: r.stdout };
+        return { exitCode: r.exitCode, stdout: r.stdout, stderr: "" };
       }
     }
-    return { exitCode: 1, stdout: "" };
+    return { exitCode: 1, stdout: "", stderr: "" };
   };
 }
 
@@ -862,9 +887,9 @@ describe("resolvePrNumber", () => {
     const seenCmds: string[] = [];
     const exec: ExecFn = (cmd) => {
       seenCmds.push(cmd.join(" "));
-      if (cmd.join(" ").includes("pr view")) return { exitCode: 1, stdout: "" };
-      if (cmd.join(" ").includes("pr list")) return { exitCode: 0, stdout: "42" };
-      return { exitCode: 1, stdout: "" };
+      if (cmd.join(" ").includes("pr view")) return { exitCode: 1, stdout: "", stderr: "" };
+      if (cmd.join(" ").includes("pr list")) return { exitCode: 0, stdout: "42", stderr: "" };
+      return { exitCode: 1, stdout: "", stderr: "" };
     };
     resolvePrNumber(REPO, TASK, CWD, exec);
     const listCmd = seenCmds.find((c) => c.includes("pr list"));
@@ -1996,7 +2021,12 @@ describe("runAtCoverageCalibration — never emits deny, only warns/logs", () =>
     // silent breakage there rather than a test failure here. Assert the pre-existing keys are
     // intact ALONGSIDE the mt#3339 addition — the addition is only safe because it is additive.
     expect(Object.keys(record).sort()).toEqual([
+      // mt#3607's judged-input capture — added ALONGSIDE the pre-existing keys,
+      // which is what makes it safe for `scripts/at-coverage-reclassify.ts`.
+      "captureSchema",
       "executableAtCount",
+      "judgedPrBody",
+      "judgedSpec",
       "prNumber",
       "presentElsewhereAts",
       "surface",

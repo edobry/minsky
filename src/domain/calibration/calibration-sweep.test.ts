@@ -845,6 +845,9 @@ describe("suppression-aware fire counting (mt#3197)", () => {
     expect(result.pastThreshold).toBe(true);
   });
 
+  // mt#3740's supersedes accounting lives in calibration-sweep.supersedes.test.ts
+  // (this file is at the 1500-line ceiling).
+
   test("records with no suppression outcome still count (unknown never hides a fire)", () => {
     // Every log except code-mechanism-assertion is in this state today, and
     // 149 of that one's records predate the field. Treating unknown as
@@ -1135,6 +1138,11 @@ describe("computeLogResult — watermark handling", () => {
 // advanceWatermarks
 // ---------------------------------------------------------------------------
 
+/** The reviewed-count map these cases advance with (mt#3906). */
+const CAUSAL_COUNTS = { [CAUSAL_PATH]: FIRES_THRESHOLD };
+/** The ack timestamp these cases write. */
+const ACK_AT = "2026-06-10T00:00:00Z";
+
 describe("advanceWatermarks", () => {
   test("advances marks for acked paths only", () => {
     const causalPath = CAUSAL_PATH;
@@ -1161,12 +1169,12 @@ describe("advanceWatermarks", () => {
     ];
 
     const ackedPaths = new Set([causalPath]);
-    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    const updated = advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
 
     // Causal advanced
     expect(updated[causalPath]).toBeDefined();
     expect(updated[causalPath]?.lastReviewedCount).toBe(FIRES_THRESHOLD);
-    expect(updated[causalPath]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+    expect(updated[causalPath]?.lastReviewedAt).toBe(ACK_AT);
 
     // Retro NOT advanced
     expect(updated[retroPath]).toBeUndefined();
@@ -1183,7 +1191,7 @@ describe("advanceWatermarks", () => {
       ),
     ];
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
-    advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
     expect(current).toEqual({});
   });
 
@@ -1202,7 +1210,8 @@ describe("advanceWatermarks", () => {
       current,
       results,
       ackedPaths,
-      "2026-06-10T00:00:00Z",
+      ACK_AT,
+      CAUSAL_COUNTS,
       TEST_ASK_ID
     );
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
@@ -1219,7 +1228,7 @@ describe("advanceWatermarks", () => {
       ),
     ];
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
-    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    const updated = advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
   });
 
@@ -1243,11 +1252,11 @@ describe("advanceWatermarks", () => {
       ),
     ];
     const ackedPaths = new Set([CAUSAL_ENTRY.path]);
-    const updated = advanceWatermarks(current, results, ackedPaths, "2026-06-10T00:00:00Z");
+    const updated = advanceWatermarks(current, results, ackedPaths, ACK_AT, CAUSAL_COUNTS);
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
     // lastReviewedCount/At still advance normally.
     expect(updated[CAUSAL_ENTRY.path]?.lastReviewedCount).toBe(FIRES_THRESHOLD);
-    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe(ACK_AT);
   });
 
   test("OVERRIDES a pre-existing openAskId when a new askId is explicitly provided", () => {
@@ -1272,7 +1281,8 @@ describe("advanceWatermarks", () => {
       current,
       results,
       ackedPaths,
-      "2026-06-10T00:00:00Z",
+      ACK_AT,
+      CAUSAL_COUNTS,
       TEST_ASK_ID
     );
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBe(TEST_ASK_ID);
@@ -1298,7 +1308,7 @@ describe("clearResolvedAskIds", () => {
     expect(updated[CAUSAL_ENTRY.path]?.openAskId).toBeUndefined();
     // Other fields untouched.
     expect(updated[CAUSAL_ENTRY.path]?.lastReviewedCount).toBe(10);
-    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe("2026-06-10T00:00:00Z");
+    expect(updated[CAUSAL_ENTRY.path]?.lastReviewedAt).toBe(ACK_AT);
   });
 
   test("leaves watermarks with a different openAskId untouched", () => {
@@ -1559,9 +1569,21 @@ describe("calibrationRecordToFireLogEntry / decision mapping", () => {
 // (the "no fixture for this kind" branch), rather than only surfacing at
 // review time on the next PR that happens to touch this file.
 
-/** One minimal, valid raw JSONL line per CalibrationLogEntry.kind, plus the canonical GUARD_REGISTRY name that kind's registry entry must map to. */
+/**
+ * One minimal, valid raw JSONL line per CalibrationLogEntry.kind, plus the
+ * canonical GUARD_REGISTRY name that kind's registry entry must map to.
+ *
+ * `Partial<Record<...>>` (not `Record<...>`) since mt#3716: `CalibrationLogEntry["kind"]`
+ * now includes kinds with NO `CALIBRATION_LOG_REGISTRY` entry (derived-only
+ * kinds — see `deriveCalibrationLogEntries`), so this map is no longer
+ * required to cover every kind in the union, only every kind actually used
+ * by a `CALIBRATION_LOG_REGISTRY` entry (asserted by the completeness test
+ * below, which already null-checks `KIND_FIXTURES[entry.kind]`). The
+ * derived-only kinds' own parse coverage is tested in the sibling file
+ * `calibration-sweep-registry-derivation.test.ts`.
+ */
 const KIND_FIXTURES: Readonly<
-  Record<CalibrationLogEntry["kind"], { line: () => string; expectedGuardName: string }>
+  Partial<Record<CalibrationLogEntry["kind"], { line: () => string; expectedGuardName: string }>>
 > = {
   "causal-premise": { line: () => makeCausalRecord(), expectedGuardName: CAUSAL_GUARD_NAME },
   "retrospective-trigger": {
@@ -1592,6 +1614,20 @@ const KIND_FIXTURES: Readonly<
   "policy-coverage": {
     line: () => makePolicyCoverageRecord("covered"),
     expectedGuardName: "policy-coverage-detector",
+  },
+  "bare-entity-ref": {
+    // mt#3286 — same matches-shape family as retrospective-trigger: family is
+    // the defect class, phrase the offending ref.
+    line: () =>
+      JSON.stringify({
+        timestamp: "2026-08-08T12:00:00Z",
+        session_id: "test-session",
+        matches: [{ family: "bare-ref", phrase: "mt#1234" }],
+        logged_only: [{ family: "bare-short-id", phrase: "ask#6891" }],
+        flagged_count: 1,
+        logged_only_count: 1,
+      }),
+    expectedGuardName: "turn-end-bare-ref-scan",
   },
   "silent-stretch": {
     line: () => makeSilentStretchRecord(),
@@ -1693,6 +1729,16 @@ const KIND_FIXTURES: Readonly<
     expectedGuardName: "stop-at-decision-scan",
   },
 };
+// mt#3716's ten new kinds (bare-prohibition, execution-evidence-at-coverage,
+// execution-evidence-test-first, ask-form-lint, unwalked-task,
+// unescalated-incident, operator-instruction-trigger, agent-dispatch-record,
+// chained-verification-commands, duplicate-signature-scan) have NO
+// CALIBRATION_LOG_REGISTRY entry (they are derived, not hand-typed — see
+// `deriveCalibrationLogEntries`), so they are never iterated by this file's
+// `CALIBRATION_LOG_REGISTRY`-keyed completeness loop below. Their parse
+// coverage is tested in the sibling file
+// `calibration-sweep-registry-derivation.test.ts`, which also keeps this
+// already-large file under the 1500-line lint ceiling.
 
 describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
   test("every CALIBRATION_LOG_REGISTRY entry maps to its canonical GUARD_REGISTRY name, not a silent fallback to entry.name", () => {
@@ -1720,8 +1766,19 @@ describe("CALIBRATION_NAME_TO_GUARD_NAME completeness (mt#2889 R1)", () => {
   // PR #2263 R1 BLOCKING: derived from KIND_FIXTURES instead of a magic number,
   // so adding a registry entry + its fixture stays a one-place change and two
   // concurrent detector PRs cannot break each other on the count alone.
-  test("every CALIBRATION_LOG_REGISTRY kind has a fixture above (and vice versa)", () => {
-    expect(CALIBRATION_LOG_REGISTRY).toHaveLength(Object.keys(KIND_FIXTURES).length);
+  //
+  // mt#3716: the exact-length "(and vice versa)" half of this test is
+  // RETIRED — that was the obsolete-assertion-shaped invariant SC4 named
+  // ("CALIBRATION_LOG_REGISTRY.length === KIND_FIXTURES key count"). It broke
+  // by design once `deriveCalibrationLogEntries` started synthesizing entries
+  // for kinds with NO `CALIBRATION_LOG_REGISTRY` entry at all (the ten mt#3716
+  // kinds) — `KIND_FIXTURES` now legitimately has more keys than the static
+  // registry has entries. `CalibrationLogEntry["kind"]`'s own type already
+  // enforces the reverse direction (every kind needs a fixture, or this file
+  // fails to compile) — see calibration-sweep.ts's kind union doc comment.
+  // What remains testable at runtime is the direction that matters for THIS
+  // loop: every entry actually IN the registry has a fixture.
+  test("every CALIBRATION_LOG_REGISTRY kind has a fixture above", () => {
     for (const f of ["name", "path", "kind"] as const) {
       const vals = CALIBRATION_LOG_REGISTRY.map((e) => e[f]);
       expect(new Set(vals).size).toBe(vals.length);
@@ -1812,3 +1869,8 @@ describe("computeLogResult — firstRecordTimestamp (mt#2896)", () => {
     expect(result.firstRecordTimestamp).toBeUndefined();
   });
 });
+
+// deriveCalibrationLogEntries / findUnsweptCalibrationLogs (mt#3716) are
+// tested in the sibling file `calibration-sweep-registry-derivation.test.ts`
+// rather than here, to keep this already-large file under the 1500-line
+// lint ceiling (`max-lines`).

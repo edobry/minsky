@@ -1,11 +1,43 @@
 #!/usr/bin/env bun
-// UserPromptSubmit hook: detect in-task research (WebSearch / WebFetch / knowledge
+// Stop hook: detect in-task research (WebSearch / WebFetch / knowledge
 // tools) that surfaces knowledge relevant to a currently-loaded skill, with no
 // propagation action (memory_create / `/learn` / tasks_create targeting the
-// artifact) in a TRAILING WINDOW of turns after the research — the (B)
-// proactive-trigger half of the learn-capture primitive designed in mt#2707.
+// artifact) ANYWHERE in the session — the (B) proactive-trigger half of the
+// learn-capture primitive designed in mt#2707.
 //
-// CALIBRATION-ONLY (mt#2263 ladder): v1 ships with INJECTION_ENABLED=false — logs
+// SESSION-GRAIN (mt#3720): v1 (mt#2708) judged each research call in isolation
+// on UserPromptSubmit, with a `TRAILING_WINDOW_TURNS`-turn grace period before
+// judging a miss. That design produced 13 of the 17 fires reviewed at ask#6891
+// from ONE session (`aecd65f4`) whose research DID propagate — just far later
+// than the 5-turn grace covered, so the per-occurrence dedupe locked in a miss
+// verdict before the eventual save existed in the visible transcript. The
+// propagation SCAN was never the problem (`hasPropagationAfter` was already
+// unbounded — it scans to the end of whatever transcript is visible); the
+// problem was WHEN evaluation happened: as soon as grace elapsed, using only
+// the transcript visible AT THAT MOMENT. v2 evaluates the whole session's
+// research as ONE aggregate verdict, gated on a SINGLE session-level dedupe key
+// (`SESSION_VERDICT_DEDUPE_KEY`) instead of a per-occurrence key — so a session
+// can fire at most once, ever, rather than once per unresolved research call.
+//
+// Why Stop, not SessionEnd: SessionEnd has zero guards wired through this
+// dispatcher framework (`registry.ts`'s `GUARD_REGISTRY`) — the repo's one
+// SessionEnd hook (`transcript-ingest-on-session-end.ts`) is wired directly in
+// `.claude/settings.json`, bypassing the calibration/canary/override plumbing
+// this detector depends on, so building a SessionEnd dispatcher entrypoint is
+// out of scope for a re-grain. Per ADR-017, `/exit` and `/clear` do not fire
+// SessionEnd at all, so its absence proves nothing there either. Stop already
+// hosts five guards on the same dispatcher, including a directly-analogous
+// calibration-first, log-only sibling (`stop-at-decision-scan`, mt#3653), and
+// firing once per TURN means at least one Stop invocation sees a killed session
+// where SessionEnd would see none. The tradeoff this accepts: per-session
+// dedupe is now load-bearing, because Stop — unlike SessionEnd — fires
+// repeatedly across one session, so a session that goes quiet for
+// `TRAILING_WINDOW_TURNS` turns and only then propagates can have a miss
+// verdict recorded first, and the dedupe key makes that verdict permanent.
+// mt#3740 owns that residual; the once-per-session BOUND holds regardless,
+// which is what retires the 13-records-from-one-session shape.
+//
+// CALIBRATION-ONLY (mt#2263 ladder): still ships with INJECTION_ENABLED=false — logs
 // a calibration JSONL record and injects NOTHING, mirroring
 // build-claim-injection-detector.ts / causal-premise-detector.ts. Graduation
 // contract: `CALIBRATION_LOG_REGISTRY`'s `knowledge-acquisition` entry
@@ -27,16 +59,26 @@
 // name + frontmatter-description keywords (read from
 // `.claude/skills/<name>/SKILL.md`). This stays rung-1-cheap — no LLM call.
 //
-// Propagation suppression uses a TRAILING WINDOW of turns AFTER the research
-// call (the mt#2671 pattern shipped for pre-narration-detector.ts's back-
-// reference suppression), NOT same-turn equality — an agent that says "I'll
-// capture this after finishing the current edit," then does so a few turns
-// later, is a TRUE NEGATIVE. Because this hook only ever sees what has ALREADY
-// happened (a UserPromptSubmit hook cannot see future turns), a candidate
-// research event is evaluated only once at least `TRAILING_WINDOW_TURNS` turns
-// have elapsed since it occurred — giving the agent a grace period before the
-// absence of propagation is treated as a miss, and re-scanned as more of the
-// session accumulates in subsequent hook invocations.
+// Session verdict: every research occurrence passing the rung-1+2-lite gate is
+// collected, and the session becomes eligible for a verdict once at least
+// `TRAILING_WINDOW_TURNS` turns have elapsed since the MOST RECENT matched
+// occurrence — a deferral if not yet due, not a suppression (the mt#2671
+// grace-period pattern shipped for pre-narration-detector.ts, applied once per
+// session instead of once per occurrence). An agent that says "I'll capture
+// this after finishing the current edit," then does so later, is a TRUE
+// NEGATIVE, and under session grain it stays one no matter how much later.
+// Once eligible, the session's verdict is `hadPropagation: true` iff a
+// propagation call appears after the session's LAST matched occurrence in the
+// currently visible transcript. So a miss means "the session ended with research
+// that was never followed by any capture."
+//
+// This sentence used to claim EVERY occurrence needed its own propagation call —
+// "one uncaptured piece of research is enough to make the verdict a miss." The
+// code never did that (mt#3901): `hasPropagationAfter` is unbounded and therefore
+// monotone in position, so the `every` collapsed to the single last-occurrence
+// check now written at the verdict site. The strict per-occurrence reading needs
+// topical relation between a capture and a research call, which ADR-024 puts at
+// rung 3 and mt#3783 owns.
 //
 // The whole-session-scan widening (loaded skills + research occurrences,
 // rather than just the last turn) mirrors build-claim-injection-detector.ts's
@@ -55,11 +97,16 @@
 // INJECTION_ENABLED must be false — this is calibration-only. Fail posture is
 // open: silent on any transcript read/parse error, never blocks.
 //
-// @see mt#2708 — this task
+// @see mt#3720 — the session-grain re-grain (this revision)
+// @see mt#2708 — the originating per-call v1
 // @see mt#2707 — the originating RFC (Notion 3a0937f0-3cb4-81a6-8699-e419a5ce4da0)
 // @see mt#2671 — the trailing-window suppression pattern (pre-narration-detector.ts)
+// @see mt#3207 — the census semantics this revision preserves (both miss and
+//   propagation-found records still emit)
+// @see mt#2357 — the Stop-event dispatcher this revision now registers against
 // @see mt#2896 — the never-reviewed-aging cadence leg the graduation contract depends on
 // @see mt#3078 — the proven-alive liveSinceDate re-anchoring precedent
+// @see .minsky/hooks/stop-at-decision-scan.ts — calibration-first Stop-guard precedent
 // @see .minsky/hooks/substrate-bypass-detector.ts — `extractSkillToolInvocations` origin (turn-scoped)
 // @see .minsky/hooks/build-claim-injection-detector.ts — whole-session-widening precedent + calibration-first shape
 // @see .minsky/hooks/pre-narration-detector.ts — trailing-window suppression precedent
@@ -79,6 +126,14 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type {
+  ExemplarSet,
+  Nomination,
+  NominationDeps,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -115,15 +170,19 @@ export const CALIBRATION_LOG = ".minsky/knowledge-acquisition-calibration.jsonl"
 
 /**
  * Reason string for this detector's ONE recorded suppression gate — research
- * whose knowledge WAS propagated somewhere in the trailing window (mt#3207).
+ * whose knowledge WAS propagated somewhere in the session (mt#3207; scope
+ * widened from "trailing window" to "whole session" by mt#3720, which is why
+ * the value's `-in-window` suffix now reads as historical: it is kept verbatim
+ * so the accumulated calibration corpus stays parseable across the re-grain).
  *
- * The detection loop has three other skip legs, none of which is a suppression
- * of a completed detection and none of which records: the already-logged
- * dedupe key (a repeat of a recorded event), the missing loaded-skill keyword
- * overlap (part of the rung-2-lite DETECTION criterion), and the trailing-
- * window grace period (a deferral — non-terminal, re-evaluated next
- * invocation; recording it would fire every turn AND burn the dedupe key that
- * the eventual real fire needs). See mt#3207's `## Design decisions` §D2.
+ * The detection path has three other skip legs, none of which is a suppression
+ * of a completed detection and none of which records: the already-recorded
+ * session ({@link SESSION_VERDICT_DEDUPE_KEY}), the missing loaded-skill
+ * keyword overlap (part of the rung-2-lite DETECTION criterion), and the grace
+ * period before the session is eligible for a verdict (a deferral —
+ * non-terminal, re-evaluated next invocation; recording it would fire every
+ * turn AND burn the dedupe key that the eventual real fire needs). See
+ * mt#3207's `## Design decisions` §D2.
  */
 export const SUPPRESSION_PROPAGATION_IN_WINDOW = "propagation-in-window";
 
@@ -188,18 +247,36 @@ export const PROPAGATION_TOOL_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Trailing-window size in TURNS (mt#2671 pattern, pre-narration-detector.ts)
- * for propagation suppression. Smaller than pre-narration's 12-turn back-
- * reference window: propagation here is a single atomic call
- * (`memory_create` / `/learn` / `tasks_create`), not a multi-step external
- * convergence process (wait-for-review -> fix -> push -> back-reference), so
- * a shorter grace period is sufficient to distinguish "will capture after
- * finishing the current edit" (true negative) from "never captured" (a
- * miss) — enough turns for one intervening tool-heavy work item to
- * complete before circling back, without indefinitely suppressing a
- * genuinely abandoned acquisition.
+ * Grace period in TURNS (mt#2671 pattern, pre-narration-detector.ts) before the
+ * SESSION becomes eligible for a verdict. mt#3720 applies it ONCE, against the
+ * most recent matched research occurrence, rather than once per occurrence as
+ * v1 did. Smaller than pre-narration's 12-turn back-reference window:
+ * propagation here is a single atomic call (`memory_create` / `/learn` /
+ * `tasks_create`), not a multi-step external convergence process
+ * (wait-for-review -> fix -> push -> back-reference), so a shorter grace period
+ * is sufficient to distinguish "will capture after finishing the current edit"
+ * (true negative) from "never captured" (a miss).
+ *
+ * This bounds only WHEN evaluation happens, never how far the propagation scan
+ * looks: {@link hasPropagationAfter} is unbounded, scanning to the end of
+ * whatever transcript is currently visible. A session with continuing matched
+ * research keeps re-extending its own eligibility clock; a genuinely idle
+ * session becomes eligible after this many turns of silence.
  */
 export const TRAILING_WINDOW_TURNS = 5;
+
+/**
+ * Fixed session-level dedupe key (mt#3720). v1 deduped per RESEARCH OCCURRENCE
+ * (`${lineIdx}:${toolName}`), which is exactly what let one session fire 13
+ * times: each occurrence carried its own key, so grace elapsing on occurrence N
+ * did not stop occurrence N+1 from independently re-firing. v2 dedupes per
+ * SESSION — this one key is checked against the calibration log's own tail via
+ * {@link loadLoggedSessionState}, which filters by `session_id`, so the
+ * constant is safe to share across sessions and a session produces at most one
+ * record regardless of how many research occurrences it contains or how many
+ * times the Stop hook fires.
+ */
+export const SESSION_VERDICT_DEDUPE_KEY = "session-verdict";
 
 // ---------------------------------------------------------------------------
 // Small duplicated helpers (this repo's hooks-tree convention — see header)
@@ -438,6 +515,62 @@ export function findAllKeywordOverlaps(
 }
 
 /**
+ * The outcome of asking Rung 2 which loaded skill a research turn is about.
+ *
+ * `none` and `degraded` are deliberately distinct: `none` means the nominator
+ * RAN and nothing cleared the threshold (a real negative — this research is not
+ * about any loaded skill), while `degraded` means it could not run at all. Only
+ * the second falls back to lexical matching, per ADR-024's "fail to Rung 1,
+ * never silent-skip" invariant. Collapsing them would silently convert a real
+ * negative into a lexical fire, which is the noise this task exists to remove.
+ */
+/**
+ * Total wall-clock a session verdict may spend on Rung-2 nomination.
+ *
+ * Derived, not chosen: this guard registers `timeoutMs: 10000` on `Stop`
+ * (`registry.ts`), and the detector still has to finish its propagation scan
+ * and write its record after nomination returns. 6000ms leaves 4000ms of
+ * headroom for that tail, and admits three worst-case 2000ms nominations —
+ * comfortably above the observed per-session occurrence count, while bounding
+ * the degenerate long-research session that would otherwise blow the budget.
+ *
+ * Do NOT raise this to accommodate more occurrences. The fix for a session that
+ * needs more nominations than this affords is a cheaper nomination (batching,
+ * one aggregated call), not a larger slice of a budget the dispatcher enforces.
+ */
+export const NOMINATION_SESSION_BUDGET_MS = 6000;
+
+/**
+ * Whether the session's nomination budget is spent. Pure and injected-clock so
+ * the bound is testable without burning six real seconds — observing it
+ * otherwise would mean patching the global clock, which is the design smell the
+ * testable-design checkpoint names.
+ */
+export function isNominationBudgetExhausted(deadlineMs: number, nowMs: number): boolean {
+  return nowMs >= deadlineMs;
+}
+
+export type SkillNominationOutcome =
+  | { kind: "nominated"; skill: string; score: number; segment: string }
+  | { kind: "none" }
+  | { kind: "degraded"; reason: string };
+
+/**
+ * Injected Rung-2 nominator: scores the research text against each loaded
+ * skill's description and returns the best match above threshold.
+ *
+ * Injected rather than imported so the detector stays testable without a live
+ * embedding provider — the same functional-core/imperative-shell split the
+ * module already uses for `skillKeywordsByName`, whose disk read lives in the
+ * caller. The impure resolution (`ensureHookDomainBootstrap` +
+ * `resolveNominationDeps`) belongs to `run()` / `main()`.
+ */
+export type SkillNominator = (
+  candidateTexts: string[],
+  loadedSkills: string[]
+) => Promise<SkillNominationOutcome>;
+
+/**
  * A bounded window of candidate text centered on `keyword`'s first occurrence,
  * so a reviewer can judge whether the research was topically related to the
  * skill instead of inferring it from the bare token. Bounded like
@@ -474,7 +607,7 @@ function readSkillDescription(cwd: string, skillName: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Research-occurrence + trailing-window helpers (pure)
+// Grace-period helpers (pure) — session-grain since mt#3720
 // ---------------------------------------------------------------------------
 
 interface ResearchOccurrence {
@@ -483,6 +616,27 @@ interface ResearchOccurrence {
   toolName: string;
   /** Every string value reachable from the tool_use's own `input` object. */
   texts: string[];
+}
+
+/**
+ * A research occurrence that cleared the rung-1+2-lite keyword gate, carrying
+ * the skill it matched and the texts the match was found in (mt#3720). The
+ * session verdict aggregates over a list of these; v1 had no equivalent because
+ * it returned on the first match instead of collecting them.
+ */
+interface MatchedResearchOccurrence {
+  occ: ResearchOccurrence;
+  matchedSkill: string;
+  /**
+   * On the lexical path this is the matched KEYWORD; on the Rung-2 path it is
+   * the matched candidate SEGMENT. One field because both answer "what text
+   * tied this occurrence to that skill?" — `detectionRung` on the record says
+   * which kind it is, so a reader is never left guessing.
+   */
+  matchedKeyword: string;
+  candidateTexts: string[];
+  /** Rung-2 similarity; absent on the lexical path (mt#3772). */
+  score?: number;
 }
 
 /** Find every research-tool tool_use occurrence ANYWHERE in `lines` (whole-session scan). */
@@ -564,7 +718,15 @@ function extractEnclosingTurnText(
 
 export interface KnowledgeAcquisitionResult {
   matched: boolean;
-  /** The detection rung used — always "1+2-lite" for this v1 (rung 1 fused with the keyword-overlap gate). */
+  /**
+   * Which rung ACTUALLY produced this verdict (mt#3772): `"2-embedding"` when
+   * Rung-2 nomination ran and decided, `"1-lexical"` when the keyword gate did
+   * — either because no nominator was supplied or because Rung 2 degraded.
+   *
+   * Was the hardcoded literal `"1+2-lite"` until mt#3772; mt#3199 criterion 5
+   * flagged it as a constant that could not vary, which made it a restatement
+   * of the code path rather than a measurement of it.
+   */
   detectionRung: string;
   researchTools: string[];
   loadedSkills: string[];
@@ -579,13 +741,44 @@ export interface KnowledgeAcquisitionResult {
   keywordHits: KeywordHit[];
   /** Bounded candidate-text window around the matched keyword (mt#3617). */
   matchedTextExcerpt?: string;
+  /**
+   * Rung-2 similarity for the nominating occurrence (mt#3772). Absent when the
+   * verdict came from the lexical fallback, which is how a reader tells the two
+   * apart without parsing `detectionRung`.
+   */
+  nominationScore?: number;
+  /**
+   * Why Rung 2 could not run, when it could not (mt#3772). Present ONLY on the
+   * fallback path — its presence is the ADR-024 "degraded marker", and its
+   * absence on a `rung-1-lexical` record would mean the fallback happened
+   * silently, which the invariant forbids.
+   */
+  degradedReason?: string;
   hadPropagation: boolean;
+}
+
+/**
+ * The verdict this session already has in the calibration log, if any (mt#3740).
+ *
+ * `timestamp` identifies the record being revised; it is what a superseding
+ * record points at, and what the sweep matches on to drop the stale one.
+ */
+export interface PriorSessionVerdict {
+  hadPropagation: boolean;
+  timestamp: string;
 }
 
 export interface KnowledgeAcquisitionDetection {
   result: KnowledgeAcquisitionResult;
-  /** Stable per-occurrence dedupe key (`${lineIdx}:${toolName}`) so a matched research event is logged at most once. */
+  /** Session-grain dedupe key (mt#3720: always {@link SESSION_VERDICT_DEDUPE_KEY}) so a session is logged at most once PER VERDICT (mt#3740 relaxed "ever"). */
   dedupeKey: string;
+  /**
+   * Timestamp of the record this one revises (mt#3740). Set only when the
+   * session already had a verdict and the new one DIFFERS; absent on a first
+   * record. Its presence is what lets a reader — and the calibration sweep —
+   * see a revision instead of inferring one from ordering.
+   */
+  supersedes?: string;
   /**
    * Empty when this detection injects; `[SUPPRESSION_PROPAGATION_IN_WINDOW]`
    * when a gate swallowed it (mt#3207).
@@ -594,8 +787,8 @@ export interface KnowledgeAcquisitionDetection {
 }
 
 /**
- * Detect in-task research relevant to a loaded skill with no propagation in
- * the trailing window.
+ * Detect in-task research relevant to a loaded skill, with no propagation
+ * anywhere in the session, as ONE session-grain verdict (mt#3720).
  *
  * @param lines - the FULL session transcript (whole-session scan, not
  *   turn-scoped — mirrors build-claim-injection-detector.ts's widening).
@@ -604,16 +797,39 @@ export interface KnowledgeAcquisitionDetection {
  * @param skillKeywordsByName - pre-resolved keyword set per loaded skill
  *   (impure disk read happens in the caller; this function stays pure).
  * @param alreadyLoggedDedupeKeys - dedupe keys already written to the
- *   calibration log THIS session (so a matured research event fires once).
- * @param windowTurns - trailing-window size in turns (mt#2671 pattern).
+ *   calibration log THIS session; checked against the single
+ *   {@link SESSION_VERDICT_DEDUPE_KEY} so a session records at most once.
+ * @param windowTurns - grace period in turns, applied once against the most
+ *   recent matched occurrence (mt#2671 pattern, re-scoped to session grain).
  */
-export function detectKnowledgeAcquisition(
+export async function detectKnowledgeAcquisition(
   lines: TranscriptLine[],
   loadedSkills: string[],
   skillKeywordsByName: ReadonlyMap<string, string[]>,
   alreadyLoggedDedupeKeys: ReadonlySet<string>,
-  windowTurns: number = TRAILING_WINDOW_TURNS
-): KnowledgeAcquisitionDetection | null {
+  windowTurns: number = TRAILING_WINDOW_TURNS,
+  nominateSkill?: SkillNominator,
+  priorVerdict?: PriorSessionVerdict | null
+): Promise<KnowledgeAcquisitionDetection | null> {
+  // mt#3720 bounded a session to one record; mt#3740 relaxes that from "ever"
+  // to "per verdict". Stop fires per TURN against a GROWING transcript, so the
+  // first verdict is formed on a partial session: a miss recorded at turn 8 was
+  // simply the truth at turn 8, and a memory_create at turn 19 makes it stale
+  // rather than wrong. The old gate returned here, which froze that stale answer
+  // in the log forever.
+  //
+  // The decision therefore cannot be made before the verdict exists — it is a
+  // comparison, not a presence check — so it moved below, next to
+  // `hadPropagation`. Cost of moving it: an already-recorded session now runs
+  // the matching pass on every Stop instead of returning immediately. The
+  // transcript read is the caller's and was paid either way; what is added is
+  // the in-memory scan, which is the irreducible price of being able to notice
+  // that the verdict changed.
+  const alreadyRecorded = alreadyLoggedDedupeKeys.has(SESSION_VERDICT_DEDUPE_KEY);
+  // No prior verdict to compare against — a caller that does not supply one
+  // keeps mt#3720's exact behavior rather than silently recording twice.
+  if (alreadyRecorded && !priorVerdict) return null;
+
   if (loadedSkills.length === 0) return null;
 
   const occurrences = findResearchOccurrences(lines);
@@ -622,92 +838,216 @@ export function detectKnowledgeAcquisition(
   const researchTools = [...new Set(occurrences.map((o) => o.toolName))];
   const promptIndices = findRealPromptIndices(lines);
 
-  // mt#3207: the first propagation-suppressed occurrence, returned only if no
-  // LIVE fire is found — scanning continues past it so a suppressed occurrence
-  // can never mask a real one.
-  let suppressedCandidate: KnowledgeAcquisitionDetection | null = null;
+  // Candidate text per occurrence, computed once: both rungs score the same
+  // text, so a rung comparison is never confounded by a different input.
+  const candidates = occurrences.map((occ) => ({
+    occ,
+    candidateTexts: [...occ.texts, extractEnclosingTurnText(lines, promptIndices, occ.idx)],
+  }));
 
-  for (const occ of occurrences) {
-    const dedupeKey = `${occ.idx}:${occ.toolName}`;
-    if (alreadyLoggedDedupeKeys.has(dedupeKey)) continue;
+  // mt#3720 collects EVERY matching occurrence rather than returning on the
+  // first, because the session verdict below is an aggregate over all of them.
+  let matchedOccurrences: MatchedResearchOccurrence[] = [];
+  let degradedReason: string | undefined;
 
-    const turnText = extractEnclosingTurnText(lines, promptIndices, occ.idx);
-    const candidateTexts = [...occ.texts, turnText];
-
-    let matchedSkill: string | undefined;
-    let matchedKeyword: string | undefined;
-    for (const skill of loadedSkills) {
-      const keywords = skillKeywordsByName.get(skill);
-      if (!keywords || keywords.length === 0) continue;
-      const hit = findKeywordOverlap(candidateTexts, keywords);
-      if (hit) {
-        matchedSkill = skill;
-        matchedKeyword = hit;
+  // Rung 2 (mt#3772). ADR-024 stops at Rung 1 by default, but this detector's
+  // Rung-1 gate is measured non-discriminating: `research`/`plan`/`task` are
+  // process vocabulary describing the activity the detector already keyed on,
+  // so the lexical match is tautological rather than evidence of topical
+  // relevance. Rung 2 asks the question the gate is actually for — is this
+  // research ABOUT the skill's domain?
+  if (nominateSkill) {
+    const nominated: MatchedResearchOccurrence[] = [];
+    // Session-wide wall-clock bound. Each nomination is individually race-bound
+    // at DEFAULT_NOMINATION_TIMEOUT_MS (2000ms), but this loop is serial and
+    // runs once per research occurrence — so without a TOTAL bound the cost
+    // grows linearly with occurrences and crosses this guard's 10s registry
+    // budget at five of them. Sessions with far more research calls than that
+    // exist in the corpus, so this is a reachable state, not a theoretical one.
+    //
+    // Crossing the deadline degrades rather than truncating: a partial
+    // nomination set would silently change `hadPropagation`, which is computed
+    // over EVERY matched occurrence. Degrading re-runs the whole session
+    // lexically, which is the one fallback whose semantics are already defined.
+    const deadline = Date.now() + NOMINATION_SESSION_BUDGET_MS;
+    for (const { occ, candidateTexts } of candidates) {
+      if (isNominationBudgetExhausted(deadline, Date.now())) {
+        degradedReason = "session-nomination-budget-exceeded";
         break;
       }
+      const outcome = await nominateSkill(candidateTexts, loadedSkills);
+      if (outcome.kind === "degraded") {
+        degradedReason = outcome.reason;
+        break;
+      }
+      if (outcome.kind === "nominated") {
+        nominated.push({
+          occ,
+          matchedSkill: outcome.skill,
+          matchedKeyword: outcome.segment,
+          candidateTexts,
+          score: outcome.score,
+        });
+      }
+      // "none" — the nominator ran and this research is about no loaded skill.
+      // A real negative, NOT a reason to consult the lexical gate.
     }
-    // Rung-2-lite gate: no overlap with any loaded skill's name/keywords —
-    // suppressed (not yet a candidate; re-evaluated on future invocations).
-    if (!matchedSkill) continue;
-
-    // Trailing-window grace period: not yet due for evaluation.
-    const elapsedTurns = countPromptBoundariesAfter(lines, occ.idx);
-    if (elapsedTurns < windowTurns) continue;
-
-    // mt#3617 instrumentation. Collected after the nomination loop — so it
-    // cannot influence which skill is nominated — and after BOTH early-exit
-    // gates above, so it runs only on occurrences that go on to emit a record.
-    // The nomination loop is untouched for the same reason: a shared scan
-    // would couple instrumentation to nomination.
-    const keywordHits = loadedSkills.flatMap((skill) =>
-      findAllKeywordOverlaps(skill, candidateTexts, skillKeywordsByName.get(skill) ?? [])
-    );
-    const matchedTextExcerpt = buildMatchExcerpt(candidateTexts, matchedKeyword);
-
-    // True negative: propagation happened somewhere in the trailing window.
-    // mt#3207: recorded as a SUPPRESSED detection rather than dropped — this
-    // is the gate whose real-world fire rate was previously unmeasurable. Safe
-    // to record (and so to burn the dedupe key) precisely because it is
-    // TERMINAL: propagation is in the past and cannot un-happen, so this
-    // occurrence can never later become a live fire. The grace-period leg
-    // above is deliberately NOT recorded for the opposite reason.
-    if (hasPropagationAfter(lines, occ.idx)) {
-      suppressedCandidate ??= {
-        result: {
-          matched: true,
-          detectionRung: "1+2-lite",
-          researchTools,
-          loadedSkills,
-          matchedSkill,
-          matchedKeyword,
-          keywordHits,
-          matchedTextExcerpt,
-          hadPropagation: true,
-        },
-        dedupeKey,
-        suppressionReasons: [SUPPRESSION_PROPAGATION_IN_WINDOW],
-      };
-      continue;
-    }
-
-    return {
-      result: {
-        matched: true,
-        detectionRung: "1+2-lite",
-        researchTools,
-        loadedSkills,
-        matchedSkill,
-        matchedKeyword,
-        keywordHits,
-        matchedTextExcerpt,
-        hadPropagation: false,
-      },
-      dedupeKey,
-      suppressionReasons: [],
-    };
+    if (degradedReason === undefined) matchedOccurrences = nominated;
   }
 
-  return suppressedCandidate;
+  // Fail to Rung 1, never silent-skip (ADR-024 invariant). All-or-nothing per
+  // verdict: a degradation part-way through discards the rung-2 results and
+  // re-runs every occurrence lexically, so one session's verdict is never half
+  // embedding-nominated and half keyword-matched — which would make the
+  // recorded `detectionRung` a lie about how the verdict was reached.
+  if (nominateSkill === undefined || degradedReason !== undefined) {
+    matchedOccurrences = [];
+    for (const { occ, candidateTexts } of candidates) {
+      let matchedSkill: string | undefined;
+      let matchedKeyword: string | undefined;
+      for (const skill of loadedSkills) {
+        const keywords = skillKeywordsByName.get(skill);
+        if (!keywords || keywords.length === 0) continue;
+        const hit = findKeywordOverlap(candidateTexts, keywords);
+        if (hit) {
+          matchedSkill = skill;
+          matchedKeyword = hit;
+          break;
+        }
+      }
+      if (!matchedSkill || !matchedKeyword) continue;
+      matchedOccurrences.push({ occ, matchedSkill, matchedKeyword, candidateTexts });
+    }
+  }
+
+  const firstMatch = matchedOccurrences[0];
+  if (!firstMatch) return null;
+
+  /**
+   * Transcript index of the session's MOST RECENT matched occurrence.
+   *
+   * Computed by max rather than by taking the array's last element, and computed
+   * ONCE because two consumers depend on it — the eligibility gate immediately
+   * below and the session verdict further down. PR #2751 R1 caught them
+   * disagreeing: the verdict had been made order-invariant while the gate still
+   * read `matchedOccurrences[length - 1]`, so an unordered array would have let
+   * the two pick different occurrences and mis-time the grace period.
+   *
+   * Both construction paths (rung-2 `nominated` and the lexical fallback) push in
+   * `candidates` iteration order today, so the array IS ordered in practice and
+   * the two forms agree. That is an invariant held at a distance, in a different
+   * branch, which is exactly the kind that breaks quietly later — deriving the
+   * value once removes the coupling instead of restating the assumption twice.
+   */
+  const lastOccurrenceIdx = matchedOccurrences.reduce(
+    (max, { occ }) => (occ.idx > max ? occ.idx : max),
+    -1
+  );
+
+  // Session eligibility: the grace period runs against the MOST RECENT matched
+  // occurrence, not each one individually (mt#3720), so a session with
+  // continuing matched research keeps re-extending its own clock. A deferral,
+  // not a suppression — nothing is recorded, and it is re-evaluated on the next
+  // Stop invocation.
+  if (countPromptBoundariesAfter(lines, lastOccurrenceIdx) < windowTurns) return null;
+
+  // mt#3617 instrumentation, aggregated across every matched occurrence
+  // (mt#3720). Collected after the nomination loop — so it cannot influence
+  // which skill is nominated — and after the eligibility gate, so it runs only
+  // when a record is actually emitted. The first matched occurrence remains the
+  // NOMINATION, unchanged from v1's convention.
+  const keywordHits = matchedOccurrences.flatMap(({ candidateTexts }) =>
+    loadedSkills.flatMap((skill) =>
+      findAllKeywordOverlaps(skill, candidateTexts, skillKeywordsByName.get(skill) ?? [])
+    )
+  );
+  const matchedTextExcerpt = buildMatchExcerpt(
+    firstMatch.candidateTexts,
+    firstMatch.matchedKeyword
+  );
+
+  // The session verdict: did a propagation call happen after the session's LAST
+  // matched research occurrence?
+  //
+  // ## This used to be an `every`, and the `every` was redundant (mt#3901)
+  //
+  // The prior form was `matchedOccurrences.every(occ => hasPropagationAfter(occ.idx))`,
+  // commented as "one uncaptured piece of research is enough to make the verdict
+  // a miss." It did not do that. `hasPropagationAfter` is unbounded — it scans
+  // from the occurrence to the end of the visible transcript — which makes it
+  // MONOTONE IN POSITION: a propagation call after the last occurrence is
+  // necessarily also after every earlier one. So the conjunction was
+  // mathematically equivalent to this single check, and the strictness the
+  // comment claimed was never implemented. Measured corroboration at the time:
+  // 15 of 15 post-mt#3720 records scored propagated, none a miss.
+  //
+  // Written explicitly so the code states what it computes. This is a clarity
+  // fix with an equivalence proof, NOT a behavior change — if the live
+  // propagation rate moves after this ships, the equivalence argument is wrong
+  // and that is the signal to reopen mt#3901.
+  //
+  // ## Why the strict reading is not implemented here
+  //
+  // "One UNCAPTURED piece of research" requires knowing whether a given capture
+  // COVERS a given research occurrence — topical relation, which ADR-024 places
+  // at rung 3. A rung-1 proxy (require one distinct propagation call per
+  // occurrence) was considered and rejected: an agent who researches three
+  // related things and writes one well-scoped memory has captured the knowledge
+  // correctly, so the proxy would flag good consolidation as a miss. The strict
+  // semantic is assigned to mt#3783, this detector's rung-3 task.
+  //
+  // `lastOccurrenceIdx` is derived ONCE above and deliberately shared with the
+  // eligibility gate — see its doc comment for why the two must not compute
+  // "the most recent occurrence" independently (PR #2751 R1).
+  const hadPropagation = lastOccurrenceIdx >= 0 && hasPropagationAfter(lines, lastOccurrenceIdx);
+
+  // mt#3740's dedupe decision, made here because it needs the verdict.
+  //
+  // The bound this replaces "at most one record, ever" with: **at most one
+  // record per verdict CHANGE.** An unchanged verdict writes nothing, so a
+  // quiet session that keeps hitting Stop still produces exactly one record —
+  // the 13-records-from-one-session shape mt#3720 killed cannot return. The
+  // count is bounded by the number of genuine research↔propagation
+  // alternations in the transcript, each of which requires real tool calls;
+  // it is not a turn-count. Measured on the live log at 2026-08-11: 232
+  // records, no session holding more than one.
+  //
+  // Revision runs in BOTH directions. miss→propagated is the case this task was
+  // filed for; propagated→miss is equally real, because the verdict is "was
+  // there a capture after the LAST research occurrence" and researching again
+  // after a capture legitimately re-opens the question (mt#3901's equivalence
+  // note). A scheme keyed on the verdict VALUE could not express the second
+  // flip back; this one has no such ceiling.
+  if (alreadyRecorded) {
+    if (!priorVerdict || priorVerdict.hadPropagation === hadPropagation) return null;
+  }
+
+  return {
+    result: {
+      matched: true,
+      // mt#3772: no longer a hardcoded constant. It now records which rung
+      // ACTUALLY produced the verdict, which is what mt#3199's criterion 5
+      // flagged as unreachable-by-construction on the old literal.
+      detectionRung: degradedReason === undefined && nominateSkill ? "2-embedding" : "1-lexical",
+      researchTools,
+      loadedSkills,
+      matchedSkill: firstMatch.matchedSkill,
+      matchedKeyword: firstMatch.matchedKeyword,
+      keywordHits,
+      matchedTextExcerpt,
+      ...(firstMatch.score !== undefined ? { nominationScore: firstMatch.score } : {}),
+      ...(degradedReason !== undefined ? { degradedReason } : {}),
+      hadPropagation,
+    },
+    dedupeKey: SESSION_VERDICT_DEDUPE_KEY,
+    ...(alreadyRecorded && priorVerdict ? { supersedes: priorVerdict.timestamp } : {}),
+    // mt#3207 census semantics preserved: a propagated verdict still emits a
+    // record (carrying the suppression reason) rather than being dropped, so
+    // the propagation RATE stays measurable from the log alone. Safe to record
+    // — and so to burn the dedupe key — because propagation is in the past and
+    // cannot un-happen.
+    suppressionReasons: hadPropagation ? [SUPPRESSION_PROPAGATION_IN_WINDOW] : [],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -726,34 +1066,80 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
   }
 }
 
+/** What this session already has in the calibration log (mt#3740). */
+export interface LoggedSessionState {
+  /** Every `dedupeKey` already logged THIS session. */
+  keys: Set<string>;
+  /** The session's most recent recorded verdict, or null if it has none. */
+  priorVerdict: PriorSessionVerdict | null;
+}
+
 /**
- * Load every `dedupeKey` already logged THIS session, from a bounded tail
- * read of the calibration log (mt#3003 shared dedupe primitive,
- * `readLogTailText`) — never a full-file read, and never throws.
+ * Load this session's logged state from a bounded tail read of the calibration
+ * log (mt#3003 shared dedupe primitive, `readLogTailText`) — never a full-file
+ * read, and never throws.
+ *
+ * mt#3740: returns the keys AND the prior verdict from ONE pass. They are
+ * deliberately not separate loaders — the revision decision needs both, and a
+ * caller that could fetch the keys alone would silently get mt#3720's
+ * freeze-the-first-answer behavior back.
  */
-function loadAlreadyLoggedDedupeKeys(cwd: string, sessionId: string | undefined): Set<string> {
-  const keys = new Set<string>();
-  if (!sessionId) return keys;
+function loadLoggedSessionState(cwd: string, sessionId: string | undefined): LoggedSessionState {
+  if (!sessionId) return { keys: new Set<string>(), priorVerdict: null };
   try {
     const logPath = resolve(findRepoRoot(cwd), CALIBRATION_LOG);
     const text = readLogTailText(logPath);
-    if (!text) return keys;
-    for (const raw of text.split("\n")) {
-      const trimmed = raw.trim();
-      if (!trimmed) continue;
-      try {
-        const rec = JSON.parse(trimmed) as Record<string, unknown>;
-        if (rec["session_id"] === sessionId && typeof rec["dedupeKey"] === "string") {
-          keys.add(rec["dedupeKey"] as string);
-        }
-      } catch {
-        continue;
-      }
-    }
+    if (!text) return { keys: new Set<string>(), priorVerdict: null };
+    return parseLoggedSessionState(text, sessionId);
   } catch {
     // ignore — fail-open, treat as "nothing logged yet"
+    return { keys: new Set<string>(), priorVerdict: null };
   }
-  return keys;
+}
+
+/**
+ * The pure half of {@link loadLoggedSessionState}: parse log-tail TEXT into
+ * this session's logged state.
+ *
+ * Split out (PR #2873 R1) so the loader seam — the thing that actually wires
+ * revision into production — is testable without touching disk. Testing it via
+ * the disk-reading wrapper would need a real temp file, which
+ * `custom/no-real-fs-in-tests` forbids; the wrapper is now thin enough that
+ * reading it IS the review.
+ */
+export function parseLoggedSessionState(text: string, sessionId: string): LoggedSessionState {
+  const keys = new Set<string>();
+  let priorVerdict: PriorSessionVerdict | null = null;
+  for (const raw of text.split("\n")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      const rec = JSON.parse(trimmed) as Record<string, unknown>;
+      if (rec["session_id"] !== sessionId) continue;
+      if (typeof rec["dedupeKey"] === "string") {
+        keys.add(rec["dedupeKey"] as string);
+      }
+      // Last one wins: the tail is append-ordered, so the final matching
+      // record is this session's CURRENT verdict — including one that already
+      // superseded an earlier record. Comparing against anything else would
+      // let a session oscillate against a stale baseline.
+      if (
+        rec["dedupeKey"] === SESSION_VERDICT_DEDUPE_KEY &&
+        typeof rec["hadPropagation"] === "boolean" &&
+        typeof rec["timestamp"] === "string"
+      ) {
+        priorVerdict = {
+          hadPropagation: rec["hadPropagation"] as boolean,
+          timestamp: rec["timestamp"] as string,
+        };
+      }
+    } catch {
+      // A malformed line is skipped, never fatal — the log is append-only
+      // and a partial write must not blind the whole read.
+      continue;
+    }
+  }
+  return { keys, priorVerdict };
 }
 
 /**
@@ -802,21 +1188,168 @@ export function buildCalibrationRecord(
     matchedKeyword: detection.result.matchedKeyword,
     keywordHits: detection.result.keywordHits,
     matchedTextExcerpt: detection.result.matchedTextExcerpt,
+    nominationScore: detection.result.nominationScore,
+    degradedReason: detection.result.degradedReason,
     dedupeKey: detection.dedupeKey,
+    // mt#3740: present ONLY on a revision. A reader (and the calibration sweep)
+    // uses it to drop the record it names, so a revised session contributes one
+    // outcome rather than two.
+    ...(detection.supersedes !== undefined ? { supersedes: detection.supersedes } : {}),
     suppressionReasons: detection.suppressionReasons,
   };
 }
 
-function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
+// Exported (mt#4002) — see `renderProbe` in the registry. Calibration-first
+// guards emit no `additionalContext`, so the shape test had nothing to measure.
+export function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
   return [
     "[knowledge-acquisition-detector] Research surfaced knowledge relevant to a",
     `loaded skill (\`${result.matchedSkill}\`, keyword "${result.matchedKeyword}"),`,
-    "with no propagation in the trailing window (mt#2708).",
+    "with no propagation anywhere in this session (mt#2708, mt#3720).",
     `Research tools: ${result.researchTools.join(", ")}.`,
     "If this should update the skill/rule, capture it now: memory_create, the",
     "/learn routing skill, or a filed task targeting the artifact.",
-    `Override: ${OVERRIDE_ENV_VAR}=1.`,
+    // Override advertisement removed (mt#4002) — see `guard-feedback-authoring.mdc`.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * The template is fixed and interpolates three values. `researchTools` is joined
+ * with no count cap — growth-shaped, though bounded in practice by the number of
+ * distinct research tools a turn can call — so this is posed at a saturated
+ * sample rather than a proved ceiling; `matchedSkill` and `matchedKeyword` come
+ * from the loaded-skill list and this module's keyword corpus.
+ */
+export function renderWorstCase(): string {
+  // Every required field supplied rather than cast through `unknown`: a cast
+  // would let the probe keep compiling after the result type gains a field the
+  // renderer reads, which is the drift this measurement exists to prevent.
+  const result: KnowledgeAcquisitionResult = {
+    matched: true,
+    detectionRung: "rung-2",
+    researchTools: Array.from({ length: 6 }, (_, i) => `mcp__research__tool_number_${i}`),
+    loadedSkills: [],
+    matchedSkill: "x".repeat(40),
+    matchedKeyword: "y".repeat(40),
+    keywordHits: [],
+    hadPropagation: false,
+  };
+  return buildInjectionReminder(result);
+}
+
+/**
+ * Build the Rung-2 nominator: one exemplar set per loaded skill, whose
+ * exemplar IS that skill's frontmatter description.
+ *
+ * The mapping is the whole idea. `nominate` scores a candidate text against
+ * every family and returns per-family similarity; "family" = skill and
+ * "exemplar" = what that skill is FOR, so the score answers "is this research
+ * about that skill's domain?" — the question the lexical gate only proxied.
+ *
+ * Deps resolve lazily and are cached across occurrences within one session
+ * verdict, and a failure latches: once degraded, every later call returns
+ * degraded without re-attempting. Re-attempting per occurrence would spend a
+ * provider round-trip per research call to re-learn the same answer, and would
+ * let one verdict mix rungs — which the caller explicitly forbids.
+ */
+/**
+ * Opt-in for the Rung-2 nomination path (mt#3772).
+ *
+ * Rung 2 ships DISABLED by default, matching mt#3408's precedent for the
+ * sibling family: the mechanism lands, and the threshold that decides it is
+ * measured offline before it is allowed to change any verdict. Two concrete
+ * reasons here, not caution-in-general:
+ *
+ * 1. `DEFAULT_SIMILARITY_THRESHOLD` (0.455) was derived from the
+ *    retrospective-trigger exemplar band. Nothing has measured where
+ *    research-text-vs-skill-description cosines actually live, so enabling it
+ *    by default would ship an unmeasured threshold into every session verdict.
+ * 2. Enabled, every research occurrence costs a provider round-trip. That is a
+ *    real cost to impose before the precision it buys is known.
+ *
+ * Registered in `HOOK_ONLY_ENV_VARS`.
+ */
+export const RUNG2_NOMINATION_ENV_VAR = "MINSKY_KA_RUNG2_NOMINATION";
+
+/** True when the operator has opted into the Rung-2 nomination path. */
+export function isRung2NominationEnabled(): boolean {
+  const raw = process.env[RUNG2_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+export function createSkillNominator(cwd: string): SkillNominator {
+  let deps: NominationDeps | null | undefined;
+  let latchedFailure: string | undefined;
+
+  return async (candidateTexts, loadedSkills) => {
+    if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
+
+    if (deps === undefined) {
+      // A hook is its own entry point: it inherits neither the reflect polyfill
+      // nor the process-global configuration the CLI and MCP server set up at
+      // boot, and `resolveNominationDeps` reaches the embedding factory which
+      // needs both. Without this the resolver throws, returns null, and Rung 2
+      // degrades on EVERY turn in production while every test passes — the
+      // mt#3019 dead-path shape mt#3408 hit on this exact call.
+      //
+      // The try/catch is load-bearing, not defensive habit: BOTH calls can
+      // throw, the caller runs inside `run()`'s catch-all, and an escaping
+      // throw there turns the whole verdict into `null` — no record, no
+      // degraded marker, nothing. That is precisely the silent-skip ADR-024
+      // forbids, and it is what this guard converts back into a visible
+      // degradation. Caught by the real-`run()` tests, which have no provider.
+      try {
+        const bootstrap = await ensureHookDomainBootstrap();
+        if (!bootstrap.ok) {
+          latchedFailure = "bootstrap-failed";
+          return { kind: "degraded", reason: latchedFailure };
+        }
+        deps = await resolveNominationDeps();
+      } catch (err) {
+        latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+    }
+    if (deps === null) {
+      latchedFailure = "provider-unconfigured";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    const exemplarSets: ExemplarSet[] = [];
+    for (const skill of loadedSkills) {
+      const description = readSkillDescription(cwd, skill);
+      // A skill with no readable description contributes no exemplar. Unlike
+      // the lexical path — which falls back to name tokens — there is nothing
+      // meaningful to embed for it, and embedding the bare name would score
+      // every research turn against a single word.
+      if (description.trim().length > 0) {
+        exemplarSets.push({ family: skill, exemplars: [description] });
+      }
+    }
+    // No embeddable description for ANY loaded skill is "Rung 2 cannot answer",
+    // NOT "this research is about no skill" — so it degrades to the lexical
+    // gate, which still has name tokens to work with. Returning `none` here
+    // would silence the detector on exactly the unreadable-SKILL.md case the
+    // lexical path was given a name-token fallback for (PR #2239 R1/R2).
+    if (exemplarSets.length === 0) {
+      return { kind: "degraded", reason: "no-embeddable-skill-descriptions" };
+    }
+
+    const result = await nominate(candidateTexts.join("\n"), exemplarSets, deps);
+    if (result.degraded) {
+      latchedFailure = result.degradedReason ?? "unknown";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    let best: Nomination | undefined;
+    for (const nomination of result.nominations) {
+      if (best === undefined || nomination.score > best.score) best = nomination;
+    }
+    if (best === undefined) return { kind: "none" };
+    return { kind: "nominated", skill: best.family, score: best.score, segment: best.segment };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -829,7 +1362,10 @@ function buildInjectionReminder(result: KnowledgeAcquisitionResult): string {
  * `INJECTION_ENABLED` is false — `additionalContext` is never set until the
  * flag flips post-graduation.
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -856,12 +1392,15 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     if (loadedSkills.length === 0) return null;
 
     const skillKeywordsByName = resolveSkillKeywords(input.cwd, loadedSkills);
-    const alreadyLoggedDedupeKeys = loadAlreadyLoggedDedupeKeys(input.cwd, input.session_id);
-    detection = detectKnowledgeAcquisition(
+    const loggedState = loadLoggedSessionState(input.cwd, input.session_id);
+    detection = await detectKnowledgeAcquisition(
       lines,
       loadedSkills,
       skillKeywordsByName,
-      alreadyLoggedDedupeKeys
+      loggedState.keys,
+      TRAILING_WINDOW_TURNS,
+      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined,
+      loggedState.priorVerdict
     );
   } catch (err) {
     process.stderr.write(
@@ -885,7 +1424,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
 export async function main(): Promise<void> {
   const capInfo = readHostCap("knowledge-acquisition-detector.ts", undefined, {
-    events: ["UserPromptSubmit"],
+    events: ["Stop"],
   });
   if (capInfo.warning) {
     process.stderr.write(`[knowledge-acquisition-detector] ${capInfo.warning}\n`);
@@ -932,12 +1471,15 @@ export async function main(): Promise<void> {
     if (loadedSkills.length === 0) process.exit(0);
 
     const skillKeywordsByName = resolveSkillKeywords(input.cwd, loadedSkills);
-    const alreadyLoggedDedupeKeys = loadAlreadyLoggedDedupeKeys(input.cwd, input.session_id);
-    detection = detectKnowledgeAcquisition(
+    const loggedState = loadLoggedSessionState(input.cwd, input.session_id);
+    detection = await detectKnowledgeAcquisition(
       lines,
       loadedSkills,
       skillKeywordsByName,
-      alreadyLoggedDedupeKeys
+      loggedState.keys,
+      TRAILING_WINDOW_TURNS,
+      isRung2NominationEnabled() ? createSkillNominator(input.cwd) : undefined,
+      loggedState.priorVerdict
     );
   } catch (err) {
     console.error(
@@ -957,7 +1499,7 @@ export async function main(): Promise<void> {
 
   const output: HookOutput = {
     hookSpecificOutput: {
-      hookEventName: "UserPromptSubmit",
+      hookEventName: "Stop",
       additionalContext: buildInjectionReminder(detection.result),
     },
   };

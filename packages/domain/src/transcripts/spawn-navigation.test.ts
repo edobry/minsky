@@ -47,7 +47,14 @@ function agentCall(id: string, subagentType?: string) {
 }
 
 /** The tool-call element shape the assertions below reach into. */
-type SpawnCall = { kind: string; id?: string; spawn?: { childAgentSessionId?: string } };
+type SpawnCall = {
+  kind: string;
+  id?: string;
+  // Mirrors the real `spawn` shape in `conversation-elements.ts`; `agentKind`
+  // was missing here, so an assertion on it read a property the local type
+  // did not declare.
+  spawn?: { agentKind?: string; childAgentSessionId?: string };
+};
 
 describe("findAgentToolCalls", () => {
   test("returns EVERY Agent call on a turn, in order", () => {

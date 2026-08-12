@@ -18,19 +18,30 @@
  * already parses every inbound line, so injection is a serialize-instead-of-
  * raw-push at an existing parse point. See ADR-006 §Implementation Phase 2.
  *
- * Known limitation: the env value is fixed at proxy spawn. An in-process
- * conversation switch (/clear, in-process resume) changes the conversation id
- * without respawning MCP servers, so calls attribute to the pre-switch
- * conversation until the next reconnect respawns the proxy.
+ * The env value is fixed at proxy spawn, so on its own it goes stale the moment
+ * an in-process conversation switch (`/clear`, resume, fork) changes the
+ * conversation without respawning MCP servers. mt#3900 closes that: a
+ * SessionStart hook records `<harness pid> → conversation id`, and
+ * {@link resolveLiveConversationAgentId} prefers that mapping, falling back to
+ * the spawn-time env value when no mapping exists. The env path remains the
+ * only source in hookless environments.
  *
  * @see docs/architecture/adr-006-agent-identity.md §Implementation Phase 2
  * @see packages/domain/src/agent-identity/layer2.ts — the reader this feeds
  */
 
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
-import { isValidAgentId } from "@minsky/domain/agent-identity/format";
+import { isValidAgentId, parseAgentId } from "@minsky/domain/agent-identity/format";
 import { KNOWN_KINDS } from "@minsky/domain/agent-identity/kinds";
+import {
+  BAGGAGE_META_KEY,
+  GEN_AI_CONVERSATION_ID_KEY,
+  appendBaggageEntry,
+} from "@minsky/domain/agent-identity/baggage";
+import { readConversationMapping } from "@minsky/shared/conversation-pid-map";
 import type { JsonRpcMessage } from "./tools";
+
+export { BAGGAGE_META_KEY };
 
 /** Env var Claude Code sets on spawned MCP server processes. */
 export const CLAUDE_CODE_SESSION_ID_ENV = "CLAUDE_CODE_SESSION_ID";
@@ -71,6 +82,95 @@ export function resolveConversationAgentId(
 }
 
 /**
+ * Build the Layer-2/3 agentId for a raw conversation UUID, or null when the
+ * value is not UUID-shaped.
+ *
+ * Shared by the env path and the pid-mapping path so both emit an id the
+ * canonical validator accepts — a divergence here would be invisible until an
+ * agentId was silently dropped downstream.
+ */
+function toConversationAgentId(sessionId: string): string | null {
+  if (!UUID_RE.test(sessionId)) return null;
+  const agentId = `${KNOWN_KINDS.CLAUDE_CODE}:conv:${sessionId.toLowerCase()}`;
+  return isValidAgentId(agentId) ? agentId : null;
+}
+
+/**
+ * How long a resolved conversation id is reused before the mapping file is
+ * re-read.
+ *
+ * The read sits on every `tools/call` frame, so it is cached; but the whole
+ * point is to notice a switch, so the cache has to expire. 2s is far below the
+ * gap between a `/clear` and the next tool call (a human types a prompt first),
+ * and far above any plausible burst of frames, so a switch is picked up on the
+ * first call after it while a batch of calls pays one `stat`+read between them.
+ */
+export const CONVERSATION_MAPPING_TTL_MS = 2_000;
+
+interface MappingCache {
+  harnessPid: number;
+  agentId: string | null;
+  readAtMs: number;
+}
+
+let mappingCache: MappingCache | null = null;
+
+/** Drop the memoized mapping read. Tests only. */
+export function resetConversationMappingCache(): void {
+  mappingCache = null;
+}
+
+/**
+ * Resolve the CURRENT conversation-scoped agentId (mt#3900).
+ *
+ * Precedence, highest first:
+ *   1. the `<harness pid> → conversation id` mapping a SessionStart hook wrote
+ *   2. `CLAUDE_CODE_SESSION_ID` captured at proxy spawn
+ *
+ * (1) beats (2) because (2) cannot change without a respawn, so whenever they
+ * disagree it is (2) that is stale — that disagreement IS the defect this
+ * closes. Returns null when neither source yields a valid id; the caller then
+ * stamps nothing rather than fabricating an identity.
+ *
+ * `harnessPid` is resolved ONCE by the caller and passed in: it cannot change
+ * for the life of the process, and the ancestor walk shells out to `ps`, which
+ * has no business running per frame.
+ */
+export function resolveLiveConversationAgentId(
+  harnessPid: number | null,
+  fallbackAgentId: string | null,
+  deps: {
+    readMapping?: (pid: number) => string | null;
+    now?: () => number;
+  } = {}
+): string | null {
+  const { readMapping = readConversationMapping, now = Date.now } = deps;
+
+  if (harnessPid === null) return fallbackAgentId;
+
+  const nowMs = now();
+  // Keyed by pid, not merely time (PR #2764 R1): the cache is module-global, so
+  // an entry cached for one harness must never answer for another. In today's
+  // production shape there is one proxy per process and the pid is constant,
+  // but the module is shared and exported — an unkeyed cache would hand a
+  // second caller the first one's conversation, which is this task's own defect
+  // wearing a different hat.
+  if (
+    mappingCache &&
+    mappingCache.harnessPid === harnessPid &&
+    nowMs - mappingCache.readAtMs < CONVERSATION_MAPPING_TTL_MS
+  ) {
+    return mappingCache.agentId ?? fallbackAgentId;
+  }
+
+  const mapped = readMapping(harnessPid);
+  const agentId = mapped ? toConversationAgentId(mapped) : null;
+  mappingCache = { harnessPid, agentId, readAtMs: nowMs };
+
+  return agentId ?? fallbackAgentId;
+}
+
+/**
  * Redact an agentId for log output: keep the kind and scope, truncate the id
  * segment to its first 8 chars. Conversation UUIDs are attribution keys —
  * logging them verbatim would create linkage between transcripts and
@@ -84,11 +184,31 @@ export function redactAgentId(agentId: string): string {
 }
 
 /**
- * Inject the agentId into a `tools/call` request's `_meta`.
+ * Extract the conversation id an agentId names, or null when it names
+ * something else.
  *
- * Returns a NEW message object when injection applies, or null when it does
- * not — the caller then forwards the original raw line untouched, preserving
- * byte-fidelity for all non-injected traffic.
+ * Only a `conv`-scoped id is a conversation id. A `run`-scoped subagent id or a
+ * `proc`-scoped Layer 1 hash must never be emitted as `gen_ai.conversation.id`
+ * — the attribute means one specific thing, and filling it with a different
+ * grain would make baggage-resolved identity silently wrong rather than absent.
+ */
+export function conversationIdFromAgentId(agentId: string): string | null {
+  const parsed = parseAgentId(agentId);
+  if (!parsed || parsed.scope !== "conv") return null;
+  return parsed.id;
+}
+
+/**
+ * Inject conversation identity into a `tools/call` request's `_meta`, under
+ * BOTH keys: `io.minsky/agent_id` and the W3C `baggage` entry
+ * `gen_ai.conversation.id` (mt#3986).
+ *
+ * Returns a NEW message object when either key is written, or null when
+ * neither is — the caller then forwards the original raw line untouched,
+ * preserving byte-fidelity for all non-injected traffic.
+ *
+ * The two keys are decided INDEPENDENTLY, so a caller that declared its own
+ * `agent_id` still gets baggage added, and vice versa.
  *
  * No-injection cases:
  * - not a `tools/call` request (responses, notifications, initialize, ping)
@@ -96,7 +216,10 @@ export function redactAgentId(agentId: string): string {
  * - `_meta["io.minsky/agent_id"]` already present: an upstream caller that
  *   declares its own identity (e.g. a future subagent-grain declaration,
  *   mt#2292) is more specific than the proxy's conversation grain — preserve
- *   it rather than overwrite.
+ *   it rather than overwrite
+ * - `_meta.baggage` already carries `gen_ai.conversation.id`, is unparseable,
+ *   or cannot fit the new entry within the W3C limits (see
+ *   `@minsky/domain/agent-identity/baggage`)
  */
 export function injectAgentIdMeta(msg: JsonRpcMessage, agentId: string): JsonRpcMessage | null {
   if (msg.method !== "tools/call") return null;
@@ -105,17 +228,25 @@ export function injectAgentIdMeta(msg: JsonRpcMessage, agentId: string): JsonRpc
   const existingMeta = msg.params["_meta"];
   const metaIsObject =
     existingMeta !== null && typeof existingMeta === "object" && !Array.isArray(existingMeta);
-  if (metaIsObject && (existingMeta as Record<string, unknown>)[AGENT_ID_META_KEY] !== undefined) {
-    return null;
-  }
+  const meta = metaIsObject ? (existingMeta as Record<string, unknown>) : {};
+
+  const agentIdApplies = meta[AGENT_ID_META_KEY] === undefined;
+
+  const conversationId = conversationIdFromAgentId(agentId);
+  const nextBaggage = conversationId
+    ? appendBaggageEntry(meta[BAGGAGE_META_KEY], GEN_AI_CONVERSATION_ID_KEY, conversationId)
+    : null;
+
+  if (!agentIdApplies && nextBaggage === null) return null;
 
   return {
     ...msg,
     params: {
       ...msg.params,
       _meta: {
-        ...(metaIsObject ? (existingMeta as Record<string, unknown>) : {}),
-        [AGENT_ID_META_KEY]: agentId,
+        ...meta,
+        ...(agentIdApplies ? { [AGENT_ID_META_KEY]: agentId } : {}),
+        ...(nextBaggage !== null ? { [BAGGAGE_META_KEY]: nextBaggage } : {}),
       },
     },
   };

@@ -37,6 +37,14 @@ concurrency:
 # domain would serve under /. Change to "" when a custom domain is added.
 env:
   BASE_PREFIX: /minsky
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
 
 jobs:
   build:
@@ -71,7 +79,7 @@ jobs:
             echo "::group::Building ${name}"
             (
               cd "$deck"
-              bun install --frozen-lockfile
+              for i in 1 2 3; do if bun install --frozen-lockfile; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
               bun run build \
                 --base "${BASE_PREFIX}/${name}/" \
                 --out "${GITHUB_WORKSPACE}/_site/${name}"

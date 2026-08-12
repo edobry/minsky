@@ -16,6 +16,7 @@ import { join } from "path";
 import { tmpdir } from "os";
 import {
   buildAllowedHosts,
+  buildOffBoxHostSet,
   COCKPIT_COOKIE_NAME,
   cookieBootstrapMiddleware,
   extractHostname,
@@ -28,6 +29,10 @@ import {
 } from "./auth";
 
 const TEMP_DIR_PREFIX = "cockpit-auth-test-";
+/** Representative Tailscale MagicDNS name (mt#3641) — shared across the
+ * buildAllowedHosts/buildOffBoxHostSet/cookieBootstrapMiddleware extra-host
+ * tests below. */
+const TAILNET_HOST = "my-node.tail1234.ts.net";
 
 // ---------------------------------------------------------------------------
 // Token generation / persistence
@@ -147,6 +152,34 @@ describe("buildAllowedHosts", () => {
     const hosts = buildAllowedHosts("192.168.1.5");
     expect(hosts.has("192.168.1.5")).toBe(true);
     expect(hosts.has("127.0.0.1")).toBe(true);
+  });
+
+  test("adds operator-configured extra hosts on top (mt#3641 — Tailscale MagicDNS name)", () => {
+    const hosts = buildAllowedHosts(undefined, [TAILNET_HOST]);
+    expect(hosts.has(TAILNET_HOST)).toBe(true);
+    expect(hosts.has("127.0.0.1")).toBe(true);
+  });
+
+  test("is an ADDITION, not a bypass: an unconfigured host is not in the set", () => {
+    const hosts = buildAllowedHosts(undefined, [TAILNET_HOST]);
+    expect(hosts.has("evil.example.com")).toBe(false);
+  });
+
+  test("normalizes extra hosts case-insensitively (mt#2538 R1 convention)", () => {
+    const hosts = buildAllowedHosts(undefined, ["My-Node.Tail1234.TS.NET"]);
+    expect(hosts.has(TAILNET_HOST)).toBe(true);
+  });
+});
+
+describe("buildOffBoxHostSet", () => {
+  test("returns an empty set when no extra hosts are given", () => {
+    expect(buildOffBoxHostSet().size).toBe(0);
+    expect(buildOffBoxHostSet([]).size).toBe(0);
+  });
+
+  test("normalizes extra hosts case-insensitively, matching buildAllowedHosts", () => {
+    const offBoxHosts = buildOffBoxHostSet(["My-Node.Tail1234.TS.NET"]);
+    expect(offBoxHosts.has(TAILNET_HOST)).toBe(true);
   });
 });
 
@@ -290,6 +323,40 @@ describe("cookieBootstrapMiddleware", () => {
     expect(nextCalled).toBe(true);
     expect(res.headers["Set-Cookie"]).toBeUndefined();
   });
+
+  test(
+    "does NOT mint the cookie for a request whose Host matches an operator-configured " +
+      "extra host, even while bound to loopback (mt#3641 criterion 3 re-derivation)",
+    () => {
+      // Tailscale's own best practice keeps the bind loopback and puts
+      // `tailscale serve` in front, so `isLoopbackBind` stays true while the
+      // request itself arrives off-box. `isLoopbackBind` alone must not
+      // re-enable the plain-HTTP cookie for that request.
+      const offBoxHosts = buildOffBoxHostSet([TAILNET_HOST]);
+      const middleware = cookieBootstrapMiddleware(TOKEN, true, offBoxHosts);
+      const req = { method: "GET", headers: { host: TAILNET_HOST }, query: {} };
+      const res = makeFakeResponse();
+      let nextCalled = false;
+      middleware(req as any, res as any, () => {
+        nextCalled = true;
+      });
+      expect(nextCalled).toBe(true);
+      expect(res.headers["Set-Cookie"]).toBeUndefined();
+    }
+  );
+
+  test(
+    "still mints the cookie for a loopback-Host request even when extra hosts are " +
+      "configured (the loopback bind's own requests are unaffected)",
+    () => {
+      const offBoxHosts = buildOffBoxHostSet([TAILNET_HOST]);
+      const middleware = cookieBootstrapMiddleware(TOKEN, true, offBoxHosts);
+      const req = { method: "GET", headers: { host: "127.0.0.1:3737" }, query: {} };
+      const res = makeFakeResponse();
+      middleware(req as any, res as any, () => {});
+      expect(String(res.headers["Set-Cookie"] ?? "")).toContain(`${COCKPIT_COOKIE_NAME}=`);
+    }
+  );
 });
 
 describe("mutationAuthMiddleware", () => {

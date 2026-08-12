@@ -32,6 +32,7 @@ import noHandRolledCommandParams from "./eslint-rules/no-hand-rolled-command-par
 import noEntityIdParamDrift from "./eslint-rules/no-entity-id-param-drift.js";
 import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
 import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
+import requireGuardOutcomeInFireLog from "./eslint-rules/require-guard-outcome-in-fire-log.js";
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
 import noSilentCatch from "./eslint-rules/no-silent-catch.js";
 import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
@@ -284,6 +285,7 @@ export default [
           "no-entity-id-param-drift": noEntityIdParamDrift,
           "no-raw-colors-in-cockpit": noRawColorsInCockpit,
           "require-hook-domain-bootstrap": requireHookDomainBootstrap,
+          "require-guard-outcome-in-fire-log": requireGuardOutcomeInFireLog,
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
           "no-silent-catch": noSilentCatch,
           "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
@@ -1098,6 +1100,33 @@ export default [
     ignores: ["**/*.test.ts"],
     rules: {
       "custom/require-hook-domain-bootstrap": "error",
+    },
+  },
+  // === GUARD-OUTCOME MARKER ON FIRE-LOG WRITERS (mt#3920) ===
+  // A hook that writes fire-log records must set `guardOutcome` somewhere.
+  // mt#3892 made the field guard-health's ONLY clean-run evidence and added it
+  // in two places; ten other standalone writers were left without it for two
+  // months, each of them unable to ever leave `dormant`, and nothing caught it.
+  //
+  // The invariant is FILE-level, not call-level, on purpose: the field is
+  // legitimately UNSET at many exits (an override, an unrelated tool, a
+  // short-circuit before the check), so "every call passes it" would be wrong.
+  // What is checkable is that the file considered the marker at all.
+  //
+  // COVERAGE IS DECLARED IN TWO PLACES THAT MUST STAY IN SYNC: the `files` glob
+  // below, AND `COVERED_ROOTS_POSIX` in the rule itself — same footgun as the
+  // sibling block above, which mt#3178 walked into.
+  //
+  // Covered tree is the SOURCE tree, not the generated `.claude/hooks/**` copy.
+  // Test files are excluded: a test legitimately names the writer while
+  // asserting on records it builds by hand. The rule additionally exempts
+  // `fire-log.ts`, which DEFINES the field. No separate plugin registration is
+  // needed — see the sibling block above.
+  {
+    files: [".minsky/hooks/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "custom/require-guard-outcome-in-fire-log": "error",
     },
   },
   // === RAW COLOR ENFORCEMENT IN COCKPIT (mt#2916) ===

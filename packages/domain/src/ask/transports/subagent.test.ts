@@ -21,6 +21,9 @@ import type { RoutedAsk, AskPayload, TransportBinding } from "../router";
 // ---------------------------------------------------------------------------
 
 const KIND_CAPABILITY_ESCALATE: RoutedAsk["kind"] = "capability.escalate";
+
+/** The message `StubSubagentDispatcher` rejects with when no dispatcher is wired. */
+const STUB_DISPATCHER_UNAVAILABLE = "SubagentDispatcher not yet available";
 const KIND_STUCK_UNBLOCK: RoutedAsk["kind"] = "stuck.unblock";
 const KIND_DIR_DECIDE: RoutedAsk["kind"] = "direction.decide";
 const KIND_QUALITY_REVIEW: RoutedAsk["kind"] = "quality.review";
@@ -189,6 +192,56 @@ describe("dispatchToSubagent — capability.escalate", () => {
 });
 
 // ---------------------------------------------------------------------------
+// capability.escalate — escalation-failure fallback (mt#3851)
+// ---------------------------------------------------------------------------
+
+describe("dispatchToSubagent — capability.escalate escalation failure", () => {
+  test("routes to the operator instead of closing when the dispatcher fails", async () => {
+    const dispatcher = createMockDispatcher();
+    dispatcher.state.error = new Error(STUB_DISPATCHER_UNAVAILABLE);
+
+    const routedAsk = makeRoutedAsk(KIND_CAPABILITY_ESCALATE, {
+      metadata: { model: "opus" },
+    });
+
+    const result = await dispatchToSubagent(routedAsk, { dispatcher });
+
+    // ADR-008 prices this kind as "no operator cost UNLESS escalation fails" —
+    // so a failed escalation must actually reach the operator. Closing it here
+    // is what made the originating ask (ask#7373) terminal and silent.
+    expect(result.state).toBe("routed");
+    expect(result.routingTarget).toBe("operator");
+    expect(result.transport).toEqual({ kind: "inbox" });
+    expect(result.closedAt).toBeUndefined();
+
+    // The question survives intact — the operator is answering the original ask.
+    expect(result.packagedPayload.question).toBe(routedAsk.question);
+  });
+
+  test("preserves the failure detail and pre-existing metadata for the operator", async () => {
+    const dispatcher = createMockDispatcher();
+    dispatcher.state.error = new Error("quota exceeded");
+
+    const routedAsk = makeRoutedAsk(KIND_CAPABILITY_ESCALATE, {
+      metadata: { model: "opus", agentType: "reviewer" },
+    });
+
+    const result = await dispatchToSubagent(routedAsk, { dispatcher });
+
+    const metadata = result.metadata as Record<string, unknown>;
+
+    // Pre-existing metadata is not clobbered by the fallback.
+    expect(metadata.model).toBe("opus");
+    expect(metadata.agentType).toBe("reviewer");
+
+    const failure = metadata.escalationFailure as Record<string, unknown>;
+    expect(failure.step).toBe(KIND_CAPABILITY_ESCALATE);
+    expect(failure.error).toContain("quota exceeded");
+    expect(typeof failure.failedAt).toBe("string");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // stuck.unblock tests
 // ---------------------------------------------------------------------------
 
@@ -256,11 +309,16 @@ describe("dispatchToSubagent — timeout", () => {
       timeoutMs: 50,
     });
 
-    // Should close with error, not throw
-    expect(result.state).toBe("closed");
-    const payload = result.response?.payload as Record<string, unknown>;
-    expect(typeof payload?.error).toBe("string");
-    expect(payload?.errorDetail as string).toContain("timed out");
+    // Hands off to the operator rather than closing (mt#3851), and does not throw.
+    expect(result.state).toBe("routed");
+    expect(result.routingTarget).toBe("operator");
+    expect(result.transport).toEqual({ kind: "inbox" });
+
+    const failure = (result.metadata as Record<string, unknown> | undefined)?.escalationFailure as
+      | Record<string, unknown>
+      | undefined;
+    expect(failure?.step).toBe(KIND_CAPABILITY_ESCALATE);
+    expect(failure?.error as string).toContain("timed out");
   }, 5000);
 
   test("does not fire timeout when dispatcher responds within limit", async () => {
@@ -337,19 +395,26 @@ describe("StubSubagentDispatcher", () => {
 
     await expect(
       stub.dispatch({ model: "opus", type: "general-purpose", prompt: "test" })
-    ).rejects.toThrow("SubagentDispatcher not yet available");
+    ).rejects.toThrow(STUB_DISPATCHER_UNAVAILABLE);
   });
 
   test("is used as the default dispatcher when none is provided", async () => {
     const routedAsk = makeRoutedAsk(KIND_CAPABILITY_ESCALATE);
 
-    // No dispatcher injected — should use StubSubagentDispatcher and close with error
+    // No dispatcher injected — uses StubSubagentDispatcher, which always
+    // throws. Since mt#3851 that lands the Ask on the operator rather than
+    // closing it: with no dispatcher wired in production, EVERY
+    // capability.escalate takes this path, so it is the one that decides
+    // whether such an ask reaches a human at all.
     const result = await dispatchToSubagent(routedAsk);
 
-    expect(result.state).toBe("closed");
-    const payload = result.response?.payload as Record<string, unknown>;
-    expect(typeof payload?.error).toBe("string");
-    expect(payload?.errorDetail as string).toContain("SubagentDispatcher not yet available");
+    expect(result.state).toBe("routed");
+    expect(result.routingTarget).toBe("operator");
+
+    const failure = (result.metadata as Record<string, unknown> | undefined)?.escalationFailure as
+      | Record<string, unknown>
+      | undefined;
+    expect(failure?.error as string).toContain(STUB_DISPATCHER_UNAVAILABLE);
   });
 });
 

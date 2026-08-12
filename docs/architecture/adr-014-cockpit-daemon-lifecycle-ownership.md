@@ -4,6 +4,9 @@
 
 Accepted (2026-06-02 — principal approved Option C; implemented in mt#2241)
 
+Amended 2026-08-11 (mt#3988) — see [Amendment: the port is resolved, not
+fixed](#amendment-2026-08-11-the-port-is-resolved-not-fixed).
+
 ## Context
 
 The cockpit daemon (`minsky cockpit start`, an HTTP server on `:3737`) and the cockpit
@@ -183,3 +186,39 @@ Option<u32>`. If the port holder is unknown (`None`), eviction is skipped.
 
 This ensures the eviction path is conservative: it only removes the launchd agent
 when the agent is demonstrably the process holding the port.
+
+## Amendment 2026-08-11: the port is resolved, not fixed
+
+This ADR is written throughout in terms of a literal `:3737`, and the original
+implementation took that literally: the tray pinned the port in four separate
+constants (`supervisor.rs`'s `DAEMON_PORT` and `HEALTH_URL`, `menu.rs`'s
+`COCKPIT_URL` and a hand-synced `COCKPIT_PORT` copy for the webview's
+same-origin check), plus a fifth URL in `watcher_backend.rs`.
+
+**mt#3988 replaces all five with one value resolved from the `cockpit.port`
+configuration key** (default 3737, `MINSKY_COCKPIT_PORT` override, explicit
+`--port` still wins), read once at tray startup from the same checkout the tray
+spawns the daemon from — so the supervisor and the daemon cannot disagree about
+which port they mean.
+
+**Nothing about the decision this ADR records changes.** The tray is still the
+canonical supervisor; launchd is still the optional headless path; the
+single-owner invariant still holds. What changes is its SUBJECT: read every
+`:3737` below as _the configured cockpit port_. Specifically, the invariant
+"one daemon owns `:3737` at a time" is now "one daemon owns the configured port
+at a time", and the warning that _"two lifecycle paths must not fight over
+`:3737`"_ is what a hardcoded port silently defeated — an operator who moved the
+daemon to another port got exactly the fight this ADR set out to prevent, with
+the tray spawning a second daemon on 3737 beside it (2026-06-04; originally
+misattributed to launchd coexistence in mt#2301, and traced to the hardcoded
+port in mt#2427 → mt#3988).
+
+Two consequences worth stating explicitly:
+
+- The `EADDRINUSE`-based availability probe this ADR prescribes ("prefer
+  attempting the daemon's own bind") is unchanged in kind — it now binds the
+  resolved port.
+- The tray resolves the port ONCE at launch. Changing `cockpit.port` under a
+  running tray does not move it; quit and relaunch. This is deliberate: a port
+  that could change under a live supervisor would reintroduce the same
+  two-owners-two-ports state from the other direction.

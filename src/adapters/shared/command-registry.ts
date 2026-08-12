@@ -55,6 +55,7 @@ export enum CommandCategory {
   EVENTS = "EVENTS",
   REFS = "REFS",
   PRINCIPAL = "PRINCIPAL",
+  SECURITY = "SECURITY",
 }
 
 /**
@@ -172,9 +173,55 @@ export interface CommandDefinition<
    * Whether this command performs external side effects that must not run
    * when the MCP server is stale (loaded commit !== workspace HEAD).
    * Examples: session_pr_create, session_pr_merge, session_pr_review_dismiss,
-   * session_update, session_commit. Read-only commands leave this unset.
+   * session_update, session_commit.
+   *
+   * **This is a drift-gate allowlist, NOT a read/write classification (mt#3847).**
+   * Its only consumer is `checkDriftGate` in `src/mcp/server.ts`, whose rule is
+   * "refuse this call when the server build is stale." Two consequences a reader
+   * has to know, because the type signature shows neither:
+   *
+   * - **Unset does NOT mean "reads".** 28 of 225 registered commands set this and
+   *   none sets it `false`. `memory.create`, `tasks.create`, `tasks.status.set`
+   *   and `session.write_file` all write and all leave it unset. A consumer
+   *   reading absence as "read-only" gets a confident wrong answer for ~197
+   *   commands — mt#3845 nearly shipped exactly that.
+   * - **Do not backfill it to fix that.** Adding the flag to more commands widens
+   *   what a stale server REFUSES, which is a change to a safety gate's blast
+   *   radius. mt#3924 made that decision once, deliberately and on measured
+   *   evidence: the set covers operations whose effect is irreversible, bulk, or
+   *   schema-migrating — not everything that writes. `tasks.create` and
+   *   `memory.create` are deliberately OUT: they are reversible single-record
+   *   writes on the hottest agent path, and refusing them would buy little while
+   *   making the gate worth working around. Extending the set is another such
+   *   decision, not a consumer's convenience.
+   *
+   * For "does invoking this tool change state?", use `@minsky/shared/tool-effect`
+   * — three-state, browser-reachable, and coverage-tested.
    */
   mutating?: boolean;
+
+  /**
+   * This command READS presence state, so invoking it must not WRITE presence
+   * (mt#3889, generalized by mt#3903).
+   *
+   * Presence claims are touch-based: the MCP server upserts one for any call
+   * carrying a `task`/`taskId` argument. That is correct for a tool that WORKS
+   * on a task, and self-defeating for a tool that REPORTS on it — the probe
+   * refreshes the `lastRefreshedAt` it is about to return, so a long-stale claim
+   * reads back fresh and an agent checking whether anyone else holds a task sees
+   * its own write.
+   *
+   * Declared HERE rather than in a server-side name list because the fact
+   * belongs to the tool: a future presence-reading tool will be written by
+   * someone who never opens `src/mcp/server.ts`, and under the old allowlist the
+   * defect returned silently — no error, no failing test, just a probe that
+   * quietly refreshes what it reports.
+   *
+   * NOT the inverse of {@link CommandDefinition.mutating}, and not a read/write
+   * classification: it names one specific interaction with one specific
+   * subsystem. Almost every command leaves it unset, including most reads.
+   */
+  readsPresence?: boolean;
 }
 
 /**
@@ -195,6 +242,83 @@ export type InferParams<T extends CommandParameterMap> = {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AnyCommandDefinition = CommandDefinition<any, any, any>;
+
+/**
+ * The behavior flags an adapter must carry from a `CommandDefinition` onto the
+ * artifact it registers (an MCP tool, a CLI command).
+ *
+ * Every one of these is read by the adapter layer off the REGISTERED ARTIFACT,
+ * never off the definition — so an adapter that builds its registration
+ * argument field-by-field silently drops any flag it forgets. Nothing fails:
+ * the tool registers, the call succeeds, and the behavior the flag asked for
+ * simply never happens. `readsPresence` was dropped exactly that way for the
+ * whole of its life (mt#3989), so mt#3889's presence-read exemption never took
+ * effect in production and the collision probe kept refreshing the claims it
+ * reported.
+ *
+ * Adapters spread {@link pickAdapterBehaviorFlags} rather than copying fields
+ * by hand, and {@link AdapterBehaviorFlagKey} is asserted below to be exactly
+ * the set of `CommandDefinition` fields that are neither identity nor
+ * execution — so a NEW flag added to `CommandDefinition` without being
+ * classified fails to compile here, instead of going missing at runtime.
+ */
+export const ADAPTER_BEHAVIOR_FLAG_KEYS = ["mutating", "readsPresence"] as const;
+
+export type AdapterBehaviorFlagKey = (typeof ADAPTER_BEHAVIOR_FLAG_KEYS)[number];
+
+export type AdapterBehaviorFlags = Pick<AnyCommandDefinition, AdapterBehaviorFlagKey>;
+
+/**
+ * Project a command down to the behavior flags an adapter must carry through.
+ * Derived from {@link ADAPTER_BEHAVIOR_FLAG_KEYS} rather than written out, so
+ * the key list is the single place a flag is named.
+ *
+ * The parameter is constrained to a command-SHAPED object rather than to
+ * `Partial<AdapterBehaviorFlags>` (mt#3993). The latter is all-optional, so
+ * TypeScript's weak-type check REJECTS any command that currently declares no
+ * flag — which is most of them, including the class-based `tools.*` and
+ * `principal-corpus.*` commands. That rejection lands exactly where the spread
+ * is being adopted defensively, and the cheapest way out of it is to go back to
+ * naming fields by hand: the defect this helper exists to prevent. Requiring
+ * `id` + `name` keeps a real guarantee — a params bag, an options object or a
+ * result payload is still rejected at compile time — without the weak-type
+ * check firing, since the constraint has required members. The return type
+ * stays exact.
+ */
+export function pickAdapterBehaviorFlags<T extends { id: string; name: string }>(
+  command: T
+): AdapterBehaviorFlags {
+  const source = command as Partial<AdapterBehaviorFlags>;
+  const flags: AdapterBehaviorFlags = {};
+  for (const key of ADAPTER_BEHAVIOR_FLAG_KEYS) {
+    const value = source[key];
+    if (value !== undefined) {
+      flags[key] = value;
+    }
+  }
+  return flags;
+}
+
+/** Fields that name the command rather than describing how it behaves. */
+type CommandIdentityKey = "id" | "category" | "name" | "description" | "parameters";
+
+/** Fields the registry's own execution path consumes, which adapters never carry. */
+type CommandExecutionKey = "execute" | "validate" | "requiresSetup";
+
+/**
+ * Compile-time completeness check. Adding a field to `CommandDefinition`
+ * without listing it as identity, execution, or an adapter behavior flag makes
+ * this alias fail to compile — which is the point: the alternative is the
+ * field being dropped by every adapter with no error anywhere.
+ */
+type AssertNever<T extends never> = T;
+
+type _EveryCommandDefinitionFieldIsClassified = AssertNever<
+  Exclude<
+    keyof AnyCommandDefinition,
+    CommandIdentityKey | CommandExecutionKey | AdapterBehaviorFlagKey
+  >
+>;
 
 /**
  * Helper to define a command with full type inference on parameters.
@@ -251,7 +375,15 @@ export interface SharedCommand<
     context: CommandExecutionContext
   ) => Promise<ValidatedContext<C> | void>;
   requiresSetup?: boolean;
+  /**
+   * Carried through from `CommandDefinition.mutating` — read its docblock above
+   * before consuming this. It is a drift-gate allowlist, not a read/write
+   * classification, and unset does not mean "reads" (mt#3847). For tool effect,
+   * use `@minsky/shared/tool-effect`.
+   */
   mutating?: boolean;
+  /** Carried through from `CommandDefinition.readsPresence` — see its docblock. */
+  readsPresence?: boolean;
 }
 
 /**

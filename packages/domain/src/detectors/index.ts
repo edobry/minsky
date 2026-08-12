@@ -46,3 +46,21 @@ export {
   MAX_SEGMENT_CHARS,
 } from "./embedding-nomination";
 export { resolveNominationDeps } from "./embedding-nomination-factory";
+
+export type {
+  SearchObservation,
+  ClaimMatch,
+  NegativeExistenceClaimInput,
+  NegativeExistenceClaimResult,
+} from "./negative-existence-claim";
+export {
+  detectNegativeExistenceClaim,
+  extractNegativeExistenceClaims,
+  extractCitedTaskIds,
+  countSearchHits,
+  isSearchCall,
+  isThinSearch,
+  NEGATIVE_EXISTENCE_PATTERNS,
+  SEARCH_TOOL_NAMES,
+  SEARCH_COMMAND_LEADERS,
+} from "./negative-existence-claim";

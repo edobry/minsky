@@ -82,6 +82,9 @@ import { writeOutput } from "./types";
 import { TERMINAL_TASK_STATUSES } from "./task-statuses";
 import type { ToolHookInput } from "./types";
 import { recordGuardError, recordGuardCheckSkip } from "./guard-health";
+// mt#3892 — the clean-run half. See the recordFireLogEntry call in
+// runStandaloneDuplicateGuardInner for why this guard needs it explicitly.
+import { recordFireLogEntry } from "./fire-log";
 import { safeTruncate } from "../../src/utils/safe-truncate";
 import { fetchSimilarActiveTasksInProcess, type ProbeFailure } from "./standalone-dup-probe";
 
@@ -310,10 +313,50 @@ export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise
   // unexpected throw is surfaced on stderr, recorded to the hook-health
   // tracker (mt#2812), and then fails OPEN (permit) — a silent crash here
   // must never block task creation.
+  // mt#3892 — this guard is not on the dispatcher (parallel-work-guard.ts is
+  // still a standalone settings.json entry), so it never got the dispatcher's
+  // automatic fire-log record. It wrote FAILURES to guard-health and successes
+  // nowhere, which is why guard-health could not tell a recovered instance of
+  // THIS guard from a dormant one — the guard the recovery-signal gap was
+  // actually reported against (mt#3879).
+  //
+  // The record is written HERE, in a `finally`, and nowhere else. That
+  // placement is the fix for PR #2762 R1: recording inside the inner function
+  // before its output switch meant a throw after the write produced TWO records
+  // for one evaluation — a `decided` one and then a `crashed` one from this
+  // catch — and the `decided` record would have made a run that ultimately
+  // crashed read as a clean run. Exactly one evaluation, exactly one record.
+  const startMs = Date.now();
+  let fireLogDecision: "allow" | "warn" = "allow";
+  // Defaults to `crashed`: every early exit from this function other than a
+  // completed inner call is a failure, so the safe value is the one that does
+  // NOT count as clean-run evidence.
+  let guardOutcome: "decided" | "crashed" | undefined = "crashed";
   try {
-    await runStandaloneDuplicateGuardInner(input, {
+    const decision = await runStandaloneDuplicateGuardInner(input, {
       fetchSimilar: (query) => fetchSimilarActiveTasksInProcess(query, STANDALONE_DUP_SEARCH_LIMIT),
     });
+    fireLogDecision = decision.action === "warn" ? "warn" : "allow";
+    // Three outcomes, not two (PR #2762 R2):
+    //
+    // - `crashed` — a DEGRADED skip. The fail-open path: the probe checked
+    //   NOTHING. Matches what the dispatcher records for a guard that threw.
+    //   Counting it clean would let a permanently degraded guard report itself
+    //   recovered on every create — the reading mem#884 recorded in the field
+    //   ("recent `allow`s reflect crashes, not verified checks").
+    // - UNSET — a NON-degraded skip. `decideStandaloneDuplicateGuard` returns
+    //   this before it ever calls `fetchSimilar` (the title-less create), so the
+    //   guard neither crashed nor exercised the path that breaks. It is evidence
+    //   of neither, exactly like the dispatcher's override record — and marking
+    //   it `decided` would let one title-less create clear a streak caused by a
+    //   probe that is still broken.
+    // - `decided` — `warn` or `permit`, both of which follow a completed probe.
+    //   The only outcomes that are real clean-run evidence.
+    if (decision.action === "skip") {
+      guardOutcome = decision.degraded === true ? "crashed" : undefined;
+    } else {
+      guardOutcome = "decided";
+    }
   } catch (err) {
     process.stderr.write(
       `[parallel-work-guard] standalone-duplicate probe errored — failing open (permit): ${
@@ -324,6 +367,20 @@ export async function runStandaloneDuplicateGuard(input: ToolHookInput): Promise
       guardName: STANDALONE_DUPLICATE_GUARD_NAME,
       event: "PreToolUse",
       error: err,
+      toolName: input.tool_name,
+      sessionId: input.session_id,
+    });
+  } finally {
+    // Crashed evaluations are recorded too, not skipped: omitting them would be
+    // safe for the recovery join but would hide every crashed evaluation from
+    // the fire-log consumers that count them (override rates, attention cost) —
+    // the reason the dispatcher records them at all.
+    recordFireLogEntry({
+      guardName: STANDALONE_DUPLICATE_GUARD_NAME,
+      event: "PreToolUse",
+      decision: fireLogDecision,
+      guardOutcome,
+      durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
     });
@@ -342,7 +399,7 @@ export async function runStandaloneDuplicateGuardInner(
   deps: {
     fetchSimilar: Parameters<typeof decideStandaloneDuplicateGuard>[1]["fetchSimilar"];
   }
-): Promise<void> {
+): Promise<StandaloneDuplicateGuardDecision> {
   const decision = await decideStandaloneDuplicateGuard(input.tool_input, deps);
 
   switch (decision.action) {
@@ -395,7 +452,7 @@ export async function runStandaloneDuplicateGuardInner(
           `[parallel-work-guard] standalone-duplicate probe skipped — ${decision.reason}\n`
         );
       }
-      return;
+      return decision;
     case "warn":
       process.stdout.write(`${decision.message}\n`);
       writeOutput({
@@ -404,8 +461,8 @@ export async function runStandaloneDuplicateGuardInner(
           additionalContext: decision.message,
         },
       });
-      return;
+      return decision;
     case "permit":
-      return;
+      return decision;
   }
 }

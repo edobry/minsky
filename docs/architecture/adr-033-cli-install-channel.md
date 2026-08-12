@@ -1,17 +1,50 @@
 # ADR-033: Install channel for the Minsky CLI
 
-**Status:** Proposed (principal decision pending — routed via ask, mt#3578)
+**Status:** Accepted (ask#6804 answered "(a) npm/bun global package" by the principal, 2026-08-03T21:52Z)
 **Date:** 2026-08-03
-**Task:** mt#3578
+**Task:** mt#3578 (decision + analysis) · mt#3616 (execution) · mt#3915 (amendment)
+
+> **Amendment, 2026-08-10 — the package name is `@edobry/minsky`, not `minsky`.**
+>
+> npm **refuses to create** the unscoped name. Verified with a real authenticated `PUT`:
+>
+> ```
+> 403 Forbidden - PUT https://registry.npmjs.org/minsky
+> Package name too similar to existing package minify;
+> try renaming your package to '@edobry/minsky' and publishing with 'npm publish --access=public'
+> ```
+>
+> Everywhere below that says `bun add -g minsky`, read `bun add -g @edobry/minsky`. **The decision
+> itself is unchanged** — npm/bun global package, same `dist/` bundle + adjacent-assets layout,
+> binaries and Homebrew still deferred. Only the name moves.
+>
+> **The CLI command is NOT scoped.** `bin` maps command names independently of package name, so a
+> scoped package still installs a plain `minsky`. The user-visible change is one line of install
+> documentation; nothing about using the tool differs.
+>
+> **Correcting this ADR's own reasoning:** the consequence line below reads "verified unclaimed on
+> the npm registry 2026-08-03 — a 404 from `npm view minsky`". A 404 does **not** mean a name is
+> claimable. `minsky` returned 404 on 2026-08-10 too, and npm still refused it — the similarity
+> guard runs at `PUT` time and has no pre-flight endpoint. The only names knowably available in
+> advance are scoped ones under a scope you already own.
+>
+> **The guard is measurably inconsistent, so an appeal stays open.** `minsky`→`minify` is
+> Levenshtein distance 2; `mintlify`→`minify` is _also_ distance 2, and `mintlify` exists
+> (`GET /mintlify` → 200, `GET /minify` → 200, `GET /minsky` → 404). If npm support grants an
+> exception, the unscoped name would be ADDED alongside the scoped one — it would not invalidate
+> this amendment.
 
 ## Decision
+
+> **Superseded in one detail — see the Amendment above: the package name is `@edobry/minsky`.**
+> The rest of this Decision stands as written.
 
 **Distribute the Minsky CLI as a published npm-registry package installed via `bun add -g minsky`, with the existing `dist/` bundle + adjacent-assets layout as the shipped artifact.** The tag-triggered compiled-binary release workflow (`release.yml`, 5-platform `bun build --compile` matrix) stays as a secondary artifact and is NOT the supported install channel until its asset story is built. Homebrew is deferred; if added later it wraps the decided channel rather than introducing a new layout.
 
 Consequences, one line each:
 
-- A user installs with `bun add -g minsky` (Bun is a stated prerequisite); `minsky init` then provisions working hooks — verified by the cold-start smoke this ADR ships with.
-- The npm package name `minsky` must be claimed (verified unclaimed on the npm registry 2026-08-03 — a 404 from `npm view minsky`); until claimed it is squattable.
+- A user installs with `bun add -g minsky` (Bun is a stated prerequisite) — **superseded: `bun add -g @edobry/minsky`, see Amendment**; `minsky init` then provisions working hooks — verified by the cold-start smoke this ADR ships with.
+- The npm package name `minsky` must be claimed (verified unclaimed on the npm registry 2026-08-03 — a 404 from `npm view minsky`); until claimed it is squattable. — **superseded: the name is not obtainable at all, and the 404 did not mean it was. See Amendment.**
 - Publishing requires npm account/token provisioning and a versioning source — mt#233 (conventional-commit version bump) becomes the version supplier for the publish step.
 - The compiled binaries `release.yml` already publishes carry NO runtime assets (no migrations, no hook sources) and would fail loudly on first `init` or `persistence migrate`; they are demoted to "experimental artifact" until an embedding design exists.
 - The cockpit web SPA does not ship in the package (it resolves via a source-checkout walk); packaged installs have no cockpit UI until the follow-up task closes that gap.
@@ -58,12 +91,12 @@ Skills/agents under `.claude/` are repo-development artifacts, not runtime asset
 
 ## External preconditions (gate n enumeration)
 
-Not provisioned today; each is a blocking precondition for EXECUTING this decision (none blocks accepting it):
+Provisioning state as of mt#3616's execution (2026-08-03):
 
-1. **npm account/organization + publish token** — owner: principal (vendor commitment). Not provisioned as of 2026-08-03.
-2. **Claim of the `minsky` package name** — follows from (1); verified available 2026-08-03.
-3. **Version source** — `package.json` has no `version` field and `src/cli.ts` hardcodes `1.0.0`; mt#233 (TODO) owns the conventional-commit bump + `v*` tag automation the publish step would consume.
-4. **Publish automation** — a `release.yml` job addition (or sibling workflow) running `npm publish`/`bun publish` on the version tag; owned by the implementation follow-up once this ADR is accepted.
+1. **npm account** — PROVISIONED: principal ran `npm login` (verified `npm whoami` → `edobry`, 2026-08-03T21:57Z). No long-lived publish token is used — see (4).
+2. **Claim of the `minsky` package name** — executed by mt#3616's manual first publish (0.1.0).
+3. **Version source** — `package.json` now carries `"version"` (added by mt#3616; `src/cli.ts` reads it, retiring the hardcoded `1.0.0`); mt#233 (TODO) owns automating the bump + `v*` tag.
+4. **Publish automation** — `.github/workflows/publish-npm.yml` (mt#3616) publishes on `v*` tags via npm **trusted publishing** (OIDC, docs.npmjs.com/trusted-publishers): short-lived workflow-specific credentials, automatic provenance, no `NPM_TOKEN` secret. ONE-TIME OPERATOR STEP still open: register the trusted publisher (repo `edobry/minsky`, workflow `publish-npm.yml`) in the package's npmjs.com settings — until then the workflow fails at the publish step by design.
 
 ## Relationship to the hosted/self-host fork
 

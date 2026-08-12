@@ -128,6 +128,32 @@ describe("credential-scrubber", () => {
       expect(redactions[0]?.shape).toBe("postgres-url-credentials");
     });
 
+    // mt#4017 criterion 4 / AT4 — the leak shape is JSON-EMBEDDED, not a bare
+    // URL in prose: scripts/drizzle-config-loader.ts prints
+    // `JSON.stringify({ postgres: { connectionString: "<url>" }, ... }, null, 2)`,
+    // so the credential sits on its own quoted, indented line inside a larger
+    // JSON blob. Confirms the planning audit's finding programmatically rather
+    // than re-deriving it by eye.
+    test("redacts a postgres URL embedded in pretty-printed JSON (mt#4017 R4 shape)", () => {
+      const dbConfigJson = JSON.stringify(
+        {
+          postgres: { connectionString: FAKE_PG_URL },
+          sqlite: { path: null },
+          backend: "postgres",
+        },
+        null,
+        2
+      );
+      const { text, redactions } = scrubText(dbConfigJson);
+      expect(text).not.toContain("fakepassword");
+      expect(text).not.toContain(FAKE_PG_URL);
+      expect(redactions.some((r) => r.shape === "postgres-url-credentials")).toBe(true);
+      // The surrounding JSON structure (quotes, indentation, sibling keys)
+      // survives — only the matched credential span is replaced.
+      expect(text).toContain('"connectionString": "[REDACTED:postgres-url-credentials:');
+      expect(text).toContain('"backend": "postgres"');
+    });
+
     test("redacts multiple distinct credentials in one string", () => {
       const combined = `${FAKE_PULUMI_TOKEN} and also ${FAKE_AWS_KEY}`;
       const { text, redactions } = scrubText(combined);

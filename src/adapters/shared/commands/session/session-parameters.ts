@@ -865,9 +865,32 @@ export const sessionPrWaitForReviewCommandParams = {
       "When true (default), only a review whose commit SHA matches the PR's current HEAD " +
       "counts as a match, so a stale review of a superseded commit no longer resolves a " +
       "re-review wait (mt#2586). Set false to accept any review regardless of commit " +
-      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support.",
+      "(pre-mt#2586 behavior). Ignored on backends without HEAD-sha support. " +
+      "NOTE (mt#3555): this bounds a review to the current CODE — it does NOT by itself " +
+      "mean the returned review is the reviewer's STANDING VERDICT. Several reviews from " +
+      "one reviewer can sit on the same HEAD, in which case this filter admits all of " +
+      "them; the tool separately resolves the reviewer's latest decision-bearing review " +
+      "and returns that, whatever its state.",
     required: false,
     defaultValue: true,
+  },
+  expectedHeadSha: {
+    schema: z.string(),
+    description:
+      "The commit you expect the REMOTE to be serving — pass the commitHash session_commit " +
+      "just returned (mt#3877). While the remote head differs from it, NO review is " +
+      "considered and the wait keeps polling, so arming the watcher before a push lands no " +
+      "longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in " +
+      "that window the superseded commit IS the current head, so it is admitted by exactly " +
+      "the filter meant to exclude it. The window is routine — session_commit regularly " +
+      "exceeds the 120s tool timeout, is backgrounded, and finishes its push a minute later. " +
+      "On timeout the result carries expectedHeadShaUnreached naming the sha the remote " +
+      "never reached. Ignored on backends without HEAD-sha support, or with " +
+      "requireCurrentHead: false. ABBREVIATED shas are matched as a prefix (mt#4039), so " +
+      "session_commit's short commitHash can be passed through verbatim; values under 7 " +
+      "characters, or non-hex values, are rejected with an error rather than silently " +
+      "matching nothing.",
+    required: false,
   },
   fullBody: {
     schema: z.boolean(),
@@ -997,6 +1020,16 @@ export const sessionPrDriveCommandParams = {
     description: "postMerge mode only: poll cadence for each deployment wait (default 10).",
     required: false,
     defaultValue: 10,
+  },
+  mergedAt: {
+    schema: z.string().min(1),
+    description:
+      "postMerge mode only: ISO8601 merge timestamp (session.pr.merge's mergeInfo.mergeDate). " +
+      "Bounds each deployment wait so a deployment predating the merge cannot satisfy it. " +
+      "Omit and the watch accepts whatever deployment is newest — the result then reports " +
+      "deployBoundApplied: false, because a SUCCESS from an unbounded watch is not evidence " +
+      "this merge deployed (mt#3890).",
+    required: false,
   },
 };
 
@@ -1166,6 +1199,20 @@ export const sessionPrCheckRunSubmitCommandParams = {
  * Session exec command parameters
  * Executes a shell command in a session's working directory
  */
+/**
+ * Default and ceiling for `session_exec`'s command timeout — the ONE definition
+ * (mt#3923).
+ *
+ * The schema below and the handler's clamp in `basic-commands.ts` both read
+ * these, and the parameter description interpolates them, so the three
+ * statements of the bound cannot drift apart. They could before: the handler
+ * carried its own copies, and because the schema REJECTS an over-cap request
+ * before the clamp is ever reached, a divergent clamp would never have been
+ * exercised — the drift would have been silent.
+ */
+export const SESSION_EXEC_DEFAULT_TIMEOUT_MS = 30_000;
+export const SESSION_EXEC_MAX_TIMEOUT_MS = 120_000;
+
 export const sessionExecCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
@@ -1176,8 +1223,8 @@ export const sessionExecCommandParams = {
     required: true,
   },
   timeout: {
-    schema: z.number().int().positive().max(120000).optional(),
-    description: "Timeout in milliseconds (default: 30000, max: 120000)",
+    schema: z.number().int().positive().max(SESSION_EXEC_MAX_TIMEOUT_MS).optional(),
+    description: `Timeout in milliseconds (default: ${SESSION_EXEC_DEFAULT_TIMEOUT_MS}, max: ${SESSION_EXEC_MAX_TIMEOUT_MS})`,
     required: false,
   },
 };

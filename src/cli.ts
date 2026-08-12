@@ -1,5 +1,9 @@
 #!/usr/bin/env bun
-import "reflect-metadata";
+// MUST be the first import. A direct `import "reflect-metadata"` here does NOT survive bundling —
+// bun lowers the CommonJS import to a declaration emitted after the other imports' initializers, so
+// tsyringe's polyfill guard fires first and the bundle dies at startup. The indirection through a
+// module is what preserves the order (mt#3680; full mechanism in that file's docblock).
+import "./reflect-polyfill";
 
 // mt#1745: cold-start profiling. Loaded FIRST so the module-level timer
 // baseline is set as early as possible — every other checkpoint's `t=` is
@@ -11,6 +15,7 @@ profileCheckpoint("cli_top");
 // This ensures the custom configuration system is initialized before any code tries to access it
 import { setupConfiguration } from "@minsky/domain/config-setup";
 import { ConfigValidationError } from "@minsky/domain/configuration/loader";
+import packageJson from "../package.json" with { type: "json" };
 
 // Wait for configuration to be initialized before proceeding with other imports.
 // Schema-validation failures get a clean one-line user-facing error here at
@@ -65,7 +70,10 @@ profileCheckpoint("cli_imports_complete");
  */
 export const cli = new Command("minsky")
   .description("Minsky development workflow tool")
-  .version("1.0.0")
+  // Version comes from package.json (single source of truth) — the literal was a
+  // hardcoded "1.0.0" until mt#3616; mt#233's bump automation writes package.json,
+  // so this read makes `minsky --version` track releases with no further wiring.
+  .version(packageJson.version)
   .option("--non-interactive", "Disable interactive prompts, error on missing required parameters")
   .hook("preAction", (thisCommand) => {
     const opts = thisCommand.opts();

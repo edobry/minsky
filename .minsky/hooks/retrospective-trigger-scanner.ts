@@ -31,7 +31,7 @@ import { readInput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   resolveParentTranscriptLinesForPath,
-  extractLastAssistantTurn,
+  resolveCompletedTurnWithAnchor,
   extractAssistantText,
   extractLastUserMessage,
   findRealPromptIndices,
@@ -56,7 +56,8 @@ const RETRO_INVOCATION_LOOKBACK_TURNS = 5;
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { elideQuotedAndCodeContexts } from "./elision";
+import { logEvaluationRecord } from "./dispatcher";
+import { elideQuotedAndCodeContexts, isDetectorMetaDiscussion } from "./elision";
 import {
   nominate,
   type DegradedReason,
@@ -93,6 +94,13 @@ const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
  * (mt#3521's corrected measurement premise).
  */
 export const EVALUATION_LOG = ".minsky/retrospective-trigger-evaluations.jsonl";
+
+/**
+ * Logical stream name for `logEvaluationRecord` (mt#3745) — the same
+ * name/path split `calibrationLog` uses in the registry. `EVALUATION_LOG`
+ * above stays as the repo-relative path the docblocks and readers refer to.
+ */
+const EVALUATION_LOG_NAME = "retrospective-trigger";
 
 // ---------------------------------------------------------------------------
 // Trigger family types
@@ -397,60 +405,22 @@ export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): bo
 // Detection functions (exported for testing)
 // ---------------------------------------------------------------------------
 
-/**
- * Meta-discussion context markers (mt#2672): when the assistant turn's
- * SUBJECT is the retrospective-trigger detector or the calibration system
- * itself, trigger-phrase mentions are overwhelmingly quotations of the
- * detector's own patterns — 5 of 8 fires in the 2026-07-08 review window
- * were exactly this shape (62% FP rate), and 0 real positives occurred in
- * such turns.
- *
- * The narrow marker set (this is the "documented, narrow heuristic" from the
- * approved disposition on ask 0147caa5):
- *   - the detector's own name,
- *   - calibration vocabulary (log/data/review),
- *   - "false positive(s)" — the FP-triage register itself.
- *
- * Documented tradeoff: a live failure admission inside a
- * calibration-discussion turn is suppressed (a false negative). Accepted
- * because every such turn in the review window was an FP, a deliberate
- * `/retrospective` invocation is unaffected, and the FP/FN balance is
- * re-measured at the next calibration review (mt#2483 loop).
- */
-export const META_CONTEXT_PATTERNS: RegExp[] = [
-  /retrospective[- ]trigger/i,
-  /\bcalibration\b/i,
-  /\bfalse[- ]positives?\b/i,
-  /\/calibration-review\b/,
-  // mt#3036: retrospective structured-output shape. The `/retrospective`
-  // skill's own output format REQUIRES the R-family taxonomy vocabulary
-  // (`### Agent error (cognitive)` → "Assumption Error", "I conflated",
-  // "I should have caught"), which the scanner would then match on. When
-  // the assistant turn IS that output — recognizable by these headings —
-  // trigger phrases in it are describing the analyzed failure, not asserting
-  // a fresh one. Whole-turn suppression here mirrors the existing
-  // meta-discussion tradeoff (a live admission mixed into a retro-output
-  // turn is a documented FN; the widened invocation look-back is the
-  // primary defense, this pattern set is defense-in-depth).
-  //
-  // PR #2169 R1 (narrowed): patterns are limited to headings distinctive
-  // to `/retrospective`'s Step 2a output. Generic RCA/design-doc headings
-  // (`### Root cause`, `### Failure mode:`) were dropped — they appear in
-  // ordinary specs, ADRs, and incident memos, and their broad match risks
-  // suppressing R-family scanning on unrelated content. The retained set
-  // requires the retro-specific `## Retrospective:` header OR one of the
-  // taxonomy sub-headings that is essentially a retro-only phrase.
-  /^##\s+Retrospective:/m,
-  /^###\s+Agent error\s*\(cognitive\)/m,
-  /^###\s+Recurrence check\b/m,
-  /^###\s+Recurrence-after-DONE\b/m,
-  /^\*\*Correction noted\*\*\s*:/m,
-];
-
-/** True when the raw turn text is meta-discussion of the detector/calibration system. */
-export function isDetectorMetaDiscussion(text: string): boolean {
-  return META_CONTEXT_PATTERNS.some((p) => p.test(text));
-}
+// `META_CONTEXT_PATTERNS` + `isDetectorMetaDiscussion` moved to `./elision.ts`
+// (mt#3983), beside `elideQuotedAndCodeContexts` — the two halves of ADR-024's
+// Rung-1 prefilter now live in one module instead of one being private to this
+// detector. Re-exported here for API stability, matching the precedent
+// `elision.ts`'s own header records for `elideQuotedContexts`.
+//
+// Read the warning on the moved function before applying it to another
+// detector: it is WHOLE-TURN suppression and its patterns are tuned to THIS
+// detector's subject matter. Being in the shared module does not make it
+// portable (mt#3987).
+// PR #2872 R1: `META_CONTEXT_PATTERNS` is re-exported directly, since nothing
+// here reads it — a local binding for it was dead. `isDetectorMetaDiscussion`
+// keeps the import + named re-export because it IS called locally (twice), and
+// `export … from` creates no local binding.
+export { META_CONTEXT_PATTERNS } from "./elision";
+export { isDetectorMetaDiscussion };
 
 export function detectTriggerPhrases(text: string): TriggerMatch[] {
   // Meta-discussion suppression (mt#2672, layer 2): quoting shapes that
@@ -831,37 +801,62 @@ export function detectMethodRedirect(userText: string, priorAssistantText: strin
  */
 const STOP_SCANNED_FAMILIES: ReadonlySet<TriggerFamily> = new Set(["R1", "R2", "R3", "R4", "R5"]);
 
+/** Outcome of a dedup pass, so a fail-open is visible rather than silent. */
+export interface StopFlagFilterResult {
+  matches: TriggerMatch[];
+  /**
+   * Set when the dedup failed open. Recorded on the calibration line, because a
+   * swallowed error and a clean no-match produce identical `matches`, and a
+   * review has no other way to tell them apart.
+   */
+  dedupError?: string;
+}
+
 /**
  * Drop assistant-turn matches already flagged by the turn-end (Stop) scan of
- * this SAME turn (mt#2357). The Stop guard scans "the final turn" (after the
- * transcript's last real prompt); by the time this prompt-time scanner runs,
- * that same turn is "the last completed turn" — opened by the SECOND-TO-LAST
- * real prompt — so the shared turn key (opening prompt's uuid/timestamp)
- * lines up across both scans. Only {@link STOP_SCANNED_FAMILIES} are ever
- * filtered (enforced below, not just at call sites). Fail-open: any error
- * returns the matches unfiltered — dedup is best-effort.
+ * this SAME turn (mt#2357).
+ *
+ * The turn key is supplied BY THE CALLER rather than re-derived here (mt#3950).
+ * Both scans key on the opening real prompt of the completed turn, so the key
+ * must name the same line the scanned TEXT came from -- and only the resolution
+ * that produced that text knows which line that was. This used to re-derive it
+ * as `promptIndices[length - 2]`, which assumes the firing prompt has already
+ * been appended to the transcript. `resolveCompletedTurn` documents the
+ * opposite as the ordinary shape at `UserPromptSubmit` ("Nothing can follow the
+ * firing prompt at `UserPromptSubmit` time, so that prompt has not landed"), so
+ * the key named the PREVIOUS turn's opening prompt and every lookup missed:
+ * same text, wrong key, and the match injected a second time. ADR-031 already
+ * prescribes what this now does -- slice against the recorded anchor instead of
+ * re-deriving a boundary; this was the one site in the file that never
+ * migrated when mt#3490 wired the anchor through.
+ *
+ * Only {@link STOP_SCANNED_FAMILIES} are ever filtered (enforced below, not
+ * just at call sites). Fail-open: an absent key, or any error, returns the
+ * matches unfiltered -- dedup is best-effort, and a noise regression is the
+ * right direction to fail in. A missed warning is not.
  */
 export function filterStopFlagged(
   sessionId: string | undefined,
-  lines: TranscriptLine[],
+  turnKey: string | undefined,
   matches: TriggerMatch[],
   storeDir?: string
-): TriggerMatch[] {
-  if (matches.length === 0) return matches;
+): StopFlagFilterResult {
+  if (matches.length === 0) return { matches };
+  // "session-start" is `turnKeyFor`'s sentinel for "no opening prompt existed".
+  // It names no turn, so it can only ever produce a wrong match.
+  if (!turnKey || turnKey === "session-start") return { matches };
   try {
-    const promptIndices = findRealPromptIndices(lines);
-    if (promptIndices.length < 2) return matches;
-    const opening = lines[promptIndices[promptIndices.length - 2] as number];
-    const key = turnKeyFor(opening);
     const flagged = readFlagged(sessionId ?? "unknown", storeDir);
-    if (flagged.size === 0) return matches;
-    return matches.filter(
-      (m) =>
-        !STOP_SCANNED_FAMILIES.has(m.family) ||
-        !flagged.has(flagKey(key, m.family, m.matchedPhrase))
-    );
-  } catch {
-    return matches;
+    if (flagged.size === 0) return { matches };
+    return {
+      matches: matches.filter(
+        (m) =>
+          !STOP_SCANNED_FAMILIES.has(m.family) ||
+          !flagged.has(flagKey(turnKey, m.family, m.matchedPhrase))
+      ),
+    };
+  } catch (err) {
+    return { matches, dedupError: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -890,31 +885,54 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 
 /**
  * Evaluation-stream writer (mt#3652) — one record per EVALUATED turn, fired
- * or not. Direct append, same posture as `appendCalibrationRecord`; a write
- * failure degrades to stderr, never blocks the guard. See EVALUATION_LOG's
- * docblock for why this is a separate file from the calibration log.
+ * or not. Thin wrapper over the shared `logEvaluationRecord` (mt#3745); kept as
+ * a named export because the `appendEvaluationRecordFn` deps seam and the
+ * `run()` default bind to this signature. See EVALUATION_LOG's docblock for why
+ * this is a separate file from the calibration log.
  */
 export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(
-      `[retrospective-trigger-scanner] Failed to write evaluation log: ${msg}\n`
-    );
-  }
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  // This used to be `resolve(findRepoRoot(cwd), EVALUATION_LOG)`, which
+  // scattered the stream into session workspaces while the calibration log —
+  // routed through the dispatcher — landed correctly in the repo.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 // ---------------------------------------------------------------------------
 // Reminder builder
 // ---------------------------------------------------------------------------
 
-function buildReminder(matches: TriggerMatch[]): string {
+/**
+ * Collapse matches sharing one phrase into a single evidence entry (mt#3950).
+ *
+ * A phrase can be matched by several rungs at once, and `buildReminder` used to
+ * render one line per MATCH -- so the same quoted sentence appeared twice in the
+ * evidence list. `guard-feedback-authoring.mdc` makes the quoted evidence the
+ * highest-value part of an advisory, since it is what lets the agent recognize a
+ * false positive rather than comply blindly; repeating it is noise in the field
+ * the agent reads most closely.
+ *
+ * Attribution is preserved on both sides: every family stays on the calibration
+ * record for the review to read, and the families that matched a phrase are
+ * joined onto its one line here. Order is first-seen, so the highest-priority
+ * match still leads.
+ */
+export function collapseByPhrase(
+  matches: TriggerMatch[]
+): Array<{ matchedPhrase: string; families: string[] }> {
+  const byPhrase = new Map<string, string[]>();
+  for (const m of matches) {
+    const families = byPhrase.get(m.matchedPhrase);
+    if (families === undefined) {
+      byPhrase.set(m.matchedPhrase, [m.family]);
+    } else if (!families.includes(m.family)) {
+      families.push(m.family);
+    }
+  }
+  return [...byPhrase].map(([matchedPhrase, families]) => ({ matchedPhrase, families }));
+}
+
+export function buildReminder(matches: TriggerMatch[]): string {
   const lines: string[] = [
     `[retrospective-trigger-scanner] Retrospective trigger detected in prior assistant output or current user prompt.`,
     "",
@@ -934,8 +952,8 @@ function buildReminder(matches: TriggerMatch[]): string {
     lines.push("");
     lines.push(
       ...cappedEvidenceLines(
-        assistantMatches,
-        (m) => `  - Family ${m.family}: "${m.matchedPhrase}"`
+        collapseByPhrase(assistantMatches),
+        (m) => `  - Family ${m.families.join(", ")}: "${m.matchedPhrase}"`
       )
     );
     lines.push("");
@@ -1036,10 +1054,21 @@ export async function run(
   let confirmedFamilies: string[] = [];
   let rung3Outcome: NominatedDetection["rung3"];
   let assistantScanned = false;
+  let dedupError: string | undefined;
 
   let runAssistantText = "";
+  // PR #2918 R1: the resolved window is hoisted so the excerpt below reuses the
+  // SAME turn that was scanned and deduped. Re-deriving it there was a second
+  // source of truth for the turn boundary -- the very shape this task just
+  // removed from the dedup key.
+  let runTurnLines: TranscriptLine[] = [];
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    // mt#3950: one resolution feeds BOTH the scanned text and the dedup key.
+    // Deriving them separately is what let the key name a different turn than
+    // the text it was filtering.
+    const completedTurn = resolveCompletedTurnWithAnchor(lines, ctx.recordedAnchor);
+    const turnLines = completedTurn.turnLines;
+    runTurnLines = turnLines;
     if (turnLines.length > 0) {
       runAssistantText = extractAssistantText(turnLines);
       // Assistant-side R-family scan: suppressed when a recent
@@ -1057,7 +1086,17 @@ export async function run(
         nominationEnforcing = detected.enforcing === true;
         confirmedFamilies = detected.confirmedFamilies;
         rung3Outcome = detected.rung3;
-        allMatches.push(...filterStopFlagged(input.session_id, lines, detected.matches));
+        const deduped = filterStopFlagged(
+          input.session_id,
+          turnKeyFor(
+            completedTurn.openingPromptIndex === undefined
+              ? undefined
+              : lines[completedTurn.openingPromptIndex]
+          ),
+          detected.matches
+        );
+        dedupError = deduped.dedupError;
+        allMatches.push(...deduped.matches);
       }
     }
   } catch (err) {
@@ -1141,11 +1180,10 @@ export async function run(
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
-          : extractAssistantText(turnLines);
+          : extractAssistantText(runTurnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
       if (idx >= 0) {
         const start = Math.max(0, idx - 80);
@@ -1166,6 +1204,9 @@ export async function run(
       session_id: input.session_id,
       matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
       transcript_excerpt: transcriptExcerpt,
+      // mt#3950: a dedup that failed open is otherwise indistinguishable from a
+      // clean no-match, which is what made candidate 3 unfalsifiable from the log.
+      ...(dedupError !== undefined ? { dedup_error: dedupError } : {}),
       // mt#3408: which families Rung 2 contributed that Rung 1 missed, and
       // whether the stage degraded. Both are what the precision/recall delta
       // is measured from — a fire with an empty `nominated_families` is a
@@ -1251,17 +1292,26 @@ export async function main(): Promise<void> {
   // Surface 1: scan prior assistant turn for trigger phrases (SKIP when a
   // recent /retrospective invocation covers this turn's output).
   let mainAssistantText = "";
+  let mainDedupError: string | undefined;
+  let mainTurnLines: TranscriptLine[] = [];
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const completedTurn = resolveCompletedTurnWithAnchor(lines);
+    const turnLines = completedTurn.turnLines;
+    mainTurnLines = turnLines;
     if (turnLines.length > 0) {
       mainAssistantText = extractAssistantText(turnLines);
       if (mainAssistantText && !retrospectiveAlreadyInvoked) {
-        const triggerMatches = filterStopFlagged(
+        const deduped = filterStopFlagged(
           input.session_id,
-          lines,
+          turnKeyFor(
+            completedTurn.openingPromptIndex === undefined
+              ? undefined
+              : lines[completedTurn.openingPromptIndex]
+          ),
           detectTriggerPhrases(mainAssistantText)
         );
-        allMatches.push(...triggerMatches);
+        mainDedupError = deduped.dedupError;
+        allMatches.push(...deduped.matches);
       }
     }
   } catch (err) {
@@ -1293,11 +1343,10 @@ export async function main(): Promise<void> {
   let transcriptExcerpt = "";
   if (firstMatch) {
     try {
-      const turnLines = extractLastAssistantTurn(lines);
       const fullText =
         firstMatch.family === "user-correction" || firstMatch.family === "method-redirect"
           ? extractLastUserMessage(lines)
-          : extractAssistantText(turnLines);
+          : extractAssistantText(mainTurnLines);
       const idx = fullText.indexOf(firstMatch.matchedPhrase);
       if (idx >= 0) {
         const start = Math.max(0, idx - 80);
@@ -1316,6 +1365,7 @@ export async function main(): Promise<void> {
     session_id: input.session_id,
     matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
     transcript_excerpt: transcriptExcerpt,
+    ...(mainDedupError !== undefined ? { dedup_error: mainDedupError } : {}),
   });
 
   const reminder = buildReminder(allMatches);

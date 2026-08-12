@@ -116,6 +116,14 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/edobry/minsky-reviewer
+  # Secondary hedge for the mt#3623 install flake: disables the streaming
+  # tarball path implicated upstream (oven-sh/bun#34821; fix PR #34827 is still
+  # unmerged, so no release carries a fix). Measured at 0 failures in 10
+  # cold-cache installs with the flag set, against a 3-in-10 unmitigated
+  # baseline -- mt#3623 records both runs and the method. The per-step retry
+  # loops remain the load-bearing mitigation.
+  # Remove both when a bun release carries the upstream fix.
+  BUN_FEATURE_FLAG_DISABLE_STREAMING_INSTALL: "1"
 
 jobs:
   build-migrate-deploy:
@@ -222,7 +230,7 @@ jobs:
 
       - name: Install dependencies
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
-        run: bun install --frozen-lockfile --no-progress
+        run: for i in 1 2 3; do if bun install --frozen-lockfile --no-progress; then break; fi; if [ "$i" = 3 ]; then exit 1; fi; echo "bun install failed (mt#3623 tarball flake) - retry $i"; sleep 5; done
 
       # mt#3117 — deploy-keyed, single-runner PROD migration for the
       # reviewer's OWN tree. Runs BEFORE the GHCR push, so a failure here
@@ -285,9 +293,24 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           docker tag $IMAGE:ci $IMAGE:latest
           docker tag $IMAGE:ci $IMAGE:sha-${SHORT_SHA}
-          docker push $IMAGE:latest
-          docker push $IMAGE:sha-${SHORT_SHA}
-          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+          # mt#3979: `docker push` to GHCR intermittently ends in `unknown blob`
+          # after most layers have already pushed — a transient registry
+          # condition that only a re-run recovered. The wrapper retries ONLY the
+          # conditions enumerated below and fails fast on everything else, so a
+          # real failure stays loud. The immutable sha tag goes first so a
+          # failure cannot leave the mutable :latest pointer promoted while the
+          # run goes red.
+          #
+          # The set is enumerated HERE so a reader of the deploy step can see
+          # what it is allowed to absorb without opening another file. The
+          # script owns it; this copy is ASSERTED against the script by
+          # scripts/ci/docker-push-with-retry.test.ts, so adding a condition
+          # there without adding it here fails the suite. A duplicate that is
+          # checked is not a second source of truth.
+          # transient-retried: unknown blob; blob upload unknown; BLOB_UPLOAD_UNKNOWN; a standalone EOF; connection reset by peer; i/o timeout; TLS handshake timeout; cannot reuse body, request must be retried; registry 5xx status; registry 5xx response body
+          # transient-not-retried: unauthorized; denied; manifest invalid; name unknown; toomanyrequests (429); anything unrecognised
+          ./scripts/ci/docker-push-with-retry.sh "$IMAGE:sha-${SHORT_SHA}" "$IMAGE:latest"
+          echo "Pushed (in this order): $IMAGE:sha-${SHORT_SHA}, $IMAGE:latest"
 
       # mt#3180 (2026-07-25) — this step is the ACTUAL deploy trigger for
       # minsky-reviewer-webhook, not a backstop (Railway's image-source

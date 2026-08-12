@@ -22,7 +22,24 @@ import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { hostname } from "os";
-import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import {
+  resolveAgentIdWithLayer,
+  type IdentityFallbackEvent,
+} from "@minsky/domain/agent-identity/resolve";
+import { buildDeclaredIdentityKeys } from "@minsky/domain/agent-identity/declared";
+import { redactAgentId } from "@minsky/domain/agent-identity/format";
+
+/**
+ * How many distinct Layer 1 agentIds the identity-fallback reporter remembers
+ * before resetting (mt#3986, PR #2877 R1).
+ *
+ * Sized against the observed fleet rather than a round number: mt#3811 measured
+ * this daemon at 1–10 concurrent clients, and each client PROCESS contributes
+ * one id, so 256 is roughly an order of magnitude above any observed
+ * simultaneous population while staying trivially small in memory.
+ */
+const IDENTITY_FALLBACK_REPORT_CAP = 256;
+import { resolvePresenceConversationId } from "./presence-conversation";
 import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
@@ -36,6 +53,8 @@ import {
 } from "./middleware/wake-enrichment";
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
+import type { InFlightToolCall } from "./memory-capture";
+import { formatAdmissionRefusal, type AdmissionGate } from "./daemon/memory-admission";
 import type { InitController } from "./init-retry";
 import {
   type PresenceClaimRepository,
@@ -50,6 +69,18 @@ export type MCPTransportType = "stdio" | "http";
 /**
  * HTTP transport configuration
  */
+/**
+ * What the server tracks about a tool call while it runs (mt#3973).
+ *
+ * `startedAtMs` alone was enough for the graceful-drain check that originally
+ * owned this map; `toolName` is what a resident-memory capture needs to be a
+ * lead rather than an observation.
+ */
+interface InFlightRequestState {
+  toolName: string;
+  startedAtMs: number;
+}
+
 export interface MCPHttpTransportConfig {
   /** Port to listen on @default 3000 */
   port?: number;
@@ -100,6 +131,17 @@ export interface MinskyMCPServerOptions {
   container?: AppContainerInterface;
 
   /**
+   * A protocol-native `_meta` key to consult for conversation identity, after
+   * `io.minsky/agent_id` and W3C `baggage` (mt#3986).
+   *
+   * Configured rather than hardcoded because no such key exists yet: the MCP
+   * 2026-07-28 revision reserves the `io.modelcontextprotocol/` prefix but
+   * defines no conversation identifier under it. Only a key under a
+   * reserved MCP prefix is accepted; anything else is ignored.
+   */
+  protocolConversationIdKey?: string;
+
+  /**
    * MCP client capability registry (mt#1457). When provided, each `Server`
    * instance created by `createConfiguredServer` is registered so the Ask
    * router can detect elicitation-capable connections. HTTP-mode session
@@ -141,6 +183,14 @@ export interface MinskyMCPServerOptions {
  * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
  * underscore names — `debug_echo` — and the allowlist never matched.)
  */
+/**
+ * mt#3121: the canonical (dotted) protocol name of the dispatch-recover tool.
+ * The request handler injects the resolved caller agentId into ONLY this tool's
+ * args (matched exactly against this name and its `toClaudeDesktopName` underscore
+ * alias) so its contested-check can exclude the caller's own task-grain claims.
+ */
+const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
+
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
   "debug.listMethods",
@@ -211,6 +261,13 @@ export interface ToolDefinition {
    * Read-only tools leave this unset or set it to false.
    */
   mutating?: boolean;
+
+  /**
+   * When true, invoking this tool must NOT write a presence claim (mt#3889,
+   * mt#3903). Declared at the command definition and threaded here by the
+   * command mapper; `writeTaskClaim` is its only consumer.
+   */
+  readsPresence?: boolean;
   /**
    * mt#1751: when explicitly `false`, this tool does NOT require the DI
    * container to be initialized — the CallTool handler skips the init
@@ -363,6 +420,24 @@ export class MinskyMCPServer {
    * write path is a no-op (graceful degradation).
    */
   private presenceClaimRepo: PresenceClaimRepository | undefined;
+  /**
+   * Latches once the conflicting-ambient-conversation warning has been emitted
+   * (mt#3945 PR #2847 R1). The check sits on the presence write path, which
+   * fires on every tool call carrying a task or session arg, so an unlatched
+   * warning would repeat thousands of times for one misconfiguration.
+   */
+  private warnedAmbientConversationConflict = false;
+
+  /**
+   * Layer 1 agentIds already reported as an identity fallback (mt#3986).
+   * Bounds the warning to one per distinct ascribed id — see
+   * `reportIdentityFallback`. Capped at
+   * {@link IDENTITY_FALLBACK_REPORT_CAP}; a Layer 1 id is derived from
+   * (hostname, user, pid, start-time), so a long-lived shared daemon meets a
+   * new one per client PROCESS and this would otherwise grow without bound
+   * (PR #2877 R1).
+   */
+  private reportedIdentityFallbacks = new Set<string>();
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -383,6 +458,14 @@ export class MinskyMCPServer {
   // Configurable via MINSKY_MCP_RETRY_AFTER_SECS env var; defaults to 30.
   private readonly SESSION_CAP_RETRY_AFTER_SECS: number = 30;
 
+  // mt#3814: resident-memory admission gate for the shared local daemon.
+  //
+  // Null (no gate) unless the daemon wiring installs one, which is why this is
+  // a setter rather than an env read here: arming it changes when a server
+  // refuses a session, and the hosted Railway surface is explicitly out of
+  // mt#3814's scope. `mcp start --local-daemon` installs it; nothing else does.
+  private sessionAdmissionGate: AdmissionGate | null = null;
+
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
   // pinned in memory. The reaper periodically drops sessions whose
@@ -396,10 +479,31 @@ export class MinskyMCPServer {
   private sessionReaperTimer: ReturnType<typeof setInterval> | null = null;
   private readonly SESSION_IDLE_TIMEOUT_MS: number =
     Number.parseInt(process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS ?? "", 10) || 2 * 60 * 60 * 1000;
-  private readonly SESSION_REAPER_INTERVAL_MS = 60 * 1000;
+  // mt#3814: made env-configurable alongside the timeout above. With a fixed
+  // 60s sweep, setting the idle timeout to seconds changes nothing observable
+  // for up to a minute — so the local tuning ADR-038 §Question 6 asks for was
+  // only half-tunable, and no bounded test could witness a reap at all. The
+  // default is unchanged, so no existing deployment is affected.
+  private readonly SESSION_REAPER_INTERVAL_MS: number =
+    Number.parseInt(process.env.MINSKY_MCP_SESSION_REAPER_INTERVAL_MS ?? "", 10) || 60 * 1000;
 
-  // Graceful shutdown tracking
-  private inFlightRequests = new Map<number, number>();
+  // mt#3764: sticky flag — true forever once the FIRST HTTP MCP session is
+  // ever registered. Deliberately distinct from `httpSessions.size > 0`,
+  // which reflects only CURRENTLY-open sessions: a client that connected
+  // and later cleanly disconnected (or was reaped) must not be
+  // indistinguishable from "no client ever connected" to the
+  // never-connected idle-exit watcher in `orphan-exit.ts`.
+  private hasEverHadAnyHttpSession = false;
+
+  // Graceful shutdown tracking.
+  //
+  // mt#3973 widened the value from a bare start-timestamp to `{ toolName,
+  // startedAtMs }`. Every other consumer reads `.size` or deletes by key, so
+  // the shape change is confined to the two sites that write and read the
+  // value. The tool name is what makes a resident-memory capture actionable:
+  // "this process was at 40 GB" is an observation, "this process was at 40 GB
+  // 90 seconds into transcripts_search-text" is a lead (mt#3885).
+  private inFlightRequests = new Map<number, InFlightRequestState>();
   // True ONLY during a genuine graceful shutdown initiated by `drain()`
   // (the SIGTERM/SIGINT signal path in start-command.ts). New tool calls are
   // rejected while this is true (see the `tools/call` handler gate) because
@@ -578,7 +682,22 @@ export class MinskyMCPServer {
 
   /**
    * Refuse a mutating tool call when the server source is stale relative to the
-   * workspace. Read-only tools (mutating false or unset) pass through.
+   * workspace. Tools without the flag (false or unset) pass through.
+   *
+   * **This gate is a race-window backstop, not the primary staleness mechanism
+   * (mt#3924).** Detecting staleness already makes the server remove itself:
+   * `triggerStaleSignal` records a `staleness_exit`, sets `pendingStaleExit` and
+   * schedules the process to exit at the first idle gap (mt#2830), after which the
+   * stdio proxy respawns it on the current build (mt#1714 + mt#1740). What this
+   * gate covers is the span between the flag latching and that exit landing —
+   * calls keep being served normally in the meantime, by design.
+   *
+   * That window is why the measured numbers look mismatched and are not: 2,492
+   * staleness exits in the 30 days to 2026-08-11 (89/day) produced 3 gate refusals
+   * in ~70 days of transcripts. Both sides of the refusal set's scope are priced
+   * against the window, not against the exit rate — see mt#3924's `## Outcome` for
+   * the decision and `CommandDefinition.mutating`'s docblock for what the set
+   * covers and what it deliberately leaves out.
    *
    * Public so unit tests can exercise the real check without going through the
    * full MCP transport. The dispatcher in createConfiguredServer's
@@ -598,7 +717,10 @@ export class MinskyMCPServer {
     const head = headMatch ? headMatch[1] : "unknown";
     throw new Error(
       `MCP server is stale relative to workspace (loaded ${loaded}, workspace ${head}). ` +
-        `Reconnect via /mcp before retrying mutating operations.`
+        `This call is refused because its effect is irreversible, bulk, or schema-migrating ` +
+        `and this build predates the workspace. Retry in ~30s: the server schedules its own ` +
+        `exit at the next idle gap and the stdio proxy respawns it on the current build. ` +
+        `Only if minsky runs WITHOUT the proxy does this need a manual /mcp reconnect.`
     );
   }
 
@@ -806,6 +928,37 @@ export class MinskyMCPServer {
         return;
       }
 
+      // mt#3814: resident-memory admission. Distinct from the cap above in
+      // WHAT it protects — the cap bounds concurrent sessions, this bounds the
+      // process's memory footprint before the mt#3886 ceiling terminates it.
+      // Refusing a NEW session while continuing to serve established ones is
+      // the whole point: under a shared daemon the ceiling's self-terminate
+      // costs every conversation on the machine at once, and this is the step
+      // that exists between "serving normally" and "gone".
+      if (this.sessionAdmissionGate) {
+        const decision = this.sessionAdmissionGate();
+        if (!decision.admit) {
+          log.warn("mcp_session_reject", {
+            reason: "memory_watermark",
+            residentBytes: decision.residentBytes,
+            watermarkBytes: decision.watermarkBytes,
+            currentCount: this.httpSessions.size,
+          });
+          res
+            .status(503)
+            .set("Retry-After", String(this.SESSION_CAP_RETRY_AFTER_SECS))
+            .json({
+              jsonrpc: "2.0",
+              error: {
+                code: -32603,
+                message: formatAdmissionRefusal(decision, this.SESSION_CAP_RETRY_AFTER_SECS),
+              },
+              id: null,
+            });
+          return;
+        }
+      }
+
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
@@ -889,6 +1042,7 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
+          this.hasEverHadAnyHttpSession = true;
           const newCount = this.httpSessions.size;
           log.debug("mcp_session_admit", {
             sessionId: id,
@@ -911,6 +1065,7 @@ export class MinskyMCPServer {
     // catches that path.
     if (session.transport.sessionId && !this.httpSessions.has(session.transport.sessionId)) {
       this.httpSessions.set(session.transport.sessionId, session);
+      this.hasEverHadAnyHttpSession = true;
       log.debug("Registered new HTTP session (post-handle fallback)", {
         sessionId: session.transport.sessionId,
       });
@@ -1060,7 +1215,10 @@ export class MinskyMCPServer {
       }
 
       const trackingId = this.nextRequestId++;
-      this.inFlightRequests.set(trackingId, Date.now());
+      this.inFlightRequests.set(trackingId, {
+        toolName: request.params.name,
+        startedAtMs: Date.now(),
+      });
 
       // Resolve agentId once per tool call — used for last-touched-by semantics
       const agentId = this.resolveCallerAgentId(server, extra as RequestExtras | undefined);
@@ -1147,6 +1305,22 @@ export class MinskyMCPServer {
             ._meta?.progressToken;
           const progress = buildProgressReporter(progressToken, extra.sendNotification);
 
+          // mt#3121: inject the resolved caller agentId into tasks.dispatch-recover's
+          // arguments so its contested-check can EXCLUDE the caller's own task-grain
+          // presence claims (SC4 — a caller must never be flagged as its own peer). Matched
+          // EXACTLY against this tool's canonical dotted name and its Claude-Desktop underscore
+          // alias (both registered) — never a substring, so no other tool whose name merely
+          // contains "dispatch-recover" can receive the param. The server overwrites any
+          // caller-supplied value, so it cannot be spoofed here.
+          if (
+            request.params.name === DISPATCH_RECOVER_TOOL_NAME ||
+            request.params.name === toClaudeDesktopName(DISPATCH_RECOVER_TOOL_NAME)
+          ) {
+            const dispatchArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
+            dispatchArgs.callerActorId = agentId;
+            request.params.arguments = dispatchArgs;
+          }
+
           const result = await tool.handler(request.params.arguments || {}, progress);
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
@@ -1159,12 +1333,16 @@ export class MinskyMCPServer {
 
           // mt#2562: Write task-grain presence claim (fire-and-forget, session-independent).
           // Fires whenever args.task or args.taskId is present — no Minsky session required.
-          this.writeTaskClaim(request.params.arguments || {}, agentId).catch((err) => {
-            log.debug("presence claim write failed (non-blocking)", {
-              error: getErrorMessage(err),
-              tool: request.params.name,
-            });
-          });
+          // mt#3889: except for presence-READ tools, which must not refresh the very
+          // claims they were asked to report.
+          this.writeTaskClaim(request.params.arguments || {}, agentId, tool.readsPresence).catch(
+            (err) => {
+              log.debug("presence claim write failed (non-blocking)", {
+                error: getErrorMessage(err),
+                tool: request.params.name,
+              });
+            }
+          );
 
           // mt#2284: Write session-grain runtime-attachment claim (fire-and-forget).
           // Session-SCOPED (unlike writeTaskClaim) — requires a resolvable session,
@@ -1465,8 +1643,9 @@ export class MinskyMCPServer {
 
   /**
    * Resolve the caller's agentId from MCP request extras.
-   * Uses the priority resolver: Layer 2 (_meta declared) > Layer 1 (ascribed).
-   * Reads clientInfo from the underlying SDK server for Layer 1 kind normalization.
+   * Uses the priority resolver: Layer 2 (_meta declared, an ordered key list)
+   * > Layer 1 (ascribed). Reads clientInfo from the underlying SDK server for
+   * Layer 1 kind normalization.
    *
    * `server` is the Server instance handling this specific request — for HTTP,
    * each session has its own Server and thus its own clientVersion.
@@ -1479,10 +1658,58 @@ export class MinskyMCPServer {
     } catch {
       // getClientVersion() may throw if called before initialize completes
     }
-    return resolveAgentId({
+    return resolveAgentIdWithLayer({
       extras,
       clientInfo: clientInfoName ? { name: clientInfoName } : undefined,
-    });
+      declaredKeys: buildDeclaredIdentityKeys(this.options.protocolConversationIdKey),
+      onFallback: (event) => this.reportIdentityFallback(event),
+    }).agentId;
+  }
+
+  /**
+   * Log a resolution that fell through every declared key to Layer 1 (mt#3986).
+   *
+   * Layer 1 is a hash of (hostname, user, pid, start-time) — ADR-006 itself
+   * says it is "not a conversation-scoped distinction" — so this line is the
+   * moment presence claims, dispatch attribution and attention accounting stop
+   * being conversation-scoped. Before this existed, that transition was
+   * completely silent and only inferable later from bad attribution data.
+   *
+   * Rate policy lives here rather than in the resolver: a non-cooperating
+   * client falls back on EVERY tool call, so the first occurrence of each
+   * distinct Layer 1 id warns and the rest go to debug. Layer 1 ids are stable
+   * per connection, which makes that one warning per client rather than one per
+   * call.
+   */
+  private reportIdentityFallback(event: IdentityFallbackEvent): void {
+    const isFirst = !this.reportedIdentityFallbacks.has(event.agentId);
+    if (isFirst) {
+      // Clear rather than stop adding when the cap is reached. Both bound the
+      // memory; only this one keeps the mechanism alive — a set that fills and
+      // then refuses new entries would warn about the FIRST N clients a daemon
+      // ever saw and go permanently silent about every one after, which is the
+      // silent degradation this whole task exists to end. Clearing costs a
+      // periodic repeat warning for a still-connected client instead.
+      if (this.reportedIdentityFallbacks.size >= IDENTITY_FALLBACK_REPORT_CAP) {
+        this.reportedIdentityFallbacks.clear();
+      }
+      this.reportedIdentityFallbacks.add(event.agentId);
+    }
+
+    const detail = {
+      keysTried: event.keysTried,
+      layerThatAnswered: event.layer,
+      agentId: redactAgentId(event.agentId),
+    };
+
+    if (isFirst) {
+      log.warn(
+        "Agent identity fell back to Layer 1 (ascribed): no declared conversation identity on this request",
+        detail
+      );
+    } else {
+      log.debug("Agent identity resolved at Layer 1 (ascribed)", detail);
+    }
   }
 
   /**
@@ -1562,7 +1789,26 @@ export class MinskyMCPServer {
    * one-shot setPresenceClaimRepository() fast-path was not fired (e.g. on
    * proxy/staleness-respawned servers). Mirrors the buildAskRepository pattern.
    */
-  private async writeTaskClaim(args: Record<string, unknown>, actorId: string): Promise<void> {
+  private async writeTaskClaim(
+    args: Record<string, unknown>,
+    actorId: string,
+    readsPresence?: boolean
+  ): Promise<void> {
+    // mt#3889: a presence READ must not write presence — an observation that
+    // mutates what it observes cannot answer the question it was asked.
+    // Concretely, `tasks.claims.list` is step 0 of the collision probe in
+    // `user-preferences.mdc §Probe before claiming a shared resource`; before
+    // this exemption, probing task T upserted a claim on T, so a long-stale
+    // claim reported `stale: false` — the probe manufactured the freshness it
+    // was checking for (measured 2026-08-09: two reads 3 minutes apart, no
+    // other actor, each moving `lastRefreshedAt` to its own timestamp).
+    //
+    // mt#3903: the flag arrives from the TOOL (`CommandDefinition.readsPresence`
+    // → command-mapper → the registered tool), not from a name matched against
+    // a list in this file. Checked before the repo is resolved so the probe
+    // costs nothing it did not already cost.
+    if (readsPresence) return;
+
     const repo = await this.getPresenceClaimRepo();
     if (!repo) return;
 
@@ -1580,21 +1826,73 @@ export class MinskyMCPServer {
 
     const projectId = await this.resolveProjectIdBestEffort();
 
-    // Capture the caller's CC conversation id (best-effort from environment)
-    const ccConversationId =
-      typeof process.env.CC_CONVERSATION_ID === "string"
-        ? process.env.CC_CONVERSATION_ID
-        : undefined;
-
     await repo.upsertClaim({
       subjectKind: "task",
       subjectId,
       actorId,
-      ccConversationId,
+      ccConversationId: this.resolveCcConversationId(actorId),
       projectId,
     });
 
     log.debug("presence claim written", { taskId, actorId });
+  }
+
+  /**
+   * The conversation a presence claim was written from (mt#3945).
+   *
+   * Derived from the caller's already-resolved `actorId`, which ADR-006 makes
+   * the conversation-grain identity key — the same value the collision probe,
+   * dispatch attribution and the workspace links all join on. Deriving means
+   * `cc_conversation_id` cannot disagree with `actor_id`: for a
+   * conversation-scoped actor the column IS the `conv:` segment, so the two
+   * agree by construction rather than by both being read from the same place at
+   * the same moment.
+   *
+   * Both writers previously read an env var instead, and each read a different
+   * one. `writeTaskClaim` read `CC_CONVERSATION_ID`, which nothing sets — zero
+   * of 6076 task rows ever carried a value. `writeSessionAttachment` read
+   * `CLAUDE_CODE_SESSION_ID`, which Claude Code does set, but only into the
+   * server process's environment AT SPAWN: a `/clear`, resume or fork changes
+   * the conversation without respawning MCP servers, so the value goes stale
+   * and stays stale for the life of the process (mt#3900, the same defect one
+   * field over). Their apparent 88-of-88 agreement was two fields being wrong
+   * together, not a correctness property.
+   *
+   * The env read survives ONLY as a last resort for a Layer-1 (`unknown:hash:`)
+   * actor, where `actorId` names no conversation and this is the sole remaining
+   * signal — 113 rows in prod. It is spawn-frozen there for exactly the reason
+   * above, which is a floor, not a fix: the real remedy is for such callers to
+   * reach Layer 2/3 so `actorId` carries the conversation. Deliberately NOT
+   * consulted otherwise, and deliberately not a second opinion — a per-process
+   * env read is the parallel identity source this change exists to retire, and
+   * under a shared local daemon (ADR-038) it would be one value shared across
+   * every conversation at once.
+   */
+  private resolveCcConversationId(actorId: string): string | undefined {
+    // Ambient precedence, for the Layer-1 path only: CLAUDE_CODE_SESSION_ID
+    // first, CC_CONVERSATION_ID second. Unifying two writers that read
+    // different variables forces a choice, and this one is deliberate rather
+    // than incidental — ADR-006 §Phase 2 names CLAUDE_CODE_SESSION_ID as the
+    // variable Claude Code actually sets, and it is the only one of the two
+    // ever observed populated (201 of 202 session rows; CC_CONVERSATION_ID has
+    // never produced a value in 6076 task rows). A setup exporting both to
+    // DIFFERENT values is a misconfiguration rather than a supported mode, so
+    // it is surfaced once per process rather than silently resolved.
+    const harnessValue = process.env.CLAUDE_CODE_SESSION_ID;
+    const legacyValue = process.env.CC_CONVERSATION_ID;
+    if (
+      !this.warnedAmbientConversationConflict &&
+      harnessValue &&
+      legacyValue &&
+      harnessValue !== legacyValue
+    ) {
+      this.warnedAmbientConversationConflict = true;
+      log.warn("CLAUDE_CODE_SESSION_ID and CC_CONVERSATION_ID disagree", {
+        using: "CLAUDE_CODE_SESSION_ID",
+      });
+    }
+
+    return resolvePresenceConversationId(actorId, harnessValue ?? legacyValue);
   }
 
   /**
@@ -1710,14 +2008,11 @@ export class MinskyMCPServer {
 
     const projectId = await this.resolveProjectIdBestEffort();
 
+    const ccConversationId = this.resolveCcConversationId(actorId);
     // "Where" context — env bag of only-the-keys-present (emulator-agnostic;
     // stores env strings, introspects no terminal app). Claude Code sets
-    // CLAUDE_CODE_SESSION_ID (the conversation UUID) and CLAUDE_CODE_ENTRYPOINT
-    // (e.g. "cli", "sdk-cli") — see packages/domain/src/runtime/harness-detection.ts.
-    const ccConversationId =
-      typeof process.env.CLAUDE_CODE_SESSION_ID === "string"
-        ? process.env.CLAUDE_CODE_SESSION_ID
-        : undefined;
+    // CLAUDE_CODE_ENTRYPOINT (e.g. "cli", "sdk-cli") — see
+    // packages/domain/src/runtime/harness-detection.ts.
     const entrypoint =
       typeof process.env.CLAUDE_CODE_ENTRYPOINT === "string"
         ? process.env.CLAUDE_CODE_ENTRYPOINT
@@ -2261,6 +2556,33 @@ export class MinskyMCPServer {
   }
 
   /**
+   * The tool calls in flight right now, with how long each has been running.
+   *
+   * Read by the mt#3973 resident-memory capture when a process crosses its
+   * watermark, so the artifact names what the process was doing rather than
+   * only how large it had grown. `nowMs` is a parameter rather than a `Date.now()`
+   * call so the elapsed figures are consistent across the set and the method is
+   * testable without patching the clock.
+   */
+  getInFlightToolCalls(nowMs: number = Date.now()): InFlightToolCall[] {
+    return Array.from(this.inFlightRequests.values()).map((state) => ({
+      toolName: state.toolName,
+      elapsedMs: nowMs - state.startedAtMs,
+    }));
+  }
+
+  /**
+   * Install (or clear) the resident-memory session-admission gate (mt#3814).
+   *
+   * A setter rather than a constructor option because the gate needs the
+   * ceiling value resolved by `orphan-exit.ts` at wiring time in
+   * `start-command.ts`, which happens well after the server is constructed.
+   */
+  setSessionAdmissionGate(gate: AdmissionGate | null): void {
+    this.sessionAdmissionGate = gate;
+  }
+
+  /**
    * Return the number of currently active HTTP sessions.
    * Returns 0 for stdio transport (no HTTP sessions).
    */
@@ -2273,6 +2595,17 @@ export class MinskyMCPServer {
    */
   getMaxSessions(): number | null {
     return this.MAX_HTTP_SESSIONS;
+  }
+
+  /**
+   * mt#3764: true once the first HTTP MCP session has EVER been
+   * established, and stays true afterward even if all sessions later
+   * close/reap. Feeds the never-connected idle-exit watcher in
+   * `orphan-exit.ts` — deliberately NOT the same as `getSessionCount() > 0`,
+   * which only reflects currently-open sessions.
+   */
+  hasEverHadHttpSession(): boolean {
+    return this.hasEverHadAnyHttpSession;
   }
 
   /**

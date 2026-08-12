@@ -9,6 +9,7 @@ import { createTokenProvider } from "./index";
 import type { GitHubConfig } from "../configuration/schemas/github";
 import { githubServiceAccountSchema } from "../configuration/schemas/github";
 import { createTimeoutFetch, GitHubRequestTimeoutError } from "../github/octokit-timeout";
+import type { FetchLike } from "../github/octokit-timeout";
 
 // ---------------------------------------------------------------------------
 // Test RSA private key (PKCS#1) — generated for testing only
@@ -783,7 +784,7 @@ describe("GitHubAppTokenProvider", () => {
   // ---------------------------------------------------------------------------
   describe("bounded fetch (mt#2677)", () => {
     it("getServiceToken rejects within the configured bound instead of hanging when the token-mint fetch stalls", async () => {
-      const neverResolvingFetch: typeof fetch = () => new Promise<Response>(() => {});
+      const neverResolvingFetch: FetchLike = () => new Promise<Response>(() => {});
       const provider = makeProvider({
         fetchImpl: createTimeoutFetch(50, neverResolvingFetch),
       });
@@ -802,7 +803,7 @@ describe("GitHubAppTokenProvider", () => {
     });
 
     it("getServiceIdentity rejects within the configured bound instead of hanging when the app-info fetch stalls", async () => {
-      const neverResolvingFetch: typeof fetch = () => new Promise<Response>(() => {});
+      const neverResolvingFetch: FetchLike = () => new Promise<Response>(() => {});
       const provider = makeProvider({
         fetchImpl: createTimeoutFetch(50, neverResolvingFetch),
       });
@@ -821,7 +822,7 @@ describe("GitHubAppTokenProvider", () => {
     });
 
     it("a fast response still passes through unchanged with a bounded fetchImpl in place", async () => {
-      const fastFetch: typeof fetch = async () =>
+      const fastFetch: FetchLike = async () =>
         new Response(JSON.stringify({ token: "ghs_bounded_ok" }), { status: 201 });
       const provider = makeProvider({
         fetchImpl: createTimeoutFetch(10_000, fastFetch),

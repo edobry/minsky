@@ -94,6 +94,46 @@ a **decision** being deferred to the principal in chat prose instead of through 
 substrate. This detector covers an **action** being deferred. A turn can legitimately fire
 both.
 
+## The page says "two surfaces" above; there are now FOUR
+
+Sections A and B predate the two added later. The full set:
+
+**C. Permission-deferral prose (mt#3463)** — "I can, shall I?" rather than "I can't". It
+EXCLUDES genuinely destructive or principal-reserved actions, because for those the ask is
+CORRECT and firing would train the wrong behavior.
+
+**D. Denial-anchored (mt#3533)** — an escalation or deferral resting on a permission-denied
+`tool_result`, with no same-turn retry in a different **command shape** (the leading token
+differs, or a compound command became simple).
+
+Surface D is anchored on a STRUCTURED result rather than a phrase, and that is the whole
+design. The prose accompanying this failure is third-person about a tool — "the API was
+denied" — and the four recorded instances each worded it differently, so no phrase corpus
+reaches them. ADR-024's ladder therefore governs the phrase half of the trigger and not the
+denial half: a paraphrase-miss argument does not apply to parsing a `tool_result`.
+
+Measured before shipping: 73 permission denials across 460 local transcripts, each an
+`is_error: true` `tool_result` opening with one of exactly two canned strings.
+
+**A denial whose stated reason names a security concern never fires** — mem#276's
+stop-and-escalate carve-out, where stopping is the correct response. That control is
+**SYNTHETIC**: zero of the 73 denials in the local corpus carried a security framing, so the
+regression test is built from mem#276's recorded 2026-04-23 reason string and is labeled
+synthetic in the test rather than presented as a replay.
+
+### The evaluation stream
+
+The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL FOUR surfaces,
+fired or not — the miss RATE is what ADR-024's rung decisions need, and a fire-only log cannot
+give it.
+
+Records carry `evaluated: "prose-turn" | "ask-tool-call"`. **Group by that field rather than
+pooling**: the two are different denominators — per completed turn versus per `AskUserQuestion`
+call — so a pooled rate is not a rate of anything.
+
+Graduation threshold for surface D specifically: a `/calibration-review` pass over >=10
+classified fires, per ADR-024's ladder.
+
 ## Graduation
 
 Calibration-first per the mt#2057 → mt#2216 → mt#2694 ladder: `INJECTION_ENABLED = false`

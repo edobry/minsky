@@ -7,6 +7,7 @@ import {
   boolean,
   pgEnum,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -26,7 +27,8 @@ import {
  */
 
 /**
- * Outcome enum — 7 values (6 terminal classes per mt#1005, plus `pending`).
+ * Outcome enum — 8 values (6 workspace-derived classes per mt#1005, plus `pending` and
+ * `no-workspace`).
  *
  * `pending` (mt#1770) is the DISPATCH-TIME placeholder, not a classification. Before it, a row
  * was seeded `crashed-no-output` as a "pessimistic default" — but that value reads as an
@@ -43,6 +45,21 @@ import {
  * terminal class and must never emit it — see `../../subagent/workspace-classifier`. A row still
  * `pending` long after its dispatch means the row was never closed, which is a DIFFERENT and
  * separately-tracked problem (mt#2292, the writer half) from a subagent that crashed.
+ *
+ * `no-workspace` (mt#3894) is the OTHER non-workspace-derived value, and it is the opposite of
+ * `pending` in the one way that matters: it records a PERMANENT absence, not a transient one.
+ * Each of the six mt#1005 classes is a predicate over a workspace — commits, a dirty tree, a
+ * `handoff.md`, a PR — but a raw harness `Agent` dispatch has no workspace at all
+ * (`prompt-generation.ts` forbids `cd`, so its cwd is the MAIN repo). Classifying one against
+ * that cwd describes the OPERATOR's checkout: all 3 such rows written between mt#2292 shipping
+ * and this fix carried `partial-committed-handoff-written` plus main's HEAD in
+ * `last_commit_hash`, for subagents that committed nothing.
+ *
+ * Reusing `pending` for that case was considered and rejected. `pending` means "no outcome
+ * observed YET"; pushing a permanent fact into the placeholder for a transient one recreates the
+ * one-value-two-meanings defect `pending` itself exists to remove, and moves the disambiguator
+ * out of this column into `ended_at`, where every consumer reading `outcome` alone is misled
+ * exactly as before.
  */
 export const SUBAGENT_INVOCATION_OUTCOME_VALUES = [
   "completed-with-pr",
@@ -52,19 +69,37 @@ export const SUBAGENT_INVOCATION_OUTCOME_VALUES = [
   "crashed-no-output",
   "rate-limited",
   "pending",
+  "no-workspace",
 ] as const;
 
 export type SubagentInvocationOutcome = (typeof SUBAGENT_INVOCATION_OUTCOME_VALUES)[number];
 
 /**
- * The outcome classes a CLASSIFIER may produce — everything except `pending` (mt#1770).
+ * The outcome classes the WORKSPACE classifier may produce — everything except `pending`
+ * (mt#1770) and `no-workspace` (mt#3894).
  *
  * `pending` is written only at dispatch, by the dispatcher. A classifier runs at SubagentStop,
  * by which point an outcome HAS been observed; returning `pending` there would re-introduce
  * exactly the ambiguity this enum member exists to remove. Enforced by the type rather than by
  * convention, so a future edit to `classifyWorkspaceOutcome` cannot reintroduce it silently.
+ *
+ * `no-workspace` is excluded for the mirror-image reason: it is written by the SubagentStop hook
+ * INSTEAD of calling the classifier, precisely because there is no workspace to inspect. Keeping
+ * it out of this type means `classifyWorkspaceOutcome` cannot grow a branch that returns it from
+ * a workspace inspection — the decision belongs at the call site, which is the only place that
+ * knows whether a workspace exists.
  */
-export type TerminalSubagentInvocationOutcome = Exclude<SubagentInvocationOutcome, "pending">;
+export type TerminalSubagentInvocationOutcome = Exclude<
+  SubagentInvocationOutcome,
+  "pending" | "no-workspace"
+>;
+
+/**
+ * What the SubagentStop hook may record as an OBSERVED outcome (mt#3894): the workspace-derived
+ * classes above, plus `no-workspace` for a subagent that had no workspace to derive them from.
+ * Still excludes `pending`, which only the dispatcher writes.
+ */
+export type ObservedSubagentInvocationOutcome = Exclude<SubagentInvocationOutcome, "pending">;
 
 export const subagentInvocationOutcomeEnum = pgEnum(
   "subagent_invocation_outcome",
@@ -136,6 +171,39 @@ export const subagentInvocationsTable = pgTable(
     /** Minsky session ID assigned to the subagent's workspace. */
     subagentSessionId: text("subagent_session_id"),
 
+    /**
+     * Harness conversation id of the PARENT agent — the `session_id` field of
+     * the `Agent` tool's PreToolUse payload (mt#2292).
+     *
+     * Distinct from `sessionId`/`parentSessionId` above, which are MINSKY
+     * session ids. This one is the harness-native id, and it exists to pair
+     * with {@link parentToolUseId}: the tool_use id is unique within a
+     * conversation, not across the corpus, so it only identifies a dispatch
+     * when scoped by the conversation that issued it.
+     *
+     * Nullable: every row written before mt#2292 has no such id, and there is
+     * nothing to derive one from.
+     */
+    parentAgentSessionId: text("parent_agent_session_id"),
+
+    /**
+     * Harness-assigned `tool_use` id of the `Agent` call that spawned this
+     * subagent (mt#2292) — the dispatch-side identity for rows written on the
+     * raw harness spawn path.
+     *
+     * Deliberately the SAME key `agent_spawns.parent_tool_use_id` already uses
+     * (`agent-spawns-pipeline.ts`), so the two tables are joinable rather than
+     * each carrying its own private correlation id. That choice is why this is
+     * not a token this hook mints: a bespoke id would have made
+     * `subagent_invocations` unjoinable to the spawn edge that the cockpit
+     * already renders.
+     *
+     * Nullable for the same reason as {@link parentAgentSessionId}, and
+     * additionally for rows written by `session_generate_prompt` before the
+     * dispatch that consumes them ever happens.
+     */
+    parentToolUseId: text("parent_tool_use_id"),
+
     // -------------------------------------------------------------------------
     // Dispatch params
     // -------------------------------------------------------------------------
@@ -178,8 +246,9 @@ export const subagentInvocationsTable = pgTable(
 
     /**
      * Outcome classification using the 6-class enum.
-     * Exactly the 7 values defined in SUBAGENT_INVOCATION_OUTCOME_VALUES — 6 terminal classes
-     * plus the dispatch-time `pending` placeholder (mt#1770).
+     * Exactly the 8 values defined in SUBAGENT_INVOCATION_OUTCOME_VALUES — 6 workspace-derived
+     * classes, the dispatch-time `pending` placeholder (mt#1770), and `no-workspace` for a
+     * subagent that had no workspace to derive a class from (mt#3894).
      */
     outcome: subagentInvocationOutcomeEnum("outcome").notNull(),
 
@@ -256,6 +325,25 @@ export const subagentInvocationsTable = pgTable(
 
     // Retry-chain lookups (mt#2831): find the resumed row for a given original
     index("idx_subagent_invocations_resumed_from").on(table.resumedFromInvocationId),
+
+    // mt#2292: the dispatch-side natural key for rows written on the raw
+    // harness `Agent` spawn path, and the Stop-side lookup target once the
+    // stamped tool_use id is recovered from the child transcript.
+    //
+    // Composite and scoped by conversation for the same reason
+    // `idx_agent_spawns_parent_tool_use_id` is: a tool_use id is unique WITHIN
+    // a conversation, not across the corpus — the same id legitimately appears
+    // in both a parent's and a child's transcript, because a dispatching Agent
+    // call is replayed into the child's own transcript.
+    //
+    // UNIQUE is safe despite the 208 pre-existing rows that carry neither
+    // column: Postgres permits unlimited NULLs under a unique index, so those
+    // rows coexist without colliding (the same property agent_spawns relies on
+    // for its own un-backfillable rows).
+    uniqueIndex("idx_subagent_invocations_parent_tool_use_id").on(
+      table.parentAgentSessionId,
+      table.parentToolUseId
+    ),
   ]
 );
 

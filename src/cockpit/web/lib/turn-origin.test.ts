@@ -101,6 +101,56 @@ describe("classifyTurnOrigin — per-origin harness labels", () => {
   });
 });
 
+describe("classifyTurnOrigin — isMeta outranks prose (mt#3809)", () => {
+  // The harness writes its own `isMeta` lines that CARRY TEXT — a coordinate
+  // note beside a pasted screenshot, a skill's base-directory preamble, a
+  // re-invocation note. Before mt#3809 the prose check ran first, so every one
+  // of them was labeled as a message the operator typed, and the `isMeta`
+  // branch below it was unreachable for anything but an empty turn.
+  const IMAGE_COORDINATE_NOTE =
+    "[Image: original 3840x1936, displayed at 2000x1008. Multiply coordinates by 1.92 to map to original image.]";
+
+  test("the pasted-screenshot coordinate note is harness-origin, not the operator's", () => {
+    expect(classifyTurnOrigin(userTurn([text(IMAGE_COORDINATE_NOTE)], true))).toEqual({
+      kind: "harness",
+      label: "harness",
+    });
+  });
+
+  test("a skill's base-directory preamble is harness-origin", () => {
+    const preamble = text("Base directory for this skill: /Users/x/.claude/skills/plan-task");
+    expect(classifyTurnOrigin(userTurn([preamble], true))).toEqual({
+      kind: "harness",
+      label: "harness",
+    });
+  });
+
+  test("an isMeta turn keeps its specific span label rather than degrading", () => {
+    // Precedence 1 outranks prose, but it still consults the span
+    // classification — a caveat says `harness caveat`, not the general term.
+    const turn = userTurn([injected("local-command-caveat"), text("Caveat: the messages …")], true);
+    expect(classifyTurnOrigin(turn)).toEqual({ kind: "harness", label: "harness caveat" });
+  });
+
+  test("prose still wins for a turn the harness did NOT mark as its own", () => {
+    // The mt#3374 mixed-turn case: an injected prefix plus the operator's typed
+    // continuation is still the operator's message. Reordering must not eat it.
+    const turn = userTurn([injected("system-reminder"), text("actually, do it the other way")]);
+    expect(classifyTurnOrigin(turn)).toEqual({ kind: "operator" });
+  });
+
+  test("an isMeta turn mixing several harness origins degrades to the general term", () => {
+    // PR #2698 R1: precedence 1 borrows the span label, so it inherits the
+    // same degrade-rather-than-pick-a-winner rule the non-meta path has.
+    const turn = userTurn([injected("skill-body"), injected("system-reminder")], true);
+    expect(classifyTurnOrigin(turn)).toEqual({ kind: "harness", label: "harness" });
+  });
+
+  test("an absent isMeta is not a falsy isMeta", () => {
+    expect(classifyTurnOrigin(userTurn([text("ship it")], false))).toEqual({ kind: "operator" });
+  });
+});
+
 describe("classifyTurnOrigin — no signal", () => {
   test("assistant turns are never reclassified", () => {
     expect(classifyTurnOrigin({ role: "assistant", elements: [text("hello")] })).toBeNull();

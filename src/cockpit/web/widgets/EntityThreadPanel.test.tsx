@@ -16,6 +16,8 @@ import {
   EntityThreadPanel,
   deriveComposerState,
   deriveOriginNotice,
+  derivePendingRepliesNotice,
+  deriveAgentStoppedNotice,
   derivePollInterval,
   fetchEntityThread,
   isThreadStranded,
@@ -375,6 +377,92 @@ describe("deriveOriginNotice (mt#3367)", () => {
     // Same discipline as `live` (mt#3402): a daemon that doesn't report the
     // field must not be read as a negative answer.
     expect(deriveOriginNotice(undefined)).toBeNull();
+  });
+});
+
+/**
+ * mt#4036 AT3 — a dropped reply must render as something the operator can tell
+ * apart from an agent that never answered.
+ *
+ * On 2026-08-11 both states rendered identically: nothing. The operator asked
+ * "Well?" into that silence and the reply to that was dropped too.
+ */
+describe("derivePendingRepliesNotice (mt#4036)", () => {
+  test("says the agent DID answer when a reply is still being retried", () => {
+    const notice = derivePendingRepliesNotice({
+      pending: 1,
+      lost: 0,
+      oldestFailedAt: "2026-08-11T03:29:35Z",
+    });
+    // The load-bearing half: it must not read as agent silence.
+    expect(notice).toMatch(/agent answered/i);
+    expect(notice).toMatch(/retrying/i);
+  });
+
+  test("says plainly when a reply is not coming back", () => {
+    const notice = derivePendingRepliesNotice({ pending: 0, lost: 2, oldestFailedAt: null });
+    expect(notice).toMatch(/lost/i);
+    // An operator told only "lost" has no next move; the notice must give one.
+    expect(notice).toMatch(/ask again/i);
+  });
+
+  test("leads with the lost replies when some are lost and some pending", () => {
+    const notice = derivePendingRepliesNotice({
+      pending: 3,
+      lost: 1,
+      oldestFailedAt: "2026-08-11T03:29:35Z",
+    });
+    expect(notice?.indexOf("lost")).toBeLessThan(notice?.indexOf("retried") ?? 0);
+  });
+
+  test("singular and plural read correctly", () => {
+    expect(derivePendingRepliesNotice({ pending: 1, lost: 0, oldestFailedAt: null })).toContain(
+      "1 reply"
+    );
+    expect(derivePendingRepliesNotice({ pending: 2, lost: 0, oldestFailedAt: null })).toContain(
+      "2 replies"
+    );
+  });
+
+  test("an absent field says NOTHING — same discipline as live and originSeeded", () => {
+    // A daemon predating this field reports nothing; inventing a reassuring
+    // "0 pending" would assert a check that never ran.
+    expect(derivePendingRepliesNotice(undefined)).toBeNull();
+  });
+
+  test("an all-zero report says nothing", () => {
+    expect(derivePendingRepliesNotice({ pending: 0, lost: 0, oldestFailedAt: null })).toBeNull();
+  });
+});
+
+/**
+ * mt#4037 — a restart-killed agent must not be reported as an agent that gave
+ * up, and the operator must be told they can get it back.
+ *
+ * On 2026-08-11 a cockpit restart killed a thread's agent mid-task and the
+ * panel said "The agent stopped before answering — send again to ask." That
+ * blames the agent for a daemon shutdown; the operator waited 12h34m.
+ */
+describe("deriveAgentStoppedNotice (mt#4037)", () => {
+  test("names the COCKPIT as what stopped the agent, not the agent", () => {
+    const notice = deriveAgentStoppedNotice("cockpit-restart");
+    expect(notice).toMatch(/cockpit restarted/i);
+    // The load-bearing half the stranded line lacked: a way back.
+    expect(notice).toMatch(/send anything/i);
+  });
+
+  test("says plainly when the conversation cannot be resumed at all", () => {
+    const notice = deriveAgentStoppedNotice("unrecoverable");
+    expect(notice).toMatch(/can't be resumed/i);
+    // Must still leave the operator a move, or the panel is a dead end.
+    expect(notice).toMatch(/start a fresh one/i);
+  });
+
+  test("UNKNOWN says NOTHING rather than inventing a cause", () => {
+    // Same discipline as `live` and `originSeeded`: a daemon that reports no
+    // reason must not be read as asserting one. The panel falls back to the
+    // vaguer stranded line, which is at least true.
+    expect(deriveAgentStoppedNotice(undefined)).toBeNull();
   });
 });
 

@@ -55,6 +55,7 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import { recordMergeDeploySurface } from "./merge-deploy-surface-record";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
@@ -514,6 +515,9 @@ if (import.meta.main) {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     recordAndExit("warn");
   }
 
@@ -527,7 +531,9 @@ if (import.meta.main) {
           "⚠️ [deploy-verification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    recordAndExit("warn", undefined, "crashed");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -551,7 +557,10 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the PR-context fetch failed, so the check never ran. The
+    // comment above says it: fail-open. Counting it clean would let a guard whose forge
+    // transport is broken report itself recovered on every merge.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -596,6 +605,37 @@ if (import.meta.main) {
     usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
   }
 
+  // mt#3819: record this merge's deploy/build-surface verdict for the per-turn
+  // consumer (`build-claim-injection-detector`), which cannot afford the forge
+  // fetch we just did. Computed from `prFiles` directly rather than from
+  // `usabilityResult`, so the Gap A override — which zeroes `buildSurfaceFiles`
+  // to skip its own check — cannot make us under-record the local-app surface.
+  // Never throws and never affects this gate's decision.
+  {
+    const surfaceFiles = [
+      ...new Set([...findDeploySurfaceFiles(prFiles), ...findLocalAppDeploySurfaceFiles(prFiles)]),
+    ];
+    const verdict = {
+      hadDeploySurface: surfaceFiles.length > 0,
+      deploySurfaceFiles: surfaceFiles,
+      recordedAt: new Date().toISOString(),
+    };
+
+    // PR #2734 R1: record under BOTH the RESOLVED task id and the RAW ids the
+    // caller actually passed. `session_pr_merge` takes either `task` or
+    // `sessionId` (mt#3355), and the consumer can only see what is in the
+    // tool_use input — so a `sessionId`-invoked merge keyed solely by the
+    // resolved task id would be permanently unfindable, silently degrading to
+    // the old proxy for exactly the merges this task exists to fix.
+    const rawToolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+    const keys = new Set<string>([task]);
+    for (const field of ["task", "taskId", "sessionId", "session"]) {
+      const value = rawToolInput[field];
+      if (typeof value === "string" && value.length > 0) keys.add(value);
+    }
+    for (const key of keys) recordMergeDeploySurface(key, verdict);
+  }
+
   const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];
   const blockingReasons = [deployResult, usabilityResult]
     .filter((r) => r.blocked)
@@ -612,7 +652,12 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${blockingReasons.join("\n\n---\n\n")}`,
       },
     });
-    recordAndExit("deny", usabilityOverrideFields);
+    // mt#3920: the three exits below are all downstream of `checkDeployVerification` —
+    // the gate exercised its check and reached a verdict, so each is clean-run evidence.
+    // `usabilityOverrideFields` does NOT change that: the Gap A override neutralizes ONE
+    // sub-check and the gate keeps running, unlike a top-level override (which exits above
+    // and is deliberately left UNSET).
+    recordAndExit("deny", usabilityOverrideFields, "decided");
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -620,7 +665,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
-    recordAndExit("warn", usabilityOverrideFields);
+    recordAndExit("warn", usabilityOverrideFields, "decided");
   }
-  recordAndExit("allow", usabilityOverrideFields);
+  recordAndExit("allow", usabilityOverrideFields, "decided");
 }

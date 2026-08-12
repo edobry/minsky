@@ -70,6 +70,25 @@ export const TAIL_WINDOW_CHARS = 600;
  *   R2: "say the word and I'll merge"        (deferral-shaped stop)
  *   R3: "I'm taking it forward … that's the next step, not a question"
  */
+/**
+ * Action verbs an announcement can attach to. Shared by the `I'll …` and
+ * `I'm going to …` families so a verb added here is covered in both forms —
+ * mt#3853's miss was partly that they could drift apart.
+ */
+const ACTION_VERB = String.raw`merge|implement|plan|file|fix|ship|land|write|open|build|patch|send|create|add|draft|wire|run|PR`;
+
+/**
+ * What the announced action is performed ON. Anaphora (`it`/`that`/`this`) and
+ * task ids were the original set; mt#3853 adds NAMED artifacts, because a
+ * commitment to a named thing ("I'm going to write and PR option 1") is the
+ * most concrete kind and was the one that escaped.
+ *
+ * Deliberately NOT `.+` — an object-less verb ("I'm going to think about how
+ * this works") is not an announcement of an immediately-executable action, and
+ * matching it would fire on ordinary reasoning prose.
+ */
+const ACTION_OBJECT = String.raw`it|that|this|mt#\d+|the\s+\w+|a\s+PR|option\s+\d+|both|these|them`;
+
 const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   {
     family: "taking-forward",
@@ -84,7 +103,20 @@ const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
   },
   {
     family: "ill-action",
-    re: /\bi'?ll\s+(?:merge|implement|plan|file|fix|ship|land)\s+(?:it|that|this|mt#\d+)\b/i,
+    re: new RegExp(
+      String.raw`\bi'?ll\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
+  },
+  // mt#3853: `I'm going to X` was matched by NOTHING. It is at least as common
+  // a commitment form as `I'll X`, and the missed turn used it. `gonna` and the
+  // uncontracted `I am going to` are the same speech act.
+  {
+    family: "going-to",
+    re: new RegExp(
+      String.raw`\bi'?(?:m|\s+am)\s+(?:going\s+to|gonna)\s+(?:${ACTION_VERB})\b[\w\s,]*?\b(?:${ACTION_OBJECT})\b`,
+      "i"
+    ),
   },
   { family: "moving-on", re: /\bmoving\s+on\s+to\b/i },
   { family: "say-the-word", re: /\bsay\s+the\s+word\b/i },
@@ -101,18 +133,252 @@ const COMMITMENT_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> = [
  * the R2 and R3 failing turns carried none of these markers.
  */
 const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
-  /\bwatcher\s+is\s+armed\b/i,
-  /\barmed\s+(?:a\s+)?(?:background\s+)?(?:watcher|poll|retry|wakeup)\b/i,
+  // mt#3948: the armed-watcher suppression, in BOTH word orders and over the full noun set.
+  //
+  // The two patterns these replace were each bound to one phrasing —
+  // `/\bwatcher\s+is\s+armed\b/` required the copula AND the noun `watcher`, and
+  // `/\barmed\s+(?:a\s+)?(?:background\s+)?(?:watcher|poll|retry|wakeup)\b/` required `armed` to
+  // PRECEDE the noun and allowed exactly one modifier. Four attested closing messages from the
+  // 2026-08-10 and 2026-08-11 review windows put the participle AFTER the noun, or inserted a
+  // different modifier, or named the wait `wait` rather than `watcher`, and all four fired on
+  // behavior `work-completion.mdc §External self-resolving waits` explicitly PRESCRIBES:
+  //
+  //   "I have a background wait armed on it — I'll merge and write the handoff when it fires."
+  //   "I have a blocking watcher armed on the checks — I'll merge the moment they go green."
+  //   "watcher armed, I'll merge when it's green."
+  //   "A background wait is armed; I'll merge when the timer fires."
+  //
+  // What is deliberately NOT bought with this: the suppression still keys on EVIDENCE THE WAIT
+  // EXISTS, never on naming a blocker. "I'll merge when the review lands" names no wait and
+  // keeps firing — the same line PR #2784 R1 drew when it rejected a broader `blocked only on
+  // ci` pattern. Both patterns require the literal `armed` adjacent to a wait noun; neither can
+  // match a message that merely mentions CI, a review, or a check.
+  //
+  // ADR-024 placement: this is a Rung-1 deterministic fix, the ladder's default, and the rung
+  // its Consequences name as plausibly sufficient for the precision axis at ~zero cost. If a
+  // THIRD distinct armed-watcher phrasing is filed against this set, that is the measured
+  // insufficiency of Rung 1 for this family and the next pass raises the rung rather than the
+  // pattern count — see the task's `## Planning Audit`.
+  //
+  // Participle BEFORE the noun: "armed a background wait", "armed the retry watcher".
+  /\barmed\s+(?:a|an|the)?\s*(?:[\w-]+\s+){0,2}?(?:watcher|wait|poll|retry|wakeup)\b/i,
+  // Participle AFTER the noun, with an optional copula: "watcher armed", "wait is armed",
+  // "watcher has been armed". Subsumes the retired `watcher\s+is\s+armed` entry.
+  /\b(?:watcher|wait|poll|retry|wakeup)\s+(?:is\s+|was\s+|has\s+been\s+)?armed\b/i,
   /\brunning\s+in\s+the\s+background\b/i,
   /\bi'?ll\s+report\s+(?:back\s+)?when\b/i,
   /\bwaiting\s+(?:for|on)\s+/i,
   /\bno\s+action\s+needed\s+from\s+you\b/i,
   /\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i,
+  // mt#3917: the watcher reports to the AGENT, not the agent to the principal.
+  // The line above covers "I'll report back when …"; the 2026-08-09T04:18Z fire
+  // was "Blocked only on CI now — I'll merge when the checks task reports back",
+  // where the subject is the watcher. `work-completion.mdc §External
+  // self-resolving waits` prescribes exactly that shape, so firing on it tells
+  // the agent to override the rule it was following.
+  //
+  // Scoped to the DELEGATED-REPORT clause only. A first draft also carried
+  // `blocked only on ci|checks|the build`, and PR #2784 R1 was right to reject
+  // it: naming CI as the blocker says nothing about whether a watcher was ever
+  // armed, so it silenced the exact turn this guard exists to catch — an agent
+  // that announces a blocker and then stops. `work-completion.mdc` asks for the
+  // watcher, not for the excuse, so the suppression has to key on evidence the
+  // watcher exists. `when <subject> reports back` names one; "blocked on CI"
+  // names none. The real 2026-08-09T04:18Z fire carries the report-back clause,
+  // so nothing is lost by dropping the broader phrase.
+  //
+  // PR #2784 R3: the subject must be a MECHANISM, not a person. `when you
+  // report back` is operator-delegation — the agent handing the principal the
+  // wait — which is the failure `work-completion.mdc` names outright ("Ping me
+  // when GitHub's back" is its stated anti-pattern). Suppressing it inverted
+  // the rule this entry exists to serve, so second-person and
+  // principal-referent subjects are excluded and still fire.
+  // The exclusion sits immediately after `when`, and swallows the optional
+  // `the` ITSELF, because placing it after `(?:the\s+)?` leaves a backtracking
+  // hole: the engine retries with `the` unconsumed, the lookahead then inspects
+  // "the operator" instead of "operator", and the person-check passes. Caught by
+  // this entry's own test rather than by reading — worth keeping in mind for any
+  // later edit here.
+  /\bwhen\s+(?!(?:the\s+)?(?:you|your|i|we|operator|principal|user|eugene)\b)(?:the\s+)?[\w-]+(?:\s+[\w-]+)?\s+reports?\s+back\b/i,
 ];
+
+/**
+ * Suppression reason for a halt that NAMES a principal-reserved category (mt#3768).
+ */
+export const SUPPRESSION_RESERVED_CATEGORY_HALT = "reserved-category-halt";
+
+/**
+ * Categories the principal reserves, as named in closing prose.
+ *
+ * A turn that halts because the next step belongs to the principal is behaving
+ * exactly as `principal-context.mdc §Decisions Eugene reserves` requires. Firing
+ * on it tells the agent to override a halt the corpus mandates — training against
+ * the corpus rather than with it, which is worse than staying silent.
+ *
+ * ## The discriminator is a NAMED category, not an offered choice
+ *
+ * `/plan-task` Step 4 makes this a positive citation test: a halt is legitimate
+ * when it can NAME which reserved category applies, and a rationale that names
+ * none is low confidence, missing information, or a decision that is simply the
+ * agent's. So these patterns match category VOCABULARY, never the bare
+ * "your call" / "up to you" / option-set shapes.
+ *
+ * That exclusion is load-bearing in both directions. "Your call" with no category
+ * behind it is the signature of the confabulated halt (mem#823, mem#367 R5) — the
+ * precise case this guard SHOULD keep catching. And an option set alone is not
+ * evidence of a legitimate halt: mt#3801 recorded a true positive
+ * ("Next step is `/plan-task mt#3799` unless you'd rather I go straight at it")
+ * that an option-set discriminator would have silenced.
+ *
+ * ## Tuned against the three real instances in the log, not invented examples
+ *
+ * All 130 records of `.minsky/untaken-action-calibration.jsonl` were scanned; three
+ * fires name a reserved category, and each is a false positive this suppresses:
+ *
+ *  - 2026-07-30 — "its deliverable is a user-facing *label* … Naming is yours, not
+ *    mine." (naming)
+ *  - 2026-07-31 — "blocked on you picking the user-facing name … or something from
+ *    the locked brand vocabulary" (naming)
+ *  - 2026-08-04 — "it's your product surface and the call to make it the phone
+ *    default is the contestable part" (product surface)
+ *
+ * Three in 130 is rare, and rarity is not the argument: the cost of this false
+ * positive is that the agent is told to override a correct halt, so it is a
+ * correctness property rather than noise reduction. Do not re-justify it on
+ * frequency — mt#3768's `## Planning Audit` records that it suppresses none of the
+ * 12 most recent fires.
+ */
+const RESERVED_CATEGORY_PATTERNS: ReadonlyArray<RegExp> = [
+  // Explicit citation of the rule itself.
+  /\bprincipal[-\s]reserved\b/i,
+  /\breserved\s+(?:category|decision)\b/i,
+  // Naming — a customer-facing term, not an internal identifier the agent owns.
+  /\bnaming\s+is\s+(?:yours|your\s+call|the\s+principal'?s)\b/i,
+  /\b(?:user-facing|customer-facing)\s+(?:name|label|term|copy)\b/i,
+  /\bbrand\s+vocabulary\b/i,
+  /\bproduct\s+nam(?:e|ing)\b/i,
+  // Architectural moves affecting customer experience or product surface.
+  /\b(?:your|the)\s+product\s+surface\b/i,
+  /\bcustomer\s+experience\b/i,
+  // Authorization for shared / production state changes. Scoped to "state" so an
+  // ordinary "shared source contract" or "shared module" does not qualify.
+  /\b(?:production|shared)[-\s]state\s+(?:change|write|mutation)\b/i,
+  // Scope changes to in-flight work.
+  /\bscope\s+change\s+to\s+in-?flight\b/i,
+  // Vendor commitments.
+  /\bvendor\s+commitment\b/i,
+  // Framework choices at principal-level stakes.
+  /\bframework\s+choice\b/i,
+];
+
+/**
+ * A preference is reserved ONLY once it establishes a durable default (ask#7587).
+ *
+ * The six categories above are the list `principal-context.mdc` carried, and a
+ * preference is on none of them — so the 2026-08-09T00:09Z fire ("which model
+ * becomes your default is your preference, not a capability gap") named no
+ * category and was flagged. `humility.mdc` says the opposite for preference-bound
+ * decisions, and the operator settled the conflict: **reserve a preference when it
+ * becomes a durable default; decide a one-off inline.**
+ *
+ * That answer is a DISCRIMINATOR, not a phrase. Matching "your preference" alone
+ * would suppress exactly the one-off case the operator kept with the agent, which
+ * inverts the decision — so both halves are required: the message must frame the
+ * choice as the principal's taste AND mark it as durable. "Which font do you want
+ * for this one diagram?" carries the first and not the second, and still fires.
+ */
+const DURABLE_MARKER_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:becomes?|be|is)\s+(?:your|the)\s+default\b/i,
+  /\byour\s+default\b/i,
+  /\bstanding\s+(?:preference|default|choice)\b/i,
+  /\b(?:from\s+now\s+on|going\s+forward)\b/i,
+  /\bdefault\s+(?:for\s+)?(?:every|all)\b/i,
+];
+
+const PREFERENCE_MARKER_PATTERNS: ReadonlyArray<RegExp> = [
+  /\byour\s+(?:preference|taste)\b/i,
+  /\bpreference[-\s]bound\b/i,
+  /\bnot\s+a\s+capability\s+gap\b/i,
+  /\byours\s+to\s+set\b/i,
+];
+
+/** First matching phrase from `list`, or undefined. */
+function firstMatch(list: ReadonlyArray<RegExp>, text: string): string | undefined {
+  for (const re of list) {
+    const m = re.exec(text);
+    if (m) return m[0];
+  }
+  return undefined;
+}
+
+/**
+ * Returns the reserved-category phrases the message names, in match order.
+ *
+ * Runs over the SAME elided text the commitment scan uses, so a category named
+ * inside a quotation or code fence cannot suppress a real fire — this rule text
+ * quoting "naming is yours" must not silence the guard for the turn that quotes it.
+ * Unlike the commitment scan it reads the WHOLE message rather than the tail: the
+ * halt basis is routinely stated where the reasoning is, several paragraphs above
+ * the closing sentence that trips the commitment pattern.
+ */
+export function detectReservedCategoryHalt(finalMessage: string): string[] {
+  if (!finalMessage) return [];
+  const scanned = elideQuotedAndCodeContexts(finalMessage);
+  const named: string[] = [];
+  for (const re of RESERVED_CATEGORY_PATTERNS) {
+    const m = re.exec(scanned);
+    if (m) named.push(m[0]);
+  }
+  // A durable-default preference is reserved per ask#7587 — but only when BOTH
+  // halves are present, so a one-off preference call still fires.
+  const durable = firstMatch(DURABLE_MARKER_PATTERNS, scanned);
+  const preference = firstMatch(PREFERENCE_MARKER_PATTERNS, scanned);
+  if (durable !== undefined && preference !== undefined) {
+    named.push(`${preference} / ${durable}`);
+  }
+  return named;
+}
 
 export interface UntakenActionMatch {
   family: string;
   matchedPhrase: string;
+}
+
+/**
+ * Longest quoted phrase an evidence line may carry (mt#3853).
+ *
+ * The evidence lines exist so the agent can recognize WHICH text tripped the
+ * guard; 26 chars is enough to do that for every pattern here (the longest
+ * pattern prefix is `I'm going to ` at 13), and the tail is elided rather than
+ * dropped. Chosen by MEASUREMENT, not preference: 32 still rendered 451 against
+ * the 450 ceiling on the worst-case canary; 26 renders 443.
+ *
+ * Why a cap at all: matched-phrase length is a function of the PATTERN SET, so
+ * without one, every future verb or object added to `ACTION_VERB` /
+ * `ACTION_OBJECT` silently grows the rendered worst case. mt#3853's own
+ * widening pushed it from 430 to 457 against a 450 ceiling — measured on a
+ * canary posed so the long families occupy all three capped slots. Bounding the
+ * phrase makes the ceiling a property of the FORMAT rather than of the corpus,
+ * so widening the patterns can no longer breach it.
+ */
+export const MAX_QUOTED_PHRASE_CHARS = 26;
+
+/**
+ * Scope note (PR #2724 R1): this cap applies to the ADVISORY text only. The
+ * calibration record keeps the FULL matched phrase, deliberately.
+ *
+ * The two have different readers and different budgets. `additionalContext` is
+ * charged against the merged injection budget and rendered into the principal's
+ * scroll, so its size is the thing being bounded. The calibration JSONL is a
+ * file that only `/calibration-review` reads, where a truncated phrase would
+ * make false-positive classification harder for no saving. Truncating there
+ * would degrade the measurement this guard's tuning depends on.
+ */
+
+function quotePhrase(phrase: string): string {
+  return phrase.length <= MAX_QUOTED_PHRASE_CHARS
+    ? phrase
+    : `${phrase.slice(0, MAX_QUOTED_PHRASE_CHARS - 1).trimEnd()}…`;
 }
 
 /**
@@ -142,26 +408,216 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
       ? scanned.slice(scanned.length - TAIL_WINDOW_CHARS)
       : scanned;
 
+  // mt#3948: where `tail` starts inside `scanned`, so a match index in the tail can be mapped
+  // back to the whole message. `isAttributedStep` deliberately reads a 40-char window and needs
+  // no mapping; the handoff check below reads ALL preceding text and does.
+  const tailOffset = scanned.length - tail.length;
+
   const matches: UntakenActionMatch[] = [];
   for (const { family, re } of COMMITMENT_PATTERNS) {
     const m = re.exec(tail);
-    if (m) matches.push({ family, matchedPhrase: m[0] });
+    if (!m) continue;
+    if (ATTRIBUTABLE_FAMILIES.has(family) && isAttributedStep(tail, m.index)) continue;
+    // mt#3948: same per-family seam, different reason — inside a handoff/resume block, naming
+    // the next step is the block's deliverable rather than a deferral.
+    //
+    // Checked against `scanned`, not `tail`: a handoff block opens with its heading and runs for
+    // many lines, so in a real handoff message the heading is routinely ABOVE the 600-char tail
+    // window while the next-step sentence sits inside it. Passing `tail` here would have made
+    // the suppression work only on handoffs short enough to fit the window — which the attested
+    // fixture happens to be, so the tests would have passed and the real case would not.
+    if (
+      HANDOFF_SUPPRESSED_FAMILIES.has(family) &&
+      isInHandoffBlock(scanned, tailOffset + m.index)
+    ) {
+      continue;
+    }
+    matches.push({ family, matchedPhrase: m[0] });
   }
   return matches;
 }
 
-function buildReminder(matches: UntakenActionMatch[]): string {
+/**
+ * Families whose match can legitimately belong to a DOCUMENT rather than the
+ * speaker (PR #2784 R2).
+ *
+ * `next step is` / `that's the next step` are impersonal: a runbook has a next
+ * step, so naming one is as often description as commitment. Every other family
+ * is first-person by construction — `I'll …`, `I'm going to …`, `moving on to`,
+ * `say the word`. Nothing preceding those changes who is committing: "per the
+ * plan, I'll implement the fix" is still the agent saying it will implement the
+ * fix.
+ *
+ * The first draft applied the attribution filter to ALL families, which would
+ * have silenced exactly that sentence. The bundled test did not catch it — its
+ * attribution sat outside the 40-char lookback of the `ill-action` match, so the
+ * check never ran on the case it was supposed to protect. A test can agree with
+ * a bug when it accidentally avoids the condition.
+ */
+const ATTRIBUTABLE_FAMILIES: ReadonlySet<string> = new Set(["next-up", "next-step"]);
+
+/**
+ * Words that attribute a next step to a DOCUMENT or PROCEDURE rather than to the
+ * speaker (mt#3917).
+ *
+ * The `next-up` family matches `next step is`, which is a commitment when the
+ * agent says it and a description when a document does. The 2026-08-10T10:09Z
+ * fire was "…every rung reported 'absent' while the service was actively 422ing,
+ * and the documented next step is bypass merge" — narrating what a runbook
+ * prescribes while diagnosing, committing to nothing.
+ *
+ * Checked against the text immediately BEFORE the match rather than the whole
+ * message, and per-match rather than as a `SUPPRESSION_PATTERNS` entry: a global
+ * suppression would silence a real commitment that happens to share a message
+ * with a quoted procedure, which is the over-suppression this guard's own
+ * doc comment warns against.
+ *
+ * This is one instance of a matcher weakness three detectors share — mt#3864
+ * (`pre-narration` fires on historical and quoted statements) and mt#3865
+ * (`operator-deferral` fires on rule text describing the detector itself). If a
+ * fourth appears, the shared "asserted vs described" primitive is worth lifting
+ * out rather than patched a fourth time.
+ */
+const ATTRIBUTION_PATTERNS: ReadonlyArray<RegExp> = [
+  /\b(?:documented|prescribed|recommended|official|canonical)\s*$/i,
+  /\b(?:the\s+)?(?:docs?|runbook|skill|rule|procedure|playbook)\s+says?\s*$/i,
+  /\baccording\s+to\s+[\w\s.'-]{0,30}$/i,
+  /\bper\s+(?:the\s+)?[\w\s.'-]{0,30}$/i,
+];
+
+/**
+ * Attribution to a PERSON is not attribution to a document (PR #2784 R3).
+ *
+ * `according to <X>` and `per <X>` were matching any object, so "According to
+ * you, the next step is the migration" read as a runbook citation. It is the
+ * opposite: a next step the PRINCIPAL named is still one the agent owes an
+ * action or an ask on, and suppressing it hides a true positive. Only an
+ * impersonal source moves the step off the speaker.
+ */
+const PERSONAL_ATTRIBUTION_PATTERN =
+  /\b(?:you|your|yours|i|me|my|we|us|our|operator|principal|user|eugene)\b/i;
+
+/** Chars of preceding context an attribution marker may occupy. */
+const ATTRIBUTION_LOOKBACK_CHARS = 40;
+
+/**
+ * Does the text right before `index` attribute the step to something other than
+ * the speaker?
+ */
+export function isAttributedStep(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - ATTRIBUTION_LOOKBACK_CHARS), index);
+  if (PERSONAL_ATTRIBUTION_PATTERN.test(before)) return false;
+  return ATTRIBUTION_PATTERNS.some((re) => re.test(before));
+}
+
+/**
+ * A HANDOFF or RESUME block heading (mt#3948, absorbing CLOSED mt#3998).
+ *
+ * Inside a handoff, naming the next step IS the deliverable — the block exists to tell the next
+ * agent where to start. The 2026-08-11 window fired on exactly that:
+ *
+ *   "### Resume — New session … two PRs, a retrospective, a 13-hour data operation, and the
+ *    next step is a clean self-contained scope."
+ *
+ * Matched against a markdown HEADING rather than a bare mention of the word, because "handoff"
+ * appears constantly in ordinary prose about handoffs — a bare-word match would suppress a real
+ * commitment in any turn that discussed one. A heading is a structural claim about what the
+ * following text IS.
+ *
+ * Per-family and per-match, for the same reason `isAttributedStep` is: a global
+ * `SUPPRESSION_PATTERNS` entry would silence a genuine `ill-action` commitment that happens to
+ * share a message with a handoff block, and a handoff-carrying turn is exactly the kind of long
+ * closing message where a real commitment is most likely to also appear.
+ */
+const HANDOFF_BLOCK_HEADING = /^\s{0,3}#{1,6}\s*(?:\*\*)?\s*(?:resume|handoff)\b/im;
+
+/**
+ * Families the handoff suppression applies to — `next-up` ONLY (PR #2904 R1).
+ *
+ * Deliberately NOT `ATTRIBUTABLE_FAMILIES`, which also carries `next-step`
+ * (`that's the next step`). The first version reused that set and so silently widened the
+ * suppression past the evidence: every attested handoff fire is the `next step is` phrasing,
+ * which is `next-up`. `next-step` inside a handoff is plausibly the same speech act, but
+ * plausibly is not a fixture — and this guard's own doc comment warns that over-suppressing
+ * re-opens the gap it exists to close. If a `next-step` handoff fire is ever filed, that is the
+ * datum that widens this set.
+ */
+const HANDOFF_SUPPRESSED_FAMILIES: ReadonlySet<string> = new Set(["next-up"]);
+
+/**
+ * Does a handoff/resume block open before `index`?
+ *
+ * Scans ALL preceding text, not a fixed window: the heading opens the block and the next-step
+ * sentence can sit many lines below it, which is why this cannot reuse
+ * `ATTRIBUTION_LOOKBACK_CHARS`.
+ */
+export function isInHandoffBlock(text: string, index: number): boolean {
+  // The slice below is not a display truncation: the prefix is fed straight to `.test()`, and
+  // `index` is a regex match index, which is always a code-unit boundary. Even if it did strand
+  // a lone surrogate at the prefix's tail, that cannot change whether a `^`-anchored heading
+  // matched EARLIER in the prefix — the only question asked here.
+  // eslint-disable-next-line custom/no-unsafe-string-truncation -- see the note above
+  return HANDOFF_BLOCK_HEADING.test(text.slice(0, index));
+}
+
+/**
+ * The directive for an ordinary commitment fire — the agent said it would do a
+ * thing and then did not.
+ */
+const COMMITMENT_DIRECTIVE =
+  "Take it now in this continuation, then report the result. If it genuinely cannot " +
+  "proceed — you are blocked on a principal decision, a red check, or an external " +
+  "condition you have already armed a watcher for — name which in one line and end.";
+
+/**
+ * The directive for a fire whose phrase ALSO matches the deferral corpus (mt#3767).
+ *
+ * mt#3620 made this guard win the overlap and silenced the prompt-time sibling,
+ * because Stop is the earlier event and only an earlier warning can prevent the
+ * round-trip. But the remedy for an OFFER lives in the sibling that was silenced:
+ * a menu handed back to the principal is not an omission to correct by acting, it
+ * is a sentence to retract. Emitting the commitment directive here tells the agent
+ * to perform an action whose correct disposition is often to un-name it — and an
+ * instruction that does not fit is what teaches a reader to dismiss a true
+ * positive, which is exactly what happened in this task's originating occurrence.
+ *
+ * So the handoff now carries the TEXT as well as the speaking rights. mem#831
+ * stated the rule for the speaking half — "a dedup between guards on DIFFERENT
+ * events is not a dedup, it is a handoff, and it must hand off toward the EARLIER
+ * event"; this is the other half of it.
+ *
+ * Kept to one classify-then-act sentence set rather than restating
+ * `/classify-before-deferring` — the skill owns the taxonomy, this names the branch
+ * the agent is most likely to have missed (that it already decided).
+ *
+ * ## Ceiling
+ *
+ * This branch is the guard's WORST CASE and the registry's `worstCaseCanary` is
+ * posed at it. Measured with the evidence list at its cap of 3 plus the
+ * "…and N more" line: 430 chars against a 450 ceiling. Any addition here has to
+ * be paid for by a trim elsewhere, NOT by raising
+ * `attentionCost.denialMessageSizeChars` — `dispatcher.ts` derives the whole
+ * turn's merged-injection budget from the sum of those annotations, so raising
+ * one taxes every turn in the repo (mem#865, learned on the mt#3699 sibling).
+ */
+const DEFERRAL_DIRECTIVE =
+  "You OFFERED this rather than doing it. If you already decided against it, the " +
+  "naming was the defect — drop the offer and state the decision. If a lookup or " +
+  "standing default settles it, act. Ask only for a principal-reserved category.";
+
+function buildReminder(matches: UntakenActionMatch[], deferralShaped: boolean): string {
   const lines: string[] = [
-    "[turn-end-untaken-action] You named a next action and ended the turn without taking it.",
+    // Trimmed by mt#3767 from "…and ended the turn without taking it." The guard
+    // is Stop-keyed, so "ended the turn" was already implied by when it fires;
+    // the 17 chars buy headroom the SATURATED case needs. Do not re-expand — see
+    // the ceiling note on `DEFERRAL_DIRECTIVE`.
+    "[turn-end-untaken-action] You named a next action and did not take it.",
     "",
   ];
-  lines.push(...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${m.matchedPhrase}"`));
   lines.push(
-    "",
-    "Take it now in this continuation, then report the result. If it genuinely cannot " +
-      "proceed — you are blocked on a principal decision, a red check, or an external " +
-      "condition you have already armed a watcher for — name which in one line and end."
+    ...cappedEvidenceLines(matches, (m) => `  - ${m.family}: "${quotePhrase(m.matchedPhrase)}"`)
   );
+  lines.push("", deferralShaped ? DEFERRAL_DIRECTIVE : COMMITMENT_DIRECTIVE);
   return lines.join("\n");
 }
 
@@ -239,6 +695,46 @@ export function run(
   }
   writeFlagged(sessionId, flagged, storeDir);
 
+  // mt#3768: the turn named a category the principal reserves, so stopping was
+  // what the corpus required. Suppress the injection — but RECORD it, per the
+  // mt#3207 contract: a suppression that returns null is invisible, and the
+  // failure mode worth catching here is this predicate silencing a TRUE positive.
+  // An empty `suppressionReasons` means "recorded an outcome, did not suppress";
+  // a populated one means the fire was swallowed and by what.
+  //
+  // ## Why this sits AFTER the dedup filter (PR #2731 R1)
+  //
+  // Review asked for it BEFORE the `newMatches.length === 0` early return, on the
+  // grounds that a re-entered turn is then suppressed with no record — which is
+  // accurate, and is the same thing that happens to an INJECTING fire on re-entry.
+  // The ordering is deliberate: the dedup key is the final message's own hash, so
+  // a second occurrence is byte-identical text reaching the same verdict. One
+  // record per distinct turn is what a calibration pass wants; N records for one
+  // repeated message would inflate the suppression rate and misstate exactly the
+  // measurement this record exists to support.
+  //
+  // What review correctly caught is that the CLAIM was unqualified. The contract
+  // is "a suppressed fire is recorded once per distinct turn, under the same dedup
+  // as an injecting fire" — not "on every Stop." Reworded here, in the doc page,
+  // and in the PR body rather than changed in behavior.
+  const reservedCategory = detectReservedCategoryHalt(finalMessage);
+  if (reservedCategory.length > 0) {
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+        suppressionReasons: [SUPPRESSION_RESERVED_CATEGORY_HALT],
+        reservedCategoryPhrases: reservedCategory,
+      },
+    };
+  }
+
   // mt#3620: when the same final message ALSO matches the ask-routing-deferral
   // patterns ("say the word" sits in BOTH pattern sets), exactly one of the two
   // guards should speak. THIS one does.
@@ -281,6 +777,9 @@ export function run(
       // empty (not absent) still means "recorded an outcome, did not suppress".
       suppressionReasons: [] as string[],
     },
-    additionalContext: buildReminder(newMatches),
+    // The overlap flag selects the DIRECTIVE, not just the calibration field
+    // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
+    // the silenced sibling's remedy and not only its speaking slot.
+    additionalContext: buildReminder(newMatches, deferralOverlap.length > 0),
   };
 }

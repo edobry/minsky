@@ -7,6 +7,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io;
+use std::net::{Ipv4Addr, TcpListener};
 #[cfg(unix)]
 use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::launchd::try_evict_legacy_launchd;
+use crate::port::{cockpit_port, health_url};
 use crate::watcher_backend::{
     cockpit_backend_root, cockpit_backend_src, newest_backend_mtime, start_backend_watcher,
 };
@@ -29,8 +31,10 @@ use crate::watcher_web::{
     start_web_watcher, PreflightResult,
 };
 
-pub(crate) const DAEMON_PORT: u16 = 3737;
-pub(crate) const HEALTH_URL: &str = "http://localhost:3737/api/health";
+// The supervised port is no longer a constant (mt#3988): it is resolved once at
+// startup by `crate::port::init` and read here via `cockpit_port()`, so the tray
+// supervises whatever port the daemon is configured to serve on. The health URL
+// is derived from that same value by `crate::port::health_url`.
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// Minimum gap between successive respawns of a crashed daemon. Mirrors the
 /// launchd plist's `ThrottleInterval: 5` so a crash-loop doesn't spawn-storm.
@@ -74,7 +78,6 @@ const LABEL_STOPPED: &str = "Cockpit: stopped";
 const LABEL_STARTING: &str = "Cockpit: starting...";
 /// Daemon status line while a pre-flight bundle rebuild runs before spawn (mt#2297).
 pub(crate) const LABEL_BUILDING: &str = "Cockpit: rebuilding bundle...";
-const LABEL_CONFLICT: &str = "Cockpit: :3737 in use (not cockpit)";
 const LABEL_START_FAILED: &str = "Cockpit: start failed (see logs)";
 const LABEL_NO_REPO: &str = "Cockpit: repo not found";
 const LABEL_NO_BUN: &str = "Cockpit: bun not found";
@@ -203,7 +206,11 @@ fn throttle_ok(last_spawn: Option<Instant>, now: Instant, min: Duration) -> bool
 /// - the port is FREE — an operator mid-restart (or any replacement daemon)
 ///   holds the port, so this preserves the original conservatism, AND
 /// - the respawn throttle permits.
-fn should_takeover_adopted(consecutive_http_failed: u32, port_held: bool, throttle_ok: bool) -> bool {
+fn should_takeover_adopted(
+    consecutive_http_failed: u32,
+    port_held: bool,
+    throttle_ok: bool,
+) -> bool {
     consecutive_http_failed > ADOPTED_TAKEOVER_POLL_THRESHOLD && !port_held && throttle_ok
 }
 
@@ -303,6 +310,10 @@ fn handle_health_down_no_child(
     counters: &mut NoChildCounters,
     poll_now: Instant,
     now: Instant,
+    // The supervised port. Used only to NAME the port in the takeover logs —
+    // the availability answer itself comes from the `port_in_use` seam below,
+    // which is what keeps this function testable without a live socket.
+    port: u16,
     mut port_in_use: impl FnMut() -> bool,
     mut effect: impl FnMut(NoChildEffect),
 ) {
@@ -316,13 +327,15 @@ fn handle_health_down_no_child(
             .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
             .unwrap_or(true);
         if cooldown_elapsed {
-            let sustained_secs =
-                counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
+            let sustained_secs = counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
             let reason = format!(
                 "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
                  daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
             );
-            eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
+            eprintln!(
+                "[watchdog] sustained HTTP-failure (no child) alert: {}",
+                reason
+            );
             effect(NoChildEffect::Notify(reason));
             counters.last_http_alert = Some(poll_now);
         }
@@ -345,7 +358,7 @@ fn handle_health_down_no_child(
         // next poll adopts it via the healthy path.
         if port_in_use() {
             eprintln!(
-                "[watchdog] takeover aborted — port {DAEMON_PORT} was bound between check and spawn (operator restart in progress?)"
+                "[watchdog] takeover aborted — port {port} was bound between check and spawn (operator restart in progress?)"
             );
             effect(NoChildEffect::SetStatus(LABEL_STARTING));
             // PR #1927 R2 non-blocking (closed by mt#2794): the aborted
@@ -354,10 +367,9 @@ fn handle_health_down_no_child(
             // cycle.
             effect(NoChildEffect::ClearUptime);
         } else {
-            let sustained_secs =
-                counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
+            let sustained_secs = counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
             eprintln!(
-                "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
+                "[watchdog] adopted daemon gone for {sustained_secs}s and port {port} is free — taking over supervision (mt#2786)"
             );
             counters.consecutive_http_failed = 0;
             counters.last_http_alert = None;
@@ -402,6 +414,39 @@ fn parse_lsof_pid(output: &str) -> Option<u32> {
         .next()
 }
 
+/// Parse the first (pid, address) pair from `lsof -F pn` field output.
+///
+/// lsof's field format emits a process block (`p<pid>`) followed by one or more
+/// file blocks, each carrying an fd (`f<n>`) and a name (`n<addr>`) line — the
+/// `f` line arrives whether or not it was requested, which is why this matches
+/// on prefixes rather than on position:
+///
+/// ```text
+/// p42516
+/// f6
+/// n127.0.0.1:3737
+/// ```
+///
+/// Takes the FIRST pid and the FIRST address after it, matching
+/// `parse_lsof_pid`'s first-wins rule. A process listening on both loopback
+/// families reports two `n` lines; either identifies the holder.
+fn parse_lsof_holder(output: &str) -> Option<(u32, String)> {
+    let mut pid = None;
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix('p') {
+            if pid.is_none() {
+                pid = rest.parse::<u32>().ok();
+            }
+        } else if let Some(addr) = line.strip_prefix('n') {
+            if let Some(pid) = pid {
+                return Some((pid, addr.to_string()));
+            }
+        }
+    }
+    None
+}
+
 // ---------------------------------------------------------------------------
 // Process helpers (use std::process; not unit-tested — exercised live).
 // ---------------------------------------------------------------------------
@@ -419,7 +464,9 @@ fn home_dir() -> Option<String> {
     }
 }
 
-fn path_env() -> String {
+/// `pub(crate)` since mt#3988: `main`'s setup needs the same augmented PATH the
+/// supervisor uses in order to resolve the cockpit port before the tray builds.
+pub(crate) fn path_env() -> String {
     augmented_path(&home(), &std::env::var("PATH").unwrap_or_default())
 }
 
@@ -437,7 +484,11 @@ pub(crate) fn open_log(name: &str) -> io::Result<File> {
 }
 
 /// Find an executable by name on the given PATH string.
-fn resolve_program(name: &str, path: &str) -> Option<PathBuf> {
+///
+/// `pub(crate)` since mt#3988: `crate::port` resolves the SAME `bun` the daemon
+/// is spawned with, so the config lookup and the spawn cannot come from
+/// different toolchains.
+pub(crate) fn resolve_program(name: &str, path: &str) -> Option<PathBuf> {
     for dir in path.split(':') {
         if dir.is_empty() {
             continue;
@@ -557,27 +608,139 @@ pub(crate) fn resolve_repo_root(path: &str) -> Option<PathBuf> {
     None
 }
 
-/// The PID of whatever is LISTENing on `port`, if any.
+/// The lsof arguments for the port-holder probe, scoped to LOOPBACK (mt#3785).
+///
+/// Split out so the scoping is unit-testable without running lsof. The address
+/// qualifier is the whole point: `tcp:<port>` matches a listener on ANY
+/// interface, which is how a Tailscale listener on the tailnet addresses came
+/// back as the holder of the cockpit port.
+///
+/// `tcp@localhost:<port>` is deliberate, and specifically NOT
+/// `tcp@127.0.0.1:<port>` (PR #2684 R1 asked why): lsof resolves `localhost`
+/// through the resolver, which on a normal host yields BOTH loopback families,
+/// so one qualifier covers `127.0.0.1` and `::1` while still excluding every
+/// non-loopback address. Verified against a live IPv6-only listener — the
+/// `localhost` form finds it, the `127.0.0.1` form returns nothing:
+///
+/// ```text
+/// $ (nc -l ::1 39371 &) ; lsof -ti tcp@localhost:39371 -sTCP:LISTEN
+/// 69274
+/// $ lsof -ti tcp@127.0.0.1:39371 -sTCP:LISTEN
+/// (exit 1, no output)
+/// ```
+///
+/// Missing an IPv6-loopback holder would matter: `pid_on_port` feeds the kill
+/// in `do_stop`, and "no holder found" there means an adopted daemon is never
+/// stopped.
+fn lsof_port_args(port: u16) -> [String; 3] {
+    [
+        "-ti".to_string(),
+        format!("tcp@localhost:{port}"),
+        "-sTCP:LISTEN".to_string(),
+    ]
+}
+
+/// The PID of whatever is LISTENing on `port` **on loopback**, if any.
+///
+/// This is the IDENTIFICATION half of port detection: who holds it, so the tray
+/// can label the conflict, evict a legacy launchd agent, or kill an adopted
+/// daemon. The separate question — *is the address available to the daemon?* —
+/// is `port_in_use` below, and it is deliberately answered a different way.
+///
+/// Loopback-scoped since mt#3785. Before that this ran `-ti tcp:<port>`, which
+/// is interface-agnostic, so with any non-loopback listener on 3737 the probe
+/// returned MORE than one PID and `parse_lsof_pid` kept whichever lsof printed
+/// first. Every caller acts on that PID — `do_stop` SIGTERMs it — so the
+/// unscoped form could send a kill meant for the cockpit daemon to an unrelated
+/// process.
 ///
 /// Independent re-implementation of `findPortHolder` in
 /// `src/cockpit/port-recovery.ts` (mt#2629) — the TS side additionally
 /// resolves the holder's command line for zombie-recognition and uses `-i
-/// :<port>` instead of `-ti tcp:<port>`, but both filter to LISTEN-state
-/// sockets only and both treat "no matching PID" as "port free". Not
-/// unified: the Rust supervisor must keep working with no Minsky
-/// CLI/MCP process running at all. See `contract/README.md` §2 for the
-/// documented semantics both implementations share.
+/// :<port>` instead of `-ti tcp@localhost:<port>`, but both filter to
+/// LISTEN-state sockets only and both treat "no matching PID" as "port free".
+/// The TS side is NOT yet loopback-scoped (tracked at mt#3787); it cannot make
+/// the same wrong kill because `killZombie` only fires on a PID it recognizes
+/// as its own prior instance. Not unified: the Rust supervisor must keep
+/// working with no Minsky CLI/MCP process running at all. See
+/// `contract/README.md` §2 for the documented semantics both implementations
+/// share and the divergence this introduced.
 fn pid_on_port(port: u16, path: &str) -> Option<u32> {
     let out = Command::new(lsof_bin(path))
-        .args(["-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
+        .args(lsof_port_args(port))
         .env("PATH", path)
         .output()
         .ok()?;
     parse_lsof_pid(&String::from_utf8_lossy(&out.stdout))
 }
 
-fn port_in_use(port: u16, path: &str) -> bool {
-    pid_on_port(port, path).is_some()
+/// The PID **and the address it was found on** for whatever is LISTENing on
+/// `port` on loopback (mt#3785, PR #2684 R2).
+///
+/// Same scope as `pid_on_port`; the extra field output costs a second lsof
+/// invocation, which is why only the conflict REPORT uses it — that fires on a
+/// status transition, not on the 5s poll. The hot paths that only need a PID to
+/// act on keep using `pid_on_port`.
+fn port_holder(port: u16, path: &str) -> Option<(u32, String)> {
+    let out = Command::new(lsof_bin(path))
+        .args([
+            "-nP",
+            "-a",
+            "-i",
+            &format!("tcp@localhost:{port}"),
+            "-sTCP:LISTEN",
+            "-F",
+            "pn",
+        ])
+        .env("PATH", path)
+        .output()
+        .ok()?;
+    parse_lsof_holder(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Whether `port` is unavailable to the daemon — the AVAILABILITY half of port
+/// detection, which is a different question from "who holds it?" above.
+///
+/// Answered by attempting the bind the daemon itself would attempt, per ADR-014
+/// §"Implementation notes and risks": *"Prefer attempting the daemon's own bind
+/// and treating an `EADDRINUSE` on `:3737` as 'a daemon (or something) already
+/// owns the port', combined with a health probe … to confirm it is our daemon
+/// before adopting."* The supervisor's `health_ok` is that health probe, and it
+/// already targets `127.0.0.1` — so before mt#3785, adoption and conflict
+/// detection disagreed about which address "the port" even meant.
+///
+/// The bind answers the operative question directly: the daemon binds loopback,
+/// so a listener on a tailnet or LAN address does not take the address away from
+/// it, and no amount of lsof filtering can be as faithful as trying the thing.
+/// The residual time-of-check/time-of-use gap before the spawn is the one
+/// ADR-014 already accepts and resolves by making the daemon's own startup bind
+/// authoritative — the loser gets `EADDRINUSE` and falls back to adopt.
+fn port_in_use(port: u16) -> bool {
+    match TcpListener::bind((Ipv4Addr::LOCALHOST, port)) {
+        Ok(_) => false,
+        Err(e) if bind_error_means_in_use(&e) => true,
+        Err(e) => {
+            // Any OTHER bind failure is not evidence the port is taken, and
+            // treating it as such would reproduce this task's own bug: a
+            // false "in use" puts the tray in Conflict and it never spawns
+            // (PR #2684 R1). Fall back to ADR-014's authority instead -- let
+            // the daemon's own bind decide -- and say so, since a probe
+            // failing for an unexpected reason is worth seeing.
+            eprintln!(
+                "[cockpit-tray] bind probe on 127.0.0.1:{port} failed unexpectedly ({e}); \
+                 treating the port as available and letting the daemon's own bind decide"
+            );
+            false
+        }
+    }
+}
+
+/// Whether a failed bind means the address is genuinely taken.
+///
+/// ONLY `EADDRINUSE`. Split out from `port_in_use` so the distinction is
+/// unit-testable without provoking a real kernel error.
+fn bind_error_means_in_use(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::AddrInUse
 }
 
 fn kill_pid(pid: u32) {
@@ -712,7 +875,7 @@ fn update_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
     })
 }
 
-fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
+fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str, port: u16) {
     let bun = match resolve_program("bun", path) {
         Some(b) => b,
         None => {
@@ -745,7 +908,12 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
             return;
         }
     }
-    match spawn_daemon(&bun, &repo_root, DAEMON_PORT, path) {
+    // The resolved port is passed as an explicit `--port`, which outranks the
+    // daemon's own `cockpit.port` lookup (mt#3988). That is deliberate: the two
+    // read the same configuration, so they agree — and passing it explicitly
+    // means the daemon serves the port the tray is about to supervise even if
+    // configuration changes underneath a long-running tray.
+    match spawn_daemon(&bun, &repo_root, port, path) {
         Ok((child, pid)) => {
             sup.child = Some(child);
             sup.last_spawn = Some(Instant::now());
@@ -774,8 +942,9 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
 /// ADOPTED (our health endpoint answers), kill the PID on the port. A foreign
 /// listener (port in use but NOT our daemon) is never killed: `adopted_ok` must
 /// be true for the port-owner kill path. Callers compute `adopted_ok` from a
-/// fresh health probe so a conflict (someone else on :3737) is left untouched.
-fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool) {
+/// fresh health probe so a conflict (someone else on the supervised port) is
+/// left untouched.
+fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool, port: u16) {
     if let Some(mut child) = sup.child.take() {
         let pgid = spawned.lock().ok().and_then(|mut g| g.take());
         #[cfg(unix)]
@@ -785,15 +954,15 @@ fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool) {
         let _ = child.kill();
         let _ = child.wait();
     } else if adopted_ok {
-        if let Some(pid) = pid_on_port(DAEMON_PORT, path) {
+        if let Some(pid) = pid_on_port(port, path) {
             kill_pid(pid);
         }
     }
 }
 
-async fn health_ok(client: &reqwest::Client) -> bool {
+async fn health_ok(client: &reqwest::Client, port: u16) -> bool {
     client
-        .get(HEALTH_URL)
+        .get(health_url(port))
         .send()
         .await
         .map(|r| r.status().is_success())
@@ -812,6 +981,12 @@ fn run_supervisor(
 
     rt.block_on(async move {
         let path = path_env();
+        // Read ONCE for the supervisor's lifetime (mt#3988). `crate::port::init`
+        // has already resolved it on the setup thread, so this is a cheap read
+        // of the settled value — and binding it here rather than calling
+        // `cockpit_port()` at each site means every probe, spawn, adoption
+        // decision and label in this loop provably refers to the same port.
+        let port = cockpit_port();
         // mt#2297: runtime cockpit-web watcher (source-gated). Held for the
         // supervisor's lifetime; dropping it stops the watch. `None` on a
         // no-source install — the auto-rebuild feature simply doesn't run.
@@ -854,16 +1029,16 @@ fn run_supervisor(
         };
 
         // Initial adoption-or-spawn.
-        match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-            DaemonAction::Adopt => match adopt_decision(&path) {
+        match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+            DaemonAction::Adopt => match adopt_decision(&path, port) {
                 AdoptDecision::Stale => {
                     // Adopted daemon predates the current backend source (the
                     // 2026-06-04 8-day-stale case) — restart it (kill the
                     // health-confirmed daemon, respawn fresh) so new widget
                     // registrations / routes load before we report ready (mt#2299).
-                    do_stop(&mut sup, &spawned, &path, true);
+                    do_stop(&mut sup, &spawned, &path, true, port);
                     tokio::time::sleep(Duration::from_millis(500)).await;
-                    do_spawn(&app, &mut sup, &spawned, &path);
+                    do_spawn(&app, &mut sup, &spawned, &path, port);
                 }
                 AdoptDecision::Fresh { started, source_mtime } => {
                     sup.daemon_started_at = started;
@@ -877,15 +1052,15 @@ fn run_supervisor(
                 // the port holder is the legacy `com.minsky.cockpit` launchd
                 // agent (installed by `minsky cockpit install`). If so, evict
                 // it (bootout + disable) and retry — ADR-014 single-ownership.
-                if try_evict_legacy_launchd(pid_on_port(DAEMON_PORT, &path)) {
+                if try_evict_legacy_launchd(pid_on_port(port, &path)) {
                     // Give the OS ~1 s to release the port, then re-check.
                     tokio::time::sleep(Duration::from_secs(1)).await;
-                    match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                        DaemonAction::Adopt => match adopt_decision(&path) {
+                    match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+                        DaemonAction::Adopt => match adopt_decision(&path, port) {
                             AdoptDecision::Stale => {
-                                do_stop(&mut sup, &spawned, &path, true);
+                                do_stop(&mut sup, &spawned, &path, true, port);
                                 tokio::time::sleep(Duration::from_millis(500)).await;
-                                do_spawn(&app, &mut sup, &spawned, &path);
+                                do_spawn(&app, &mut sup, &spawned, &path, port);
                             }
                             AdoptDecision::Fresh { started, source_mtime } => {
                                 sup.daemon_started_at = started;
@@ -896,29 +1071,29 @@ fn run_supervisor(
                         },
                         DaemonAction::Conflict => {
                             // Still blocked even after eviction — show label.
-                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                            report_conflict(&app, &mut sup, &path, port);
                             clear_uptime(&app, &mut sup);
                         }
-                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
                     }
                 } else {
-                    set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                    report_conflict(&app, &mut sup, &path, port);
                     clear_uptime(&app, &mut sup);
                 }
             }
-            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
         }
 
         loop {
             tokio::select! {
                 cmd = rx.recv() => match cmd {
                     Some(SupervisorCmd::Start) => {
-                        match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                            DaemonAction::Adopt => match adopt_decision(&path) {
+                        match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+                            DaemonAction::Adopt => match adopt_decision(&path, port) {
                                 AdoptDecision::Stale => {
-                                    do_stop(&mut sup, &spawned, &path, true);
+                                    do_stop(&mut sup, &spawned, &path, true, port);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
-                                    do_spawn(&app, &mut sup, &spawned, &path);
+                                    do_spawn(&app, &mut sup, &spawned, &path, port);
                                 }
                                 AdoptDecision::Fresh { started, source_mtime } => {
                                     sup.daemon_started_at = started;
@@ -929,14 +1104,14 @@ fn run_supervisor(
                             },
                             DaemonAction::Conflict => {
                                 // gh#1761: same eviction path as the boot-time Conflict arm.
-                                if try_evict_legacy_launchd(pid_on_port(DAEMON_PORT, &path)) {
+                                if try_evict_legacy_launchd(pid_on_port(port, &path)) {
                                     tokio::time::sleep(Duration::from_secs(1)).await;
-                                    match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                                        DaemonAction::Adopt => match adopt_decision(&path) {
+                                    match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+                                        DaemonAction::Adopt => match adopt_decision(&path, port) {
                                             AdoptDecision::Stale => {
-                                                do_stop(&mut sup, &spawned, &path, true);
+                                                do_stop(&mut sup, &spawned, &path, true, port);
                                                 tokio::time::sleep(Duration::from_millis(500)).await;
-                                                do_spawn(&app, &mut sup, &spawned, &path);
+                                                do_spawn(&app, &mut sup, &spawned, &path, port);
                                             }
                                             AdoptDecision::Fresh { started, source_mtime } => {
                                                 sup.daemon_started_at = started;
@@ -946,40 +1121,40 @@ fn run_supervisor(
                                             }
                                         },
                                         DaemonAction::Conflict => {
-                                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                            report_conflict(&app, &mut sup, &path, port);
                                             clear_uptime(&app, &mut sup);
                                         }
-                                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
                                     }
                                 } else {
-                                    set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                    report_conflict(&app, &mut sup, &path, port);
                                     clear_uptime(&app, &mut sup);
                                 }
                             }
-                            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
                         }
                     }
                     Some(SupervisorCmd::Stop) => {
                         let had_child = sup.child.is_some();
-                        let h = health_ok(&client).await;
-                        do_stop(&mut sup, &spawned, &path, h);
-                        if !had_child && !h && port_in_use(DAEMON_PORT, &path) {
-                            // A foreign process owns :3737 — we didn't (and won't) kill it.
-                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                        let h = health_ok(&client, port).await;
+                        do_stop(&mut sup, &spawned, &path, h, port);
+                        if !had_child && !h && port_in_use(port) {
+                            // A foreign process owns the port — we didn't (and won't) kill it.
+                            report_conflict(&app, &mut sup, &path, port);
                         } else {
                             set_status(&app, &mut sup, LABEL_STOPPED);
                         }
                         clear_uptime(&app, &mut sup);
                     }
                     Some(SupervisorCmd::Restart) => {
-                        let h = health_ok(&client).await;
-                        if sup.child.is_none() && !h && port_in_use(DAEMON_PORT, &path) {
+                        let h = health_ok(&client, port).await;
+                        if sup.child.is_none() && !h && port_in_use(port) {
                             // Foreign listener owns the port — refuse to restart over it.
-                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                            report_conflict(&app, &mut sup, &path, port);
                         } else {
-                            do_stop(&mut sup, &spawned, &path, h);
+                            do_stop(&mut sup, &spawned, &path, h, port);
                             tokio::time::sleep(Duration::from_millis(500)).await;
-                            do_spawn(&app, &mut sup, &spawned, &path);
+                            do_spawn(&app, &mut sup, &spawned, &path, port);
                         }
                     }
                     Some(SupervisorCmd::AutoRestart) => {
@@ -1053,11 +1228,11 @@ fn run_supervisor(
                     Some(SupervisorCmd::Shutdown) | None => {
                         // Pass a fresh health probe as adopted_ok (matching the
                         // Stop arm) so quitting the app never kills a FOREIGN
-                        // :3737 listener — only our spawned child (via the
+                        // listener on the supervised port — only our spawned child (via the
                         // process group inside do_stop) or our health-confirmed
                         // adopted daemon. (mt#2305; PR #1558 reviewer R3.)
-                        let h = health_ok(&client).await;
-                        do_stop(&mut sup, &spawned, &path, h);
+                        let h = health_ok(&client, port).await;
+                        do_stop(&mut sup, &spawned, &path, h, port);
                         break;
                     }
                 },
@@ -1065,7 +1240,7 @@ fn run_supervisor(
                     // mt#2578: use poll_health_detail so we get DB status + restart
                     // signal, not just a bool. health_ok() is still used for the
                     // shutdown path (adopt_ok check) where we only need the bool.
-                    let health = poll_health_detail(&client).await;
+                    let health = poll_health_detail(&client, port).await;
                     let poll_now = Instant::now();
 
                     // --- Watchdog: restart-storm detection ---
@@ -1188,7 +1363,7 @@ fn run_supervisor(
                                 sup.restart_timestamps.len()
                             );
                             if throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
-                                do_spawn(&app, &mut sup, &spawned, &path);
+                                do_spawn(&app, &mut sup, &spawned, &path, port);
                             } else {
                                 // Crash-looping: exited within the respawn-throttle
                                 // window (e.g. a syntax error in server.ts that makes
@@ -1235,13 +1410,14 @@ fn run_supervisor(
                                 &mut counters,
                                 poll_now,
                                 Instant::now(),
-                                || port_in_use(DAEMON_PORT, &path),
+                                port,
+                                || port_in_use(port),
                                 |eff| match eff {
                                     NoChildEffect::Notify(reason) => {
                                         notify_daemon_unhealthy(&app, &reason)
                                     }
                                     NoChildEffect::Spawn => {
-                                        do_spawn(&app, &mut sup, &spawned, &path)
+                                        do_spawn(&app, &mut sup, &spawned, &path, port)
                                     }
                                     NoChildEffect::SetStatus(label) => {
                                         set_status(&app, &mut sup, label)
@@ -1294,8 +1470,8 @@ struct HealthDetail {
 /// Poll /api/health and return watchdog-relevant fields. Never panics; on any
 /// network or parse failure the caller receives `http_ok: false` / `db: Unknown` /
 /// `process_started_at_ms: None`.
-async fn poll_health_detail(client: &reqwest::Client) -> HealthDetail {
-    let resp = match client.get(HEALTH_URL).send().await {
+async fn poll_health_detail(client: &reqwest::Client, port: u16) -> HealthDetail {
+    let resp = match client.get(health_url(port)).send().await {
         Ok(r) if r.status().is_success() => r,
         _ => {
             return HealthDetail {
@@ -1332,7 +1508,11 @@ async fn poll_health_detail(client: &reqwest::Client) -> HealthDetail {
         _ => DbStatus::Unknown,
     };
     let process_started_at_ms = json.get("processStartedAtMs").and_then(|v| v.as_u64());
-    HealthDetail { http_ok: true, db, process_started_at_ms }
+    HealthDetail {
+        http_ok: true,
+        db,
+        process_started_at_ms,
+    }
 }
 
 /// Fire a best-effort OS-toast when the daemon is self-reporting unhealthy (mt#2578).
@@ -1407,10 +1587,10 @@ enum AdoptDecision {
 /// install with both signals available and `source > start` is Stale; anything
 /// undeterminable (no source tree, pid gone, ps failure) is treated as Fresh
 /// (never restart on a guess).
-fn adopt_decision(path: &str) -> AdoptDecision {
+fn adopt_decision(path: &str, port: u16) -> AdoptDecision {
     let source_mtime =
         cockpit_backend_root(path).and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
-    let started = pid_on_port(DAEMON_PORT, path).and_then(daemon_start_time);
+    let started = pid_on_port(port, path).and_then(daemon_start_time);
     if let (Some(st), Some(sm)) = (started, source_mtime) {
         if sm > st {
             return AdoptDecision::Stale;
@@ -1496,12 +1676,47 @@ fn clear_uptime(app: &AppHandle, sup: &mut Sup) {
     set_uptime_status(app, sup, uptime_label(None, None, SystemTime::now()));
 }
 
-/// Status line for a foreign listener on :3737, naming the holder pid (mt#2299,
+/// Status line for a foreign listener on the supervised port, naming the holder
+/// pid (mt#2299,
 /// narrow scope — message only, no kill). Pure.
-fn conflict_label_for(pid: Option<u32>) -> String {
+/// Set the Conflict status AND say who is holding the port.
+///
+/// The label alone is not a diagnostic: through the whole mt#3785 outage the
+/// tray's only signal was a menu item nobody was looking at, and stderr carried
+/// nothing at all — `do_spawn`'s four failure paths all log, but the Conflict
+/// arm returns before reaching any of them.
+///
+/// Logs on the TRANSITION only. `set_status` already returns early when the
+/// label is unchanged, so the health-poll arms that route through here every
+/// 5 s stay quiet once a conflict is steady-state; a change of holder changes
+/// the label and is reported.
+fn report_conflict(app: &AppHandle, sup: &mut Sup, path: &str, port: u16) {
+    let holder = port_holder(port, path);
+    let pid = holder.as_ref().map(|(pid, _)| *pid);
+    let label = conflict_label_for(port, pid);
+    if sup.last_status.as_deref() != Some(label.as_str()) {
+        // The ADDRESS is reported, not assumed (PR #2684 R2): the probe is
+        // scoped to loopback but that covers both families, and "which address"
+        // is exactly what the original incident turned on.
+        eprintln!(
+            "[cockpit-tray] not spawning: port {port} is held by {}",
+            match &holder {
+                Some((pid, addr)) => format!("pid {pid} on {addr}"),
+                None => "a process lsof could not name".to_string(),
+            }
+        );
+    }
+    set_status(app, sup, &label);
+}
+
+/// Both arms name the SUPERVISED port (mt#3988) rather than a literal 3737:
+/// on a configured tray the whole point of the label is telling the operator
+/// which port is contended, and a label naming a port the tray is not watching
+/// is worse than no label.
+fn conflict_label_for(port: u16, pid: Option<u32>) -> String {
     match pid {
-        Some(p) => format!("Cockpit: :3737 held by pid {p} (not started by tray)"),
-        None => LABEL_CONFLICT.to_string(),
+        Some(p) => format!("Cockpit: :{port} held by pid {p} (not started by tray)"),
+        None => format!("Cockpit: :{port} in use (not cockpit)"),
     }
 }
 
@@ -1564,7 +1779,12 @@ pub(crate) fn spawn(app: AppHandle, spawned: SpawnedPgid) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::port::DEFAULT_COCKPIT_PORT;
     use std::time::UNIX_EPOCH;
+
+    /// A configured non-default port, used by the mt#3988 cases below. Chosen to
+    /// match the port in the 2026-06-04 incident this task fixes.
+    const CONFIGURED_PORT: u16 = 4317;
 
     // mt#2786 — takeover-respawn decision for a dead adopted daemon.
     #[test]
@@ -1584,7 +1804,11 @@ mod tests {
             false,
             true
         ));
-        assert!(!should_takeover_adopted(ADOPTED_TAKEOVER_POLL_THRESHOLD, false, true));
+        assert!(!should_takeover_adopted(
+            ADOPTED_TAKEOVER_POLL_THRESHOLD,
+            false,
+            true
+        ));
     }
 
     #[test]
@@ -1642,7 +1866,12 @@ mod tests {
             counters,
             poll_now,
             Instant::now(),
-            || port_results.pop_front().expect("unexpected extra port_in_use() call"),
+            DEFAULT_COCKPIT_PORT,
+            || {
+                port_results
+                    .pop_front()
+                    .expect("unexpected extra port_in_use() call")
+            },
             |eff| match eff {
                 NoChildEffect::Notify(reason) => log.notifies.push(reason.to_string()),
                 NoChildEffect::Spawn => log.spawn_calls += 1,
@@ -1678,8 +1907,14 @@ mod tests {
             "the success path doesn't clear uptime directly"
         );
 
-        assert_eq!(counters.consecutive_http_failed, 0, "counter resets on takeover");
-        assert_eq!(counters.last_http_alert, None, "alert cooldown resets on takeover");
+        assert_eq!(
+            counters.consecutive_http_failed, 0,
+            "counter resets on takeover"
+        );
+        assert_eq!(
+            counters.last_http_alert, None,
+            "alert cooldown resets on takeover"
+        );
         assert_eq!(
             counters.restart_timestamps,
             vec![poll_now],
@@ -1708,7 +1943,11 @@ mod tests {
         );
 
         assert_eq!(log.spawn_calls, 0, "an aborted takeover must not spawn");
-        assert_eq!(log.notifies.len(), 1, "the sustained-failure alert still fires");
+        assert_eq!(
+            log.notifies.len(),
+            1,
+            "the sustained-failure alert still fires"
+        );
         assert_eq!(log.status_calls, vec![LABEL_STARTING]);
         assert_eq!(
             log.clear_uptime_calls, 1,
@@ -1736,7 +1975,10 @@ mod tests {
         );
 
         assert_eq!(log.notifies.len(), 1, "sustained-failure alert should fire");
-        assert_eq!(log.spawn_calls, 0, "must not take over below the takeover threshold");
+        assert_eq!(
+            log.spawn_calls, 0,
+            "must not take over below the takeover threshold"
+        );
         assert_eq!(log.status_calls, vec![LABEL_STOPPED]);
         assert_eq!(log.clear_uptime_calls, 1);
         assert_eq!(counters.last_http_alert, Some(poll_now));
@@ -1757,7 +1999,11 @@ mod tests {
         assert_eq!(log.spawn_calls, 0, "a held port must never be fought");
         assert_eq!(log.status_calls, vec![LABEL_STOPPED]);
         assert_eq!(log.clear_uptime_calls, 1);
-        assert_eq!(log.notifies.len(), 1, "still alerts even though it won't take over");
+        assert_eq!(
+            log.notifies.len(),
+            1,
+            "still alerts even though it won't take over"
+        );
     }
 
     #[test]
@@ -1810,6 +2056,150 @@ mod tests {
         assert_eq!(parse_lsof_pid(""), None);
         assert_eq!(parse_lsof_pid("\n\n"), None);
         assert_eq!(parse_lsof_pid("not-a-pid\n"), None);
+    }
+
+    #[test]
+    fn parse_lsof_holder_reads_the_pid_and_the_address() {
+        // Real captured output, including the `f` line lsof emits whether or
+        // not it was requested.
+        assert_eq!(
+            parse_lsof_holder("p42516\nf6\nn127.0.0.1:3737\n"),
+            Some((42516, "127.0.0.1:3737".to_string()))
+        );
+        // IPv6 loopback — the case `tcp@127.0.0.1` would have missed entirely.
+        assert_eq!(
+            parse_lsof_holder("p1465\nf3\nn[::1]:39372\n"),
+            Some((1465, "[::1]:39372".to_string()))
+        );
+        // A process listening on both families: first address wins, matching
+        // parse_lsof_pid's first-wins rule.
+        assert_eq!(
+            parse_lsof_holder("p7\nf3\nn127.0.0.1:3737\nf4\nn[::1]:3737\n"),
+            Some((7, "127.0.0.1:3737".to_string()))
+        );
+        // Nothing listening, or output with no address to report.
+        assert_eq!(parse_lsof_holder(""), None);
+        assert_eq!(parse_lsof_holder("p42516\nf6\n"), None);
+        // An address line with no preceding process line is not a holder.
+        assert_eq!(parse_lsof_holder("n127.0.0.1:3737\n"), None);
+    }
+
+    #[test]
+    fn the_port_holder_probe_is_scoped_to_loopback() {
+        // mt#3785: `tcp:<port>` matches ANY interface, so a Tailscale listener
+        // on the tailnet addresses came back as the cockpit port's holder --
+        // and since `parse_lsof_pid` above keeps only the FIRST of the several
+        // PIDs that returns, a kill aimed at the daemon could land elsewhere.
+        let args = lsof_port_args(DEFAULT_COCKPIT_PORT);
+        assert_eq!(args[1], "tcp@localhost:3737");
+        assert_ne!(args[1], "tcp:3737", "the unscoped form is the mt#3785 bug");
+        // The two invariants `contract/README.md` §2 pins across the Rust and
+        // TypeScript implementations: LISTEN-state only, and PID-only output.
+        assert_eq!(args[0], "-ti");
+        assert_eq!(args[2], "-sTCP:LISTEN");
+    }
+
+    /// mt#3988: the probe follows the CONFIGURED port. Without this, a tray
+    /// configured to 4317 would keep asking lsof about 3737 — which is the
+    /// original defect wearing a different hat, since `pid_on_port` feeds the
+    /// kill in `do_stop`.
+    #[test]
+    fn the_port_holder_probe_follows_the_configured_port() {
+        let args = lsof_port_args(CONFIGURED_PORT);
+        assert_eq!(args[1], "tcp@localhost:4317");
+        // Still loopback-scoped at a non-default port (the mt#3785 invariant
+        // must not be something only the default port enjoys).
+        assert!(!args[1].starts_with("tcp:"));
+        assert_eq!(args[2], "-sTCP:LISTEN");
+    }
+
+    #[test]
+    fn only_addr_in_use_means_the_port_is_taken() {
+        // PR #2684 R1: `bind(..).is_err()` conflated EADDRINUSE with every
+        // other failure, so an unrelated error would have put the tray in the
+        // Conflict state this task exists to get it out of.
+        assert!(bind_error_means_in_use(&io::Error::from(
+            io::ErrorKind::AddrInUse
+        )));
+        for kind in [
+            io::ErrorKind::PermissionDenied,
+            io::ErrorKind::AddrNotAvailable,
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::Other,
+        ] {
+            assert!(
+                !bind_error_means_in_use(&io::Error::from(kind)),
+                "{kind:?} is not evidence the port is taken"
+            );
+        }
+    }
+
+    #[test]
+    fn port_in_use_tracks_a_live_loopback_listener() {
+        // Exercises the real bind rather than a stub: the whole point of
+        // ADR-014's bind probe is that it asks the OS the same question the
+        // daemon will ask, so stubbing it would test nothing.
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind an ephemeral port");
+        let port = listener.local_addr().expect("local addr").port();
+
+        assert!(
+            port_in_use(port),
+            "a live loopback listener must read as in-use"
+        );
+
+        drop(listener);
+
+        // Bounded retry, not a single check: releasing a listener does not
+        // always make its port re-bindable on the very next syscall under
+        // parallel test load -- measured here at roughly one run in two, and
+        // it vanishes entirely if anything slow happens in between. That is a
+        // property of the OS release path, not of the probe, and it is
+        // irrelevant in production (the only place the tray probes right after
+        // a kill is the Restart arm, which already sleeps 500ms first). What
+        // the probe owes us is that a released port BECOMES free.
+        let became_free = (0..50).any(|_| {
+            if !port_in_use(port) {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+            false
+        });
+        assert!(
+            became_free,
+            "the port must read as free once the listener is released"
+        );
+    }
+
+    #[test]
+    fn port_in_use_ignores_a_listener_on_another_interface() {
+        // The mt#3785 case in miniature. A non-loopback listener does not take
+        // the loopback address away from the daemon, so the tray must still
+        // consider the port available. Uses whatever non-loopback address this
+        // machine has; skips rather than fails where there is none (CI).
+        let Some(addr) = non_loopback_ipv4() else {
+            return;
+        };
+        let listener = TcpListener::bind((addr, 0)).expect("bind on a non-loopback address");
+        let port = listener.local_addr().expect("local addr").port();
+
+        assert!(
+            !port_in_use(port),
+            "a listener on {addr} must not make the loopback address unavailable"
+        );
+    }
+
+    /// First non-loopback IPv4 address on this host, if any. `None` on a
+    /// loopback-only machine, where the sibling test has nothing to assert.
+    fn non_loopback_ipv4() -> Option<Ipv4Addr> {
+        // Connecting a UDP socket performs no traffic; it just makes the OS
+        // pick the source address it would route from, which is a real local
+        // interface address.
+        let sock = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
+        sock.connect(("192.0.2.1", 9)).ok()?; // TEST-NET-1, never routed
+        match sock.local_addr().ok()? {
+            std::net::SocketAddr::V4(a) if !a.ip().is_loopback() => Some(*a.ip()),
+            _ => None,
+        }
     }
 
     #[test]
@@ -1917,10 +2307,29 @@ mod tests {
     #[test]
     fn conflict_label_names_holder_pid() {
         assert_eq!(
-            conflict_label_for(Some(4242)),
+            conflict_label_for(DEFAULT_COCKPIT_PORT, Some(4242)),
             "Cockpit: :3737 held by pid 4242 (not started by tray)"
         );
-        assert_eq!(conflict_label_for(None), LABEL_CONFLICT);
+        assert_eq!(
+            conflict_label_for(DEFAULT_COCKPIT_PORT, None),
+            "Cockpit: :3737 in use (not cockpit)"
+        );
+    }
+
+    /// mt#3988: the label names the port the tray is actually supervising.
+    /// Reporting `:3737 held by ...` on a tray configured to 4317 would be a
+    /// diagnostic pointing at the wrong port during exactly the situation the
+    /// label exists for.
+    #[test]
+    fn conflict_label_names_the_configured_port() {
+        assert_eq!(
+            conflict_label_for(CONFIGURED_PORT, Some(4242)),
+            "Cockpit: :4317 held by pid 4242 (not started by tray)"
+        );
+        assert_eq!(
+            conflict_label_for(CONFIGURED_PORT, None),
+            "Cockpit: :4317 in use (not cockpit)"
+        );
     }
 }
 
@@ -1949,10 +2358,8 @@ mod tests {
 // port/process-detection semantics documented alongside this fixture.
 #[cfg(test)]
 mod health_contract {
-    const HEALTH_SHAPE_FIXTURE: &str =
-        include_str!("../../../contract/cockpit-health-shape.json");
-    const HEALTH_ROUTE_SOURCE: &str =
-        include_str!("../../../src/cockpit/routes/health.ts");
+    const HEALTH_SHAPE_FIXTURE: &str = include_str!("../../../contract/cockpit-health-shape.json");
+    const HEALTH_ROUTE_SOURCE: &str = include_str!("../../../src/cockpit/routes/health.ts");
 
     /// Pull `rustConsumedFields` out of the fixture without a full serde
     /// struct — the fixture is a flat, hand-authored JSON doc and a tiny
@@ -1963,7 +2370,11 @@ mod health_contract {
             .and_then(|v| v.as_array())
             .expect("fixture must declare a `rustConsumedFields` array")
             .iter()
-            .map(|v| v.as_str().expect("rustConsumedFields entries must be strings").to_string())
+            .map(|v| {
+                v.as_str()
+                    .expect("rustConsumedFields entries must be strings")
+                    .to_string()
+            })
             .collect()
     }
 
@@ -2023,7 +2434,11 @@ mod health_contract {
             Some("unreachable") => super::DbStatus::Unreachable,
             _ => super::DbStatus::Unknown,
         };
-        assert_eq!(db, super::DbStatus::Ok, "fixture sample's `db` should decode to Ok");
+        assert_eq!(
+            db,
+            super::DbStatus::Ok,
+            "fixture sample's `db` should decode to Ok"
+        );
 
         let process_started_at_ms = sample.get("processStartedAtMs").and_then(|v| v.as_u64());
         assert_eq!(

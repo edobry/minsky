@@ -34,9 +34,12 @@
 // @see mt#1806 — git add carve-out for conflict resolution
 
 import { execSync } from "child_process";
-import { readInput, writeOutput } from "./types";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { readInput, writeOutput, findRepoRoot, deriveHookRepoRoot } from "./types";
 import type { ToolHookInput } from "./types";
 import { recordFireLogEntry } from "./fire-log";
+import { recordGuardDenial } from "./two-strikes-record";
 
 /** This guard's fire-log identifier (mt#2597, evaluation-loop Phase 1). */
 const GUARD_NAME = "block-git-gh-cli";
@@ -75,6 +78,200 @@ export function classifyAgentTypeObservation(input: {
 }): "present" | "absent-in-subagent" | "not-a-subagent" {
   if (input.agent_type) return "present";
   return input.agent_id ? "absent-in-subagent" : "not-a-subagent";
+}
+
+// ---------------------------------------------------------------------------
+// Target-repository scope (mt#3788)
+// ---------------------------------------------------------------------------
+
+/**
+ * Which repository a Bash invocation is standing in, relative to the two this
+ * guard exists to protect.
+ *
+ * - `project`    — the Minsky checkout the hook installation itself lives in.
+ * - `session`    — a Minsky session workspace clone.
+ * - `external`   — some other git repository entirely.
+ * - `indeterminate` — no repo root could be established (fail CLOSED: deny).
+ */
+export type RepoScope = "project" | "session" | "external" | "indeterminate";
+
+/**
+ * True when `path` sits inside a Minsky session-workspace root.
+ *
+ * Load-bearing: a session workspace is a CLONE, so its repo root never equals
+ * the hook installation's root. Without this test every session would classify
+ * as `external` and the guard would stop enforcing exactly where session
+ * provenance matters most — the inverse of what mt#3788 set out to do.
+ */
+export function isMinskySessionPath(path: string): boolean {
+  const normalized = resolve(path).split("\\").join("/");
+  return /(^|\/)\.?minsky\/sessions\//.test(normalized);
+}
+
+/**
+ * Classify the repository a command is being run against.
+ *
+ * The guard's redirects — `session_commit`, `session_pr_create`, `git_push` —
+ * are all Minsky operations against a Minsky-managed repo. In a repository
+ * Minsky does not manage there is nothing to redirect TO, so denying there
+ * blocks work while protecting nothing. mt#3788's originating case: a
+ * throwaway git repo in the agent scratchpad, created to reproduce a bun
+ * defect in isolation, could not be seeded because `git add` was denied.
+ *
+ * Fail-closed by construction — only a POSITIVELY identified foreign repo
+ * returns `external`. A cwd we cannot resolve to a real repo root returns
+ * `indeterminate`, which callers treat as deny.
+ */
+/**
+ * Whether a command string contains any construct that could move the working
+ * directory out from under `input.cwd` before a later segment runs.
+ *
+ * PR #2685 R2: the scope is resolved ONCE, from the cwd the harness reports at
+ * invocation time. That is only a true description of where a git command runs
+ * if nothing in the command relocates first. The bypass runs in the permissive
+ * direction — with `input.cwd` in a scratch repo (scope `external`),
+ * `cd /Users/edobry/Projects/minsky && git push` would be carved out on a scope
+ * computed for a directory the push never happens in.
+ *
+ * Rather than thread a simulated cwd through the segments — which would need a
+ * real shell model to get right, and would be wrong the first time it met a
+ * variable — this refuses the carve-out entirely whenever relocation is
+ * POSSIBLE. Detection is deliberately over-broad: a false hit costs the
+ * pre-mt#3788 behavior (a denial), which is the safe direction.
+ */
+/** Does THIS segment, on its own, move the working directory? */
+function segmentRelocates(segment: string): boolean {
+  const tokens = stripEnvVarAssignments(segment.split(/\s+/).filter((t) => t.length > 0));
+  if (tokens.length === 0) return false;
+  const [binary, ...rest] = tokens;
+  if (binary === "cd" || binary === "pushd" || binary === "popd" || binary === "chdir") return true;
+  // `env -C <dir> …` and a nested shell running an arbitrary script.
+  if (binary === "env" && rest.some((a) => a === "-C" || a.startsWith("--chdir"))) return true;
+  if (
+    (binary === "sh" || binary === "bash" || binary === "zsh" || binary === "dash") &&
+    rest.includes("-c")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function commandMayRelocateCwd(command: string): boolean {
+  // Subshells and command substitution can carry a `cd` we never tokenize.
+  if (/[`(]/.test(command)) return true;
+  return splitOnShellOperators(command).some(segmentRelocates);
+}
+
+/**
+ * A path argument this hook can resolve WITHOUT running a shell: no variable
+ * expansion, no command substitution, no glob, no `~` (whose expansion depends
+ * on the invoking user's environment, which the hook does not model).
+ *
+ * Anything outside that set returns false and the caller falls back to the
+ * relocation veto — the narrowness is the point, not a limitation to grow out
+ * of casually.
+ */
+export function isLiterallyResolvablePath(token: string): boolean {
+  if (token.length === 0) return false;
+  return !/[$`~*?[\]{}]/.test(token);
+}
+
+/**
+ * Resolve the directory a command relocates to, for the ONE shape this hook can
+ * read with certainty: a command whose FIRST segment is exactly
+ * `cd <literal-path>` and which relocates nowhere else.
+ *
+ * mt#3798: mt#3788 shipped a carve-out for git commands in repositories Minsky
+ * does not manage, and PR #2685 R2 then correctly vetoed it whenever a command
+ * could relocate — because the scope was computed once from `input.cwd`. But in
+ * the Bash tool `cd` is the ONLY way to reach a foreign directory at all, so
+ * every invocation the carve-out was built for necessarily contained the
+ * construct that disabled it. The carve-out could never fire; mt#3788's own
+ * Acceptance Test 1 was unmet by what merged.
+ *
+ * This resolves the target instead of guessing, for the narrow decidable case,
+ * and leaves the veto untouched everywhere else. Returns null — meaning "keep
+ * the veto" — for a variable, a substitution, a glob, a `~`, a second
+ * relocation later in the command, or any subshell.
+ *
+ * A relative target resolves against `baseCwd`; the RESULT is only a candidate
+ * path, and `classifyRepoScope` still has to find a real repo root there, so a
+ * `cd` to a nonexistent or non-repo directory lands on `indeterminate` and
+ * denies.
+ */
+export function resolveLeadingCdTarget(
+  command: string,
+  baseCwd: string | undefined
+): string | null {
+  if (!baseCwd) return null;
+  // A subshell or substitution anywhere means the tokenization is unreliable.
+  if (/[`(]/.test(command)) return null;
+
+  const segments = splitOnShellOperators(command);
+  const firstSegment = segments[0];
+  // Need the leading `cd` AND at least one command after it to scope.
+  if (segments.length < 2 || firstSegment === undefined) return null;
+
+  const firstTokens = stripEnvVarAssignments(firstSegment.split(/\s+/).filter((t) => t.length > 0));
+  const targetToken = firstTokens[1];
+  // Exactly `cd <one-arg>` — a flagged form (`cd -P …`) is not this shape.
+  if (firstTokens.length !== 2 || firstTokens[0] !== "cd" || targetToken === undefined) return null;
+
+  // Nothing AFTER the leading cd may relocate again, or the target is stale by
+  // the time the git command runs.
+  if (segments.slice(1).some(segmentRelocates)) return null;
+
+  const target = stripSurroundingQuotes(targetToken);
+  if (!isLiterallyResolvablePath(target)) return null;
+
+  return resolve(baseCwd, target);
+}
+
+/**
+ * Whether a parsed invocation's target repository is the one `input.cwd` names
+ * — the only case the `external` scope carve-out may be applied to.
+ *
+ * Two exclusions, both found by PR #2685 R1:
+ *
+ * - **`gh` is never cwd-scoped.** `gh api PUT /repos/edobry/minsky/pulls/N/merge`
+ *   names its target repository in the URL and runs identically from any
+ *   directory on the machine. Carving `gh` out by cwd would let every gh-policy
+ *   denial — including the merge surfaces — be bypassed by first `cd`-ing to a
+ *   scratch repo, which is a far worse hole than the false positive being fixed.
+ * - **A path-redirecting git flag is never cwd-scoped.** `git -C <path>`,
+ *   `--git-dir`, and `--work-tree` all point git at a repository other than the
+ *   one the shell is standing in, so cwd answers the wrong question. `git -C` is
+ *   additionally denied unconditionally by deliberate design (session isolation),
+ *   which mt#3788's own spec puts out of scope — the early-allow this replaces
+ *   silently overrode that.
+ */
+export function isCwdScopedInvocation(parsed: ParsedCommand): boolean {
+  if (parsed.binary !== "git") return false;
+  return !parsed.args.some(
+    (arg) =>
+      arg === "-C" ||
+      arg === "--git-dir" ||
+      arg === "--work-tree" ||
+      arg.startsWith("--git-dir=") ||
+      arg.startsWith("--work-tree=")
+  );
+}
+
+export function classifyRepoScope(
+  cwd: string | undefined,
+  hookRepoRoot: string = deriveHookRepoRoot(),
+  fileExists: (p: string) => boolean = existsSync
+): RepoScope {
+  if (!cwd) return "indeterminate";
+
+  const root = findRepoRoot(cwd);
+  // findRepoRoot falls back to its start directory when no repo is found, so a
+  // returned path is only trustworthy when it actually carries a `.git` entry.
+  if (!fileExists(join(root, ".git"))) return "indeterminate";
+
+  if (resolve(root) === resolve(hookRepoRoot)) return "project";
+  if (isMinskySessionPath(root)) return "session";
+  return "external";
 }
 
 // ---------------------------------------------------------------------------
@@ -454,21 +651,12 @@ export function stripEnvVarAssignments(tokens: string[]): string[] {
 }
 
 /**
- * Split a shell command string into individual segments on `&&`, `||`, `;`,
- * and `|` (pipe). Returns non-empty trimmed segments.
- *
- * KNOWN LIMITATION: This splitter is NOT shell-quote-aware. Operators inside
- * quoted strings (e.g., `git commit -m "a | b"`) will cause incorrect splits.
- * This hook is designed to catch obvious agent mistakes (`git push`, `git -C ...`),
- * not to be a security boundary. The worst case is an edge-case message string
- * that happens to contain an operator AND a substring resembling an allowed
- * subcommand — the actual command may slip through. Fixing this correctly
- * requires a proper shell lexer; accepted as a pragmatic tradeoff.
- *
- * Subshell invocations like `TAG=$(git log -1)` are also not parsed; the outer
- * command is checked but the inner `git log` is not. Same tradeoff.
+ * Quote-blind operator split — the original implementation, retained as the
+ * fail-closed fallback for a command whose quotes do not balance (see
+ * `splitOnShellOperators`). Splitting too eagerly can only produce a spurious
+ * DENIAL, never a missed one, which is the direction to fail in.
  */
-export function splitOnShellOperators(command: string): string[] {
+export function splitOnShellOperatorsUnquoted(command: string): string[] {
   // Replace &&, ||, ;, | with a NUL sentinel, then split.
   const normalized = command
     .replace(/&&/g, "\x00")
@@ -479,6 +667,80 @@ export function splitOnShellOperators(command: string): string[] {
     .split("\x00")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+/**
+ * Split a shell command string into individual segments on `&&`, `||`, `;`,
+ * and `|` (pipe), IGNORING operators that appear inside single or double
+ * quotes. Returns non-empty trimmed segments.
+ *
+ * mt#3788: quote-awareness was previously listed here as an accepted
+ * limitation, on the reasoning that a mis-split can only cost an edge-case
+ * false positive. In practice that edge case is routine — a `|` inside a
+ * regex is the normal way to write an alternation, so
+ * `grep -E 'block-git-gh-cli|git add|guard matcher' docs/` split into a
+ * segment that literally read `git add` and was denied, even though no git
+ * command was being run at all. Argument VALUES that merely mention a
+ * denied command must not be read as invocations of it.
+ *
+ * Unbalanced quotes fall back to `splitOnShellOperatorsUnquoted` rather than
+ * swallowing the rest of the command into one segment — an unterminated quote
+ * is more likely a tokenizer edge this function got wrong than a deliberate
+ * command, and over-splitting fails toward denial.
+ *
+ * STILL NOT a shell lexer, and still not a security boundary. Subshell
+ * invocations like `TAG=$(git log -1)` are not parsed; the outer command is
+ * checked but the inner `git log` is not. So is `sh -c "git push"`. Both
+ * predate this change and are unaffected by it: this narrows false positives,
+ * it does not widen what slips through.
+ */
+export function splitOnShellOperators(command: string): string[] {
+  const segments: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < command.length; i += 1) {
+    const ch = command[i];
+
+    if (quote !== null) {
+      // A backslash escapes the next character inside double quotes only;
+      // inside single quotes POSIX shells treat backslash literally.
+      if (ch === "\\" && quote === '"' && i + 1 < command.length) {
+        current += ch + command[i + 1];
+        i += 1;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      current += ch;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
+    // `&&` and `||` consume two characters; a lone `|` and `;` consume one.
+    if ((ch === "&" && command[i + 1] === "&") || (ch === "|" && command[i + 1] === "|")) {
+      segments.push(current);
+      current = "";
+      i += 1;
+      continue;
+    }
+    if (ch === "|" || ch === ";") {
+      segments.push(current);
+      current = "";
+      continue;
+    }
+
+    current += ch;
+  }
+
+  if (quote !== null) return splitOnShellOperatorsUnquoted(command);
+
+  segments.push(current);
+  return segments.map((s) => s.trim()).filter((s) => s.length > 0);
 }
 
 export interface ParsedCommand {
@@ -736,6 +998,12 @@ if (import.meta.main) {
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision,
+      // mt#3920: `decided` unconditionally, and only because BOTH exits sit downstream of
+      // the check. This guard has no early exit and no fail-open: every invocation parses
+      // the command and runs `checkDenial` over each parsed sub-command before it can
+      // reach here, and the policy check is pure in-process matching with no probe to
+      // break. A future early exit added ABOVE this closure must not route through it.
+      guardOutcome: "decided",
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       // mt#3381: settle whether `agent_type` reaches a PreToolUse hook in
@@ -749,9 +1017,68 @@ if (import.meta.main) {
     process.exit(0);
   };
 
+  // mt#3788: a git command standing in a repository Minsky does not manage has
+  // no `session_*` equivalent to be redirected to, so the denial protects
+  // nothing and only blocks work. Session workspaces and the project checkout
+  // itself stay fully enforced; an unresolvable cwd is `indeterminate` and
+  // still denies (fail-closed). `session_exec` is never scoped out — its cwd
+  // is a session workspace by construction, and `input.cwd` for that tool is
+  // the harness shell's directory, not the session's.
+  //
+  // Applied PER COMMAND, not as an early exit over the whole invocation
+  // (PR #2685 R1): only invocations whose target repo IS the cwd may be carved
+  // out — see `isCwdScopedInvocation` for why `gh` and path-redirecting git
+  // flags never qualify. An early exit would have disabled every gh-policy
+  // denial for anyone standing in a scratch directory.
+  //
+  // The scope is resolved ONCE from the reported cwd, so it only describes
+  // where a git command actually runs when nothing in the command relocates
+  // first (PR #2685 R2) — hence the `commandMayRelocateCwd` veto.
+  //
+  // mt#3798: `cd` is the only way to reach a foreign directory from the Bash
+  // tool, so vetoing on relocation alone made the carve-out unreachable. When
+  // the leading `cd` target is literally resolvable, classify THAT directory;
+  // otherwise the veto stands.
+  //
+  // `classifiedPath` is carried alongside the scope so the audit line can name
+  // the directory actually classified. Reporting `input.cwd` there would be
+  // wrong exactly when a leading `cd` moved the target — the case this task
+  // added (PR #2691 R1).
+  const { scope, classifiedPath }: { scope: RepoScope; classifiedPath: string | undefined } = ((): {
+    scope: RepoScope;
+    classifiedPath: string | undefined;
+  } => {
+    if (context !== "bash") return { scope: "session", classifiedPath: undefined };
+    const cdTarget = resolveLeadingCdTarget(command, input.cwd);
+    if (cdTarget !== null) {
+      return { scope: classifyRepoScope(cdTarget), classifiedPath: cdTarget };
+    }
+    if (commandMayRelocateCwd(command)) return { scope: "session", classifiedPath: undefined };
+    return { scope: classifyRepoScope(input.cwd), classifiedPath: input.cwd };
+  })();
+
   for (const parsed of parsedCommands) {
+    if (scope === "external" && isCwdScopedInvocation(parsed)) {
+      process.stderr.write(
+        `[block-git-gh-cli] scope carve-out: git ${parsed.args[0] ?? ""} in ${classifiedPath}, outside the Minsky project and its session workspaces\n`
+      );
+      continue;
+    }
     const reason = checkDenial(parsed, context);
     if (reason) {
+      // mt#3802: this guard is NOT yet migrated onto the dispatcher (ADR-028
+      // Phase 5), so the dispatcher's central deny-branch recording cannot see
+      // it — and this is the guard from the originating incident, where four
+      // byte-identical `Bash` calls were denied in a row and nothing recorded
+      // it. The call lives here until this guard migrates, at which point the
+      // dispatcher covers it and this line comes out.
+      recordGuardDenial({
+        sessionId: input.session_id,
+        toolName: input.tool_name,
+        guardName: "block-git-gh-cli",
+        reason,
+        toolInput: input.tool_input,
+      });
       writeOutput({
         hookSpecificOutput: {
           hookEventName: "PreToolUse",

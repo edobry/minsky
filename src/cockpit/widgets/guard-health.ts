@@ -12,6 +12,7 @@
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { GuardHealthTracker } from "../../mcp/guard-health-tracker";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 export const guardHealthWidget: WidgetModule = {
   id: "guard-health",
@@ -22,8 +23,7 @@ export const guardHealthWidget: WidgetModule = {
       const payload = GuardHealthTracker.getInstance().getSummary();
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `guard health error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("guard health", err) };
     }
   },
 };

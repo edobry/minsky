@@ -7,6 +7,7 @@
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { setupTestMocks } from "../utils/test-utils/mocking";
+import { scanMutatingFlaggedIds } from "../utils/test-utils/command-source-scan";
 import type { MinskyMCPServer } from "./server";
 
 // Shared import paths extracted to constants to satisfy no-magic-string-duplication
@@ -317,7 +318,11 @@ describe("Drift gate — server.checkDriftGate() (real method)", () => {
       expect(msg).toContain("abc12345");
       expect(msg).toContain("def67890");
       expect(msg).toContain("/mcp");
-      expect(msg).toContain("mutating operations");
+      // mt#3924 reworded this: the old text said only "Reconnect via /mcp before
+      // retrying mutating operations", which misstates the recovery under the
+      // stdio proxy. /mcp survives as the no-proxy fallback, so it is still
+      // asserted above.
+      expect(msg).toContain("Retry in ~30s");
     }
   });
 
@@ -450,5 +455,87 @@ describe("Drift gate — error message format", () => {
     const detector = makeStalenessDetector(false);
     expect(detector.getStaleWarning()).toBeNull();
     expect(detector.isCurrentlyStale()).toBe(false);
+  });
+});
+
+/**
+ * The mt#3924 refusal-set decision, exercised as behavior.
+ *
+ * `tool-effect-coverage.test.ts` pins WHICH commands carry the flag; these tests
+ * assert what carrying it (or not) actually DOES at the gate. The flag each case
+ * feeds in is read from the command sources rather than written here — so a
+ * registration that loses its flag fails the refusal assertion below, instead of
+ * this file happily asserting a `true` it supplied itself.
+ */
+describe("Drift gate — the mt#3924 refusal set", () => {
+  beforeEach(() => {
+    setupTestMocks();
+  });
+
+  /** Added by mt#3924: irreversible, bulk, or schema-migrating effects. */
+  const NEWLY_GATED: readonly string[] = [
+    "memory.delete",
+    "session.delete",
+    "tasks.delete",
+    "git.push",
+    "git.reset",
+    "git.restore",
+    "git.stash_drop",
+    "tasks.bulk-edit",
+    "persistence.migrate",
+    "rules.migrate",
+    "session.migrate",
+    "session.migrate-backend",
+    "setup.db",
+    "tasks.migrate-backend",
+    "forge.branch_protection_set",
+  ];
+
+  /**
+   * Deliberately NOT gated, and each for a stated reason — the decision is only
+   * meaningful if the exclusions are pinned too. `tasks.create` / `memory.create` /
+   * `tasks.status.set` / `session.write_file` are reversible single-record writes on
+   * the hottest agent path. `session.pr.drive` writes nothing at all: it waits for a
+   * review and checks, and leaves merging to `session.pr.merge` so the harness merge
+   * gates still fire.
+   */
+  const DELIBERATELY_UNGATED: readonly string[] = [
+    "tasks.create",
+    "memory.create",
+    "tasks.status.set",
+    "session.write_file",
+    "session.pr.drive",
+  ];
+
+  test("every command mt#3924 gated is refused when stale, permitted when fresh", async () => {
+    const flagged = new Set(scanMutatingFlaggedIds());
+    const staleServer = await makeTestServer(true);
+    const freshServer = await makeTestServer(false);
+
+    for (const id of NEWLY_GATED) {
+      const tool = { mutating: flagged.has(id) };
+      expect(() => staleServer.checkDriftGate(tool)).toThrow(/stale relative to workspace/);
+      expect(() => freshServer.checkDriftGate(tool)).not.toThrow();
+    }
+  });
+
+  test("a deliberately-ungated command still passes when stale", async () => {
+    const flagged = new Set(scanMutatingFlaggedIds());
+    const staleServer = await makeTestServer(true);
+
+    for (const id of DELIBERATELY_UNGATED) {
+      expect(() => staleServer.checkDriftGate({ mutating: flagged.has(id) })).not.toThrow();
+    }
+  });
+
+  test("the refusal names why the call was refused and how it recovers", async () => {
+    const staleServer = await makeTestServer(true);
+    // The message used to say only "Reconnect via /mcp", which is wrong under the
+    // stdio proxy: the server schedules its own exit and respawns on the current
+    // build (mt#1714/mt#1740), so the recovery is to retry, not to reconnect.
+    expect(() => staleServer.checkDriftGate({ mutating: true })).toThrow(/Retry in ~30s/);
+    expect(() => staleServer.checkDriftGate({ mutating: true })).toThrow(
+      /irreversible, bulk, or schema-migrating/
+    );
   });
 });

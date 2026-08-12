@@ -43,6 +43,22 @@ export interface SessionPrDrivePostMergeParams {
   deployTimeoutSeconds?: number;
   /** Poll interval in seconds for each service's deployment wait (default 10). */
   deployIntervalSeconds?: number;
+  /**
+   * ISO8601 timestamp of the merge this watch is verifying — `mergeInfo.mergeDate`
+   * from the `session.pr.merge` that immediately preceded this call (mt#3890).
+   *
+   * Threaded to `waitForLatestDeployment`'s `notBefore` so a deployment that
+   * predates the merge cannot satisfy the watch. Without it the watch accepts
+   * whatever deployment is newest — which is how `minsky-mcp` reported a
+   * healthy post-merge deploy for 4.5 days while its redeploy step was
+   * silently unauthorized and no deployment was ever created.
+   *
+   * Omitting it is still permitted (existing callers, and the manual
+   * `--postMerge` invocation) but the result records `deployBoundApplied:
+   * false` so an unbounded — and therefore unfalsifiable — check is visible
+   * rather than silent.
+   */
+  mergedAt?: string;
 }
 
 export interface SessionPrDrivePostMergeDependencies {
@@ -61,7 +77,7 @@ export interface SessionPrDrivePostMergeDependencies {
    */
   waitForDeployment?: (
     service: string,
-    options: { timeoutSeconds?: number; pollIntervalSeconds?: number }
+    options: { timeoutSeconds?: number; pollIntervalSeconds?: number; notBefore?: string }
   ) => Promise<DeploymentRecord>;
 }
 
@@ -75,11 +91,19 @@ export interface SessionPrDrivePostMergeResult {
   skipReason?: string;
   /** Deploy-surface files the auto-detection matched (empty when `services` was explicit). */
   matchedFiles: string[];
+  /**
+   * Whether the deployment waits were bounded to deployments created after the
+   * merge (mt#3890). False when no `mergedAt` was supplied, in which case a
+   * PRE-EXISTING deployment can satisfy the watch and a SUCCESS here is not
+   * evidence that this merge deployed. Surfaced so an unfalsifiable check is
+   * visible in the result rather than indistinguishable from a real one.
+   */
+  deployBoundApplied: boolean;
 }
 
 async function defaultWaitForDeployment(
   service: string,
-  options: { timeoutSeconds?: number; pollIntervalSeconds?: number }
+  options: { timeoutSeconds?: number; pollIntervalSeconds?: number; notBefore?: string }
 ): Promise<DeploymentRecord> {
   const { config } = await resolveDeploymentConfig(service);
   const adapter = resolveAdapter(config);
@@ -161,6 +185,9 @@ export async function sessionPrDrivePostMerge(
             ? "explicit services list was empty"
             : "no deploy-surface files changed by this PR",
         matchedFiles,
+        // Nothing was watched, so the bound is vacuously irrelevant — report
+        // it as applied rather than implying an unbounded check happened.
+        deployBoundApplied: true,
       };
     }
 
@@ -169,11 +196,18 @@ export async function sessionPrDrivePostMerge(
       const deployment = await waitForDeployment(service, {
         timeoutSeconds: params.deployTimeoutSeconds,
         pollIntervalSeconds: params.deployIntervalSeconds,
+        notBefore: params.mergedAt,
       });
       results.push({ service, deployment });
     }
 
-    return { watchedServices: services, results, skipped: false, matchedFiles };
+    return {
+      watchedServices: services,
+      results,
+      skipped: false,
+      matchedFiles,
+      deployBoundApplied: params.mergedAt !== undefined,
+    };
   } catch (error) {
     if (error instanceof ResourceNotFoundError || error instanceof MinskyError) {
       throw error;

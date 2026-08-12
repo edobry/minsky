@@ -22,7 +22,13 @@ import type { DispatchContext } from "./registry";
 const CTX = {} as DispatchContext;
 
 function createInput(spec?: string): ToolHookInput {
+  // The required ToolHookInput fields are supplied rather than cast away
+  // (mt#2900): the object was missing session_id/cwd/hook_event_name, which is
+  // why the `as` was rejected as a non-overlapping conversion.
   return {
+    session_id: "require-duplicate-check-record-test",
+    cwd: "/test/cwd",
+    hook_event_name: "PreToolUse",
     tool_name: "mcp__minsky__tasks_create",
     tool_input: spec === undefined ? { title: "t" } : { title: "t", spec },
   } as ToolHookInput;

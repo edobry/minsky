@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import {
   discoverTestFiles,
   EXCLUDE_DIR_PREFIXES,
@@ -21,7 +22,15 @@ import {
 // `REAL_COLLISION_LONG_PATH`.
 const REAL_COLLISION_SHORT_PATH = "src/composition/container.test.ts";
 
-const BUN_TEST_PRELOAD_ARGS = ["--preload", "./tests/setup.ts", "--timeout=15000"];
+// mt#3704: derived from the shared constant so this fixture does not become a
+// second place the number has to be kept in step. NOTE this is the args THIS
+// TEST spawns bun with, not an assertion about what the runner produces — the
+// single-sourcing guard is `per-test-timeout-single-source.test.ts`.
+const BUN_TEST_PRELOAD_ARGS = [
+  "--preload",
+  "./tests/setup.ts",
+  `--timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS}`,
+];
 
 describe("shouldExclude", () => {
   it("excludes an exact prefix path and anything nested under it", () => {

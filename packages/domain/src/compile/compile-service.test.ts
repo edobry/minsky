@@ -127,6 +127,7 @@ describe("MinskyCompileService", () => {
           return ["stub.md"];
         },
         async access(): Promise<void> {},
+        async chmod(_path: string, _mode: number): Promise<void> {},
       };
 
       const result = await service.compile(
@@ -158,6 +159,7 @@ describe("MinskyCompileService", () => {
           return [];
         },
         async access(): Promise<void> {},
+        async chmod(_path: string, _mode: number): Promise<void> {},
       };
 
       const result = await service.compile(
@@ -189,6 +191,7 @@ describe("MinskyCompileService", () => {
           return ["stub.md"];
         },
         async access(): Promise<void> {},
+        async chmod(_path: string, _mode: number): Promise<void> {},
       };
 
       const result = await service.compile(

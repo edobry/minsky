@@ -179,7 +179,15 @@ function isSyncKind(kind: AskKind): boolean {
 /**
  * Pick the primary transport for an uncovered Ask by kind.
  *
- * Two-stage decision:
+ * Three-stage decision:
+ *   0. **Operator-forcing override (mt#3851):** when the caller says this Ask
+ *      must reach a human — today, `severity: "incident"` — the target is the
+ *      operator no matter which kind it carries. Five of the seven kinds bind
+ *      to a non-operator default below, so without this stage the documented
+ *      escalation path (`communication-contract.mdc §Severity transport
+ *      binding`) is unreachable for them: an operator-only remediation filed as
+ *      `capability.escalate` goes to a subagent, which by construction holds
+ *      fewer capabilities than the agent that escalated.
  *   1. **Capability-aware preference (mt#1457):** for sync ask kinds (per
  *      `isSyncKind`), if the active MCP client advertises elicitation, route
  *      to the elicitation transport. This is what makes Shape B distinct
@@ -201,11 +209,26 @@ function isSyncKind(kind: AskKind): boolean {
  */
 function pickTransport(
   kind: AskKind,
-  capabilityRegistry?: ClientCapabilityRegistry
+  capabilityRegistry?: ClientCapabilityRegistry,
+  forceOperator = false
 ): {
   routingTarget: AgentId | "operator" | "policy";
   transport: TransportBinding;
 } {
+  // Stage 0: operator-forcing override.
+  //
+  // Deliberately ahead of the elicitation preference below, and deliberately
+  // NOT elicitation-aware: elicitation is a synchronous dialog that requires an
+  // attached client, and the case this override exists for is the operator who
+  // has walked away. The inbox is the surface that survives that, and it is
+  // where the severity notification points.
+  if (forceOperator) {
+    return {
+      routingTarget: "operator",
+      transport: { kind: "inbox" },
+    };
+  }
+
   // Stage 1: capability-aware preference.
   if (isSyncKind(kind) && capabilityRegistry?.hasElicitation()) {
     return {
@@ -364,6 +387,14 @@ export async function policyFirstRoute(
   // routing at all: the originating incident's re-filed ask carried both
   // `severity` and `forceImmediate` and was auto-closed identically to the
   // first, leaving the agent no way to force a human into the loop.
+  //
+  // This flag governs BOTH phases, and the second half was missing until
+  // mt#3851. Skipping the policy phase is sufficient only for a kind whose
+  // Phase-2 default is already the operator — `authorization.approve` (the kind
+  // mt#3714 verified against) and `direction.decide`. For the other five,
+  // Phase 2 bound them to a subagent / retriever / peer / reviewer no matter
+  // what severity said, so an incident ask still never reached a human. It is
+  // passed to `pickTransport` below as `forceOperator`.
   const severityForcesOperator = ask.severity === "incident";
 
   // Skip the policy load entirely when severity already decides the outcome —
@@ -404,7 +435,11 @@ export async function policyFirstRoute(
   // Phase 2: route by kind (capability-aware via mt#1457)
   // -----------------------------------------------------------------------
 
-  const { routingTarget, transport } = pickTransport(ask.kind, options.capabilityRegistry);
+  const { routingTarget, transport } = pickTransport(
+    ask.kind,
+    options.capabilityRegistry,
+    severityForcesOperator
+  );
   const packagedPayload = packagePayload(ask);
 
   const nowTs = options.nowMs ?? Date.now();

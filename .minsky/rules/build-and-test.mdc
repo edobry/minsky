@@ -17,8 +17,10 @@ tags:
   stops the runner mid-stream and exits **0 with no summary at all** — a green signal backed by
   zero executed tests (mt#2632; mechanism in `docs/testing-patterns.md`). The gated runner is
   what `.husky/pre-push` and CI already use: it runs `scripts/run-tests-main.ts` (explicit file
-  list, `src/mcp/**` excluded) then `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in
-  its own process), and treats a missing `Ran N tests across M files` line as a FAILURE.
+  list walked from that file's `ROOTS` — `src/`, `packages/`, the gated `tests/` subdirectories,
+  and `scripts/` since mt#1084 — with `src/mcp/**` excluded) then
+  `scripts/run-tests-mcp-isolated.ts` (each `src/mcp` file in its own process), and treats a
+  missing `Ran N tests across M files` line as a FAILURE.
   Narrow runs are fine — `bun test --preload ./tests/setup.ts --timeout=15000 <path>` on a
   single file or a subdirectory that is not `./src` itself is unaffected.
 - **No package script still uses a bare `bun test` (mt#3572).** `test:all` and `test:debug` run
@@ -30,4 +32,4 @@ tags:
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
 - **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
-- **Bundle-boot smoke (CI gate, mt#1787)**: every PR runs `.github/workflows/bundle-boot-smoke.yml` which builds the bundle and asserts `GET /health` returns 200 within 30s. The merge gate (`.claude/hooks/require-review-before-merge.ts`) denies merge unless this check fired and concluded `success`. Local repro: `bun run build && bun run --preload reflect-metadata dist/minsky.js mcp start --http --host=127.0.0.1 --port=<n>` then `curl http://127.0.0.1:<n>/health`. **The `--preload` is required, not optional** — it mirrors `Dockerfile`'s CMD, and without it the bundle dies at startup with `tsyringe requires a reflect polyfill` on Bun 1.3.x, which no longer evaluates reflect-metadata's CommonJS body before tsyringe's ESM body (mt#3561). Override after manual verification: `MINSKY_SKIP_BUNDLE_SMOKE=1` (audit-logged).
+- **Bundle-boot smoke (CI gate, mt#1787)**: every PR runs `.github/workflows/bundle-boot-smoke.yml` which builds the bundle and asserts `GET /health` returns 200 within 30s. The merge gate (`.claude/hooks/require-review-before-merge.ts`) denies merge unless this check fired and concluded `success`. Local repro: `bun run build && bun run dist/minsky.js mcp start --http --host=127.0.0.1 --port=<n>` then `curl http://127.0.0.1:<n>/health`. **Do not add `--preload reflect-metadata`** — the bundle installs the polyfill itself via `src/reflect-polyfill.ts` (mt#3680), so the flag is redundant, and adding it back would mask the very regression this gate exists to catch: a preloaded invocation boots whether or not the bundle is self-sufficient. From mt#3561 until mt#3680 the flag WAS required here and in `Dockerfile`'s CMD, because bun's bundler emitted reflect-metadata's CommonJS require after the init calls that reach tsyringe; both dropped it together. Override after manual verification: `MINSKY_SKIP_BUNDLE_SMOKE=1` (audit-logged).

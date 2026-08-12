@@ -93,6 +93,7 @@ import {
   hasRedundantOptionLetterPrefix,
   isOverOptionLabelBudget,
 } from "@minsky/shared/ask-option-label";
+import { linkifyExternalRefs } from "./external-refs";
 import type { AskKind } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -214,7 +215,46 @@ export type FormLintCheck =
   | "long-option-label"
   | "letter-prefixed-option-label"
   | "missing-force-immediate"
-  | "missing-decision-options";
+  | "missing-decision-options"
+  | "unlinkified-reference";
+
+/**
+ * Markers that only appear in a question when the tool call's own parameter
+ * encoding leaked into the value (mt#3936).
+ *
+ * None of these is legitimate prose. `</question>` is the closing tag of the
+ * parameter the text is being stored INTO — if it survived into the value, the
+ * value swallowed everything after it, including sibling parameters.
+ *
+ * Observed in production: ask#7484 (`capability.escalate`, severity incident,
+ * about prod being four days stale) stored a question ending
+ * `…Evidence in mt#3890.</question>\n<parameter name="options">[{…}]`. Its
+ * three well-formed options never became data, so the surface rendered no
+ * buttons on the one ask that most needed them. Three such rows exist,
+ * 2026-07-26 through 2026-08-09.
+ */
+const SERIALIZED_PARAMETER_MARKERS = [
+  "</question>",
+  "<parameter name=",
+  "</parameter>",
+  "<function_calls>",
+  "</invoke>",
+] as const;
+
+/**
+ * The first serialization marker present in `question`, or `null`.
+ *
+ * Pure and exported so the boundary can reject on it BEFORE the
+ * `acknowledgeFormWarnings` escape — unlike every other check here, this one
+ * describes content that is definitionally broken rather than merely
+ * ill-formed, so there is nothing for an author to legitimately acknowledge.
+ */
+export function findSerializedParameterArtifact(question: string): string | null {
+  for (const marker of SERIALIZED_PARAMETER_MARKERS) {
+    if (question.includes(marker)) return marker;
+  }
+  return null;
+}
 
 /** A single fired check, with its human-readable warning message. */
 export interface FormLintMatch {
@@ -392,6 +432,24 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         "CLI; supply an options array with one entry per choice, rather than " +
         "writing the choices as [a]/[b]/[c] prose in the question body " +
         "(humility.mdc Escalation packaging, Form rule 6: options are the buttons)",
+    });
+  }
+
+  // mt#2918: an external artifact the reader needs, cited in a form they
+  // cannot click. Reports only that the reference could not be linkified —
+  // never that a destination was checked; see `external-refs.ts` for why no
+  // probe runs here. Advisory by construction: it is on
+  // `filterBlockingFormLintMatches`'s exclusion list at the asks.create
+  // boundary, so an unlinkifiable citation warns and still creates.
+  const { unlinkified } = linkifyExternalRefs(question);
+  if (unlinkified.length > 0) {
+    matches.push({
+      check: "unlinkified-reference",
+      message:
+        `${unlinkified.length} artifact reference(s) could not be turned into a link ` +
+        `(${unlinkified.join("; ")}) — the reader cannot open them from the ask. ` +
+        `Supply the full URL. Note this says the reference was not linkified, not ` +
+        `that a destination was checked: nothing here probes reachability`,
     });
   }
 

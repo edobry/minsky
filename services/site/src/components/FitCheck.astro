@@ -1,0 +1,307 @@
+---
+// Fit-check — beat 4 of the six-beat reframe (mt#3838, Amendment 2).
+//
+// Answers "does it work with my stack?" The previous build had no beat
+// here at all: no harness was named in type anywhere on the page, and the
+// one placeholder in the walkthrough sat exactly on the surface a
+// self-hosting reader needs to see before deciding. Both are fixed here.
+//
+// The terminal block is real output, captured 2026-08-08 from
+// `minsky tools search 'review a pull request' --limit 5` in a session
+// workspace. It is the same registry an agent reaches over MCP, which is
+// why it replaces the "a live capture of this surface isn't available
+// yet" placeholder rather than being staged.
+import ProductFrame from "./ProductFrame.astro";
+
+const harnesses = [
+  { name: "Claude Code", note: "MCP, stdio or HTTP" },
+  { name: "Codex", note: "MCP" },
+  { name: "opencode", note: "MCP" },
+  { name: "Your terminal", note: "the same commands, typed" },
+];
+---
+
+<section id="fit" class="fit-section" aria-labelledby="fit-heading">
+  <div class="fit-inner">
+    <header class="fit-header">
+      <p class="eyebrow">Does it fit your setup?</p>
+      <h2 id="fit-heading" class="section-headline">
+        It runs under the harness you already have.
+      </h2>
+      <p class="section-lead">
+        Minsky is a protocol layer rather than a place to go. Every operation is
+        exposed twice: as a CLI command a person types, and as a tool an agent
+        calls over MCP. Same operations, same state, whichever end reaches for
+        them.
+      </p>
+    </header>
+
+    <ul class="harness-row" role="list">
+      {
+        harnesses.map((h) => (
+          <li class="harness-tile">
+            <span class="harness-name">{h.name}</span>
+            <span class="harness-note">{h.note}</span>
+          </li>
+        ))
+      }
+    </ul>
+
+    <div class="fit-grid">
+      <div class="fit-copy">
+        <h3 class="fit-subhead">Your repository, your review flow</h3>
+        <p>
+          Work lands as ordinary pull requests in your own GitHub repository.
+          The review is a real review on a real PR, so branch protection, CI,
+          and the humans already reading that queue keep working exactly as they
+          did. Nothing has to move onto a separate platform to be tracked.
+        </p>
+
+        <h3 class="fit-subhead">Sharing one Minsky across a team</h3>
+        <p>
+          A team shares one Minsky by pointing at one database. Each developer
+          installs the CLI and runs the MCP server on their own machine; the
+          shared state, meaning tasks, sessions, reviews, and memory, lives in a
+          Postgres instance you host and set once with
+          <code>minsky setup db</code>.
+        </p>
+        <p class="fit-status">
+          Said plainly: that is what a small team gets today. There is no hosted
+          multi-tenant deployment and no per-user permissions model yet. If your
+          rollout needs those first, they are not built.
+        </p>
+      </div>
+
+      <div class="fit-product">
+        <ProductFrame chromeTitle="minsky · tools">
+          <pre class="terminal"><span class="prompt">›</span> <span class="cmd">minsky tools search 'review a pull request' --limit 5</span>
+<span class="muted">Found 5 tools matching: "review a pull request"</span>
+
+1. create <span class="signal">[session.pr.create]</span>   (score: 0.996)
+   Category: SESSION
+2. open <span class="signal">[session.pr.open]</span>       (score: 1.004)
+   Category: SESSION
+3. approve <span class="signal">[session.pr.approve]</span> (score: 1.017)
+   Category: SESSION
+4. edit <span class="signal">[session.pr.edit]</span>       (score: 1.046)
+   Category: SESSION
+5. list <span class="signal">[session.pr.list]</span>       (score: 1.073)
+   Category: SESSION</pre>
+        </ProductFrame>
+        <p class="fit-caption">
+          The tool registry an agent searches over MCP, queried from a terminal.
+          Both ends see the same operations.
+        </p>
+      </div>
+    </div>
+
+    <aside class="not-aside" aria-label="Common misreadings">
+      <p class="not-lead">Three things it gets mistaken for:</p>
+      <ul class="not-list" role="list">
+        <li>
+          <span class="not-term">A review bot.</span> The review is one gate on a
+          path that starts before any code is written.
+        </li>
+        <li>
+          <span class="not-term">A task tracker.</span> Tasks are the coordination
+          layer that sessions, reviews, and memory all hang off.
+        </li>
+        <li>
+          <span class="not-term">A hosted agent platform.</span> Your machine,
+          your model keys, your repository.
+        </li>
+      </ul>
+    </aside>
+  </div>
+</section>
+
+<style>
+  .fit-section {
+    padding: 5rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+  .fit-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+  }
+  .fit-header {
+    max-width: 40rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .section-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .section-lead {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .harness-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (min-width: 760px) {
+    .harness-row {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  .harness-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 1.125rem 1.25rem;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 8px;
+    background-color: var(--color-bg-elevated);
+  }
+  .harness-name {
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+  .harness-note {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-text-subtle);
+  }
+
+  .fit-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: start;
+  }
+  @media (min-width: 960px) {
+    .fit-grid {
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+      gap: 4rem;
+    }
+  }
+  .fit-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+  .fit-subhead {
+    font-family: var(--font-sans);
+    font-size: 1.125rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--color-text-primary);
+    margin: 0.75rem 0 0;
+  }
+  .fit-copy p {
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.65;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+  .fit-copy code {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-elevated);
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 4px;
+    padding: 0.0625rem 0.375rem;
+  }
+  .fit-status {
+    padding: 0.875rem 1rem;
+    border-left: 2px solid color-mix(in oklch, var(--color-warn-amber) 55%, transparent);
+    background-color: var(--color-bg-elevated);
+    border-radius: 0 6px 6px 0;
+  }
+
+  .fit-product {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+  .fit-caption {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: var(--color-text-subtle);
+    margin: 0;
+  }
+  .terminal {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    color: var(--color-text-primary);
+    margin: 0;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .terminal .prompt,
+  .terminal .signal {
+    color: var(--color-signal);
+  }
+  .terminal .cmd {
+    color: var(--color-text-primary);
+  }
+  .terminal .muted {
+    color: var(--color-text-muted);
+  }
+
+  .not-aside {
+    padding: 1.5rem 1.75rem;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+  .not-lead {
+    font-family: var(--font-mono);
+    font-size: var(--text-eyebrow);
+    letter-spacing: var(--text-eyebrow--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-text-subtle);
+    margin: 0;
+  }
+  .not-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  @media (min-width: 860px) {
+    .not-list {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 2rem;
+    }
+  }
+  .not-list li {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+  }
+  .not-term {
+    color: var(--color-text-primary);
+    font-weight: 500;
+  }
+</style>

@@ -40,20 +40,52 @@ the register by design — calibration data will show how often that happens).
   "namedRefCount": 7,
   "textHash": "…",
   "suppressedByDepthRequest": false,
+  "suppressedByQuestionAnswer": false,
   "suppressionReasons": []
 }
 ```
 
-`textHash` and `suppressedByDepthRequest` are the dedupe key's two dimensions (mt#3028 fix (2),
-extended by mt#3112): an unchanged report is re-logged only when its suppression state changed.
+`textHash` and the COMBINED suppression verdict (either gate below) are the dedupe key's two
+dimensions (mt#3028 fix (2), extended by mt#3112 and mt#3718): an unchanged report is re-logged
+only when its suppression state changed.
 
 `suppressionReasons` (mt#3207) is the SHARED contract every calibration record carries —
-`["depth-request-override"]` when the depth-request override withheld the reminder, `[]` when it
-was injected. It duplicates `suppressedByDepthRequest`'s verdict on purpose: `isSuppressedRecord`
-in the sweep reads only `suppressionReasons`, so the detector-specific boolean alone left the
-override's real-world fire rate — ask#5425's stated payoff for flipping this detector live —
-invisible to the review cadence. An ABSENT field is not the same as `[]`: records written before
-mt#3207 carry no field and count as injected.
+`["depth-request-override"]` when the depth-request override withheld the reminder,
+`["question-answer-override"]` when the mt#3718 question-answer override did (see below), `[]`
+when the fire was injected. It duplicates `suppressedByDepthRequest` /
+`suppressedByQuestionAnswer`'s verdicts on purpose: `isSuppressedRecord` in the sweep reads only
+`suppressionReasons`, so the detector-specific booleans alone left the overrides' real-world fire
+rates — ask#5425's stated payoff for flipping this detector live, and ask#6891's for the second
+gate — invisible to the review cadence. An ABSENT field is not the same as `[]`: records written
+before mt#3207 carry no field and count as injected.
+
+**mt#3718 — question-answer override.** A SECOND, independent suppression gate alongside the
+depth-request override: when the most recent PRINCIPAL prompt at or before the opening prompt of
+the measured turn reads as a substantive question (`detectSubstantiveQuestion` — non-empty,
+contains `?`, at least `QUESTION_MIN_WORDS` words), a report answering it is suppressed but still
+logged (`suppressedByQuestionAnswer: true`, `suppressionReasons: ["question-answer-override"]`).
+Two differences from the depth-request override: (1) it is bounded to
+`QUESTION_ANSWER_LOOKBACK_TURNS` real-prompt slots (`resolveQuestionAnswerCheck` /
+`findRecentPrincipalPromptIndex`), narrower than the depth-request override's own lookback and
+NOT a scan of every prompt in the window — it stops at the first PRINCIPAL prompt found, so a
+genuine principal turn that isn't a question still blocks it from reaching an older one; (2) it
+applies ONLY to the pure `over-budget` trigger — a label-led report (`lead-labels` or `both`) is
+never excused by a preceding question. Approved by the 2026-08-04 calibration review (ask#6891,
+"Approve: keep 1, file tunes for 2 and 3").
+
+**mt#3972 — lookback widened past non-principal turn openers.** The original mt#3718 anchor
+checked the turn's single opening prompt directly, which is frequently a harness-injected
+`<task-notification>` (background-task completion notice) or `<system-reminder>` block rather
+than the principal's own text — under-covering the extremely common background-heavy-session
+shape where the principal asks a question, one or more injected turns land before the agent's
+answer, and the answering turn's OPENING prompt is the injected content, not the question.
+`isNonPrincipalTurnOpener` names the harness-injected prefixes (`<task-notification`,
+`<system-reminder`, `[SYSTEM NOTIFICATION`); `findRecentPrincipalPromptIndex` walks backward
+through the real-prompt list, skipping those, to the most recent PRINCIPAL prompt, bounded by
+`QUESTION_ANSWER_LOOKBACK_TURNS` (5) — sized larger than `DEPTH_REQUEST_LOOKBACK_TURNS` (3)
+because this gate's window has to spend slots on injected non-principal turns that the
+depth-request gate never has to. Fails CLOSED (unsuppressed) when no principal prompt is found
+within the bound.
 
 Diversity axis for the calibration-review cadence machinery: distinct `session_id` values
 (like silent-stretch — there is no matched-phrase concept).

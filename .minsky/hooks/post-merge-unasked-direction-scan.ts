@@ -29,7 +29,7 @@ import type { ToolHookInput } from "./types";
 // mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
 // module loads. `loadTranscript`'s dynamic persistence import needs it, and a
 // dynamic import cannot install it retroactively.
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
 import { writeFindings } from "../../packages/domain/src/detectors/unasked-direction-store";
@@ -255,15 +255,30 @@ export async function loadTranscript(
       return null;
     }
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
     const { AgentTranscriptService } = await import(
       "../../packages/domain/src/provenance/transcript-service"
     );
 
-    const provider = await resolvePersistenceProvider();
-    if (!provider || !("getDatabaseConnection" in provider)) return null;
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      // Reported, not silent — for the same reason the catch below is not: a
+      // resolution failure returning a bare `null` is indistinguishable from
+      // "this session had no transcript," which is the exact confusion mt#3046
+      // hid behind for the life of this hook. `null` is still the return value
+      // (the hook is best-effort and must never break the merge flow); what
+      // changes is that the cause reaches the same stderr channel (mt#3869).
+      process.stderr.write(
+        `[post-merge-unasked-direction-scan] warn: transcript load skipped for conversation ${conversationId}: ${describeProviderResolutionFailure(
+          resolution
+        )}\n`
+      );
+      return null;
+    }
+    const provider = resolution.provider;
+    if (!("getDatabaseConnection" in provider)) return null;
 
     const db = await (
       provider as { getDatabaseConnection(): Promise<unknown> }

@@ -4,6 +4,9 @@
   "description": "Shared utilities used across Minsky packages and separately-deployed services.",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./safe-truncate": "./src/safe-truncate.ts",
@@ -16,6 +19,7 @@
     "./exec": "./src/exec.ts",
     "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
+    "./conversation-pid-map": "./src/conversation-pid-map.ts",
     "./process": "./src/process.ts",
     "./stdout-sync": "./src/stdout-sync.ts",
     "./fs": "./src/fs.ts",
@@ -26,6 +30,7 @@
     "./ask-closure": "./src/ask-closure.ts",
     "./ask-option-label": "./src/ask-option-label.ts",
     "./resolve-proposal": "./src/resolve-proposal.ts",
-    "./entity-thread-types": "./src/entity-thread-types.ts"
+    "./entity-thread-types": "./src/entity-thread-types.ts",
+    "./tool-effect": "./src/tool-effect.ts"
   }
 }

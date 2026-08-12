@@ -337,6 +337,39 @@ To add Vercel support:
 No agent-facing change is required. The three MCP tools route to the new adapter
 automatically once the service's `deploy.config.ts` declares `platform: "vercel"`.
 
+## Deploy-surface detection (separate from the adapter framework above)
+
+`packages/domain/src/deployment/deploy-surface.ts` answers a different question
+than everything above: not "how do I talk to a deployment platform" but "does
+this changed file actually trigger a deploy at all, and for which service(s)".
+It backs both the pre-merge deploy-verification gate
+(`.minsky/hooks/require-deploy-verification-before-merge.ts`) and the
+post-merge deploy watch (`session.pr.drive`'s `postMerge` mode, which calls
+`deployment_wait-for-latest` above only for the services `findAffectedServices`
+resolves).
+
+The pattern list (`DEPLOY_SURFACE_PATTERNS` / `DEPLOY_SURFACE_SERVICE_MAP`) is
+derived from — and drift-tested against — the `paths:` blocks of
+`.github/workflows/deploy-minsky-mcp.yml` and `deploy-reviewer.yml` (mt#3523).
+This document does NOT duplicate that pattern list: the code (with its
+module-level doc comments) and `deploy-surface-workflow-drift.test.ts` are the
+source of truth, kept in sync mechanically rather than by two hand-maintained
+lists agreeing by convention. See `packages/domain/src/deployment/deploy-surface.ts`
+for the current surface.
+
+Two consequences of the surface worth knowing without opening the code
+(mt#4013, 2026-08-12):
+
+- Root `src/` is a minsky-mcp deploy surface. The root Dockerfile COPYs the
+  whole `src` tree into the minsky-mcp image, so a PR touching root `src/`
+  redeploys minsky-mcp on merge — it therefore requires a
+  `Deploy verification:` commitment in its body (the same requirement
+  `packages/domain/src/` PRs carry) and gets post-merge deploy verification.
+- `src/cockpit/` counts as minsky-mcp surface, not cockpit. Cockpit web
+  source is a bundled input of the minsky-mcp image; the cockpit SERVICE
+  still deploys only via `cockpit-preview.yml` (PR previews + close-restores)
+  and is deliberately not a merge-deploy target (mt#3832, mt#3996).
+
 ## Cross-references
 
 - `docs/deploy-minsky-railway.md` — Railway-specific runbook (deploy, config, env vars). The deployment-platform tools section there points back to this document for the platform-agnostic abstraction.

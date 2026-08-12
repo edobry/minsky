@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
   detectCapabilityDeferral,
+  detectPermissionDeferral,
+  detectDenialAnchoredDeferral,
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
   isProbeSkill,
   stripQuoteChars,
   buildCalibrationRecord,
+  buildEvaluationRecord,
   buildReminder,
   run,
   runAskSurface,
@@ -16,6 +19,7 @@ import {
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { extractDistinctPhrases } from "../../src/domain/calibration/calibration-sweep";
 
 // ---------------------------------------------------------------------------
 // Shared fixture literals
@@ -63,6 +67,152 @@ const ctxWith = (lines: TranscriptLine[]): DispatchContext =>
     transcriptCandidates: [FIXTURE_PATH],
     transcriptLines: lines,
   }) as unknown as DispatchContext;
+
+// ---------------------------------------------------------------------------
+// Surface C — permission-deferral prose (mt#3463)
+// ---------------------------------------------------------------------------
+
+const PERMISSION_PROSE = "permission-deferral-prose";
+
+/**
+ * Seed corpus (spec criterion 5). Drawn from real turns, not invented shapes:
+ * the first is the mt#3621 originating incident verbatim, and the R5 entry is
+ * the fabricated-authority-boundary case mt#3463's own `## Recurrence` records.
+ *
+ * TRUE POSITIVES — an action the agent could simply have taken.
+ */
+const PERMISSION_TRUE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  ["mt#3621 origin", "The daemon needs a restart. Say the word and I'll do it."],
+  ["want-me-to", "I can restart the daemon. Want me to?"],
+  ["shall-I", "The task is planned and READY. Shall I implement it?"],
+  ["should-I", "Everything is green. Should I merge it?"],
+  ["do-you-want", "The fix is ready. Do you want me to push it?"],
+  ["let-me-know", "It's a one-line change. Let me know if you want me to apply it."],
+  ["if-you-like", "I can file that follow-up task if you'd like."],
+  ["happy-to", "Happy to rerun the suite if you want."],
+  ["just-say-so", "The branch is ready to go — just say the word."],
+  ["would-you-like", "Would you like me to update the spec too?"],
+];
+
+/**
+ * WOULD-BE FALSE POSITIVES — the same permission-ask SHAPE wrapped around an
+ * action that SHOULD be escalated. These must stay silent; firing on them would
+ * train the agent to act unilaterally on exactly the work it must not, which is
+ * strictly worse than the round-trip this surface prevents.
+ */
+const PERMISSION_LEGITIMATE_ESCALATIONS: ReadonlyArray<readonly [string, string]> = [
+  ["force-push", "The history diverged. Should I force-push over it?"],
+  ["prod-deploy", "Want me to deploy this to production?"],
+  ["delete", "Do you want me to delete the stale branch and its data?"],
+  ["revert-prod", "Should I revert the production release?"],
+  ["naming", "Should I call it Attention or Inbox?"],
+  ["vendor", "Do you want me to sign up for the paid plan?"],
+  ["scope-change", "Want me to expand the scope decision to cover the tray too?"],
+  ["drop-table", "Shall I drop the table and re-migrate?"],
+];
+
+describe("Surface C — permission-deferral prose (mt#3463)", () => {
+  test.each(PERMISSION_TRUE_POSITIVES)("fires on %s", (_label, prose) => {
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(PERMISSION_PROSE);
+  });
+
+  test.each(PERMISSION_LEGITIMATE_ESCALATIONS)(
+    "stays silent on a legitimate escalation: %s",
+    (_label, prose) => {
+      expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+    }
+  );
+
+  test("the exclusion is SENTENCE-scoped, not turn-scoped", () => {
+    // An unrelated mention of a reserved word elsewhere in the turn must not
+    // mask a real permission-ask about something else.
+    const prose =
+      "I checked the production logs earlier and they were clean.\n" +
+      "The changelog entry is drafted. Want me to commit it?";
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("probe evidence suppresses it, like Surface A", () => {
+    const lines = [
+      assistantToolUse("Bash", { command: "which railway" }),
+      toolResult("/opt/homebrew/bin/railway"),
+      assistantText("Probed: railway CLI present. Want me to redeploy?"),
+    ];
+    expect(detectPermissionDeferral(lines)).toEqual([]);
+  });
+
+  test("a quoted trigger phrase does not fire (mt#3273 elision parity)", () => {
+    const prose = 'The detector matches phrases like "want me to" in agent prose.';
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("capability prose does NOT fire this surface (the two are disjoint)", () => {
+    expect(detectPermissionDeferral([assistantText(DEFERRAL_PROSE)])).toEqual([]);
+  });
+
+  test("permission prose does NOT fire the capability surface (the gap this closes)", () => {
+    const prose = "The daemon needs a restart. Say the word and I'll do it.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+    expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+});
+
+describe("evaluation stream records misses, not just fires (mt#3463)", () => {
+  test("a no-match turn still produces a record — the half a fire-only log cannot give", () => {
+    const record = buildEvaluationRecord("s-1", [], "Nothing deferral-shaped here.");
+    expect(record.fired).toBe(false);
+    expect(record.surfaces).toEqual([]);
+    // The tail is what makes a MISS classifiable later.
+    expect(record.text_tail).toContain("Nothing deferral-shaped");
+  });
+
+  test("defaults to the prose-turn grain", () => {
+    expect(buildEvaluationRecord("s-1", [], "text").evaluated).toBe("prose-turn");
+  });
+
+  // PR #2659 R1: the ask surface recorded nothing, so "every evaluated unit"
+  // was false and the recall denominator was silently prose-only.
+  test("the ask surface is a DIFFERENT denominator, and says so", () => {
+    const record = buildEvaluationRecord("s-1", [], "Recover the service | Hold", "ask-tool-call");
+    expect(record.evaluated).toBe("ask-tool-call");
+    expect(record.fired).toBe(false);
+  });
+
+  test("runAskSurface records an evaluation even when nothing matches", () => {
+    const benignAsk: Record<string, unknown> = {
+      questions: [{ question: "Which colour?", options: [{ label: "Red" }, { label: "Blue" }] }],
+    };
+    const input = {
+      session_id: "s-ask",
+      tool_name: "AskUserQuestion",
+      tool_input: benignAsk,
+      cwd: "/tmp",
+    } as unknown as ToolHookInput;
+    // No match -> no GuardOutcome, but the evaluation must still have been
+    // recorded. Asserting the no-match outcome pins the branch the R1 finding
+    // was about: the early return path.
+    expect(runAskSurface(input, ctxWith([]))).toBeNull();
+  });
+
+  test("a fired turn names its surfaces", () => {
+    const record = buildEvaluationRecord(
+      "s-1",
+      [
+        {
+          surface: PERMISSION_PROSE,
+          matchedPhrase: "Want me to?",
+          context: "I can rerun the migration. Want me to?",
+        },
+      ],
+      "Want me to?"
+    );
+    expect(record.fired).toBe(true);
+    expect(record.surfaces).toEqual([PERMISSION_PROSE]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Surface A — capability-deferral prose (the family's R1/R3/R5 prose shapes)
@@ -225,12 +375,77 @@ const R5_ASK: Record<string, unknown> = {
   ],
 };
 
+describe("diversity axis (mt#3781)", () => {
+  const assistant = (text: string): TranscriptLine[] => [
+    userPrompt("go"),
+    { type: "assistant", message: { role: "assistant", content: text } },
+  ];
+
+  // The SAME trigger phrase in two different preceding clauses — the whole
+  // point of the fixtures is that the trigger is identical and the surrounding
+  // prose is not.
+  const TRIGGER_AFTER_MIGRATION = `The migration is written. ${DEFERRAL_PROSE}`;
+  const TRIGGER_AFTER_REVIEW = `Reviewed the diff and it looks fine. ${DEFERRAL_PROSE}`;
+
+  // AT1 — two fires on the SAME trigger phrase in different surrounding prose
+  // yield ONE distinct phrase and TWO distinct contexts. This is the property
+  // the diversity gate depends on and that a snippet-valued `phrase` destroys.
+  test("AT1: same trigger in different prose collapses to one distinct phrase", () => {
+    const first = detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION));
+    const second = detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW));
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+
+    const distinctPhrases = new Set([first[0]?.matchedPhrase, second[0]?.matchedPhrase]);
+    const distinctContexts = new Set([first[0]?.context, second[0]?.context]);
+
+    expect(distinctPhrases.size).toBe(1);
+    expect(distinctContexts.size).toBe(2);
+  });
+
+  // AT1, through the real consumer rather than a stand-in for it: the same two
+  // fires, as calibration records, must produce ONE entry from the function the
+  // sweep actually calls.
+  test("AT1: extractDistinctPhrases sees one phrase across the two fires", () => {
+    const records = [
+      buildCalibrationRecord("s1", detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))),
+      buildCalibrationRecord("s2", detectCapabilityDeferral(assistant(TRIGGER_AFTER_REVIEW))),
+    ];
+
+    const parsed = records.map(
+      (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
+    );
+    expect(extractDistinctPhrases(parsed).size).toBe(1);
+  });
+
+  // AT2 — the surrounding text is still recoverable from the record, so the
+  // classifiability the snippet provided is not lost by the fix.
+  test("AT2: the record still carries the surrounding prose", () => {
+    const record = buildCalibrationRecord(
+      "s1",
+      detectCapabilityDeferral(assistant(TRIGGER_AFTER_MIGRATION))
+    ) as { matches: Array<{ phrase: string; context: string }> };
+
+    // `leadSentences: 1` pulls in the sentence before the trigger, which is the
+    // only thing that distinguishes these two fires — the trigger itself is a
+    // whole sentence and identical in both.
+    expect(record.matches[0]?.context).toContain("The migration is written");
+    expect(record.matches[0]?.phrase).not.toContain("The migration is written");
+  });
+});
+
 describe("AskUserQuestion option-label surface", () => {
   test("R5 replay: fires on the option labels that hand back a fixable infra action", () => {
     const matches = detectAskDeferral(R5_ASK, []);
     expect(matches).toHaveLength(1);
     expect(matches[0]?.surface).toBe(ASK_OPTION_LABEL);
-    expect(matches[0]?.matchedPhrase).toContain("recover the reviewer service");
+    // mt#3781 split these. `matchedPhrase` is the PATTERN hit — the sweep's
+    // diversity axis, which must be equal across two fires on the same trigger.
+    // `context` keeps the original option label, which is what the assertion
+    // below originally pinned and what a human reviewer classifies from.
+    expect(matches[0]?.context).toContain("recover the reviewer service");
+    expect(matches[0]?.matchedPhrase).toBe("You recover");
   });
 
   test("suppressed when the turn already probed", () => {
@@ -430,7 +645,7 @@ describe("calibration-first posture", () => {
 
   test("record carries the mt#2554 coverage-receipt source field and matches shape", () => {
     const record = buildCalibrationRecord("s4", [
-      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL },
+      { surface: ASK_OPTION_LABEL, matchedPhrase: R5_LABEL, context: R5_LABEL },
     ]);
     expect(record["source"]).toBe("live");
     expect(record["injection_enabled"]).toBe(false);
@@ -438,15 +653,28 @@ describe("calibration-first posture", () => {
     expect(matches[0]).toEqual({
       category: ASK_OPTION_LABEL,
       phrase: R5_LABEL,
+      // `context` is required on DeferralMatch and IS written to the record;
+      // the previous expectation only omitted it because the fixture above
+      // omitted it, which nothing typechecked until mt#2900.
+      context: R5_LABEL,
     });
   });
 
   test("the reminder names the probe sequence and the override var", () => {
     const reminder = buildReminder([
-      { surface: CAPABILITY_PROSE, matchedPhrase: "requires Railway access" },
+      {
+        surface: CAPABILITY_PROSE,
+        matchedPhrase: "requires Railway access",
+        context: "Deferred — this requires Railway access.",
+      },
     ]);
     expect(reminder).toContain("whoami");
-    expect(reminder).toContain(OVERRIDE_ENV_VAR);
+    // Inverted (mt#4002): the advisory must NOT advertise its override.
+    // `guard-feedback-authoring.mdc` bans it — the agent is the wrong reader for
+    // an exit, and `CLAUDE.md §Hook Files` is where the operator finds it. The
+    // old assertion required the violation, and nothing caught the conflict
+    // because this guard renders no live text for the authoring check to read.
+    expect(reminder).not.toContain(OVERRIDE_ENV_VAR);
   });
 
   test("a clean turn produces no outcome", () => {
@@ -455,5 +683,254 @@ describe("calibration-first posture", () => {
       ctxWith([userPrompt("go"), assistantText("Merged and verified."), userPrompt("next")])
     );
     expect(outcome).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface D — denial-anchored deferral (mt#3533)
+// ---------------------------------------------------------------------------
+
+const DENIAL_ANCHORED = "denial-anchored";
+
+/**
+ * The two canned denial bodies Claude Code actually emits. Established by
+ * measurement over this project's 460 local transcripts on 2026-08-11 (73 denial
+ * results, no other continuation observed), NOT from vendor documentation, which
+ * does not specify the shape.
+ */
+const DENIAL_PREFIX =
+  "The user doesn't want to proceed with this tool use. The tool use was rejected " +
+  "(eg. if it was a file edit, the new_string was NOT written to the file). ";
+const DENIAL_NO_REASON = `${DENIAL_PREFIX}STOP what you are doing and wait for the user to tell you how to proceed.`;
+const DENIAL_WITH_ECHOED_REASON =
+  `${DENIAL_PREFIX}To tell you how to proceed, the user said:\n` +
+  "The user doesn't want to proceed with this tool use.";
+
+/**
+ * SYNTHETIC — deliberately not drawn from the corpus, because the corpus has no
+ * such record: zero of the 73 observed denials carried a security framing. The
+ * reason string is mem#276's verbatim 2026-04-23 denial, which is the only
+ * recorded instance of this shape anywhere. Labeled synthetic per mt#3533 SC#4
+ * so a reader does not mistake it for a replay.
+ */
+const DENIAL_SECURITY_FRAMED_SYNTHETIC =
+  `${DENIAL_PREFIX}To tell you how to proceed, the user said:\n` +
+  "credential/permission exploration to work around a merge block — not a user-authorized action.";
+
+/** The 2026-08-08 Railway incident's two command shapes, verbatim in structure. */
+const DENIED_COMPOUND_CURL =
+  "railway whoami >/dev/null; TOKEN=$(jq -r .token ~/.railway/config.json); " +
+  'curl -s -X POST https://backboard.railway.com/graphql/v2 -H "Authorization: Bearer $TOKEN" -d @p.json';
+const RESHAPED_CURL =
+  'curl -s -X POST https://backboard.railway.com/graphql/v2 -H "Authorization: Bearer $(jq -r .token ~/.railway/config.json)" -d @p.json';
+
+const bashCall = (id: string, command: string): TranscriptLine => ({
+  type: "assistant",
+  message: {
+    role: "assistant",
+    content: [{ type: "tool_use", id, name: "Bash", input: { command } }],
+  },
+});
+
+/** A denial result correlated to `id` — role "user", per mem#528. */
+const denialResult = (id: string, text: string = DENIAL_NO_REASON): TranscriptLine => ({
+  type: "user",
+  message: {
+    role: "user",
+    content: [
+      { type: "tool_result", tool_use_id: id, is_error: true, content: [{ type: "text", text }] },
+    ],
+  },
+});
+
+const asksCreate = (): TranscriptLine =>
+  assistantToolUse("mcp__minsky__asks_create", {
+    title: "The harness blocks the Railway write; please add a Bash permission rule.",
+  });
+
+describe("Surface D — denial-anchored deferral (mt#3533)", () => {
+  test("AT1: fires on the 2026-08-08 Railway shape — denial, then an ask, no reshaped retry", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      assistantText("The harness blocks the mutating call, so this needs an operator decision."),
+      asksCreate(),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(DENIAL_ANCHORED);
+    // The phrase is the denied CHANNEL, recovered from the tool_use — which is
+    // also the assertion that the tool_use_id join worked, since the denial
+    // result itself carries no command.
+    expect(matches[0]?.matchedPhrase).toBe("railway");
+    expect(matches[0]?.context).toContain("backboard.railway.com");
+  });
+
+  test("AT2: a same-turn retry in a different command shape suppresses the fire", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      bashCall("toolu_2", RESHAPED_CURL),
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("AT2b: compound-to-simple counts as reshaped even with the same leading token", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", "curl https://a.example; curl https://b.example"),
+      denialResult("toolu_1"),
+      bashCall("toolu_2", "curl https://b.example"),
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("AT2c: re-running the SAME command is not a reshape, so the fire stands", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      bashCall("toolu_2", DENIED_COMPOUND_CURL),
+      asksCreate(),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("AT3 (SYNTHETIC fixture): a security-framed denial never fires — mem#276's carve-out", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", "gh api /repos/o/r/installation/tokens"),
+      denialResult("toolu_1", DENIAL_SECURITY_FRAMED_SYNTHETIC),
+      assistantText("This is deferred to the operator: it requires admin credentials."),
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("AT4: a denial with no escalation and no deferral prose does not fire", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      assistantText("Understood — moving on to the next item."),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("deferral PROSE alone escalates the denial, with no ask tool call", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1", DENIAL_WITH_ECHOED_REASON),
+      assistantText("Deferred to operator: requires Railway access."),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(DENIAL_ANCHORED);
+  });
+
+  test("an ask raised BEFORE the denial does not count — ordering is checked", () => {
+    const matches = detectDenialAnchoredDeferral([
+      asksCreate(),
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      denialResult("toolu_1"),
+      assistantText("Moving on."),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("an ordinary tool ERROR is not a denial", () => {
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", DENIED_COMPOUND_CURL),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              is_error: true,
+              content: [{ type: "text", text: "curl: (6) Could not resolve host" }],
+            },
+          ],
+        },
+      },
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("the rejection string in a SUCCESSFUL result is not a denial", () => {
+    // The false-positive vector `is_error` closes: a tool that echoes prior
+    // conversation back — reading a transcript, grepping a calibration log —
+    // returns the canonical rejection text in a result that did not fail.
+    const matches = detectDenialAnchoredDeferral([
+      bashCall("toolu_1", "grep -r 'proceed with this tool use' ~/.claude/projects"),
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "toolu_1",
+              content: [{ type: "text", text: DENIAL_NO_REASON }],
+            },
+          ],
+        },
+      },
+      asksCreate(),
+    ]);
+    expect(matches).toEqual([]);
+  });
+
+  test("a turn with no denial at all is untouched", () => {
+    expect(detectDenialAnchoredDeferral([assistantText("All green."), asksCreate()])).toEqual([]);
+  });
+
+  test("run() reports the surface through the calibration record", () => {
+    const outcome = run(
+      { session_id: "s-d", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([
+        userPrompt("apply the setting"),
+        bashCall("toolu_1", DENIED_COMPOUND_CURL),
+        denialResult("toolu_1"),
+        asksCreate(),
+        userPrompt("next"),
+      ])
+    );
+    const matches = outcome?.calibration?.["matches"] as Array<Record<string, unknown>> | undefined;
+    expect(matches?.some((m) => m["category"] === DENIAL_ANCHORED)).toBe(true);
+  });
+
+  test("the advisory carries the reshape directive, not the probe directive", () => {
+    const reminder = buildReminder([
+      { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
+    ]);
+    expect(reminder).toContain("simpler shape");
+    expect(reminder).toContain("security concern");
+    // The probe sentence belongs to the other three surfaces; handing it to this
+    // one would name the wrong next action (`guard-feedback-authoring.mdc`).
+    // Asserted on the directive's own wording, NOT on a token like "whoami":
+    // that string also appears inside the quoted denied command, so it would
+    // pass or fail for a reason unrelated to the directive.
+    expect(reminder).not.toContain("Run the capability probe");
+  });
+
+  // mt#3533's per-guard size test is GONE (mt#4002). `guard-feedback-shape.test.ts`
+  // now measures this guard's render through the registry's `renderProbe`, along
+  // with every other calibration-first guard, so keeping a hand-written size
+  // check in one guard's own file would be a second copy of a shared check —
+  // free to drift, and exactly what mt#4002's SC#2 asked to be removed. The
+  // renderer it posed is now `renderWorstCase()` in the module, which the probe
+  // calls.
+
+  test("a turn tripping both shapes gets both directives — the guard's worst case", () => {
+    const reminder = buildReminder([
+      {
+        surface: CAPABILITY_PROSE,
+        matchedPhrase: "requires Railway access",
+        context: DEFERRAL_PROSE,
+      },
+      { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
+    ]);
+    expect(reminder).toContain("simpler shape");
+    expect(reminder).toContain("Run the capability probe");
   });
 });

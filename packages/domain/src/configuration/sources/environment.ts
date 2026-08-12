@@ -89,6 +89,15 @@ export const environmentMappings = {
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
   MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
 
+  // Supabase Storage credentials for the transcript raw archive (ADR-025 /
+  // mt#2680). Explicit mappings are required: the dot-path auto-conversion
+  // would route MINSKY_SUPABASE_SERVICE_ROLE_KEY to
+  // `supabase.service.role.key` (a rejected path) and crash the loader at
+  // boot when the var is set on a deployed environment.
+  MINSKY_SUPABASE_URL: "supabase.url",
+  MINSKY_SUPABASE_SERVICE_ROLE_KEY: "supabase.serviceRoleKey",
+  MINSKY_TRANSCRIPT_ARCHIVE_BUCKET: "transcriptArchive.bucket",
+
   // Reviewer webhook-service configuration (mt#2269). Consumed by the
   // `reviewer.retrigger` command to authenticate against the reviewer
   // service's /retrigger endpoint. Explicit mappings are required so a value
@@ -124,6 +133,20 @@ export const environmentMappings = {
   MINSKY_PRINCIPAL_CHANNEL_CWD: "principalChannel.cwd",
   MINSKY_PRINCIPAL_CHANNEL_PERMISSION_MODE: "principalChannel.permissionMode",
   MINSKY_PRINCIPAL_CHANNEL_ALLOWED_USER_IDS: "principalChannel.allowedUserIds",
+
+  // Cockpit daemon configuration (mt#3641) — operator-configured extra
+  // allowed Host name(s) layered onto the mt#2538 Host-header allowlist
+  // (e.g. a Tailscale MagicDNS name). Explicit mapping because the dot-path
+  // auto-conversion would produce `cockpit.allowedHosts` too (harmless here,
+  // but explicit entries are the house convention for every other section
+  // above, and this documents intent + survives a future rename).
+  MINSKY_COCKPIT_ALLOWED_HOSTS: "cockpit.allowedHosts",
+  // mt#3988: the port the cockpit daemon serves on AND the tray supervises.
+  // Mapped (not hook-only) because both the daemon and `config get` read it
+  // through the normal configuration tree; the tray reads the RESOLVED value
+  // via `minsky config get cockpit.port` rather than this variable directly,
+  // so the two cannot disagree.
+  MINSKY_COCKPIT_PORT: "cockpit.port",
 
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
@@ -187,8 +210,28 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SMOKE_CHECK", // .claude/hooks/require-review-before-merge.ts (mt#2060)
   "MINSKY_SKIP_DEPLOY_VERIFY", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
   "MINSKY_SKIP_SUBAGENT_MODEL_CHECK", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
+  "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
+  // mt#4017 — NOT hook-read: this one is read by scripts/drizzle-config-loader.ts,
+  // which calls loadConfiguration() itself, so the var is present in process.env
+  // when the loader's own environment source parses it. It is the sanctioned-
+  // caller gate signal drizzle.pg.config.ts sets on that script's subprocess
+  // environment before invoking it — the script refuses to print its stdout
+  // (a live DB connection string) without it. No config-schema home; without
+  // this entry the auto-mapping fallback would route it to
+  // `drizzle.loader.gate` and mt#1612 strict-mode validation would reject it,
+  // crashing the loader itself on the very invocation the gate exists to allow.
+  "MINSKY_DRIZZLE_LOADER_GATE",
+  // Pre-push test-gate controls (.husky/pre-push -> scripts/run-tests-gated.ts).
+  // Neither has a config-schema home, so without entries here the auto-mapping
+  // fallback would route them to `skip.prepushTests` / `prepush.fullSuite` and
+  // mt#1612 strict validation would reject them — crashing the CLI for anyone
+  // who has them set. MINSKY_SKIP_PREPUSH_TESTS predates mt#3562 and was never
+  // registered; added here because it is the same one-line defect as the new
+  // var beside it, not as a separate change.
+  "MINSKY_SKIP_PREPUSH_TESTS", // .husky/pre-push (mt#2716) — skip the local suite entirely
+  "MINSKY_PREPUSH_FULL_SUITE", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
   "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
   "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
@@ -225,6 +268,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
   "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
   "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
+  "MINSKY_MCP_SESSION_REAPER_INTERVAL_MS", // src/mcp/server.ts (mt#3814 — sweep interval; pairs with the idle timeout above, which was untunable without it)
+  "MINSKY_MCP_SESSION_ADMISSION_WATERMARK_MB", // src/mcp/daemon/memory-admission.ts (mt#3814 — resident-memory watermark above which the shared daemon refuses NEW sessions)
   "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
   "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS", // src/mcp/command-mapper.ts (mt#2778 — escape hatch: downgrade undeclared-param rejection to a warn log; promote to mcp.allowUnknownParams if it grows)
   "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES", // src/adapters/mcp/shared-command-integration.ts (mt#3155 — escape hatch: downgrade wrong-typed provided-value rejection to a warn log; promote to mcp.allowInvalidParamValues if it grows)
@@ -266,14 +311,19 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_RETRO_COMPLETENESS", // .claude/hooks/retrospective-completeness-detector.ts (mt#3601) — override for the log-only retrospective structural-completeness scan
   "MINSKY_DISABLE_RUNG2_NOMINATION", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
   "MINSKY_RUNG2_NOMINATION_ENFORCE", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
+  "MINSKY_KA_RUNG2_NOMINATION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
   "MINSKY_DISABLE_RUNG3_CONFIRM", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
   "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
   "MINSKY_SKIP_DUPLICATE_RECORD", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
+  "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
+  "MINSKY_SKIP_AGENT_DISPATCH_RECORD", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
+  "MINSKY_COCKPIT_RP_ID", // src/cockpit/server.ts (mt#4023) — WebAuthn relying-party id for the public deployment; defaults to the Railway hostname. Changing it invalidates every enrolled passkey, since a credential is bound to the rpID it was created under.
+  "MINSKY_COCKPIT_ORIGIN", // src/cockpit/server.ts (mt#4023) — expected WebAuthn origin; defaults to `https://<rpID>`. Override only when the scheme or port differs from that default.
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
@@ -281,6 +331,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", // src/cockpit/server.ts (mt#2321) — cockpit transcript sweep-backstop cadence override (positive integer ms)
   "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
   "MINSKY_SKIP_PROD_STATE_INJECTION", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
+  "MINSKY_SKIP_MEMORY_CAPTURE_NOTICE", // .claude/hooks/inject-memory-capture.ts (mt#3997) — skip resident-memory capture notice
   "MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION", // .claude/hooks/inject-dispatch-watchdog.ts (mt#2646) — skip dispatch-watchdog injection
   "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
   // mt#2324 — process-only overrides read via the BRACKET form
@@ -298,6 +349,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
   "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
   "MINSKY_ACK_CODE_MECHANISM_ASSERTION", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
+  "MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
   "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
   "MINSKY_SKIP_SPEC_READ_CHECK", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
   "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
@@ -337,6 +389,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md); also covers the mt#2874 per-rule 15K ceiling extension (one audited escape hatch, not two)
   "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
   "MINSKY_SKIP_WALL_OF_TEXT", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
+  "MINSKY_SKIP_TERMINAL_LINKIFY", // .claude/hooks/linkify-message-display.ts (mt#2565) — display every streaming delta unchanged instead of linkifying entity refs
   "MINSKY_SILENT_STRETCH_GAP_MINUTES", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
   "MINSKY_SILENT_STRETCH_TOOL_CALLS", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
   "MINSKY_WALL_OF_TEXT_WORD_BUDGET", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
@@ -348,6 +401,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_AT_COVERAGE", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
   "MINSKY_SKIP_SC_COVERAGE", // .claude/hooks/success-criteria-coverage.ts (mt#3350) — override for the calibration-first `## Success Criteria` cross-reference check (log-only; sibling of MINSKY_SKIP_AT_COVERAGE, deliberately separate so one surface can be silenced without the other)
   "MINSKY_SKIP_TEST_FIRST_EVIDENCE", // .claude/hooks/test-first-evidence.ts (mt#3244) — override for the calibration-first test-first check (log-only): a bugfix-shaped PR modifying an existing test file must record a negative control, i.e. the test observed FAILING against the un-fixed tree. Third sibling of the two above, separate for the same reason.
+  "MINSKY_SKIP_RENDER_PATH_EVIDENCE", // .claude/hooks/render-path-evidence.ts (mt#2421) — override for the calibration-first render-path check (log-only): a PR touching a user-facing render path should carry a URL or image the principal can open. Fourth sibling, separate for the same reason. Trigger is deliberately test-INDEPENDENT (mt#3810 shipped blind WITH passing happy-dom tests).
   "MINSKY_ACK_DESTRUCTIVE", // packages/domain/src/safety/destructive-override.ts (mt#3021) — non-interactive escape hatch for the shared destructive-action override contract (mass-deletion sanity gate, session-delete/cleanup git-state guard); value IS the required reason string, so it can't degrade into a bare-boolean override.
   "MINSKY_ACK_KNOWLEDGE_ACQUISITION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
   "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
@@ -356,6 +410,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_UNESCALATED_INCIDENT", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
   "MINSKY_SKIP_STOP_AT_DECISION", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
   "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
+  "MINSKY_ACK_BARE_ENTITY_REF", // .claude/hooks/turn-end-bare-ref-scan.ts (mt#3286) — override for the turn-end bare/malformed entity-deeplink Stop guard
 ]);
 
 /**
@@ -424,6 +479,14 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
 
   // Comma-separated lists (mt#3230)
   "principalChannel.allowedUserIds": "csv",
+  // Comma-separated list (mt#3641)
+  "cockpit.allowedHosts": "csv",
+  // mt#3988: without this entry the env layer hands the schema the raw STRING
+  // and `cockpit.port`'s `z.number()` rejects it, so setting
+  // MINSKY_COCKPIT_PORT crashes config resolution instead of overriding the
+  // port. Registering the var in `environmentMappings` above is necessary but
+  // NOT sufficient — the conversion is declared here, separately.
+  "cockpit.port": "number",
 
   // JSON (arrays and objects)
   "ai.providers.openai.models": "json",

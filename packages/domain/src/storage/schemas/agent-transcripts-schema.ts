@@ -64,6 +64,26 @@ export const agentTranscriptsTable = pgTable(
     // Incremental ingest high-water-mark — tracks latest JSONL entry timestamp seen
     lastIngestedJsonlTimestamp: timestamp("last_ingested_jsonl_timestamp", { withTimezone: true }),
 
+    /**
+     * Writer-divergence verdict (mt#3656) — the `last-prompt` leaves that named
+     * mutually-exclusive branches, meaning two writers each believed they held
+     * the tip and one branch is being silently orphaned.
+     *
+     * Computed at ingest because the signal cannot survive to read time: a
+     * `last-prompt` row carries no `timestamp`, so the incremental
+     * high-water-mark gate drops it before the type check, and no line of that
+     * type is retained in `transcript` or the attachments table. Only the
+     * verdict is persisted.
+     *
+     * NULL/empty means the writers agreed. `divergence_checked_at` is what
+     * distinguishes that from NEVER CHECKED — a conversation ingested before
+     * this shipped has no verdict, and reporting "no divergence" for it would
+     * be the falsely-confident derived field this codebase refuses elsewhere
+     * (`presence.ts` returns UNKNOWN rather than guessing from absence).
+     */
+    divergentTipLeaves: text("divergent_tip_leaves").array(),
+    divergenceCheckedAt: timestamp("divergence_checked_at", { withTimezone: true }),
+
     // Audit
     ingestedAt: timestamp("ingested_at", { withTimezone: true }).defaultNow(),
 

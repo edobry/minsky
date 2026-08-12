@@ -11,12 +11,14 @@
  * Embedding is the separate, deferred stage owned by PerTurnEmbeddingPipeline,
  * which fills the `embedding` column on rows this module has already written.
  *
- * CRITICAL — embedding preservation: the upsert here writes text/metadata
- * columns only and MUST NOT touch the `embedding` column. A new row gets a NULL
- * embedding (filled later by the backfill); an existing row's embedding is left
- * intact (a capture-path text upsert over an already-embedded turn must not
- * clobber the vector). See ADR-019 §Consequences ("two writers on the same
- * rows").
+ * CRITICAL — embedding preservation, CONDITIONAL since mt#3883: the upsert here
+ * never COMPUTES an embedding. A new row gets a NULL embedding (filled later by
+ * the backfill); an existing row keeps its vector ONLY while its text is
+ * unchanged, and has it NULLED when the text changes — so a turn boundary that
+ * moves cannot leave a vector describing content the row no longer holds. See
+ * ADR-019 §Consequences ("two writers on the same rows"), and the SET clause
+ * below for why unconditional preservation turned into a corruption vector the
+ * moment extraction stopped producing identical boundaries.
  *
  * @see docs/architecture/adr-019-transcript-pipeline-staging.md
  * @see ./turn-extractor.ts — the pure extraction logic this reuses
@@ -24,7 +26,7 @@
  * @see mt#2381 — this file
  */
 
-import { gt, sql } from "drizzle-orm";
+import { and, eq, gt, gte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -37,6 +39,17 @@ import type { ConversationId } from "../ids";
 
 /** Result of a single-transcript extraction attempt (mt#2457 SC3). */
 export interface WriteTurnsResult {
+  /**
+   * Number of turns the EXTRACTOR produced for this transcript — the count the
+   * orphan DELETE's `turn_index >= N` bound is taken from.
+   *
+   * Distinct from `written` (mt#3911). Conflating the two is not cosmetic: the
+   * `index-embeddings` CLI printed `written` under the label `extracted=`, so a
+   * session that extracted 604 turns and wrote only 104 of them reported
+   * `extracted=104` — a 17%-complete write rendered as an ordinary success, and
+   * the reason a one-command diagnosis instead took a full session.
+   */
+  extracted: number;
   /** Number of turn rows written (upserted). */
   written: number;
   /**
@@ -59,6 +72,37 @@ export interface WriteTurnsResult {
    * indistinguishable from one with nothing to write).
    */
   erroredChunks: number;
+  /**
+   * Number of ORPHANED rows deleted for this session (mt#3514) — rows at a
+   * `turn_index` this extraction did not emit, left behind by an earlier
+   * extraction that produced a different turn count.
+   *
+   * Before mt#3514 nothing ever deleted a turn row: the write was a pure
+   * upsert on `(agent_session_id, turn_index)`, so it only ever overwrote the
+   * indexes the CURRENT extraction happened to produce. Any index a previous
+   * run wrote but this one does not re-emit survived untouched, carrying its
+   * stale content forever. Measured 2026-08-08: 107 orphaned
+   * `(session, tool_use_id)` pairs across 27 conversations, 104 of them with
+   * byte-identical text to their live twin, at index spreads up to 704.
+   */
+  orphansDeleted: number;
+  /**
+   * True when the orphan-removal DELETE itself threw. Treated as an ERROR
+   * outcome (see `classifyWriteOutcome`), not folded into success: a write
+   * that upserted cleanly but could not remove stale rows has left the
+   * session in exactly the inconsistent state this mechanism exists to
+   * prevent, and reporting it as "processed" would make the defect invisible
+   * again.
+   */
+  orphanDeleteFailed: boolean;
+  /**
+   * How many times a chunk was SPLIT and retried after exceeding the server's
+   * `statement_timeout` (mt#3911). Zero in steady state. A non-zero value means
+   * the write completed but the default chunk size is running close to the
+   * timeout for this corpus — the early-warning signal that was missing when a
+   * 500-row chunk silently failed outright.
+   */
+  chunkSplits: number;
 }
 
 /**
@@ -78,12 +122,17 @@ const defaultLogSink: TurnWriterLogSink = { warn: log.warn, error: log.error };
 
 /**
  * Extract per-turn rows from a session's transcript and upsert them into
- * `agent_transcript_turns` (text/metadata columns only — never `embedding`).
+ * `agent_transcript_turns`. This never COMPUTES an embedding — that stays the
+ * backfill's job — but since mt#3883 it does INVALIDATE one (see below).
  *
- * Idempotent: existing rows are upserted on (agent_session_id, turn_index); the
- * `embedding` column is excluded from both the insert and the on-conflict SET,
- * so re-running preserves any embedding already present and re-materializing the
- * full transcript on each incremental append is safe.
+ * Idempotent: existing rows are upserted on (agent_session_id, turn_index). The
+ * `embedding` column is excluded from the INSERT values, so a new row starts
+ * NULL. On conflict it is set conditionally: preserved when the row's
+ * `user_text`/`assistant_text` are unchanged, NULLED when they changed. So
+ * re-materializing the full transcript on each incremental append is still safe
+ * and still cheap — an unchanged row keeps its vector — while a turn whose
+ * boundary MOVED (mt#3883) does not keep a vector describing text it no longer
+ * holds.
  *
  * @param transcript - The session's full `agent_transcripts.transcript` JSONB
  *   (array of raw turn lines). Turn ordering / `turn_index` is assigned over the
@@ -98,7 +147,15 @@ export async function writeTurnsForTranscript(
   logSink: TurnWriterLogSink = defaultLogSink
 ): Promise<WriteTurnsResult> {
   if (!Array.isArray(transcript) || transcript.length === 0) {
-    return { written: 0, nonEmptyYieldedZero: false, erroredChunks: 0 };
+    return {
+      extracted: 0,
+      written: 0,
+      nonEmptyYieldedZero: false,
+      erroredChunks: 0,
+      orphansDeleted: 0,
+      orphanDeleteFailed: false,
+      chunkSplits: 0,
+    };
   }
 
   const turns = extractTurns(transcript as RawTurnLine[]);
@@ -112,24 +169,159 @@ export async function writeTurnsForTranscript(
         `zero turns for session ${agentSessionId} — possible extractor-shape mismatch`,
       { agentSessionId, transcriptLines: transcript.length }
     );
-    return { written: 0, nonEmptyYieldedZero: true, erroredChunks: 0 };
+    // mt#3514 SAFETY: return BEFORE the orphan-removal delete below. A
+    // non-empty transcript that extracts to zero turns is a suspected
+    // EXTRACTOR regression, not evidence that the session has no turns — and
+    // "delete every row this extraction did not emit" would, at zero turns,
+    // wipe the session's entire turn history. The delete must never run on
+    // this path; that is why it lives after this early return rather than
+    // being guarded by a condition someone could later reorder.
+    return {
+      extracted: 0,
+      written: 0,
+      nonEmptyYieldedZero: true,
+      erroredChunks: 0,
+      orphansDeleted: 0,
+      orphanDeleteFailed: false,
+      chunkSplits: 0,
+    };
   }
 
+  // ── Serialization (mt#3514, PR #2736 R1) ───────────────────────────────
+  // The upsert and the orphan DELETE must not interleave with ANOTHER writer
+  // for the same session. Three callers can overlap in practice — the ingest
+  // service (running continuously in the cockpit daemon), the
+  // `index-embeddings --all` sweep, and `index-embeddings --session` — so a
+  // concurrent run that extracts MORE turns could write rows at indexes this
+  // run then deletes as "orphans." That is data loss, not a stale-row cleanup.
+  //
+  // Extends the session-scoped advisory-lock convention already used by
+  // `withDrivenSessionResumeLock` (driven-session-registry-store.ts): a
+  // TRANSACTION-scoped lock, because this runs on a pooled postgres-js
+  // connection where a session-scoped acquire/release pair could land on
+  // different connections. Blocking (`pg_advisory_xact_lock`) rather than
+  // `try` — a second writer must WAIT its turn, not skip its write.
+  //
+  // Per-chunk SAVEPOINTs (drizzle's nested `transaction`) preserve mt#2457's
+  // partial-write tolerance: without them a single failed chunk would poison
+  // the whole transaction, turning a partial write into a total rollback and
+  // silently changing `erroredChunks` semantics.
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`SELECT pg_advisory_xact_lock(${TURN_WRITE_LOCK_NAMESPACE}, hashtext(${agentSessionId}))`
+    );
+    return writeTurnsLocked(tx, agentSessionId, turns, transcript, logSink);
+  });
+}
+
+/** Advisory-lock namespace for per-session turn writes (mt#3514). */
+const TURN_WRITE_LOCK_NAMESPACE = 3_514_001;
+
+/** A half-open range of `turns` to send as one bulk-upsert statement. */
+interface ChunkRange {
+  start: number;
+  size: number;
+}
+
+/**
+ * Rows per bulk-upsert statement.
+ *
+ * **Sized against the statement TIMEOUT, not the bind-parameter ceiling
+ * (mt#3911).** The previous value of 500 was justified solely by Postgres's
+ * ~65535 bind-parameter limit (8 columns/row = 4,000 params, a wide margin) —
+ * a ceiling this write never comes close to. The binding constraint is time:
+ * an `ON CONFLICT DO UPDATE` that changes `user_text`/`assistant_text` cannot
+ * be a HOT update, so every row's new tuple version is re-inserted into the
+ * GIN `fts_text` index and the HNSW `embedding` index.
+ *
+ * Measured against prod 2026-08-10 (`statement_timeout` = 30s):
+ *
+ * | rows | session with embeddings | session without |
+ * | ---- | ----------------------- | --------------- |
+ * | 100  | 9.5–17.5s               | 2.4–6.6s        |
+ * | 250  | 20.5–24.8s              | —               |
+ * | 500  | FAILS at 31.2s          | —               |
+ *
+ * So ~100ms/row with embeddings, ~35ms/row without. 100 rows leaves real
+ * headroom under 30s; 250 does not. Sessions >= 500 turns were the ones that
+ * produced a 500-row chunk at all, and every one of them was silently writing
+ * only a fraction of its turns.
+ */
+export const DEFAULT_TURN_CHUNK_SIZE = 100;
+
+/**
+ * Floor for the split-and-retry above. A chunk at or below this size is not
+ * split further — if 10 rows cannot be written inside the statement timeout,
+ * the problem is not chunk sizing, and bisecting to 1 would turn one slow
+ * failure into ten.
+ */
+export const MIN_TURN_CHUNK_SIZE = 10;
+
+/** Postgres SQLSTATE for a statement cancelled by `statement_timeout`. */
+const PG_QUERY_CANCELED = "57014";
+
+/**
+ * True when `err` (or anything in its `cause` chain) is a Postgres
+ * statement-timeout cancellation.
+ *
+ * Checks the SQLSTATE first because it is exact; falls back to the message
+ * because drizzle wraps the driver error and the code is not always preserved
+ * on the outer object — the observed mt#3911 failure surfaced the driver
+ * message `canceling statement due to statement timeout` on `err.cause` with
+ * no `code` on the wrapper.
+ */
+export function isStatementTimeout(err: unknown): boolean {
+  for (let cursor: unknown = err, depth = 0; cursor && depth < 5; depth++) {
+    const code = (cursor as { code?: unknown }).code;
+    if (code === PG_QUERY_CANCELED) return true;
+    const message = (cursor as { message?: unknown }).message;
+    if (typeof message === "string" && message.includes("canceling statement due to statement")) {
+      return true;
+    }
+    cursor = (cursor as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * The upsert + orphan-removal body, running inside the caller's transaction
+ * with the session's advisory lock already held. Split out so the locking and
+ * the write logic are separately readable; not exported — the lock is not
+ * optional.
+ */
+async function writeTurnsLocked(
+  tx: PostgresJsDatabase,
+  agentSessionId: string,
+  turns: ReturnType<typeof extractTurns>,
+  transcript: unknown[],
+  logSink: TurnWriterLogSink
+): Promise<WriteTurnsResult> {
+  const db = tx;
   // mt#2457 perf: upsert in bulk, chunked, rather than one round-trip per
   // turn. A handful of legacy sessions run into the thousands of turns (up
   // to ~4,511 raw lines observed in the 2026-07-20 corpus measurement) —
   // per-turn serial round-trips to a remote Postgres made even a single such
   // session take on the order of a minute, which is what actually made the
   // full-corpus backfill impractical (not just the outer unbatched SELECT).
-  // CHUNK_SIZE keeps each statement's bind-parameter count (8 columns/row)
-  // comfortably under Postgres's ~65535 parameter limit for any plausible
-  // session size, while collapsing thousands of round-trips into a handful.
-  const CHUNK_SIZE = 500;
+  // The chunk size is bounded by TIME, not by the bind-parameter ceiling — see
+  // DEFAULT_TURN_CHUNK_SIZE. Ranges are held in a work queue rather than walked
+  // by a `for` stride so that a chunk which exceeds the server's
+  // `statement_timeout` can be SPLIT and retried instead of abandoned (mt#3911).
+  const pending: ChunkRange[] = [];
+  for (let start = 0; start < turns.length; start += DEFAULT_TURN_CHUNK_SIZE) {
+    pending.push({ start, size: Math.min(DEFAULT_TURN_CHUNK_SIZE, turns.length - start) });
+  }
+
   let written = 0;
   let erroredChunks = 0;
-  for (let i = 0; i < turns.length; i += CHUNK_SIZE) {
-    const chunk = turns.slice(i, i + CHUNK_SIZE);
-    // NOTE: `embedding` is deliberately omitted — capture writes text only.
+  let chunkSplits = 0;
+
+  while (pending.length > 0) {
+    const range = pending.shift() as ChunkRange;
+    const chunk = turns.slice(range.start, range.start + range.size);
+    // NOTE: `embedding` is deliberately omitted from the INSERT VALUES — a new
+    // row starts NULL and the backfill fills it. The on-conflict SET below is a
+    // different matter: since mt#3883 it nulls a vector whose text changed.
     // `fts_text` is GENERATED ALWAYS and must not be written either.
     const insertValues = chunk.map((turn) => ({
       agentSessionId,
@@ -149,24 +341,75 @@ export async function writeTurnsForTranscript(
     }));
 
     try {
-      await db
-        .insert(agentTranscriptTurnsTable)
-        .values(insertValues)
-        .onConflictDoUpdate({
-          target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
-          // `embedding` is intentionally NOT in this SET — preserve any vector
-          // the backfill already filled (ADR-019 embedding-preservation invariant).
-          set: {
-            userText: sql`EXCLUDED.user_text`,
-            assistantText: sql`EXCLUDED.assistant_text`,
-            toolCalls: sql`EXCLUDED.tool_calls`,
-            startedAt: sql`EXCLUDED.started_at`,
-            endedAt: sql`EXCLUDED.ended_at`,
-            isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
-          },
-        });
+      // SAVEPOINT per chunk (mt#3514): inside the outer transaction a failed
+      // statement would otherwise abort everything, so a single bad chunk
+      // would roll back chunks that already succeeded — silently converting
+      // mt#2457's tolerated PARTIAL write into a total loss.
+      await db.transaction(async (sp) => {
+        await sp
+          .insert(agentTranscriptTurnsTable)
+          .values(insertValues)
+          .onConflictDoUpdate({
+            target: [agentTranscriptTurnsTable.agentSessionId, agentTranscriptTurnsTable.turnIndex],
+            // ADR-019's embedding-preservation invariant, made CONDITIONAL on the
+            // text being unchanged (mt#3883).
+            //
+            // Preserving unconditionally was correct only while turn boundaries
+            // were stable. Once a boundary moves — which is exactly what the
+            // mt#3883 fusion fix does, for 23.3% of conversations — turn N's TEXT
+            // is overwritten by a different turn's content while turn N's VECTOR
+            // is kept. The row then has an embedding describing text it no longer
+            // holds, and semantic search returns it for the wrong query. Nothing
+            // downstream can notice: the row is present, well-formed, and
+            // non-null, so it fails as a confident wrong answer rather than an
+            // error.
+            //
+            // The invariant that was actually meant is "do not clobber a vector
+            // that still describes this row." Comparing the two columns
+            // `buildEmbedText` reads (per-turn-embedding-pipeline.ts: user_text +
+            // assistant_text, NOT tool_calls) expresses that directly: identical
+            // text keeps the vector, changed text nulls it so the embedding
+            // backfill refills it on its next pass.
+            set: {
+              userText: sql`EXCLUDED.user_text`,
+              assistantText: sql`EXCLUDED.assistant_text`,
+              toolCalls: sql`EXCLUDED.tool_calls`,
+              startedAt: sql`EXCLUDED.started_at`,
+              endedAt: sql`EXCLUDED.ended_at`,
+              isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
+              embedding: sql`CASE WHEN ${agentTranscriptTurnsTable.userText} IS DISTINCT FROM EXCLUDED.user_text OR ${agentTranscriptTurnsTable.assistantText} IS DISTINCT FROM EXCLUDED.assistant_text THEN NULL ELSE ${agentTranscriptTurnsTable.embedding} END`,
+            },
+          });
+      });
       written += chunk.length;
     } catch (err) {
+      // mt#3911: a chunk that blew the server's `statement_timeout` is a
+      // SIZING failure, not a data failure — the same rows succeed when sent
+      // in smaller statements. Split and retry rather than abandoning them,
+      // because abandoning them also costs the session its orphan removal
+      // below (which is skipped whenever `erroredChunks > 0`).
+      //
+      // Deliberately narrow: ONLY a timeout is retried. Any other error is
+      // counted immediately and NOT split — a deterministic failure (the
+      // U+0000 class of mem#750 is the live example: unrepresentable in
+      // Postgres text, so it fails identically forever) would otherwise be
+      // bisected all the way down to the floor, turning one fast failure into
+      // a long series of slow ones.
+      if (isStatementTimeout(err) && range.size > MIN_TURN_CHUNK_SIZE) {
+        const head = Math.ceil(range.size / 2);
+        pending.unshift(
+          { start: range.start, size: head },
+          { start: range.start + head, size: range.size - head }
+        );
+        chunkSplits++;
+        logSink.warn(
+          `writeTurnsForTranscript: chunk of ${chunk.length} turns for ${agentSessionId} ` +
+            `exceeded the statement timeout — splitting into ${head} + ${range.size - head} ` +
+            `and retrying`,
+          { agentSessionId, chunkSize: chunk.length, startIndex: range.start }
+        );
+        continue;
+      }
       // mt#2457 R1 review: a failed chunk must be counted as an error, not
       // silently swallowed — otherwise a transcript whose writes all failed
       // (written stays 0) is classified downstream as "skipped" (nothing to
@@ -182,7 +425,63 @@ export async function writeTurnsForTranscript(
     }
   }
 
-  return { written, nonEmptyYieldedZero: false, erroredChunks };
+  // ── Orphan removal (mt#3514) ───────────────────────────────────────────
+  // `turnIndex` is assigned contiguously 0..N-1 over the whole transcript
+  // (turn-extractor.ts: `let turnIndex = 0` … `turnIndex++` per emitted turn),
+  // so after writing N turns, every row for this session at `turn_index >= N`
+  // is a row a PREVIOUS extraction emitted and this one did not — an orphan.
+  // The upsert above cannot reach it, and before this nothing else did either.
+  //
+  // Skipped when any chunk failed: the upsert half is already known-degraded,
+  // and compounding it with a delete would make the session's state harder to
+  // reason about, not easier. A later clean run removes the orphans.
+  let orphansDeleted = 0;
+  let orphanDeleteFailed = false;
+  // Single-sourced (mt#3911) so the bound in the QUERY and the bound in the
+  // log below cannot drift apart, and so the intended value is stated once:
+  // the count the EXTRACTOR produced — never `written`, which under-counts
+  // whenever a chunk failed and would make the delete remove rows this run
+  // simply did not manage to write.
+  const orphanBound = turns.length;
+  if (erroredChunks === 0) {
+    try {
+      const deleted = await db
+        .delete(agentTranscriptTurnsTable)
+        .where(
+          and(
+            eq(agentTranscriptTurnsTable.agentSessionId, agentSessionId as ConversationId),
+            gte(agentTranscriptTurnsTable.turnIndex, orphanBound)
+          )
+        )
+        .returning({ turnIndex: agentTranscriptTurnsTable.turnIndex });
+      orphansDeleted = deleted.length;
+      if (orphansDeleted > 0) {
+        logSink.warn(
+          `writeTurnsForTranscript: removed ${orphansDeleted} orphaned turn row(s) for ` +
+            `${agentSessionId} at turn_index >= ${orphanBound} — left by an earlier ` +
+            `extraction that emitted more turns than this one`,
+          { agentSessionId, orphansDeleted, currentTurnCount: orphanBound }
+        );
+      }
+    } catch (err) {
+      orphanDeleteFailed = true;
+      logSink.warn(
+        `writeTurnsForTranscript: failed to remove orphaned turn rows for ${agentSessionId} ` +
+          `at turn_index >= ${orphanBound}`,
+        { error: getLoggableErrorSummary(err) }
+      );
+    }
+  }
+
+  return {
+    extracted: turns.length,
+    written,
+    nonEmptyYieldedZero: false,
+    erroredChunks,
+    orphansDeleted,
+    orphanDeleteFailed,
+    chunkSplits,
+  };
 }
 
 /** Which aggregate bucket a single transcript's write outcome falls into. */
@@ -193,8 +492,34 @@ export interface WriteOutcomeClassification {
   bucket: WriteOutcomeBucket;
   /** Turns to add to the running `turnsWritten` aggregate for this transcript. */
   turnsWritten: number;
+  /**
+   * Turns to add to the running `turnsExtracted` aggregate (mt#3911). Carried
+   * in EVERY bucket, including `errored` — a transcript that extracted 604 and
+   * wrote 104 must report both numbers, since their divergence IS the defect
+   * signal.
+   */
+  turnsExtracted: number;
+  /** Chunk splits to add to the running aggregate (mt#3911). */
+  chunkSplits: number;
+  /**
+   * Whether THIS transcript's orphan DELETE failed (mt#3911).
+   *
+   * Carried through the classification for the same reason `orphansDeleted`
+   * is: the aggregate — and therefore the operator-facing line — has no other
+   * way to see it. Without this the field existed on `WriteTurnsResult`,
+   * was honored by the bucketing, and still could not be rendered, which is
+   * the precise defect this task exists to fix, one level down.
+   */
+  orphanDeleteFailed: boolean;
   /** Whether this outcome should also increment the aggregate's `nonEmptyYieldedZero`. */
   countNonEmptyYieldedZero: boolean;
+  /**
+   * Orphaned rows removed for this transcript (mt#3514) — carried through the
+   * classification so the sweep's aggregate reports it in EVERY bucket. An
+   * errored transcript can still have deleted orphans before the failure, and
+   * dropping that count on the error path would understate the sweep's effect.
+   */
+  orphansDeleted: number;
 }
 
 /**
@@ -206,21 +531,49 @@ export interface WriteOutcomeClassification {
  * landed. No I/O, no logger: testable entirely by return value.
  */
 export function classifyWriteOutcome({
+  extracted,
   written,
   nonEmptyYieldedZero,
   erroredChunks,
+  orphansDeleted,
+  orphanDeleteFailed,
+  chunkSplits,
 }: WriteTurnsResult): WriteOutcomeClassification {
-  if (erroredChunks > 0) {
+  // mt#3514: a failed orphan DELETE is an error even when every chunk upserted
+  // cleanly. The session is left holding stale rows the upsert cannot reach —
+  // the exact state this mechanism exists to remove — so classifying it
+  // "processed" would re-hide the defect behind a success count.
+  if (erroredChunks > 0 || orphanDeleteFailed) {
     return {
       bucket: "errored",
       turnsWritten: written > 0 ? written : 0,
+      turnsExtracted: extracted,
+      chunkSplits,
+      orphanDeleteFailed,
       countNonEmptyYieldedZero: false,
+      orphansDeleted,
     };
   }
   if (written === 0) {
-    return { bucket: "skipped", turnsWritten: 0, countNonEmptyYieldedZero: nonEmptyYieldedZero };
+    return {
+      bucket: "skipped",
+      turnsWritten: 0,
+      turnsExtracted: extracted,
+      chunkSplits,
+      orphanDeleteFailed,
+      countNonEmptyYieldedZero: nonEmptyYieldedZero,
+      orphansDeleted,
+    };
   }
-  return { bucket: "processed", turnsWritten: written, countNonEmptyYieldedZero: false };
+  return {
+    bucket: "processed",
+    turnsWritten: written,
+    turnsExtracted: extracted,
+    chunkSplits,
+    orphanDeleteFailed,
+    countNonEmptyYieldedZero: false,
+    orphansDeleted,
+  };
 }
 
 /** Aggregate result of an extraction reconciliation sweep. */
@@ -238,6 +591,21 @@ export interface ExtractAllTurnsResult {
   transcriptsErrored: number;
   turnsWritten: number;
   /**
+   * Turns the extractor PRODUCED across the sweep (mt#3911). Equal to
+   * `turnsWritten` in steady state; a shortfall is the partial-write signal
+   * that was previously invisible because only `turnsWritten` was reported —
+   * and reported under the label `extracted=`.
+   */
+  turnsExtracted: number;
+  /** Chunks split and retried after a statement timeout (mt#3911). */
+  chunkSplits: number;
+  /**
+   * Transcripts whose orphan DELETE itself failed (mt#3911). Always rendered,
+   * even at zero, so "the delete ran and found nothing" and "the delete ran
+   * and threw" are distinguishable from the output line alone.
+   */
+  orphanDeletesFailed: number;
+  /**
    * mt#2457 SC3: count of non-empty transcripts that yielded zero turns with
    * NO chunk errors — an extraction/extractor-shape-mismatch signal, distinct
    * from both a genuinely-empty-session skip and a write-error (which counts
@@ -246,6 +614,12 @@ export interface ExtractAllTurnsResult {
    * it should not happen in steady state.
    */
   nonEmptyYieldedZero: number;
+  /**
+   * Total orphaned turn rows removed across the sweep (mt#3514). In steady
+   * state this is 0; a non-zero value on a corpus-wide run is the backlog of
+   * stale rows accumulated while nothing deleted them.
+   */
+  orphansDeleted: number;
   /**
    * True when the sweep stopped early because a batch fetch (`fetchPage`)
    * failed, rather than reaching a clean end-of-corpus completion (an empty
@@ -256,6 +630,67 @@ export interface ExtractAllTurnsResult {
    * "finished cleanly" from "gave up partway through."
    */
   aborted: boolean;
+}
+
+/**
+ * Counters shown even when zero, because their ABSENCE is information: a run
+ * that extracted nothing and a run that wrote nothing must not render as an
+ * empty string. Everything else is shown only when non-zero.
+ */
+const ALWAYS_SHOWN_COUNTERS: ReadonlySet<string> = new Set([
+  "turnsExtracted",
+  "turnsWritten",
+  // `orphansDeleted` is always shown even at zero because a NO-OP delete is
+  // the exact shape of the mt#3911 incident: the operator needs to be able to
+  // tell "the delete ran and found nothing" from "the delete never ran" from
+  // the output line alone, without a database query.
+  "orphansDeleted",
+  // Same reasoning, and the other half of the spec criterion: a delete that
+  // THREW must be readable from the line, not inferable only from the
+  // DEGRADED marker (which several unrelated conditions also set).
+  "orphanDeletesFailed",
+]);
+
+/**
+ * True when the sweep's own numbers say it did not fully succeed (mt#3911).
+ *
+ * Note the third clause: `turnsWritten < turnsExtracted` is degraded even when
+ * no transcript landed in the errored bucket, because that is precisely the
+ * shape of a partial write.
+ */
+export function isDegradedExtraction(result: ExtractAllTurnsResult): boolean {
+  return (
+    result.transcriptsErrored > 0 ||
+    result.orphanDeletesFailed > 0 ||
+    result.aborted ||
+    result.nonEmptyYieldedZero > 0 ||
+    result.turnsWritten < result.turnsExtracted
+  );
+}
+
+/**
+ * Render an extraction result from its own SHAPE rather than from a
+ * hand-maintained field list (mt#3911).
+ *
+ * The defect this exists to prevent: `index-embeddings` built its output line
+ * by naming two fields inline, so `orphansDeleted` and `orphanDeleteFailed`
+ * — added by mt#3514, plumbed through three modules, typechecked, and
+ * unit-tested — were invisible at every operator surface. Every subsequent
+ * field would have inherited that default. Here a new counter on
+ * `ExtractAllTurnsResult` is surfaced automatically and an author has to opt
+ * OUT by excluding it, rather than opt in by remembering this call site.
+ */
+export function formatExtractAllTurnsResult(result: ExtractAllTurnsResult): string {
+  const parts: string[] = [];
+  for (const [key, value] of Object.entries(result)) {
+    if (typeof value === "number") {
+      if (value !== 0 || ALWAYS_SHOWN_COUNTERS.has(key)) parts.push(`${key}=${value}`);
+    } else if (typeof value === "boolean") {
+      if (value) parts.push(`${key}=true`);
+    }
+  }
+  const body = parts.join(", ");
+  return isDegradedExtraction(result) ? `DEGRADED(${body})` : body;
 }
 
 /** One page of `(agentSessionId, transcript)` rows for the reconciliation sweep. */
@@ -341,7 +776,8 @@ export interface ExtractAllTurnsOptions {
  * Extraction reconciliation: ensure every `agent_transcripts` row has its turns
  * materialized into `agent_transcript_turns`. This is the catch-up for sessions
  * that were ingested before extraction-on-capture existed (or whose turn rows
- * were otherwise lost). Idempotent (text-only upsert, embedding-preserving).
+ * were otherwise lost). Idempotent: the upsert never computes an embedding, and
+ * preserves an existing one whenever the row's text is unchanged (mt#3883).
  *
  * Batched/bounded/resumable (mt#2457): rows are fetched in keyset-paginated
  * pages instead of one unbounded full-corpus `SELECT *`, so the sweep's memory
@@ -367,7 +803,11 @@ export async function extractTurnsForAllTranscripts(
     transcriptsSkipped: 0,
     transcriptsErrored: 0,
     turnsWritten: 0,
+    turnsExtracted: 0,
+    chunkSplits: 0,
+    orphanDeletesFailed: 0,
     nonEmptyYieldedZero: 0,
+    orphansDeleted: 0,
     aborted: false,
   };
 
@@ -410,6 +850,15 @@ export async function extractTurnsForAllTranscripts(
         // "processed", it's a degraded result that needs investigating, same
         // as a total write failure.
         const classification = classifyWriteOutcome(outcome);
+        // mt#3514: accumulate before the bucket switch — orphan removal is
+        // orthogonal to which bucket the transcript lands in. Same for
+        // mt#3911's counters: a transcript's extracted count and its chunk
+        // splits are meaningful in EVERY bucket, and the errored bucket is
+        // exactly where the extracted-vs-written gap needs to show up.
+        result.orphansDeleted += classification.orphansDeleted;
+        result.turnsExtracted += classification.turnsExtracted;
+        result.chunkSplits += classification.chunkSplits;
+        if (classification.orphanDeleteFailed) result.orphanDeletesFailed++;
         switch (classification.bucket) {
           case "errored":
             result.transcriptsErrored++;

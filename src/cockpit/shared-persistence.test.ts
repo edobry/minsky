@@ -27,6 +27,7 @@ import {
   getPersistenceEpoch,
   recycleSharedPersistence,
   getDbRecycle,
+  getDbHealth,
   shouldRecycleNow,
   __setRecycleThresholdsForTests,
   RECYCLE_AFTER_DEGRADED_MS,
@@ -35,6 +36,14 @@ import {
 } from "./shared-persistence";
 
 const ENV_KEY = "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS";
+
+/**
+ * postgres-js's code for an established connection that went away — the pool
+ * wedge shape. Shared between the mt#3563 degraded-path tests (which use it as
+ * an error MESSAGE) and the mt#3826 backoff tests (which use it as an error
+ * CODE), so the two cannot drift apart.
+ */
+const CONNECTION_CLOSED = "CONNECTION_CLOSED";
 
 /** Minimal stub satisfying the parts of PersistenceService this path touches. */
 function makeService(initialize: () => Promise<void>): PersistenceService {
@@ -510,7 +519,7 @@ describe("refreshDbReachability review fixes (PR #2558 R1)", () => {
     // Reach degraded with the floor disabled, so this step is unambiguous.
     await refreshDbReachability(
       async () => {
-        throw new Error("CONNECTION_CLOSED");
+        throw new Error(CONNECTION_CLOSED);
       },
       1000,
       0
@@ -732,6 +741,269 @@ describe("recycle rate limit (mt#3638 AT4)", () => {
 
     expect(getDbRecycle().recycleCount).toBe(1);
   });
+});
+
+describe("failure classification on the health payload (mt#3826)", () => {
+  /** An error shaped like postgres-js's `Errors.connection` output. */
+  function driverError(code: string): Error {
+    return Object.assign(new Error(`write ${code} db.example.com:6543`), {
+      code,
+      errno: code,
+      address: "db.example.com",
+      port: 6543,
+    });
+  }
+
+  const okFactory: PersistenceServiceFactory = async () =>
+    ({ initialize: async () => {}, close: async () => {} }) as unknown as PersistenceService;
+
+  test("a blocked port surfaces as connect-timeout, not a bare degraded (AT1, AT4)", async () => {
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+
+    expect(getDbStatus()).toBe("degraded");
+    const health = getDbHealth();
+    // AT4: a consumer branches on a value, with no error-message parsing.
+    expect(health.failure?.kind).toBe("connect-timeout");
+    expect(health.failure?.code).toBe("CONNECT_TIMEOUT");
+    expect(health.mode).toBe("unavailable");
+    expect(health.reason).toContain("port");
+  });
+
+  test("refused is distinguished from connect-timeout on the payload (AT2)", async () => {
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("ECONNREFUSED")), 50);
+    expect(getDbHealth().failure?.kind).toBe("refused");
+
+    __resetSharedPersistenceForTests();
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+  });
+
+  test("does not forward the driver's raw message onto the payload (PR #2732 R1)", async () => {
+    // The driver's message embeds `host:port`, and a server-side PostgresError
+    // message is arbitrary server-controlled text. /api/health is polled by the
+    // tray and three webview query keys, so it must not carry text this process
+    // did not author. `kind` + `code` are what a consumer branches on.
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+
+    const failure = getDbHealth().failure;
+    expect(failure).toEqual({ kind: "connect-timeout", code: "CONNECT_TIMEOUT" });
+    expect(Object.keys(failure ?? {})).not.toContain("message");
+    expect(JSON.stringify(getDbHealth())).not.toContain("db.example.com");
+  });
+
+  test("stamps lastAttemptAt so a stuck process is distinguishable from an outage", async () => {
+    // ADR-035 rule 4. Absent means "nothing tried since boot", which is the
+    // distinction an operator cannot otherwise make.
+    expect(getDbHealth().lastAttemptAt).toBeUndefined();
+    await getSharedPersistenceService(1_000, okFactory);
+    expect(getDbHealth().lastAttemptAt).toBeDefined();
+  });
+
+  test("a code-less error does not overwrite a real classification", async () => {
+    // Load-bearing, not defensive: the 5s probe deadline fires BEFORE
+    // postgres-js's 10s connect_timeout, so a code-less deadline Error routinely
+    // arrives after the driver's real code. Clobbering would discard the one
+    // signal this task exists to capture.
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+
+    await refreshDbReachability(() => Promise.reject(new Error("no code")), 50);
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+  });
+
+  test("recovery clears the classification and returns mode to connected (AT3)", async () => {
+    await getSharedPersistenceService(1_000, okFactory);
+    await refreshDbReachability(() => Promise.reject(driverError("CONNECT_TIMEOUT")), 50);
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+
+    await refreshDbReachability(() => Promise.resolve("ok"), 50);
+    expect(getDbStatus()).toBe("ok");
+    const health = getDbHealth();
+    expect(health.mode).toBe("connected");
+    expect(health.failure).toBeUndefined();
+  });
+});
+
+describe("recycle backoff by failure kind (mt#3826 AT1/AT3)", () => {
+  function driverError(code: string): Error {
+    return Object.assign(new Error(`write ${code} db.example.com:6543`), { code, errno: code });
+  }
+
+  /** An init that never settles — the shape a blocked port presents. */
+  const hangingFactory: PersistenceServiceFactory = async () =>
+    ({
+      initialize: () => new Promise<void>(() => {}),
+      close: async () => {},
+    }) as unknown as PersistenceService;
+
+  /**
+   * Drive `rounds` degraded observations of one failure kind and report how
+   * many recycles the trigger allowed.
+   *
+   * Two structural choices, both load-bearing. **The init never settles**: a
+   * SUCCEEDING re-init would count as recovery, resetting both the degraded run
+   * and the futile-recycle counter, so the backoff could never accumulate — and
+   * it would also misrepresent the scenario, since a blocked port does not
+   * produce a working pool between recycles. **Each round re-primes**: a
+   * recycle clears `_initPromise`, and `shouldRecycleNow` correctly refuses to
+   * fire when there is nothing to tear down.
+   *
+   * The absolute cadence arithmetic is pinned by the pure `nextRecycleIntervalMs`
+   * tests in `packages/domain/src/persistence/connection-failure.test.ts`, which
+   * need no clock at all. What this checks is the WIRING — that the
+   * classification actually reaches the trigger — so both kinds run identical
+   * sleeps and the assertion is a CONTRAST between them. A timing wobble moves
+   * both arms together and cannot manufacture a false difference, which is the
+   * flakiness shape mem#883 warns about with elapsed-time assertions.
+   */
+  async function recyclesAfterRounds(code: string, rounds: number): Promise<number> {
+    __resetSharedPersistenceForTests();
+    // Degraded-duration threshold 10ms; base recycle floor 100ms.
+    __setRecycleThresholdsForTests(10, 100);
+    const fail = () => Promise.reject(driverError(code));
+    for (let i = 0; i < rounds; i++) {
+      void getSharedPersistenceService(60_000, hangingFactory).catch(() => {});
+      await refreshDbReachability(fail, 20);
+      await new Promise((r) => setTimeout(r, 150));
+      await refreshDbReachability(fail, 20);
+    }
+    return getDbRecycle().recycleCount;
+  }
+
+  test("a connect-timeout streak backs off; a pool wedge keeps recycling", async () => {
+    // The wedge kind is the negative control against over-correction (criterion
+    // 4): `connection-lost` is exactly what `recycleSharedPersistence` was built
+    // to fix (mt#3638), so backing IT off would make a recoverable outage last
+    // longer. Same rounds, same sleeps, different kind.
+    const ROUNDS = 10;
+    const wedgeRecycles = await recyclesAfterRounds(CONNECTION_CLOSED, ROUNDS);
+    const blockedRecycles = await recyclesAfterRounds("CONNECT_TIMEOUT", ROUNDS);
+
+    expect(wedgeRecycles).toBe(ROUNDS);
+    expect(blockedRecycles).toBeLessThan(wedgeRecycles);
+  }, 30_000);
+});
+
+/**
+ * Unaided recovery, at the state a real outage leaves the process in (mt#3682).
+ *
+ * On 2026-08-07 this host lost its route to the pooler for ~9 hours and PID
+ * 34289 came back on its own — same process, no restart, 36.8h uptime at
+ * recovery. That was observed once, in the wild, and nothing pinned it. The
+ * gap these tests close is narrower than "does it recover": the existing
+ * recovery tests above all drive recovery from a NON-escalated degraded state,
+ * whereas a multi-hour outage escalates mt#3826's recycle backoff toward its
+ * 15-minute ceiling first. The question is whether that backoff, which
+ * deliberately stops recycling a port that will never open, also delays
+ * noticing that the port opened.
+ *
+ * It does not, and the reason is structural: recovery runs through the PROBE,
+ * which is unthrottled while degraded (`refreshDbReachability`'s healthy-state
+ * floor is skipped unless `_dbStatus === "ok"`), while the backoff throttles
+ * only the RECYCLE. So these are two independent clocks, and pinning that is
+ * what deletes the "escalate to a supervised process restart" design this task
+ * was originally filed to add.
+ */
+describe("unaided recovery under an escalated backoff (mt#3682)", () => {
+  function driverError(code: string): Error {
+    return Object.assign(new Error(`write ${code} db.example.com:6543`), { code, errno: code });
+  }
+
+  /** An init that never settles — the shape a blocked port presents. */
+  const hangingFactory: PersistenceServiceFactory = async () =>
+    ({
+      initialize: () => new Promise<void>(() => {}),
+      close: async () => {},
+    }) as unknown as PersistenceService;
+
+  const failing = () => Promise.reject(driverError("CONNECT_TIMEOUT"));
+  const succeeding = () => Promise.resolve("ok");
+
+  /**
+   * One degraded round: re-prime the service (a recycle clears `_initPromise`,
+   * and `shouldRecycleNow` correctly refuses to fire with nothing to tear
+   * down), then two failing probes either side of a sleep longer than the base
+   * recycle floor.
+   *
+   * The explicit `minIntervalMs: 0` disables the HEALTHY-state probe floor, and
+   * it is required rather than incidental: a round that runs immediately after
+   * a successful probe finds `_dbStatus === "ok"`, and at the default floor
+   * both of its probes are skipped without ever reaching the driver — so the
+   * round would observe nothing and AT3 would measure the floor instead of the
+   * recycle cadence it is about. The floor's own behavior is covered by
+   * "skips a probe inside the healthy-state floor" above.
+   */
+  async function degradedRound(): Promise<void> {
+    void getSharedPersistenceService(60_000, hangingFactory).catch(() => {});
+    await refreshDbReachability(failing, 20, 0);
+    await new Promise((r) => setTimeout(r, 150));
+    await refreshDbReachability(failing, 20, 0);
+  }
+
+  const ROUNDS = 10;
+
+  /**
+   * Drive the connect-timeout arm until the backoff has escalated past its base
+   * floor. Returns the recycle count reached, which is asserted to be BELOW the
+   * round count — that inequality is the evidence the backoff actually engaged,
+   * so a later assertion about recovery is being made from the intended state
+   * rather than from an un-escalated one.
+   */
+  async function escalateBackoff(): Promise<number> {
+    // Degraded-duration threshold 10ms; base recycle floor 100ms.
+    __setRecycleThresholdsForTests(10, 100);
+    for (let i = 0; i < ROUNDS; i++) await degradedRound();
+    const recycles = getDbRecycle().recycleCount;
+    expect(recycles).toBeLessThan(ROUNDS);
+    return recycles;
+  }
+
+  test("a successful probe recovers without a recycle and without a restart (AT1)", async () => {
+    const recyclesAtEscalation = await escalateBackoff();
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+
+    await refreshDbReachability(succeeding, 50);
+
+    expect(getDbStatus()).toBe("ok");
+    const health = getDbHealth();
+    expect(health.mode).toBe("connected");
+    expect(health.failure).toBeUndefined();
+    // The load-bearing assertion: no recycle was needed to get here. If
+    // recovery required one, an escalated backoff would gate it behind an
+    // interval heading for 15 minutes.
+    expect(getDbRecycle().recycleCount).toBe(recyclesAtEscalation);
+  }, 30_000);
+
+  test("negative control: the same escalated state, still failing, does not report ok (AT2)", async () => {
+    // Without this, AT1 could pass by asserting a state the code reaches
+    // unconditionally rather than one the recovering probe produced.
+    await escalateBackoff();
+
+    await refreshDbReachability(failing, 20);
+
+    expect(getDbStatus()).not.toBe("ok");
+    expect(getDbHealth().mode).not.toBe("connected");
+    expect(getDbHealth().failure?.kind).toBe("connect-timeout");
+  }, 30_000);
+
+  test("recovery returns the recycle cadence to its floor (AT3)", async () => {
+    await escalateBackoff();
+    await refreshDbReachability(succeeding, 50);
+    const recyclesAtRecovery = getDbRecycle().recycleCount;
+
+    // At the floor, one round recycles once — the same cadence the pool-wedge
+    // arm of the mt#3826 test sustains for all 10 of its rounds. Asserted as a
+    // count rather than an elapsed interval, so a timing wobble cannot
+    // manufacture a result (mem#883).
+    await degradedRound();
+
+    expect(getDbRecycle().recycleCount).toBe(recyclesAtRecovery + 1);
+  }, 30_000);
 });
 
 describe("test-only surface guards (PR #2586 R1)", () => {

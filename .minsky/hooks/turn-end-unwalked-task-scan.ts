@@ -62,8 +62,83 @@ import { extractFinalTurn, findCreatedResourceIds, findToolUseInputs } from "./t
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNWALKED_TASK";
 
-/** The id-minting call this guard watches. */
+/** The id-minting call this guard watches on the MCP transport. */
 export const MINTING_TOOL = "mcp__minsky__tasks_create";
+
+/**
+ * The tool a CLI-transport call arrives as. `tasks create` reached through
+ * `bun src/cli.ts` / `minsky` is a `Bash` tool_use, not an `mcp__minsky__*`
+ * one — so keying on {@link MINTING_TOOL} alone made this guard blind to it
+ * (mt#3730).
+ *
+ * That is not an exotic path: it is the fallback an agent takes WHEN THE MCP
+ * DAEMON IS DOWN, which means the coverage hole was anti-correlated with the
+ * risk — the detector went dark in exactly the condition that forces the
+ * fallback. R5 of `family:stop-at-handoff` ran it (2026-08-04, one day after
+ * mt#3536 shipped as the family's R4 fix).
+ *
+ * Generalizing the R4 lesson one step: mem#610 concluded "when the wrapped
+ * tool is directly callable, the enforcement belongs on the TOOL boundary."
+ * mt#3536 implemented that boundary as one transport's NAME for the
+ * capability. Enforcement has to key on the capability across every transport
+ * that reaches it.
+ */
+const CLI_TOOL = "Bash";
+
+/**
+ * A CLI command that MINTS a task. Anchored on the subcommand pair, so a
+ * command that merely names a task id (`tasks get mt#1`, a `git commit -m`
+ * carrying one) is not a mint — the same discrimination the MCP path gets for
+ * free from the tool name.
+ */
+const CLI_MINT_RE = /\btasks\s+create\b/;
+
+/**
+ * The task id in a CLI mint's plain-text result.
+ *
+ * BOTH output shapes occur in real turns and both were observed in mt#3730's
+ * own originating conversation: with `--json` the result is
+ * `{"success": true, "taskId": "mt#3728", …}`, which the shared
+ * `findCreatedResourceIds` correlation already parses; without it the CLI
+ * prints `✅ Task mt#3730 created successfully`. Reading only the JSON shape
+ * would reproduce this guard's original defect one layer down — covering one
+ * of two paths through the same capability.
+ */
+const CLI_CREATED_ID_RE = /\bTask\s+([a-z]{2,}#\d+)\s+created\b/i;
+
+/**
+ * Qualified task-id shape, for reading ids out of CLI command lines.
+ *
+ * The backend prefix is matched generically rather than pinned to `mt#`: this
+ * id-space is multi-backend (`validateQualifiedTaskId` accepts `md#283` and
+ * `gh#123` alongside `mt#`), and the MCP path already covers all of them for
+ * free because it reads ids from a PARAM rather than from text. Pinning the
+ * CLI path to one prefix would leave the two transports covering different
+ * id-spaces — a narrower version of the very defect mt#3730 exists to fix.
+ *
+ * Only the qualified form is matched because only the qualified form is
+ * accepted: a bare `3730` is rejected at the CLI boundary ("Please provide a
+ * qualified task ID"), and an uppercase `MT#3730` is normalized to the
+ * nonexistent `mt#MT#3730` and errors. Neither can be a successful walk, so
+ * neither needs matching.
+ */
+const TASK_ID_RE = /\b[a-z]{2,}#\d+/g;
+
+/**
+ * CLI spellings of {@link WALK_FORWARD_TOOLS}.
+ *
+ * Shipping the mint half without this half would be worse than shipping
+ * neither: the guard would start seeing CLI-minted tasks while still unable to
+ * see that they were CLI-WALKED, and fire on tasks the agent had already
+ * driven forward. A guard that cries wolf at a correct turn is how an advisory
+ * gets ignored.
+ */
+const CLI_WALK_RES: readonly RegExp[] = [
+  /\btasks\s+status\s+set\b/,
+  /\bsession\s+start\b/,
+  /\btasks\s+dispatch\b/,
+  /\basks\s+create\b/,
+];
 
 /**
  * Calls that move a just-filed task forward. Any ONE of these, naming the
@@ -117,7 +192,13 @@ function dedupKeyFor(taskId: string): string {
   return flagKey(taskId, "unwalked-task", "");
 }
 
-/** Read every task id this turn's walk-forward calls referenced. */
+/** The `command` string of a `Bash` tool_use input, or "" when absent. */
+function bashCommandOf(input: Record<string, unknown>): string {
+  const command = input["command"];
+  return typeof command === "string" ? command : "";
+}
+
+/** Read every task id this turn's walk-forward calls referenced, on EITHER transport. */
 function collectWalkedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): Set<string> {
   const walked = new Set<string>();
   for (const tool of WALK_FORWARD_TOOLS) {
@@ -128,7 +209,45 @@ function collectWalkedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): S
       }
     }
   }
+  // CLI transport: the id is an ARGUMENT on the command line rather than a
+  // named param, so it is read from the command text — but only once the
+  // command has been confirmed to be a walk-forward subcommand. Reading ids
+  // out of any Bash command would count `git commit -m "fix mt#1"` as a walk.
+  for (const input of findToolUseInputs(turnLines, CLI_TOOL)) {
+    const command = bashCommandOf(input);
+    if (!CLI_WALK_RES.some((re) => re.test(command))) continue;
+    for (const id of command.match(TASK_ID_RE) ?? []) walked.add(id);
+  }
   return walked;
+}
+
+/**
+ * Task ids minted through the CLI transport this turn.
+ *
+ * Reuses `findCreatedResourceIds` for the tool_use↔tool_result correlation and
+ * the `--json` payload parse, then adds the plain-text fallback the CLI emits
+ * without `--json`. A command that is not a mint is filtered out BEFORE either
+ * id read, so the result text of an unrelated Bash call can never contribute.
+ */
+function detectCliMintedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): string[] {
+  const minted: string[] = [];
+  for (const c of findCreatedResourceIds(turnLines, CLI_TOOL, "taskId")) {
+    if (!CLI_MINT_RE.test(bashCommandOf(c.input))) continue;
+
+    // `--json`: same success contract as the MCP path — a mint that reported
+    // failure minted nothing, so there is nothing to walk.
+    if (c.createdId !== undefined) {
+      if (c.result?.["success"] === true) minted.push(c.createdId);
+      continue;
+    }
+
+    // Bare output: there is no JSON to check `success` against, so the success
+    // LINE is the contract. `CLI_CREATED_ID_RE` matches only the
+    // created-successfully sentence, which a failed run never prints.
+    const match = CLI_CREATED_ID_RE.exec(c.resultText ?? "");
+    if (match?.[1]) minted.push(match[1]);
+  }
+  return minted;
 }
 
 /**
@@ -143,15 +262,18 @@ function collectWalkedIds(turnLines: Parameters<typeof findToolUseInputs>[0]): S
 export function detectUnwalkedTasks(
   turnLines: Parameters<typeof findToolUseInputs>[0]
 ): UnwalkedTask[] {
-  const created = findCreatedResourceIds(turnLines, MINTING_TOOL, "taskId").filter(
-    (c) => c.createdId !== undefined && c.result?.["success"] === true
-  );
+  const mcpMinted = findCreatedResourceIds(turnLines, MINTING_TOOL, "taskId")
+    .filter((c) => c.createdId !== undefined && c.result?.["success"] === true)
+    .map((c) => c.createdId as string);
+
+  // Order is MCP-then-CLI and duplicates collapse, so a turn that somehow
+  // minted the same id on both transports reports it once.
+  const created = [...new Set([...mcpMinted, ...detectCliMintedIds(turnLines)])];
   if (created.length === 0) return [];
 
   const walked = collectWalkedIds(turnLines);
   const unwalked: UnwalkedTask[] = [];
-  for (const c of created) {
-    const taskId = c.createdId as string;
+  for (const taskId of created) {
     if (!walked.has(taskId)) unwalked.push({ taskId });
   }
   return unwalked;

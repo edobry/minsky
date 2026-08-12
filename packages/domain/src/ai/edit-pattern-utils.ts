@@ -54,6 +54,15 @@ function countLines(content: string): number {
  * apply-model edit surface should import this rather than re-derive a second,
  * divergent heuristic.
  */
+/**
+ * Render a line count with the right plural (PR #2650 R1). Lives beside the predicate so all
+ * three collapse-refusal surfaces read alike — the reviewer caught "1 lines" on one of them,
+ * and the other two build the same string from the same numbers.
+ */
+export function formatLineCount(n: number): string {
+  return `${n} ${n === 1 ? "line" : "lines"}`;
+}
+
 export function detectSuspiciousCollapse(
   originalContent: string,
   finalContent: string

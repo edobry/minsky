@@ -6,6 +6,7 @@
  */
 import type { CredentialProvider } from "../types";
 import { supabaseProvider } from "./supabase";
+import { supabaseServiceRoleProvider } from "./supabase-service-role";
 import { githubProvider } from "./github";
 import { anthropicProvider } from "./anthropic";
 import { railwayProvider } from "./railway";
@@ -14,6 +15,7 @@ import { telegramProvider } from "./telegram";
 
 const REGISTRY: ReadonlyMap<string, CredentialProvider> = new Map([
   [supabaseProvider.id, supabaseProvider],
+  [supabaseServiceRoleProvider.id, supabaseServiceRoleProvider],
   [githubProvider.id, githubProvider],
   [anthropicProvider.id, anthropicProvider],
   [railwayProvider.id, railwayProvider],

@@ -82,6 +82,42 @@ export interface EntityThreadResponse {
    * as `live`: a daemon that does not report it must not be read as "not seeded".
    */
   originSeeded?: boolean;
+  /**
+   * Replies the agent produced that the daemon could not write (mt#4036).
+   *
+   * Optional and OMITTED when there is nothing to report — same discipline as
+   * `live` and `originSeeded`. Present means the daemon positively knows about
+   * unpersisted replies; absent means it has nothing to say, which for a daemon
+   * predating this field is the honest answer rather than a reassuring zero.
+   */
+  pendingReplies?: PendingRepliesInfo;
+  /**
+   * Why the agent is not running, when the daemon can tell (mt#4037).
+   *
+   * Optional and UNKNOWN when absent — same discipline as `live`. Only a
+   * definite answer produces a line; the panel falls back to the weaker
+   * stranded notice rather than guessing at a cause.
+   */
+  agentStopReason?: AgentStopReason;
+}
+
+/**
+ * `cockpit-restart` — the daemon went down while this actuator was live, so the
+ * agent was killed by the cockpit rather than stopping on its own. Resumable.
+ * `unrecoverable` — there is no transcript to resume, or its workspace is gone.
+ */
+export type AgentStopReason = "cockpit-restart" | "unrecoverable";
+
+/**
+ * The daemon's account of replies that did not reach the store (mt#4036).
+ *
+ * `pending` and `lost` are separate because they are different statements to
+ * the operator: one says wait, the other says this is not coming back.
+ */
+export interface PendingRepliesInfo {
+  pending: number;
+  lost: number;
+  oldestFailedAt: string | null;
 }
 
 export interface EntityThreadSendResponse {
@@ -229,6 +265,64 @@ export function derivePollInterval(sendPending: boolean): number | false {
  * "why was this filed?" deserves to know whether the answer came from the
  * originating conversation or from the entity text alone.
  */
+/**
+ * What to tell the operator about replies that never reached the store
+ * (mt#4036), or `null` to say nothing.
+ *
+ * This is the whole point of the task. On 2026-08-11 an agent produced four
+ * replies during a database outage, every one was dropped, and the panel
+ * rendered exactly what it renders for an agent that never answered: nothing.
+ * The operator asked "Well?" into that silence and the reply to THAT was
+ * dropped too. A dropped write must never be indistinguishable from an absent
+ * reply, and this line is what distinguishes them.
+ *
+ * `lost` leads when present: an operator who cannot get a reply back needs to
+ * know that before they are told to keep waiting for one.
+ */
+export function derivePendingRepliesNotice(info: PendingRepliesInfo | undefined): string | null {
+  if (!info) return null;
+  const { pending, lost } = info;
+  if (lost > 0 && pending > 0) {
+    return `${lost} ${replyWord(lost)} could not be saved and ${lost === 1 ? "is" : "are"} lost; ${pending} more ${pending === 1 ? "is" : "are"} still being retried. Ask again to get the answer back.`;
+  }
+  if (lost > 0) {
+    return `The agent answered, but ${lost} ${replyWord(lost)} could not be saved and ${lost === 1 ? "is" : "are"} lost. Ask again to get the answer back.`;
+  }
+  if (pending > 0) {
+    return `The agent answered, but ${pending} ${replyWord(pending)} could not be saved yet — the cockpit is retrying.`;
+  }
+  return null;
+}
+
+function replyWord(n: number): string {
+  return n === 1 ? "reply" : "replies";
+}
+
+/**
+ * What to tell the operator about a stopped agent (mt#4037), or `null` to fall
+ * back to the weaker stranded notice.
+ *
+ * The stranded notice — "The agent stopped before answering" — is the only
+ * thing the panel could say before this, and on 2026-08-11 it was false: a
+ * cockpit restart killed the agent mid-task at 23:38 local, and the operator
+ * read a line blaming the agent, with no hint that sending anything would bring
+ * it back. They waited 12h34m.
+ *
+ * So the restart line has to do two things the stranded line does not: name the
+ * COCKPIT as what stopped it, and say that re-sending resumes. `null` when the
+ * daemon reports nothing — an unsupported cause is worse than a vague true
+ * statement.
+ */
+export function deriveAgentStoppedNotice(reason: AgentStopReason | undefined): string | null {
+  if (reason === "cockpit-restart") {
+    return "The cockpit restarted and stopped this agent mid-task — send anything to pick it back up.";
+  }
+  if (reason === "unrecoverable") {
+    return "This agent can't be resumed — its conversation is gone. Send a message to start a fresh one.";
+  }
+  return null;
+}
+
 export function deriveOriginNotice(originSeeded: boolean | undefined): string | null {
   if (originSeeded === true) return "Grounded in the conversation that filed this.";
   if (originSeeded === false) return "The originating conversation isn't reachable for this one.";
@@ -342,6 +436,8 @@ export function EntityThreadPanel({
   // resolve semantics should not pay to scan its blocks for proposals.
   const proposal = proposalSlot ? findLatestResolveProposal(blocks ?? []) : null;
   const originNotice = deriveOriginNotice(query.data?.originSeeded);
+  const pendingNotice = derivePendingRepliesNotice(query.data?.pendingReplies);
+  const stoppedNotice = deriveAgentStoppedNotice(query.data?.agentStopReason);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -359,7 +455,28 @@ export function EntityThreadPanel({
         </p>
       )}
 
-      {stranded ? (
+      {/* mt#4036: this takes precedence over the stranded notice below, and the
+          precedence is the fix, not a cosmetic ordering. "The agent stopped
+          before answering" is FALSE when a reply was produced and lost — it
+          blames the agent for a database failure and tells the operator to
+          re-ask without saying why. Both conditions hold at once whenever an
+          outage drops the reply to the operator's last question, which is
+          exactly the 2026-08-11 shape. */}
+      {pendingNotice ? (
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-pending-replies">
+          {pendingNotice}
+        </p>
+      ) : stoppedNotice ? (
+        /* mt#4037: a KNOWN cause outranks the stranded line, which is the
+           panel's weakest true statement — it names no cause and offers no way
+           back. When the daemon can say the cockpit killed the agent, saying
+           "the agent stopped before answering" instead is not merely vaguer, it
+           is false. The stranded line survives below as the fallback for a
+           daemon that reports no reason at all. */
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-agent-stopped">
+          {stoppedNotice}
+        </p>
+      ) : stranded ? (
         <p className="text-sm text-muted-foreground mt-2">
           The agent stopped before answering — send again to ask.
         </p>

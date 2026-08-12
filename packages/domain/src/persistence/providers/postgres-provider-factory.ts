@@ -9,6 +9,11 @@ import { profileCheckpoint } from "@minsky/shared/cold-start-profile";
 import { PersistenceConfig } from "../types";
 import { withPgPoolRetry } from "../postgres-retry";
 import {
+  classifyVectorProbe,
+  describeProbeRows,
+  VectorCapabilityProbeInconclusiveError,
+} from "../vector-capability-probe";
+import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
   buildPostgresClient,
@@ -23,13 +28,26 @@ export class PostgresProviderFactory {
    * Returns PostgresVectorPersistenceProvider if pgvector available, otherwise base PostgresPersistenceProvider
    */
   static async create(
-    config: PersistenceConfig
+    config: PersistenceConfig,
+    /**
+     * Injected client builder, per ADR-026's `deps`-parameter convention
+     * (mt#3833, PR #2766 R1).
+     *
+     * Production passes nothing and gets `buildPostgresClient`. The seam exists
+     * because the branch this factory is being fixed for — an unreadable probe
+     * result — cannot be produced against a healthy database on demand, so the
+     * only way to exercise it is to hand the factory a client that returns the
+     * shape. Injecting the builder is what ADR-036 prescribes over patching the
+     * module import.
+     */
+    deps: { buildClient?: typeof buildPostgresClient } = {}
   ): Promise<PostgresPersistenceProvider | PostgresVectorPersistenceProvider> {
     if (config.backend !== "postgres" || !config.postgres) {
       throw new Error("PostgresProviderFactory requires postgres configuration");
     }
 
     const pgConfig = config.postgres;
+    const buildClient = deps.buildClient ?? buildPostgresClient;
 
     // mt#2973: create the REAL production client (not a throwaway max:1 probe
     // connection) and run the capability probe on it, then hand the SAME
@@ -42,7 +60,7 @@ export class PostgresProviderFactory {
     // keeps using it. `onnotice` (inside buildPostgresClient) keeps stdout clean
     // (mt#1827/mt#1828).
     profileCheckpoint("pg_probe_start");
-    const probedSql = buildPostgresClient(pgConfig);
+    const probedSql = buildClient(pgConfig);
 
     try {
       // First (and now ONLY) remote handshake of the cold boot: postgres()
@@ -59,7 +77,18 @@ export class PostgresProviderFactory {
       `;
       profileCheckpoint("pg_probe_pgvector");
 
-      const hasVectorExtension = result[0]?.exists ?? false;
+      // mt#3833: three outcomes, not two. `result[0]?.exists ?? false` used to
+      // render "the probe did not answer" as "the extension is absent", and the
+      // resulting provider — successfully constructed, merely less capable — was
+      // memoized for the process lifetime with nothing to retry it, because
+      // nothing had failed. Propagating instead is ADR-035 rule 1's first
+      // remedy, and it reuses the container's existing retry rather than
+      // re-deriving one here.
+      const probeOutcome = classifyVectorProbe(result);
+      if (probeOutcome === "inconclusive") {
+        throw new VectorCapabilityProbeInconclusiveError(describeProbeRows(result));
+      }
+      const hasVectorExtension = probeOutcome === "present";
 
       // Hand the probed client to the provider for REUSE — do NOT end() it here.
       // The provider adopts it (its close() owns the lifecycle from now on).

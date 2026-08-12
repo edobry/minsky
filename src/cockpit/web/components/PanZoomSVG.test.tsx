@@ -913,4 +913,300 @@ describe("PanZoomSVG — timer-driven camera effects (fake clock, mt#3247 R1)", 
       expect(svg.getAttribute("viewBox") ?? "").toEqual(settledVB);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Camera bounding + Reset (mt#3792)
+  //
+  // Every case below was first run against the UN-fixed component and observed
+  // failing — see the PR body's negative control. The measured pre-fix values
+  // are quoted per-test so a future reader can tell what each assertion is
+  // actually holding down.
+  // -------------------------------------------------------------------------
+
+  describe("PanZoomSVG — camera bounding and Reset (mt#3792)", () => {
+    const BOARD_W = 1280;
+    const BOARD_H = 820;
+    const NEAR_BOUNDS = { minX: 500, minY: 500, maxX: 600, maxY: 600 };
+
+    function renderCamera(opts: {
+      ambient?: boolean;
+      bounds?: { minX: number; minY: number; maxX: number; maxY: number } | null;
+      withGrowingBounds?: boolean;
+      easeMs?: number;
+    }) {
+      const withGrowing = opts.withGrowingBounds ?? true;
+      const result = render(
+        <PanZoomSVG
+          boardWidth={BOARD_W}
+          boardHeight={BOARD_H}
+          ariaLabel="Test schematic"
+          ambientDrift={opts.ambient ? { enabled: true, amplitudePx: 10, periodMs: 14_000 } : undefined}
+          growingBounds={
+            withGrowing
+              ? {
+                  bounds: opts.bounds === undefined ? NEAR_BOUNDS : opts.bounds,
+                  padding: 20,
+                  easeMs: opts.easeMs ?? 0,
+                  deadZoneMarginPx: 40,
+                }
+              : undefined
+          }
+        >
+          <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+        </PanZoomSVG>
+      );
+      const container = screen.getByTestId("pan-zoom-svg-container");
+      const svg = screen.getByTestId("pan-zoom-svg");
+      container.getBoundingClientRect = () => mockRect(BOARD_W, BOARD_H);
+      svg.getBoundingClientRect = () => mockRect(BOARD_W, BOARD_H);
+      return { ...result, container, svg };
+    }
+
+    const currentVB = () => parseViewBox(screen.getByTestId("pan-zoom-svg").getAttribute("viewBox") ?? "");
+    const center = (vb: { x: number; y: number; w: number; h: number }) => ({
+      x: vb.x + vb.w / 2,
+      y: vb.y + vb.h / 2,
+    });
+
+    /** Drag by (dx, dy) screen px in one gesture. */
+    function drag(svg: Element, dx: number, dy: number) {
+      fireEvent.pointerDown(svg, { button: 0, clientX: 600, clientY: 400 });
+      fireEvent.pointerMove(svg, { clientX: 600 + dx, clientY: 400 + dy });
+      fireEvent.pointerUp(svg);
+    }
+
+    /**
+     * Fraction of the viewBox currently showing content, per axis.
+     *
+     * This — not "the center is somewhere inside a permitted rectangle" — is
+     * the invariant worth asserting, and the distinction is not academic. The
+     * first implementation clamped the center to the board unioned with the
+     * bounds; that satisfies a center-in-rectangle assertion while parking the
+     * camera in a board corner with nothing on screen, which is exactly what
+     * the live run measured (0 of 8 nodes visible). An assertion phrased over
+     * the permitted rectangle cannot see that; one phrased over content
+     * overlap can.
+     */
+    function contentOverlapFraction(
+      vb: { x: number; y: number; w: number; h: number },
+      bounds: { minX: number; minY: number; maxX: number; maxY: number }
+    ): { x: number; y: number } {
+      const overlapX = Math.max(0, Math.min(vb.x + vb.w, bounds.maxX) - Math.max(vb.x, bounds.minX));
+      const overlapY = Math.max(0, Math.min(vb.y + vb.h, bounds.maxY) - Math.max(vb.y, bounds.minY));
+      return { x: overlapX / vb.w, y: overlapY / vb.h };
+    }
+
+    // SC1 / AT1
+    test("AT1: a drag far larger than the board still leaves a quarter of the view on the content", () => {
+      const { svg } = renderCamera({ bounds: NEAR_BOUNDS });
+      act(() => clock.advance(500));
+
+      // Pre-fix this reached x = 13147 against a board at x:[0,900] (mt#3792
+      // repro, D1) — every node off-screen with no way back but Reset.
+      drag(svg, -40_000, -30_000);
+
+      const overlap = contentOverlapFraction(currentVB(), NEAR_BOUNDS);
+      expect(overlap.x).toBeGreaterThanOrEqual(0.25 - 1e-6);
+      expect(overlap.y).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    });
+
+    test("AT1b: the clamp tracks content that sits far outside the board", () => {
+      // Bounds well beyond the board rect — the force layout genuinely drifts
+      // nodes out here, so a clamp anchored on the board would either fence
+      // the camera away from this content or (unioned) allow a framing that
+      // contains none of it.
+      const farBounds = { minX: 2000, minY: 100, maxX: 2100, maxY: 200 };
+      const { svg } = renderCamera({ bounds: farBounds });
+      act(() => clock.advance(500));
+
+      drag(svg, -3000, -2000);
+      const overlap = contentOverlapFraction(currentVB(), farBounds);
+      expect(overlap.x).toBeGreaterThanOrEqual(0.25 - 1e-6);
+      expect(overlap.y).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    });
+
+    test("AT1d: a batched drag gesture does not crash the component", () => {
+      // The whole gesture in ONE act(), so React batches the state updates and
+      // the `setViewBox` updaters run AFTER pointerup has cleared `dragRef`.
+      // That is the ordering a fast pointer produces, and it used to throw
+      // "Cannot read properties of null (reading 'startVBX')" from inside the
+      // updater, unmounting the film into an error boundary. Caught by
+      // screenshotting the live page during a synthetic drag, not by any
+      // assertion here — the surrounding tests all fire their events
+      // unbatched, where the updater still runs while the ref is populated.
+      const { svg } = renderCamera({ bounds: NEAR_BOUNDS });
+      act(() => clock.advance(500));
+
+      expect(() => {
+        act(() => {
+          fireEvent.pointerDown(svg, { button: 0, clientX: 600, clientY: 400 });
+          fireEvent.pointerMove(svg, { clientX: 400, clientY: 300 });
+          fireEvent.pointerMove(svg, { clientX: 200, clientY: 200 });
+          fireEvent.pointerUp(svg);
+        });
+      }).not.toThrow();
+
+      // Still rendering, and still showing content.
+      expect(screen.getByTestId("pan-zoom-svg")).toBeDefined();
+      const overlap = contentOverlapFraction(currentVB(), NEAR_BOUNDS);
+      expect(overlap.x).toBeGreaterThanOrEqual(0.25 - 1e-6);
+    });
+
+    test("AT1c: panning is still possible — the clamp bounds the camera without pinning it", () => {
+      const { svg } = renderCamera({ bounds: NEAR_BOUNDS });
+      act(() => clock.advance(500));
+      const before = center(currentVB());
+
+      // A modest drag, well inside the permitted travel, must actually move
+      // the camera. A clamp that pinned the view would satisfy every bound
+      // above while making the surface useless.
+      drag(svg, -60, -40);
+      const after = center(currentVB());
+      expect(Math.abs(after.x - before.x)).toBeGreaterThan(1);
+      expect(Math.abs(after.y - before.y)).toBeGreaterThan(1);
+    });
+
+    // SC2 / AT2
+    test("AT2: auto-fit on a near-degenerate bounds does not exceed MAX_SCALE", () => {
+      // A fresh film: only home is touched, so bounds collapses to a point and
+      // the fit is driven entirely by `padding`. Pre-fix this committed scale
+      // 4.375 against MAX_SCALE 4 (mt#3792 repro, D2).
+      renderCamera({ bounds: { minX: 640, minY: 410, maxX: 640, maxY: 410 } });
+      act(() => clock.advance(1000));
+
+      const scale = BOARD_W / currentVB().w;
+      expect(scale).toBeLessThanOrEqual(4 + 1e-9);
+    });
+
+    test("AT2b: auto-fit on a sprawling bounds does not fall below MIN_SCALE", () => {
+      renderCamera({ bounds: { minX: -5000, minY: -3000, maxX: 5000, maxY: 3000 } });
+      act(() => clock.advance(1000));
+
+      const scale = BOARD_W / currentVB().w;
+      expect(scale).toBeGreaterThanOrEqual(0.3 - 1e-9);
+    });
+
+    test("AT2c: a clamped auto-fit keeps the container aspect (no distortion)", () => {
+      renderCamera({ bounds: { minX: 640, minY: 410, maxX: 640, maxY: 410 } });
+      act(() => clock.advance(1000));
+
+      const vb = currentVB();
+      expect(vb.w / vb.h).toBeCloseTo(BOARD_W / BOARD_H, 3);
+    });
+
+    // SC3 + SC4 / AT3
+    test("AT3: after a pan, Reset resumes camera-follow and re-fits to the CURRENT bounds", () => {
+      const { svg, rerender } = renderCamera({ bounds: NEAR_BOUNDS, easeMs: 0 });
+      act(() => clock.advance(500));
+
+      drag(svg, -900, -500);
+      // Let the follow loop observe `userInteracted`. Pre-fix the loop
+      // terminated here (pending timers 1 -> 0, mt#3792 repro D3) and Reset
+      // had nothing left to revive.
+      act(() => clock.advance(1000));
+
+      const farBounds = { minX: 1500, minY: 600, maxX: 1700, maxY: 700 };
+      rerender(
+        <PanZoomSVG
+          boardWidth={BOARD_W}
+          boardHeight={BOARD_H}
+          ariaLabel="Test schematic"
+          growingBounds={{ bounds: farBounds, padding: 20, easeMs: 0, deadZoneMarginPx: 40 }}
+        >
+          <rect data-testid="inner-rect" x="0" y="0" width="100" height="100" />
+        </PanZoomSVG>
+      );
+      screen.getByTestId("pan-zoom-svg-container").getBoundingClientRect = () => mockRect(BOARD_W, BOARD_H);
+      screen.getByTestId("pan-zoom-svg").getBoundingClientRect = () => mockRect(BOARD_W, BOARD_H);
+
+      fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+      act(() => clock.advance(2000));
+
+      const c = center(currentVB());
+      expect(c.x).toBeCloseTo((farBounds.minX + farBounds.maxX) / 2, 0);
+      expect(c.y).toBeCloseTo((farBounds.minY + farBounds.maxY) / 2, 0);
+    });
+
+    // SC5 / AT4
+    test("AT4: Reset's framing survives two ambient-drift ticks (no snap back to the panned view)", () => {
+      const { svg } = renderCamera({ ambient: true, bounds: NEAR_BOUNDS, easeMs: 0 });
+      act(() => clock.advance(500));
+
+      const followCenter = center(currentVB());
+      drag(svg, -900, -500);
+      const pannedCenter = center(currentVB());
+      // The pan must actually have moved the camera, or this test proves nothing.
+      expect(Math.abs(pannedCenter.x - followCenter.x)).toBeGreaterThan(50);
+      act(() => clock.advance(1000));
+
+      fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+
+      // The discriminating assertion. Reset must not apply a framing it is
+      // about to abandon: pre-fix it snapped to the full board (w = BOARD_W)
+      // and ambient drift pulled the view back off it within ~400ms, which is
+      // precisely the flicker the operator saw. Checking only where the camera
+      // ENDS UP cannot see this — pre-fix and post-fix agree on the endpoint
+      // (the content fit) and differ only in whether a throwaway board framing
+      // is painted on the way there. So assert the intermediate frame.
+      expect(currentVB().w).not.toBeCloseTo(BOARD_W, 3);
+
+      // Two 200ms ambient-drift ticks. Pre-fix, drift recomputed its wobble
+      // base from the STALE `growingBoundsTargetRef` inside this window
+      // (mt#3792 repro D4: w 900 -> 371 within ~400ms).
+      act(() => clock.advance(450));
+
+      const c = center(currentVB());
+      // Back on the content, not where the user had dragged to.
+      expect(Math.abs(c.x - followCenter.x)).toBeLessThan(40);
+      expect(Math.abs(c.x - pannedCenter.x)).toBeGreaterThan(40);
+
+      // And it stays there for two more ticks — drift may wobble around the
+      // new base, but within the dead-zone margin, not away from it.
+      act(() => clock.advance(450));
+      const c2 = center(currentVB());
+      expect(Math.abs(c2.x - followCenter.x)).toBeLessThan(40);
+    });
+
+    // SC6 / AT5
+    test("AT5: with camera-follow active, Reset settles on the content fit", () => {
+      const { svg } = renderCamera({ bounds: NEAR_BOUNDS, easeMs: 0 });
+      act(() => clock.advance(500));
+      drag(svg, -900, -500);
+      act(() => clock.advance(1000));
+
+      fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+      act(() => clock.advance(1000));
+
+      const c = center(currentVB());
+      expect(c.x).toBeCloseTo((NEAR_BOUNDS.minX + NEAR_BOUNDS.maxX) / 2, 0);
+      expect(c.y).toBeCloseTo((NEAR_BOUNDS.minY + NEAR_BOUNDS.maxY) / 2, 0);
+      // The content fit is tighter than the whole board — this is what
+      // distinguishes it from the fit-width branch below.
+      expect(currentVB().w).toBeLessThan(BOARD_W);
+    });
+
+    test("AT5b: with no growingBounds prop, Reset keeps the board fit-width behavior", () => {
+      const { svg } = renderCamera({ withGrowingBounds: false });
+      drag(svg, -300, -200);
+
+      fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+      act(() => clock.advance(500));
+
+      const vb = currentVB();
+      expect(vb.x).toBeCloseTo(0, 3);
+      expect(vb.w).toBeCloseTo(BOARD_W, 3);
+    });
+
+    test("AT5c: camera-follow supplied but with null bounds — Reset falls back to the board fit", () => {
+      const { svg } = renderCamera({ bounds: null });
+      drag(svg, -300, -200);
+
+      fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+      act(() => clock.advance(500));
+
+      const vb = currentVB();
+      expect(vb.x).toBeCloseTo(0, 3);
+      expect(vb.w).toBeCloseTo(BOARD_W, 3);
+    });
+  });
 });

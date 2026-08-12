@@ -24,6 +24,26 @@ export function getXdgConfigHome(): string {
 
 /**
  * Get Minsky's state directory (for databases, sessions, etc.)
+ *
+ * Keyed on `XDG_STATE_HOME` ONLY — deliberately, and mt#3965 confirmed it by
+ * trying the other way. There are two state-dir families in this codebase: ~10
+ * hand-rolled resolvers (`src/mcp/daemon-state.ts`, `src/cockpit/lifecycle.ts`,
+ * `packages/domain/src/transcripts/credential-scrub-log.ts`, …) that read
+ * `MINSKY_STATE_DIR` inline, and this shared function. Adding
+ * `MINSKY_STATE_DIR` here as a higher-precedence tier looks like unification
+ * and is not: seven test files (mt#3415 and siblings) isolate themselves by
+ * overriding `XDG_STATE_HOME` around a temp dir, and a global
+ * `MINSKY_STATE_DIR` would silently outrank every one of them — taking control
+ * from the more specific override. Measured: 24 tests across those 7 files fail
+ * that way.
+ *
+ * The isolation gap that motivated mt#3965 is therefore closed at the BACKSTOP
+ * (`tests/setup.ts` now sets both variables) rather than here. Read that file's
+ * comment for the incident: `bun test` had been writing into the operator's
+ * live state directory through this function, and a fixture conversation id
+ * reached the production `conversation-by-pid/` map and became a fabricated
+ * edge in mt#3943's transition log.
+ *
  * @returns Minsky state directory path
  */
 export function getMinskyStateDir(): string {

@@ -1,0 +1,268 @@
+---
+// Proof — beat 5 of the six-beat reframe (mt#3838, Amendment 2).
+//
+// Answers "is this real, and is it alive?" in the candor register the
+// page already owns, rather than an imported testimonial wall it has no
+// material for. "Built under its own gates" survives nearly verbatim from
+// the previous build; the eleven-task specimen and the enforcement
+// hierarchy come up from the essay, where all three evaluation readers
+// found them and two said they belonged on the home page. External proof
+// is handled by stating the earliness rather than dressing it.
+---
+
+<section id="proof" class="content-section" aria-labelledby="proof-heading">
+  <div class="content-inner">
+    <p class="eyebrow">Is it real?</p>
+    <h2 id="proof-heading" class="section-headline">Its own first customer.</h2>
+
+    <div class="section-body">
+      <p>
+        Every change to Minsky goes through Minsky: a task, an isolated session,
+        a pre-commit hook, an independent review, before it merges. When one of
+        those gates misses something, the fix is to tighten the gate rather than
+        to write a note asking the next agent to be more careful.
+      </p>
+    </div>
+
+    <figure class="specimen">
+      <blockquote>
+        <p>
+          During a documentation campaign, the orchestrating agent carried
+          explicit written rules requiring success criteria in every task spec.
+          Under throughput pressure it created eleven tasks and skipped the
+          criteria on all eleven, then reported the batch as comprehensive. The
+          rules were loaded in context and lost to load anyway. The fix that held
+          was environmental: a hook on task creation that rejects a spec missing
+          its required sections.
+        </p>
+      </blockquote>
+      <figcaption>An incident in this repository, and the gate it produced</figcaption>
+    </figure>
+
+    <div class="section-body">
+      <p>
+        That incident is why the enforcement hierarchy runs the way it does.
+        Rules are text, and text is ignorable under pressure. Skills structure
+        the work before it starts, though they share the doer's context and
+        biases. Subagents come to a question fresh. Hooks are involuntary, and a
+        pre-commit hook blocks an unformatted commit identically for a human and
+        an agent, with nobody watching.
+      </p>
+    </div>
+
+    <p class="hierarchy" aria-label="rules, then skills, then subagents, then hooks">
+      <span class="rank">rules</span><span class="lt">&lt;</span><span class="rank"
+        >skills</span
+      ><span class="lt">&lt;</span><span class="rank">subagents</span><span class="lt"
+        >&lt;</span
+      ><span class="rank strong">hooks</span>
+    </p>
+    <p class="hierarchy-note">
+      Weakest to strongest. Critical checks belong at the involuntary end.
+    </p>
+
+    <div class="section-body">
+      <p>Not every piece described on this page is finished. As of this writing:</p>
+    </div>
+    <ul class="status-list">
+      <li>
+        <span class="status-label">Multi-agent coordination</span>
+        <span class="status-tag partial">Partially built</span>
+        <span class="status-note">— dependency tracking and dispatch work; broader
+          cross-agent orchestration is still filling in.</span>
+      </li>
+      <li>
+        <span class="status-label">The cockpit</span>
+        <span class="status-tag partial">Partially built</span>
+        <span class="status-note">— core surfaces are live; coverage across every workflow
+          isn't complete yet.</span>
+      </li>
+      <li>
+        <span class="status-label">Decision routing</span>
+        <span class="status-tag early">Early</span>
+        <span class="status-note">— the mechanism that pulls a person in only for genuinely
+          hard calls exists, and is still being tuned.</span>
+      </li>
+    </ul>
+
+    <p class="section-note">
+      There are no customer logos here, and none will be borrowed. Minsky is
+      early: one engineer, a public repository, and a commit history you can read
+      before you trust a word of this. What it offers instead of a reference
+      account is that it builds itself under the gates described above, every
+      day, and that the failures get published alongside the fixes.
+    </p>
+
+    <p class="essay-link">
+      <a href="/structure-gap">
+        The full argument, with that specimen in context: The structure gap
+        <span aria-hidden="true">→</span>
+      </a>
+    </p>
+  </div>
+</section>
+
+<style>
+  .content-section {
+    padding: 4.5rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+  .content-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .section-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .section-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1.125rem;
+  }
+  .section-body p {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.65;
+    color: var(--color-text-muted);
+    margin: 0;
+    max-width: 42rem;
+  }
+
+  .specimen {
+    margin: 0.5rem 0;
+    padding: 1.5rem 1.75rem;
+    border-left: 2px solid var(--color-signal);
+    background-color: var(--color-bg-elevated);
+    border-radius: 0 8px 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+  }
+  .specimen blockquote {
+    margin: 0;
+  }
+  .specimen blockquote p {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .specimen figcaption {
+    font-family: var(--font-mono);
+    font-size: var(--text-eyebrow);
+    letter-spacing: var(--text-eyebrow--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-text-subtle);
+  }
+
+  .hierarchy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.625rem;
+    font-family: var(--font-mono);
+    font-size: clamp(1rem, 2.4vw, 1.25rem);
+    margin: 0.5rem 0 0;
+  }
+  .rank {
+    color: var(--color-text-muted);
+    padding: 0.25rem 0.625rem;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 10%, transparent);
+    border-radius: 4px;
+  }
+  .rank.strong {
+    color: var(--color-signal);
+    border-color: color-mix(in oklch, var(--color-signal) 45%, transparent);
+  }
+  .lt {
+    color: var(--color-text-subtle);
+  }
+  .hierarchy-note {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    color: var(--color-text-subtle);
+    margin: 0;
+  }
+
+  .status-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .status-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 0.625rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 6px;
+    background-color: var(--color-bg-elevated);
+  }
+  .status-label {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+  .status-tag {
+    font-family: var(--font-mono);
+    font-size: var(--text-eyebrow);
+    letter-spacing: var(--text-eyebrow--letter-spacing);
+    text-transform: uppercase;
+    padding: 0.125rem 0.5rem;
+    border-radius: 3px;
+  }
+  .status-tag.partial {
+    color: var(--color-warn-amber);
+    border: 1px solid color-mix(in oklch, var(--color-warn-amber) 40%, transparent);
+  }
+  .status-tag.early {
+    color: var(--color-text-muted);
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 16%, transparent);
+  }
+  .status-note {
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+    flex-basis: 100%;
+  }
+
+  .section-note {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-text-subtle);
+    margin: 0;
+    max-width: 42rem;
+  }
+
+  .essay-link {
+    margin: 0.5rem 0 0;
+  }
+  .essay-link a {
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    color: var(--color-signal);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-signal) 35%, transparent);
+    padding-bottom: 0.125rem;
+  }
+  .essay-link a:hover {
+    border-bottom-color: var(--color-signal);
+  }
+</style>

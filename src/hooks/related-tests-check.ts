@@ -7,6 +7,12 @@
  * (nul-byte-detector.ts, migration-journal-check.ts, deploy-domain-detector.ts,
  * etc.) that pre-commit.ts imports and calls rather than inlining.
  */
+import {
+  spawnWithWatchdog,
+  resolveWatchdogBudgetMs,
+  WATCHDOG_BUDGETS_MS,
+} from "../../scripts/spawn-with-watchdog";
+
 export interface RelatedTestsCheckResult {
   success: boolean;
   message: string;
@@ -15,30 +21,40 @@ export interface RelatedTestsCheckResult {
   stderr: string;
 }
 
-export function runRelatedTestsCheck(projectRoot: string): RelatedTestsCheckResult {
-  const proc = Bun.spawnSync(["bun", "scripts/run-related-tests.ts"], {
+export async function runRelatedTestsCheck(projectRoot: string): Promise<RelatedTestsCheckResult> {
+  // mt#3765 / PR #2733 R1: this wrapper is a BACKSTOP, not the gate's bound.
+  //
+  // It previously used `Bun.spawnSync`'s `timeout: 75000` — which does not
+  // enforce (mt#3156 measured a SIGTERM-ignoring child running to completion
+  // and being reported as a PASS), and which treats its own kill as a hard
+  // FAILURE. That combination is dangerous now that the gate itself reports a
+  // timeout as a non-blocking deferral: a 75s outer kill could flip a
+  // legitimately-bounded run into a blocked commit, reintroducing exactly the
+  // unpassable state mt#3765 removed, on the one path where a timeout is NOT
+  // reported as a deferral.
+  //
+  // The gate now self-bounds at RELATED_TESTS_TOTAL and always gets to report
+  // its own disposition; this budget sits above that with margin, so if it
+  // ever fires the gate itself hung and a hard failure IS the right answer.
+  const budgetMs = resolveWatchdogBudgetMs(WATCHDOG_BUDGETS_MS.RELATED_TESTS_WRAPPER);
+  const result = await spawnWithWatchdog(["bun", "scripts/run-related-tests.ts"], {
     cwd: projectRoot,
-    env: { ...process.env, AGENT: "1" },
-    stdout: "pipe",
-    stderr: "pipe",
-    // Bounds the whole gate to well under the 60-90s bypass-risk threshold
-    // it targets, even if a related test (or the mapping-layer graph build)
-    // hangs. A killed/timed-out process reports a non-zero exitCode, which
-    // is already treated as failure below -- no special-casing needed.
-    timeout: 75000,
+    env: { AGENT: "1" },
+    budgetMs,
   });
-  const decoder = new TextDecoder();
-  const stdout = decoder.decode(proc.stdout);
-  const stderr = decoder.decode(proc.stderr);
-  const exitCode = proc.exitCode ?? 1;
+  const exitCode = result.exitCode;
   return {
     success: exitCode === 0,
     message:
       exitCode === 0
         ? "Fast related-test gate passed"
-        : "Fast related-test gate failed (see output above)",
+        : result.timedOut
+          ? `Fast related-test gate HUNG — exceeded its ${Math.round(budgetMs / 1000)}s backstop ` +
+            `(ran ${Math.round(result.elapsedMs / 1000)}s) and was terminated. The gate bounds ` +
+            `itself well below this, so hitting it means the gate did not report at all.`
+          : "Fast related-test gate failed (see output above)",
     exitCode,
-    stdout,
-    stderr,
+    stdout: result.stdout,
+    stderr: result.stderr,
   };
 }

@@ -44,11 +44,29 @@
  * handled by the CALLER (`dispatch-recover-command.ts`), not this module —
  * it is a pre-staleness-check suppression, not a new activity signal.
  *
+ * mt#3952 update: `computeDispatchStaleness` below now ALSO consults a
+ * PROGRESS bound, distinct from the ACTIVITY bound above. Three of the four
+ * activity signals (dispatch-start, presence, and a stale workspace-mtime
+ * reading held fresh only because it once moved) measure that *something*
+ * happened; none of them on its own measures that the dispatch is
+ * *converging on output*. A dispatch that keeps making session-scoped MCP
+ * tool calls (refreshing `presence_claims` on every one, including
+ * read-only calls like `session_read_file` or `validate_typecheck`) held
+ * `healthy` indefinitely under the pre-mt#3952 logic even after hours with
+ * no file write and no commit — mt#3812 is the standing instance: presence
+ * refreshed every ~10 minutes for 8+ hours while the workspace directory
+ * mtime never moved. See `DISPATCH_PROGRESS_STALE_MS`'s docstring for the
+ * derivation and `describeDispatchStalenessForMessage` for the
+ * caller-facing distinction between "silent" and "active but not
+ * progressing."
+ *
  * @see mt#2831 — this task (original staleness/classification/prompt logic)
  * @see mt#3086 — false-positive staleness fix (presence-claim liveness signal)
  * @see mt#3149 — false-positive crashed-no-output fix (PR-existence liveness signal)
  * @see mt#3193 — false-positive staleness fix (workspace-mtime signal;
  *   IN-REVIEW+open-PR suppression in the caller)
+ * @see mt#3952 — progress bound (a dispatch emitting tool calls but writing
+ *   nothing no longer holds `healthy` forever)
  * @see mt#2646 — dispatch-watchdog detection + the recovery-probe shape reused here
  * @see packages/domain/src/session/dispatch-recovery-probe.ts — the probe shape
  * @see packages/domain/src/storage/schemas/subagent-invocations-schema.ts — the outcome enum
@@ -73,6 +91,78 @@ import type { SubagentInvocationOutcome } from "../storage/schemas/subagent-invo
  * cross-reference comment tying the two together.
  */
 export const DISPATCH_RECOVERY_STALE_MS = 30 * 60 * 1000;
+
+/**
+ * The bound (mt#3952) beyond which "active" (presence/dispatch-start) is no
+ * longer sufficient to call a dispatch healthy — PROGRESS (a commit or a
+ * file write) must also have happened within this window, or the dispatch
+ * is treated as stale regardless of how recently presence refreshed.
+ *
+ * ## Derivation — what real data is and isn't available
+ *
+ * The spec asked for this bound to be grounded in observed cadence between
+ * commits/file-writes, derived from `subagent_invocations` + session
+ * workspaces rather than picked as a round number. Two queries were run
+ * against the live `subagent_invocations` table (2026-08-10) to get that
+ * data, and both hit a real availability limit worth recording so the next
+ * revision of this constant does not re-discover it:
+ *
+ * 1. **Per-commit inter-arrival gaps, reconstructed from session workspace
+ *    git history.** Of 225 recent rows with a `subagent_session_id`, only 19
+ *    had a workspace directory still present on disk (`session_cleanup`
+ *    removes the rest post-merge) — and of 8 sampled "landed" dispatches
+ *    (`completed-with-pr` / `committed-no-pr` /
+ *    `partial-committed-handoff-written`) among those 19, 7 directories were
+ *    no longer git repositories at all (`fatal: not a git repository`) and
+ *    the 8th had no commits within its own `started_at` window. Commit-level
+ *    history simply does not survive past workspace cleanup — this table has
+ *    no column recording a commit's OWN timestamp, only `last_commit_hash`
+ *    at end-of-run, so it cannot be reconstructed after the fact once the
+ *    workspace is gone.
+ * 2. **`duration_ms` distribution for landed outcomes** (directly stored, no
+ *    workspace dependency): only 6 of the whole table's rows carry a
+ *    non-null `duration_ms` (most rows predate that column being populated
+ *    end-to-end). What's there: p10 = 37.9 min, p50 = 463.6 min
+ *    (~7.7h), p90/p95/p99 = 1047.9 min (~17.5h, the sample's max — the tail
+ *    saturates immediately at n=6). Even the FASTEST fully-landed dispatch
+ *    took well over half an hour end-to-end, and the typical one took many
+ *    hours — consistent with `DISPATCH_RECOVERY_STALE_MS` (30 min) already
+ *    being the right bound for "no activity of any kind," not for "no
+ *    progress specifically."
+ *
+ * Given neither query yields a clean commit-to-commit percentile, the bound
+ * is grounded in the ONE constant this system has already established and
+ * calibrated for this exact table (`DISPATCH_RECOVERY_STALE_MS`), scaled by
+ * a documented multiplier rather than picked as an independent round number:
+ *
+ * ```
+ * DISPATCH_PROGRESS_STALE_MS = DISPATCH_RECOVERY_STALE_MS * 4  // 2 hours
+ * ```
+ *
+ * The multiplier is chosen to sit clearly above the range where legitimate
+ * investigation-heavy work (reading code, running tests, planning — the
+ * exact mt#3086 case this bound must not regress, see AT2) produces no
+ * commit or file write, while sitting well below the real mt#3812 incident
+ * this task fixes (8+ hours of zero workspace-mtime movement) — a >4x safety
+ * margin on the low side (legitimate no-write stretches this system already
+ * tolerates for the base 30-minute activity window) and a >4x margin on the
+ * high side (mt#3812's observed dead time). `DISPATCH_RECOVERY_STALE_MS`
+ * itself is the SQL-grounded artifact of mt#2831/mt#3086; this reuses it
+ * rather than introducing a second, ungrounded constant.
+ *
+ * @see mt#3952 — this constant's origin task; spec's `## Success Criteria`
+ *   requires the query and distribution be recorded (done above)
+ */
+export const DISPATCH_PROGRESS_STALE_MS = DISPATCH_RECOVERY_STALE_MS * 4;
+
+/**
+ * Which of the two PROGRESS signals (commit, workspace-mtime) is most
+ * recent, or `"none"` when the dispatch has never produced either since it
+ * started (mt#3952). Deliberately excludes `"presence"` and
+ * `"dispatch-start"` — those are ACTIVITY signals, not evidence of output;
+ * see `DISPATCH_PROGRESS_STALE_MS`'s docstring.
+ */
+export type DispatchProgressSource = "commit" | "workspace-mtime" | "none";
 
 /**
  * Which signal produced `lastActivityAtMs` (mt#3086; mt#3193 adds
@@ -102,6 +192,28 @@ export interface DispatchStalenessResult {
   staleForMs: number;
   /** Which signal produced `lastActivityAtMs`. */
   activitySource: DispatchActivitySource;
+  /**
+   * `staleForMs >= staleMs` — the pre-mt#3952 staleness verdict on its own,
+   * exposed so a caller (or `describeDispatchStalenessForMessage`) can tell
+   * whether the ACTIVITY check alone already called this dispatch stale, as
+   * opposed to `progressStale` below being the sole reason. This is the
+   * gate that keeps the "active but not progressing" framing honest: it is
+   * only true to say presence "kept this dispatch looking alive" when the
+   * activity check would otherwise have reported healthy.
+   */
+  activityStale: boolean;
+  /**
+   * True when neither a commit nor a workspace-mtime write has happened
+   * within `progressStaleMs` (mt#3952) — independent of `stale` above.
+   * `stale` is `true` when EITHER the activity check OR this one fires, so a
+   * dispatch can be `stale` purely on progress-starvation even while
+   * `activitySource` reads `"presence"` with a small `staleForMs`.
+   */
+  progressStale: boolean;
+  /** `nowMs - ` the most recent of (`lastCommitAtMs`, `lastWorkspaceMtimeAtMs`), or `nowMs - startedAtMs` when neither has ever happened. */
+  progressStaleForMs: number;
+  /** Which PROGRESS signal (commit or workspace-mtime) is most recent, or `"none"`. */
+  progressSource: DispatchProgressSource;
 }
 
 /**
@@ -216,6 +328,21 @@ export interface DispatchStalenessResult {
  * see that function's docstring for its multi-signal version of this same
  * rule.
  *
+ * ## Progress bound (mt#3952)
+ *
+ * Independently of the activity computation above, `lastProgressAtMs` is the
+ * max of ONLY `lastCommitAtMs` and `lastWorkspaceMtimeAtMs` — `presence` and
+ * `dispatch-start` are excluded, because neither is evidence the dispatch
+ * wrote anything (see `DISPATCH_PROGRESS_STALE_MS`'s docstring). When
+ * neither progress signal has ever fired, the progress clock starts at
+ * `startedAtMs`, same as the activity clock. `progressStale` is `true` when
+ * `nowMs - lastProgressAtMs >= progressStaleMs`, and `stale` in the returned
+ * result is the OR of the activity check and this one — so a dispatch can be
+ * `stale` purely because it is progress-starved, even while `activitySource`
+ * reads `"presence"` with a small `staleForMs`. Same strict-`>` tie
+ * semantics as the activity computation (commit checked before
+ * workspace-mtime).
+ *
  * Pure and synchronous — no I/O. Unit-testable with an injected clock.
  */
 export function computeDispatchStaleness(
@@ -224,7 +351,8 @@ export function computeDispatchStaleness(
   nowMs: number,
   staleMs: number = DISPATCH_RECOVERY_STALE_MS,
   lastPresenceActivityAtMs: number | null = null,
-  lastWorkspaceMtimeAtMs: number | null = null
+  lastWorkspaceMtimeAtMs: number | null = null,
+  progressStaleMs: number = DISPATCH_PROGRESS_STALE_MS
 ): DispatchStalenessResult {
   let lastActivityAtMs = startedAtMs;
   let activitySource: DispatchActivitySource = "dispatch-start";
@@ -245,7 +373,88 @@ export function computeDispatchStaleness(
   }
 
   const staleForMs = nowMs - lastActivityAtMs;
-  return { stale: staleForMs >= staleMs, lastActivityAtMs, staleForMs, activitySource };
+  const activityStale = staleForMs >= staleMs;
+
+  // mt#3952: PROGRESS signals — commit and workspace-mtime only. `presence`
+  // and `dispatch-start` are deliberately excluded (see docstring's
+  // "Progress bound" section above).
+  let lastProgressAtMs: number | null = null;
+  let progressSource: DispatchProgressSource = "none";
+  if (lastCommitAtMs !== null) {
+    lastProgressAtMs = lastCommitAtMs;
+    progressSource = "commit";
+  }
+  if (
+    lastWorkspaceMtimeAtMs !== null &&
+    (lastProgressAtMs === null || lastWorkspaceMtimeAtMs > lastProgressAtMs)
+  ) {
+    lastProgressAtMs = lastWorkspaceMtimeAtMs;
+    progressSource = "workspace-mtime";
+  }
+  const progressStaleForMs = nowMs - (lastProgressAtMs ?? startedAtMs);
+  const progressStale = progressStaleForMs >= progressStaleMs;
+
+  return {
+    stale: activityStale || progressStale,
+    lastActivityAtMs,
+    staleForMs,
+    activitySource,
+    activityStale,
+    progressStale,
+    progressStaleForMs,
+    progressSource,
+  };
+}
+
+/**
+ * Render the distinction between "silent" (no activity signal at all) and
+ * "active but not progressing" (presence/dispatch-start kept the dispatch
+ * looking alive, but no commit or file write happened) into one caller-facing
+ * clause (mt#3952 Success Criteria: "the verdict names which signal starved
+ * it"). Returns `""` when the dispatch is not `stale` at all (nothing to
+ * explain) or when it IS stale but for the ordinary "no activity of any kind"
+ * reason with no progress-specific nuance to add beyond what `activitySource`
+ * already conveys via the caller's own message.
+ *
+ * Pure — no I/O.
+ */
+export function describeDispatchStalenessForMessage(staleness: DispatchStalenessResult): string {
+  if (!staleness.progressStale) {
+    return "";
+  }
+  if (staleness.progressSource === "none") {
+    return (
+      `Progress-starved: no commit and no file write has happened since dispatch start ` +
+      `(${staleness.progressStaleForMs}ms) — this dispatch has never produced anything on ` +
+      `disk, regardless of how recently it made a tool call.`
+    );
+  }
+  // mt#3952 PR #2819 R1 BLOCKING: `activityStale` gates the "active but NOT
+  // progressing" framing below. When the base ACTIVITY check has ALSO
+  // already timed out (activityStale === true), presence is NOT what's
+  // keeping this dispatch looking alive — a past commit or file write can
+  // leave `progressSource` non-"none" while presence is itself long gone
+  // (e.g. a dispatch that committed once, then went fully silent for
+  // hours), and claiming "recent tool-call activity kept it looking alive"
+  // in that case would misattribute recency it does not have. Only when
+  // the activity check alone would have reported healthy — which, given
+  // `progressStale` is also true here, can only happen when `presence` is
+  // the signal propping it up (see this function's docstring reasoning in
+  // the PR body / spec) — is it accurate to describe presence as active.
+  if (staleness.activityStale) {
+    return (
+      `Silent and progress-starved: no activity signal of any kind (commit, tool call, or ` +
+      `file write) has been observed in ${staleness.staleForMs}ms, and no commit or file ` +
+      `write specifically in ${staleness.progressStaleForMs}ms — this reads as fully dead, ` +
+      `not merely quiet.`
+    );
+  }
+  const sourceLabel = staleness.progressSource === "commit" ? "commit" : "file write";
+  return (
+    `Active but NOT progressing: recent tool-call activity (presence) kept this dispatch ` +
+    `looking alive, but no commit and no file write has happened since its last ${sourceLabel} ` +
+    `(${staleness.progressStaleForMs}ms ago) — presence alone is not evidence of progress.`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -258,9 +467,14 @@ export function computeDispatchStaleness(
  * crashed-no-output"). Deliberately excludes `completed-with-pr` (that's a
  * healthy outcome, not a recovery case) and `rate-limited` (out of this
  * task's scope per its Covers/Does-NOT-cover — the tracker's own escalation
- * handles rate-limit storms). Values are exactly 4 of the 6 persisted
+ * handles rate-limit storms). Values are exactly 4 of the 6 workspace-derived
  * `SubagentInvocationOutcome` enum values, so a classification here writes
  * directly to the `outcome` column with no further mapping.
+ *
+ * `no-workspace` (mt#3894) is likewise excluded, and for the most basic reason
+ * of all: every value here names a state of a session workspace this recovery
+ * path can resume from, and a dispatch that never had a workspace has nothing
+ * to resume. Pinned by an exact-membership test rather than left to inference.
  */
 export const DISPATCH_RECOVERY_CLASSIFICATION_VALUES = [
   "committed-no-pr",

@@ -633,6 +633,73 @@ export function resolveCompletedTurn(lines: TranscriptLine[]): CompletedTurn {
 }
 
 /**
+ * Stable identity of a real-prompt line, for anchor matching.
+ *
+ * MUST agree with `turnKeyFor` in `./turn-end-scan-store`, which is what the
+ * `Stop`-side recorder uses to WRITE the key this function matches against.
+ * The two are deliberately not a shared import — that would make this module,
+ * the lowest layer, depend on a store — so `turn-anchor-store.test.ts` pins
+ * their agreement instead. If you change one, that test fails.
+ */
+function anchorKeyOf(line: TranscriptLine | undefined): string | undefined {
+  return line?.uuid ?? line?.timestamp;
+}
+
+/**
+ * Resolve the just-completed turn from a RECORDED anchor rather than by
+ * inferring the boundary from prompt positions (mt#3490, ADR-031).
+ *
+ * `resolveCompletedTurn` above answers "which span is the completed turn?" by
+ * reading the shape of the file — a good inference, and still the fallback, but
+ * an inference. Six of the seven fixes in this area were spent correcting it.
+ * When the `Stop`-side recorder captured this conversation's turn key, the
+ * boundary is not inferred at all: find that exact line and take the span from
+ * it to the next real prompt.
+ *
+ * The key is the OPENING real prompt of the completed turn. At `Stop` time that
+ * line was the transcript's LAST real prompt; by the next `UserPromptSubmit` it
+ * is the SECOND-TO-LAST, because the firing prompt has landed after it — the
+ * same physical line in both reads, which is exactly what makes it a usable
+ * cross-event key.
+ *
+ * Returns `undefined` — never a wrong window — when the key names no real
+ * prompt in `lines`. That happens legitimately (a compacted transcript, a
+ * subagent-scoped read, an anchor from a prior conversation) and the caller
+ * MUST fall back to {@link resolveCompletedTurn}. Returning `undefined` rather
+ * than an empty turn is what keeps "no anchor" and "anchor names an empty turn"
+ * distinguishable at the call site.
+ *
+ * @see .minsky/hooks/turn-anchor-store.ts — where the key comes from
+ * @see docs/architecture/adr-031-guidance-detector-lifecycle-event.md
+ */
+export function resolveCompletedTurnFromAnchor(
+  lines: TranscriptLine[],
+  turnKey: string
+): CompletedTurn | undefined {
+  // "session-start" is `turnKeyFor`'s sentinel for "no opening prompt existed".
+  // It names no line, so it can only ever produce a wrong match — refuse it
+  // explicitly rather than relying on it failing to match by luck.
+  if (!turnKey || turnKey === "session-start") return undefined;
+
+  const promptIndices = findRealPromptIndices(lines);
+  const anchorPos = promptIndices.findIndex((i) => anchorKeyOf(lines[i]) === turnKey);
+  if (anchorPos < 0) return undefined;
+
+  const anchorIdx = promptIndices[anchorPos] as number;
+  const nextPromptIdx = promptIndices[anchorPos + 1];
+  const end = nextPromptIdx ?? lines.length;
+
+  return {
+    turnLines: lines.slice(anchorIdx + 1, end),
+    openingPromptIndex: anchorIdx,
+    // A real prompt AFTER the anchor is the firing prompt having landed —
+    // the same distinction `resolveCompletedTurn` reports, derived here from
+    // the recorded boundary instead of from the tail's emptiness.
+    firingPromptLanded: nextPromptIdx !== undefined,
+  };
+}
+
+/**
  * Extract the just-completed logical turn.
  *
  * Thin accessor over {@link resolveCompletedTurn} — see that function for how
@@ -648,8 +715,38 @@ export function resolveCompletedTurn(lines: TranscriptLine[]): CompletedTurn {
  *
  * Returns [] when no turn can be resolved.
  */
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  return resolveCompletedTurn(lines).turnLines;
+export function extractLastAssistantTurn(
+  lines: TranscriptLine[],
+  recordedAnchor?: { turnKey: string }
+): TranscriptLine[] {
+  return resolveCompletedTurnWithAnchor(lines, recordedAnchor).turnLines;
+}
+
+/**
+ * The window resolution every prompt-time consumer should use (mt#3490).
+ *
+ * Prefers the RECORDED boundary and falls back to inferring it — the single
+ * place that precedence lives, so no caller has to remember the order. This is
+ * the "swap the shared helper underneath them" shape ADR-031's migration-cost
+ * paragraph describes: a caller opts in by passing `ctx.recordedAnchor`, and
+ * passing `undefined` is exactly the pre-mt#3490 behaviour.
+ *
+ * Falls back — rather than trusting the anchor blindly — whenever the recorded
+ * key names no real prompt in `lines`. That is a legitimate, expected state
+ * (a compacted transcript, an anchor from before a `/clear`, a subagent-scoped
+ * read), which is why {@link resolveCompletedTurnFromAnchor} reports it as
+ * `undefined` instead of returning an empty window that a caller could mistake
+ * for a genuinely empty turn.
+ */
+export function resolveCompletedTurnWithAnchor(
+  lines: TranscriptLine[],
+  recordedAnchor?: { turnKey: string }
+): CompletedTurn {
+  if (recordedAnchor) {
+    const anchored = resolveCompletedTurnFromAnchor(lines, recordedAnchor.turnKey);
+    if (anchored) return anchored;
+  }
+  return resolveCompletedTurn(lines);
 }
 
 /**
@@ -791,7 +888,7 @@ export function findToolUseInputs(
  * `{ content: [...] }` wrapper — is recursed into once. Non-text, non-nested
  * blocks are ignored; a malformed or absent content contributes "".
  */
-function extractToolResultText(content: unknown): string {
+export function extractToolResultText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
@@ -863,6 +960,7 @@ export function findCreatedResourceIds(
   input: Record<string, unknown>;
   createdId: string | undefined;
   result: Record<string, unknown> | undefined;
+  resultText: string | undefined;
 }> {
   // Pass 1: tool_use_id -> concatenated result text, from every tool_result
   // block anywhere in the transcript (not scoped to toolName — a tool_result
@@ -885,6 +983,7 @@ export function findCreatedResourceIds(
     input: Record<string, unknown>;
     createdId: string | undefined;
     result: Record<string, unknown> | undefined;
+    resultText: string | undefined;
   }> = [];
   const pushResult = (id: unknown, rawInput: unknown): void => {
     const input =
@@ -893,7 +992,13 @@ export function findCreatedResourceIds(
     const result = parseResultJson(resultText);
     const idValue = result?.[idField];
     const createdId = typeof idValue === "string" && idValue.length > 0 ? idValue : undefined;
-    results.push({ input, createdId, result });
+    // `resultText` is surfaced alongside the parsed form (mt#3730) because not
+    // every id-minting call answers in JSON: the Minsky CLI prints
+    // `Task mt#NNNN created successfully` unless given `--json`, and
+    // `parseResultJson` correctly returns undefined for that, leaving a caller
+    // with no way to reach an id that is plainly present in the text. Callers
+    // that only want structured results keep ignoring this field.
+    results.push({ input, createdId, result, resultText });
   };
   for (const line of lines) {
     if (line.type === "tool_use") {
@@ -910,6 +1015,225 @@ export function findCreatedResourceIds(
     }
   }
   return results;
+}
+
+/**
+ * The canned opening Claude Code writes into a `tool_result` when a tool call is
+ * REFUSED — by the interactive prompt or by auto-mode's permission classifier.
+ *
+ * Established empirically, not from vendor documentation, which does not specify
+ * the shape (mt#3533). Measured over the 460 local transcripts of this project on
+ * 2026-08-11: 73 denial results, every one of them carrying `is_error: true` and
+ * one of exactly two continuations — `"STOP what you are doing and wait for the
+ * user to tell you how to proceed."` or `"To tell you how to proceed, the user
+ * said:"` plus a free-text tail. The prefix below is the part common to both.
+ *
+ * The apostrophe alternation is deliberate: the corpus carries the straight form,
+ * and a harness that ever emits the typographic one would otherwise silently stop
+ * matching.
+ */
+export const TOOL_DENIAL_MARKER = /The user doesn[’']t want to proceed with this tool use/;
+
+/** Opens the free-text tail carrying the refusal's stated reason, when one was given. */
+const DENIAL_REASON_MARKER = /To tell you how to proceed, the user said:\s*/;
+
+/** A tool call that was refused before it ran, paired with what it would have run. */
+export interface DeniedToolCall {
+  /** Transcript-line index of the DENIAL — callers order against this. */
+  index: number;
+  toolName: string | undefined;
+  input: Record<string, unknown>;
+  /** The `command` input, for the shell-running tools; undefined for every other tool. */
+  command: string | undefined;
+  /**
+   * The refusal's stated reason — the tail after {@link DENIAL_REASON_MARKER} —
+   * or "" when the denial gave none. Note that in the observed corpus this tail
+   * is usually the canned message echoed back rather than a human-written
+   * reason, so an empty-ish value is the norm and carries no information.
+   */
+  reason: string;
+}
+
+/**
+ * Every tool call in `lines` that was DENIED, correlated back to its originating
+ * `tool_use` block so the caller can see what was refused, not merely that
+ * something was.
+ *
+ * The correlation is the same `tool_use_id` join {@link findCreatedResourceIds}
+ * uses; it is required here because the denial result carries only the id, and
+ * the command — the thing a caller actually needs — lives on the call.
+ */
+export function findDeniedToolCalls(lines: TranscriptLine[]): DeniedToolCall[] {
+  const denials: Array<{ index: number; useId: string; text: string }> = [];
+  for (let i = 0; i < lines.length; i++) {
+    const content = lines[i]?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const useId = block["tool_use_id"];
+      if (typeof useId !== "string") continue;
+      // BOTH conjuncts, not just the marker. Every one of the 73 denials in the
+      // measured corpus carries `is_error: true`, and requiring it closes an
+      // obvious false-positive vector: a SUCCESSFUL result whose body merely
+      // CONTAINS the rejection string — reading a transcript file, grepping a
+      // calibration log, or any tool that echoes prior conversation back.
+      if (block["is_error"] !== true) continue;
+      const text = extractToolResultText(block["content"]);
+      if (TOOL_DENIAL_MARKER.test(text)) denials.push({ index: i, useId, text });
+    }
+  }
+  if (denials.length === 0) return [];
+
+  const callsById = new Map<string, { name: string | undefined; input: Record<string, unknown> }>();
+  const remember = (id: unknown, name: unknown, rawInput: unknown): void => {
+    if (typeof id !== "string") return;
+    callsById.set(id, {
+      name: typeof name === "string" ? name : undefined,
+      input: rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {},
+    });
+  };
+  for (const line of lines) {
+    if (line.type === "tool_use") {
+      remember(
+        (line as Record<string, unknown>)["id"],
+        line.name ?? line.tool_name,
+        (line as Record<string, unknown>)["input"]
+      );
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block && block["type"] === "tool_use") {
+        remember(block["id"], block["name"], block["input"]);
+      }
+    }
+  }
+
+  return denials.map(({ index, useId, text }) => {
+    const call = callsById.get(useId);
+    const input = call?.input ?? {};
+    const command = typeof input["command"] === "string" ? (input["command"] as string) : undefined;
+    const reasonMatch = DENIAL_REASON_MARKER.exec(text);
+    const reason = reasonMatch ? text.slice(reasonMatch.index + reasonMatch[0].length).trim() : "";
+    return { index, toolName: call?.name, input, command, reason };
+  });
+}
+
+/** A tool call paired with the transcript-line index that orders it. */
+export interface IndexedToolUse {
+  index: number;
+  toolName: string;
+  input: Record<string, unknown>;
+}
+
+/**
+ * Every `tool_use` in `lines`, in transcript order, each with its line index.
+ *
+ * {@link findToolUseInputs} returns inputs without position and
+ * {@link extractToolUseNames} returns names without inputs; neither can answer
+ * "did THIS happen after THAT", which is what any ordering-sensitive suppression
+ * rule turns on (mt#3533: was there a reshaped retry AFTER the denial, and did
+ * the escalation come AFTER it).
+ */
+export function findIndexedToolUses(lines: TranscriptLine[]): IndexedToolUse[] {
+  const calls: IndexedToolUse[] = [];
+  const consider = (index: number, name: unknown, rawInput: unknown): void => {
+    if (typeof name !== "string" || !name) return;
+    calls.push({
+      index,
+      toolName: name,
+      input: rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {},
+    });
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (line.type === "tool_use") {
+      consider(i, line.name ?? line.tool_name, (line as Record<string, unknown>)["input"]);
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (block && block["type"] === "tool_use") consider(i, block["name"], block["input"]);
+    }
+  }
+  return calls;
+}
+
+/** A tool call paired with the body of the result it produced. */
+export interface ToolCallWithResult {
+  index: number;
+  toolName: string;
+  input: Record<string, unknown>;
+  /** The result body, or "" when no correlated result appears in `lines`. */
+  resultText: string;
+  /** True when a correlated result was found — distinguishes "" from "never returned". */
+  hasResult: boolean;
+}
+
+/**
+ * Every `tool_use` in `lines`, joined to the body of its `tool_result`.
+ *
+ * The join is the same `tool_use_id` correlation {@link findCreatedResourceIds}
+ * and {@link findDeniedToolCalls} each perform inline for their own purposes;
+ * this is the general form, because a caller that needs to judge a call by WHAT
+ * IT RETURNED — rather than by whether it errored, or by an id it minted —
+ * previously had no helper and would have made this the third copy.
+ *
+ * `hasResult` is carried separately from `resultText` because an empty body and
+ * a call with no result at all are different facts: a search that legitimately
+ * found nothing returns "", while a call still in flight returns nothing. A
+ * caller counting hits must not read the second as zero.
+ */
+export function findToolCallsWithResults(lines: TranscriptLine[]): ToolCallWithResult[] {
+  const calls: Array<{
+    index: number;
+    useId: string | undefined;
+    toolName: string;
+    input: Record<string, unknown>;
+  }> = [];
+  const consider = (index: number, id: unknown, name: unknown, rawInput: unknown): void => {
+    if (typeof name !== "string" || !name) return;
+    calls.push({
+      index,
+      useId: typeof id === "string" ? id : undefined,
+      toolName: name,
+      input: rawInput && typeof rawInput === "object" ? (rawInput as Record<string, unknown>) : {},
+    });
+  };
+
+  const resultsById = new Map<string, string>();
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (line.type === "tool_use") {
+      const raw = line as Record<string, unknown>;
+      consider(i, raw["id"], line.name ?? line.tool_name, raw["input"]);
+    }
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block) continue;
+      if (block["type"] === "tool_use") {
+        consider(i, block["id"], block["name"], block["input"]);
+      }
+      if (block["type"] === "tool_result" && typeof block["tool_use_id"] === "string") {
+        resultsById.set(block["tool_use_id"] as string, extractToolResultText(block["content"]));
+      }
+    }
+  }
+
+  return calls.map(({ index, useId, toolName, input }) => {
+    const hasResult = useId !== undefined && resultsById.has(useId);
+    return {
+      index,
+      toolName,
+      input,
+      resultText: hasResult ? (resultsById.get(useId as string) ?? "") : "",
+      hasResult,
+    };
+  });
 }
 
 /**

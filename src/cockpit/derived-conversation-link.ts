@@ -36,7 +36,7 @@ import { inArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
-import { parseAgentId } from "@minsky/domain/agent-identity/format";
+import { conversationIdFromAgentId } from "@minsky/domain/agent-identity/format";
 import type { ConversationId } from "@minsky/domain/ids";
 
 // Re-exported for callers already importing from this module; the union itself
@@ -52,32 +52,14 @@ export interface DerivedConversationLink {
 /**
  * Extract the conversation id an `agentId` names, or null when it names none.
  *
- * Only the `conv` scope carries a conversation: per ADR-006 §Format, `hash`
- * (the `unknown:hash:<...>` ascribed fallback), `proc`, `inst`, and `run` all
- * identify something that is NOT a conversation, so they correctly yield
- * nothing and the caller keeps rendering its empty state.
- *
- * Parsing goes through the canonical `parseAgentId` rather than a `:conv:`
- * string split because the format is richer than it looks: a trailing
- * `@{parent-agentId}` delegation chain is legal on any id, and a naive split
- * would carry the parent into the extracted uuid.
- *
- * The one compound form deliberately NOT unwrapped is the post-#32514 subagent
- * id, `com.anthropic.claude-code:conv:<parent>/task:<sub-id>` — `parseAgentId`
- * yields `<parent>/task:<sub-id>` as the id, which is not a conversation id, so
- * it is dropped here (and would fail the existence check regardless). Taking
- * the segment before the `/` would link the workspace to the PARENT
- * conversation, which is a different and unasserted claim; leave that to a
- * writer that actually knows the spawn provenance.
+ * Moved to `@minsky/domain/agent-identity/format` by mt#3945, which gave it a
+ * second caller (the MCP server's presence writers) in a layer that must not
+ * import from `src/cockpit`. Re-exported here so this module's own consumers —
+ * and `scripts/verify-derived-conversation-link.ts` — keep their import path.
+ * The behavior, including the `/task:` compound-form carve-out, is unchanged;
+ * `derived-conversation-link.test.ts` still covers it through this export.
  */
-export function conversationIdFromAgentId(agentId: string | null | undefined): string | null {
-  if (!agentId) return null;
-  const parsed = parseAgentId(agentId);
-  if (!parsed) return null;
-  if (parsed.scope !== "conv") return null;
-  if (parsed.id.includes("/")) return null;
-  return parsed.id;
-}
+export { conversationIdFromAgentId };
 
 /**
  * Resolve existence-checked conversation links for workspaces that have no

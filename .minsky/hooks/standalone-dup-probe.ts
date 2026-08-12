@@ -67,7 +67,7 @@
 // before any decorated domain class is imported) and exposes the config
 // bootstrap used below. Extracted from this file into a shared module by
 // mt#3019, which found record-subagent-invocation.ts missing BOTH halves.
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 import type { TaskSearchResult } from "./parallel-work-guard-standalone";
 import type {
@@ -217,13 +217,14 @@ async function runProbe(
       return degraded(`domain bootstrap failed: ${bootstrap.error}`);
     }
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
-    const provider = await resolvePersistenceProvider();
-    if (!provider) {
-      return degraded("persistence provider unavailable (see mt#3019 for the config-init class)");
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      return degraded(describeProviderResolutionFailure(resolution));
     }
+    const provider = resolution.provider;
 
     const { createConfiguredTaskService } = await import(
       "../../packages/domain/src/tasks/taskService"
@@ -332,6 +333,13 @@ async function resolveProbeProjectScope(provider: PersistenceProvider): Promise<
     return ALL_PROJECTS;
   }
 }
+
+// `describeProviderResolutionFailure` moved to `./domain-bootstrap` (mt#3869):
+// six more hooks now report the same failure, and the formatter they share does
+// not belong inside this one. Re-exported so this module's own public surface —
+// and `standalone-dup-probe.test.ts`, which covers the guard-health message
+// this call site threads it into — is unchanged.
+export { describeProviderResolutionFailure };
 
 /**
  * Write the GUARD DEGRADED stderr line and build the structured failure.

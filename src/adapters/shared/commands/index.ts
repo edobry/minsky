@@ -49,6 +49,7 @@ import { registerEventsCommands } from "./events";
 import { registerRefsCommands } from "./refs";
 import { registerPrincipalCommands } from "./principal";
 import { registerCalibrationCommands } from "./calibration";
+import { registerSecurityCommands } from "./security";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -182,6 +183,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register principal-channel commands (agent -> principal's phone, mt#3228)
   registerPrincipalCommands();
 
+  // Register security commands (callable credential-shape check, mt#4022)
+  registerSecurityCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -227,4 +231,5 @@ export {
   registerEventsCommands,
   registerRefsCommands,
   registerPrincipalCommands,
+  registerSecurityCommands,
 };

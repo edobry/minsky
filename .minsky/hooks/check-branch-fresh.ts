@@ -1130,12 +1130,23 @@ if (import.meta.main) {
     overrideFields?: {
       overrideEnvVar: string;
       overrideClassification: ReturnType<typeof classifyOverride>;
-    }
+    },
+    /**
+     * mt#3920 — clean-run evidence for guard-health's recovery join, and only where this
+     * guard actually compared the branch. Left UNSET at the two exits above the
+     * comparison (an unguarded tool, and the MINSKY_SKIP_FRESHNESS override): neither
+     * says anything about whether the probe works. The two exits below pass
+     * `result.comparisonRan === true ? "decided" : "crashed"` — the budget-exhausted
+     * fallback returns a `mainRef` without ever running `listCommitsAhead`, so it looks
+     * exactly like a completed evaluation from the outside.
+     */
+    outcome?: "decided" | "crashed"
   ): never => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision,
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
@@ -1323,7 +1334,7 @@ if (import.meta.main) {
         },
       });
     }
-    recordAndExit("allow");
+    recordAndExit("allow", undefined, result.comparisonRan === true ? "decided" : "crashed");
   }
 
   // Blocked: format and emit denial. Reuse `result.mainRef` and the EXACT
@@ -1375,5 +1386,5 @@ if (import.meta.main) {
       permissionDecisionReason: fullMessage,
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, result.comparisonRan === true ? "decided" : "crashed");
 }

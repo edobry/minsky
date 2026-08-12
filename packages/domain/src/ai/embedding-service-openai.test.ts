@@ -442,14 +442,19 @@ describe("OpenAIEmbeddingService request timeout (mt#3444)", () => {
       maxDelay: 5,
       jitterMaxMs: 0,
     });
-    const realExecute = countingRetry.execute.bind(countingRetry);
+    // Variadic cast: the wrapper forwards whatever arity the caller used, and
+    // `...(rest as [])` below spread an EMPTY tuple, so the call site supplied
+    // only one of `execute`'s 2-3 parameters.
+    const realExecute = countingRetry.execute.bind(countingRetry) as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
     countingRetry.execute = ((fn: () => Promise<unknown>, ...rest: unknown[]) =>
       realExecute(
         async () => {
           attempts++;
           return fn();
         },
-        ...(rest as [])
+        ...rest
       )) as typeof countingRetry.execute;
 
     const svc = new OpenAIEmbeddingService(

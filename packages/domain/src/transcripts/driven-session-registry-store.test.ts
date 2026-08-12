@@ -88,9 +88,11 @@ function makeDb(
               if (opts?.throwOnInsert) {
                 return Promise.reject(new Error("simulated insert error"));
               }
-              const idx = stores.rows.findIndex((r) => r.localId === (v as FakeRow).localId);
-              if (idx >= 0) stores.rows[idx] = v as FakeRow;
-              else stores.rows.push(v as FakeRow);
+              const idx = stores.rows.findIndex(
+                (r) => r.localId === (v as unknown as FakeRow).localId
+              );
+              if (idx >= 0) stores.rows[idx] = v as unknown as FakeRow;
+              else stores.rows.push(v as unknown as FakeRow);
               return Promise.resolve();
             },
           };
@@ -207,6 +209,7 @@ describe("mapRawDrivenSessionRow", () => {
       pid: 1234,
       pid_cmdline: "claude -p ...",
       actuator_generation: 2,
+      model: null,
       started_at: new Date("2026-07-22T18:00:00.000Z"),
       updated_at: new Date("2026-07-22T18:05:00.000Z"),
     });

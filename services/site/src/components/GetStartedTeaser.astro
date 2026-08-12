@@ -1,0 +1,92 @@
+---
+// Get started — section 8 of the home-page skeleton (mt#3827).
+// Primary CTA on the site. GitHub is secondary. Commands below are
+// verified against the repo README's Quick start section.
+import CtaButton from "./CtaButton.astro";
+---
+
+<section id="get-started" class="content-section" aria-labelledby="get-started-heading">
+  <div class="content-inner">
+    <p class="eyebrow">Can you run it tonight?</p>
+    <h2 id="get-started-heading" class="section-headline">Try it against a real repo.</h2>
+    <p class="section-lead">
+      Minsky installs locally and runs against your own git repository. No account, no signup.
+    </p>
+    <pre class="quickstart"><span class="prompt">$</span> git clone https://github.com/edobry/minsky.git
+<span class="prompt">$</span> cd minsky
+<span class="prompt">$</span> bun install && bun link
+<span class="prompt">$</span> minsky init</pre>
+    <p class="install-note">
+      Source install for now. A packaged single-command release is in progress;
+      until it lands, the four lines above are the whole path.
+    </p>
+    <div class="cta-row">
+      <CtaButton href="/get-started" variant="primary">Get started</CtaButton>
+      <CtaButton href="https://github.com/edobry/minsky" variant="secondary" external>
+        GitHub
+      </CtaButton>
+    </div>
+  </div>
+</section>
+
+<style>
+  .content-section {
+    padding: 4.5rem 1.5rem 5.5rem;
+  }
+  .content-inner {
+    max-width: 760px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .section-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .section-lead {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    margin: 0;
+    max-width: 38rem;
+  }
+
+  .quickstart {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    line-height: 1.75;
+    color: var(--color-text-primary);
+    background-color: var(--color-bg-elevated);
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 8%, transparent);
+    border-radius: 6px;
+    padding: 1.125rem 1.375rem;
+    margin: 0.5rem 0;
+    overflow-x: auto;
+  }
+  .quickstart .prompt {
+    color: var(--color-signal);
+  }
+
+  .install-note {
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--color-text-subtle);
+    margin: 0;
+    max-width: 38rem;
+  }
+
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+  }
+</style>

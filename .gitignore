@@ -62,6 +62,9 @@ services/reviewer/eval/results/
 **/.minsky/*-evaluations.jsonl
 **/.minsky/subagent-model-mismatch.jsonl
 **/.minsky/calibration-review-watermarks.json
+# Transient lock dir guarding the store above (mt#3899). A crashed pass can
+# leave one behind; the next pass reaps it by mtime. Never a tracked artifact.
+**/.minsky/calibration-review-watermarks.lock/
 **/.minsky/calibration-review-cadence-last-warned.json
 
 # IntelliJ based IDEs

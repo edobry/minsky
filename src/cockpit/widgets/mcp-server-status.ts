@@ -27,6 +27,7 @@
 
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { DeploymentStatus } from "@minsky/domain/deployment";
+import { describeWidgetDegradedReason } from "../db-providers";
 import {
   PROBE_HISTORY_WINDOW_MS,
   appendSample,
@@ -247,8 +248,10 @@ export function createMcpServerStatusWidget(deps: McpServerStatusDeps): WidgetMo
 
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `mcp-server status error: ${message}` };
+        return {
+          state: "degraded",
+          reason: describeWidgetDegradedReason("mcp-server status", err),
+        };
       }
     },
   };

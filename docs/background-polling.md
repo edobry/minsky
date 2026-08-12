@@ -206,6 +206,16 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
   `pull_request_read get_reviews` round-trip. Backends that don't implement
   `ReviewOperations.getPullRequestCreatedAt` fall back to call-start (the pre-mt#2043
   default) for the `since` threshold.
+- **Which review it returns (mt#3555):** when several reviews pass the filters, the tool
+  returns the reviewer's **standing verdict** — their latest decision-bearing review
+  (APPROVED / CHANGES_REQUESTED / DISMISSED) — not the first in listing order. Since
+  `listReviews` returns GitHub's chronological order, first-match previously meant the
+  EARLIEST match: an APPROVED could be returned while a newer CHANGES_REQUESTED from the
+  same reviewer sat on the SAME commit, which `/implement-task §9` reads as merge
+  authorization. `requireCurrentHead` does not disambiguate this — it bounds a review to
+  the current CODE, not to the reviewer's current VERDICT, and admits every review on
+  HEAD. A COMMENTED review still matches (`session_pr_drive` branches on it) but never
+  supersedes a decision.
 - **Fit:** **today's correct answer for "babysit a PR through reviewer-bot iteration."**
   See worked example §6.
 - **Latency:** typical 30s–2min after push; bounded by the call's `timeoutSeconds`
@@ -241,6 +251,39 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 - **Latency:** sum of the two composed waiters' latencies; each independently bounded by
   its own `timeoutSeconds`.
 - **Production status:** **available (DONE, mt#2647).**
+
+### 2.11b `mcp__minsky__session_pr_checks` (`wait: true`) — blocking CI-check wait
+
+- **Class:** C (agent-driven poll, server-side)
+- **Shape:** MCP tool that polls the forge's check-runs + combined-status APIs until every
+  check reaches a terminal state (or the timeout elapses). `wait: false` (default) is a
+  single fetch with no polling or timeout semantics. `wait: true` blocks server-side;
+  `timeoutSeconds` (default 600) and `intervalSeconds` (default 30) bound the wait.
+- **Progress signal (mt#2677, extended mt#4020):** when the caller supplies an `onProgress`
+  callback (the MCP `context.onProgress` hook), it fires:
+  1. **Once at the very start of the call**, before session resolution and repository-backend
+     construction run (mt#4020) — the message is
+     `"Resolving session and repository backend..."`.
+  2. **Once per poll interval** thereafter, while checks remain pending, with a
+     `"Waiting for N pending check(s)... (Ns remaining)"` message.
+     A caller that renders `onProgress` messages as a progress indicator will therefore see one
+     extra message at the very start of every `wait: true` call, before the first poll message —
+     this is intentional (SC3 of mt#4020): it is the only way to signal "the call is alive" during
+     the setup phase, which previously had no progress signal reachable at all.
+- **Whole-call timeout bound (mt#4020):** `timeoutSeconds` bounds the ENTIRE call, not just the
+  polling loop. Before mt#4020, `timeoutSeconds` was applied only to the poll loop — a stall in
+  session resolution or backend construction (both of which run BEFORE the first poll) was
+  completely unbounded, and the observed incident (PR #2891, 2026-08-11) ran silent for 1824s
+  against a 900s `timeoutSeconds`. A timeout during setup returns the SAME result shape a
+  loop-side timeout returns —
+  `{allPassed: false, summary: {total:0, passed:0, failed:0, pending:0}, checks: [], timedOut: true}`
+  — a caller cannot distinguish a setup-phase timeout from a loop-phase timeout from the result
+  alone (nor does it need to; both mean "did not complete within `timeoutSeconds`").
+- **Fit:** the correct answer for "block until CI finishes on this session's PR." Composed by
+  `session_pr_drive` (§2.11a) as its checks-wait step after an APPROVED review.
+- **Latency:** bounded by the call's `timeoutSeconds`; sub-interval for a PR whose checks are
+  already all terminal at call time.
+- **Production status:** **available (DONE).**
 
 ### 2.12 `mcp__minsky__pr_watch_create` + scheduler — registered PR-state watch
 

@@ -10,11 +10,104 @@ import {
   formatSessionDetails,
   formatSessionSummary,
   formatSessionPrDetails,
-  formatSessionApprovalDetails,
   formatDebugEchoDetails,
   formatRuleDetails,
   formatSessionListVerbose,
 } from "../cli-result-formatters";
+
+/**
+ * Command ids that `formatObjectResult`'s switch renders itself, so they never
+ * reach the generic fallback with their primary shape.
+ *
+ * Exported so the CLI output-coverage audit (`scripts/audit-cli-output-coverage.ts`)
+ * can subtract them from the registry without re-deriving the switch by hand;
+ * `result-formatter.test.ts` asserts the list and the switch agree.
+ */
+export const SWITCH_HANDLED_COMMAND_IDS: readonly string[] = [
+  "session.get",
+  "session.dir",
+  "session.list",
+  "session.pr.create",
+  "session.pr.list",
+  "session.pr.get",
+  "rules.list",
+  "rules.get",
+  "rules.search",
+  "tasks.search",
+  "tasks.similar",
+  "debug.echo",
+  "session.commit",
+];
+
+/**
+ * Result keys the generic fallback never renders as payload data. Each is
+ * either consumed by a dedicated branch (`success`, `error`, `errors`,
+ * `message`, `output`), a directive to the formatter itself (`printed`), or CLI
+ * plumbing the command echoes back rather than a finding the operator asked for
+ * (`json`, `debug`). Echoing plumbing back was half of what made mt#3478's
+ * `--verbose` look implemented when nothing read it.
+ */
+const NON_PAYLOAD_KEYS = new Set([
+  "success",
+  "printed",
+  "message",
+  "output",
+  "error",
+  "errors",
+  "json",
+  "debug",
+]);
+
+/** Longest single-line rendering of a structured value before it is broken across lines. */
+const INLINE_VALUE_MAX_LENGTH = 80;
+
+/**
+ * Render one payload value. Scalars print bare; structured values print as JSON
+ * — compact when short enough to read on the key's own line, indented block
+ * form when not.
+ */
+function formatPayloadValue(key: string, value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return `${key}: ${String(value)}`;
+  }
+  const compact = JSON.stringify(value);
+  if (compact !== undefined && compact.length <= INLINE_VALUE_MAX_LENGTH) {
+    return `${key}: ${compact}`;
+  }
+  const pretty = JSON.stringify(value, null, 2) ?? String(value);
+  return `${key}:\n${pretty
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n")}`;
+}
+
+/**
+ * Lines rendering every payload key the fallback's other branches do not
+ * already account for. Empty when the result carries nothing beyond its status
+ * — a bare `{ success: true }` correctly renders as just the success line.
+ */
+export function formatPayloadKeys(result: Record<string, unknown>): string[] {
+  return Object.entries(result)
+    .filter(([key, value]) => !NON_PAYLOAD_KEYS.has(key) && value !== undefined)
+    .map(([key, value]) => formatPayloadValue(key, value));
+}
+
+/**
+ * What the bridge observed while the command ran, for branches whose right
+ * answer depends on it rather than on the result alone.
+ */
+export interface ResultRenderOptions {
+  /**
+   * Whether the command emitted CLI output of its own during `execute`.
+   *
+   * When it did, the generic fallback must not also render the payload's keys:
+   * a command that already printed a report would print its findings twice. The
+   * bridge derives this from the visible-CLI-output line counter (`log.cli`,
+   * `cliWarn`, `cliError`) rather than from the result, because most
+   * self-printing commands set no `printed` flag.
+   */
+  commandEmittedOutput?: boolean;
+}
 
 /**
  * Interface for command result formatters
@@ -23,7 +116,10 @@ export interface CommandResultFormatter {
   /**
    * Get a default formatter for command results
    */
-  getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void;
+  getDefaultFormatter(
+    commandDef: SharedCommand,
+    options?: ResultRenderOptions
+  ): (result: unknown) => void;
 
   /**
    * Format array results
@@ -33,7 +129,11 @@ export interface CommandResultFormatter {
   /**
    * Format object results
    */
-  formatObjectResult(result: Record<string, unknown>, commandDef: SharedCommand): void;
+  formatObjectResult(
+    result: Record<string, unknown>,
+    commandDef: SharedCommand,
+    options?: ResultRenderOptions
+  ): void;
 
   /**
    * Format primitive results (string, number, boolean)
@@ -48,12 +148,15 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Get a default formatter for command results
    */
-  getDefaultFormatter(commandDef: SharedCommand): (result: unknown) => void {
+  getDefaultFormatter(
+    commandDef: SharedCommand,
+    options?: ResultRenderOptions
+  ): (result: unknown) => void {
     return (result: unknown) => {
       if (Array.isArray(result)) {
         this.formatArrayResult(result, commandDef);
       } else if (typeof result === "object" && result !== null) {
-        this.formatObjectResult(result as Record<string, unknown>, commandDef);
+        this.formatObjectResult(result as Record<string, unknown>, commandDef, options);
       } else {
         this.formatPrimitiveResult(result);
       }
@@ -89,14 +192,18 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format object results based on command type
    */
-  formatObjectResult(result: Record<string, unknown>, commandDef: SharedCommand): void {
+  formatObjectResult(
+    result: Record<string, unknown>,
+    commandDef: SharedCommand,
+    options?: ResultRenderOptions
+  ): void {
     // Handle specific command types with custom formatters
     switch (commandDef.id) {
       case "session.get":
         if ("session" in result) {
           formatSessionDetails(result.session as Record<string, unknown>);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -104,7 +211,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         if ("directory" in result) {
           log.cli(`${result.directory}`);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -116,7 +223,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             this.formatSessionListResult(result.sessions as unknown[]);
           }
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -125,7 +232,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         if ("prBranch" in result) {
           formatSessionPrDetails(result as Record<string, unknown>);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -155,28 +262,20 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
           // Prefer explicit message when provided (e.g., empty results)
           log.cli(result.message);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
       case "session.pr.get":
         // Get command handles its own formatting in the command class
-        this.formatGenericObject(result);
-        break;
-
-      case "session.approve":
-        if (result.result && "session" in (result.result as object)) {
-          formatSessionApprovalDetails(result.result as Record<string, unknown>);
-        } else {
-          this.formatGenericObject(result);
-        }
+        this.formatGenericObject(result, options);
         break;
 
       case "rules.list":
         if ("rules" in result) {
           this.formatRulesListResult(result.rules as unknown[]);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -184,7 +283,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         if ("content" in result || "id" in result) {
           formatRuleDetails(result as Record<string, unknown>);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -224,7 +323,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             }
           }
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -263,7 +362,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         } else if (result?.message) {
           log.cli(result.message);
         } else {
-          this.formatGenericObject(result);
+          this.formatGenericObject(result, options);
         }
         break;
 
@@ -316,7 +415,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       }
 
       default:
-        this.formatGenericObject(result);
+        this.formatGenericObject(result, options);
         break;
     }
   }
@@ -369,10 +468,31 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   /**
    * Format generic object (fallback)
    */
-  private formatGenericObject(result: Record<string, unknown>): void {
+  private formatGenericObject(
+    result: Record<string, unknown>,
+    options?: ResultRenderOptions
+  ): void {
     // Try to find meaningful fields to display
     if (result.printed) {
-      // Command already printed a verbose report; avoid redundant summary
+      // The command DECLARES that its own report is complete, so the fallback
+      // adds nothing — not the status line, not the payload.
+      //
+      // Deliberately NOT extended to `options.commandEmittedOutput` (mt#3961).
+      // That signal answers "did anything print?", which is not the same
+      // question as "was what printed the complete report?", and the gap is not
+      // cosmetic. `refs.status` prints its table and returns that same table as
+      // a payload — suppressing is right. `authorship.recompute` prints one
+      // incidental line ("Running in dry-run mode…") and returns a
+      // `RecomputeSummary` that is nothing like it — suppressing would discard
+      // the entire finding the operator ran the command to get. Both are
+      // "emitted output"; only the command knows which it is, which is why the
+      // suppression stays declared here rather than inferred.
+      //
+      // The inference is still correct for the NARROWER decision it was built
+      // for in mt#3870 — whether to re-render payload keys under a report — and
+      // that use survives below. The asymmetry is in the failure modes: guessing
+      // wrong there leaves the pre-mt#3870 status line, while guessing wrong
+      // here prints nothing at all.
       return;
     }
     if (result.message) {
@@ -385,6 +505,21 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         log.cli(result.output);
       } else {
         log.cli(result.success ? "✅ Success" : "❌ Failed");
+        // A command with no `message`/`output` projection still has a payload,
+        // and printing only the boolean discards it (mt#3478, mt#3870). Render
+        // whatever the command actually returned rather than swallowing it: an
+        // unstyled key list is worse than a bespoke formatter and strictly
+        // better than silence, and for the 140 of 225 commands that declare no
+        // `--json` flag it is the operator's only access to the payload at all.
+        //
+        // Skipped when the command printed its own report during `execute`:
+        // there the payload is the machine-readable twin of what the operator
+        // just read, and rendering it again duplicates the report.
+        if (!options?.commandEmittedOutput) {
+          for (const line of formatPayloadKeys(result)) {
+            log.cli(line);
+          }
+        }
       }
 
       // Handle single error

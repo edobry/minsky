@@ -45,9 +45,11 @@ Call the tasks.dispatch-recover MCP tool with each flagged taskId — do not han
 probe-then-decide sequence — and branch on its `status`: `recover` -> redispatch the returned
 `continuationPrompt` VERBATIM via the Agent tool into the SAME session; `escalate` -> read
 `escalation.probe` first, because `dirtyFileCount` / `gitStatus` / `workspaceMtimeAgoMs`
-discriminate 'working locally' from 'dead' and push/PR/review quiet does not. If it returns
-`healthy` or `not-in-flight`, the flag was a false positive and no action is needed. Full
-protocol: the /orchestrate skill's "Dispatch watchdog and resume protocol".
+discriminate 'working locally' from 'dead' and push/PR/review quiet does not. `contested` -> do
+NOT redispatch: a live peer holds the task's claim (or the claim store was unreadable and this
+failed closed), so a redispatch would collide with a live actor — surface `peerActorId` to the
+operator instead. If it returns `healthy` or `not-in-flight`, the flag was a false positive and
+no action is needed. Full protocol: the /orchestrate skill's "Dispatch watchdog and resume protocol".
 ```
 
 **Size is bounded (mt#3485).** The per-dispatch enumeration caps at
@@ -86,7 +88,9 @@ branch semantics (mt#2831) and the `escalation.probe` discriminators (mt#3204) l
   "Dispatch watchdog and resume protocol" section documents the walkthrough: call
   `tasks.dispatch-recover`, then act on its `status` — redispatch `continuationPrompt` verbatim
   via the Agent tool into the SAME session on `"recover"`, do nothing on `"healthy"`, surface the
-  escalation summary to the operator on `"escalate"`.
+  escalation summary to the operator on `"escalate"`, and on `"contested"` (mt#3121) do NOT
+  redispatch — a peer conversation holds a fresh task-grain claim (or the claim store was
+  unreadable and it failed closed), so surface the peer to the operator instead.
 
 **Why this exists.** During the mt#2607 burndown (~14 implementer dispatches, 2026-07-06/07), 5
 dispatches ended without a usable completion report — two stalled silently mid-review-convergence

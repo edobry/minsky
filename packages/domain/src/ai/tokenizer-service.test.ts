@@ -17,10 +17,14 @@ describe("DefaultTokenizerService", () => {
     it("should detect gpt-4o tokenizer", async () => {
       const tokenizer = await service.getTokenizerInfo("gpt-4o", "openai");
 
+      // `source` was "fallback" here until mt#3928, and this assertion pinned
+      // it. o200k_base IS gpt-4o's tokenizer — a detected match, not a
+      // substitution — so the old expectation encoded the defect: the field
+      // said "we had to guess" about the one family it never guesses for.
       expect(tokenizer).toEqual({
         encoding: "o200k_base",
         library: "gpt-tokenizer",
-        source: "fallback",
+        source: "config",
       });
     });
 
@@ -30,7 +34,7 @@ describe("DefaultTokenizerService", () => {
       expect(tokenizer).toEqual({
         encoding: "cl100k_base",
         library: "gpt-tokenizer",
-        source: "fallback",
+        source: "config",
       });
     });
 

@@ -113,7 +113,10 @@ describe("baseline hook self-containment (mt#3503)", () => {
         });
         const run = Bun.spawnSync({
           cmd: ["bun", join(vendorDir, hook)],
-          stdin: Buffer.from(payload),
+          // Bun's spawnSync types pin `stdin` to `"ignore"` though the runtime
+          // accepts data — see the mt#2900 note in
+          // merge-gate-task-resolution.test.ts.
+          stdin: new TextEncoder().encode(payload) as unknown as "ignore",
           stdout: "pipe",
           stderr: "pipe",
           timeout: 10_000,

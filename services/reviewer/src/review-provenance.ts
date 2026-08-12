@@ -8,7 +8,11 @@ export const PROVENANCE_MARKER_END = " -->";
 
 export const SpecVerificationEntrySchema = z.object({
   criterion: z.string().min(1),
-  status: z.enum(["Met", "Not Met", "N/A"]),
+  // "Unverifiable" (mt#3919): the criterion's artifact lives outside this diff
+  // (e.g. another task's spec) and could not be fetched. Distinct from
+  // "Not Met" (the artifact WAS read and does not carry the change) — see
+  // output-tools.ts's SubmitSpecVerificationArgsSchema for the full contract.
+  status: z.enum(["Met", "Not Met", "N/A", "Unverifiable"]),
   evidence: z.string().min(1),
 });
 

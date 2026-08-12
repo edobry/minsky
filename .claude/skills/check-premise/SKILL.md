@@ -318,6 +318,48 @@ a property of the probe at design time — this cue applies it at signal-READ
 time, where the probe already ran and its output simply does not separate the
 hypotheses.
 
+### (k) What a product surface is FOR
+
+Trigger: about to state what a Minsky surface — the cockpit, the tray, the CLI,
+a specific page, the marketing site — _is for_, _whose reader it serves_, or
+_what job it does_. Fires on the positive identity predicate itself, wherever it
+sits: "the cockpit is a review surface", "its reader arrives after the fact",
+"this page's job is X". Unlike every other cue here, the sentence that trips it
+is usually FRAMING rather than an assertion you would think to defend — which is
+exactly why nothing else catches it.
+
+Weight it UP under two conditions. **Comparison framing** — you are contrasting
+this surface against another tool or surface — because a two-column contrast
+rewards a clean differentiator whether or not a true one exists, and the tidiest
+available contrast gets promoted from hedge to organizing frame. **A visual
+artifact in hand** (a screenshot, a mock, a recording): its properties are
+evidence about the artifact, not about the product. A static screenshot of a live
+console is still static.
+
+Falsifier: the DIRECTION record, never the artifact's shape and never the
+ecosystem-typical role of that kind of surface. Run `memory_search "<surface>
+design direction"`, read the governing RFC (ambient-cockpit for cockpit-family
+surfaces), and invoke `/product-thinking`, which carries the derivation. The
+trap is a category prior wearing the clothes of an observation: "web UI showing
+an agent transcript" pattern-matches to the trace-viewer product class and
+"terminal TUI" to the live-driving class, and neither prior is evidence about
+THIS product. If the direction record and your framing disagree, the record wins.
+
+_Origin:_ `b0b294ab` family, 2026-08-08 (mt#3844; recurrence recorded on anchor
+mt#2544). Asked to compare the cockpit's conversation rendering against Claude
+Code's terminal rendering, the agent opened with "the cockpit is a **post-hoc
+review surface**. Its reader arrives after the fact... So no, it shouldn't just
+copy the terminal." The cockpit's stated direction is the opposite — it is meant
+to become the principal's primary LIVE point of contact, replacing iTerm
+(mem#554). The premise was load-bearing: it generated the central
+recommendation, dismissed the terminal's liveness constraints as inapplicable,
+and hid the whole interactive half of the question. Both screenshots were equally
+static artifacts, so surface-shape did not produce the split — the ecosystem
+category prior did. The refutation was in always-loaded context the entire time
+("the conversation the operator is sitting in") and never triggered
+reconciliation, because a frame is never diffed against context; only registered
+claims are.
+
 ## Artifact-content and identity claims (mt#2534)
 
 A second family, distinct from causal/mechanism claims above: factual claims
@@ -351,12 +393,13 @@ A same-turn read is necessary but **NOT sufficient**. Which read counts as
 authoritative depends on what the claim is about — a same-turn `Read` of a
 stale local file can pass a naive "did-you-read" check and still be wrong:
 
-| Claim about                       | Authoritative read                                                                               | NOT authoritative (a cache)                                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| A task spec's current content     | `tasks_spec_get`                                                                                 | Memory of an earlier read this session (the spec may have been amended since)              |
-| A task's current status/scope     | `tasks_status_get` / `tasks_get`                                                                 | A PR body, a spec's `## Context` section, or any other durable artifact mentioning it      |
-| Merged/remote file or PR content  | `mcp__github__get_file_contents(ref=<sha\|main>)` or the PR diff (`pull_request_read get_files`) | A local-checkout `Read` — local `main` can be many commits behind origin                   |
-| Whether a mechanism is sanctioned | The governing decision record (RFC / ADR / memory)                                               | A repo doc describing the mechanism approvingly — docs describe, decision records sanction |
+| Claim about                             | Authoritative read                                                                                         | NOT authoritative (a cache)                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| A task spec's current content           | `tasks_spec_get`                                                                                           | Memory of an earlier read this session (the spec may have been amended since)                   |
+| A task's current status/scope           | `tasks_status_get` / `tasks_get`                                                                           | A PR body, a spec's `## Context` section, or any other durable artifact mentioning it           |
+| Merged/remote file or PR content        | `mcp__github__get_file_contents(ref=<sha\|main>)` or the PR diff (`pull_request_read get_files`)           | A local-checkout `Read` — local `main` can be many commits behind origin                        |
+| Whether a mechanism is sanctioned       | The governing decision record (RFC / ADR / memory)                                                         | A repo doc describing the mechanism approvingly — docs describe, decision records sanction      |
+| What a product surface is FOR (cue (k)) | The direction record: `memory_search "<surface> design direction"`, the governing RFC, `/product-thinking` | The artifact's shape, a screenshot of it, or the ecosystem-typical role of that KIND of surface |
 
 Check the `inject-git-state` hook's "N behind origin" banner before trusting
 a local `Read` for a claim about merged/remote content — it makes staleness
@@ -395,6 +438,11 @@ origin" as a hard signal to route the claim through the GitHub API instead.
 - Stating a task/artifact's identity ("task X is/does Y", "task X covers Z")
   in a recommendation without re-reading, on the theory that a casual
   identity claim doesn't need the same rigor as a structural decision.
+- Stating what a PRODUCT SURFACE is for in framing position — a scene-setting
+  sentence that orients an answer rather than an assertion you would defend.
+  Framing is generated, not retrieved, so it never gets diffed against the
+  context that would refute it. See cue (k); the falsifier is the direction
+  record, not the surface's present shape.
 
 ## Arguments
 

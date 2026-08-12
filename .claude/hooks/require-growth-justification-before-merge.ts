@@ -99,6 +99,127 @@ export const GROWTH_THRESHOLD_BYTES = 2000;
 export const TARGET_FILE = "CLAUDE.md";
 
 // ---------------------------------------------------------------------------
+// Per-rule ceiling, priced at the authoring PR (mt#3676)
+// ---------------------------------------------------------------------------
+//
+// The 15K per-rule ceiling (mt#1876/mt#2874) was enforced ONLY at pre-commit,
+// so a breach failed whichever agent committed next regardless of what they
+// touched — three sessions paid an override in one morning for a
+// `hook-observers` breach none of them authored. mt#3676 splits that in two:
+// pre-commit now blocks only a commit that STAGES an offending rule, and this
+// gate bills the PR that pushed the rule over.
+//
+// Same trigger as the aggregate check above (the PR touches `.minsky/rules/**`),
+// same operator override, and the same `Size-budget justification:` marker.
+// Parity is deliberate: mt#3676 moves WHERE the cost is charged, not WHAT the
+// ceiling allows, and a merge gate stricter than the commit gate would be
+// surprising in the other direction.
+
+/** A rule over the ceiling, as the compile command reports it. */
+export interface PerRuleViolation {
+  id: string;
+  size: number;
+}
+
+/**
+ * Map `.minsky/rules/<id>.mdc` to `<id>`; null for anything else.
+ *
+ * The id segment is `[^/]+`, NOT `.+` (PR #2652 R1). The rules directory is
+ * read by a NON-RECURSIVE `readdir` filtered on `.endsWith(".mdc")`
+ * (`packages/domain/src/rules/operations/file-operations.ts`), so a nested
+ * `.minsky/rules/sub/foo.mdc` is never loaded as a rule and can never appear in
+ * `perRuleViolations`. A greedy capture would mint an id (`sub/foo`) that
+ * matches no violation, so the PR would silently escape being billed for a real
+ * breach — the exact mis-attribution this gate exists to prevent, inverted.
+ */
+export function ruleIdFromRulesPath(filename: string): string | null {
+  const m = /^\.minsky\/rules\/([^/]+)\.mdc$/.exec(filename);
+  return m?.[1] ?? null;
+}
+
+/**
+ * The offending rules THIS PR touched — the ones it should be billed for.
+ *
+ * A PR is not blocked for a rule that was already over the ceiling and which it
+ * never edited; that breach belongs to whoever authored it, which is the whole
+ * point of mt#3676. Intersecting rather than blocking on any violation is what
+ * keeps this gate from re-creating the mispricing at merge time.
+ */
+export function findTouchedCeilingBreaches(
+  violations: readonly PerRuleViolation[],
+  prFiles: readonly PrFile[]
+): PerRuleViolation[] {
+  const touched = new Set(
+    prFiles
+      .map((f) => ruleIdFromRulesPath(f.filename ?? ""))
+      .filter((id): id is string => typeof id === "string")
+  );
+  return violations.filter((v) => touched.has(v.id));
+}
+
+/**
+ * Read the per-rule ceiling violations for the working tree at `cwd` by asking
+ * the compiler, which is the only thing that knows a rule's COMPILED
+ * contribution — that differs from its source body (measured: `hook-observers`
+ * 6060 chars at source, 5983 compiled), and a source-side approximation would
+ * decide the verdict wrongly for any rule near the line.
+ *
+ * Returns `null` when the answer could not be obtained (command missing, spawn
+ * failure, unparseable output). `null` means "unknown" and the caller WARNS
+ * rather than denying — a merge gate that hard-fails on its own tooling being
+ * unavailable would block every rules PR the moment the CLI moves.
+ */
+export function readPerRuleViolations(cwd: string): PerRuleViolation[] | null {
+  let stdout: string;
+  try {
+    const proc = Bun.spawnSync(
+      ["bun", "run", "src/cli.ts", "compile", "--check", "--target", "claude.md"],
+      { cwd, stdout: "pipe", stderr: "pipe", timeout: 60_000 }
+    );
+    stdout = proc.stdout.toString();
+  } catch {
+    return null;
+  }
+  const start = stdout.indexOf("{");
+  const end = stdout.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== "object") return null;
+  const raw = (parsed as { perRuleViolations?: unknown }).perRuleViolations;
+  if (!Array.isArray(raw)) return null;
+  const violations: PerRuleViolation[] = [];
+  for (const entry of raw) {
+    if (entry === null || typeof entry !== "object") continue;
+    const { id, size } = entry as { id?: unknown; size?: unknown };
+    if (typeof id === "string" && id.length > 0 && typeof size === "number") {
+      violations.push({ id, size });
+    }
+  }
+  return violations;
+}
+
+/** Deny text for a PR that pushed one or more rules past the per-rule ceiling. */
+export function buildPerRuleCeilingDenyMessage(breaches: readonly PerRuleViolation[]): string {
+  const list = breaches.map((b) => `  - ${b.id} (${b.size} chars)`).join("\n");
+  return (
+    `Merge blocked: this PR grows ${breaches.length === 1 ? "a rule" : "rules"} past the ` +
+    `per-rule ceiling for always-loaded context:\n${list}\n\n` +
+    `The ceiling is charged to the PR that crosses it, so it is not paid by whoever commits ` +
+    `next (mt#3676). Resolve by one of:\n` +
+    `  1. Trim or SPLIT the rule — the ladder's intended remedy (mt#1876/mt#2987).\n` +
+    `  2. Move content down the admission ladder instead of \`alwaysApply: true\`.\n` +
+    `  3. Add a \`Size-budget justification:\` section to the PR body naming why this rule must ` +
+    `stay always-loaded at this size (use mcp__minsky__session_pr_edit).\n` +
+    `  4. Operator override: set \`${OVERRIDE_ENV_VAR}=1\` (audit-logged).`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // File-path matching
 // ---------------------------------------------------------------------------
 
@@ -377,6 +498,9 @@ if (import.meta.main) {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     recordAndExit("warn");
   }
 
@@ -389,7 +513,9 @@ if (import.meta.main) {
           "⚠️ [growth-justification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const context = fetchPrContext(repo, { task, cwd: input.cwd, include: { files: true } });
@@ -403,7 +529,9 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the PR-context fetch failed, so the check never ran. Fail-open
+    // on a broken probe, not a verdict.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const { headSha, baseBranch, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -414,6 +542,8 @@ if (import.meta.main) {
   // touch rules at all).
   const rulesFiles = findRulesDirFiles(prFiles);
   if (rulesFiles.length === 0) {
+    // mt#3920: `decided` — the file list was fetched and scanned; a PR that touches no
+    // rules is a verdict on real data, not a short-circuit taken before the check.
     if (topLevelWarnings.length > 0) {
       writeOutput({
         hookSpecificOutput: {
@@ -421,9 +551,41 @@ if (import.meta.main) {
           additionalContext: topLevelWarnings.map((w) => `⚠️ ${w}`).join("\n"),
         },
       });
-      recordAndExit("warn");
+      recordAndExit("warn", undefined, "decided");
     }
-    recordAndExit("allow");
+    recordAndExit("allow", undefined, "decided");
+  }
+
+  // mt#3676: per-rule ceiling, checked BEFORE the aggregate size comparison —
+  // it needs no `gh` round-trips, and a PR that crossed the ceiling should be
+  // told about the specific rule rather than about total CLAUDE.md growth.
+  // Skipped entirely when the PR body already carries the justification marker,
+  // which covers both checks (see the section header above for why parity).
+  if (!hasSizeBudgetJustification(prBody)) {
+    const violations = readPerRuleViolations(input.cwd);
+    if (violations === null) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext:
+            `⚠️ [growth-justification] Could not read per-rule ceiling state from the compiler ` +
+            `— per-rule check skipped (the aggregate check below still ran).`,
+        },
+      });
+    } else {
+      const breaches = findTouchedCeilingBreaches(violations, prFiles);
+      if (breaches.length > 0) {
+        writeOutput({
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: buildPerRuleCeilingDenyMessage(breaches),
+          },
+        });
+        // mt#3920: `decided` — the per-rule ceiling state was read and evaluated.
+        recordAndExit("deny", undefined, "decided");
+      }
+    }
   }
 
   const mergeBaseSha = fetchMergeBaseSha(repo, baseBranch, headSha, { cwd: input.cwd });
@@ -436,7 +598,8 @@ if (import.meta.main) {
           `${headSha} — size-justification check skipped.`,
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the merge-base fetch failed, so the size comparison never ran.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const headSizeBytes = fetchFileSizeAtRef(repo, TARGET_FILE, headSha, { cwd: input.cwd });
@@ -451,7 +614,8 @@ if (import.meta.main) {
           `— size-justification check skipped.`,
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the size fetch failed, so the comparison never ran.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const result = checkGrowthJustification(prFiles, prBody, headSizeBytes, baseSizeBytes);
@@ -467,7 +631,9 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
-    recordAndExit("deny");
+    // mt#3920: the three exits below are all downstream of `checkGrowthJustification` —
+    // the gate exercised its check and reached a verdict.
+    recordAndExit("deny", undefined, "decided");
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -475,7 +641,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
-    recordAndExit("warn");
+    recordAndExit("warn", undefined, "decided");
   }
-  recordAndExit("allow");
+  recordAndExit("allow", undefined, "decided");
 }

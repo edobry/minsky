@@ -117,6 +117,7 @@ describe("fileProposal", () => {
     expect(taskService.created[0]?.options.status).toBe("BLOCKED");
     expect(taskService.created[0]?.options.tags).toEqual([ENGPROD_PROPOSAL_TAG]);
     expect(ledgerService.proposed).toHaveLength(1);
+    if (result.taskId === undefined) throw new Error("expected a filed task id");
     expect(ledgerService.proposed[0]?.taskId).toBe(result.taskId);
   });
 

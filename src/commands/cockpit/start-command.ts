@@ -4,12 +4,14 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import type express from "express";
-import { createCockpitServer } from "../../cockpit/server";
+import { createCockpitServer, getResolvedAllowedHosts } from "../../cockpit/server";
 import { startSseBrokerWarmup } from "../../cockpit/routes/events";
 import {
   startAskAdvancementSweeper,
   startStaleAskCloseSweeper,
   startProdStateRefreshSweeper,
+  startShortIdMapSweeper,
+  startAskStateRefreshSweeper,
   startConversationTitleSweeper,
   startConversationSummarySweeper,
   startTopologySweeper,
@@ -38,12 +40,8 @@ import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockp
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 import { cockpitIndexHtml } from "../../cockpit/web-dist";
-import {
-  getCockpitTokenPath,
-  isLoopbackHost,
-  getOrCreateCockpitToken,
-  buildAllowedHosts,
-} from "../../cockpit/auth";
+import { getCockpitTokenPath, isLoopbackHost, getOrCreateCockpitToken } from "../../cockpit/auth";
+import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
 import { attachDrivenSessionWebSocket } from "../../cockpit/driven-session-ws";
 import {
   createHighestUpdateIdReader,
@@ -54,7 +52,9 @@ import {
 } from "../../cockpit/principal-channel-launch";
 import { loadPersistedDrivenSessions } from "../../cockpit/driven-session-launch";
 
-const DEFAULT_PORT = 3737;
+// mt#3988: the local `DEFAULT_PORT = 3737` that used to live here is gone —
+// `DEFAULT_COCKPIT_PORT` in ./port is the single fallback, so this command, the
+// status/install commands and the tray cannot drift apart.
 
 /**
  * Default bind host (mt#2538): loopback-only. Binding to any other
@@ -140,11 +140,10 @@ export function createStartCommand(): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the Cockpit dashboard server");
   startCommand
-    .option(
-      "--port <port>",
-      `Port to listen on (default: ${DEFAULT_PORT})`,
-      DEFAULT_PORT.toString()
-    )
+    // mt#3988: no commander default — see `resolveCockpitPort`. A default here
+    // would make an explicit `--port 3737` indistinguishable from an unset
+    // flag, so `cockpit.port` could never take effect.
+    .option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION)
     .option(
       "--force",
       "If a previous cockpit instance is holding the port, terminate it and retry. " +
@@ -188,9 +187,11 @@ export function createStartCommand(): Command {
       // deliberately not gated on schema readiness.
       const stopStdioLogRotationSweeper = startStdioLogRotationSweeper();
 
-      const port = parseInt(options.port, 10);
-      if (isNaN(port) || port < 1 || port > 65535) {
-        console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
+      let port: number;
+      try {
+        port = resolveCockpitPort(options.port);
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
 
@@ -308,13 +309,17 @@ export function createStartCommand(): Command {
       // WS upgrades bypass Express's request pipeline entirely (they're
       // plain HTTP GETs with `Connection: Upgrade`, handled by a listener on
       // the raw http.Server), so this is attached directly to the `server`
-      // handle rather than threaded through createCockpitServer(). Re-derives
-      // the SAME token/allowedHosts createCockpitServer computed internally
-      // (same persisted token file, same --host value) — a cheap,
-      // deterministic re-read, not a new source of truth.
+      // handle rather than threaded through createCockpitServer(). The
+      // TOKEN is a cheap, deterministic re-read of the same persisted file
+      // (idempotent — reading it twice is not a second derivation of
+      // anything). `allowedHosts`, by contrast, is a RESOLVED VALUE
+      // (bind host + cockpit.allowedHosts config), so it is read back from
+      // `app.locals` via `getResolvedAllowedHosts` rather than re-derived —
+      // createCockpitServer is the only place that resolves it, and this
+      // call site consumes that exact Set instance (mt#3641 PR #2721 R1).
       attachDrivenSessionWebSocket(server, {
         token: getOrCreateCockpitToken(),
-        allowedHosts: buildAllowedHosts(host),
+        allowedHosts: getResolvedAllowedHosts(app),
       });
 
       // mt#3038 (RFC "Conversation-first drive" Phase 1) boot reconciliation
@@ -390,6 +395,18 @@ export function createStartCommand(): Command {
       // Prod-state cache refresh (mt#2506): periodically read the prod migration
       // ledger and write the local cache that inject-prod-state.ts injects each turn.
       const stopProdStateSweeper = startProdStateRefreshSweeper();
+      // Short-id map sweep (mt#3914): read (short_id, id) for asks, memories and
+      // workspaces into a local cache the MessageDisplay linkifier reads, so a
+      // bare ask#N/mem#N/ws#N renders clickable. The hook cannot do this read
+      // itself — a hook process's Postgres connect is capped below the measured
+      // cold-connect time (mt#3744/mt#3879), so it resolves null every time.
+      const stopShortIdMapSweeper = startShortIdMapSweeper();
+      // Ask-state sweep (mt#3744): read the state of every ask the calibration
+      // watermark store names as an open disposition into a local cache the
+      // calibration-review-cadence-detector hook reads. Same reason as the
+      // short-id map above — ADR-028 D7(5) keeps unbounded-latency network I/O
+      // out of the synchronous dispatcher budget.
+      const stopAskStateSweeper = startAskStateRefreshSweeper();
       // Slow-clock topology sweep (mt#2602): periodically re-derive the
       // guard-hook registry + interlock history (git log + retrospective.fired
       // correlation) so the plant board's S2 valve inventory and
@@ -462,6 +479,8 @@ export function createStartCommand(): Command {
         stopAskSweeper();
         stopStaleAskCloseSweeper();
         stopProdStateSweeper();
+        stopShortIdMapSweeper();
+        stopAskStateSweeper();
         stopTopologySweeper();
         stopTranscriptWatcher();
         stopTranscriptSweep();
@@ -497,6 +516,36 @@ export function createStartCommand(): Command {
       proc.on("SIGINT", cleanupAndExit);
       proc.on("SIGTERM", cleanupAndExit);
       proc.on("SIGHUP", cleanupAndExit);
+
+      // mt#3973: resident-memory CAPTURE for the cockpit daemon.
+      //
+      // The 2026-08-08 panic stackshot carries no argv, so "the runaway was an
+      // MCP server" is an inference, not an observation (mt#3885). `bun` names
+      // at least four process classes on this machine and THIS one — a
+      // long-lived daemon — is currently the largest live `bun` on it (1.31 GB
+      // measured 2026-08-11, against a 427-644 MB band for `mcp start`).
+      // Leaving it uninstrumented would keep the attribution question open
+      // exactly where it is most likely to be answered.
+      //
+      // Capture only, NO self-terminate: mt#3886's ceiling deliberately covers
+      // `mcp start` / `mcp proxy`, whose parent restarts them. Killing the
+      // cockpit daemon out from under the tray is a different decision with a
+      // different blast radius, and it is not this task's to make.
+      const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
+      const { getCurrentProcessResidentBytes, getCurrentProcessUptimeSeconds } = await import(
+        "../../mcp/orphan-exit"
+      );
+      wireMemoryCaptureWatcher({
+        processRole: "cockpit start",
+        // No self-terminate on this class — say so, rather than inventing a
+        // bound the arm-check would then compare against.
+        ceilingBytes: Number.POSITIVE_INFINITY,
+        // Above the 1.31 GB measured baseline, so this fires on genuine growth
+        // rather than on every cockpit start.
+        defaultWatermarkMb: 2048,
+        getResidentBytes: getCurrentProcessResidentBytes,
+        getUptimeSeconds: getCurrentProcessUptimeSeconds,
+      });
 
       // Synchronous-only path: fires on any non-signal exit (normal exit,
       // process.exit() called elsewhere, event-loop drain). `cleanupSync` uses

@@ -182,10 +182,17 @@ export function ConversationPresenceChip({ conversationId }: { conversationId: s
  * {@link ConversationPresenceChip} in the pinned chrome; repeating them here
  * would be the duplicated readout the split exists to avoid.
  *
- * `sticky bottom-0` keeps it against the viewport's bottom edge while the
- * operator scrolls back through history, and drops it into normal flow at the
- * transcript's end. It needs an opaque background: transcript text scrolls
- * underneath it.
+ * It does NOT pin itself (mt#3843). It used to carry `sticky bottom-0 z-10`
+ * while the host mounted it as a SIBLING of `ConversationView` — which put it
+ * in the same stacking context, at the same `z-10`, as the thread's own
+ * bottom-pinned controls, and made this strip (last in DOM order, opaquely
+ * backgrounded) paint over the thread position pill and take the click meant
+ * for its `↑ start` button. The host now passes this through
+ * `ConversationView`'s `tail` prop instead, and `ThreadFooter` does the pinning
+ * for all three at once.
+ *
+ * The opaque background stays, and is not decoration: transcript text scrolls
+ * underneath this strip.
  */
 export function ConversationActivityLine({ conversationId }: { conversationId: string }) {
   const query = useConversationPresence(conversationId);
@@ -199,7 +206,7 @@ export function ConversationActivityLine({ conversationId }: { conversationId: s
 
   return (
     <div
-      className="sticky bottom-0 z-10 bg-background pt-1 pb-1 font-mono text-[11px] text-muted-foreground tabular-nums"
+      className="bg-background pt-1 pb-1 font-mono text-[11px] text-muted-foreground tabular-nums"
       data-testid="conversation-presence-activity"
     >
       {activity}

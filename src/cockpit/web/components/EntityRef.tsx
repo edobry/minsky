@@ -94,6 +94,15 @@ export interface EntityRefProps {
    * already renders the label. Opt-in so dense rows keep their line height.
    */
   appendLabel?: boolean;
+  /**
+   * Query string appended to the entity's route, `?`-prefixed (mt#3791).
+   *
+   * For a reference that names something WITHIN the entity — a specific turn of
+   * a conversation — where `entityToPath` only knows how to address the entity
+   * itself. Left off, the link is byte-identical to what it was before this
+   * existed, which is what keeps every other call site unaffected.
+   */
+  search?: string;
   className?: string;
 }
 
@@ -147,9 +156,9 @@ function EntityHoverContent({
  * Renders `{type, id}` as an in-SPA link. See the module doc above for the
  * two rendering modes (`children` provided vs. omitted).
  */
-export function EntityRef({ type, id, children, appendLabel, className }: EntityRefProps) {
+export function EntityRef({ type, id, children, appendLabel, search, className }: EntityRefProps) {
   const info = useResolvedEntityLabel(type, id);
-  const to = entityToPath(type, id);
+  const to = `${entityToPath(type, id)}${search ?? ""}`;
 
   // Children mode with appendLabel: matched text verbatim, then the truncated
   // label. With no resolved label the appended span is absent entirely, so the

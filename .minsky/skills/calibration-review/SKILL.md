@@ -2,9 +2,9 @@
 name: calibration-review
 description: >-
   Review hook-calibration logs past their review threshold: false-positive-classify the
-  matched records, emit ONE operator-routed Ask with the FP rate and a flip/tune/keep
-  recommendation, then advance the watermark. Use for the periodic calibration sweep, or
-  when asked to review the calibration data for a detector hook.
+  matched records, file tune tasks directly, Ask only for enforcement-posture changes,
+  then advance the watermark. Use for the periodic calibration sweep, or when asked to
+  review the calibration data for a detector hook.
 user-invocable: true
 ---
 
@@ -19,14 +19,23 @@ triggers a review — this skill is the review.
 The mechanical part (enumerate logs, count fires, watermark, diversity
 threshold) is the `calibration.review` command. **This skill does the
 judgment** the command can't: deciding which fires are real positives vs false
-positives, and packaging the decision as an Ask.
+positives, and disposing of the verdict — filing a tune task directly, or
+packaging an enforcement-posture change as an Ask (Step 4's split, mt#3769).
 
 ## Step 1 — Run the sweep (read-only)
 
-Call the command in JSON mode, read-only (do NOT pass `--ack` yet):
+Call the command read-only (do NOT pass `--ack` yet). **Keep the `reviewToken`
+it returns** — Step 5's ack is refused without it, and the token from THIS call
+is the one that binds the records you are about to classify (mt#3906):
 
-- MCP: `mcp__minsky__observability_calibration-review` with `json: true`
-- CLI: `minsky observability calibration-review --json`
+- MCP: `mcp__minsky__observability_calibration-review` with NO arguments. It
+  returns JSON already; the tool declares only `ack`, `askId` and `clearAskId`,
+  and undeclared params are rejected at the MCP boundary (mt#2778). Passing
+  `json: true` here fails — the rejection reads `expected boolean, received
+string`, which points at a type, not at the real cause, so it costs a
+  round-trip to diagnose.
+- CLI: `minsky observability calibration-review --json` (`--json` is a CLI flag,
+  which is where the MCP form's phantom parameter came from).
 
 It returns, per registered log: `totalFires`, `firesSinceLastReview`,
 `suppressedSinceLastReview`, `injectedFiresSinceLastReview` (mt#3197 — the
@@ -47,10 +56,12 @@ set:
    `expired`) — the operator has already decided. Clear the stale reference so
    the cadence detector resumes normal per-turn warnings for this log:
    `mcp__minsky__observability_calibration-review` with `clearAskId: "<id>"`
-   (a single ask id, not an array — one review pass always files exactly one
-   ask covering every review-due log in that pass, so there is only ever
-   one id to clear at a time). Then proceed to classify this log's NEW fires
-   (if any) normally in Step 2 onward.
+   (a single ask id, not an array). One pass files one ask, but that ask covers
+   only the logs that pass actually REVIEWED — a mixed pass excludes whatever it
+   skipped here — so several distinct open ask ids can coexist across the
+   corpus, each stamped by a different pass. Clear them one call at a time,
+   checking each id's state on its own. Then proceed to classify this log's NEW
+   fires (if any) normally in Step 2 onward.
 3. If the ask's `state` is still open (`detected`, `classified`, `routed`,
    `suspended`) — the operator hasn't responded yet. **Skip this log entirely**
    for this pass: do not classify its new fires, do not emit a second Ask for
@@ -61,6 +72,11 @@ set:
    step 2 above) continue to Step 2. (The command itself also refuses to
    silently `--ack` a still-open-ask log when `askId` isn't supplied — see
    Step 5 — so skipping here is belt-and-suspenders, not the only guard.)
+
+   **If you skip anything here, remember it — it changes Step 5's arguments.**
+   A pass that skips one log and reviews another is a MIXED pass, and passing
+   `askId` on its ack call would advance the skipped log too, undoing this
+   step. Step 5's "Which ack call to make" has the branch.
 
 If the `reviewDue` array is EMPTY (after excluding still-open-ask logs per step
 3 above), stop — nothing to review. Do not emit an Ask, do not advance
@@ -161,6 +177,27 @@ disposition MUST carry both:
    the `evidenceFields` it found. **If the verdict says `classifiable` and you
    are about to write "cannot classify", you are contradicting the tool — stop
    and re-read the records before writing anything down.**
+
+   **Read `classifiability.judgedText` beside it — they answer different
+   questions (mt#3898).** `verdict` says whether the records carry ANYTHING to
+   judge a fire by; `matches[].phrase` alone satisfies it.
+   `judgedText.recoverability` says whether you can re-read the text the
+   detector was looking at — `recoverable` / `partial` / `unrecoverable` /
+   `no-records`, with `capturedRecords` of `recordsAssessed`.
+
+   A log can be `classifiable` and `unrecoverable` at once, and that pair is the
+   one to watch: you can rate what MATCHED and not whether the match was right
+   in context. Say so in the disposition rather than reporting a bare FP rate —
+   an unrecoverable population cannot support one. On `partial`, bound the rate
+   to `capturedRecords` explicitly, exactly as §"A record without `captureSchema`"
+   already requires.
+
+   Originating incident (mem#623 R7, 2026-08-10): a pass on `bare-entity-ref`
+   read `classifiable`, correctly, and could establish which refs were flagged —
+   while every judged message was gone, so the question that mattered (was each
+   ref genuinely un-clickable in context?) was unanswerable. Nothing in the
+   output said so.
+
 2. **A check against the RAW JSONL, not this command's rendering.** Name the
    field you EXPECTED to find and did not — that expectation is yours to supply,
    not the tool's: `classifiability` reports the evidence it FOUND, and never
@@ -183,6 +220,29 @@ Originating incident (2026-08-03, mem#827): a sweep dispositioned `wall-of-text`
 `detectorFields`. All 186 records carried `wordCount`, `lineCount`, and
 `trigger` at the top level of the same output. The false premise propagated into
 an Accepted ADR and two task specs before anyone checked the log.
+
+### A record without `captureSchema` is un-auditable, not clean (mt#3607)
+
+Records carry a `captureSchema` field once their writer started snapshotting the
+input it judged. **Absence is not a neutral fact — it means the judged text is
+unrecoverable, so that record can never be re-classified**, and any rate computed
+over a population containing them is a rate over records you cannot check.
+
+Split the population before computing anything:
+
+```
+jq -c 'select(.captureSchema != null)' .minsky/<name>-calibration.jsonl | wc -l   # auditable
+jq -c 'select(.captureSchema == null)' .minsky/<name>-calibration.jsonl | wc -l   # not
+```
+
+Report both counts in the disposition, and bound the FP rate to the auditable
+half. The pre-capture records are not evidence of correct behavior; they are
+evidence of nothing, which is a different thing and must not be averaged in.
+
+This matters most where the judged artifact is MUTABLE. For a PR-body surface,
+re-fetching the body and re-running the matchers answers "what would the detector
+say TODAY", never "what was it judging when it fired" — mt#3584 lost a real false
+positive exactly that way, because the body had been edited in between.
 
 ## Step 3 — Recommendation
 
@@ -207,26 +267,109 @@ evidence you are reasoning from (mt#2878):
 - **tune** — FP rate is high: recommend tightening the detector's patterns
   (name the phrases driving the false positives).
 
-## Step 4 — Emit ONE Ask (do not flip anything yourself)
+## Step 4 — Dispose: file tune tasks yourself, Ask for posture changes
+
+**First decide which half of the split each disposition falls in (mt#3769).** The
+principal granted this in ask#7031 on 2026-08-05; before that, every disposition
+was routed to an Ask, and five passes in two days left six suspended asks whose
+routine half was approved as recommended 3 for 3.
+
+- **File it yourself — no Ask.** A **tune**, or a **keep** that wants a
+  supporting task (e.g. "keep, but capture context so the next pass can rate
+  it"). Create the task with `mcp__minsky__tasks_create` and **name the task id
+  in your pass output**. Creating a durable task is routine under
+  `decision-defaults.mdc`; it changes no agent's behavior and is visible and
+  closable if unwanted.
+- **Ask — always.** Anything that changes **enforcement posture**: log-only →
+  live, live → blocking, retiring a detector or one of its match categories, or
+  changing a threshold. These change whether a detector interrupts agents, which
+  is the thing the principal reserves. **One narrow exception**, below.
+
+The line is _whether a detector interrupts agents_, not _whether someone writes a
+task about one_. When a pass produces only file-it-yourself dispositions, it emits
+NO Ask — go straight to Step 5 and read its no-Ask case.
+
+#### The one exception: a match category a shipped change made provably dead (mt#3946)
+
+The axis the split is really drawn on is **preference-bound vs determinate**, not
+posture-vs-not. Posture changes are almost always preference-bound, which is why
+the two coincide — but not always, and the gap costs the principal a round-trip
+for a foregone conclusion.
+
+Originating incident (2026-08-10, ask#7639): `mt#2565` shipped a display
+linkifier that auto-links bare `mt#N` / `PR #N` refs, and the next pass measured
+**13 of 13** injected warnings for that class as false BY CONSTRUCTION. The pass
+filed an operator Ask anyway, because "retire a match category" is on the
+always-Ask list. The operator answered with the recommended option and then said:
+_"i dont think you needed me for that one."_ They were right — there was no
+preference to express.
+
+**Retire the category yourself, with no Ask, when ALL SIX hold:**
+
+1. **A specific shipped change is named** — task id plus verified-DONE status —
+   that is the reason the category's fires are now false. Read the status; do not
+   infer it.
+2. **The evidence is TOTAL, not merely lopsided:** 100% of the injected fires in
+   the review window fall in the superseded class. A high-but-partial rate is a
+   TUNE (already file-it-yourself) or an Ask — never this.
+3. **The retirement is scoped to that ONE category.** The detector keeps firing on
+   everything else. Retiring a whole detector stays always-Ask.
+4. **No other OPEN Ask covers the same detector's posture.** If one is open, fold
+   this into it rather than acting underneath it. ("Open," not "live" — this
+   skill uses LIVE for a detector's enforcement posture, and an Ask has no
+   posture; the two words must not blur here.)
+5. **At least one live category remains on the detector.** Retiring the last one
+   IS whole-detector retirement, and a detector with no live category is
+   indistinguishable from a dead one — the failure `coverage-receipt.ts` exists to
+   catch, which would FLAG it rather than recognize it as deliberate. Per
+   **ADR-032**: _"a guard tuned into permanent silence is indistinguishable from a
+   dead one."_
+6. **The pass output names what it did NOT ask about** — the shipped change and
+   its status, the fire counts, the detector's remaining live categories, and an
+   explicit note that no Ask was filed. A wrong call must be visible.
+
+**Why this does not reach the principal-reserved attention model.** ADR-031 makes
+the attention model principal-reserved: anything changing _when and how the
+principal receives guidance_ routes through an ask. A `Stop`-event advisory IS
+rendered in the principal's scroll, so this is not automatically outside that.
+Condition 2 is what settles it — a class whose every fire is provably false
+carries no information, so retiring it strictly REMOVES noise and removes nothing
+else. That is the direction ADR-031's attention model protects. It also satisfies
+ADR-032's _"a move may never silence a fire the operator acted on"_: there is no
+such fire in a provably-false class. **Weaken condition 2 and both arguments fail
+with it** — which is why "obviously correct" is not a substitute for measuring.
+
+If ANY of the six fails, the disposition is an Ask, exactly as before. When in
+doubt, ask: this exception is for the case where asking is demonstrably a
+formality, not for the case where you are confident.
+
+A disposition that is BOTH (e.g. "flip to live, and file a tune for the phrases
+driving the remaining FPs") files the task AND asks about the flip; do not fold
+the flip into the task to avoid the Ask.
+
+### When an Ask IS required
 
 Emit a single operator-routed Ask via `mcp__minsky__asks_create` with
 **kind `direction.decide`** (mt#2659 — corrected from `quality.review`; see
-"Why `direction.decide`, not `quality.review`" below).
+"Why `direction.decide`, not `quality.review`" below). Do not flip anything
+yourself — the Ask decides it, not you.
 
-**Acceptance bar (mt#3326): the ask must pass the cold-reader test.** Before
-calling `asks_create`, read your drafted body as a fresh, minimal-context
-evaluator who has never seen this skill, this codebase, or these detector
-names would read it. That reader must be able to, from the body alone:
+**Acceptance bar: the ask must pass the cold-reader test.** The bar itself is
+stated once, in **`/escalation-packaging` §The cold-reader bar** — read it
+there rather than from a copy here. It applies to every operator-facing ask,
+not only this skill's; mt#3326 originally installed it here alone, and
+ask#7591 (2026-08-10) was the recurrence that reached the principal through a
+path this skill does not touch, which is why the canonical text moved
+(mt#3929).
 
-1. State in one sentence what decision is being asked.
-2. Predict what each option does if clicked — including any downstream
-   consequence (like a flip creating a double-injection risk).
-
-If you can't answer both from the body text, rewrite before creating — don't
-ship and hope the operator infers it. (Originating incident: ask#6448,
-2026-07-29, filed by this skill, failed exactly this test: seven undefined
-detector names, "live vs log-only" never defined, and a recommended option
-that bundled a flip whose precondition — dedup — was not yet satisfied.)
+What is specific to THIS skill: a disposition ask carries detector names and
+`live` vs `log-only`, which are exactly the terms a cold reader cannot
+resolve — so it clears the bar's "dispatch a real cold reader" trigger nearly
+every time. Assume you need the subagent pass here rather than deciding you
+don't. (Originating incident: ask#6448, 2026-07-29, filed by this skill,
+failed exactly this test: seven undefined detector names, "live vs log-only"
+never defined, and a recommended option that bundled a flip whose
+precondition — dedup — was not yet satisfied.)
 
 ### Step 4a — Plain-language lead, THEN stats
 
@@ -315,8 +458,10 @@ detail Step 4a's template attaches after the plain-language clause:
   line of rationale
 
 **You MUST NOT** edit any hook file, flip `INJECTION_ENABLED`, or change any
-detector pattern. The flip is the principal's decision; the Ask surfaces it.
-The skill's job ends at the Ask.
+detector pattern — not even one you filed a tune task for. The split in Step 4
+moved who may FILE A TASK, not who may change a detector: the flip is still the
+principal's decision and the Ask still surfaces it. The skill's job ends at the
+task or the Ask, never at an edit.
 
 **Why `direction.decide`, not `quality.review` (mt#2659 regression fix).**
 Per `packages/domain/src/ask/types.ts`'s AskKind table, `direction.decide` is
@@ -334,32 +479,159 @@ avoids repeating that search-miss.
 
 ## Step 5 — Record the ask id and advance the watermark
 
-After the Ask is created, capture its `id` from the `asks_create` response.
-Re-run the command WITH `ack: true` AND the new id in `askId`, so the
-cadence-detector hook (mt#2659) knows to suppress its per-turn warning for
-these logs until the ask resolves:
+**If** an Ask was created, capture its `id` from the `asks_create` response —
+under Step 4's split a pass may legitimately create none. Either way, re-run the
+command with `ack: true`; **whether you also pass `askId` depends on whether an
+Ask exists at all, and on whether this pass skipped anything under Step 1a.**
+Check both first — the cases take different arguments and the wrong one destroys
+data.
 
-- MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
-  `askId: "<id from asks_create>"`
-- CLI: `minsky observability calibration-review --ack` plus the CLI's
-  generated flag for `askId` — check `--help` for the exact flag spelling
+### Every ack carries `reviewToken` — the receipt from the sweep you classified (mt#3906)
 
-This marks the reviewed fires so the next sweep only considers new ones AND
-records `openAskId` on every review-due log's watermark — including a
-`never-reviewed` log that had no watermark at all, for which the entry is
-CREATED (mt#2878). This makes the loop idempotent: a re-run with no new fires
-emits no Ask, and a re-run while the ask is still open (Step 1a) skips straight
-past without re-asking.
+`ack: true` is **REFUSED without `reviewToken`**, and the token to pass is the
+one Step 1's READ-ONLY sweep returned — not one from a later call. Copy it from
+that result's `reviewToken` field (the text output prints it as a trailing
+`reviewToken: <value>` line).
 
-**Command-level guard (belt-and-suspenders).** If Step 1a's skip is ever
-missed, the command itself refuses to help: `--ack` WITHOUT `askId` never
-silently advances the watermark of a review-due log whose watermark
-already carries an `openAskId` — that log is left untouched (surfaced in the
-result as `skippedOpenAskPaths`) instead of being marked reviewed. Passing
-`askId` on the ack call always advances every review-due log regardless
-of any pre-existing `openAskId` (an explicit reaffirmation), and an `--ack`
-call that omits `askId` entirely never drops a pre-existing `openAskId` on
-the logs it DOES advance — only `clearAskId` clears it.
+**Why the ack cannot just re-count.** A pass is two invocations and each runs its
+own sweep, so an ack that re-derives the count marks everything that arrived
+while you were reading as reviewed by nobody. Measured on the 2026-08-10
+`bare-entity-ref` pass: 93 records classified at 10:06, 99 acked at 10:15, six
+discarded unseen — 35% of what that ack claimed to review, with
+`watermarkAdvanced: true` as the only signal. The loss scales with the pass's
+duration times the detector's fire rate, so the busiest log — the one most worth
+reviewing — loses the most.
+
+**What the result tells you afterwards**, all of which belong in your pass output:
+
+- **`midPassArrivals`** — records that landed during your review, per log. They
+  stay unreviewed and will be in the next sweep. This is expected, not an error;
+  report the number rather than letting a later sweep reveal it.
+- **`clampedPaths`** — the token's count sat BELOW an existing watermark (a stale
+  token), so the watermark was left where it was rather than moved backwards.
+- **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
+  NOT advanced. Re-run read-only and ack again with the fresh token.
+
+**If you lost the token** (a `/clear`, a context switch, a resumed pass), do not
+work around it: re-run the command read-only, re-read what it shows, and ack with
+the new token. That is one call, and it is honest about what you actually saw.
+Note the consequence — a token taken from a sweep you did NOT classify against
+re-creates the defect by hand, so the re-read is the point, not a formality.
+
+### Which ack call to make
+
+**First: did this pass emit an Ask at all?** Under Step 4's split a pass whose
+dispositions are all file-it-yourself emits none, and then there is no id to pass.
+
+- **No Ask emitted (mt#3769).** Pass `ack: true` and **NOT** `askId` — the same
+  call shape as a mixed pass below, for a different reason: there is no ask to
+  record rather than one you must not over-apply. **This does not leave the
+  cadence hook nagging.** Advancing a watermark removes the log from `reviewDue`
+  outright, and `openAskId` only suppresses warnings for a log that is STILL
+  review-due — so a log you advanced is quiet either way. Name the filed task ids
+  in your pass output; that is what replaces the ask link.
+
+  Note this composes with the skip rule: if a review-due log was ALSO skipped
+  under Step 1a, the same `ack: true` (no `askId`) call is still correct, and
+  `skippedOpenAskPaths` should name it.
+
+**If an Ask WAS emitted — was any review-due log skipped under Step 1a
+(still-open `openAskId`)?**
+
+- **No — every review-due log was reviewed this pass.** Pass BOTH `ack: true`
+  and `askId`. This advances the watermarks and records `openAskId` on each, so
+  the cadence hook (mt#2659) suppresses its per-turn warning until the ask
+  resolves.
+
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
+    `reviewToken: "<token from Step 1's read-only sweep>"`,
+    `askId: "<id from asks_create>"`
+  - CLI: `minsky observability calibration-review --ack` plus the CLI's
+    generated flag for `askId` — check `--help` for the exact flag spelling
+
+- **Yes — this is a MIXED pass.** Pass `ack: true` and **NOT** `askId`.
+
+  - MCP: `mcp__minsky__observability_calibration-review` with `ack: true`,
+    `reviewToken: "<token from Step 1's read-only sweep>"`
+  - CLI: `minsky observability calibration-review --ack --review-token <token>`
+
+  Confirm afterwards that the result's `skippedOpenAskPaths` names every log you
+  skipped, and say in your pass output that you acked without `askId` and why.
+
+**Why `askId` is unsafe on a mixed pass.** `askId` is a deliberate
+REAFFIRMATION: `selectAckablePaths` skips a log only when `askId` is ABSENT
+(`if (!askId && r.openAskId)` —
+`src/domain/calibration/calibration-sweep.ts`). Supplying it therefore advances
+EVERY review-due log, including the one Step 1a told you to leave alone —
+marking its unreviewed fires as reviewed under an ask that does not cover them,
+and overwriting its link to the ask that does. Live instance (2026-08-05,
+mt#3707): `retrospective-trigger` was review-due with an open ask and **29**
+unreviewed fires while two other logs were reviewable; acking with `askId` would
+have silently erased that backlog.
+
+**The cost of the mixed-pass form, so you don't go looking for it later.** The
+logs you DO advance come out without `openAskId`. That is fine: advancing their
+watermark removes them from `reviewDue` outright, so the cadence hook stops
+warning about them anyway — `openAskId` only suppresses warnings for a log that
+is STILL review-due. What you lose is the recorded link from those logs to the
+ask deciding them; cite the ask id in the task record instead.
+
+Mixed passes are the normal case, not an edge: four disposition asks were open
+simultaneously on 2026-08-04. If you find yourself wanting an ack that both
+preserves the skip AND records `openAskId`, that is a change to the command, not
+a judgment call to make here — file it (mt#3727 carries the history).
+
+Either form marks the reviewed fires, so the next sweep considers only new ones.
+A watermark entry is CREATED where none existed — that is how a
+`never-reviewed` log gets its first one (mt#2878). Both forms keep the loop
+idempotent: a re-run with no new fires emits no Ask, and a re-run while the ask
+is still open (Step 1a) skips straight past without re-asking.
+
+`openAskId` is the part that differs, and only the no-skip form records it. See
+the branch above for why that is the right trade on a mixed pass.
+
+**What the command guarantees, in both forms.** `--ack` WITHOUT `askId` never
+advances the watermark of a review-due log that already carries an `openAskId`;
+that log is left untouched and named in `skippedOpenAskPaths`. This is the
+MECHANISM the mixed-pass branch relies on — not merely a backstop for a missed
+Step 1a skip, though it serves as that too. Passing `askId` advances every
+review-due log regardless of any pre-existing `openAskId`, which is what makes
+it an explicit reaffirmation and what makes it unsafe on a mixed pass. An
+`--ack` call that omits `askId` never DROPS a pre-existing `openAskId` on the
+logs it does advance — only `clearAskId` clears it.
+
+### Step 5a — Read `driftedPaths`: another pass may have been running (mt#3899)
+
+Every write this command makes — `--ack` and `clearAskId` alike — is reconciled
+against the store as it stands at write time, not the snapshot the pass read
+minutes earlier. A target another pass changed in between is **not** overwritten:
+its edit is DROPPED and the path is named in the result's `driftedPaths` (and in
+the text output's `Dropped N write(s)` line). An uncontended pass returns `[]`.
+
+**A non-empty `driftedPaths` means your pass raced another one, and lost that
+path.** Treat it as a real finding, not noise:
+
+1. Say so in your pass output, naming the paths. A silent loss is the failure
+   this reporting exists to prevent.
+2. Do NOT re-run `--ack` to force it through. The other pass's watermark reflects
+   a review that actually happened; overwriting it re-opens exactly the data loss
+   Step 5's `askId` branch guards against.
+3. Whatever classification work you did on a drifted log was duplicated — the
+   other pass reviewed the same fires. Reconcile before filing: check for a task
+   or ask that pass already filed on the same log, and fold your findings into it
+   rather than filing a near-duplicate.
+
+`watermarkAdvanced` and `clearedAskId` are now honest about this: each is false
+when EVERY target of that operation drifted, so a pass that accomplished nothing
+no longer reports success.
+
+**Prevention is cheap and worth doing.** This is a shared resource across
+concurrent sessions, so before starting a pass, run the presence probe from
+`user-preferences.mdc §Probe before claiming a shared resource` over the
+calibration surface — a recent task or ask filed against a log you are about to
+review is the visible signature of a pass in flight. The originating incident
+(2026-08-10) had two agents classify the same 42 fires on `bare-entity-ref`
+inside four minutes and file overlapping findings; neither probed.
 
 ## Cross-references
 

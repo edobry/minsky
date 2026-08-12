@@ -57,6 +57,13 @@ export function createTasksClaimsListCommand(getPersistenceProvider: () => unkno
     name: "list",
     description:
       "List active presence claims for a task — who is actively working on it right now.",
+    // mt#3889/mt#3903: this tool READS presence, so invoking it must not WRITE
+    // one. Without this the probe refreshes the `lastRefreshedAt` it is about
+    // to report, and a long-stale claim reads back fresh. Declared here rather
+    // than in a list inside `src/mcp/server.ts` so the fact travels with the
+    // tool — a sibling presence-reading tool added later needs this line and
+    // nothing else.
+    readsPresence: true,
     parameters: tasksClaimsListParams,
 
     async execute(params) {

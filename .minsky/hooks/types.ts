@@ -30,6 +30,23 @@ export interface ToolHookInput extends ClaudeHookInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
   /**
+   * The harness-assigned `tool_use` id of THIS tool call — e.g.
+   * `toolu_01HFmYeonk1aZCcGM9VMt2VD`. Observed on a real `Agent` PreToolUse
+   * payload 2026-08-05 (mt#2292 Finding 2).
+   *
+   * The same key `agent_spawns.parent_tool_use_id` correlates on
+   * (`agent-spawns-pipeline.ts`), which is why `record-agent-dispatch.ts` keys
+   * the dispatch row on it rather than minting a correlation id: matching keys
+   * are what make `subagent_invocations` joinable to the spawn edge.
+   *
+   * Optional because the payload's shape is the harness's, not ours, and a
+   * guard must degrade rather than throw if a build stops sending it. Note the
+   * asymmetry that motivates the mt#2292 stamp: this is present at PreToolUse
+   * and ABSENT at SubagentStop, while `agent_id` is the reverse — so nothing in
+   * either payload alone joins a dispatch to its close.
+   */
+  tool_use_id?: string;
+  /**
    * The key this repo's hooks historically read. Production does NOT send it (mt#3308,
    * measured on Claude Code 2.1.220; mt#3182 found the absence in production for
    * `session_start` without identifying the real key) — `readInput` synthesizes it from
@@ -48,6 +65,25 @@ export interface ToolHookInput extends ClaudeHookInput {
 export interface StopHookInput extends ClaudeHookInput {
   reason?: string;
   stop_hook_active?: boolean;
+  /**
+   * SubagentStop-only: path to the SUBAGENT's own transcript, as distinct from
+   * `transcript_path`, which on a background-dispatched subagent points at the
+   * PARENT's top-level file (the mt#2637 diagnosis).
+   *
+   * Observed on a real SubagentStop payload 2026-08-05 (mt#2292 Finding 3).
+   * Load-bearing for the dispatch↔close join: the payload carries `agent_id`
+   * but NOT `tool_use_id`, so this file is where the Stop side recovers the
+   * dispatch key `record-agent-dispatch.ts` stamped into the prompt.
+   *
+   * Optional because the payload's shape is the harness's, not ours — a build
+   * that stops sending it must degrade the join, not throw.
+   */
+  agent_transcript_path?: string;
+  /**
+   * SubagentStop-only: the subagent's final assistant message. Observed
+   * alongside {@link agent_transcript_path} on the same payload capture.
+   */
+  last_assistant_message?: string;
 }
 
 export interface HookOutput {
@@ -73,6 +109,15 @@ export interface HookOutput {
      * `./registry.ts`.
      */
     updatedInput?: Record<string, unknown>;
+    /**
+     * MessageDisplay-only: the text shown in place of the streaming delta. Read
+     * off the installed client's own embedded schema (2.1.226), which describes
+     * it as "Text displayed in place of the delta. Omit (or return the delta
+     * unchanged) to display the original." Display-only — the stored transcript
+     * and what the model sees keep the original. Added by mt#2565 for
+     * `linkify-message-display.ts`.
+     */
+    displayContent?: string;
   };
 }
 
@@ -381,6 +426,35 @@ export function resolveGitBinary(options: ResolveGitBinaryOptions = {}): string 
  */
 export function __resetGitBinaryCacheForTests(): void {
   cachedGitBinaryPath = undefined;
+}
+
+/**
+ * Resolve the pinned TypeScript checker for a project root (mt#3657).
+ *
+ * Returns the local `node_modules/.bin/tsgo` when it exists, else null. There is deliberately
+ * NO `bunx @typescript/native-preview` fallback: that command does not run the pinned
+ * dependency — the package's bin is `tsgo`, so bunx's package-name lookup misses and it
+ * fetches `@latest` into a temp dir instead. Measured 2026-08-04: pinned
+ * `7.0.0-dev.20260419.1` vs bunx's `7.0.0-dev.20260707.2`, three months apart, and the
+ * download racing the check in one invocation is what produced the SIGKILLs.
+ *
+ * Null means the caller should SKIP rather than substitute — these hooks are informational,
+ * so a missing install must not become a wall of phantom errors about the operator's code.
+ *
+ * Mirrors {@link resolveGitBinary}'s shape (resolution + injectable existence check). The
+ * src-side sibling is `src/utils/tsgo-binary.ts`; the two are stated separately because hook
+ * files cannot import from `src/`.
+ */
+export function resolveTsgoBinary(
+  projectRoot: string,
+  existsSyncFn: (path: string) => boolean = existsSync
+): string | null {
+  const candidate = `${projectRoot}/node_modules/.bin/tsgo`;
+  try {
+    return existsSyncFn(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

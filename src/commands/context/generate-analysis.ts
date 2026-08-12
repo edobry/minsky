@@ -5,6 +5,7 @@
  */
 
 import { DefaultTokenizationService } from "@minsky/domain/ai/tokenization/index";
+import type { TokenizerMetadata } from "@minsky/domain/ai/tokenization/index";
 import { DefaultModelCacheService } from "@minsky/domain/ai/model-cache/index";
 import { log } from "@minsky/shared/logger";
 import type {
@@ -59,6 +60,95 @@ export function formatContextWindowUtilization(
     return `${utilization.toFixed(1)}%`;
   }
   return options.compact ? "unknown" : UNKNOWN_UTILIZATION_LABEL;
+}
+
+/** The subset of the tokenization service the tokenizer description reads. */
+export interface TokenizerMetadataSource {
+  getTokenizerMetadata(model: string): Promise<TokenizerMetadata | null>;
+}
+
+/**
+ * What the analysis reports about the tokenizer that produced its counts.
+ *
+ * This used to be a hardcoded `{ name: "tiktoken", encoding: "cl100k_base" }`
+ * literal: the call it appeared to make was `getTokenizerInfo`, which
+ * `DefaultTokenizationService` does not implement, so the optional-call
+ * `?.()` returned undefined on EVERY invocation and the `||` default was the
+ * only value the display ever showed (mt#3928). It reported `cl100k_base` for
+ * an Anthropic model because it reported `cl100k_base` for everything,
+ * including models that do not exist.
+ */
+export async function describeTokenizer(
+  source: TokenizerMetadataSource,
+  model: string
+): Promise<TokenizerInfo> {
+  const metadata = await source.getTokenizerMetadata(model);
+
+  if (!metadata) {
+    return {
+      name: "none",
+      encoding: "unknown",
+      description: `No tokenizer could be resolved for ${model}`,
+      approximated: true,
+    };
+  }
+
+  return {
+    name: metadata.library ?? "unknown",
+    encoding: metadata.id,
+    description: metadata.approximated
+      ? `${metadata.id} — an approximation; no tokenizer registered for ${model}`
+      : `${metadata.id} tokenizer for ${model}`,
+    approximated: metadata.approximated,
+  };
+}
+
+/**
+ * The note qualifying a count produced by a tokenizer not made for the model,
+ * or null when the tokenizer was a genuine match.
+ *
+ * Names the substitute rather than asserting "an OpenAI encoding": the
+ * registry's `defaultLibrary` is configurable (`TokenizerConfig`), so that
+ * phrasing was a claim this code never checked — and repeating the unverified
+ * half of a figure is the habit this whole task is about (PR #2801 R1). It
+ * also stops the encoding beside it reading as the MODEL's encoding, which is
+ * exactly what it is not.
+ *
+ * Its own line rather than a suffix: appended to the tokenizer line it pushed
+ * that line past 130 characters, and a report surface that wraps mid-sentence
+ * is how a qualifier gets skipped.
+ */
+export function formatApproximationNote(tokenizer: TokenizerInfo, model: string): string | null {
+  if (!tokenizer.approximated) {
+    return null;
+  }
+  // Names the MODEL, not the tokenizer: the line this sits under already
+  // prints the tokenizer, and a note that repeats the line above it reads as
+  // decoration and gets skipped.
+  return `  ^ approximate: no tokenizer is registered for ${model}, so the above is a substitute`;
+}
+
+/**
+ * The line naming the gap between the breakdown's total and the assembled
+ * context, or null when there is nothing to explain.
+ *
+ * Shared by every surface that prints `Total Tokens`, so a surface cannot show
+ * that figure while omitting what it excludes — the analysis and visualization
+ * displays both print it, and the next one to print it inherits this rather
+ * than reimplementing it (mt#3458, PR #2777 R1).
+ */
+export function formatAssembledContextLine(summary: {
+  totalTokens: number;
+  assembledTokens: number;
+}): string | null {
+  if (summary.assembledTokens <= summary.totalTokens) {
+    return null;
+  }
+  const headerTokens = summary.assembledTokens - summary.totalTokens;
+  return (
+    `Assembled Context: ${summary.assembledTokens.toLocaleString()} tokens ` +
+    `(+${headerTokens.toLocaleString()} for the generation header, which is in no component)`
+  );
 }
 
 /**
@@ -121,20 +211,48 @@ export async function analyzeGeneratedContext(
   const tokenizationService = new DefaultTokenizationService();
   const targetModel = options.model || "gpt-4o";
 
+  /**
+   * Reuse the counts the generation path already produced when they were
+   * produced for THIS model. Recomputing them here is what broke the breakdown
+   * before mt#3458: the generation path estimated `token_count` at one token per
+   * four characters while this loop measured the same text with the real
+   * tokenizer, so every percentage divided a measurement by an estimate and the
+   * total could be exceeded. Reusing makes numerator and denominator the same
+   * numbers by construction, not by two paths agreeing.
+   *
+   * They can only diverge when the analysis targets a different model than the
+   * generation did — `displayModelComparison` re-generates per model, so this
+   * holds there too, but the guard is on the recorded model rather than on that
+   * call-site convention.
+   */
+  const countsMatchThisModel = result.metadata.tokenizedForModel === targetModel;
+
   // Analyze each component's token usage
   const componentAnalysis: ComponentBreakdown[] = [];
+  let recountedTotal = 0;
   for (const component of result.components) {
-    const tokens = await tokenizationService.countTokens(component.content, targetModel);
-    const percentage = result.metadata.totalTokens
-      ? (tokens / result.metadata.totalTokens) * 100
-      : 0;
-
+    const reusable = countsMatchThisModel ? component.token_count : undefined;
+    const tokens =
+      reusable ?? (await tokenizationService.countTokens(component.content, targetModel));
+    recountedTotal += tokens;
     componentAnalysis.push({
       component: component.component_id,
       tokens,
-      percentage: percentage.toFixed(1),
+      percentage: "0.0",
       content_length: component.content.length,
     });
+  }
+
+  /**
+   * When the counts were recomputed for a different model, `metadata.totalTokens`
+   * belongs to the generation model and is the wrong denominator — the sum of
+   * what is actually displayed is the right one.
+   */
+  const totalTokens = countsMatchThisModel ? result.metadata.totalTokens : recountedTotal;
+
+  for (const breakdown of componentAnalysis) {
+    const percentage = totalTokens ? (breakdown.tokens / totalTokens) * 100 : 0;
+    breakdown.percentage = percentage.toFixed(1);
   }
 
   // Sort by token usage (largest first)
@@ -145,20 +263,19 @@ export async function analyzeGeneratedContext(
     ? await getModelContextWindow(targetModel, contextWindowSource)
     : await getModelContextWindow(targetModel);
 
-  // Generate optimization suggestions
-  const optimizations = generateContextOptimizations(
-    componentAnalysis,
-    result.metadata.totalTokens || 0
-  );
+  /**
+   * On the mismatch path every component was recounted for this model, so the
+   * generation path's assembled figure belongs to a different tokenizer target
+   * and would be the odd number out.
+   */
+  const assembledTokens = countsMatchThisModel
+    ? result.metadata.assembledTokens
+    : await tokenizationService.countTokens(result.content, targetModel);
 
-  // Get tokenizer information (getTokenizerInfo is an optional extension not in the base interface)
-  const tokenizerInfo = (
-    tokenizationService as { getTokenizerInfo?: (model: string) => TokenizerInfo }
-  ).getTokenizerInfo?.(targetModel) || {
-    name: "tiktoken",
-    encoding: "cl100k_base",
-    description: "OpenAI tokenizer",
-  };
+  // Generate optimization suggestions
+  const optimizations = generateContextOptimizations(componentAnalysis, totalTokens);
+
+  const tokenizerInfo = await describeTokenizer(tokenizationService, targetModel);
 
   return {
     metadata: {
@@ -170,16 +287,21 @@ export async function analyzeGeneratedContext(
       generationTime: result.metadata.generationTime,
     },
     summary: {
-      totalTokens: result.metadata.totalTokens || 0,
+      totalTokens,
+      assembledTokens,
       totalComponents: result.components.length,
       averageTokensPerComponent: componentAnalysis.length
-        ? Math.round((result.metadata.totalTokens || 0) / componentAnalysis.length)
+        ? Math.round(totalTokens / componentAnalysis.length)
         : 0,
       largestComponent: componentAnalysis[0]?.component || "none",
+      /**
+       * Utilization measures what an operator would actually send, so it uses
+       * the assembled figure — the header is context they pay for. Before
+       * mt#3458 this divided a chars/4 estimate by the window and understated
+       * utilization by roughly the same ~20% the percentages overstated.
+       */
       contextWindowUtilization:
-        contextWindowSize === null
-          ? null
-          : ((result.metadata.totalTokens || 0) / contextWindowSize) * 100,
+        contextWindowSize === null ? null : (assembledTokens / contextWindowSize) * 100,
     },
     componentBreakdown: componentAnalysis,
     optimizations,

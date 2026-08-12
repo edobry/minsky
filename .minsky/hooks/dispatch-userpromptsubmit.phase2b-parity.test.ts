@@ -44,6 +44,8 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "inject-current-time",
       "inject-git-state",
       "inject-prod-state",
+      // mt#3997 — registered immediately before inject-dispatch-watchdog
+      "inject-memory-capture",
       "inject-dispatch-watchdog",
       "memory-search",
       "skill-staleness-detector",
@@ -57,6 +59,7 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       "retrospective-trigger-scanner",
       "pre-narration-detector",
       "causal-premise-detector",
+      "negative-existence-claim-detector",
       "code-mechanism-assertion-detector",
       "ask-routing-deferral-detector",
       // mt#3125 — root-tier sibling of the guidance-detector family above
@@ -87,11 +90,6 @@ describe("Phase 2b parity: UserPromptSubmit registry order", () => {
       // build/deploy-claim seam detector; same new-guard-appended-after-
       // legacy-order rationale as its calibration-first siblings above.
       "build-claim-injection-detector",
-      // mt#2708 — knowledge-acquisition-detector, the mt#2707-RFC (B)
-      // proactive-trigger half of the learn-capture primitive; same
-      // new-guard-appended-after-legacy-order rationale as its
-      // calibration-first siblings above.
-      "knowledge-acquisition-detector",
       // calibration-review-cadence-detector is relocated to stay the true
       // LAST entry across the mt#2812 x mt#2824 merge (2026-07-16) — see
       // registry.ts's comment on this registration.
@@ -136,7 +134,11 @@ function makeInput(overrides: Partial<ClaudeHookInput> = {}): ClaudeHookInput {
 /** Spawn the standalone CLI entrypoint for `hookFilename`, feed it `input` on stdin. */
 async function invokeHookCli(
   hookFilename: string,
-  input: ClaudeHookInput & Record<string, unknown>,
+  // Plain ClaudeHookInput, not `& Record<string, unknown>`: the intersection was
+  // unsatisfiable by every caller (an interface without an index signature is not
+  // assignable to Record<string, unknown>), and no caller passes extra keys — the
+  // body only JSON-stringifies this onto the child's stdin. mt#2900.
+  input: ClaudeHookInput,
   env: Record<string, string> = {}
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const hookPath = new URL(hookFilename, import.meta.url).pathname;
@@ -233,7 +235,9 @@ describe("Phase 2b parity: auto-session-title", () => {
     const cliOutput = JSON.parse(cliResult.stdout) as {
       hookSpecificOutput?: { sessionTitle?: string };
     };
-    expect(cliOutput.hookSpecificOutput?.sessionTitle).toBe(outcome?.sessionTitle);
+    const runSessionTitle = outcome?.sessionTitle;
+    expect(runSessionTitle).toBeDefined();
+    expect(cliOutput.hookSpecificOutput?.sessionTitle).toBe(runSessionTitle as string);
   });
 });
 
@@ -318,7 +322,9 @@ describe("Phase 2b parity: inject-prod-state", () => {
       hookSpecificOutput?: { additionalContext?: string };
     };
     expect(outcome?.additionalContext).toContain("UNKNOWN");
-    expect(cliOutput.hookSpecificOutput?.additionalContext).toBe(outcome?.additionalContext);
+    const runAdditionalContext = outcome?.additionalContext;
+    expect(runAdditionalContext).toBeDefined();
+    expect(cliOutput.hookSpecificOutput?.additionalContext).toBe(runAdditionalContext as string);
   });
 });
 

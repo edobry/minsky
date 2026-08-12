@@ -61,14 +61,17 @@ export function registerListSearchCommands(
 
         if (result.indexed === 0 && result.skipped === 0 && result.total === 0) {
           log.cli("No rules found to index.");
-          return { success: true };
+          // This line is the whole report; `printed` stops the CLI formatter
+          // appending a bare "✅ Success" under it (mt#3961).
+          return { success: true, printed: true };
         }
 
         log.cli(
           `\u2705 Indexed ${result.indexed}/${result.total} rule(s) ` +
             `in ${result.ms}ms (skipped errors: ${result.skipped})`
         );
-        return { success: true };
+        // Same as the empty-set branch above: the printed line is the report.
+        return { success: true, printed: true };
       } catch (error) {
         const message = getErrorMessage(error);
         if (Boolean(params.json) || ctx?.format === "json") {

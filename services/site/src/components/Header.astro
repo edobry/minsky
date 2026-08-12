@@ -3,6 +3,11 @@
 // Wordmark glyph rotates ~10s per cycle (ambient identity motion per
 // docs/brand-system.md §3). prefers-reduced-motion collapse is handled
 // globally in global.css.
+//
+// Nav links point at real in-page anchors on the home page only (mt#3827
+// fix — the prior header linked to #substrate / #how-it-works, neither of
+// which existed). Get started is the primary CTA; GitHub is secondary.
+import CtaButton from "./CtaButton.astro";
 ---
 
 <header class="w-full border-b border-white/[0.06]">
@@ -30,9 +35,13 @@
       <span class="font-sans text-[15px] tracking-tight font-medium">Minsky</span>
     </a>
     <nav class="flex items-center gap-7" aria-label="Primary">
-      <a class="nav-link" href="#substrate">Substrate</a>
-      <a class="nav-link" href="#how-it-works">How it works</a>
-      <a class="nav-link" href="https://github.com/edobry/minsky">GitHub</a>
+      <a class="nav-link" href="/#how-it-works">How it works</a>
+      <a class="nav-link" href="/#fit">Does it fit</a>
+      <a class="nav-link" href="/structure-gap">Essay</a>
+      <a class="nav-link" href="https://github.com/edobry/minsky" rel="noopener noreferrer" target="_blank">
+        GitHub
+      </a>
+      <CtaButton href="/get-started" variant="primary">Get started</CtaButton>
     </nav>
   </div>
 </header>
@@ -66,6 +75,7 @@
     transition: color 180ms ease;
     line-height: 24px;
     padding: 10px 4px;
+    white-space: nowrap;
   }
   .nav-link:hover {
     color: var(--color-text-primary);

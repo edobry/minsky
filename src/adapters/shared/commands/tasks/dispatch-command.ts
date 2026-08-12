@@ -372,7 +372,8 @@ export function createTasksDispatchCommand(
         {
           action: "tasks.dispatch",
           // mt#3162: the negative half of the same gate — a prohibition in `instructions`
-          // must carry its basis and an explicit licence to falsify.
+          // must carry its basis. mt#3167 narrowed the check here too: it once also required
+          // an explicit licence to falsify, retired at 8/8 measured false positives.
           structuralCheck: () => checkInstructionsForBareProhibition(p.instructions),
         }
       );

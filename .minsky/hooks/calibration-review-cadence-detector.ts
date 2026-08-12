@@ -73,20 +73,30 @@
 //      points the agent at when a log is review-due
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { readInput, writeOutput, findRepoRoot } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+// mt#3744 deliberately removed the `./domain-bootstrap` import: this hook no longer resolves
+// a persistence provider on the per-turn path. `resolveAskStates` reads a cached snapshot the
+// cockpit sweep writes (`src/cockpit/ask-state-cache.ts`) — see that function's doc comment
+// for the ADR-028 D7(5) reasoning, and the test that asserts this module names no provider.
 import {
   CALIBRATION_LOG_REGISTRY,
   runSweep,
   computeReviewDueLogs,
+  deriveCalibrationLogEntries,
   STALE_DAYS_MS,
   NEVER_REVIEWED_DAYS,
   type CalibrationLogEntry,
   type WatermarkStore,
   type ReviewDueLog,
 } from "../../src/domain/calibration/calibration-sweep";
+// mt#3716: this hook lives in the `.minsky/hooks/` tree, so — unlike
+// `src/adapters/shared/commands/calibration.ts` — it can safely import the
+// shared declaration accessor (which itself reads `.minsky/hooks/registry.ts`
+// and `scripts/lib/standalone-guard-canaries.ts`) directly.
+import { getDeclaredCalibrationLogNames } from "../../scripts/lib/calibration-log-declarations";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +118,23 @@ const LAST_WARNED_STORE_PATH = ".minsky/calibration-review-cadence-last-warned.j
  * nag rather than a single escalation.
  */
 export const COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * Hard ceiling for the rendered advisory, in characters. MUST equal this
+ * guard's declared `attentionCost.denialMessageSizeChars` in
+ * `.minsky/hooks/registry.ts` — `guard-feedback-shape.test.ts` (mt#3479)
+ * asserts the rendered text against the registry declaration, so drift
+ * between the two fails there mechanically.
+ *
+ * Why a ceiling is enforced in code and not just measured in tests (2026-08-08):
+ * the due-log list is unbounded — `never-fired` legs join it purely by
+ * wall-clock (`liveSinceDate + reviewByDays`), independent of any workspace
+ * state — so an unbounded render grows past any declared figure as the
+ * registry ages. It did: the advisory crossed 450 chars when registry legs
+ * aged into review-due, failing guard-feedback-shape on main and in every PR's
+ * CI. Bounding the render is the contract; the declaration is the promise.
+ */
+const ADVISORY_BUDGET_CHARS = 450;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,132 +247,278 @@ export function buildPendingAskRecord(
   };
 }
 
-/** Build the additionalContext warning message for a set of due logs. */
+/**
+ * Build the additionalContext warning message for a set of due logs, bounded
+ * to ADVISORY_BUDGET_CHARS. Lists as many due logs as fit; the remainder is
+ * summarized as one "…and K more" line so the count is never silently
+ * truncated (the full list is one `/calibration-review` run away).
+ *
+ * Deliberately a dynamic byte-budget fit rather than a fixed item count
+ * (mt#3824 R2): a fixed count (e.g. "show 2") still needs its declared
+ * ceiling hand-verified against the longest plausible name/reason, which is
+ * exactly the kind of manual worst-case estimate that drifted silently
+ * before (mt#3479's 450 was measured against a SILENT guard). Greedily
+ * fitting against the actual budget is self-enforcing: it can never render
+ * more than ADVISORY_BUDGET_CHARS regardless of how long a future registry
+ * entry's name or reason clause gets, without anyone having to re-measure.
+ */
 export function formatCadenceWarning(due: ReviewDueLog[]): string {
-  const lines: string[] = [
-    "[calibration-review-cadence-detector] Calibration log(s) are review-due (mt#2619):",
-    "",
-  ];
-  for (const d of due) {
+  const header =
+    "[calibration-review-cadence-detector] Calibration log(s) are review-due (mt#2619):";
+  const action =
+    "Run /calibration-review to classify false positives and record a flip/tune/keep disposition.";
+
+  const legLine = (d: ReviewDueLog): string => {
     const reasonLabel =
       d.reason === "past-threshold"
         ? "past review threshold (fires + diversity)"
         : d.reason === "never-reviewed"
           ? `never reviewed; first fire >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days ago`
           : d.reason === "never-fired"
-            ? `confirmed alive (live synthetic test) but ZERO real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days since — check whether the trigger is rare or the detector has silently broken (mt#3078)`
+            ? `alive but zero real fires >= ${d.reviewByDays ?? NEVER_REVIEWED_DAYS} days (mt#3078)`
             : `unreviewed for >= ${Math.floor(STALE_DAYS_MS / (24 * 60 * 60 * 1000))} days`;
-    lines.push(
-      // mt#3197: quote the INJECTED count — the detections that actually
-      // reached the operator. The positional count includes suppressed ones,
-      // which made a correctly-tuned detector look like a review backlog.
-      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) since last review ` +
-        `${
-          d.suppressedSinceLastReview > 0
-            ? `(+${d.suppressedSinceLastReview} suppressed, not counted) `
-            : ""
-        }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
+    // mt#3197: quote the INJECTED count — the detections that actually
+    // reached the operator. The positional count includes suppressed ones,
+    // which made a correctly-tuned detector look like a review backlog.
+    return (
+      `  - ${d.name}: ${d.injectedFiresSinceLastReview} new fire(s) ` +
+      `${
+        d.suppressedSinceLastReview > 0 ? `(+${d.suppressedSinceLastReview} suppressed) ` : ""
+      }(${d.totalFires} total, ${d.distinctPhrases} distinct) — ${reasonLabel}`
     );
+  };
+
+  const render = (listed: string[], omitted: number): string => {
+    const lines = [header, "", ...listed];
+    if (omitted > 0) lines.push(`  …and ${omitted} more review-due log(s)`);
+    lines.push("", action);
+    return lines.join("\n");
+  };
+
+  // Greedily list legs while the FULL render (including a potential
+  // "…and K more" line for the rest) stays within budget.
+  const listed: string[] = [];
+  let considered = 0;
+  for (const d of due) {
+    considered += 1;
+    const candidate = [...listed, legLine(d)];
+    if (render(candidate, due.length - considered).length > ADVISORY_BUDGET_CHARS) break;
+    listed.push(legLine(d));
   }
-  lines.push("");
-  lines.push(
-    "Run the /calibration-review skill (or " +
-      "mcp__minsky__observability_calibration-review) to classify false " +
-      "positives and record a flip/tune/keep disposition before this drifts " +
-      "further out of review."
-  );
-  return lines.join("\n");
+  return render(listed, due.length - listed.length);
 }
 
 /**
  * What a lookup of one `openAskId` established.
  *
- * `unavailable` is deliberately distinct from `not-found`: this detector reached no
- * persistence layer at all before mt#3270, so the lookup added here crosses the
- * hook-bootstrap boundary that silently killed two hooks (mt#3019, mt#3046). Collapsing an
- * unreachable store into "unknown ask" would make a dead lookup render exactly like a healthy
- * one that found nothing — the failure shape this detector's own bug already had.
+ * The four "could not establish it" kinds are deliberately distinct, and each names a
+ * DIFFERENT fault (mt#3744 SC3/SC4). Before mt#3270 this detector reached no persistence
+ * layer at all; mt#3270 added a live lookup whose every failure collapsed into one
+ * `unavailable` reason, which is what made the original diagnosis point at configuration
+ * instead of at the connect timeout that was actually firing. A snapshot that has never been
+ * written, one that has gone stale, one that simply does not cover this id, and one that
+ * cannot be parsed are four separate things to fix — so they render as four separate lines.
  */
 export type AskLookup =
   | { kind: "open"; state: string; shortId?: string }
   | { kind: "settled"; state: string; shortId?: string }
   | { kind: "not-found" }
+  /** A snapshot exists but is older than {@link ASK_STATE_STALENESS_MS}; asserts no state. */
+  | { kind: "stale"; checkedAt: string; ageMs: number }
+  /** A fresh snapshot exists and does not mention this id — the producer never asked about it. */
+  | { kind: "not-in-snapshot"; checkedAt: string; ageMs: number }
+  /** No snapshot file at all — the cockpit refresh has never run here. */
+  | { kind: "absent" }
+  /** A genuine producer-side fault: the snapshot exists and cannot be read or parsed. */
   | { kind: "unavailable"; reason: string };
 
-/** Ask states in which the operator genuinely still owes a response. */
-const OPEN_ASK_STATES = new Set(["routed", "suspended"]);
+/**
+ * Cache age beyond which the snapshot no longer supports a disposition claim.
+ *
+ * Six ticks of the producer's 5-minute cadence (`ASK_STATE_REFRESH_INTERVAL_MS` in
+ * `src/cockpit/sweepers.ts`), so a healthy sweep never trips it and only a stopped or
+ * failing producer does — the same fresh/stale margin `inject-prod-state.ts` uses against its
+ * own producer. Erring toward stale is the safe direction here: the failure mt#3270 exists to
+ * prevent is asserting that an ANSWERED ask is still pending.
+ */
+export const ASK_STATE_STALENESS_MS = 30 * 60 * 1000;
+
+// Cache location — MUST match `src/cockpit/ask-state-cache.ts`
+// (ASK_STATE_CACHE_FILENAME + getStateDir). That module lives in a separate module graph and
+// cannot be imported here, so the path resolution is duplicated; keep the two in sync. This
+// mirrors `inject-prod-state.ts`, which carries the same duplication for the same reason.
+const ASK_STATE_CACHE_FILENAME = "ask-state-cache.json";
+
+/** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
+function getStateDir(): string {
+  // MUST match the producer's path EXACTLY. cockpit getStateDir() (src/cockpit/lifecycle.ts)
+  // = MINSKY_STATE_DIR override, else getMinskyStateDir() from packages/shared/src/paths.ts =
+  //   join(XDG_STATE_HOME || join(process.env.HOME || homedir(), ".local/state"), "minsky").
+  // Note the `process.env.HOME || homedir()` precedence (paths.ts uses HOME first).
+  const override = process.env["MINSKY_STATE_DIR"];
+  if (override) return override;
+  const xdgStateHome =
+    process.env["XDG_STATE_HOME"] || join(process.env["HOME"] || homedir(), ".local/state");
+  return join(xdgStateHome, "minsky");
+}
+
+export function getAskStateCachePath(): string {
+  return join(getStateDir(), ASK_STATE_CACHE_FILENAME);
+}
+
+/** One resolved ask in the on-disk snapshot (mirrors `src/cockpit/ask-state-cache.ts`). */
+export type AskStateEntry =
+  | { found: true; state: string; open: boolean; shortId?: string }
+  | { found: false };
+
+/** The on-disk snapshot (mirrors `src/cockpit/ask-state-cache.ts` AskStateCacheRecord). */
+export interface AskStateCacheRecord {
+  checkedAt: string;
+  asks: Record<string, AskStateEntry>;
+}
+
+/** What reading the snapshot file established — the three outcomes render differently. */
+export type AskStateCacheRead =
+  | { kind: "ok"; record: AskStateCacheRecord }
+  | { kind: "absent" }
+  | { kind: "unreadable"; reason: string };
 
 /**
- * Resolve the state of each referenced ask.
+ * Parse + validate the snapshot JSON. Returns null on malformed content, which the caller
+ * turns into `unreadable` — deliberately NOT into `absent`, because a corrupt file and a
+ * never-written one call for different fixes.
  *
- * Only called when at least one pending log exists, so the ordinary turn — where nothing is
- * past threshold — pays no database cost at all. Every failure resolves to `unavailable` with
- * the reason attached rather than throwing: a cadence reminder must never break the turn.
+ * `open` is read from the record rather than recomputed here: the producer owns the
+ * open-state policy (`OPEN_ASK_STATES`), and duplicating that set in the consumer is exactly
+ * how the two would drift.
  */
-export async function resolveAskStates(askIds: string[]): Promise<Map<string, AskLookup>> {
+export function parseAskStateCache(raw: string): AskStateCacheRecord | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const rec = obj as Record<string, unknown>;
+  if (typeof rec.checkedAt !== "string" || rec.checkedAt.length === 0) return null;
+  if (!rec.asks || typeof rec.asks !== "object" || Array.isArray(rec.asks)) return null;
+
+  const asks: Record<string, AskStateEntry> = {};
+  for (const [id, value] of Object.entries(rec.asks as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const entry = value as Record<string, unknown>;
+    if (entry.found === false) {
+      asks[id] = { found: false };
+      continue;
+    }
+    if (entry.found !== true) continue;
+    if (typeof entry.state !== "string" || typeof entry.open !== "boolean") continue;
+    asks[id] = {
+      found: true,
+      state: entry.state,
+      open: entry.open,
+      ...(typeof entry.shortId === "string" ? { shortId: entry.shortId } : {}),
+    };
+  }
+  return { checkedAt: rec.checkedAt, asks };
+}
+
+/**
+ * Read the snapshot file. The ONLY IO on this path — no database connection, no domain
+ * bootstrap, no provider resolution (mt#3744). Kept separate from {@link resolveAskStates} so
+ * that function stays pure and every rendering branch is unit-testable without a filesystem.
+ */
+export function readAskStateCache(cachePath: string = getAskStateCachePath()): AskStateCacheRead {
+  try {
+    if (!existsSync(cachePath)) return { kind: "absent" };
+    const record = parseAskStateCache(readFileSync(cachePath, "utf-8"));
+    if (!record) return { kind: "unreadable", reason: "snapshot is not a valid ask-state record" };
+    return { kind: "ok", record };
+  } catch (err) {
+    return { kind: "unreadable", reason: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Resolve the state of each referenced ask from a snapshot read.
+ *
+ * PURE — takes the already-performed read rather than doing it. Before mt#3744 this function
+ * called `ensureHookDomainBootstrap()` -> `resolvePersistenceProvider()` and opened a
+ * Postgres connection from hook context: unbounded-latency network I/O inside a synchronous
+ * dispatcher budget, which ADR-028 D7(5) routes to the cache+sweep precedent instead. The
+ * measured cold connect from a hook-shaped process is 2.5-5.5s (mt#3879) against this guard's
+ * declared `timeoutMs: 10000`, and the dispatcher writes every guard's injections in ONE
+ * end-of-loop write (mt#3757) — so one slow guard is a whole-turn risk, not just its own.
+ *
+ * An unparseable snapshot resolves every id to `unavailable`; a healthy snapshot that simply
+ * lacks an id resolves only THAT id to `not-in-snapshot`.
+ */
+export function resolveAskStates(
+  read: AskStateCacheRead,
+  askIds: string[],
+  nowMs: number
+): Map<string, AskLookup> {
   const out = new Map<string, AskLookup>();
   if (askIds.length === 0) return out;
 
-  const unavailable = (reason: string): Map<string, AskLookup> => {
-    process.stderr.write(
-      `[calibration-review-cadence-detector] ask lookup unavailable: ${reason}\n`
-    );
-    for (const id of askIds) out.set(id, { kind: "unavailable", reason });
+  const all = (lookup: AskLookup): Map<string, AskLookup> => {
+    for (const id of askIds) out.set(id, lookup);
     return out;
   };
 
-  try {
-    const bootstrap = await ensureHookDomainBootstrap();
-    if (!bootstrap.ok) {
-      return unavailable(bootstrap.error ?? "domain bootstrap failed");
-    }
-
-    const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
-    const provider = await resolvePersistenceProvider();
-    if (!provider || !("getDatabaseConnection" in provider)) {
-      return unavailable("no persistence provider with a database connection");
-    }
-    const db = await (
-      provider as { getDatabaseConnection(): Promise<unknown> }
-    ).getDatabaseConnection();
-
-    // `@minsky/domain/ask/repository`, not the `/ask` barrel — the barrel is not an exported
-    // subpath, and a wrong specifier here fails at RUNTIME inside a swallowed catch (the
-    // mt#2760 shape). Every other call site in the repo uses this same path.
-    const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
-    const repo = new DrizzleAskRepository(
-      db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+  if (read.kind === "absent") return all({ kind: "absent" });
+  if (read.kind === "unreadable") {
+    process.stderr.write(
+      `[calibration-review-cadence-detector] ask-state snapshot unreadable: ${read.reason}\n`
     );
-
-    for (const id of askIds) {
-      try {
-        const ask = await repo.getById(id);
-        if (!ask) {
-          out.set(id, { kind: "not-found" });
-          continue;
-        }
-        out.set(id, {
-          kind: OPEN_ASK_STATES.has(ask.state) ? "open" : "settled",
-          state: ask.state,
-          shortId: ask.shortId ?? undefined,
-        });
-      } catch (err) {
-        // A per-id failure is still a lookup failure for THAT id — never silently "not found".
-        out.set(id, {
-          kind: "unavailable",
-          reason: err instanceof Error ? err.message : String(err),
-        });
-      }
-    }
-    return out;
-  } catch (err) {
-    return unavailable(err instanceof Error ? err.message : String(err));
+    return all({ kind: "unavailable", reason: read.reason });
   }
+
+  const checkedMs = Date.parse(read.record.checkedAt);
+  // An unparseable timestamp is treated as infinitely old rather than as fresh — the same
+  // direction `inject-prod-state.ts` errs in, and the one that cannot assert a wrong state.
+  const ageMs = Number.isNaN(checkedMs) ? Number.POSITIVE_INFINITY : nowMs - checkedMs;
+  if (ageMs > ASK_STATE_STALENESS_MS) {
+    return all({ kind: "stale", checkedAt: read.record.checkedAt, ageMs });
+  }
+
+  for (const id of askIds) {
+    const entry = read.record.asks[id];
+    if (!entry) {
+      out.set(id, { kind: "not-in-snapshot", checkedAt: read.record.checkedAt, ageMs });
+      continue;
+    }
+    if (!entry.found) {
+      out.set(id, { kind: "not-found" });
+      continue;
+    }
+    out.set(id, {
+      kind: entry.open ? "open" : "settled",
+      state: entry.state,
+      ...(entry.shortId ? { shortId: entry.shortId } : {}),
+    });
+  }
+  return out;
 }
 
 /** `[label](minsky://ask/<uuid>)` per cockpit-deeplinks.mdc, so the id is openable from the line. */
 function askDeeplink(askId: string, shortId?: string): string {
   return `[${shortId ?? askId.slice(0, 8)}](minsky://ask/${askId})`;
+}
+
+/**
+ * Humanize a duration in ms to a compact "Nm" / "Nh" / "Nd" string. Mirrors
+ * `inject-prod-state.ts`'s helper of the same name — a snapshot's age is what makes a
+ * staleness line actionable, and "1h" reads faster than a raw timestamp difference.
+ */
+export function formatAge(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "unknown";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
 }
 
 /**
@@ -400,10 +573,30 @@ export function formatPendingAskLines(
             `${fires} — disposition state unknown.`
         );
         break;
+      case "stale":
+        lines.push(
+          `  - ${d.name}: ask ${askDeeplink(askId)} ${fires} — the ask-state snapshot is ` +
+            `${formatAge(lookup.ageMs)} old (last refreshed ${lookup.checkedAt}); the cockpit ` +
+            "refresh may be stopped, so no disposition state is asserted."
+        );
+        break;
+      case "not-in-snapshot":
+        lines.push(
+          `  - ${d.name}: ask ${askDeeplink(askId)} ${fires} — not covered by the current ` +
+            `ask-state snapshot (${formatAge(lookup.ageMs)} old); the refresh did not ask ` +
+            "about this id, so its disposition state is unknown."
+        );
+        break;
+      case "absent":
+        lines.push(
+          `  - ${d.name}: ask ${askDeeplink(askId)} ${fires} — no ask-state snapshot exists ` +
+            "yet (the cockpit refresh has not run here); disposition state unknown."
+        );
+        break;
       case "unavailable":
         lines.push(
-          `  - ${d.name}: could not read the state of ask ${askDeeplink(askId)} ` +
-            `${fires} — ask store unreachable (${lookup.reason}); disposition state unknown.`
+          `  - ${d.name}: ask ${askDeeplink(askId)} ${fires} — the ask-state snapshot could ` +
+            `not be read (${lookup.reason}); disposition state unknown.`
         );
         break;
     }
@@ -486,7 +679,15 @@ export async function run(
         return null;
       }
     };
-    const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+    // mt#3716: sweep the DERIVED set (the three declaration surfaces' union,
+    // merged with CALIBRATION_LOG_REGISTRY's hand-typed entries) rather than
+    // the static registry alone, so a newly-declared detector's log is
+    // visited without a human editing calibration-sweep.ts.
+    const entries = deriveCalibrationLogEntries(
+      getDeclaredCalibrationLogNames(),
+      CALIBRATION_LOG_REGISTRY
+    );
+    const results = await runSweep(entries, readContent, watermarks);
 
     const now = Date.now();
     const due = computeReviewDueLogs(results, watermarks, now);
@@ -515,11 +716,13 @@ export async function run(
     const parts: string[] = [];
     if (normalToWarn.length > 0) parts.push(formatCadenceWarning(normalToWarn));
     if (pendingToShow.length > 0) {
-      // Gated on there being something to render: the ordinary turn resolves no asks and
-      // therefore never touches the database.
-      const askStates = await resolveAskStates([
-        ...new Set(pendingToShow.map((d) => d.openAskId as string)),
-      ]);
+      // Gated on there being something to render, and now a local file read rather than a
+      // database connection (mt#3744) — the ordinary turn touches neither.
+      const askStates = resolveAskStates(
+        readAskStateCache(),
+        [...new Set(pendingToShow.map((d) => d.openAskId as string))],
+        now
+      );
       parts.push(formatPendingAskLines(pendingToShow, askStates));
     }
 
@@ -568,7 +771,15 @@ export async function main(): Promise<void> {
         return null;
       }
     };
-    const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+    // mt#3716: sweep the DERIVED set (the three declaration surfaces' union,
+    // merged with CALIBRATION_LOG_REGISTRY's hand-typed entries) rather than
+    // the static registry alone, so a newly-declared detector's log is
+    // visited without a human editing calibration-sweep.ts.
+    const entries = deriveCalibrationLogEntries(
+      getDeclaredCalibrationLogNames(),
+      CALIBRATION_LOG_REGISTRY
+    );
+    const results = await runSweep(entries, readContent, watermarks);
 
     const now = Date.now();
     const due = computeReviewDueLogs(results, watermarks, now);
@@ -606,9 +817,11 @@ export async function main(): Promise<void> {
       // Same lookup as the dispatcher path in `run()` — both entrypoints render the same
       // surface, so both must resolve state. Leaving this one unresolved made every CLI-path
       // line read "ask store unreachable (no lookup performed)" (PR #2374 R1 BLOCKING).
-      const askStates = await resolveAskStates([
-        ...new Set(pendingToShow.map((d) => d.openAskId as string)),
-      ]);
+      const askStates = resolveAskStates(
+        readAskStateCache(),
+        [...new Set(pendingToShow.map((d) => d.openAskId as string))],
+        now
+      );
       parts.push(formatPendingAskLines(pendingToShow, askStates));
     }
 
