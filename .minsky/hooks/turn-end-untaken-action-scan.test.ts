@@ -569,12 +569,17 @@ describe("mt#3917 precision fixes", () => {
         // evidence the watcher EXISTS, not for an excuse — the same line PR #2784 R1 drew when
         // it rejected a broader `blocked only on ci` pattern. Every sentence here mentions CI, a
         // review, or a check and arms nothing.
+        //
+        // PR #2904 R1: asserts the SPECIFIC family, not `length > 0`. A bare length assertion
+        // passes when the intended family was wrongly suppressed and some OTHER family happened
+        // to match the same sentence — so it can go green on exactly the regression it exists to
+        // catch.
         for (const unarmed of [
           "I'll merge the PR when the review lands.",
           "Blocked only on CI now — I'll merge the PR when it goes green.",
           "The checks are still running; I'll merge the PR after they finish.",
         ]) {
-          expect(detectUntakenAction(unarmed).length).toBeGreaterThan(0);
+          expect(detectUntakenAction(unarmed).map((m) => m.family)).toContain("ill-action");
         }
       });
     });
@@ -595,10 +600,22 @@ describe("mt#3917 precision fixes", () => {
       });
 
       test("NEGATIVE CONTROL: the same phrasing outside a handoff block still fires", () => {
+        // PR #2904 R1: family-specific. `length > 0` would pass if `next-up` were wrongly
+        // suppressed here and any other family matched the sentence.
         expect(
-          detectUntakenAction("The queue is worked; the next step is a clean self-contained scope.")
-            .length
-        ).toBeGreaterThan(0);
+          detectUntakenAction(
+            "The queue is worked; the next step is a clean self-contained scope."
+          ).map((m) => m.family)
+        ).toContain("next-up");
+      });
+
+      test("the suppression is scoped to next-up — `next-step` in a handoff still fires", () => {
+        // PR #2904 R1 BLOCKING: the first version gated on `ATTRIBUTABLE_FAMILIES`, which also
+        // carries `next-step`, silently widening past both the spec and the evidence. Every
+        // attested handoff fire is the `next step is` phrasing. This pins the scope so a future
+        // widening is a deliberate edit with a fixture behind it, not a set reused by accident.
+        const withNextStep = `${HANDOFF}\n\nThat's the next step.`;
+        expect(detectUntakenAction(withNextStep).map((m) => m.family)).toContain("next-step");
       });
 
       test("a real commitment in the SAME message still fires — suppression is per-family", () => {

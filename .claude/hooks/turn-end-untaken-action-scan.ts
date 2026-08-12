@@ -429,7 +429,10 @@ export function detectUntakenAction(finalMessage: string): UntakenActionMatch[] 
     // window while the next-step sentence sits inside it. Passing `tail` here would have made
     // the suppression work only on handoffs short enough to fit the window — which the attested
     // fixture happens to be, so the tests would have passed and the real case would not.
-    if (ATTRIBUTABLE_FAMILIES.has(family) && isInHandoffBlock(scanned, tailOffset + m.index)) {
+    if (
+      HANDOFF_SUPPRESSED_FAMILIES.has(family) &&
+      isInHandoffBlock(scanned, tailOffset + m.index)
+    ) {
       continue;
     }
     matches.push({ family, matchedPhrase: m[0] });
@@ -530,6 +533,19 @@ export function isAttributedStep(text: string, index: number): boolean {
  * closing message where a real commitment is most likely to also appear.
  */
 const HANDOFF_BLOCK_HEADING = /^\s{0,3}#{1,6}\s*(?:\*\*)?\s*(?:resume|handoff)\b/im;
+
+/**
+ * Families the handoff suppression applies to — `next-up` ONLY (PR #2904 R1).
+ *
+ * Deliberately NOT `ATTRIBUTABLE_FAMILIES`, which also carries `next-step`
+ * (`that's the next step`). The first version reused that set and so silently widened the
+ * suppression past the evidence: every attested handoff fire is the `next step is` phrasing,
+ * which is `next-up`. `next-step` inside a handoff is plausibly the same speech act, but
+ * plausibly is not a fixture — and this guard's own doc comment warns that over-suppressing
+ * re-opens the gap it exists to close. If a `next-step` handoff fire is ever filed, that is the
+ * datum that widens this set.
+ */
+const HANDOFF_SUPPRESSED_FAMILIES: ReadonlySet<string> = new Set(["next-up"]);
 
 /**
  * Does a handoff/resume block open before `index`?
