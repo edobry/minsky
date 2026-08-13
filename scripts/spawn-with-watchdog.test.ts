@@ -11,6 +11,7 @@ import { describe, test, expect } from "bun:test";
 import {
   spawnWithWatchdog,
   collectDescendantPids,
+  scanDescendants,
   resolveWatchdogBudgetMs,
   formatWatchdogTimeout,
   WATCHDOG_BUDGETS_MS,
@@ -170,6 +171,11 @@ describe("spawnWithWatchdog — descendant reaping (mt#4098)", () => {
 
     expect(result.timedOut).toBe(true);
     expect(result.reapedDescendants).toBeGreaterThanOrEqual(1);
+    // PR #2963 R1: the escalation must be REPORTED, not just performed. Without
+    // this field the run is indistinguishable from one where the grandchild went
+    // quietly, because `requiredSigkill` only ever describes the direct child.
+    expect(result.descendantsRequiredSigkill).toBeGreaterThanOrEqual(1);
+    expect(result.descendantScanFailed).toBe(false);
 
     const grandchildPid = grandchildPidFrom(result.stdout);
     expect(await waitForExit(grandchildPid, 2_000)).toBe(true);
@@ -179,6 +185,59 @@ describe("spawnWithWatchdog — descendant reaping (mt#4098)", () => {
     const result = await spawnWithWatchdog(QUICK_CHILD, { budgetMs: 30_000 });
     expect(result.timedOut).toBe(false);
     expect(result.reapedDescendants).toBe(0);
+  });
+});
+
+/**
+ * PR #2963 R1: enumeration is a two-mechanism affair, and the case that matters
+ * is the one where NEITHER works — that must be distinguishable from "the child
+ * spawned nothing," because the two produce the same empty pid list.
+ */
+describe("scanDescendants — mechanism availability", () => {
+  test("prefers the single ps snapshot when it is available", () => {
+    const tree = new Map<number, number[]>([
+      [100, [200]],
+      [200, [300]],
+    ]);
+    const scan = scanDescendants(100, {
+      processTree: () => tree,
+      childrenViaPgrep: () => {
+        throw new Error("pgrep must not be consulted when ps succeeded");
+      },
+    });
+    expect(scan.pids.sort((a, b) => a - b)).toEqual([200, 300]);
+    expect(scan.enumerationFailed).toBe(false);
+  });
+
+  test("falls back to pgrep when ps is unavailable", () => {
+    const viaPgrep: Record<number, number[]> = { 100: [200], 200: [] };
+    const scan = scanDescendants(100, {
+      processTree: () => null,
+      childrenViaPgrep: (pid) => viaPgrep[pid] ?? [],
+    });
+    expect(scan.pids).toEqual([200]);
+    expect(scan.enumerationFailed).toBe(false);
+  });
+
+  test("reports enumerationFailed when NEITHER mechanism is available", () => {
+    // The regression this guards: returning an empty list here is indistinguishable
+    // from a childless root, so the watchdog would silently revert to the
+    // pre-mt#4098 child-only kill and report a clean run.
+    const scan = scanDescendants(100, {
+      processTree: () => null,
+      childrenViaPgrep: () => null,
+    });
+    expect(scan.pids).toEqual([]);
+    expect(scan.enumerationFailed).toBe(true);
+  });
+
+  test("a childless root is NOT an enumeration failure", () => {
+    const scan = scanDescendants(100, {
+      processTree: () => null,
+      childrenViaPgrep: () => [],
+    });
+    expect(scan.pids).toEqual([]);
+    expect(scan.enumerationFailed).toBe(false);
   });
 });
 
@@ -249,6 +308,8 @@ describe("formatWatchdogTimeout", () => {
       requiredSigkill: false,
       elapsedMs: 900_500,
       reapedDescendants: 0,
+      descendantsRequiredSigkill: 0,
+      descendantScanFailed: false,
     });
     expect(message).toContain("run-tests-main.ts");
     expect(message).toContain("900s wall-clock watchdog");
@@ -265,7 +326,64 @@ describe("formatWatchdogTimeout", () => {
       requiredSigkill: true,
       elapsedMs: 1500,
       reapedDescendants: 0,
+      descendantsRequiredSigkill: 0,
+      descendantScanFailed: false,
     });
     expect(message).toContain("SIGKILL after ignoring SIGTERM");
+  });
+
+  /**
+   * PR #2963 R1: a wedged GRANDCHILD escalation is invisible in `requiredSigkill`
+   * by design, so the operator-facing message is where it has to show up.
+   */
+  test("names a descendant SIGKILL escalation even when the direct child obeyed SIGTERM", () => {
+    const message = formatWatchdogTimeout("x", 1000, {
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+      requiredSigkill: false,
+      elapsedMs: 1500,
+      reapedDescendants: 3,
+      descendantsRequiredSigkill: 2,
+      descendantScanFailed: false,
+    });
+    expect(message).toContain("3 descendant process(es)");
+    expect(message).toContain("2 of which required SIGKILL");
+    // The direct child obeyed, so the child-level clause must NOT appear —
+    // otherwise the two escalations are indistinguishable in the log.
+    expect(message).not.toContain("SIGKILL after ignoring SIGTERM");
+  });
+
+  test("warns when descendants could not be enumerated at all", () => {
+    const message = formatWatchdogTimeout("x", 1000, {
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+      requiredSigkill: false,
+      elapsedMs: 1500,
+      reapedDescendants: 0,
+      descendantsRequiredSigkill: 0,
+      descendantScanFailed: true,
+    });
+    expect(message).toContain("could NOT be enumerated");
+    expect(message).toContain("may still be running");
+  });
+
+  test("stays quiet about descendants when there were none", () => {
+    const message = formatWatchdogTimeout("x", 1000, {
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+      requiredSigkill: false,
+      elapsedMs: 1500,
+      reapedDescendants: 0,
+      descendantsRequiredSigkill: 0,
+      descendantScanFailed: false,
+    });
+    expect(message).not.toContain("descendant");
+    expect(message).not.toContain("could NOT be enumerated");
   });
 });

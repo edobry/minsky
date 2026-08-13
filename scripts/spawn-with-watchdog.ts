@@ -231,35 +231,150 @@ export interface WatchdogSpawnResult {
    * this run would have leaked orphans before mt#4098.
    */
   reapedDescendants: number;
+  /**
+   * How many descendants ignored SIGTERM and had to be SIGKILLed (PR #2963 R1).
+   *
+   * Kept separate from `requiredSigkill` rather than folded into it: that flag
+   * is documented as, and asserted by existing tests to be, a statement about
+   * the DIRECT CHILD. Overloading it would make "the child ignored SIGTERM"
+   * unrecoverable from the result. `formatWatchdogTimeout` surfaces both, so
+   * the escalation is visible to an operator either way.
+   */
+  descendantsRequiredSigkill: number;
+  /**
+   * True when descendants could not be enumerated at all, so this run fell back
+   * to the pre-mt#4098 child-only kill and may have orphaned processes.
+   *
+   * The designed observable for partial enforcement (PR #2963 R1): without it,
+   * a machine missing both `ps` and `pgrep` reports exactly what a clean run
+   * reports.
+   */
+  descendantScanFailed: boolean;
 }
 
 /**
  * Direct children of `pid`, via `pgrep -P`.
  *
- * Returns `[]` for every failure mode — no children (pgrep exits 1), pgrep
- * missing, or the spawn throwing. A descendant we cannot see is a descendant we
- * cannot signal, which is the pre-mt#4098 behavior: degraded, never worse.
+ * Returns `null` when the MECHANISM is unavailable (the binary is missing), as
+ * distinct from `[]`, which is the valid answer "this pid has no children".
+ * Conflating those two is what would let an enumeration failure read as a clean
+ * run — PR #2963 R1.
  */
-function listChildPids(pid: number): number[] {
+function listChildPidsViaPgrep(pid: number): number[] | null {
   try {
     const probe = Bun.spawnSync(["pgrep", "-P", String(pid)], {
       stdout: "pipe",
       stderr: "pipe",
     });
-    if (!probe.success) return [];
-    return (
-      probe.stdout
-        .toString()
-        .split("\n")
-        .map((line) => Number.parseInt(line.trim(), 10))
-        // Guard the signal target, not just the parse: a NaN, a 0 (our own process
-        // group) or a 1 (init) reaching process.kill would be catastrophic in a way
-        // a wrong-but-positive pid is not.
-        .filter((candidate) => Number.isInteger(candidate) && candidate > 1)
-    );
+    // pgrep exits 1 with empty output when a pid simply has no children, which
+    // is a successful ANSWER — so the exit code is deliberately not consulted.
+    // Only a throw (binary missing) means the mechanism itself is unavailable.
+    return parsePidList(probe.stdout.toString());
   } catch {
-    return [];
+    return null;
   }
+}
+
+/**
+ * One `ps` snapshot of the whole process table, as a ppid -> children map.
+ * `null` when the snapshot could not be taken.
+ *
+ * Preferred over per-node `pgrep` for three reasons: it is ONE subprocess
+ * rather than one per tree node; it is an ATOMIC view, where a tree assembled
+ * from N separate `pgrep` calls can straddle a process exiting mid-walk; and
+ * `ps` is POSIX-mandated where `pgrep` is not, so the primary mechanism is now
+ * the more portable one.
+ */
+function readProcessTree(): Map<number, number[]> | null {
+  try {
+    const probe = Bun.spawnSync(["ps", "-ax", "-o", "ppid=,pid="], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (!probe.success) return null;
+
+    const tree = new Map<number, number[]>();
+    for (const line of probe.stdout.toString().split("\n")) {
+      const fields = line.trim().split(/\s+/);
+      const ppid = Number.parseInt(fields[0] ?? "", 10);
+      const pid = Number.parseInt(fields[1] ?? "", 10);
+      if (!Number.isInteger(ppid) || !Number.isInteger(pid) || pid <= 1) continue;
+      const children = tree.get(ppid);
+      if (children) children.push(pid);
+      else tree.set(ppid, [pid]);
+    }
+
+    // An empty parse means the output shape was not what we expected, not that
+    // the machine has no processes — which is never true on a running system.
+    // Report it as mechanism failure so the fallback gets its turn.
+    return tree.size > 0 ? tree : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse a newline-separated pid list, guarding the eventual signal target. */
+function parsePidList(raw: string): number[] {
+  return (
+    raw
+      .split("\n")
+      .map((line) => Number.parseInt(line.trim(), 10))
+      // Guard the signal target, not just the parse: a NaN, a 0 (our own process
+      // group) or a 1 (init) reaching process.kill would be catastrophic in a way
+      // a wrong-but-positive pid is not.
+      .filter((candidate) => Number.isInteger(candidate) && candidate > 1)
+  );
+}
+
+/** Outcome of enumerating a process's descendants. */
+export interface DescendantScan {
+  /** Descendants found, breadth-first, excluding the root. */
+  pids: number[];
+  /**
+   * True when NO enumeration mechanism was available — so `pids` is empty
+   * because we could not LOOK, not because there was nothing to find.
+   *
+   * That distinction is the point (PR #2963 R1). Without it, a machine with
+   * neither `ps` nor `pgrep` silently reverts to the pre-mt#4098 child-only
+   * kill while reporting exactly what a clean run reports.
+   */
+  enumerationFailed: boolean;
+}
+
+/**
+ * Enumerate `rootPid`'s descendants, preferring the single `ps` snapshot and
+ * falling back to per-node `pgrep`. Both mechanisms are injectable so the
+ * no-mechanism-available path is testable without uninstalling anything.
+ */
+export function scanDescendants(
+  rootPid: number,
+  mechanisms: {
+    processTree?: () => Map<number, number[]> | null;
+    childrenViaPgrep?: (pid: number) => number[] | null;
+  } = {}
+): DescendantScan {
+  const readTree = mechanisms.processTree ?? readProcessTree;
+  const viaPgrep = mechanisms.childrenViaPgrep ?? listChildPidsViaPgrep;
+
+  const tree = readTree();
+  if (tree) {
+    return {
+      pids: collectDescendantPids(rootPid, (pid) => tree.get(pid) ?? []),
+      enumerationFailed: false,
+    };
+  }
+
+  // `ps` unavailable. Probe `pgrep` ONCE on the root to tell "no children" apart
+  // from "no mechanism" — a walk would return [] either way, which is precisely
+  // the ambiguity being removed here.
+  if (viaPgrep(rootPid) === null) {
+    return { pids: [], enumerationFailed: true };
+  }
+
+  return {
+    pids: collectDescendantPids(rootPid, (pid) => viaPgrep(pid) ?? []),
+    enumerationFailed: false,
+  };
 }
 
 /**
@@ -271,7 +386,7 @@ function listChildPids(pid: number): number[] {
  */
 export function collectDescendantPids(
   rootPid: number,
-  childrenOf: (pid: number) => number[] = listChildPids
+  childrenOf: (pid: number) => number[] = (pid) => listChildPidsViaPgrep(pid) ?? []
 ): number[] {
   const descendants: number[] = [];
   const seen = new Set<number>([rootPid]);
@@ -397,13 +512,26 @@ export async function spawnWithWatchdog(
   let timedOut = false;
   let requiredSigkill = false;
   let reapedDescendants = 0;
+  let descendantsRequiredSigkill = 0;
+  let descendantScanFailed = false;
   let descendants: number[] = [];
 
   const watchdog = setTimeout(() => {
     timedOut = true;
     // Snapshot BEFORE signalling the child: once it dies, its children reparent
-    // to PID 1 and `pgrep -P <child>` returns nothing (mt#4098).
-    descendants = collectDescendantPids(proc.pid);
+    // to PID 1 and are no longer reachable through its parent links (mt#4098).
+    const scan = scanDescendants(proc.pid);
+    descendants = scan.pids;
+    descendantScanFailed = scan.enumerationFailed;
+    if (scan.enumerationFailed) {
+      // Loud, not silent (PR #2963 R1). This run degrades to the pre-mt#4098
+      // child-only kill; saying so on stderr puts it in the CI log next to the
+      // timeout that caused it, and `descendantScanFailed` carries it to callers.
+      process.stderr.write(
+        "[mt#4098] WARNING: could not enumerate descendants — neither `ps` nor `pgrep` " +
+          "is available. Killing only the direct child; anything it spawned may be orphaned.\n"
+      );
+    }
     proc.kill("SIGTERM");
     for (const pid of descendants) {
       if (signalPid(pid, "SIGTERM")) reapedDescendants++;
@@ -431,7 +559,7 @@ export async function spawnWithWatchdog(
   // guaranteed to fire before the runner exits, so the escalation that only
   // matters for a wedged process is the one a fire-and-forget timer would drop.
   if (descendants.length > 0) {
-    await killSurvivors(descendants, graceMs);
+    descendantsRequiredSigkill = await killSurvivors(descendants, graceMs);
   }
 
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
@@ -451,6 +579,8 @@ export async function spawnWithWatchdog(
     requiredSigkill,
     elapsedMs: Math.round(performance.now() - startedAt),
     reapedDescendants,
+    descendantsRequiredSigkill,
+    descendantScanFailed,
   };
 }
 
@@ -467,6 +597,26 @@ export function formatWatchdogTimeout(
     `${label} exceeded its ${Math.round(budgetMs / 1000)}s wall-clock watchdog ` +
     `(ran ${Math.round(result.elapsedMs / 1000)}s) and was terminated` +
     `${result.requiredSigkill ? " with SIGKILL after ignoring SIGTERM" : ""}. ` +
+    // A descendant escalation is invisible in `requiredSigkill` by design (that
+    // flag is about the direct child), so it is named here instead — otherwise a
+    // run where a wedged grandchild needed SIGKILL reads identically to a clean
+    // one. PR #2963 R1.
+    `${
+      result.reapedDescendants > 0
+        ? `Also signalled ${result.reapedDescendants} descendant process(es)` +
+          `${
+            result.descendantsRequiredSigkill > 0
+              ? `, ${result.descendantsRequiredSigkill} of which required SIGKILL`
+              : ""
+          }. `
+        : ""
+    }` +
+    `${
+      result.descendantScanFailed
+        ? "Descendants could NOT be enumerated (neither `ps` nor `pgrep` available), so " +
+          "only the direct child was killed — anything it spawned may still be running. "
+        : ""
+    }` +
     `This is a HANG, not a test failure — see mt#3156. ` +
     `Raise the budget with MINSKY_TEST_WATCHDOG_MS=<ms> if the run is legitimately slow.`
   );
