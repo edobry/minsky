@@ -12,7 +12,7 @@ import { Command } from "commander";
 import type { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
-import { log } from "@minsky/shared/logger";
+import { log, setProcessRole } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
@@ -1328,6 +1328,15 @@ export function createStartCommand(
         // `src/cli.ts` so all checkpoint `t=` values are relative to the
         // SAME baseline (set at cli.ts module load).
         profileCheckpoint("action_entry");
+
+        // mt#2464: this subcommand is a long-running SERVER, not a one-shot
+        // command, so undo the CLI entry point's blanket declaration. Without
+        // this the deployed minsky-mcp — which boots via `minsky mcp start
+        // --http` and is therefore a CLI process — would keep discarding every
+        // domain `log.info`/`log.warn`, the exact silence this task removes.
+        // Safe for the stdio transport too: the sink writes to stderr, never to
+        // the stdout channel the JSON-RPC protocol owns.
+        setProcessRole("long-running-service");
 
         // mt#2098: When no container is passed (standalone MCP server boot
         // without the CLI composition root), create one from the portable

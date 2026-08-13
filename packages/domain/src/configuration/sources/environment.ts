@@ -325,6 +325,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_FLAKINESS_CONTROL", // .claude/hooks/flakiness-control-detector.ts (mt#3658) — override for the tasks_create flakiness-isolation-control detector
   "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
   "MINSKY_SKIP_STALE_SIGNAL_SWEEP", // .claude/hooks/stale-signal-sweep.ts (mt#3959) — skip the log-only sweep for artifacts quoting an output label this PR stopped emitting
+  "MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN", // .claude/hooks/unrendered-result-field-scan.ts (mt#3913) — skip the log-only scan for *Result counter fields no output site renders
   "MINSKY_SKIP_AGENT_DISPATCH_RECORD", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder

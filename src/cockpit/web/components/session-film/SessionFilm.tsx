@@ -233,17 +233,9 @@ export function SessionFilm({
     setUnresolvedAddress(null);
   }, [conversationId]);
 
-  // `verifiedRescrubbed` is pinned false: nothing in the UI has ever set it
-  // true (verified across the whole `web/**` tree at extraction time), and the
-  // standalone page only ever RESET it. The server-side scrub gate is the real
-  // enforcement — see the error branch below. Kept as an explicit constant
-  // rather than dropped so the query key still matches
-  // `sessionFilmEventsQueryKey`'s signature.
-  const verifiedRescrubbed = false;
-
   const eventsQuery = useQuery({
-    queryKey: sessionFilmEventsQueryKey(conversationId, verifiedRescrubbed),
-    queryFn: () => fetchSessionFilmEvents(conversationId, verifiedRescrubbed),
+    queryKey: sessionFilmEventsQueryKey(conversationId),
+    queryFn: () => fetchSessionFilmEvents(conversationId),
     retry: sessionFilmRetry,
   });
 
@@ -370,15 +362,13 @@ export function SessionFilm({
   }
 
   if (eventsQuery.isError) {
-    // The scrub gate lives server-side (`assertScrubGate` on
-    // GET /api/cockpit/session-film/events) and rejects transcripts from before
-    // the credential-scrub cutover. The standalone picker used to keep those
-    // conversations unreachable by disabling their row (`scrubGateOk: false`);
-    // with the picker gone, a conversation is reachable from its own page
-    // whether or not it passes, so THIS branch is now the only thing standing
-    // between the operator and a raw failure. Keep the message legible.
-    // (mt#3268 owns the open question of whether the film's refusal or the
-    // conversation view's ungated render is the right posture.)
+    // This branch is the only thing standing between the operator and a raw
+    // failure, so keep the message legible. It no longer covers a scrub-gate
+    // refusal: mt#3268 / ADR-040 removed the gate from this endpoint, on the
+    // decision that it binds where transcript bytes cross the trust boundary
+    // (export, anonymous share link) rather than on the operator's own
+    // authenticated read. What reaches here now is an ordinary fetch failure —
+    // no transcript, a bad id, or a server error.
     // A reader who ARRIVED FROM A LINK asked for one specific moment, so the
     // bare "no film" answers a question they did not ask and leaves the click
     // looking broken (mt#3794, reviewer round 1). Naming the moment they wanted

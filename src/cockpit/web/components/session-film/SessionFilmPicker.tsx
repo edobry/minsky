@@ -1,14 +1,16 @@
 /**
- * SessionFilmPicker — session picker with the scrub gate (mt#3184, spec
- * SC 1 / AT 8).
+ * SessionFilmPicker — session picker (mt#3184).
  *
- * A row whose backing session was ingested before the credential-scrub
- * cutover (`scrubGateOk: false`, computed server-side —
- * `routes/session-film.ts`'s `defaultListSessions`) is DISABLED and shows
- * an explanatory state; clicking it does nothing. This is the picker-level
- * half of the gate — `routes/session-film.ts`'s events endpoint re-checks
- * the same cutoff server-side so a hand-typed `?session=` deep link can't
- * bypass it.
+ * Every ingested conversation is selectable. Until mt#3268 a row whose
+ * backing session predated the credential-scrub cutover was DISABLED and
+ * showed a refusal — while the conversation view rendered that same
+ * transcript in full, one route over. ADR-040 settled that asymmetry: the
+ * scrub gate binds where transcript bytes cross the operator's trust
+ * boundary (a file export, an anonymous share link), not on the operator's
+ * own authenticated read, so the refusal is gone along with the
+ * `scrubGateOk` field that drove it.
+ *
+ * @see docs/architecture/adr-040-transcript-scrub-gate-binds-at-trust-boundary-crossings.md
  */
 import { cn } from "../../lib/utils";
 import { LoadingState } from "../LoadingState";
@@ -37,25 +39,12 @@ export function SessionFilmPicker({ sessions, isLoading, onSelect }: SessionFilm
           <button
             type="button"
             data-testid={`session-film-picker-row-${s.agentSessionId}`}
-            disabled={!s.scrubGateOk}
-            onClick={() => {
-              if (s.scrubGateOk) onSelect(s.agentSessionId);
-            }}
+            onClick={() => onSelect(s.agentSessionId)}
             className={cn(
-              "flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-secondary",
-              "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+              "flex w-full flex-col gap-0.5 px-3 py-2 text-left text-sm hover:bg-secondary"
             )}
           >
             <span className="font-mono">{s.label}</span>
-            {!s.scrubGateOk ? (
-              <span
-                data-testid="session-film-picker-scrub-refusal"
-                className="text-xs text-destructive"
-              >
-                Refused — ingested before the credential-scrub cutover; this session cannot be
-                filmed.
-              </span>
-            ) : null}
           </button>
         </li>
       ))}

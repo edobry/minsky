@@ -11,6 +11,16 @@ import "./reflect-polyfill";
 import { profileCheckpoint } from "./utils/cold-start-profile";
 profileCheckpoint("cli_top");
 
+// mt#2464: declare this process a one-shot command BEFORE setupConfiguration() below, which is
+// where the persistence/backend bootstrap emits its first `log.info` lines. Without this the
+// domain diagnostic sink treats a scripted `minsky ...` invocation (stderr redirected, so not a
+// terminal) the same as a deployed container and writes boot chatter to its stderr — which breaks
+// any command that promises clean output. `minsky security check-credentials --quiet` documents
+// exactly that and asserts it three ways; its tests are the regression guard for this line.
+// The `start` subcommands that are long-running servers declare themselves back.
+import { setProcessRole } from "@minsky/shared/logger";
+setProcessRole("one-shot-command");
+
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it
 import { setupConfiguration } from "@minsky/domain/config-setup";
