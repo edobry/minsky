@@ -550,19 +550,18 @@ export function RunDetail({
    * rather than a link to a tab that is not there.
    *
    * NOT additionally gated on the conversation having a film, which mt#3794's
-   * spec originally required and was amended to drop. Two reasons, in order of
-   * weight. First, `scrubGateOk` is not reachable here: it is computed only for
-   * the sessions-LIST endpoint (`routes/session-film.ts:302`) and is absent
-   * from this page's overview payload, so gating would mean fetching every
-   * conversation to read one flag, or adding an API surface. Second, and why
-   * that is not worth doing: the Film TAB three lines of JSX below is itself
-   * ungated, so a scrub-gated conversation already offers an entry point that
-   * lands on `SessionFilm`'s "This conversation has no film" — hiding the row
-   * link while leaving the tab visible would be an inconsistency, not a
-   * protection. Reachability is answered where the answer actually lives: the
-   * film resolves the address on arrival and reports when it cannot, which
-   * covers cases `scrubGateOk` cannot see (a turn that produced no event, an
-   * address stale after a re-ingest).
+   * spec originally required and was amended to drop. Reachability is answered
+   * where the answer actually lives: the film resolves the address on arrival
+   * and reports when it cannot, which covers a turn that produced no event and
+   * an address stale after a re-ingest — cases no list-level flag could see.
+   * The Film TAB three lines of JSX below is ungated for the same reason, so
+   * hiding the row link would be an inconsistency rather than a protection.
+   *
+   * This comment used to carry a longer argument about `scrubGateOk` being
+   * unreachable from this payload. That flag no longer exists: mt#3268 /
+   * ADR-040 removed the credential-scrub gate from the film entirely, on the
+   * decision that it binds where transcript bytes cross the trust boundary,
+   * not on the operator's own authenticated read.
    */
   const filmPath =
     keySpace === "conversation" ? pathForTab(base, keySpace, "film") : undefined;

@@ -189,7 +189,14 @@ describe("GET /api/cockpit/session-film/events", () => {
     ]);
   });
 
-  test("422s (unscrubbed) for a pre-cutoff session with no verifiedRescrubbed assertion", async () => {
+  // ADR-040 / mt#3268: this endpoint is UNGATED, by decision. It used to 422
+  // a pre-cutoff conversation while `routes/context-inspector.ts` rendered
+  // that same transcript in full one route over. The gate now binds only
+  // where transcript bytes CROSS the operator's trust boundary — a file
+  // export, an anonymous share link — not on the operator's own
+  // authenticated read. If this test starts failing with a 422, someone
+  // re-added the gate here without revisiting the ADR.
+  test("200s for a pre-cutoff session — the scrub gate does not bind here (ADR-040)", async () => {
     const { url } = await makeHarness({
       overrideFetchEvents: async () => ({
         events: [fakeEvent()],
@@ -197,22 +204,10 @@ describe("GET /api/cockpit/session-film/events", () => {
       }),
     });
     const res = await fetch(`${url}/api/cockpit/session-film/events?conversationId=${VALID_ID}`);
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("unscrubbed");
-  });
-
-  test("200s for a pre-cutoff session when verifiedRescrubbed=true is asserted", async () => {
-    const { url } = await makeHarness({
-      overrideFetchEvents: async () => ({
-        events: [fakeEvent()],
-        ingestedAt: "2026-01-01T00:00:00.000Z",
-      }),
-    });
-    const res = await fetch(
-      `${url}/api/cockpit/session-film/events?conversationId=${VALID_ID}&verifiedRescrubbed=true`
-    );
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: SemanticEvent[]; ingestedAt: string | null };
+    expect(body.events).toHaveLength(1);
+    expect(body.ingestedAt).toBe("2026-01-01T00:00:00.000Z");
   });
 });
 
@@ -270,12 +265,11 @@ describe("GET /api/cockpit/session-film/content (mt#3262 SC 5 / AT 5)", () => {
     expect(body.ingestedAt).toBe("2026-07-20T00:00:00.000Z");
   });
 
-  // AT5 — the non-negotiable requirement: a session ingested BEFORE the
-  // credential-scrub cutoff is refused by THIS endpoint with the same
-  // 422/`unscrubbed` shape the events endpoint returns, exactly mirroring
-  // the /events scrub-gate tests above — same gate, same code path
-  // (assertScrubGate), different endpoint.
-  test("422s (unscrubbed) for a pre-cutoff session with no verifiedRescrubbed assertion", async () => {
+  // mt#3262 AT5 originally required this endpoint to MIRROR the /events
+  // scrub-gate refusal. ADR-040 / mt#3268 removed the gate from both, so the
+  // mirroring requirement is preserved with its verdict inverted: same
+  // decision, same code path, both ungated. See the /events counterpart above.
+  test("200s for a pre-cutoff session — the scrub gate does not bind here (ADR-040)", async () => {
     const { url } = await makeHarness({
       overrideFetchContent: async () => ({
         blocks: [fakeBlock(0)],
@@ -283,22 +277,10 @@ describe("GET /api/cockpit/session-film/content (mt#3262 SC 5 / AT 5)", () => {
       }),
     });
     const res = await fetch(`${url}/api/cockpit/session-film/content?conversationId=${VALID_ID}`);
-    expect(res.status).toBe(422);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe("unscrubbed");
-  });
-
-  test("200s for a pre-cutoff session when verifiedRescrubbed=true is asserted", async () => {
-    const { url } = await makeHarness({
-      overrideFetchContent: async () => ({
-        blocks: [fakeBlock(0)],
-        ingestedAt: "2026-01-01T00:00:00.000Z",
-      }),
-    });
-    const res = await fetch(
-      `${url}/api/cockpit/session-film/content?conversationId=${VALID_ID}&verifiedRescrubbed=true`
-    );
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { blocks: unknown[]; ingestedAt: string | null };
+    expect(body.blocks).toHaveLength(1);
+    expect(body.ingestedAt).toBe("2026-01-01T00:00:00.000Z");
   });
 });
 
@@ -312,15 +294,14 @@ describe("GET /api/cockpit/session-film/sessions", () => {
           startedAt: "2026-07-20T00:00:00.000Z",
           cwd: "/repo",
           ingestedAt: "2026-07-20T00:00:00.000Z",
-          scrubGateOk: true,
         },
       ],
     });
     const res = await fetch(`${url}/api/cockpit/session-film/sessions`);
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { sessions: Array<{ scrubGateOk: boolean }> };
+    const body = (await res.json()) as { sessions: Array<{ agentSessionId: string }> };
     expect(body.sessions).toHaveLength(1);
-    expect(body.sessions[0]?.scrubGateOk).toBe(true);
+    expect(body.sessions[0]?.agentSessionId).toBe(VALID_ID);
   });
 
   test("500s cleanly when the lister throws", async () => {
@@ -348,7 +329,6 @@ describe("filterAdmissiblePickerRows (mt#3225 SC3/SC4/AT3)", () => {
       startedAt: "2026-07-20T00:00:00.000Z",
       cwd: "/repo",
       ingestedAt: "2026-07-20T00:00:00.000Z",
-      scrubGateOk: true,
     };
   }
 

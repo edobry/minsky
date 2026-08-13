@@ -497,7 +497,7 @@ describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
     // per-conversation signal exists to gate it on (see RunDetail's filmPath
     // docblock) — so this message is what keeps such a click explained rather
     // than dead.
-    mockEvents({ status: 422 });
+    mockEvents({ status: 404 });
     renderFilm(`${FILM_PATH}?turn=101`);
 
     await waitFor(() => {
@@ -506,10 +506,11 @@ describe("SessionFilm — scrub-gated conversation (mt#3461)", () => {
   });
 
   test("reports no film instead of surfacing a raw failure", async () => {
-    // The picker used to keep `scrubGateOk: false` conversations unreachable by
-    // disabling their row. Reachable-from-its-own-page means this error branch
-    // is now the only thing between the operator and a raw fetch failure.
-    mockEvents({ status: 422 });
+    // A conversation is reachable from its own page, so this error branch is
+    // the only thing between the operator and a raw fetch failure. The status
+    // used to be 422 (the film's scrub-gate refusal); mt#3268 / ADR-040
+    // removed that gate, so 404 is what an unfetchable film looks like now.
+    mockEvents({ status: 404 });
     renderFilm(FILM_PATH);
 
     await waitFor(() => {
