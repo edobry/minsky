@@ -29,3 +29,11 @@
 # reason as mt#1428 above.
 .github/workflows/integration-tests.yml:database-url-credentials:248
 .github/workflows/integration-tests.yml:database-url-credentials:276
+
+# mt#3887 npm-pack-install-smoke workflow: same format()-composed construct as
+# the cold-start-migrate entries above — no literal URL is embedded, and the
+# credentials are test-only values scoped to the job's ephemeral pgvector
+# service container, unreachable from outside it. Enables step 4b's migration
+# falsifier (the meta/*_snapshot.json exclusion premise) against a real
+# Postgres in CI.
+.github/workflows/npm-pack-install-smoke.yml:database-url-credentials:106

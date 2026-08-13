@@ -55,6 +55,7 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
+import { classifyAndRecordMergeDeploySurface } from "../../packages/domain/src/deployment/merge-deploy-surface-record";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
@@ -131,6 +132,56 @@ const DEFERRAL_PATTERN =
   /\b(?:defer(?:red|ring|s)?|will\s+verify(?:\s+it)?\s+later|verify(?:\s+it)?\s+later|not[\s-]?yet[\s-]?deployed|to\s+be\s+verified|pending\s+deploy(?:ment)?|verify\s+post-?merge)\b/i;
 
 /**
+ * Clauses that DISCLAIM deferral — elided before {@link DEFERRAL_PATTERN} runs.
+ *
+ * `DEFERRAL_PATTERN` matches the bare word `defer` with no notion of polarity,
+ * so a section that COMMITS to the verification was rejected whenever it said
+ * what it would NOT do. That is how a careful author writes the commitment,
+ * because this guard's own deny message says "a tool/auth flake is a BLOCKER …
+ * NOT a license to defer" — an author echoing that framing wrote the exact
+ * sentence the gate refuses. Four merges were blocked that way across two
+ * sessions (PR #2916 twice, and the mt#4022 session twice, mem#981) before
+ * anyone read the pattern.
+ *
+ * Elision rather than a smarter single regex, following
+ * `block-out-of-band-merge.ts`'s `elideMarkdownNonProse` (the shipped pattern
+ * ADR-024 rung 1 generalizes): remove the spans that cannot be evidence of a
+ * punt, then run the unchanged reject-list on the residual. That keeps the
+ * reject-list readable and makes the negation handling independently testable.
+ *
+ * Bounded to at most three words between the negator and the verb, so it
+ * cannot swallow a whole sentence and launder a real deferral sitting later in
+ * it. "deferred to §10 because not-yet-deployed" is untouched by this pattern —
+ * its `deferred` has no negator before it — and stays rejected.
+ */
+const NEGATED_DEFERRAL_PATTERN =
+  /\b(?:not|never|no|rather\s+than|instead\s+of|won'?t|will\s+not|cannot|can'?t|isn'?t|is\s+not)\s+(?:\w+[\s-]+){0,3}?defer(?:red|ring|s|ral)?\b/gi;
+
+/**
+ * The deny message's own guidance sentence, exported so the test suite can
+ * assert the gate ACCEPTS the phrasing the gate RECOMMENDS.
+ *
+ * Kept as one constant rather than inline prose because the two must not drift:
+ * a message that steers authors into the trip-wire is what turned a narrow
+ * pattern bug into four blocked merges (mem#719 — a detector whose correct
+ * output gets dismissed has lost the thing it exists for).
+ */
+export const FLAKE_IS_A_BLOCKER_GUIDANCE =
+  "A tool/auth flake is a BLOCKER (reconnect /mcp and retry), NOT a license to defer; " +
+  '"applied" / "pulumi up exit-0" is the ACTION, not the OUTCOME.';
+
+/**
+ * Blank out disclaimed-deferral spans so the reject-list sees only ASSERTED
+ * deferral. Exported for the test suite, which pins both directions.
+ *
+ * Replaces with a space rather than the empty string so two words either side
+ * of an elided span cannot fuse into a third that then matches something else.
+ */
+export function elideNegatedDeferrals(content: string): string {
+  return content.replace(NEGATED_DEFERRAL_PATTERN, " ");
+}
+
+/**
  * True when the PR body contains a `Deploy verification:` block with non-empty
  * content following the marker. Mirrors the mt#1459 `hasExecutionEvidence`
  * discipline: HTML comments stripped first; a `No Deploy verification:` negation
@@ -182,7 +233,10 @@ export function hasDeployVerification(prBody: string): boolean {
     // Deferral-text-is-not-evidence (mt#2353 Recurrence 3): a deferral-only
     // section does NOT satisfy the gate. Keep scanning in case a later, genuine
     // section exists.
-    if (DEFERRAL_PATTERN.test(content)) continue;
+    //
+    // Disclaimers are elided FIRST (mt#4041), so "not a license to defer" — a
+    // commitment — is no longer read as the punt it explicitly refuses.
+    if (DEFERRAL_PATTERN.test(elideNegatedDeferrals(content))) continue;
 
     return true;
   }
@@ -253,8 +307,7 @@ export function checkDeployVerification(
     `To unblock, choose one of:\n` +
     `  1. Add a \`Deploy verification\` section (any accepted form above) to the PR body committing to run ` +
     `\`mcp__minsky__deployment_wait-for-latest\` → SUCCESS (and confirm the runtime started) ` +
-    `AFTER merge. A tool/auth flake is a BLOCKER (reconnect /mcp and retry), NOT a license to ` +
-    `defer; "applied" / "pulumi up exit-0" is the ACTION, not the OUTCOME. ` +
+    `AFTER merge. ${FLAKE_IS_A_BLOCKER_GUIDANCE} ` +
     `(use \`mcp__minsky__session_pr_edit\` to update the body.)\n` +
     `  2. If this change truly has no deploy impact (e.g. a comment-only edit), prefix the PR ` +
     `title with \`[no-deploy-impact]\`.\n` +
@@ -514,6 +567,9 @@ if (import.meta.main) {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     recordAndExit("warn");
   }
 
@@ -527,7 +583,9 @@ if (import.meta.main) {
           "⚠️ [deploy-verification] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    recordAndExit("warn", undefined, "crashed");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -551,7 +609,10 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the PR-context fetch failed, so the check never ran. The
+    // comment above says it: fail-open. Counting it clean would let a guard whose forge
+    // transport is broken report itself recovered on every merge.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -596,6 +657,31 @@ if (import.meta.main) {
     usabilityResult = checkUsabilityClaim(prFiles, prTitle, prBody);
   }
 
+  // mt#3819: record this merge's deploy/build-surface verdict for the per-turn
+  // consumer (`build-claim-injection-detector`), which cannot afford the forge
+  // fetch we just did. Computed from `prFiles` directly rather than from
+  // `usabilityResult`, so the Gap A override — which zeroes `buildSurfaceFiles`
+  // to skip its own check — cannot make us under-record the local-app surface.
+  // Never throws and never affects this gate's decision.
+  {
+    // PR #2734 R1: record under BOTH the RESOLVED task id and the RAW ids the
+    // caller actually passed. `session_pr_merge` takes either `task` or
+    // `sessionId` (mt#3355), and the consumer can only see what is in the
+    // tool_use input — so a `sessionId`-invoked merge keyed solely by the
+    // resolved task id would be permanently unfindable, silently degrading to
+    // the old proxy for exactly the merges this task exists to fix.
+    const rawToolInput = (input.tool_input ?? {}) as Record<string, unknown>;
+    const keys = new Set<string>([task]);
+    for (const field of ["task", "taskId", "sessionId", "session"]) {
+      const value = rawToolInput[field];
+      if (typeof value === "string" && value.length > 0) keys.add(value);
+    }
+    // mt#4089: classification + write moved into the shared domain helper, which
+    // the domain merge path also calls. Deriving the verdict in two places is how
+    // the two writers would drift; there is now one derivation.
+    classifyAndRecordMergeDeploySurface(prFiles, keys);
+  }
+
   const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];
   const blockingReasons = [deployResult, usabilityResult]
     .filter((r) => r.blocked)
@@ -612,7 +698,12 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${blockingReasons.join("\n\n---\n\n")}`,
       },
     });
-    recordAndExit("deny", usabilityOverrideFields);
+    // mt#3920: the three exits below are all downstream of `checkDeployVerification` —
+    // the gate exercised its check and reached a verdict, so each is clean-run evidence.
+    // `usabilityOverrideFields` does NOT change that: the Gap A override neutralizes ONE
+    // sub-check and the gate keeps running, unlike a top-level override (which exits above
+    // and is deliberately left UNSET).
+    recordAndExit("deny", usabilityOverrideFields, "decided");
   } else if (allWarnings.length > 0) {
     writeOutput({
       hookSpecificOutput: {
@@ -620,7 +711,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
-    recordAndExit("warn", usabilityOverrideFields);
+    recordAndExit("warn", usabilityOverrideFields, "decided");
   }
-  recordAndExit("allow", usabilityOverrideFields);
+  recordAndExit("allow", usabilityOverrideFields, "decided");
 }

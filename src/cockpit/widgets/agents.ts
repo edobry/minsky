@@ -34,6 +34,7 @@ import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 import { createCachedRunMerge, type RunKind, type SubagentEntry } from "./run-merge";
 import { resolveDerivedConversationLinks } from "../derived-conversation-link";
+import { describeWidgetDegradedReason } from "../db-providers";
 import {
   deriveRowAttachState,
   groupAttachmentsBySessionId,
@@ -673,8 +674,7 @@ export function createAgentsWidget(
         const payload: AgentsPayload = { agents, totalCount, hiddenInactiveCount };
         return { state: "ok", payload };
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return { state: "degraded", reason: `session_list error: ${message}` };
+        return { state: "degraded", reason: describeWidgetDegradedReason("session_list", err) };
       }
     },
   };
@@ -688,44 +688,37 @@ export function createAgentsWidget(
 // fetch(); subsequent calls reuse the cached instance.
 // ---------------------------------------------------------------------------
 
-import { getSharedPersistenceService, getPersistenceEpoch } from "../shared-persistence";
+import { createEpochKeyedCache, getSharedPersistenceService } from "../shared-persistence";
 
-let _cachedProvider: SessionProviderInterface | null = null;
-// mt#3638: epoch the cached provider was built under. A pool recycle bumps the
-// epoch; serving the old provider past that point pins a torn-down pool (the
-// mt#2362 staleness this closes).
-let _cachedProviderEpoch = -1;
+/**
+ * mt#3638: a pool recycle bumps the persistence epoch; serving the old provider
+ * past that point pins a torn-down pool (the mt#2362 staleness this closes).
+ *
+ * mt#3721 moved the epoch bookkeeping — including the rebuild-until-stable loop
+ * this file introduced in PR #2586 R1 — into `createEpochKeyedCache`, so the
+ * discipline is inherited rather than re-derived here. This was the only
+ * consumer that had it; eight others had no epoch check at all, which is the
+ * gap that motivated extracting it.
+ */
+const defaultProviderFactory = createEpochKeyedCache(
+  async (): Promise<SessionProviderInterface> => {
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
 
-async function defaultProviderFactory(): Promise<SessionProviderInterface> {
-  if (_cachedProvider && _cachedProviderEpoch === getPersistenceEpoch()) {
-    return _cachedProvider;
-  }
-
-  const { createSessionProvider } = await import(
-    "@minsky/domain/session/drizzle-session-repository"
-  );
-
-  // Rebuild until the epoch is stable across construction (PR #2586 R1): a
-  // recycle DURING the awaits below means the provider may wrap the torn-down
-  // pool. Bounded in practice — the epoch moves at most once per rate-limit
-  // window (RECYCLE_MIN_INTERVAL_MS), so a second pass is already rare and a
-  // third essentially impossible.
-  for (;;) {
-    const epochAtBuild = getPersistenceEpoch();
     const svc = await getSharedPersistenceService();
+    // Awaited rather than returned directly: `custom/no-unwaited-async-factory`
+    // requires an async factory's result to be awaited at its call site, so a
+    // rejection surfaces here rather than inside the caller's own await.
     const provider = await createSessionProvider(undefined, {
       persistenceService: {
         isInitialized: () => true,
         getProvider: () => svc.getProvider(),
       },
     });
-    if (getPersistenceEpoch() === epochAtBuild) {
-      _cachedProvider = provider;
-      _cachedProviderEpoch = epochAtBuild;
-      return provider;
-    }
+    return provider;
   }
-}
+);
 
 // ---------------------------------------------------------------------------
 // Default task provider — lazy singleton sharing PersistenceService with
@@ -735,37 +728,18 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
 // benefits from multi-backend task resolution (mt# Minsky DB + gh# GitHub).
 // ---------------------------------------------------------------------------
 
-let _cachedTaskProvider: TaskProviderLike | null = null;
-// mt#3638: same epoch discipline as _cachedProvider above.
-let _cachedTaskProviderEpoch = -1;
-
-async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
-  if (_cachedTaskProvider && _cachedTaskProviderEpoch === getPersistenceEpoch()) {
-    return _cachedTaskProvider;
-  }
-
+/** mt#3638: same epoch discipline as `defaultProviderFactory` above. */
+const defaultTaskProviderFactory = createEpochKeyedCache(async (): Promise<TaskProviderLike> => {
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
-  // Same stable-epoch rebuild discipline as defaultProviderFactory above.
-  for (;;) {
-    const epochAtBuild = getPersistenceEpoch();
-    const svc = await getSharedPersistenceService();
-    const persistenceProvider = svc.getProvider();
+  const svc = await getSharedPersistenceService();
+  const persistenceProvider = svc.getProvider();
 
-    const workspacePath = process.cwd();
-
-    const taskService = await createConfiguredTaskService({
-      workspacePath,
-      persistenceProvider,
-    });
-
-    if (getPersistenceEpoch() === epochAtBuild) {
-      _cachedTaskProvider = taskService;
-      _cachedTaskProviderEpoch = epochAtBuild;
-      return _cachedTaskProvider;
-    }
-  }
-}
+  return createConfiguredTaskService({
+    workspacePath: process.cwd(),
+    persistenceProvider,
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Default conversation-merge DB factory (mt#2767) — reuses the cockpit-wide

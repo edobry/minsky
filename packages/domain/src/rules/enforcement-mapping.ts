@@ -757,6 +757,13 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "UserPromptSubmit guard-dispatcher; routes to 20+ GUARD_REGISTRY sub-guards (detectors, injectors, calibration-review cadence)",
   },
 
+  // ── Display transforms: rewrite what is shown, decide nothing ──
+  {
+    configPath: ".claude/hooks/linkify-message-display.ts",
+    reason:
+      "MessageDisplay text transform (mt#2565); rewrites bare mt#NNNN / PR #N into deeplinks as a message is displayed and enforces no rule — it never denies, never injects context, and leaves the stored transcript untouched",
+  },
+
   // ── Calibration-mode detectors: default to log-only, not yet graduated to blocking ──
   {
     configPath: ".claude/hooks/warn-bare-prohibition-dispatch.ts",
@@ -789,6 +796,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
     configPath: ".claude/hooks/transcript-ingest-on-session-end.ts",
     reason:
       "Ingests the finished transcript at SessionEnd — recording, not enforcement (hook-observers.mdc)",
+  },
+  {
+    configPath: ".claude/hooks/guard-events-ingest-on-session-end.ts",
+    reason:
+      "mt#4035 guard/calibration exhaust ingest push at SessionEnd — recording, not enforcement; the correctness layer is the cockpit sweep, not this hook (hook-observers.mdc)",
   },
   {
     configPath: ".claude/hooks/post-merge-unasked-direction-scan.ts",

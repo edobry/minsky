@@ -24,6 +24,7 @@
  *   bun scripts/analyze-test-timing.ts --run [--top=25]
  */
 import { unlinkSync } from "node:fs";
+import { FULL_SUITE_PER_TEST_TIMEOUT_MS } from "./spawn-with-watchdog";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readTextFileSync } from "@minsky/shared/fs";
@@ -267,7 +268,8 @@ function main(): void {
 
     console.log(
       `\n--- ${nearTimeoutAll.length} test(s) at or above ${nearTimeoutThresholdSec}s ` +
-        `(near/at the --timeout=15000 per-test limit), showing top ${nearTimeout.length} ---\n`
+        `(near/at the --timeout=${FULL_SUITE_PER_TEST_TIMEOUT_MS} per-test limit), ` +
+        `showing top ${nearTimeout.length} ---\n`
     );
     if (nearTimeoutAll.length === 0) {
       console.log("(none)");

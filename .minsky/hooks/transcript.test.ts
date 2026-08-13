@@ -768,7 +768,12 @@ describe("readLogTailText", () => {
   test("default maxBytes is DEFAULT_MAX_DEDUPE_READ_BYTES", () => {
     const content = `${JSON.stringify({ session_id: "s", turnAnchor: "a" })}\n`;
     writeFileSync(logPath, content);
-    expect(readLogTailText(logPath)).toBe(readLogTailText(logPath, DEFAULT_MAX_DEDUPE_READ_BYTES));
+    // The explicit-arg call types as `string | undefined` while the default-arg
+    // call types as `string`, so the comparison needs the expected value proven
+    // present first (mt#2900) — which is also a stronger assertion.
+    const explicit = readLogTailText(logPath, DEFAULT_MAX_DEDUPE_READ_BYTES);
+    expect(explicit).toBeDefined();
+    expect(readLogTailText(logPath)).toBe(explicit as string);
   });
 });
 /* eslint-enable custom/no-real-fs-in-tests */

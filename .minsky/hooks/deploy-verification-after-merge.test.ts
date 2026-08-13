@@ -109,16 +109,18 @@ describe("decideDeployReminder (mt#2353)", () => {
   test("reminds when the merged PR touched a deploy surface", () => {
     const reminder = decideDeployReminder(
       mergeInput({ pr_url: PR_URL }),
-      depsReturning([f(INFRA_INDEX), f("src/app.ts")])
+      depsReturning([f(INFRA_INDEX), f("scripts/app.ts")])
     );
     expect(reminder).not.toBeNull();
     expect(reminder).toContain(INFRA_INDEX);
   });
 
   test("silent when the merged PR touched no deploy surface", () => {
+    // scripts/** is outside every deploy workflow's paths: block; root src/**
+    // no longer qualifies as a non-surface fixture (mt#4013).
     const reminder = decideDeployReminder(
       mergeInput({ pr_url: PR_URL }),
-      depsReturning([f("src/app.ts")])
+      depsReturning([f("scripts/app.ts")])
     );
     expect(reminder).toBeNull();
   });
@@ -161,12 +163,17 @@ describe("decideDeployReminder (mt#2353)", () => {
     expect(reminder).toContain(INSTALL_LOCAL);
   });
 
-  test("silent for a cockpit-web change (not the tray binary) (mt#2976)", () => {
+  test("cockpit-web change: Railway reminder (bundled into minsky-mcp, mt#4013) but NO tray reinstall (mt#2976)", () => {
+    // mt#2976's concern stands — a web change must not demand a tray
+    // reinstall — but src/cockpit/** is bundled into the minsky-mcp image
+    // (mt#4013), so the Railway deploy reminder now legitimately fires.
     const reminder = decideDeployReminder(
       mergeInput({ pr_url: PR_URL }),
       depsReturning([f("src/cockpit/web/App.tsx")])
     );
-    expect(reminder).toBeNull();
+    expect(reminder).not.toBeNull();
+    expect(reminder).toContain(DEPLOY_WAIT);
+    expect(reminder).not.toContain(INSTALL_LOCAL);
   });
 
   test("suppressRailway drops the Railway reminder but KEEPS the tray reminder (mt#2976 review)", () => {

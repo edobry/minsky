@@ -37,6 +37,7 @@ import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
+import { registerGuardEventsCommands } from "./guard-events";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
@@ -49,6 +50,7 @@ import { registerEventsCommands } from "./events";
 import { registerRefsCommands } from "./refs";
 import { registerPrincipalCommands } from "./principal";
 import { registerCalibrationCommands } from "./calibration";
+import { registerSecurityCommands } from "./security";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -145,6 +147,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register transcript commands (transcripts.ingest — mt#1351)
   registerTranscriptCommands(container);
 
+  // Register guard-events commands (guard-events.ingest — mt#4035 / mt#3334 phase 3)
+  registerGuardEventsCommands(container);
+
   // Register attention commands (attention.report — mt#1071 / ADR-008)
   registerAttentionCommands(container);
 
@@ -181,6 +186,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register principal-channel commands (agent -> principal's phone, mt#3228)
   registerPrincipalCommands();
+
+  // Register security commands (callable credential-shape check, mt#4022)
+  registerSecurityCommands();
 
   // Additional command categories can be registered here as they're implemented
 }
@@ -227,4 +235,5 @@ export {
   registerEventsCommands,
   registerRefsCommands,
   registerPrincipalCommands,
+  registerSecurityCommands,
 };

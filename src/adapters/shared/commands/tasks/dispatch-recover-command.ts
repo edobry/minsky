@@ -157,10 +157,16 @@ import {
   computeDispatchStaleness,
   classifyDispatchRecoveryState,
   buildDispatchRecoveryContinuationPrompt,
+  describeDispatchStalenessForMessage,
   DISPATCH_RECOVERY_STALE_MS,
+  DISPATCH_PROGRESS_STALE_MS,
 } from "@minsky/domain/session/dispatch-recovery-classifier";
 import { resolveLastPresenceActivityAtMs } from "@minsky/domain/session/presence-activity";
 import { resolveLastWorkspaceMtimeAtMs } from "@minsky/domain/session/workspace-activity";
+import {
+  resolveTaskClaimLiveness,
+  type TaskClaimLivenessResult,
+} from "@minsky/domain/session/task-claim-liveness";
 import type { PromptType } from "@minsky/domain/session/prompt-generation";
 
 // ---------------------------------------------------------------------------
@@ -222,6 +228,16 @@ export interface DispatchRecoveryActivityOps {
    * refresh on Minsky-MCP-routed tool calls).
    */
   lastWorkspaceMtimeAtMs(sessionDir: string): Promise<number | null>;
+  /**
+   * mt#3121: TASK-grain claim liveness. Does an actor OTHER THAN `callerActorId`
+   * hold a fresh presence claim on `taskId`? Distinct from the session-grain
+   * signals above: those answer "is the dispatched subagent working in THIS
+   * session"; this answers "is a PEER conversation still engaged with the TASK",
+   * which is the blind spot that let dispatch-recover green-light redispatching
+   * into a live actor's workspace. Returns a structured `cause` (never a parsed
+   * reason string) per the ask#6273 / mem#749 four-branch ruling.
+   */
+  taskClaimLiveness(taskId: string, callerActorId: string | null): Promise<TaskClaimLivenessResult>;
 }
 
 /**
@@ -256,6 +272,17 @@ export function createRealDispatchRecoveryActivityOps(
     // `lastPresenceActivityAtMs` alone leaves open.
     async lastWorkspaceMtimeAtMs(sessionDir) {
       return resolveLastWorkspaceMtimeAtMs(sessionDir, {
+        source: "tasks.dispatch-recover",
+      });
+    },
+    // mt#3121: delegates to the shared `resolveTaskClaimLiveness` helper —
+    // task-grain presence claims, excluding the caller's own, classified into
+    // the contested / read-failure / no-fresh-claim four-branch verdict.
+    async taskClaimLiveness(taskId, callerActorId) {
+      const provider = getPersistenceProvider() as
+        | { getDatabaseConnection?: () => Promise<unknown> }
+        | undefined;
+      return resolveTaskClaimLiveness(taskId, callerActorId, provider, {
         source: "tasks.dispatch-recover",
       });
     },
@@ -354,6 +381,19 @@ const tasksDispatchRecoverParams = {
       'Task ID whose most recent subagent dispatch should be probed for recovery (e.g. "mt#2831").',
     required: true,
   },
+  callerActorId: {
+    schema: z.string(),
+    description:
+      "mt#3121: the caller's resolved agentId (ADR-006), used to EXCLUDE the caller's own " +
+      "task-grain presence claims from the contested check so a caller is never flagged as its " +
+      "own peer. Server-injected for this tool from the resolved MCP identity (src/mcp/server.ts) " +
+      "— not normally supplied by hand. Absent on the CLI path (no MCP identity), where a caller " +
+      "writes no presence claims, so there is no self to exclude.",
+    required: false,
+    // Server-injected only (src/mcp/server.ts) — hide it from the CLI surface so it
+    // is not advertised as a hand-passable flag (reviewer PR #2683 R1 non-blocking).
+    cliHidden: true,
+  },
 } satisfies CommandParameterMap;
 
 export interface DispatchRecoveryEscalationAttempt {
@@ -415,8 +455,8 @@ export interface DispatchRecoveryManualFallback {
  * `status: "tracker-unavailable"` discriminant against a stable contract
  * (mt#3017 R1 NON-BLOCKING #2). Not (yet) folded into a full discriminated
  * union across every `status` value this command can return
- * (`healthy` / `recover` / `escalate` / `not-in-flight` / `no-dispatch` /
- * `tracker-unavailable`) — that broader typing pass is out of scope for
+ * (`healthy` / `recover` / `escalate` / `contested` / `not-in-flight` /
+ * `no-dispatch` / `tracker-unavailable`) — that broader typing pass is out of scope for
  * this fix, which only introduces the new shape.
  */
 export interface DispatchRecoveryTrackerUnavailableResult {
@@ -482,6 +522,11 @@ export async function buildTrackerUnavailableResponse(
         "git rev-list --count origin/<base-branch>..HEAD  (commits ahead of base = unmerged work landed)",
         "gh pr view  (if a PR was opened: is it still open, and what's the latest review state?)",
       ],
+      // No `no-workspace` line here, deliberately (mt#3894). This guide walks an operator
+      // through inspecting a SESSION WORKSPACE by hand, and every step above reads one — so the
+      // class that means "there was no workspace" cannot be reached down this path. Recorded
+      // rather than silently omitted, since an unexplained gap in an enumeration of the enum
+      // reads as an oversight.
       classificationGuide:
         "dirty tree + handoff.md present -> partial-committed-handoff-written; " +
         "dirty tree, no handoff.md -> partial-uncommitted-no-handoff (the class most likely to " +
@@ -526,6 +571,8 @@ export function createTasksDispatchRecoverCommand(
     activityOps?: DispatchRecoveryActivityOps;
     now?: () => Date;
     staleMs?: number;
+    /** mt#3952: bound beyond which presence/dispatch-start activity alone no longer counts as healthy. */
+    progressStaleMs?: number;
   } = {}
 ) {
   const gitOps = deps.gitOps ?? createRealDispatchRecoveryGitOps();
@@ -533,6 +580,7 @@ export function createTasksDispatchRecoverCommand(
     deps.activityOps ?? createRealDispatchRecoveryActivityOps(getPersistenceProvider);
   const now = deps.now ?? (() => new Date());
   const staleMs = deps.staleMs ?? DISPATCH_RECOVERY_STALE_MS;
+  const progressStaleMs = deps.progressStaleMs ?? DISPATCH_PROGRESS_STALE_MS;
 
   return {
     id: "tasks.dispatch-recover",
@@ -546,8 +594,11 @@ export function createTasksDispatchRecoverCommand(
       "presence-claim (session-scoped MCP tool-call) activity, not just commits, so a " +
       "dispatch that is quietly working (reading code, running tests, no commit yet) is " +
       "no longer misclassified as dead; see the activitySource field on a healthy result " +
-      '("commit" | "presence" | "dispatch-start") for which signal decided it. Refuses a ' +
-      '3rd attempt for the same dispatch chain (returns status: "escalate"). If the ' +
+      '("commit" | "presence" | "dispatch-start") for which signal decided it. mt#3952: presence alone no longer holds a healthy verdict indefinitely; see progressNote on a recover/escalate result. Refuses a ' +
+      '3rd attempt for the same dispatch chain (returns status: "escalate"). mt#3121: if a ' +
+      "DIFFERENT actor holds a fresh TASK-grain presence claim (a peer conversation actively " +
+      'working the task), returns status: "contested" WITHOUT consuming an attempt, since ' +
+      "redispatching would collide with that live actor. If the " +
       "dispatch tracker itself is unavailable, degrades to actionable manual-recovery " +
       'guidance instead of a bare error (returns status: "tracker-unavailable"). ' +
       'An "escalate" result is NOT a finding that the dispatch is dead — it only means the ' +
@@ -555,6 +606,11 @@ export function createTasksDispatchRecoverCommand(
       "workspace state (dirtyFileCount, gitStatus, commitsAheadOfBase, handoff, PR) plus " +
       "`workspaceMtimeAgoMs`; those are the signals that distinguish a dispatch editing " +
       "uncommitted files from a dead one, whereas push/PR/review activity cannot (mt#3204). " +
+      "CAUTION (mt#3958): `workspaceMtimeAgoMs` only advances on a DIRTY-FILE WRITE — an " +
+      "agent that is reading code, running tests, or otherwise working without touching the " +
+      "working tree produces no write, so this clock reads 'no recent writes,' NOT 'no " +
+      "agent.' Do not treat a large `workspaceMtimeAgoMs` alone as evidence of death; it is " +
+      "silent in exactly the state a live-but-reading agent produces. " +
       "DOUBLE-DISPATCH RACE WINDOW (mt#3086): calling this on a dispatch that is actually " +
       "still alive and then redispatching attempt N+1 anyway (e.g. after a false-positive " +
       "or a hasty manual override) puts TWO agents in the SAME Minsky session workspace " +
@@ -705,7 +761,8 @@ export function createTasksDispatchRecoverCommand(
         now().getTime(),
         staleMs,
         lastPresenceActivityAtMs,
-        lastWorkspaceMtimeAtMs
+        lastWorkspaceMtimeAtMs,
+        progressStaleMs
       );
 
       if (!staleness.stale) {
@@ -728,6 +785,62 @@ export function createTasksDispatchRecoverCommand(
             `Dispatch for ${taskId} has ${activityDescription} (last activity ` +
             `${staleness.staleForMs}ms ago, below the ${staleMs}ms stale window) — treated as ` +
             `healthy, no action taken.`,
+        };
+      }
+
+      // ── Contested gate (mt#3121, revised mt#3958): a live PEER holds a fresh
+      // task-grain claim, OR the claim store could not be checked. ───────────────────
+      // The dispatch is silent (past the stale window), but "silent subagent in THIS
+      // session" is not "nobody is working this TASK". Consult task-grain claims, excluding
+      // the caller's own, and refuse to green-light recover/redispatch when another actor is
+      // live — the double-dispatch collision this task prevents (mt#3718). A claim-store READ
+      // FAILURE fails CLOSED here (contested), unlike the session-grain presence signal above
+      // which fails open, because this gate protects the destructive redispatch decision.
+      //
+      // mt#3958: `taskClaimLiveness` can also come back `unavailable` — the store was never
+      // successfully QUERIED at all (no provider, no connection, no repo, or an unnormalizable
+      // task id), which used to collapse into the SAME value a genuinely empty read returns
+      // (`no-fresh-claim`) and so silently green-lit recovery. This was the mt#3812
+      // double-dispatch's mechanism. `unavailableReason: "no-provider"` is the one case that
+      // keeps the old abstain-and-proceed behavior — a CLI/test context legitimately running
+      // without persistence is not evidence of a peer, live or dead. Every other reason
+      // ("no-connection", "no-repo", "invalid-subject") means an attempt to look was made and
+      // did not complete, so it fails closed exactly like "read-failure".
+      //
+      // Checked BEFORE the probe and the attempt logic so the attempt counter is NOT consumed
+      // on the contested path (SC3).
+      const taskClaim = await activityOps.taskClaimLiveness(taskId, params.callerActorId ?? null);
+      const taskClaimFailsClosed =
+        taskClaim.cause === "contested" ||
+        taskClaim.cause === "read-failure" ||
+        (taskClaim.cause === "unavailable" && taskClaim.unavailableReason !== "no-provider");
+      if (taskClaimFailsClosed) {
+        const peerNote =
+          taskClaim.cause === "contested"
+            ? `Another actor (${taskClaim.peerActorId}) holds a fresh task-grain presence claim ` +
+              `(last refreshed ${taskClaim.peerLastRefreshedAt}) — a peer conversation is actively ` +
+              `working this task.`
+            : taskClaim.cause === "read-failure"
+              ? `The task-grain presence store could not be read, so peer activity cannot be ruled ` +
+                `out; failing closed rather than risk a redispatch collision.`
+              : `The task-grain presence store could not be checked (${taskClaim.unavailableReason}), ` +
+                `so peer activity cannot be ruled out; failing closed rather than risk a redispatch ` +
+                `collision.`;
+        return {
+          success: true,
+          status: "contested" as const,
+          taskId,
+          sessionId: subagentSessionId,
+          cause: taskClaim.cause,
+          unavailableReason: taskClaim.unavailableReason ?? null,
+          peerActorId: taskClaim.peerActorId ?? null,
+          peerLastRefreshedAt: taskClaim.peerLastRefreshedAt ?? null,
+          message:
+            `Dispatch for ${taskId} is silent, but this is NOT a green light to recover. ${peerNote} ` +
+            `Redispatching now would put a second agent into a live actor's session workspace (the ` +
+            `mt#3086/mt#3718 double-dispatch race). No attempt was consumed. Surface this to the ` +
+            `operator: confirm the peer is genuinely done (message it via SendMessage, or check its ` +
+            `session) before any manual recovery.`,
         };
       }
 
@@ -879,35 +992,55 @@ export function createTasksDispatchRecoverCommand(
             : `The workspace tree is clean (no uncommitted files)${
                 workspaceMtimeAgoMs === null
                   ? "."
-                  : `; last file-write ${workspaceMtimeAgoMs}ms ago.`
+                  : // mt#3958 SC4: a clean tree with a large workspaceMtimeAgoMs is NOT
+                    // evidence of death — the clock only moves on a dirty-file write, so
+                    // an agent that is reading, planning, or running tests without
+                    // writing produces no signal here and reads identically to dead.
+                    `; last file-write ${workspaceMtimeAgoMs}ms ago (this is a NO-WRITES-` +
+                    `RECENTLY signal, not a no-agent signal — a dispatch that is reading ` +
+                    `code or running tests writes no dirty file and looks identical here).`
               }`;
         const verifyGuidance =
           `To decide whether it is still alive, read the \`probe\` field on this result: ` +
           `\`dirtyFileCount\` / \`gitStatus\` and \`workspaceMtimeAgoMs\` are the ` +
-          `DISCRIMINATING signals. Push, PR and review activity CANNOT distinguish ` +
-          `"working locally with uncommitted changes" from "dead" — do not decide on ` +
-          `those alone. Messaging the agent directly (SendMessage) is also definitive.`;
+          `DISCRIMINATING signals — but \`workspaceMtimeAgoMs\` only advances on a dirty-file ` +
+          `WRITE (mt#3958); a dispatch that is reading, planning, or testing writes nothing and ` +
+          `so reads as "no recent writes," which is NOT the same claim as "no agent." Push, PR ` +
+          `and review activity CANNOT distinguish "working locally with uncommitted changes" ` +
+          `from "dead" — do not decide on those alone. Messaging the agent directly ` +
+          `(SendMessage) is also definitive; a parent conversation's OWN transcript mtime is ` +
+          `NOT evidence either way for a dispatched subagent — check ` +
+          `<session-dir>/subagents/agent-*.jsonl instead (see user-preferences.mdc §Probe ` +
+          `before claiming a shared resource).`;
 
-        const message = hasLivenessEvidence
-          ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
-            `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
-            `This is NOT confirmed death: the dispatch has ${
-              hasOpenPr && probe.pr.number
-                ? `an open PR (#${probe.pr.number})`
-                : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
-            }, positive evidence it produced real output. ${workspaceSummary} ` +
-            `Do NOT redispatch the continuation prompt into this session on the strength ` +
-            `of this escalation alone — doing so risks running two agents against the same ` +
-            `workspace/branch at once. ${verifyGuidance}`
-          : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
-            `(attempt ${attemptNumber}) — no PR and no commits were observed in ` +
-            `the stale window. This reflects an absence of observed output, not a confirmed ` +
-            `process crash. ${workspaceSummary} The 2-attempt bound is reached — no further ` +
-            `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
-            `diagnose why this dispatch keeps stalling (repeated infra failure? a task that ` +
-            `genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
-            `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
-            `manually. ${verifyGuidance}`;
+        // mt#3952: names which signal starved the dispatch — "silent" (no activity signal
+        // at all) vs "active but not progressing" (presence kept it looking alive while
+        // no commit/file-write happened) — so a caller reading only `message` still gets
+        // the distinction, not just the workspace snapshot above.
+        const progressNote = describeDispatchStalenessForMessage(staleness);
+
+        const message = (
+          hasLivenessEvidence
+            ? `Dispatch for ${taskId} went quiet again after a prior auto-resume ` +
+              `(attempt ${attemptNumber}) — no activity was observed in the stale window. ` +
+              `This is NOT confirmed death: the dispatch has ${
+                hasOpenPr && probe.pr.number
+                  ? `an open PR (#${probe.pr.number})`
+                  : `${probe.commitsAheadOfBase ?? 0} commit(s) ahead of base`
+              }, positive evidence it produced real output. ${workspaceSummary} ` +
+              `Do NOT redispatch the continuation prompt into this session on the strength ` +
+              `of this escalation alone — doing so risks running two agents against the same ` +
+              `workspace/branch at once. ${verifyGuidance}`
+            : `Dispatch for ${taskId} has gone silent again after a prior auto-resume ` +
+              `(attempt ${attemptNumber}) — no PR and no commits were observed in ` +
+              `the stale window. This reflects an absence of observed output, not a confirmed ` +
+              `process crash. ${workspaceSummary} The 2-attempt bound is reached — no further ` +
+              `auto-resume will be attempted. An operator/orchestrator decision is needed: ` +
+              `diagnose why this dispatch keeps stalling (repeated infra failure? a task that ` +
+              `genuinely exceeds a single dispatch's capacity? rate-limiting — check ` +
+              `SubagentDispatchTracker.getEscalation() before assuming death) before retrying ` +
+              `manually. ${verifyGuidance}`
+        ).concat(progressNote ? ` ${progressNote}` : "");
 
         return {
           success: true,
@@ -919,6 +1052,7 @@ export function createTasksDispatchRecoverCommand(
             attempts,
             hasLivenessEvidence,
             message,
+            progressNote,
             // mt#3204: the probe the caller needs in order to perform the
             // "verify independently" step the message asks for.
             probe,
@@ -1084,6 +1218,11 @@ export function createTasksDispatchRecoverCommand(
         newInvocationId,
         stateSummary: probe,
         continuationPrompt,
+        // mt#3952: "" when this dispatch was recovered for the ordinary "no activity at
+        // all" reason; non-empty when presence alone had been keeping it `healthy` while
+        // no commit/file-write happened — names which case this is for a caller reading
+        // only the top-level result, without having to re-derive it from `probe`.
+        progressNote: describeDispatchStalenessForMessage(staleness),
       };
     },
   };

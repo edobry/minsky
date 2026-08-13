@@ -27,6 +27,10 @@ import type express from "express";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb, describeServerPersistenceUnavailability } from "../db-providers";
+import {
+  parseSearchMode,
+  type TranscriptFtsSearchMode,
+} from "@minsky/domain/transcripts/transcript-fts-search-query";
 
 export interface ConversationSearchRouteOptions {
   /**
@@ -57,6 +61,19 @@ function parseMode(raw: unknown): SearchMode {
   return raw === "semantic" ? "semantic" : "text";
 }
 
+/**
+ * Read the FTS matching mode from `textMode`.
+ *
+ * Kept on a separate query parameter from `mode`, which already selects
+ * text-vs-semantic on this endpoint. Overloading `mode` with the FTS variants
+ * would make `?mode=exact` ambiguous about whether it also means "not
+ * semantic", and would silently change what an existing `?mode=text` request
+ * does. Unrecognized values fall back to the default rather than erroring.
+ */
+function parseTextMode(raw: unknown): TranscriptFtsSearchMode {
+  return parseSearchMode(raw);
+}
+
 function parseLimit(raw: unknown): number {
   const n = typeof raw === "string" ? parseInt(raw, 10) : NaN;
   return Number.isFinite(n) && n > 0 ? Math.min(n, 100) : 10;
@@ -74,7 +91,10 @@ export function mountConversationSearchRoutes(
   opts: ConversationSearchRouteOptions = {}
 ): void {
   /**
-   * GET /api/conversations/search?q=<text>&mode=text|semantic&from=<iso>&to=<iso>&limit=<n>
+   * GET /api/conversations/search?q=<text>&mode=text|semantic&textMode=websearch|plain|exact&from=<iso>&to=<iso>&limit=<n>
+   *
+   * `mode` picks the search backend (FTS vs embeddings); `textMode` picks how
+   * the FTS backend matches the query, and is ignored when `mode=semantic`.
    *
    * Returns:
    *   - 200 `{ results, coverage? }` — `results` is ranked transcript turns
@@ -96,6 +116,7 @@ export function mountConversationSearchRoutes(
     }
 
     const mode = parseMode(req.query.mode);
+    const textMode = parseTextMode(req.query.textMode);
     const limit = parseLimit(req.query.limit);
     const from = parseDate(req.query.from);
     const to = parseDate(req.query.to);
@@ -132,7 +153,7 @@ export function mountConversationSearchRoutes(
           "@minsky/domain/transcripts/transcript-fts-service"
         );
         const svc = new TranscriptFtsService(db);
-        results = await svc.searchText(query, { limit, dateRange });
+        results = await svc.searchText(query, { limit, dateRange, mode: textMode });
       }
 
       const coverage = await assessWindowCoverage(db, dateRange);

@@ -125,6 +125,7 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { evaluationLogPath, logEvaluationRecord } from "./dispatcher";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — GRADUATED to injection (mt#3399)
@@ -412,6 +413,44 @@ function computeGapMinutes(from: string | undefined, to: string | undefined): nu
   return Math.max(0, (toMs - fromMs) / 60000);
 }
 
+/**
+ * Minutes between the measured turn's END and the moment this guard fired
+ * (mt#4018) — the record's STALENESS, not its measured gap.
+ *
+ * The two are independent and a reader conflates them at their peril.
+ * `gapMinutes` describes the silence INSIDE the turn; this describes how long
+ * ago that turn finished. This guard registers on `UserPromptSubmit`, so it
+ * measures the last COMPLETED turn and fires whenever the operator next types
+ * — which may be seconds later or a day later. Measured over the 2026-08-11
+ * calibration window: 9 of 10 advisories landed 28 minutes to 36 hours after
+ * the turn they describe, and across the log's 64 anchored records ~37% land
+ * more than an hour late. The delta was recomputable from `turnAnchor` and the
+ * record timestamp all along; recording it makes the distribution readable
+ * from the sweep instead of from a hand-rolled `jq` pipeline.
+ *
+ * `undefined` when EITHER timestamp is unknown or unparsable — the turn-end
+ * case is the same condition that makes {@link buildTurnAnchor} return
+ * undefined. Absent is honest here: a zero would read as "delivered
+ * instantly", the opposite of "not known". Both sides are validated rather
+ * than only the boundary (PR #2903 R1): `computeGapMinutes` returns 0 for an
+ * unparsable input, so validating one and delegating the other would emit
+ * exactly the misleading zero this contract exists to avoid.
+ *
+ * Deliberately does NOT gate the advisory. Withholding a stale advisory
+ * changes when guidance reaches the agent, which ADR-031 §"The principal-facing
+ * axis" reserves to the principal; that half is mt#4027, gated on an operator
+ * decision and on the distribution this field makes visible.
+ */
+export function computeStalenessMinutes(
+  turnEndTimestamp: string | undefined,
+  firedAt: string
+): number | undefined {
+  if (!turnEndTimestamp) return undefined;
+  if (Number.isNaN(Date.parse(turnEndTimestamp))) return undefined;
+  if (!firedAt || Number.isNaN(Date.parse(firedAt))) return undefined;
+  return Math.round(computeGapMinutes(turnEndTimestamp, firedAt) * 100) / 100;
+}
+
 // ---------------------------------------------------------------------------
 // Turn-boundary timestamp lookup
 // ---------------------------------------------------------------------------
@@ -519,32 +558,33 @@ function readCalibrationLogText(cwd: string): string | undefined {
  * What this stream is for: the tuning loop needs to know whether guidance
  * CHANGED anything, and that is unanswerable from fires alone — a corpus of
  * fires can say "it happened again" but never "it stopped happening."
+ *
+ * mt#3745: the logical stream NAME, not a path — `logEvaluationRecord` /
+ * `evaluationLogPath` derive `.minsky/<name>-evaluations.jsonl` from it, the
+ * same name/path split the registry's `calibrationLog` uses.
  */
-const EVALUATION_LOG = ".minsky/silent-stretch-evaluations.jsonl";
+const EVALUATION_LOG_NAME = "silent-stretch";
 
 /**
  * Append one evaluation record. Fail-open and never throws, matching
  * `appendCalibrationRecord` above: a measurement stream must never be able to
  * break the guard whose behavior it measures.
  */
-function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
-  try {
-    const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
-    const dir = dirname(logPath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-    appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`[silent-stretch-detector] Failed to write evaluation log: ${msg}\n`);
-  }
+export function appendEvaluationRecord(cwd: string, record: Record<string, unknown>): void {
+  // mt#3745: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
-/** Bounded-tail read of the evaluation log, for the same-turn dedupe below. */
-function readEvaluationLogText(cwd: string): string | undefined {
-  const logPath = resolve(findRepoRoot(cwd), EVALUATION_LOG);
-  return readLogTailText(logPath);
+/**
+ * Bounded-tail read of the evaluation log, for the same-turn dedupe below.
+ *
+ * mt#3745: this READER had the same cwd-rooting defect as the writer, and it
+ * matters independently — reading a cwd-rooted path inside a session workspace
+ * dedupes against the wrong (usually empty) log, so the dedupe silently stops
+ * deduping exactly where the stray writes were landing.
+ */
+export function readEvaluationLogText(cwd: string): string | undefined {
+  return readLogTailText(evaluationLogPath(EVALUATION_LOG_NAME, { fallbackCwd: cwd }));
 }
 
 /** Injectable overrides for `run()` — tests substitute in-memory fakes for both real-IO seams (`custom/no-real-fs-in-tests`). */
@@ -613,7 +653,7 @@ export function run(
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }
@@ -632,6 +672,12 @@ export function run(
   }
 
   const turnAnchor = buildTurnAnchor(boundaries);
+  // One clock read for BOTH records (mt#4018). Reading `Date.now()` separately
+  // per record would let the evaluation and calibration rows for the same
+  // firing disagree by however long the dedupe reads took, which is exactly
+  // the kind of drift that makes a delta un-auditable later.
+  const firedAt = new Date().toISOString();
+  const stalenessMinutes = computeStalenessMinutes(boundaries.turnEndTimestamp, firedAt);
 
   // mt#3583: record the measurement whether or not it matched. A fire-only
   // stream can express "it happened again" but never "it stopped happening,"
@@ -660,12 +706,16 @@ export function run(
     )
   ) {
     appendEvaluation(input.cwd, {
-      timestamp: new Date().toISOString(),
+      timestamp: firedAt,
       session_id: input.session_id,
       guardName: "silent-stretch-detector",
       turnAnchor,
       gapMinutes: measurement.gapMinutes,
       toolCallCount: measurement.toolCallCount,
+      // Present on the NON-matched rows too, deliberately: the staleness
+      // distribution is a property of when this guard runs, not of whether it
+      // fired, so a fire-only sample would be biased by construction.
+      ...(stalenessMinutes !== undefined ? { stalenessMinutes } : {}),
       fired: measurement.matched,
     });
   }
@@ -689,12 +739,13 @@ export function run(
 
   const outcome: GuardOutcome = {
     calibration: {
-      timestamp: new Date().toISOString(),
+      timestamp: firedAt,
       session_id: input.session_id,
       gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
       toolCallCount: measurement.toolCallCount,
       hadTextInTurn: measurement.hadTextInTurn,
       turnAnchor,
+      ...(stalenessMinutes !== undefined ? { stalenessMinutes } : {}),
     },
   };
 
@@ -818,13 +869,19 @@ export async function main(): Promise<void> {
         )
       : false;
     if (!alreadyLogged) {
+      // Same shape as run()'s calibration record, including mt#4018's
+      // `stalenessMinutes` — the two paths write the same log, so a field on
+      // one and not the other would make the corpus non-uniform by writer.
+      const firedAt = new Date().toISOString();
+      const stalenessMinutes = computeStalenessMinutes(boundaries.turnEndTimestamp, firedAt);
       appendCalibrationRecord(input.cwd, {
-        timestamp: new Date().toISOString(),
+        timestamp: firedAt,
         session_id: input.session_id,
         gapMinutes: Math.round(measurement.gapMinutes * 100) / 100,
         toolCallCount: measurement.toolCallCount,
         hadTextInTurn: measurement.hadTextInTurn,
         turnAnchor,
+        ...(stalenessMinutes !== undefined ? { stalenessMinutes } : {}),
       });
     }
   }

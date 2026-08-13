@@ -221,10 +221,19 @@ async function evaluate(ws: WebSocket, expression: string): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Resolve the scrollport the component itself resolved — same rule as `findScrollParent`. */
+/**
+ * Resolve the scrollport the component itself resolved — same rule as `findScrollParent`.
+ *
+ * Anchored on the thread's own testid, the app-owned handle added for exactly
+ * this purpose (PR #2693 R1). It used to reach the thread through the
+ * `scroll-mb-8` sentinel's `parentElement` — the same element, but named by a
+ * CLASS FRAGMENT that breaks silently on any unrelated markup change, leaving a
+ * geometry check to fall back to a non-scrolling `document.scrollingElement`
+ * and report a measurement rather than a failure. mt#3843 brought the sibling
+ * scripts onto the testid so all of them resolve the same element the same way.
+ */
 const RESOLVE_PORT = `
-  const sentinel = document.querySelector('div[aria-hidden][class*="scroll-mb-8"]');
-  const thread = sentinel ? sentinel.parentElement : null;
+  const thread = document.querySelector('[data-testid="conversation-thread"]');
   let port = thread;
   while (port) {
     const s = getComputedStyle(port);

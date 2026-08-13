@@ -1,0 +1,383 @@
+# Guard/calibration stream inventory (mt#3334 phase 1)
+
+Authoritative inventory of every guard/calibration/observability JSONL (and
+JSON-array) stream the hook and calibration substrate writes, per mt#4033.
+This is the phase-1 deliverable the RFC expert-review's finding I6 asked for:
+before phase-2 schema design (mt#4034) and phase-3 ingest wiring (mt#4035) can
+classify payload families, the on-disk stream set and the calibration
+registry's declared set must be reconciled and every divergence dispositioned
+by name.
+
+**Scope note:** this document changes no on-disk format (mt#3518: formats
+unchanged) and does no schema design or ingest wiring (phases 2/3). It records
+what exists, where each stream's producer lives, its record shape at a
+one-line level of detail, whether the calibration registry machinery already
+reaches it, and whether it belongs in the future ingest scope.
+
+**Snapshot date:** 2026-08-12, at repository state `0ed27f483` (main) — the
+source line-number citations in this document correspond to that commit; if
+they have drifted, resolve by the cited SYMBOL name, not the number. The
+`.minsky/` JSONL count drifted from the spec's observed 31 to 33 _during this
+same session_ — `negative-existence-claim-calibration.jsonl` and
+`negative-existence-claim-evaluations.jsonl` appeared when the mt#3918
+detector (merged immediately before this task started) fired live for the
+first time. Both are included below; the drift itself is evidence this
+inventory needs to be a durable artifact, not a one-time count.
+
+## Method
+
+Rather than hand-enumerating the calibration registry's coverage, this
+inventory runs the reconciliation machinery mt#3716 already built and reads
+its output — `deriveCalibrationLogEntries` (`src/domain/calibration/
+calibration-sweep.ts:1913`, exported) and `findUnsweptCalibrationLogs`
+(`:1957`), driven by `getDeclaredCalibrationLogNames()`
+(`scripts/lib/calibration-log-declarations.ts`), which unions the three
+declaration surfaces (`GUARD_REGISTRY[].calibrationLog`,
+`STANDALONE_GUARD_CANARIES[].calibrationLog`, and the explicit
+`NON_GUARD_CALIBRATION_PRODUCERS` map). `scripts/check-calibration-sweep-
+coverage.ts` already wraps this into a pass/fail check scoped to
+`.minsky/*-calibration.jsonl`; §H below extends that same evidence, in-session,
+to the streams that check does not reach (evaluation logs, the special
+`subagent-model-mismatch.jsonl`, the state-dir fire-log/guard-health-log, and
+the five spec-named adjacent state-dir streams) — no new script is committed;
+the machinery already in the repo is reused, not duplicated, per the task's
+implementation shape.
+
+## Registry-status vocabulary
+
+- **registered-explicit** — a hand-typed entry in `CALIBRATION_LOG_REGISTRY`
+  (`calibration-sweep.ts:339-529`).
+- **registered-derived** — reachable via `deriveCalibrationLogEntries` because
+  some producer declares `calibrationLog` on `GUARD_REGISTRY`,
+  `STANDALONE_GUARD_CANARIES`, or `NON_GUARD_CALIBRATION_PRODUCERS`, but has
+  no hand-typed `CALIBRATION_LOG_REGISTRY` entry.
+- **unregistered** — no declaration surface names it. For every stream in this
+  document classified `unregistered`, the reason is architectural, not an
+  oversight: `CALIBRATION_LOG_REGISTRY` and its three declaration surfaces
+  exist specifically to enumerate **calibration fire logs** (the
+  `CalibrationLogEntry`/`kind`-based matched-phrase shape family the
+  `/calibration-review` sweep parses) — evaluation streams, the fire-log,
+  guard-health-log, and the adjacent state-dir streams all use different
+  record shapes and were never meant to be reached by that registry. See §G.
+
+## Ingest-disposition vocabulary
+
+- **ingest** — belongs in the future DB-backed ingest scope (phase 2/3 will
+  design its schema and wire it).
+- **exclude-with-reason** — deliberately out of ingest scope, with the reason
+  stated.
+- **defer-with-owner** — in scope conceptually, but a specific blocking
+  concern (format mismatch, missing schema-design input) means the disposition
+  decision belongs to a later, named task.
+
+---
+
+## A. Calibration-registry streams — `.minsky/*-calibration.jsonl`
+
+28 rows: 27 on-disk files as of 2026-08-12 plus one registered-but-dormant
+entry (`build-claim-injection`, zero fires since its `liveSinceDate`). Every
+row here is reachable by `deriveCalibrationLogEntries` — confirmed by
+`bun scripts/check-calibration-sweep-coverage.ts --json` returning
+`"unswept": []` (see §H). Record-shape descriptions below use the registry's
+own `kind` doc comments (`calibration-sweep.ts:33-119`) where the shape is a
+dedicated one, and "matches-shape (generic)" where the log parses through the
+shared matched-phrase fallback with no dedicated field description checked in
+this pass.
+
+| Stream (name)                     | Path                                                                                                                 | Writer (guard / module)                                                                                                         | Record shape (one line)                                                                                                                                                                                     | Registry status                                                                                                                                                 | Ingest disposition                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| agent-dispatch-record             | `.minsky/agent-dispatch-record-calibration.jsonl`                                                                    | `.minsky/hooks/record-agent-dispatch.ts` (guard `record-agent-dispatch`)                                                        | matches-shape (generic)                                                                                                                                                                                     | registered-derived (GUARD_REGISTRY)                                                                                                                             | ingest                                          |
+| ask-form-lint                     | `.minsky/ask-form-lint-calibration.jsonl`                                                                            | `src/adapters/shared/commands/ask-form-lint-calibration.ts` (asks_create path, non-guard)                                       | matches-shape (generic)                                                                                                                                                                                     | registered-derived (NON_GUARD_CALIBRATION_PRODUCERS)                                                                                                            | ingest                                          |
+| ask-routing-deferral              | `.minsky/ask-routing-deferral-calibration.jsonl`                                                                     | `.minsky/hooks/ask-routing-deferral-detector.ts`                                                                                | `matches: {class, phrase}[]`                                                                                                                                                                                | registered-explicit                                                                                                                                             | ingest                                          |
+| bare-entity-ref                   | `.minsky/bare-entity-ref-calibration.jsonl`                                                                          | `.minsky/hooks/turn-end-bare-ref-scan.ts`                                                                                       | `matches: {family, phrase}[]` + `logged_only` population                                                                                                                                                    | registered-explicit                                                                                                                                             | ingest                                          |
+| bare-prohibition                  | `.minsky/bare-prohibition-calibration.jsonl`                                                                         | `.minsky/hooks/warn-bare-prohibition-dispatch.ts` (guard `bare-prohibition`, standalone canary)                                 | matches-shape (generic)                                                                                                                                                                                     | registered-derived (STANDALONE_GUARD_CANARIES)                                                                                                                  | ingest                                          |
+| build-claim-injection             | `.minsky/build-claim-injection-calibration.jsonl` (**no file — dormant**, 0 fires since `liveSinceDate: 2026-08-08`) | `.minsky/hooks/build-claim-injection-detector.ts`                                                                               | `matchedPhrases: string[]` + `deploySurfaceFiles`                                                                                                                                                           | registered-explicit (`reviewByDays: 30`)                                                                                                                        | ingest once/if fires start — see §G disposition |
+| causal-premise                    | `.minsky/causal-premise-calibration.jsonl`                                                                           | `.minsky/hooks/causal-premise-detector.ts`                                                                                      | `matchedPhrases: string[]`                                                                                                                                                                                  | registered-explicit                                                                                                                                             | ingest                                          |
+| chained-verification-commands     | `.minsky/chained-verification-commands-calibration.jsonl`                                                            | `.minsky/hooks/chained-verification-commands-detector.ts`                                                                       | matches-shape (generic)                                                                                                                                                                                     | registered-derived                                                                                                                                              | ingest                                          |
+| code-mechanism-assertion          | `.minsky/code-mechanism-assertion-calibration.jsonl`                                                                 | `.minsky/hooks/code-mechanism-assertion-detector.ts`                                                                            | `claims: {symbol, predicate}[]`                                                                                                                                                                             | registered-explicit                                                                                                                                             | ingest                                          |
+| constructed-identifier-batch      | `.minsky/constructed-identifier-batch-calibration.jsonl`                                                             | `.minsky/hooks/constructed-identifier-batch-detector.ts`                                                                        | `matches: {category, phrase, mintTool, consumeTool, consumeField}[]`                                                                                                                                        | registered-explicit                                                                                                                                             | ingest                                          |
+| duplicate-check-search-provenance | `.minsky/duplicate-check-search-provenance-calibration.jsonl`                                                        | `.minsky/hooks/duplicate-check-search-provenance.ts`                                                                            | matches-shape (generic)                                                                                                                                                                                     | registered-derived                                                                                                                                              | ingest                                          |
+| duplicate-signature-scan          | `.minsky/duplicate-signature-scan-calibration.jsonl`                                                                 | `.minsky/hooks/duplicate-signature-scan.ts`                                                                                     | matches-shape (generic)                                                                                                                                                                                     | registered-derived                                                                                                                                              | ingest                                          |
+| execution-evidence-at-coverage    | `.minsky/execution-evidence-at-coverage-calibration.jsonl`                                                           | `.minsky/hooks/require-execution-evidence-before-merge.ts` (guard `require-execution-evidence-before-merge`, standalone canary) | matches-shape (generic)                                                                                                                                                                                     | registered-derived — guardName `require-execution-evidence-before-merge`, which writes TWO distinct calibration logs (this one via its per-AT coverage surface) | ingest                                          |
+| execution-evidence-test-first     | `.minsky/execution-evidence-test-first-calibration.jsonl`                                                            | same guard, via `test-first-evidence.ts` called in-process                                                                      | matches-shape (generic)                                                                                                                                                                                     | registered-derived — same guardName `require-execution-evidence-before-merge`, second of its two logs (negative-control surface); both stems map to it in §H.2  | ingest                                          |
+| knowledge-acquisition             | `.minsky/knowledge-acquisition-calibration.jsonl`                                                                    | `.minsky/hooks/knowledge-acquisition-detector.ts`                                                                               | `loadedSkills: string[]`                                                                                                                                                                                    | registered-explicit (`reviewByDays: 14`)                                                                                                                        | ingest                                          |
+| negative-existence-claim          | `.minsky/negative-existence-claim-calibration.jsonl`                                                                 | `.minsky/hooks/negative-existence-claim-detector.ts` (mt#3918, merged this session)                                             | `claims: {phrase, excerpt}[]` + `doneTaskIds` + `thinSearches` + `doneLookupUnavailable`                                                                                                                    | registered-derived (GUARD_REGISTRY)                                                                                                                             | ingest                                          |
+| operator-deferral                 | `.minsky/operator-deferral-calibration.jsonl`                                                                        | `.minsky/hooks/operator-deferral-detector.ts` + `operator-deferral-ask-surface` (2 guards, 1 log)                               | `matches: {category, phrase}[]`                                                                                                                                                                             | registered-explicit                                                                                                                                             | ingest                                          |
+| operator-instruction-trigger      | `.minsky/operator-instruction-trigger-calibration.jsonl`                                                             | `.minsky/hooks/mcp-daemon-staleness-detector.ts` (guard `substrate-bypass-detector`)                                            | matches-shape (generic)                                                                                                                                                                                     | registered-derived                                                                                                                                              | ingest                                          |
+| policy-coverage                   | `.minsky/policy-coverage-calibration.jsonl`                                                                          | `.claude/hooks/policy-coverage-detector.ts` (guard `policy-coverage`, standalone canary)                                        | `{reason, outcome, evidence?}` (not matched-phrase; diversity over `reason`)                                                                                                                                | registered-explicit                                                                                                                                             | ingest                                          |
+| pre-narration                     | `.minsky/pre-narration-calibration.jsonl`                                                                            | `.minsky/hooks/pre-narration-detector.ts`                                                                                       | `matches: {category, phrase, context, ...}[]`                                                                                                                                                               | registered-explicit                                                                                                                                             | ingest                                          |
+| retrospective-completeness        | `.minsky/retrospective-completeness-calibration.jsonl`                                                               | `.minsky/hooks/retrospective-completeness-detector.ts`                                                                          | `{missing_sections, unverified_task_ids}`                                                                                                                                                                   | registered-explicit                                                                                                                                             | ingest                                          |
+| retrospective-trigger             | `.minsky/retrospective-trigger-calibration.jsonl`                                                                    | `.minsky/hooks/retrospective-trigger-scanner.ts` + `turn-end-retro-scan.ts` (2 guards, 1 log)                                   | `matches: {family, phrase}[]`, `transcript_excerpt`, plus `captureSchema` / `judged_text_hash` / `judged_text_length` / `nomination_contexts` (mt#3821)                                                     | registered-explicit                                                                                                                                             | ingest                                          |
+| silent-stretch                    | `.minsky/silent-stretch-calibration.jsonl`                                                                           | `.minsky/hooks/silent-stretch-detector.ts`                                                                                      | `{gapMinutes, toolCallCount, hadTextInTurn?}` (not matched-phrase; diversity over `session_id`)                                                                                                             | registered-explicit                                                                                                                                             | ingest                                          |
+| stop-at-decision                  | `.minsky/stop-at-decision-calibration.jsonl`                                                                         | `.minsky/hooks/stop-at-decision-scan.ts`                                                                                        | `targets: {taskId, status}[]`                                                                                                                                                                               | registered-explicit (`liveSinceDate: 2026-08-04`)                                                                                                               | ingest                                          |
+| unescalated-incident              | `.minsky/unescalated-incident-calibration.jsonl`                                                                     | `.minsky/hooks/turn-end-unescalated-incident-scan.ts`                                                                           | matches-shape (generic)                                                                                                                                                                                     | registered-derived                                                                                                                                              | ingest                                          |
+| untaken-action                    | `.minsky/untaken-action-calibration.jsonl`                                                                           | `.minsky/hooks/turn-end-untaken-action-scan.ts`                                                                                 | `matches: {family, phrase}[]`                                                                                                                                                                               | registered-explicit                                                                                                                                             | ingest                                          |
+| unwalked-task                     | `.minsky/unwalked-task-calibration.jsonl`                                                                            | `.minsky/hooks/turn-end-unwalked-task-scan.ts`                                                                                  | matches-shape (generic)                                                                                                                                                                                     | registered-derived                                                                                                                                              | ingest                                          |
+| wall-of-text                      | `.minsky/wall-of-text-calibration.jsonl`                                                                             | `.minsky/hooks/wall-of-text-detector.ts`                                                                                        | `{wordCount, trigger, leadLabelHits, precedingPromptStatus, precedingPrompt?}` (not matched-phrase; diversity over `session_id`; mt#4048 adds the elided preceding principal prompt on the over-budget leg) | registered-explicit                                                                                                                                             | ingest                                          |
+
+## B. Evaluation streams — `.minsky/*-evaluations.jsonl`
+
+Five files. **Not** covered by `CALIBRATION_LOG_REGISTRY` or any of its three
+declaration surfaces — a deliberate, separate convention (per-turn "did the
+detector evaluate, and what did each conjunct decide" records, written to
+measure the detector's MISS rate, distinct from the fire-only calibration
+log). Each is a hardcoded `EVALUATION_LOG` constant local to its detector file,
+not a registry entry.
+
+| Stream                               | Path                                                 | Writer                                               | Record shape (one line)                                                                                                                                         | Registry status                      | Ingest disposition |
+| ------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------ |
+| negative-existence-claim-evaluations | `.minsky/negative-existence-claim-evaluations.jsonl` | `.minsky/hooks/negative-existence-claim-detector.ts` | `{timestamp, fired, claimPresent, thinSearchPresent, citedTaskCount, doneTaskCount, doneLookupRan, doneLookupUnavailable, searchCount, proseChars, session_id}` | unregistered (by design — see above) | ingest             |
+| operator-deferral-evaluations        | `.minsky/operator-deferral-evaluations.jsonl`        | `.minsky/hooks/operator-deferral-detector.ts`        | per-turn evaluation record (fired + per-surface conjunct outcomes)                                                                                              | unregistered                         | ingest             |
+| retrospective-trigger-evaluations    | `.minsky/retrospective-trigger-evaluations.jsonl`    | `.minsky/hooks/retrospective-trigger-scanner.ts`     | per-turn evaluation record                                                                                                                                      | unregistered                         | ingest             |
+| silent-stretch-evaluations           | `.minsky/silent-stretch-evaluations.jsonl`           | `.minsky/hooks/silent-stretch-detector.ts`           | per-turn evaluation record                                                                                                                                      | unregistered                         | ingest             |
+| stop-at-decision-evaluations         | `.minsky/stop-at-decision-evaluations.jsonl`         | `.minsky/hooks/stop-at-decision-scan.ts`             | per-turn evaluation record                                                                                                                                      | unregistered                         | ingest             |
+
+## C. Non-guard special stream
+
+| Stream                  | Path                                    | Writer                                                                                          | Record shape (one line)                                                                                                       | Registry status                                                                           | Ingest disposition |
+| ----------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------ |
+| subagent-model-mismatch | `.minsky/subagent-model-mismatch.jsonl` | `.minsky/hooks/verify-subagent-model.ts` (mt#3151, the Agent-tool PostToolUse model-tier check) | `{timestamp, session_id, dispatching_agent_id, tool_name, requested, kind, resolved, subagent_id, response_status, is_async}` | unregistered (its own ad hoc log; predates and is outside the calibration-log convention) | ingest             |
+
+## D. State-dir guard/calibration streams
+
+Outside the repo's `.minsky/` (which is git-tracked and JSONL-gitignored per
+entry); these live under the runtime state dir (`~/.local/state/minsky/`,
+overridable via `MINSKY_STATE_DIR`).
+
+| Stream                   | Path                             | Size (2026-08-12)                    | Writer                                                                                                                           | Record shape (one line)                                                                         | Registry status                                                                                                                                                                                                  | Ingest disposition                                                                                                                                                                                                                                                                                             |
+| ------------------------ | -------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| fire-log                 | `fire-log.jsonl`                 | 87,784,878 bytes / 427,285 lines     | `.minsky/hooks/fire-log.ts`, called by the dispatcher's `recordFireLogEntry` for every dispatched guard invocation (ADR-028)     | `{timestamp, guardName, event, decision, durationMs, ...}`                                      | registered-derived — every `GUARD_REGISTRY`-dispatched guard writes here automatically (not a `CALIBRATION_LOG_REGISTRY` entry; a separate, broader registry — `GUARD_REGISTRY` itself, not the calibration one) | ingest (primary target; `docs/architecture/evaluation-loop-fire-log.md` is the existing Phase-1 design doc this inventory complements)                                                                                                                                                                         |
+| guard-health-log         | `guard-health-log.jsonl`         | 47,952 bytes                         | `.minsky/hooks/guard-health.ts`, called from specific guard checkpoints (`check-skip`/crash signals), not automatic per dispatch | `{timestamp, guardName, event, kind, message, toolName, sessionId}`                             | registered-derived — driven by call sites in guard code, not enumerable via a name-list registry                                                                                                                 | ingest                                                                                                                                                                                                                                                                                                         |
+| two-strikes-observations | `two-strikes/observations.jsonl` | 16,554 bytes / 27 lines (2026-08-12) | `.claude/hooks/two-strikes-record.ts` (PostToolUse 2-strikes tracker, mt#1484) — the "would-have-fired" observation log          | `{sessionId, mode, toolName, fingerprintHash, normalizedMessage, errorType, firstAt, secondAt}` | unregistered (not a calibration fire log; predates the convention)                                                                                                                                               | ingest — **row added 2026-08-12 during mt#4034 planning**: the original snapshot classified the `two-strikes/` directory wholesale as mutable state (§F), missing this append-only stream inside it. mt#1554's observations-log half is subsumed by the mt#3334 phases (reconciliation recorded in that spec). |
+
+## E. Adjacent state-dir streams (spec-named — classified in/out)
+
+The five streams the spec explicitly asked to be classified, since they sit
+next to the guard/calibration exhaust in the same state dir but are not
+obviously part of it.
+
+| Stream                     | Path                               | Size            | Writer                                                                                                      | Record shape (one line)                                                                           | Registry status | Classification                     | Reason                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------- | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| credential-scrub-log       | `credential-scrub-log.jsonl`       | 746,990 bytes   | `packages/domain/src/transcripts/credential-scrub-log.ts`, called from `agent-transcript-ingest-service.ts` | `{timestamp, agentSessionId, redactionCount, byShape}` (counts only — no secret values)           | unregistered    | **OUT — exclude-with-reason**      | Redaction-COUNT metering for the transcript-ingest pipeline, a different subsystem from guard/calibration exhaust. No observability-loop consumer (fire-log, calibration registry, rationalization review) reads it. Revisit if/when transcript-ingest gets its own ingest track.                                                                                |
+| mcp-disconnect-log         | `mcp-disconnect-log.json`          | 3,357,016 bytes | `src/mcp/disconnect-tracker.ts`, `disconnect-event-sweep.ts`, `server.ts`, `stdio-proxy/proxy.ts`           | JSON **array** (not JSONL) of `{timestamp, serverName, kind, cause}`                              | unregistered    | **IN — defer-with-owner: mt#4034** | Real connection-health signal, in scope conceptually — but it is the one stream in this whole inventory stored as a whole-file JSON array rather than newline-delimited JSONL. Ingesting it needs format-aware handling (whole-array parse + diff, not tail-read), which is a schema-design decision for phase 2, not a call this task should make unilaterally. |
+| transcript-ingest-hook-log | `transcript-ingest-hook-log.jsonl` | 312,388 bytes   | `.minsky/hooks/transcript-ingest-on-session-end.ts`                                                         | `{timestamp, event, sessionId, ingest: {exitCode, timedOut}}`                                     | unregistered    | **IN — ingest**                    | Hook-outcome record (SessionEnd ingest health) — same shape family as guard-health-log.                                                                                                                                                                                                                                                                          |
+| session-link-hook-failures | `session-link-hook-failures.jsonl` | 8,421 bytes     | `.minsky/hooks/stamp-session-creator-link.ts` (+ the PR-author-link sibling hook)                           | `{hook, reason, timestamp, conversationId, taskId, workspaceSessionId}`                           | unregistered    | **IN — ingest**                    | Hook-failure record — same shape family as guard-health-log.                                                                                                                                                                                                                                                                                                     |
+| conversation-transitions   | `conversation-transitions.jsonl`   | 4,432 bytes     | `packages/shared/src/conversation-pid-map.ts`                                                               | `{predecessor, successor, source, harnessPid, harnessStartedAt, predecessorHarnessStartedAt, at}` | unregistered    | **IN — ingest**                    | Conversation-lifecycle record consumed for presence/attribution (`/clear` boundary tracking, per ADR-006-adjacent presence-claim mechanics). Small volume, real signal.                                                                                                                                                                                          |
+
+## F. Mutable state stores (SC3 — state-not-stream, out of ingest scope)
+
+These are **not append-only streams**: each is a fixed set of files or a
+single JSON object that is _overwritten_ on update, not appended to. Ingest
+(which reads new lines/rows since a watermark) does not apply to them — they
+have no "since" to read from, only a current value. Representative examples
+covering the spec's named categories:
+
+- **`~/.local/state/minsky/two-strikes/`** — 806 per-conversation JSON files
+  (2-strikes rule state, one file per conversation, overwritten as strikes
+  accumulate/reset). **Correction (2026-08-12, mt#4034):** the directory ALSO
+  holds `observations.jsonl`, an append-only stream the original snapshot
+  missed by classifying the directory wholesale — that stream is a §D row
+  now, disposition `ingest`. Only the per-conversation state files are
+  state-not-stream.
+- **`.minsky/calibration-review-watermarks.json`** — single JSON object keyed
+  by calibration-log path, `{lastReviewedCount, lastReviewedAt}` per key,
+  overwritten in place on every `/calibration-review` pass.
+- **`~/.local/state/minsky/guard-grants.json`** / **`ask-grants.json`** —
+  operator-approved override grants, mutable, keyed by grant id.
+- **`~/.local/state/minsky/mcp-disconnect-sweep-hwm.json`** — high-water-mark
+  cursor for the disconnect sweep, overwritten in place.
+
+**Out of ingest scope, no owner needed** — these are live operational state
+for mechanisms that already read/write them directly; there is nothing for a
+DB-backed ingest pipeline to add over the file itself.
+
+**Not enumerated further:** the state dir holds many more files with no
+guard/calibration/observability relationship at all — session-backup
+snapshots, `minsky.db*`, `short-id-map.json`, `agent-tab-*.json`,
+`dispatch-intents.json`, cockpit token/cache files, and similar general
+application state. These are out of scope for this inventory entirely (not
+"classified out" — never in scope to begin with) and are not listed here.
+
+## G. Registry/disk reconciliation findings (SC2)
+
+1. **Zero unregistered on-disk calibration files.**
+   `bun scripts/check-calibration-sweep-coverage.ts --json` returns
+   `"unswept": []` — every one of the 27 on-disk `-calibration.jsonl` files is
+   reachable via `deriveCalibrationLogEntries(getDeclaredCalibrationLogNames())`.
+   This includes `negative-existence-claim`, which started producing its first
+   real fire in this very session (mt#3918 merged immediately before this task
+   began) and was already correctly declared via
+   `GUARD_REGISTRY[].calibrationLog` — no gap to close.
+
+2. **One registered entry with no on-disk file: `build-claim-injection`.**
+   Registered-explicit (`reviewByDays: 30`, `liveSinceDate: 2026-08-08`), zero
+   fires ever. Its own doc comment (`calibration-sweep.ts` ~:395-450) already
+   documents why: a corpus replay found the detector's condition-(a) proxy
+   ("a deploy-surface file was edited via a file-edit tool in THIS
+   transcript") near-unsatisfiable in Minsky's actual workflow (tracked
+   separately at mt#3819, not this task's scope to fix), and the mt#3755
+   disposition was explicitly to KEEP rather than retire — cost is zero
+   (`INJECTION_ENABLED = false`, so it logs and injects nothing) and retiring
+   would reopen an otherwise-uncovered chat-surface gap. **Resolution: KEEP,
+   no code change** — this is a re-confirmation of a decision already made,
+   not a new one.
+
+3. **No genuine registry defect found.** The mt#3716 machinery
+   (`deriveCalibrationLogEntries` + `getDeclaredCalibrationLogNames` + the
+   three declaration surfaces) already closes every calibration-log gap the
+   spec's Context section was concerned about. No edit to
+   `src/domain/calibration/calibration-sweep.ts` was made by this task — per
+   the spec's own instruction ("editing ... only where a gap is a genuine
+   defect"), there is none to fix.
+
+4. **Every other divergence is a scope boundary, not a defect.** The streams
+   classified `unregistered` in §B–§E (5 evaluation streams,
+   `subagent-model-mismatch.jsonl`, fire-log, guard-health-log, and the 5
+   adjacent state-dir streams) are outside `CALIBRATION_LOG_REGISTRY`'s
+   _scope_ by design: none of them use the `CalibrationLogEntry`/`kind`-based
+   matched-phrase shape that registry exists to parse for the
+   `/calibration-review` sweep. Folding them in would misrepresent their
+   record shape rather than fix a gap — that is schema-design work,
+   explicitly deferred to phase 2 (mt#4034). Recording them as `unregistered`
+   here is the honest classification the spec's SC2 asks for, not a residual
+   defect this task left unfixed.
+
+## H. AT1 evidence — sweep output (2026-08-12)
+
+Two pieces of evidence: the existing sweep-coverage check (scoped to
+`.minsky/*-calibration.jsonl`), and an in-session script reusing
+`deriveCalibrationLogEntries` / `getDeclaredCalibrationLogNames` /
+`CALIBRATION_LOG_REGISTRY` to cross-check the full set this document covers.
+No new script was committed — the machinery already in the repo (mt#3716) is
+sufficient, per the task's "extend, don't duplicate" instruction; this is a
+verification run, not a new permanent check.
+
+### H.1 — existing coverage check
+
+```
+$ bun scripts/check-calibration-sweep-coverage.ts --json
+{
+  "checked": 27,
+  "sweptCount": 28,
+  "unswept": []
+}
+```
+
+`checked` = 27 on-disk `-calibration.jsonl` stems. `sweptCount` = 28 (the 27
+on-disk names plus the dormant `build-claim-injection`). `unswept: []`
+confirms every on-disk calibration file is reachable by the derived sweep.
+
+### H.2 — full registry-vs-disk diff (in-session script, imports the real modules)
+
+```
+=== explicit (CALIBRATION_LOG_REGISTRY) === (16)
+ask-routing-deferral, bare-entity-ref, build-claim-injection, causal-premise,
+code-mechanism-assertion, constructed-identifier-batch, knowledge-acquisition,
+operator-deferral, policy-coverage, pre-narration, retrospective-completeness,
+retrospective-trigger, silent-stretch, stop-at-decision, untaken-action,
+wall-of-text
+
+=== declared (3-surface union, getDeclaredCalibrationLogNames()) === (27)
+agent-dispatch-record, ask-form-lint, ask-routing-deferral, bare-entity-ref,
+bare-prohibition, build-claim-injection, causal-premise,
+chained-verification-commands, code-mechanism-assertion,
+constructed-identifier-batch, duplicate-check-search-provenance,
+duplicate-signature-scan, execution-evidence-at-coverage,
+execution-evidence-test-first, knowledge-acquisition, negative-existence-claim,
+operator-deferral, operator-instruction-trigger, policy-coverage,
+pre-narration, retrospective-completeness, retrospective-trigger,
+silent-stretch, stop-at-decision, unescalated-incident, untaken-action,
+unwalked-task, wall-of-text
+
+=== derived sweep names (deriveCalibrationLogEntries output) === (28)
+[same 27 declared names] + build-claim-injection (already explicit, so the
+union is 28 total unique names — the 16 explicit + the 12 purely-derived below)
+
+=== explicit names with NO declaration on any of the 3 surfaces ===
+(none)
+
+=== declared names NOT in explicit (purely registered-derived) === (12)
+agent-dispatch-record -> record-agent-dispatch
+ask-form-lint -> non-guard:src/adapters/shared/commands/ask-form-lint-calibration.ts
+bare-prohibition -> bare-prohibition
+chained-verification-commands -> chained-verification-commands
+duplicate-check-search-provenance -> duplicate-check-search-provenance
+duplicate-signature-scan -> duplicate-signature-scan
+execution-evidence-at-coverage -> require-execution-evidence-before-merge
+execution-evidence-test-first -> require-execution-evidence-before-merge
+negative-existence-claim -> negative-existence-claim-detector
+operator-instruction-trigger -> substrate-bypass-detector
+unescalated-incident -> turn-end-unescalated-incident-scan
+unwalked-task -> turn-end-unwalked-task-scan
+
+=== on-disk -calibration.jsonl stems NOT in derived (unswept) ===
+(none)
+
+=== derived names with NO on-disk file (dormant/never fired) ===
+build-claim-injection
+```
+
+### H.3 — full on-disk `.minsky/*.jsonl` listing (33 files, 2026-08-12)
+
+Two runs, because the count MOVED mid-session. The spec's baseline run (before
+the mt#3918 detector's first live fire minted its two files):
+
+```
+$ find .minsky -maxdepth 1 -name "*.jsonl" | wc -l
+31   # 26 *-calibration.jsonl + 4 *-evaluations.jsonl + subagent-model-mismatch.jsonl
+```
+
+The final run at snapshot state, after `negative-existence-claim-calibration.jsonl`
+and `negative-existence-claim-evaluations.jsonl` appeared:
+
+```
+$ find .minsky -maxdepth 1 -name "*.jsonl" | wc -l
+33
+$ find .minsky -maxdepth 1 -name "*-calibration.jsonl" | wc -l
+27
+$ find .minsky -maxdepth 1 -name "*-evaluations.jsonl" | wc -l
+5
+```
+
+27 `*-calibration.jsonl` + 5 `*-evaluations.jsonl` + 1
+`subagent-model-mismatch.jsonl` = 33. Every one of the 33 is a row in §A, §B,
+or §C above — no stream absent from the inventory (AT1).
+
+### H.4 — state-dir stream existence + size (guard/calibration + adjacent)
+
+```
+fire-log.jsonl: 87784878 bytes
+guard-health-log.jsonl: 47952 bytes
+credential-scrub-log.jsonl: 746990 bytes
+mcp-disconnect-log.json: 3357016 bytes
+transcript-ingest-hook-log.jsonl: 312388 bytes
+session-link-hook-failures.jsonl: 8421 bytes
+conversation-transitions.jsonl: 4432 bytes
+```
+
+All 7 are rows in §D or §E above. Combined with H.3's 33, this inventory
+covers 40 distinct stream files, satisfying AT2's "at least the 33 streams
+observed 2026-08-12" floor with the 2 mid-session additions and the 5 adjacent
+streams also present.
+
+## Cross-references
+
+- Parent: mt#3334 (phases recorded in its Planning Audit). Consumers: mt#4034
+  (phase 2, schema design) reads this inventory's payload families; mt#4035
+  (phase 3, ingest wiring/backfill).
+- `src/domain/calibration/calibration-sweep.ts` — `CALIBRATION_LOG_REGISTRY`
+  (:339-529), `deriveCalibrationLogEntries` (:1913), `findUnsweptCalibrationLogs`
+  (:1957) — the reconciliation machinery this inventory reuses (mt#3716,
+  ADR-028 §D4).
+- `scripts/lib/calibration-log-declarations.ts` — the shared 3-surface
+  declaration accessor.
+- `scripts/check-calibration-sweep-coverage.ts` — the existing pass/fail
+  check this inventory's §H.1 evidence comes from.
+- `docs/architecture/evaluation-loop-fire-log.md` — Phase 1 fire-log
+  instrumentation design (the primary target named in §D).
+- `docs/architecture/evaluation-loop-phase2.md` — the rationalization review
+  that already reads the fire-log + calibration-registry corpus this
+  inventory maps.
+- mt#3518 — on-disk JSONL formats unchanged; scoping happens at DB ingest.
+- mt#2889 — registry-derivation origin; mt#3716 — the drift-check this task
+  extends.

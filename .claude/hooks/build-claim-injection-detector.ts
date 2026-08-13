@@ -40,6 +40,21 @@
 // within 30 days even at low fire volume — mt#2896 shipped precisely so this
 // detector's graduation contract is enforceable.
 //
+// MEASURED 2026-08-08 (mt#3755): condition (a) is the binding constraint, and
+// it is near-unsatisfiable in practice. Replaying this detector over all 805
+// transcripts since 2026-07-23 (3,048 evaluation points, via
+// `bun scripts/replay-build-claim-injection.ts`) yields ZERO fires: 620
+// sessions had no in-session `*session_pr_merge` at all, 176 merged but edited
+// no deploy-surface file in-transcript, 8 had both but made no usability
+// claim, and the single session that satisfied all three was correctly
+// suppressed by real rebuild evidence. Two causes, both in (a): the surface
+// set matches only deploy-CONFIG files, and Minsky merges in a main-agent
+// conversation whose implementation edits live in a subagent's transcript.
+// The claim patterns below are NOT what is failing. Fix tracked at mt#3819;
+// this detector stays registered meanwhile because `INJECTION_ENABLED` is
+// false (it costs ~nothing) and retiring it would re-open the mt#2707 chat
+// seam that no other mechanism covers at the chat surface.
+//
 // Known v1 limitation (measured by calibration, addressed in a v2 if
 // warranted): "merge succeeded" is approximated as "a `*session_pr_merge`
 // tool_use call is present in the session." The transcript does not reliably
@@ -86,6 +101,11 @@ import {
   isDeploySurfaceFile,
   isLocalAppDeploySurfaceFile,
 } from "../../packages/domain/src/deployment/deploy-surface";
+import {
+  lookupMergeDeploySurface,
+  readStore,
+  type MergeDeploySurfaceStore,
+} from "../../packages/domain/src/deployment/merge-deploy-surface-record";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -227,6 +247,64 @@ function hadSessionPrMerge(lines: TranscriptLine[]): boolean {
 }
 
 /**
+ * The id-bearing fields of `session_pr_merge`'s input. ONLY these are candidate
+ * record keys.
+ *
+ * PR #2734 R1: an earlier version collected EVERY string reachable from the
+ * input, which is over-permissive — `repo`, or free-text like `bypassReason`,
+ * could coincide with another merge's key and mis-associate a verdict onto an
+ * unrelated PR. A false match here is worse than a miss: a miss falls back to
+ * the old proxy, while a false match asserts a deploy surface (or its absence)
+ * from someone else's merge.
+ */
+const MERGE_RECORD_KEY_FIELDS: readonly string[] = ["task", "taskId", "sessionId", "session"];
+
+/**
+ * Candidate keys for {@link lookupMergeDeploySurface}, read from the id fields of
+ * every in-session `*session_pr_merge` tool_use input. The merge may be invoked
+ * by `task` or by `sessionId`, so all id fields are offered rather than guessing
+ * which one the caller used.
+ */
+function mergeRecordCandidateKeys(lines: TranscriptLine[]): string[] {
+  const keys: string[] = [];
+  for (const toolName of extractToolUseNames(lines)) {
+    if (!MERGE_TOOL_NAME_RE.test(toolName)) continue;
+    for (const input of findToolUseInputs(lines, toolName)) {
+      if (!input || typeof input !== "object") continue;
+      const record = input as Record<string, unknown>;
+      for (const field of MERGE_RECORD_KEY_FIELDS) {
+        const value = record[field];
+        if (typeof value === "string" && value.length > 0) keys.push(value);
+      }
+    }
+  }
+  return keys;
+}
+
+/**
+ * The deploy/build-surface paths for the merge this session performed (mt#3819).
+ *
+ * Reads the verdict `require-deploy-verification-before-merge` recorded at merge
+ * time from the PR's ACTUAL changed-file list. Replaces the previous proxy —
+ * scanning this transcript's own file-edit tool calls — which measured 0 fires
+ * across 805 sessions because Minsky merges in a main-agent conversation while
+ * the implementation edits live in a dispatched subagent's transcript
+ * (mt#3755).
+ *
+ * Returns null for UNKNOWN (no record for this merge), which the caller must not
+ * treat as "no deploy surface" — a missing record means the producer did not run
+ * (an older merge, or a merge that bypassed the gate), not that the PR was clean.
+ */
+function findMergeDeploySurfaceFiles(
+  lines: TranscriptLine[],
+  readRecordStore: () => MergeDeploySurfaceStore
+): string[] | null {
+  const record = lookupMergeDeploySurface(mergeRecordCandidateKeys(lines), readRecordStore());
+  if (!record) return null;
+  return record.deploySurfaceFiles;
+}
+
+/**
  * True iff rebuild/reinstall/deploy evidence appears anywhere in `lines` —
  * either a matching TOOL NAME (`deployment_wait-for-latest`/`status`/`logs`)
  * or a matching COMMAND string in a Bash/session_exec tool_use input.
@@ -319,7 +397,8 @@ export interface BuildClaimInjectionResult {
  */
 export function detectBuildClaimInjection(
   assistantText: string,
-  sessionLines: TranscriptLine[]
+  sessionLines: TranscriptLine[],
+  readRecordStore: () => MergeDeploySurfaceStore = readStore
 ): BuildClaimInjectionResult {
   const empty: BuildClaimInjectionResult = {
     matched: false,
@@ -329,7 +408,13 @@ export function detectBuildClaimInjection(
   };
   if (!assistantText) return empty;
 
-  const deploySurfaceFiles = findDeploySurfaceEditPaths(sessionLines);
+  // mt#3819: prefer the merge-time record (the PR's ACTUAL changed files) and
+  // fall back to the in-transcript edit proxy only when no record exists — a
+  // merge that predates the producer, or one that bypassed the gate. Falling
+  // back rather than treating UNKNOWN as "no surface" keeps old sessions
+  // behaving exactly as before instead of silently losing coverage.
+  const recordedSurfaceFiles = findMergeDeploySurfaceFiles(sessionLines, readRecordStore);
+  const deploySurfaceFiles = recordedSurfaceFiles ?? findDeploySurfaceEditPaths(sessionLines);
   const hadMerge = hadSessionPrMerge(sessionLines);
   if (!hadMerge || deploySurfaceFiles.length === 0) {
     return { ...empty, deploySurfaceFiles, hadMerge };
@@ -371,7 +456,9 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Injection text (gated by INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
-function buildInjectionReminder(result: BuildClaimInjectionResult): string {
+// Exported (mt#4002) — see `renderProbe` in the registry. Calibration-first
+// guards emit no `additionalContext`, so the shape test had nothing to measure.
+export function buildInjectionReminder(result: BuildClaimInjectionResult): string {
   const files =
     result.deploySurfaceFiles
       .slice(0, 6)
@@ -391,9 +478,32 @@ function buildInjectionReminder(result: BuildClaimInjectionResult): string {
     "warrant + basis] (see claim-confidence.mdc). Name the crossing step",
     "(rebuild/reinstall/deploy) still needed before the change is usable, rather",
     "than asserting it is ready now.",
-    "",
-    `Override: ${OVERRIDE_ENV_VAR}=1.`,
+    // Override advertisement removed (mt#4002) — banned from advisory text by
+    // `guard-feedback-authoring.mdc`; the operator reads overrides in
+    // `CLAUDE.md §Hook Files`, the agent should not be handed the exit.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * Bounded on the axis that grows: the file list is `.slice(0, 6)`, so six is the
+ * ceiling however many deploy-surface files a session touched. `matchedPhrase`
+ * is interpolated unbounded in principle, but it comes from this module's own
+ * fixed claim-phrase corpus, so it is posed at the longest member's order of
+ * magnitude rather than at an arbitrary length.
+ */
+export function renderWorstCase(): string {
+  return buildInjectionReminder({
+    matched: true,
+    matchedPhrase: "x".repeat(60),
+    deploySurfaceFiles: Array.from(
+      { length: 6 },
+      (_, i) => `services/${"s".repeat(40)}/file-${i}.ts`
+    ),
+    hadMerge: true,
+    hadRebuildEvidence: false,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +537,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }

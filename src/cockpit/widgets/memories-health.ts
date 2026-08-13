@@ -1,5 +1,6 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
+import { describeWidgetDegradedReason } from "../db-providers";
 
 export interface MemoriesHealthPayload {
   provider: string;
@@ -29,8 +30,7 @@ export const memoriesHealthWidget: WidgetModule = {
       };
       return { state: "ok", payload };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return { state: "degraded", reason: `memories health error: ${message}` };
+      return { state: "degraded", reason: describeWidgetDegradedReason("memories health", err) };
     }
   },
 };

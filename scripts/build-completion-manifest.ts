@@ -103,8 +103,12 @@ function walkCommand(cmd: Command): ManifestCommand {
     node.subcommands = visibleSubs.map(walkCommand);
   }
 
-  if (cmd.options.length > 0) {
-    node.options = cmd.options.map((o) => {
+  // Skip options hidden from the CLI surface (e.g. server-injected-only params
+  // flagged `cliHidden` — mt#3121): they are not user-passable, so they must not
+  // appear as shell completions. Commander sets `Option.hidden` for these.
+  const visibleOptions = cmd.options.filter((o) => !(o as { hidden?: boolean }).hidden);
+  if (visibleOptions.length > 0) {
+    node.options = visibleOptions.map((o) => {
       const flags: string[] = [];
       if (o.short) flags.push(o.short);
       if (o.long) flags.push(o.long);

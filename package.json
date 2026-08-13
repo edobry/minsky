@@ -1,6 +1,19 @@
 {
-  "name": "minsky",
-  "description": "A development workflow orchestration platform that creates collaborative environments for both human and AI developers through organizational cybernetic principles.",
+  "name": "@edobry/minsky",
+  "version": "0.1.2",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edobry/minsky.git"
+  },
+  "homepage": "https://github.com/edobry/minsky#readme",
+  "bugs": {
+    "url": "https://github.com/edobry/minsky/issues"
+  },
+  "description": "The engineering organization around your AI agents — tasks, isolated sessions, adversarial review, memory, and decision routing, built as environment.",
   "icon": "assets/icon/minsky-icon.svg",
   "keywords": [
     "minsky",
@@ -24,8 +37,10 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "bun run build:completion-manifest && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:copy-migrations && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
+    "build": "rm -rf dist && bun run build:completion-manifest && bun run build:interceptor-catalog && bun build --target=bun --outdir=dist --entry-naming minsky.js --sourcemap=external --minify src/cli.ts && bun run build:mcp-shim && bun run build:copy-migrations && bun run build:copy-hooks && bun run cockpit:build && bun run build:copy-cockpit-web",
+    "build:mcp-shim": "bun build --target=bun --outdir=dist --entry-naming mcp-shim.js --sourcemap=external --minify src/mcp/shim/entry.ts",
     "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
+    "build:interceptor-catalog": "bun run scripts/build-interceptor-catalog.ts",
     "build:copy-migrations": "mkdir -p dist/storage/migrations && rm -rf dist/storage/migrations/pg && cp -r packages/domain/src/storage/migrations/pg dist/storage/migrations/pg",
     "build:copy-hooks": "bun scripts/build-copy-hooks.ts",
     "build:copy-cockpit-web": "mkdir -p dist && rm -rf dist/cockpit-web && cp -r src/cockpit/web/dist dist/cockpit-web",
@@ -65,11 +80,14 @@
     "typecheck": "bun run typecheck:root && bun run typecheck:cockpit-web",
     "skills:budget": "bun scripts/skill-listing-budget.ts",
     "skills:budget:check": "bun scripts/skill-listing-budget.ts --check",
-    "typecheck:root": "bunx @typescript/native-preview --noEmit",
-    "typecheck:hooks": "bunx @typescript/native-preview --noEmit -p tsconfig.hooks.json",
-    "typecheck:scripts": "bunx @typescript/native-preview --noEmit -p tsconfig.scripts.json",
-    "typecheck:cockpit-web": "bunx @typescript/native-preview --noEmit -p src/cockpit/web/tsconfig.json",
-    "validate-all": "bun run format:check && bun run lint && bun run typecheck && bun run test && bun run test:hooks && bun run test:components && bun run test:eslint-rules",
+    "typecheck:root": "tsgo --noEmit",
+    "typecheck:hooks": "tsgo --noEmit -p tsconfig.hooks.json",
+    "typecheck:scripts": "tsgo --noEmit -p tsconfig.scripts.json",
+    "typecheck:packages": "tsgo --noEmit -p packages/domain/tsconfig.json && tsgo --noEmit -p packages/shared/tsconfig.json",
+    "typecheck:infra": "tsgo --noEmit -p infra/tsconfig.json",
+    "check:typecheck-coverage": "bun scripts/typecheck-coverage.ts",
+    "typecheck:cockpit-web": "tsgo --noEmit -p src/cockpit/web/tsconfig.json",
+    "validate-all": "bun run format:check && bun run lint && bun run typecheck && bun run typecheck:hooks && bun run test && bun run test:hooks && bun run test:components && bun run test:eslint-rules",
     "secrets:gitleaks": "gitleaks detect --source . --verbose",
     "secrets:scan": "gitleaks detect --source . --verbose",
     "db:generate:pg": "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
@@ -85,6 +103,8 @@
   "files": [
     "dist/",
     "!dist/*.map",
+    "!dist/tsconfig.tsbuildinfo",
+    "!dist/storage/migrations/pg/meta/*_snapshot.json",
     "scripts/cli-entry.ts",
     "package.json",
     "README.md",
@@ -132,8 +152,8 @@
   "peerDependencies": {
     "typescript": "5.8.3"
   },
+  "_overridesRationale": "mt#1892 PR #1155 R1 BLOCKING: @pnpm/tabtab pulls in enquirer@2.4.1 which would downgrade top-level resolutions of ansi-regex (6→5) and strip-ansi (7→6). Pin top-level back to v6/v7; enquirer keeps its own scoped v5/v6 resolution. (Key lives OUTSIDE overrides: npm parses every overrides key as a package name and refuses to publish otherwise — mt#3616.)",
   "overrides": {
-    "_comment_ansi_regex_strip_ansi": "mt#1892 PR #1155 R1 BLOCKING: @pnpm/tabtab pulls in enquirer@2.4.1 which would downgrade top-level resolutions of ansi-regex (6→5) and strip-ansi (7→6). Pin top-level back to v6/v7; enquirer keeps its own scoped v5/v6 resolution.",
     "ansi-regex": "^6.0.1",
     "strip-ansi": "^7.0.1"
   },
@@ -144,8 +164,6 @@
     "@clack/prompts": "^0.11.0",
     "@dotenvx/dotenvx": "^1.45.2",
     "@hpcc-js/wasm": "^2.26.1",
-    "@minsky/domain": "workspace:*",
-    "@minsky/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/rest": "^22.0.0",
     "@pnpm/tabtab": "^0.5.4",
@@ -156,6 +174,9 @@
     "@radix-ui/react-select": "^2.3.7",
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
+    "@simplewebauthn/browser": "^13.3.0",
+    "@simplewebauthn/server": "^13.3.2",
+    "@supabase/storage-js": "^2.110.1",
     "@tanstack/react-query": "^5.100.10",
     "@types/d3-force": "^3.0.10",
     "@types/d3-hierarchy": "^3.1.7",

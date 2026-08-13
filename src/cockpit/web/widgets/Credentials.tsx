@@ -33,8 +33,31 @@ interface CredentialListing {
   displayName: string;
   configPath: string;
   configured: boolean;
+  /**
+   * "provider" — a managed credential: add/remove/recheck all work.
+   * "schema" — presence-only, derived from the config schema with no provider
+   * module behind it. `removeCredential` would throw "Unknown credential
+   * provider" for these, so the row must not offer the action (mt#3569).
+   *
+   * Optional only for wire-compat with a server that predates the field. Absence
+   * means "provider", not "unknown": a server without this field also has no
+   * schema-derived rows, so everything it sends IS manageable. Treating absence as
+   * unmanaged would strip Remove from every row against such a server — which is
+   * how the first draft broke an existing widget test.
+   */
+  source?: "provider" | "schema";
   lastValidatedAt?: string;
   lastValidationDetail?: string;
+}
+
+/**
+ * Whether this entry supports add/remove/recheck. See `source`.
+ *
+ * Keyed on the presence of "schema" rather than the presence of "provider" so an
+ * absent field keeps the pre-mt#3569 behavior exactly.
+ */
+function isManaged(listing: CredentialListing): boolean {
+  return listing.source !== "schema";
 }
 
 interface CredentialCheckResult {
@@ -512,16 +535,28 @@ function CredentialRow({
         </span>
       )}
 
-      <Button
-        variant="ghost"
-        size="sm"
-        className="flex-shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-destructive"
-        disabled={!listing.configured || isRemoving}
-        onClick={onRemove}
-        aria-label={`Remove ${listing.displayName} credential`}
-      >
-        {isRemoving ? "Removing..." : "Remove"}
-      </Button>
+      {isManaged(listing) ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="flex-shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-destructive"
+          disabled={!listing.configured || isRemoving}
+          onClick={onRemove}
+          aria-label={`Remove ${listing.displayName} credential`}
+        >
+          {isRemoving ? "Removing..." : "Remove"}
+        </Button>
+      ) : (
+        // Presence-only row (mt#3569): no provider module backs it, so Remove
+        // would throw. Reserve the same width so rows stay aligned, and say WHY
+        // rather than rendering a mystery gap.
+        <span
+          className="flex-shrink-0 text-xs h-7 px-2 flex items-center text-muted-foreground"
+          title={`Detected from ${listing.configPath}. Managed in your config file, not through this UI.`}
+        >
+          config-only
+        </span>
+      )}
     </div>
   );
 }

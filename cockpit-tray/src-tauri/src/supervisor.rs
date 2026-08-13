@@ -5,13 +5,8 @@
 // to (constructed by `menu::build`). Split out of main.rs (mt#2628); see
 // docs/architecture/adr-014-cockpit-daemon-lifecycle-ownership.md.
 
-use std::fs::{File, OpenOptions};
-use std::io;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::process::Command;
 use std::time::{Duration, Instant, SystemTime};
 
 use tauri::menu::MenuItem;
@@ -20,6 +15,7 @@ use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 use crate::launchd::try_evict_legacy_launchd;
+use crate::port::{cockpit_port, health_url};
 use crate::watcher_backend::{
     cockpit_backend_root, cockpit_backend_src, newest_backend_mtime, start_backend_watcher,
 };
@@ -29,55 +25,69 @@ use crate::watcher_web::{
     start_web_watcher, PreflightResult,
 };
 
-pub(crate) const DAEMON_PORT: u16 = 3737;
-pub(crate) const HEALTH_URL: &str = "http://localhost:3737/api/health";
-const POLL_INTERVAL: Duration = Duration::from_secs(5);
-/// Minimum gap between successive respawns of a crashed daemon. Mirrors the
-/// launchd plist's `ThrottleInterval: 5` so a crash-loop doesn't spawn-storm.
-const RESPAWN_THROTTLE: Duration = Duration::from_secs(5);
+// The supervised port is no longer a constant (mt#3988): it is resolved once at
+// startup by `crate::port::init` and read here via `cockpit_port()`, so the tray
+// supervises whatever port the daemon is configured to serve on. The health URL
+// is derived from that same value by `crate::port::health_url`.
+/// The daemon-agnostic supervision core (mt#3990). Everything in here would be
+/// identical for any supervised local daemon; this file is the COCKPIT policy
+/// layer that drives it. ADR-038 §Question 3's registry (mt#3815) consumes the
+/// core directly rather than going through this file.
+pub(crate) mod daemon_core;
 
-// ---------------------------------------------------------------------------
-// Self-health watchdog constants (mt#2578).
+// Only what the cockpit policy layer actually calls. `should_takeover_adopted`,
+// `status_label`, `ADOPTED_TAKEOVER_POLL_THRESHOLD`, `augmented_path`,
+// `last_nonempty_capped` and the `lsof`/`parse_*`/`is_executable` internals are
+// deliberately absent: the core reaches them itself, and this layer's only
+// users of them were the tests that moved with them (mt#3990).
 //
-// Calibrated per CLAUDE.md §MCP disconnect cadence: the session threshold is
-// >1 eligible disconnect per MCP connection, daily >3 in 24h.  The watchdog
-// intentionally uses a tighter window / lower count because the 2026-06-27
-// incident hit 49,650 launchd restarts before any alert fired — early warning
-// is the explicit design goal.
-// ---------------------------------------------------------------------------
+// Several of these are re-exported rather than merely used here, because
+// `main.rs`, `port.rs` and `watcher_web.rs` reach them as `supervisor::<name>`
+// and the extraction must not churn their import lists — `path_env`,
+// `resolve_program`, `open_log`, `teardown` and `SpawnedPgid` all keep working
+// at their old paths.
+pub(crate) use daemon_core::{
+    daemon_start_time, decide_action, format_duration, handle_health_down_no_child, kill_group,
+    kill_pid, log_tail_last_line, open_log, path_env, pid_on_port, port_holder, port_in_use,
+    resolve_program, spawn_daemon, teardown, throttle_ok, DaemonAction, DaemonLabels,
+    DaemonSpawnSpec, NoChildCounters, NoChildEffect, SpawnedPgid, SupervisedDaemon, ALERT_COOLDOWN,
+    HTTP_FAILURE_POLL_THRESHOLD, POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD,
+    RESTART_STORM_WINDOW,
+};
 
-/// Rolling window for daemon restart-storm detection.
-const RESTART_STORM_WINDOW: Duration = Duration::from_secs(600); // 10 min
-/// Daemon-crash restarts within RESTART_STORM_WINDOW that trigger a principal alert.
-const RESTART_STORM_THRESHOLD: usize = 3;
 /// Consecutive /api/health polls with db != "ok" before a principal alert fires.
 /// At POLL_INTERVAL = 5s → 24 polls ≈ 2 min (spec requirement: "DB degraded > 2 min").
+///
+/// Stays in the policy layer rather than the core: only the cockpit daemon's
+/// health body carries a `db` field at all.
 const DB_DEGRADED_POLL_THRESHOLD: u32 = 24;
-/// Consecutive /api/health polls returning HTTP failure while the daemon child is
-/// alive (or an adopted daemon is expected) but the endpoint is unresponsive. This
-/// targets the unhealthy-but-not-exiting case (slow start, persistent hang, adopted
-/// daemon silently stopped) — distinct from the restart-storm path which handles
-/// the crash-and-exit case. At 5s/poll → 12 polls ≈ 1 min.
-const HTTP_FAILURE_POLL_THRESHOLD: u32 = 12;
-/// mt#2786: consecutive failed polls with NO child of ours before the supervisor
-/// TAKES OVER a dead adopted daemon (spawns its own). 2× the alert threshold
-/// (≈ 2 min at 5s/poll): the alert fires first, and an operator mid-manual-restart
-/// has a comfortable window before the tray steps in — plus the port-free check
-/// below, which is the real operator-race guard.
-const ADOPTED_TAKEOVER_POLL_THRESHOLD: u32 = HTTP_FAILURE_POLL_THRESHOLD * 2;
-/// Minimum gap between repeated toasts for the SAME ACTIVE condition.
-/// Resets when the condition clears so the NEXT episode re-alerts immediately.
-const ALERT_COOLDOWN: Duration = Duration::from_secs(900); // 15 min
+
+/// The cockpit daemon's contribution to the supervision core's string seam
+/// (mt#3990). Registering a second daemon means adding a second value of this
+/// type, not editing `daemon_core`.
+pub(crate) const COCKPIT_LABELS: DaemonLabels = DaemonLabels {
+    display_name: "Cockpit",
+    running: LABEL_RUNNING,
+    stopped: LABEL_STOPPED,
+    starting: LABEL_STARTING,
+    stderr_log_hint: "~/.local/state/minsky/logs/cockpit-stderr.log",
+};
 
 pub(crate) const LABEL_RUNNING: &str = "Cockpit: running";
 const LABEL_STOPPED: &str = "Cockpit: stopped";
 const LABEL_STARTING: &str = "Cockpit: starting...";
 /// Daemon status line while a pre-flight bundle rebuild runs before spawn (mt#2297).
 pub(crate) const LABEL_BUILDING: &str = "Cockpit: rebuilding bundle...";
-const LABEL_CONFLICT: &str = "Cockpit: :3737 in use (not cockpit)";
 const LABEL_START_FAILED: &str = "Cockpit: start failed (see logs)";
 const LABEL_NO_REPO: &str = "Cockpit: repo not found";
 const LABEL_NO_BUN: &str = "Cockpit: bun not found";
+
+/// The cockpit daemon's log filenames within the shared daemon log directory
+/// (`daemon_core::open_log` resolves the directory). Named once so the spawn's
+/// stderr redirection and `daemon_error_tail`'s read cannot drift apart — before
+/// mt#3990 each spelled the string out independently.
+const COCKPIT_STDOUT_LOG: &str = "cockpit-stdout.log";
+const COCKPIT_STDERR_LOG: &str = "cockpit-stderr.log";
 
 /// Handle to the dropdown status `MenuItem`, stored in Tauri managed state so
 /// the supervisor loop can update its text directly.
@@ -100,12 +110,6 @@ pub(crate) struct UptimeMenuItem(pub(crate) MenuItem<Wry>);
 /// Sender for lifecycle commands from the (main-thread) menu handler to the
 /// supervisor thread that owns the daemon `Child`.
 pub(crate) struct SupervisorHandle(pub(crate) mpsc::UnboundedSender<SupervisorCmd>);
-
-/// Process-group id of the daemon WE spawned (`None` if adopted or not
-/// running). Shared so the quit / `RunEvent::Exit` path can tear it down
-/// synchronously even if the supervisor thread doesn't get to process a
-/// Shutdown command before the process exits.
-pub(crate) type SpawnedPgid = Arc<Mutex<Option<u32>>>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SupervisorCmd {
@@ -146,269 +150,15 @@ pub(crate) enum SupervisorCmd {
     Rebuild,
 }
 
-/// What to do for a port that may or may not already be serving our daemon.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DaemonAction {
-    /// Our health endpoint answers — monitor the existing daemon, don't spawn.
-    Adopt,
-    /// Nothing is listening — safe to spawn.
-    Spawn,
-    /// Something is listening but it's not our daemon — don't spawn, surface it.
-    Conflict,
-}
-
 // ---------------------------------------------------------------------------
-// Pure logic (unit-tested without the Tauri runtime — mt#2226).
-// ---------------------------------------------------------------------------
-
-/// Map a health-poll result to the status label.
-fn status_label(healthy: bool) -> &'static str {
-    if healthy {
-        LABEL_RUNNING
-    } else {
-        LABEL_STOPPED
-    }
-}
-
-/// Decide what to do at startup / on an explicit Start, given whether our
-/// health endpoint answers and whether *anything* is listening on the port.
-/// Health-OK always wins (it's the strongest signal it's our daemon), even if
-/// the port also shows a listener.
-fn decide_action(health_ok: bool, port_in_use: bool) -> DaemonAction {
-    if health_ok {
-        DaemonAction::Adopt
-    } else if port_in_use {
-        DaemonAction::Conflict
-    } else {
-        DaemonAction::Spawn
-    }
-}
-
-/// True when enough time has elapsed since the last spawn to respawn again.
-fn throttle_ok(last_spawn: Option<Instant>, now: Instant, min: Duration) -> bool {
-    match last_spawn {
-        Some(t) => now.duration_since(t) >= min,
-        None => true,
-    }
-}
-
-/// mt#2786: whether the supervisor should take over after an adopted (or
-/// never-spawned) daemon has been unresponsive for a sustained window. The
-/// original design NEVER respawned over an adopted daemon ("don't fight an
-/// operator restarting it manually") — which left the cockpit down
-/// indefinitely once an adopted daemon died (observed 2026-07-13: 9+ min dead
-/// port, manual restart required). Takeover requires ALL of:
-/// - the outage is sustained past ADOPTED_TAKEOVER_POLL_THRESHOLD (the 1-min
-///   alert has already fired by then), AND
-/// - the port is FREE — an operator mid-restart (or any replacement daemon)
-///   holds the port, so this preserves the original conservatism, AND
-/// - the respawn throttle permits.
-fn should_takeover_adopted(consecutive_http_failed: u32, port_held: bool, throttle_ok: bool) -> bool {
-    consecutive_http_failed > ADOPTED_TAKEOVER_POLL_THRESHOLD && !port_held && throttle_ok
-}
-
-// ---------------------------------------------------------------------------
-// mt#2794: health-down/no-child poll arm, extracted for testability.
+// Minsky-installation resolution (cockpit policy).
 //
-// The live `Some(Err(_)) | None` poll arm (below, in `run_supervisor`) needs
-// an `&AppHandle` and a live `Sup` to actually spawn a daemon, toast a
-// notification, or push a status/uptime label. None of that is available in
-// a `cargo test` without a Tauri runtime. `handle_health_down_no_child`
-// carries the ARM'S DECISION LOGIC (the mt#2786 takeover branch + its PR
-// #1927 R1 pre-spawn recheck) without touching any of that: the two seams a
-// test controls are `port_in_use` (stubbed port checks) and `effect`
-// (records which live operation the arm would have performed instead of
-// performing it). `NoChildCounters` carries the plain-data slice of `Sup`
-// this arm reads/writes.
+// The PATH/program/port/process primitives these sit beside used to live here
+// too; they moved to `daemon_core` (mt#3990). What stays is the part that knows
+// it is resolving a MINSKY repo for the COCKPIT daemon: the per-user
+// `com.minsky.cockpit` launchd plist, and the `src/cli.ts` source-entry shape
+// the cockpit is spawned from.
 // ---------------------------------------------------------------------------
-
-/// Watchdog counters the health-down/no-child poll arm reads and mutates,
-/// pulled out of `Sup` into an owned value. `handle_health_down_no_child`
-/// takes this instead of `&mut Sup` directly: the live call site also needs
-/// a SEPARATE `&mut Sup` borrow inside its `effect` closure (for
-/// `do_spawn` / `set_status` / `clear_uptime`), and Rust doesn't allow two
-/// live mutable borrows of the same value at once. Callers move the
-/// relevant fields out with `take_from` and copy them back with
-/// `write_back_to` after the call; `last_spawn` is read-only here — the
-/// real `do_spawn`, invoked through the `Spawn` effect, updates
-/// `Sup::last_spawn` directly on its own `&mut Sup`.
-struct NoChildCounters {
-    consecutive_http_failed: u32,
-    last_http_alert: Option<Instant>,
-    last_spawn: Option<Instant>,
-    restart_timestamps: Vec<Instant>,
-    last_process_started_at_ms: Option<u64>,
-}
-
-impl NoChildCounters {
-    fn take_from(sup: &mut Sup) -> Self {
-        Self {
-            consecutive_http_failed: sup.consecutive_http_failed,
-            last_http_alert: sup.last_http_alert,
-            last_spawn: sup.last_spawn,
-            restart_timestamps: std::mem::take(&mut sup.restart_timestamps),
-            last_process_started_at_ms: sup.last_process_started_at_ms,
-        }
-    }
-
-    fn write_back_to(self, sup: &mut Sup) {
-        sup.consecutive_http_failed = self.consecutive_http_failed;
-        sup.last_http_alert = self.last_http_alert;
-        sup.restart_timestamps = self.restart_timestamps;
-        sup.last_process_started_at_ms = self.last_process_started_at_ms;
-    }
-}
-
-/// A live effect `handle_health_down_no_child` asks its caller to perform.
-/// Bundled into one enum (rather than four separate closures) so the call
-/// site needs only ONE `FnMut` capturing `&mut Sup` / `&AppHandle` — Rust
-/// doesn't allow several closures to each independently capture the same
-/// `&mut` binding.
-enum NoChildEffect {
-    /// Fire the sustained-HTTP-failure toast with this message. Owns the
-    /// String (PR #1936 R1) so the effect carries its message without
-    /// borrowing a callee-local.
-    Notify(String),
-    /// mt#2786 takeover: spawn a new daemon (`do_spawn` in the live loop).
-    Spawn,
-    /// Push this label to the status line.
-    SetStatus(&'static str),
-    /// Clear the uptime line (no daemon running).
-    ClearUptime,
-}
-
-/// Body of the poll loop's `Some(Err(_)) | None` arm: no child of ours
-/// (adopted daemon down, or never spawned). Split out (mt#2794, a PR #1927
-/// follow-up) so the mt#2786 takeover branch is testable without a live
-/// Tokio loop — `port_in_use` and `effect` are the seams a test stubs;
-/// `counters` is the plain-data slice of `Sup` this arm touches.
-///
-/// `port_in_use` may be called TWICE in one invocation: once for the
-/// takeover gate, once for the PR #1927 R1 pre-spawn recheck. A caller can
-/// return a different result per call to model the port being bound in the
-/// gap between the two checks.
-///
-/// Two time parameters (PR #1936 R1): `poll_now` is the tick timestamp used
-/// for alert-cooldown and restart-storm bookkeeping (as in the original
-/// inline arm), while `now` is a FRESH instant used only for the
-/// respawn-throttle check — the original arm called `Instant::now()` inline
-/// there, and reusing the earlier `poll_now` would silently shorten the
-/// throttle window by the tick's processing time.
-///
-/// Behavior-preserving versus the original inline arm, with one in-scope
-/// fix (PR #1927 R2 non-blocking): the aborted-takeover path now also
-/// emits `ClearUptime`, so an aborted takeover no longer leaves a stale
-/// uptime line visible for one more poll cycle.
-fn handle_health_down_no_child(
-    counters: &mut NoChildCounters,
-    poll_now: Instant,
-    now: Instant,
-    mut port_in_use: impl FnMut() -> bool,
-    mut effect: impl FnMut(NoChildEffect),
-) {
-    // Don't IMMEDIATELY spawn over an adopted daemon — but see the mt#2786
-    // takeover below. Apply the same sustained-HTTP-failure alert here: an
-    // expected adopted daemon that stops responding is an alert-worthy
-    // condition.
-    if counters.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
-        let cooldown_elapsed = counters
-            .last_http_alert
-            .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
-            .unwrap_or(true);
-        if cooldown_elapsed {
-            let sustained_secs =
-                counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
-            let reason = format!(
-                "Cockpit health endpoint has been unreachable for {sustained_secs}s — \
-                 daemon may be down. Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
-            );
-            eprintln!("[watchdog] sustained HTTP-failure (no child) alert: {}", reason);
-            effect(NoChildEffect::Notify(reason));
-            counters.last_http_alert = Some(poll_now);
-        }
-    }
-
-    // mt#2786: takeover-respawn. Once the outage is sustained (2× the alert
-    // threshold) and nobody holds the port (an operator's replacement
-    // daemon would), convert from adopted to spawned supervision instead of
-    // staying "stopped" forever. Counts toward restart-storm accounting so
-    // a flapping takeover still alerts.
-    let port_held = port_in_use();
-    if should_takeover_adopted(
-        counters.consecutive_http_failed,
-        port_held,
-        throttle_ok(counters.last_spawn, now, RESPAWN_THROTTLE),
-    ) {
-        // Final pre-spawn recheck (PR #1927 R1): shrink the race between the
-        // poll-time port check and our spawn — an operator's replacement
-        // daemon may have bound the port in the gap. If so, stand down; the
-        // next poll adopts it via the healthy path.
-        if port_in_use() {
-            eprintln!(
-                "[watchdog] takeover aborted — port {DAEMON_PORT} was bound between check and spawn (operator restart in progress?)"
-            );
-            effect(NoChildEffect::SetStatus(LABEL_STARTING));
-            // PR #1927 R2 non-blocking (closed by mt#2794): the aborted
-            // takeover leaves no daemon running — clear the uptime line
-            // rather than leaving a stale entry visible for one more poll
-            // cycle.
-            effect(NoChildEffect::ClearUptime);
-        } else {
-            let sustained_secs =
-                counters.consecutive_http_failed as u64 * POLL_INTERVAL.as_secs();
-            eprintln!(
-                "[watchdog] adopted daemon gone for {sustained_secs}s and port {DAEMON_PORT} is free — taking over supervision (mt#2786)"
-            );
-            counters.consecutive_http_failed = 0;
-            counters.last_http_alert = None;
-            counters.restart_timestamps.push(poll_now);
-            counters.last_process_started_at_ms = None;
-            effect(NoChildEffect::Spawn);
-        }
-    } else {
-        effect(NoChildEffect::SetStatus(LABEL_STOPPED));
-        effect(NoChildEffect::ClearUptime);
-    }
-}
-
-/// Build a PATH that includes the common locations a GUI app (launched from
-/// /Applications with a minimal PATH) won't otherwise have, so `minsky` / `bun`
-/// / `lsof` resolve. Mirrors the launchd plist's PATH handling
-/// (`src/cockpit/launchd.ts`). Existing entries are preserved and de-duped.
-fn augmented_path(home: &str, existing: &str) -> String {
-    let mut parts: Vec<String> = vec![
-        format!("{home}/.bun/bin"),
-        "/opt/homebrew/bin".to_string(),
-        "/usr/local/bin".to_string(),
-        format!("{home}/.local/bin"),
-        "/usr/bin".to_string(),
-        "/bin".to_string(),
-        "/usr/sbin".to_string(),
-        "/sbin".to_string(),
-    ];
-    for p in existing.split(':') {
-        if !p.is_empty() && !parts.iter().any(|x| x == p) {
-            parts.push(p.to_string());
-        }
-    }
-    parts.join(":")
-}
-
-/// Parse the first PID from `lsof -ti` output (newline-separated PIDs).
-fn parse_lsof_pid(output: &str) -> Option<u32> {
-    output
-        .lines()
-        .filter_map(|l| l.trim().parse::<u32>().ok())
-        .next()
-}
-
-// ---------------------------------------------------------------------------
-// Process helpers (use std::process; not unit-tested — exercised live).
-// ---------------------------------------------------------------------------
-
-fn home() -> String {
-    std::env::var("HOME").unwrap_or_default()
-}
 
 /// Non-empty `$HOME`, or `None`. Used where an empty HOME must NOT degrade to a
 /// relative/system path (e.g. resolving the per-user launchd plist).
@@ -417,63 +167,6 @@ fn home_dir() -> Option<String> {
         Ok(h) if !h.is_empty() => Some(h),
         _ => None,
     }
-}
-
-fn path_env() -> String {
-    augmented_path(&home(), &std::env::var("PATH").unwrap_or_default())
-}
-
-fn log_dir() -> PathBuf {
-    Path::new(&home()).join(".local/state/minsky/logs")
-}
-
-pub(crate) fn open_log(name: &str) -> io::Result<File> {
-    let dir = log_dir();
-    std::fs::create_dir_all(&dir)?;
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(dir.join(name))
-}
-
-/// Find an executable by name on the given PATH string.
-fn resolve_program(name: &str, path: &str) -> Option<PathBuf> {
-    for dir in path.split(':') {
-        if dir.is_empty() {
-            continue;
-        }
-        let cand = Path::new(dir).join(name);
-        if is_executable(&cand) {
-            return Some(cand);
-        }
-    }
-    None
-}
-
-/// True when `p` is a regular file with at least one execute bit set.
-#[cfg(unix)]
-fn is_executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    p.is_file()
-        && std::fs::metadata(p)
-            .map(|m| m.permissions().mode() & 0o111 != 0)
-            .unwrap_or(false)
-}
-
-#[cfg(not(unix))]
-fn is_executable(p: &Path) -> bool {
-    p.is_file()
-}
-
-fn lsof_bin(path: &str) -> PathBuf {
-    resolve_program("lsof", path)
-        .or_else(|| {
-            ["/usr/sbin/lsof", "/usr/bin/lsof", "/sbin/lsof"]
-                .iter()
-                .map(PathBuf::from)
-                .find(|p| p.is_file())
-        })
-        .unwrap_or_else(|| PathBuf::from("/usr/sbin/lsof"))
 }
 
 /// A directory is a usable source-spawn root if it contains `src/cli.ts` — the
@@ -557,142 +250,45 @@ pub(crate) fn resolve_repo_root(path: &str) -> Option<PathBuf> {
     None
 }
 
-/// The PID of whatever is LISTENing on `port`, if any.
-///
-/// Independent re-implementation of `findPortHolder` in
-/// `src/cockpit/port-recovery.ts` (mt#2629) — the TS side additionally
-/// resolves the holder's command line for zombie-recognition and uses `-i
-/// :<port>` instead of `-ti tcp:<port>`, but both filter to LISTEN-state
-/// sockets only and both treat "no matching PID" as "port free". Not
-/// unified: the Rust supervisor must keep working with no Minsky
-/// CLI/MCP process running at all. See `contract/README.md` §2 for the
-/// documented semantics both implementations share.
-fn pid_on_port(port: u16, path: &str) -> Option<u32> {
-    let out = Command::new(lsof_bin(path))
-        .args(["-ti", &format!("tcp:{port}"), "-sTCP:LISTEN"])
-        .env("PATH", path)
-        .output()
-        .ok()?;
-    parse_lsof_pid(&String::from_utf8_lossy(&out.stdout))
-}
-
-fn port_in_use(port: u16, path: &str) -> bool {
-    pid_on_port(port, path).is_some()
-}
-
-fn kill_pid(pid: u32) {
-    let _ = Command::new("/bin/kill")
-        .args(["-TERM", &pid.to_string()])
-        .output();
-}
-
-/// Send SIGTERM to an entire process group (negative pid).
-fn kill_group(pgid: u32) {
-    let _ = Command::new("/bin/kill")
-        .args(["-TERM", &format!("-{pgid}")])
-        .output();
-}
-
-/// Spawn `bun run src/cli.ts cockpit start --no-dev-chromium --port <port>` as a
-/// managed child in its own process group, in `repo_root` (source entry, matching
-/// the launchd plist; resolves the web bundle + git repo-backend correctly —
-/// mt#2282/mt#2283), with stdout/stderr appended to the cockpit log files.
-/// Returns the child and its pgid (== child pid under `process_group(0)`).
-fn spawn_daemon(bun: &Path, repo_root: &Path, port: u16, path: &str) -> io::Result<(Child, u32)> {
-    let out = open_log("cockpit-stdout.log")?;
-    let err = open_log("cockpit-stderr.log")?;
-    let mut cmd = Command::new(bun);
-    cmd.args([
-        "run",
-        "src/cli.ts",
-        "cockpit",
-        "start",
-        "--no-dev-chromium",
-        "--port",
-        &port.to_string(),
-    ])
-    .current_dir(repo_root)
-    .env("PATH", path)
-    .stdin(Stdio::null())
-    .stdout(Stdio::from(out))
-    .stderr(Stdio::from(err));
-    // New process group (pgid == child pid) so teardown can SIGTERM the whole
-    // group. Unix-only; on other targets the child is spawned without a group.
-    #[cfg(unix)]
-    cmd.process_group(0);
-    let child = cmd.spawn()?;
-    let pid = child.id();
-    Ok((child, pid))
-}
-
-/// Tear down the daemon we spawned, if any. Idempotent. Called from `main()`'s
-/// `RunEvent::Exit` handler.
-pub(crate) fn teardown(spawned: &SpawnedPgid) {
-    let pgid = spawned.lock().ok().and_then(|mut g| g.take());
-    if let Some(pgid) = pgid {
-        kill_group(pgid);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Supervisor thread.
 // ---------------------------------------------------------------------------
 
-/// Mutable state owned by the supervisor loop.
+/// Mutable state owned by the supervisor loop: the COCKPIT daemon's supervision
+/// state, plus the cockpit-only policy state that rides alongside it.
+///
+/// The split is mt#3990's: everything generic — the child, the spawn/status/
+/// uptime bookkeeping, and the whole self-health watchdog — lives on
+/// [`SupervisedDaemon`] in `daemon_core`, which is the record mt#3815's registry
+/// holds N of. What stays HERE is the four fields that would mean nothing for a
+/// second daemon: a bundle-build label (only the cockpit has a web bundle), the
+/// backend-source mtime the adoption decision compares against (only the cockpit
+/// has a watched source tree), and the `db`-degraded counter and its alert
+/// cooldown (only the cockpit's `/api/health` publishes a `db` field).
 pub(crate) struct Sup {
-    pub(crate) child: Option<Child>,
-    pub(crate) last_spawn: Option<Instant>,
-    /// Last status-line text. Owned `String` (not `&'static str`) so dynamic
-    /// messages — port-conflict holder pid, restart-failure summary — can be
-    /// shown alongside the static `LABEL_*` constants (mt#2299).
-    pub(crate) last_status: Option<String>,
+    /// This tray's one supervised daemon, in the core's terms.
+    pub(crate) daemon: SupervisedDaemon,
+
     /// Last value pushed to the build-status menu line (mt#2297), for dedupe.
     pub(crate) last_build_label: Option<String>,
-    /// Wall-clock start time of the daemon currently being supervised (mt#2299):
-    /// `SystemTime::now()` for a tray-spawned daemon, or `now − ps(etime)` for an
-    /// adopted one. `None` when no daemon is running. Drives the uptime line.
-    pub(crate) daemon_started_at: Option<SystemTime>,
     /// Newest backend-source mtime at the moment the daemon was (re)started — the
     /// "source version" the running daemon reflects (mt#2299).
     pub(crate) daemon_source_mtime: Option<SystemTime>,
-    /// Last value pushed to the uptime menu line (mt#2299), for dedupe.
-    pub(crate) last_uptime_label: Option<String>,
-
-    // --- Self-health watchdog state (mt#2578) ---
-    /// Ring buffer of daemon-crash restart timestamps (child-exited or
-    /// processStartedAtMs changed) within RESTART_STORM_WINDOW.
-    /// Pruned every poll to evict entries older than the window.
-    restart_timestamps: Vec<Instant>,
     /// Number of consecutive POLL_INTERVAL polls where db != "ok".
     /// Reset to 0 on the first "ok" poll.
     consecutive_db_degraded: u32,
-    /// Instant of the last restart-storm alert toast; `None` when the condition
-    /// is clear (cooldown reset so the next episode fires immediately).
-    last_restart_alert: Option<Instant>,
     /// Instant of the last DB-degraded alert toast; reset to `None` when
     /// condition clears.
     last_db_alert: Option<Instant>,
-    /// `processStartedAtMs` from the daemon's most recent successful health
-    /// response; `None` before the first successful poll.  A change between
-    /// polls means the daemon restarted (for adopted-daemon restart detection).
-    last_process_started_at_ms: Option<u64>,
-    /// Consecutive polls where http_ok = false while the daemon child is alive
-    /// or an adopted daemon is expected (the unhealthy-but-not-exiting case).
-    /// Reset to 0 on the first successful health poll; also reset in the
-    /// crash-exit arm (that path's alerting is owned by restart_timestamps).
-    consecutive_http_failed: u32,
-    /// Last time a sustained-HTTP-failure alert was fired; reset when health
-    /// returns (condition cleared → next episode re-alerts immediately).
-    last_http_alert: Option<Instant>,
 }
 
 /// Update the visible status label (dropdown line + tray tooltip), skipping
 /// the UI round-trip when the label hasn't changed.
 pub(crate) fn set_status(app: &AppHandle, sup: &mut Sup, label: &str) {
-    if sup.last_status.as_deref() == Some(label) {
+    if sup.daemon.last_status.as_deref() == Some(label) {
         return;
     }
-    sup.last_status = Some(label.to_string());
+    sup.daemon.last_status = Some(label.to_string());
     let _ = update_status(app, label);
 }
 
@@ -712,7 +308,34 @@ fn update_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
     })
 }
 
-fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
+/// The cockpit daemon's argv, minus the program itself (mt#3990).
+///
+/// This is the entirety of what used to be hardcoded inside `spawn_daemon`'s
+/// body. Splitting it out both feeds `DaemonSpawnSpec` and makes the arguments
+/// checkable without spawning anything — which is what pins the extraction's
+/// behavior-preservation claim for the spawn path.
+///
+/// `bun run src/cli.ts cockpit start` is the SOURCE entry, matching the launchd
+/// plist: the `minsky` bundle has a web-bundle path bug (mt#2283), and minsky's
+/// git-based repo-backend detection runs in the cwd (mt#2282). The resolved port
+/// is passed as an explicit `--port`, which outranks the daemon's own
+/// `cockpit.port` lookup (mt#3988) — deliberate, since the two read the same
+/// configuration and so agree, and passing it explicitly means the daemon serves
+/// the port the tray is about to supervise even if configuration changes
+/// underneath a long-running tray.
+fn cockpit_spawn_args(port: u16) -> Vec<String> {
+    vec![
+        "run".to_string(),
+        "src/cli.ts".to_string(),
+        "cockpit".to_string(),
+        "start".to_string(),
+        "--no-dev-chromium".to_string(),
+        "--port".to_string(),
+        port.to_string(),
+    ]
+}
+
+fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str, port: u16) {
     let bun = match resolve_program("bun", path) {
         Some(b) => b,
         None => {
@@ -745,16 +368,24 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
             return;
         }
     }
-    match spawn_daemon(&bun, &repo_root, DAEMON_PORT, path) {
+    let args = cockpit_spawn_args(port);
+    match spawn_daemon(&DaemonSpawnSpec {
+        program: &bun,
+        args: &args,
+        cwd: &repo_root,
+        path_env: path,
+        stdout_log: COCKPIT_STDOUT_LOG,
+        stderr_log: COCKPIT_STDERR_LOG,
+    }) {
         Ok((child, pid)) => {
-            sup.child = Some(child);
-            sup.last_spawn = Some(Instant::now());
+            sup.daemon.child = Some(child);
+            sup.daemon.last_spawn = Some(Instant::now());
             // mt#2299: a fresh tray-spawn is current as of now; record the
             // wall-clock start + the backend-source version it reflects so the
             // uptime line can render "running Xs, started against src @ HH:MM:SS".
             // Gate the source-mtime capture on the BACKEND source root, not the
             // web root (reviewer R1 B1).
-            sup.daemon_started_at = Some(SystemTime::now());
+            sup.daemon.daemon_started_at = Some(SystemTime::now());
             sup.daemon_source_mtime = cockpit_backend_root(path)
                 .and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
             if let Ok(mut g) = spawned.lock() {
@@ -774,9 +405,10 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
 /// ADOPTED (our health endpoint answers), kill the PID on the port. A foreign
 /// listener (port in use but NOT our daemon) is never killed: `adopted_ok` must
 /// be true for the port-owner kill path. Callers compute `adopted_ok` from a
-/// fresh health probe so a conflict (someone else on :3737) is left untouched.
-fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool) {
-    if let Some(mut child) = sup.child.take() {
+/// fresh health probe so a conflict (someone else on the supervised port) is
+/// left untouched.
+fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool, port: u16) {
+    if let Some(mut child) = sup.daemon.child.take() {
         let pgid = spawned.lock().ok().and_then(|mut g| g.take());
         #[cfg(unix)]
         if let Some(pgid) = pgid {
@@ -785,15 +417,15 @@ fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool) {
         let _ = child.kill();
         let _ = child.wait();
     } else if adopted_ok {
-        if let Some(pid) = pid_on_port(DAEMON_PORT, path) {
+        if let Some(pid) = pid_on_port(port, path) {
             kill_pid(pid);
         }
     }
 }
 
-async fn health_ok(client: &reqwest::Client) -> bool {
+async fn health_ok(client: &reqwest::Client, port: u16) -> bool {
     client
-        .get(HEALTH_URL)
+        .get(health_url(port))
         .send()
         .await
         .map(|r| r.status().is_success())
@@ -812,6 +444,25 @@ fn run_supervisor(
 
     rt.block_on(async move {
         let path = path_env();
+        // This tray's one supervised daemon. The core's record carries the
+        // generic supervision state and this daemon's identity; the four fields
+        // beside it are the cockpit-only policy state (mt#3990).
+        //
+        // Constructed HERE, before the watchers and the health client, because
+        // it OWNS the port. `crate::port::init` has already resolved it on the
+        // setup thread, so `cockpit_port()` is a cheap read of the settled
+        // value; taking the loop's `port` binding back off the record — rather
+        // than calling `cockpit_port()` at each site — means every probe, spawn,
+        // adoption decision and label below provably refers to the same port as
+        // the daemon it belongs to (mt#3988).
+        let mut sup = Sup {
+            daemon: SupervisedDaemon::new(COCKPIT_LABELS, cockpit_port()),
+            last_build_label: None,
+            daemon_source_mtime: None,
+            consecutive_db_degraded: 0,
+            last_db_alert: None,
+        };
+        let port = sup.daemon.port;
         // mt#2297: runtime cockpit-web watcher (source-gated). Held for the
         // supervisor's lifetime; dropping it stops the watch. `None` on a
         // no-source install — the auto-rebuild feature simply doesn't run.
@@ -835,38 +486,20 @@ fn run_supervisor(
             .build()
             .expect("reqwest client");
 
-        let mut sup = Sup {
-            child: None,
-            last_spawn: None,
-            last_status: None,
-            last_build_label: None,
-            daemon_started_at: None,
-            daemon_source_mtime: None,
-            last_uptime_label: None,
-            // Watchdog state (mt#2578).
-            restart_timestamps: Vec::new(),
-            consecutive_db_degraded: 0,
-            last_restart_alert: None,
-            last_db_alert: None,
-            last_process_started_at_ms: None,
-            consecutive_http_failed: 0,
-            last_http_alert: None,
-        };
-
         // Initial adoption-or-spawn.
-        match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-            DaemonAction::Adopt => match adopt_decision(&path) {
+        match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+            DaemonAction::Adopt => match adopt_decision(&path, port) {
                 AdoptDecision::Stale => {
                     // Adopted daemon predates the current backend source (the
                     // 2026-06-04 8-day-stale case) — restart it (kill the
                     // health-confirmed daemon, respawn fresh) so new widget
                     // registrations / routes load before we report ready (mt#2299).
-                    do_stop(&mut sup, &spawned, &path, true);
+                    do_stop(&mut sup, &spawned, &path, true, port);
                     tokio::time::sleep(Duration::from_millis(500)).await;
-                    do_spawn(&app, &mut sup, &spawned, &path);
+                    do_spawn(&app, &mut sup, &spawned, &path, port);
                 }
                 AdoptDecision::Fresh { started, source_mtime } => {
-                    sup.daemon_started_at = started;
+                    sup.daemon.daemon_started_at = started;
                     sup.daemon_source_mtime = source_mtime;
                     set_status(&app, &mut sup, LABEL_RUNNING);
                     refresh_uptime(&app, &mut sup);
@@ -877,18 +510,18 @@ fn run_supervisor(
                 // the port holder is the legacy `com.minsky.cockpit` launchd
                 // agent (installed by `minsky cockpit install`). If so, evict
                 // it (bootout + disable) and retry — ADR-014 single-ownership.
-                if try_evict_legacy_launchd(pid_on_port(DAEMON_PORT, &path)) {
+                if try_evict_legacy_launchd(pid_on_port(port, &path)) {
                     // Give the OS ~1 s to release the port, then re-check.
                     tokio::time::sleep(Duration::from_secs(1)).await;
-                    match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                        DaemonAction::Adopt => match adopt_decision(&path) {
+                    match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+                        DaemonAction::Adopt => match adopt_decision(&path, port) {
                             AdoptDecision::Stale => {
-                                do_stop(&mut sup, &spawned, &path, true);
+                                do_stop(&mut sup, &spawned, &path, true, port);
                                 tokio::time::sleep(Duration::from_millis(500)).await;
-                                do_spawn(&app, &mut sup, &spawned, &path);
+                                do_spawn(&app, &mut sup, &spawned, &path, port);
                             }
                             AdoptDecision::Fresh { started, source_mtime } => {
-                                sup.daemon_started_at = started;
+                                sup.daemon.daemon_started_at = started;
                                 sup.daemon_source_mtime = source_mtime;
                                 set_status(&app, &mut sup, LABEL_RUNNING);
                                 refresh_uptime(&app, &mut sup);
@@ -896,32 +529,32 @@ fn run_supervisor(
                         },
                         DaemonAction::Conflict => {
                             // Still blocked even after eviction — show label.
-                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                            report_conflict(&app, &mut sup, &path, port);
                             clear_uptime(&app, &mut sup);
                         }
-                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
                     }
                 } else {
-                    set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                    report_conflict(&app, &mut sup, &path, port);
                     clear_uptime(&app, &mut sup);
                 }
             }
-            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
         }
 
         loop {
             tokio::select! {
                 cmd = rx.recv() => match cmd {
                     Some(SupervisorCmd::Start) => {
-                        match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                            DaemonAction::Adopt => match adopt_decision(&path) {
+                        match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+                            DaemonAction::Adopt => match adopt_decision(&path, port) {
                                 AdoptDecision::Stale => {
-                                    do_stop(&mut sup, &spawned, &path, true);
+                                    do_stop(&mut sup, &spawned, &path, true, port);
                                     tokio::time::sleep(Duration::from_millis(500)).await;
-                                    do_spawn(&app, &mut sup, &spawned, &path);
+                                    do_spawn(&app, &mut sup, &spawned, &path, port);
                                 }
                                 AdoptDecision::Fresh { started, source_mtime } => {
-                                    sup.daemon_started_at = started;
+                                    sup.daemon.daemon_started_at = started;
                                     sup.daemon_source_mtime = source_mtime;
                                     set_status(&app, &mut sup, LABEL_RUNNING);
                                     refresh_uptime(&app, &mut sup);
@@ -929,57 +562,57 @@ fn run_supervisor(
                             },
                             DaemonAction::Conflict => {
                                 // gh#1761: same eviction path as the boot-time Conflict arm.
-                                if try_evict_legacy_launchd(pid_on_port(DAEMON_PORT, &path)) {
+                                if try_evict_legacy_launchd(pid_on_port(port, &path)) {
                                     tokio::time::sleep(Duration::from_secs(1)).await;
-                                    match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                                        DaemonAction::Adopt => match adopt_decision(&path) {
+                                    match decide_action(health_ok(&client, port).await, port_in_use(port)) {
+                                        DaemonAction::Adopt => match adopt_decision(&path, port) {
                                             AdoptDecision::Stale => {
-                                                do_stop(&mut sup, &spawned, &path, true);
+                                                do_stop(&mut sup, &spawned, &path, true, port);
                                                 tokio::time::sleep(Duration::from_millis(500)).await;
-                                                do_spawn(&app, &mut sup, &spawned, &path);
+                                                do_spawn(&app, &mut sup, &spawned, &path, port);
                                             }
                                             AdoptDecision::Fresh { started, source_mtime } => {
-                                                sup.daemon_started_at = started;
+                                                sup.daemon.daemon_started_at = started;
                                                 sup.daemon_source_mtime = source_mtime;
                                                 set_status(&app, &mut sup, LABEL_RUNNING);
                                                 refresh_uptime(&app, &mut sup);
                                             }
                                         },
                                         DaemonAction::Conflict => {
-                                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                            report_conflict(&app, &mut sup, &path, port);
                                             clear_uptime(&app, &mut sup);
                                         }
-                                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                                        DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
                                     }
                                 } else {
-                                    set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                    report_conflict(&app, &mut sup, &path, port);
                                     clear_uptime(&app, &mut sup);
                                 }
                             }
-                            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
+                            DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path, port),
                         }
                     }
                     Some(SupervisorCmd::Stop) => {
-                        let had_child = sup.child.is_some();
-                        let h = health_ok(&client).await;
-                        do_stop(&mut sup, &spawned, &path, h);
-                        if !had_child && !h && port_in_use(DAEMON_PORT, &path) {
-                            // A foreign process owns :3737 — we didn't (and won't) kill it.
-                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                        let had_child = sup.daemon.child.is_some();
+                        let h = health_ok(&client, port).await;
+                        do_stop(&mut sup, &spawned, &path, h, port);
+                        if !had_child && !h && port_in_use(port) {
+                            // A foreign process owns the port — we didn't (and won't) kill it.
+                            report_conflict(&app, &mut sup, &path, port);
                         } else {
                             set_status(&app, &mut sup, LABEL_STOPPED);
                         }
                         clear_uptime(&app, &mut sup);
                     }
                     Some(SupervisorCmd::Restart) => {
-                        let h = health_ok(&client).await;
-                        if sup.child.is_none() && !h && port_in_use(DAEMON_PORT, &path) {
+                        let h = health_ok(&client, port).await;
+                        if sup.daemon.child.is_none() && !h && port_in_use(port) {
                             // Foreign listener owns the port — refuse to restart over it.
-                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                            report_conflict(&app, &mut sup, &path, port);
                         } else {
-                            do_stop(&mut sup, &spawned, &path, h);
+                            do_stop(&mut sup, &spawned, &path, h, port);
                             tokio::time::sleep(Duration::from_millis(500)).await;
-                            do_spawn(&app, &mut sup, &spawned, &path);
+                            do_spawn(&app, &mut sup, &spawned, &path, port);
                         }
                     }
                     Some(SupervisorCmd::AutoRestart) => {
@@ -1053,11 +686,11 @@ fn run_supervisor(
                     Some(SupervisorCmd::Shutdown) | None => {
                         // Pass a fresh health probe as adopted_ok (matching the
                         // Stop arm) so quitting the app never kills a FOREIGN
-                        // :3737 listener — only our spawned child (via the
+                        // listener on the supervised port — only our spawned child (via the
                         // process group inside do_stop) or our health-confirmed
                         // adopted daemon. (mt#2305; PR #1558 reviewer R3.)
-                        let h = health_ok(&client).await;
-                        do_stop(&mut sup, &spawned, &path, h);
+                        let h = health_ok(&client, port).await;
+                        do_stop(&mut sup, &spawned, &path, h, port);
                         break;
                     }
                 },
@@ -1065,53 +698,53 @@ fn run_supervisor(
                     // mt#2578: use poll_health_detail so we get DB status + restart
                     // signal, not just a bool. health_ok() is still used for the
                     // shutdown path (adopt_ok check) where we only need the bool.
-                    let health = poll_health_detail(&client).await;
+                    let health = poll_health_detail(&client, port).await;
                     let poll_now = Instant::now();
 
                     // --- Watchdog: restart-storm detection ---
                     // Prune timestamps older than the rolling window.
-                    sup.restart_timestamps.retain(|t| poll_now.duration_since(*t) < RESTART_STORM_WINDOW);
+                    sup.daemon.restart_timestamps.retain(|t| poll_now.duration_since(*t) < RESTART_STORM_WINDOW);
 
-                    if sup.restart_timestamps.len() > RESTART_STORM_THRESHOLD {
-                        let cooldown_elapsed = sup.last_restart_alert
+                    if sup.daemon.restart_timestamps.len() > RESTART_STORM_THRESHOLD {
+                        let cooldown_elapsed = sup.daemon.last_restart_alert
                             .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
                             .unwrap_or(true);
                         if cooldown_elapsed {
                             let reason = format!(
                                 "{} daemon restarts in the last {}m — possible crash-loop. \
                                  Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
-                                sup.restart_timestamps.len(),
+                                sup.daemon.restart_timestamps.len(),
                                 RESTART_STORM_WINDOW.as_secs() / 60
                             );
                             notify_daemon_unhealthy(&app, &reason);
-                            sup.last_restart_alert = Some(poll_now);
+                            sup.daemon.last_restart_alert = Some(poll_now);
                             eprintln!("[watchdog] restart-storm alert: {}", reason);
                         }
                     } else {
                         // Condition cleared — next episode re-alerts immediately.
-                        sup.last_restart_alert = None;
+                        sup.daemon.last_restart_alert = None;
                     }
 
                     if health.http_ok {
                         // HTTP health restored — reset failure counter + cooldown.
-                        if sup.consecutive_http_failed > 0 {
+                        if sup.daemon.consecutive_http_failed > 0 {
                             eprintln!(
                                 "[watchdog] HTTP health restored after {} failed polls",
-                                sup.consecutive_http_failed
+                                sup.daemon.consecutive_http_failed
                             );
                         }
-                        sup.consecutive_http_failed = 0;
-                        sup.last_http_alert = None;
+                        sup.daemon.consecutive_http_failed = 0;
+                        sup.daemon.last_http_alert = None;
 
                         // Detect adopted-daemon restarts via processStartedAtMs change.
-                        if let (Some(prev), Some(curr)) = (sup.last_process_started_at_ms, health.process_started_at_ms) {
+                        if let (Some(prev), Some(curr)) = (sup.daemon.last_process_started_at_ms, health.process_started_at_ms) {
                             if curr != prev {
-                                sup.restart_timestamps.push(poll_now);
+                                sup.daemon.restart_timestamps.push(poll_now);
                                 eprintln!("[watchdog] adopted-daemon restart detected via processStartedAtMs: {prev} → {curr}");
                             }
                         }
                         if health.process_started_at_ms.is_some() {
-                            sup.last_process_started_at_ms = health.process_started_at_ms;
+                            sup.daemon.last_process_started_at_ms = health.process_started_at_ms;
                         }
 
                         // --- Watchdog: DB-degraded detection ---
@@ -1162,33 +795,33 @@ fn run_supervisor(
                     // HTTP health poll failed — daemon is down or unresponsive.
                     // Increment the sustained-HTTP-failure counter BEFORE branching;
                     // the crash-exit arm will reset it (that path is owned by restart-storm).
-                    sup.consecutive_http_failed += 1;
+                    sup.daemon.consecutive_http_failed += 1;
 
                     // Health is down. Only a daemon WE spawned is respawned.
-                    match sup.child.as_mut().map(|c| c.try_wait()) {
+                    match sup.daemon.child.as_mut().map(|c| c.try_wait()) {
                         Some(Ok(Some(_status))) => {
                             // Our child exited — record crash for storm detection, respawn (throttled).
                             // The crash-exit path (restart-storm) owns the alerting for this case;
                             // reset the HTTP-failure counter so the two paths don't double-alert.
-                            sup.consecutive_http_failed = 0;
-                            sup.last_http_alert = None;
-                            sup.child = None;
+                            sup.daemon.consecutive_http_failed = 0;
+                            sup.daemon.last_http_alert = None;
+                            sup.daemon.child = None;
                             if let Ok(mut g) = spawned.lock() {
                                 *g = None;
                             }
                             clear_uptime(&app, &mut sup);
                             // Record this crash; the next poll will prune + check the threshold.
-                            sup.restart_timestamps.push(poll_now);
+                            sup.daemon.restart_timestamps.push(poll_now);
                             // Clear last_process_started_at_ms so the first successful health
                             // poll after respawn does NOT double-count a restart via the
                             // adopted-daemon change-detection path above.
-                            sup.last_process_started_at_ms = None;
+                            sup.daemon.last_process_started_at_ms = None;
                             eprintln!(
                                 "[watchdog] child crash: {} restarts in window",
-                                sup.restart_timestamps.len()
+                                sup.daemon.restart_timestamps.len()
                             );
-                            if throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
-                                do_spawn(&app, &mut sup, &spawned, &path);
+                            if throttle_ok(sup.daemon.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
+                                do_spawn(&app, &mut sup, &spawned, &path, port);
                             } else {
                                 // Crash-looping: exited within the respawn-throttle
                                 // window (e.g. a syntax error in server.ts that makes
@@ -1205,12 +838,12 @@ fn run_supervisor(
                             // Child alive but not yet serving — still booting or hung.
                             // This is the primary "unhealthy-but-not-exiting" path: the
                             // daemon is running but not accepting health requests.
-                            if sup.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
-                                let cooldown_elapsed = sup.last_http_alert
+                            if sup.daemon.consecutive_http_failed > HTTP_FAILURE_POLL_THRESHOLD {
+                                let cooldown_elapsed = sup.daemon.last_http_alert
                                     .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
                                     .unwrap_or(true);
                                 if cooldown_elapsed {
-                                    let sustained_secs = sup.consecutive_http_failed as u64
+                                    let sustained_secs = sup.daemon.consecutive_http_failed as u64
                                         * POLL_INTERVAL.as_secs();
                                     let reason = format!(
                                         "Cockpit daemon has been unresponsive for {sustained_secs}s \
@@ -1218,7 +851,7 @@ fn run_supervisor(
                                          Check logs: ~/.local/state/minsky/logs/cockpit-stderr.log",
                                     );
                                     notify_daemon_unhealthy(&app, &reason);
-                                    sup.last_http_alert = Some(poll_now);
+                                    sup.daemon.last_http_alert = Some(poll_now);
                                     eprintln!("[watchdog] sustained HTTP-failure (child alive) alert: {}", reason);
                                 }
                             }
@@ -1230,18 +863,25 @@ fn run_supervisor(
                             // `handle_health_down_no_child` (mt#2794) — this
                             // call site just wires the live AppHandle/lsof/
                             // process seams.
-                            let mut counters = NoChildCounters::take_from(&mut sup);
+                            // The counters and the labels both come off the
+                            // core's record now (mt#3990). `labels` is copied
+                            // out first because the effect closure below needs
+                            // its own `&mut sup` borrow.
+                            let labels = sup.daemon.labels;
+                            let mut counters = NoChildCounters::take_from(&mut sup.daemon);
                             handle_health_down_no_child(
                                 &mut counters,
                                 poll_now,
                                 Instant::now(),
-                                || port_in_use(DAEMON_PORT, &path),
+                                port,
+                                &labels,
+                                || port_in_use(port),
                                 |eff| match eff {
                                     NoChildEffect::Notify(reason) => {
                                         notify_daemon_unhealthy(&app, &reason)
                                     }
                                     NoChildEffect::Spawn => {
-                                        do_spawn(&app, &mut sup, &spawned, &path)
+                                        do_spawn(&app, &mut sup, &spawned, &path, port)
                                     }
                                     NoChildEffect::SetStatus(label) => {
                                         set_status(&app, &mut sup, label)
@@ -1249,7 +889,7 @@ fn run_supervisor(
                                     NoChildEffect::ClearUptime => clear_uptime(&app, &mut sup),
                                 },
                             );
-                            counters.write_back_to(&mut sup);
+                            counters.write_back_to(&mut sup.daemon);
                         }
                     }
                 }
@@ -1294,8 +934,8 @@ struct HealthDetail {
 /// Poll /api/health and return watchdog-relevant fields. Never panics; on any
 /// network or parse failure the caller receives `http_ok: false` / `db: Unknown` /
 /// `process_started_at_ms: None`.
-async fn poll_health_detail(client: &reqwest::Client) -> HealthDetail {
-    let resp = match client.get(HEALTH_URL).send().await {
+async fn poll_health_detail(client: &reqwest::Client, port: u16) -> HealthDetail {
+    let resp = match client.get(health_url(port)).send().await {
         Ok(r) if r.status().is_success() => r,
         _ => {
             return HealthDetail {
@@ -1332,7 +972,11 @@ async fn poll_health_detail(client: &reqwest::Client) -> HealthDetail {
         _ => DbStatus::Unknown,
     };
     let process_started_at_ms = json.get("processStartedAtMs").and_then(|v| v.as_u64());
-    HealthDetail { http_ok: true, db, process_started_at_ms }
+    HealthDetail {
+        http_ok: true,
+        db,
+        process_started_at_ms,
+    }
 }
 
 /// Fire a best-effort OS-toast when the daemon is self-reporting unhealthy (mt#2578).
@@ -1350,44 +994,6 @@ fn notify_daemon_unhealthy(app: &AppHandle, reason: &str) {
 // ---------------------------------------------------------------------------
 // Adopted-daemon backend-staleness decision (mt#2299).
 // ---------------------------------------------------------------------------
-
-/// Parse macOS `ps -o etime=` (`[[dd-]hh:]mm:ss`) into elapsed seconds. Pure.
-fn parse_etime_to_secs(s: &str) -> Option<u64> {
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-    let (days, hms) = match s.split_once('-') {
-        Some((d, rest)) => (d.trim().parse::<u64>().ok()?, rest),
-        None => (0u64, s),
-    };
-    let mut h = 0u64;
-    let parts: Vec<&str> = hms.split(':').collect();
-    let (m, sec) = match parts.as_slice() {
-        [m, sec] => (m.parse::<u64>().ok()?, sec.parse::<u64>().ok()?),
-        [hh, m, sec] => {
-            h = hh.parse::<u64>().ok()?;
-            (m.parse::<u64>().ok()?, sec.parse::<u64>().ok()?)
-        }
-        _ => return None,
-    };
-    Some(days * 86_400 + h * 3_600 + m * 60 + sec)
-}
-
-/// Wall-clock start time of the process on `pid`, derived from `ps -o etime=`
-/// (elapsed) subtracted from now. Used for an ADOPTED daemon the tray didn't
-/// spawn (so it has no `Instant`). `None` if `ps` fails or the pid is gone.
-fn daemon_start_time(pid: u32) -> Option<SystemTime> {
-    let out = Command::new("/bin/ps")
-        .args(["-o", "etime=", "-p", &pid.to_string()])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let secs = parse_etime_to_secs(&String::from_utf8_lossy(&out.stdout))?;
-    SystemTime::now().checked_sub(Duration::from_secs(secs))
-}
 
 /// What to do with an adopted (health-confirmed) daemon, given backend staleness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1407,10 +1013,10 @@ enum AdoptDecision {
 /// install with both signals available and `source > start` is Stale; anything
 /// undeterminable (no source tree, pid gone, ps failure) is treated as Fresh
 /// (never restart on a guess).
-fn adopt_decision(path: &str) -> AdoptDecision {
+fn adopt_decision(path: &str, port: u16) -> AdoptDecision {
     let source_mtime =
         cockpit_backend_root(path).and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
-    let started = pid_on_port(DAEMON_PORT, path).and_then(daemon_start_time);
+    let started = pid_on_port(port, path).and_then(daemon_start_time);
     if let (Some(st), Some(sm)) = (started, source_mtime) {
         if sm > st {
             return AdoptDecision::Stale;
@@ -1425,20 +1031,6 @@ fn adopt_decision(path: &str) -> AdoptDecision {
 // ---------------------------------------------------------------------------
 // Daemon-uptime display (mt#2299).
 // ---------------------------------------------------------------------------
-
-/// Humanize a duration for the uptime line: `5s`, `1m 30s`, `2h 5m`, `8d 3h`. Pure.
-fn format_duration(d: Duration) -> String {
-    let s = d.as_secs();
-    if s < 60 {
-        format!("{s}s")
-    } else if s < 3_600 {
-        format!("{}m {}s", s / 60, s % 60)
-    } else if s < 86_400 {
-        format!("{}h {}m", s / 3_600, (s % 3_600) / 60)
-    } else {
-        format!("{}d {}h", s / 86_400, (s % 86_400) / 3_600)
-    }
-}
 
 /// Render the uptime menu line: how long the daemon has run + the source mtime it
 /// was started against. `started == None` → "Daemon uptime: —". Pure.
@@ -1472,17 +1064,17 @@ fn update_uptime_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
 
 /// Set the uptime label, skipping the UI round-trip when unchanged.
 fn set_uptime_status(app: &AppHandle, sup: &mut Sup, label: String) {
-    if sup.last_uptime_label.as_deref() == Some(label.as_str()) {
+    if sup.daemon.last_uptime_label.as_deref() == Some(label.as_str()) {
         return;
     }
-    sup.last_uptime_label = Some(label.clone());
+    sup.daemon.last_uptime_label = Some(label.clone());
     let _ = update_uptime_status(app, &label);
 }
 
 /// Recompute + push the uptime line from the current daemon-start/source state.
 fn refresh_uptime(app: &AppHandle, sup: &mut Sup) {
     let label = uptime_label(
-        sup.daemon_started_at,
+        sup.daemon.daemon_started_at,
         sup.daemon_source_mtime,
         SystemTime::now(),
     );
@@ -1491,53 +1083,65 @@ fn refresh_uptime(app: &AppHandle, sup: &mut Sup) {
 
 /// Clear the uptime line + recorded start state (daemon no longer running).
 fn clear_uptime(app: &AppHandle, sup: &mut Sup) {
-    sup.daemon_started_at = None;
+    sup.daemon.daemon_started_at = None;
     sup.daemon_source_mtime = None;
     set_uptime_status(app, sup, uptime_label(None, None, SystemTime::now()));
 }
 
-/// Status line for a foreign listener on :3737, naming the holder pid (mt#2299,
+/// Status line for a foreign listener on the supervised port, naming the holder
+/// pid (mt#2299,
 /// narrow scope — message only, no kill). Pure.
-fn conflict_label_for(pid: Option<u32>) -> String {
+/// Set the Conflict status AND say who is holding the port.
+///
+/// The label alone is not a diagnostic: through the whole mt#3785 outage the
+/// tray's only signal was a menu item nobody was looking at, and stderr carried
+/// nothing at all — `do_spawn`'s four failure paths all log, but the Conflict
+/// arm returns before reaching any of them.
+///
+/// Logs on the TRANSITION only. `set_status` already returns early when the
+/// label is unchanged, so the health-poll arms that route through here every
+/// 5 s stay quiet once a conflict is steady-state; a change of holder changes
+/// the label and is reported.
+fn report_conflict(app: &AppHandle, sup: &mut Sup, path: &str, port: u16) {
+    let holder = port_holder(port, path);
+    let pid = holder.as_ref().map(|(pid, _)| *pid);
+    let label = conflict_label_for(port, pid);
+    if sup.daemon.last_status.as_deref() != Some(label.as_str()) {
+        // The ADDRESS is reported, not assumed (PR #2684 R2): the probe is
+        // scoped to loopback but that covers both families, and "which address"
+        // is exactly what the original incident turned on.
+        eprintln!(
+            "[cockpit-tray] not spawning: port {port} is held by {}",
+            match &holder {
+                Some((pid, addr)) => format!("pid {pid} on {addr}"),
+                None => "a process lsof could not name".to_string(),
+            }
+        );
+    }
+    set_status(app, sup, &label);
+}
+
+/// Both arms name the SUPERVISED port (mt#3988) rather than a literal 3737:
+/// on a configured tray the whole point of the label is telling the operator
+/// which port is contended, and a label naming a port the tray is not watching
+/// is worse than no label.
+fn conflict_label_for(port: u16, pid: Option<u32>) -> String {
     match pid {
-        Some(p) => format!("Cockpit: :3737 held by pid {p} (not started by tray)"),
-        None => LABEL_CONFLICT.to_string(),
+        Some(p) => format!("Cockpit: :{port} held by pid {p} (not started by tray)"),
+        None => format!("Cockpit: :{port} in use (not cockpit)"),
     }
 }
 
-/// Extract the last non-empty line from a byte buffer, trimmed and capped for a
-/// menu item. Pure (unit-tested); the bounded read happens in `daemon_error_tail`.
-fn last_nonempty_capped(bytes: &[u8]) -> Option<String> {
-    let line = String::from_utf8_lossy(bytes)
-        .lines()
-        .rev()
-        .map(|l| l.trim())
-        .find(|l| !l.is_empty())?
-        .to_string();
-    const MAX: usize = 120;
-    Some(if line.chars().count() > MAX {
-        line.chars().take(MAX).collect::<String>() + "..."
-    } else {
-        line
-    })
-}
-
-/// Last non-empty line of the daemon stderr log, capped — used to summarize a
-/// restart/start failure in the status line (mt#2299, criterion 5). Reads only
-/// the final ~8 KiB (seek from end) so a large or flapping log can't block the
-/// supervisor loop on each crash within the throttle window (reviewer R1 NB2).
+/// Last non-empty line of the COCKPIT daemon's stderr log, capped — used to
+/// summarize a restart/start failure in the status line (mt#2299, criterion 5).
+///
+/// The bounded-tail mechanism moved to `daemon_core::log_tail_last_line`
+/// (mt#3990); what stays here is the one cockpit-specific fact it needs, which
+/// log file to read. The name matches `COCKPIT_STDERR_LOG`, the same constant
+/// the spawn redirects stderr into, so the status line and the log can never
+/// drift apart.
 fn daemon_error_tail() -> Option<String> {
-    use std::io::{Read, Seek, SeekFrom};
-    const TAIL_BYTES: u64 = 8 * 1024;
-    let mut file = File::open(log_dir().join("cockpit-stderr.log")).ok()?;
-    let len = file.metadata().ok()?.len();
-    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
-        .ok()?;
-    let mut buf = Vec::new();
-    file.read_to_end(&mut buf).ok()?;
-    // A partial first line in the window is harmless: we take the LAST non-empty
-    // line, and the final line is always intact.
-    last_nonempty_capped(&buf)
+    log_tail_last_line(COCKPIT_STDERR_LOG)
 }
 
 // ---------------------------------------------------------------------------
@@ -1564,261 +1168,35 @@ pub(crate) fn spawn(app: AppHandle, spawned: SpawnedPgid) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::port::DEFAULT_COCKPIT_PORT;
     use std::time::UNIX_EPOCH;
 
-    // mt#2786 — takeover-respawn decision for a dead adopted daemon.
+    /// A configured non-default port, used by the mt#3988 cases below. Chosen to
+    /// match the port in the 2026-06-04 incident this task fixes.
+    const CONFIGURED_PORT: u16 = 4317;
+
+    /// mt#3990: the cockpit's argv is now DATA handed to the daemon-agnostic
+    /// spawn rather than a literal inside it, so the thing the extraction could
+    /// silently have changed — what the daemon is actually started with — is
+    /// asserted here rather than left to a live launch.
     #[test]
-    fn takeover_fires_when_sustained_port_free_and_throttle_ok() {
-        assert!(should_takeover_adopted(
-            ADOPTED_TAKEOVER_POLL_THRESHOLD + 1,
-            false,
-            true
-        ));
-    }
-
-    #[test]
-    fn takeover_waits_below_the_sustained_threshold() {
-        // At the alert threshold (half the takeover threshold) we alert but do NOT spawn.
-        assert!(!should_takeover_adopted(
-            HTTP_FAILURE_POLL_THRESHOLD + 1,
-            false,
-            true
-        ));
-        assert!(!should_takeover_adopted(ADOPTED_TAKEOVER_POLL_THRESHOLD, false, true));
-    }
-
-    #[test]
-    fn takeover_never_fights_a_port_holder() {
-        // An operator's replacement daemon (or anything else) holding the port
-        // suppresses takeover no matter how long the outage.
-        assert!(!should_takeover_adopted(
-            ADOPTED_TAKEOVER_POLL_THRESHOLD * 10,
-            true,
-            true
-        ));
-    }
-
-    #[test]
-    fn takeover_respects_the_respawn_throttle() {
-        assert!(!should_takeover_adopted(
-            ADOPTED_TAKEOVER_POLL_THRESHOLD + 1,
-            false,
-            false
-        ));
-    }
-
-    // --- mt#2794: `handle_health_down_no_child` integration-style coverage
-    // of the mt#2786 takeover branch, wired through the extracted seam
-    // function instead of a live Tokio poll loop. ---
-
-    #[derive(Default)]
-    struct NoChildLog {
-        notifies: Vec<String>,
-        spawn_calls: u32,
-        status_calls: Vec<&'static str>,
-        clear_uptime_calls: u32,
-    }
-
-    fn base_counters(consecutive_http_failed: u32) -> NoChildCounters {
-        NoChildCounters {
-            consecutive_http_failed,
-            last_http_alert: None,
-            last_spawn: None,
-            restart_timestamps: Vec::new(),
-            last_process_started_at_ms: Some(42),
-        }
-    }
-
-    /// Drive `handle_health_down_no_child` with stubbed `port_in_use`
-    /// results (consumed in call order) and record every effect it asks
-    /// for, instead of performing any live AppHandle/process operation.
-    fn run_no_child_arm(
-        counters: &mut NoChildCounters,
-        poll_now: Instant,
-        mut port_results: std::collections::VecDeque<bool>,
-    ) -> NoChildLog {
-        let mut log = NoChildLog::default();
-        handle_health_down_no_child(
-            counters,
-            poll_now,
-            Instant::now(),
-            || port_results.pop_front().expect("unexpected extra port_in_use() call"),
-            |eff| match eff {
-                NoChildEffect::Notify(reason) => log.notifies.push(reason.to_string()),
-                NoChildEffect::Spawn => log.spawn_calls += 1,
-                NoChildEffect::SetStatus(label) => log.status_calls.push(label),
-                NoChildEffect::ClearUptime => log.clear_uptime_calls += 1,
-            },
-        );
-        log
-    }
-
-    // Scenario 1: sustained outage + free port -> takeover invokes the spawn
-    // seam, resets the watchdog counters, and pushes a restart timestamp.
-    #[test]
-    fn no_child_sustained_outage_and_free_port_takes_over() {
-        let poll_now = Instant::now();
-        let mut counters = base_counters(ADOPTED_TAKEOVER_POLL_THRESHOLD + 1);
-        // Two port_in_use calls expected: the takeover gate, then the
-        // pre-spawn recheck — both report the port free.
-        let log = run_no_child_arm(
-            &mut counters,
-            poll_now,
-            std::collections::VecDeque::from([false, false]),
-        );
-
-        assert_eq!(log.spawn_calls, 1, "takeover should invoke the spawn seam");
-        assert_eq!(log.notifies.len(), 1, "sustained outage should also alert");
-        assert!(
-            log.status_calls.is_empty(),
-            "the success path doesn't set status directly (do_spawn does that live)"
-        );
+    fn cockpit_spawn_args_are_the_source_entry_with_an_explicit_port() {
         assert_eq!(
-            log.clear_uptime_calls, 0,
-            "the success path doesn't clear uptime directly"
+            cockpit_spawn_args(DEFAULT_COCKPIT_PORT),
+            vec![
+                "run",
+                "src/cli.ts",
+                "cockpit",
+                "start",
+                "--no-dev-chromium",
+                "--port",
+                "3737",
+            ]
         );
-
-        assert_eq!(counters.consecutive_http_failed, 0, "counter resets on takeover");
-        assert_eq!(counters.last_http_alert, None, "alert cooldown resets on takeover");
-        assert_eq!(
-            counters.restart_timestamps,
-            vec![poll_now],
-            "takeover pushes a restart timestamp"
-        );
-        assert_eq!(
-            counters.last_process_started_at_ms, None,
-            "takeover clears the adopted-restart baseline"
-        );
-    }
-
-    // Scenario 2: pre-spawn recheck bail-out when the port becomes bound
-    // between the takeover-gate check and the spawn (PR #1927 R1). Also
-    // covers the PR #1927 R2 non-blocking fix folded into this task: the
-    // aborted path must clear the uptime line.
-    #[test]
-    fn no_child_aborts_takeover_when_port_binds_between_check_and_spawn() {
-        let poll_now = Instant::now();
-        let mut counters = base_counters(ADOPTED_TAKEOVER_POLL_THRESHOLD + 1);
-        // Gate check sees the port free; the pre-spawn recheck sees it
-        // bound — an operator's replacement daemon won the race.
-        let log = run_no_child_arm(
-            &mut counters,
-            poll_now,
-            std::collections::VecDeque::from([false, true]),
-        );
-
-        assert_eq!(log.spawn_calls, 0, "an aborted takeover must not spawn");
-        assert_eq!(log.notifies.len(), 1, "the sustained-failure alert still fires");
-        assert_eq!(log.status_calls, vec![LABEL_STARTING]);
-        assert_eq!(
-            log.clear_uptime_calls, 1,
-            "PR #1927 R2: the aborted path must clear the stale uptime line"
-        );
-
-        // Counters are untouched by an aborted takeover — it retries next poll.
-        assert_eq!(
-            counters.consecutive_http_failed,
-            ADOPTED_TAKEOVER_POLL_THRESHOLD + 1
-        );
-        assert!(counters.restart_timestamps.is_empty());
-    }
-
-    // Scenario 3: alert fires at the 1-minute threshold without taking over.
-    #[test]
-    fn no_child_alerts_at_threshold_without_taking_over() {
-        let poll_now = Instant::now();
-        // Above the alert threshold but below the 2x takeover threshold.
-        let mut counters = base_counters(HTTP_FAILURE_POLL_THRESHOLD + 1);
-        let log = run_no_child_arm(
-            &mut counters,
-            poll_now,
-            std::collections::VecDeque::from([false]),
-        );
-
-        assert_eq!(log.notifies.len(), 1, "sustained-failure alert should fire");
-        assert_eq!(log.spawn_calls, 0, "must not take over below the takeover threshold");
-        assert_eq!(log.status_calls, vec![LABEL_STOPPED]);
-        assert_eq!(log.clear_uptime_calls, 1);
-        assert_eq!(counters.last_http_alert, Some(poll_now));
-    }
-
-    // Scenario 4: port held throughout -> no takeover ever, regardless of
-    // how long the outage has been sustained (mt#2786's core conservatism).
-    #[test]
-    fn no_child_never_takes_over_while_port_is_held() {
-        let poll_now = Instant::now();
-        let mut counters = base_counters(ADOPTED_TAKEOVER_POLL_THRESHOLD * 10);
-        let log = run_no_child_arm(
-            &mut counters,
-            poll_now,
-            std::collections::VecDeque::from([true]),
-        );
-
-        assert_eq!(log.spawn_calls, 0, "a held port must never be fought");
-        assert_eq!(log.status_calls, vec![LABEL_STOPPED]);
-        assert_eq!(log.clear_uptime_calls, 1);
-        assert_eq!(log.notifies.len(), 1, "still alerts even though it won't take over");
-    }
-
-    #[test]
-    fn status_label_maps_health_to_text() {
-        assert_eq!(status_label(true), LABEL_RUNNING);
-        assert_eq!(status_label(false), LABEL_STOPPED);
-    }
-
-    #[test]
-    fn decide_action_adopts_when_healthy() {
-        // Health-OK wins regardless of the port-in-use signal.
-        assert_eq!(decide_action(true, true), DaemonAction::Adopt);
-        assert_eq!(decide_action(true, false), DaemonAction::Adopt);
-    }
-
-    #[test]
-    fn decide_action_conflict_when_port_taken_but_unhealthy() {
-        assert_eq!(decide_action(false, true), DaemonAction::Conflict);
-    }
-
-    #[test]
-    fn decide_action_spawn_when_free() {
-        assert_eq!(decide_action(false, false), DaemonAction::Spawn);
-    }
-
-    #[test]
-    fn throttle_allows_first_spawn() {
-        assert!(throttle_ok(None, Instant::now(), RESPAWN_THROTTLE));
-    }
-
-    #[test]
-    fn throttle_blocks_within_window() {
-        let now = Instant::now();
-        assert!(!throttle_ok(Some(now), now, RESPAWN_THROTTLE));
-    }
-
-    #[test]
-    fn throttle_allows_after_window() {
-        let now = Instant::now();
-        let long_ago = now
-            .checked_sub(RESPAWN_THROTTLE + Duration::from_secs(1))
-            .expect("instant arithmetic");
-        assert!(throttle_ok(Some(long_ago), now, RESPAWN_THROTTLE));
-    }
-
-    #[test]
-    fn parse_lsof_pid_takes_first_numeric_line() {
-        assert_eq!(parse_lsof_pid("12345\n67890\n"), Some(12345));
-        assert_eq!(parse_lsof_pid("  4242 \n"), Some(4242));
-        assert_eq!(parse_lsof_pid(""), None);
-        assert_eq!(parse_lsof_pid("\n\n"), None);
-        assert_eq!(parse_lsof_pid("not-a-pid\n"), None);
-    }
-
-    #[test]
-    fn augmented_path_prepends_common_dirs_and_dedupes() {
-        let p = augmented_path("/Users/x", "/usr/bin:/custom/bin");
-        assert!(p.starts_with("/Users/x/.bun/bin:"));
-        assert!(p.contains(":/custom/bin"));
-        // /usr/bin is in the prepend list, so it must not be duplicated.
-        assert_eq!(p.matches("/usr/bin").count(), 1);
+        // The port is the CONFIGURED one, not a constant baked in beside it
+        // (mt#3988) — the same invariant the lsof-args cases pin for the probe.
+        let args = cockpit_spawn_args(CONFIGURED_PORT);
+        assert_eq!(args.last().expect("a port argument"), "4317");
     }
 
     #[test]
@@ -1860,45 +1238,6 @@ mod tests {
     // --- mt#2299: adopt-decision + uptime + conflict + error-tail helpers ---
 
     #[test]
-    fn parse_etime_handles_all_ps_formats() {
-        assert_eq!(parse_etime_to_secs("00:00"), Some(0));
-        assert_eq!(parse_etime_to_secs("01:30"), Some(90));
-        assert_eq!(parse_etime_to_secs("01:01:01"), Some(3661));
-        assert_eq!(
-            parse_etime_to_secs("2-03:00:00"),
-            Some(2 * 86_400 + 3 * 3_600)
-        );
-        // ps right-pads/space-pads; trim tolerated.
-        assert_eq!(parse_etime_to_secs("  05:00 "), Some(300));
-        assert_eq!(parse_etime_to_secs(""), None);
-        assert_eq!(parse_etime_to_secs("garbage"), None);
-        assert_eq!(parse_etime_to_secs("1:2:3:4"), None);
-    }
-
-    #[test]
-    fn format_duration_picks_unit_by_magnitude() {
-        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
-        assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
-        assert_eq!(format_duration(Duration::from_secs(3_700)), "1h 1m");
-        assert_eq!(format_duration(Duration::from_secs(90_000)), "1d 1h");
-    }
-
-    #[test]
-    fn last_nonempty_capped_picks_last_line_and_caps() {
-        assert_eq!(
-            last_nonempty_capped(b"warn\n\nError: boom\n\n"),
-            Some("Error: boom".to_string())
-        );
-        assert_eq!(last_nonempty_capped(b""), None);
-        assert_eq!(last_nonempty_capped(b"\n  \n"), None);
-        // Capped at 120 chars + ellipsis.
-        let long = "x".repeat(200);
-        let out = last_nonempty_capped(long.as_bytes()).expect("some");
-        assert_eq!(out.chars().count(), 123); // 120 + "..."
-        assert!(out.ends_with("..."));
-    }
-
-    #[test]
     fn uptime_label_renders_duration_and_source() {
         let now = UNIX_EPOCH + Duration::from_secs(1_000);
         let started = UNIX_EPOCH + Duration::from_secs(940); // 60s ago
@@ -1917,10 +1256,29 @@ mod tests {
     #[test]
     fn conflict_label_names_holder_pid() {
         assert_eq!(
-            conflict_label_for(Some(4242)),
+            conflict_label_for(DEFAULT_COCKPIT_PORT, Some(4242)),
             "Cockpit: :3737 held by pid 4242 (not started by tray)"
         );
-        assert_eq!(conflict_label_for(None), LABEL_CONFLICT);
+        assert_eq!(
+            conflict_label_for(DEFAULT_COCKPIT_PORT, None),
+            "Cockpit: :3737 in use (not cockpit)"
+        );
+    }
+
+    /// mt#3988: the label names the port the tray is actually supervising.
+    /// Reporting `:3737 held by ...` on a tray configured to 4317 would be a
+    /// diagnostic pointing at the wrong port during exactly the situation the
+    /// label exists for.
+    #[test]
+    fn conflict_label_names_the_configured_port() {
+        assert_eq!(
+            conflict_label_for(CONFIGURED_PORT, Some(4242)),
+            "Cockpit: :4317 held by pid 4242 (not started by tray)"
+        );
+        assert_eq!(
+            conflict_label_for(CONFIGURED_PORT, None),
+            "Cockpit: :4317 in use (not cockpit)"
+        );
     }
 }
 
@@ -1949,10 +1307,8 @@ mod tests {
 // port/process-detection semantics documented alongside this fixture.
 #[cfg(test)]
 mod health_contract {
-    const HEALTH_SHAPE_FIXTURE: &str =
-        include_str!("../../../contract/cockpit-health-shape.json");
-    const HEALTH_ROUTE_SOURCE: &str =
-        include_str!("../../../src/cockpit/routes/health.ts");
+    const HEALTH_SHAPE_FIXTURE: &str = include_str!("../../../contract/cockpit-health-shape.json");
+    const HEALTH_ROUTE_SOURCE: &str = include_str!("../../../src/cockpit/routes/health.ts");
 
     /// Pull `rustConsumedFields` out of the fixture without a full serde
     /// struct — the fixture is a flat, hand-authored JSON doc and a tiny
@@ -1963,7 +1319,11 @@ mod health_contract {
             .and_then(|v| v.as_array())
             .expect("fixture must declare a `rustConsumedFields` array")
             .iter()
-            .map(|v| v.as_str().expect("rustConsumedFields entries must be strings").to_string())
+            .map(|v| {
+                v.as_str()
+                    .expect("rustConsumedFields entries must be strings")
+                    .to_string()
+            })
             .collect()
     }
 
@@ -2023,7 +1383,11 @@ mod health_contract {
             Some("unreachable") => super::DbStatus::Unreachable,
             _ => super::DbStatus::Unknown,
         };
-        assert_eq!(db, super::DbStatus::Ok, "fixture sample's `db` should decode to Ok");
+        assert_eq!(
+            db,
+            super::DbStatus::Ok,
+            "fixture sample's `db` should decode to Ok"
+        );
 
         let process_started_at_ms = sample.get("processStartedAtMs").and_then(|v| v.as_u64());
         assert_eq!(

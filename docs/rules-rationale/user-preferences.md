@@ -23,6 +23,78 @@ The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-
 that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces;
 the skill step covers the implement-task pipeline specifically.
 
+### Why all three shapes take the same probe (mt#4047)
+
+The three trigger-phrase families in the rule defer to different things — a PERSON's access, a
+LATER TIME, a STANDING INSTRUCTION — and it is tempting to treat them as three rules. They are
+one. All three assert the same proposition: _I am unable to do this at this moment._ That is a
+claim about your PRESENT capability, and it needs evidence rather than assumption regardless of
+what the sentence defers TO.
+
+What differs is only the FORM the evidence takes. For the first two it is a tool call — try it.
+For the third it is a question — ask. A deferral to a later time is not self-justifying because it
+names no person; "can't verify until X ships" is exactly as much a capability claim as "requires
+Railway access."
+
+### Worked deferral records (the shape a justified deferral takes)
+
+A bare deferral fails the rule. A justified one names the probe results AND the scope/safety
+basis inline, so a reader can see the check happened:
+
+> "Probed: `which gh` → not on PATH; no GitHub-org-admin skill; no `scripts/gh-admin/`; no memory
+> matches. Deferred — requires user with GitHub org-admin access."
+
+> "Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec
+> §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."
+
+The second is the one worth studying: the probe SUCCEEDED and the deferral still stands. A probe
+that returns "tooling is available" unblocks the assumption of unavailability; it does not
+override the scope and safety gates. Proceed only when the action is in-scope under the task's
+acceptance criteria AND carries no destructive side-effect the spec has not authorized.
+
+### The standing-instruction shape (mt#3930)
+
+The first two shapes defer to a PERSON's access or to a LATER TIME, and both are probed with a
+tool call — try it and see. The third shape has no tool call to make, which is exactly why it
+went unnamed for so long: the canonical probe sequence (CLI, skill, repo, memory) runs to the end
+and produces nothing to do, so the deferral passes the rule as written.
+
+**Incident (2026-08-10, mt#3894).** A success criterion needed one throwaway subagent dispatch to
+verify a fix against a live row. This project carries a standing instruction not to call the Agent
+tool unless the principal requests it. The agent wrote that instruction down as settling the
+question, filed a follow-up task (mt#3912) to own the criterion, described it as "closing by
+itself on the next raw dispatch anyone makes", and reported the work complete-except-for-that — in
+a message it was writing to the principal at that moment.
+
+The principal's reply: _"I mean go ahead and dispatch a test subagent to test the thing like you
+should have done that to confirm."_ The dispatch then took under five seconds and closed the
+criterion immediately.
+
+Cost: a follow-up task that should not exist, a criterion reported unmet for two hours, and a
+round-trip to authorize something that would have been authorized instantly.
+
+**Why it survives self-review.** The deferral sentence is _true_. "The standing instruction is not
+to call the Agent tool unless the principal asks" is an accurate statement of a real rule, and
+writing it feels like compliance rather than avoidance. What it omits is not a fact about the rule
+but a fact about the situation: the principal was already the audience of the sentence. That is
+the discriminator to look for — not "is this restriction real?" but "am I telling this to the one
+person who could lift it?"
+
+**The boundary that keeps this honest.** The shape must not become a licence to act through
+restrictions. The stopping test is whether the action is destructive, or falls under a nameable
+category in `principal-context.mdc §Decisions Eugene reserves` — and "nameable" is doing the work,
+per the same positive-citation test the chain-walk halt conditions use. If no category is
+nameable and the principal would plausibly just say yes, the restriction is a default and the
+correct move is to ask. If one IS nameable, stop and route it through the Ask substrate.
+
+**Tier.** Prose, deliberately and with a known weakness: the corpus's own measurement is that
+prose checklist items contain their class poorly. The mechanizable sibling is the
+`operator-deferral` observer, which already matches capability-deferral and permission-deferral
+prose on a calibration-first footing; whether it should also match this shape is a question for
+its calibration log, not something to assert here. What prose buys in the meantime is the phrase
+shape — the point is to recognize the sentence as it is being written, which is the moment the
+tool call would not have helped anyway.
+
 ## Probe before self-improvising (mt#3154)
 
 **Originating incident:** the 2026-07-24 reviewer outage (mem#707). An mt#3117 source-cutover left
@@ -72,6 +144,66 @@ underlying assumption.
 **Future structural enforcement:** the unified fleet-state view (mt#2569) may fold probes 0–4
 into a single query, or eliminate the need to probe entirely via active edges + presence
 broadcast. When that lands, this rule retires.
+
+### Reading the presence probe (mt#2562) without over-reading it
+
+Probe step 0 (`tasks_claims_list`) is the cheapest first check, and every one of its outputs is
+easy to over-read. Four things it does NOT tell you:
+
+- **A fresh claim with an unfamiliar `actorId` is "possible other actor", not "other actor."** For
+  an undeclared caller the id is an opaque `unknown:hash:<...>` (ADR-006) that **churns per
+  process and per staleness-respawn**. So "N claims" is NOT "N distinct agents," and your OWN
+  claims from a prior respawn read back as someone else's. The probe says _when_ to do the
+  forensics, never _who_ holds the task — confirm any hit with probes 1–4.
+- **An empty result is "no claim visible," not "nobody."** Presence is best-effort and
+  fire-and-forget; absence is inconclusive. Claims self-stale at ~15 minutes, which is why the
+  default fresh-only view is the one you want.
+- **After a `/clear`, a "fresh claim by another actor" may be YOUR OWN.** The proxy resolves the
+  conversation id once at spawn, so your own touches read back under an unrecognized id. mt#3900
+  fixed this, but the fix reaches a process only on MCP reconnect — assume attribution is stale.
+- **`lastRefreshedAt` IS trustworthy**, as of mt#3889: probing no longer refreshes the claims it
+  reports, so the timestamp reflects the peer's activity rather than your own read.
+
+### The precedence rule, and why an enumeration of causes was not enough (mt#3967)
+
+mt#3889 added a falsifier for the phantom-collision case: before treating a presence hit as a
+collision, check whether the cited conversation is alive by looking at its transcript's mtime, since
+"a transcript last written hours ago is not a live sibling."
+
+That check produces a FALSE NEGATIVE in the case it most needs to handle. Observed 2026-08-10 while
+running the dispatch watchdog on mt#3812:
+
+```
+tasks_dispatch-recover mt#3812 → status: "contested"
+  peerLastRefreshedAt: 2026-08-10T15:48:16Z          (36 seconds before the call)
+ls -l ~/.claude/projects/…/bff0cf98-….jsonl
+  → last written Aug  8 23:33                        (~2 days earlier)
+```
+
+Applied literally, the heuristic yields _no live peer_ and licenses a redispatch into a workspace
+something is actively touching — the mt#3086 / mt#3958 double-dispatch race, reached by following
+the rule's own advice. **On 2026-08-11 mt#3812 reached DONE: the peer was alive and finished the
+work.** The agent that refused was right, and it was right by NOT following the text.
+
+**Why the signals disagree.** They answer different questions. A fresh claim proves _a process is
+running_. A conversation id only labels _who that process thinks it is_ — and that label is exactly
+what goes stale on a `/clear`, a resume, a fork, or any process whose proxy outlived its
+conversation (mt#3900). So the transcript check tests the reliability of the LABEL, and the original
+text let it be read as a verdict on the ACTIVITY.
+
+**Why a third cause-specific bullet would not have fixed it.** mt#3958 had already added one: a
+dispatched subagent writes to `<session-dir>/subagents/agent-<id>.jsonl`, so a stale parent
+transcript is no evidence about it. Correct, and an enumeration. `/clear` staleness (mt#3900) is a
+second cause. Adding a third on the next recurrence is the arms-race shape that ADR-024 names for
+detectors and that `/plan-task` Step 4's halt-citation test names for rationales: **an enumeration
+of known bad cases is defeated by a novel bad case.** The precedence — claim recency outranks a
+stale transcript; an unconfirmable id means "unknown actor", never "no actor" — covers the causes
+nobody has hit yet, and the mt#3958 bullet stays as a named instance of it.
+
+**Note on cost.** `user-preferences.mdc` sat at 15,020 bytes against a 15,000-byte per-rule ceiling
+when this amendment was written, so the edit had to be net-negative: the precedence was added and
+the section compressed to 14,982. That constraint is why the incident narrative lives here rather
+than in the rule.
 
 ## Plain-language first in chat reports (mt#2801)
 

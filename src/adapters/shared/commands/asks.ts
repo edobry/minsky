@@ -104,7 +104,12 @@ import {
   classifyIdInput,
 } from "@minsky/domain/utils/id-prefix-resolver";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { computeFormLintMatches, type FormLintMatch } from "@minsky/domain/ask/form-lint";
+import {
+  computeFormLintMatches,
+  findSerializedParameterArtifact,
+  type FormLintMatch,
+} from "@minsky/domain/ask/form-lint";
+import { linkifyExternalRefs } from "@minsky/domain/ask/external-refs";
 import { appendAskFormLintCalibrationRecord } from "./ask-form-lint-calibration";
 
 // ---------------------------------------------------------------------------
@@ -900,9 +905,17 @@ export function validateAuthorizationApproveOptions(params: {
  * this filters only at the decision points that need the blocking/advisory
  * distinction, not at the point that computes matches.
  *
- * The exclusion list stays a DENYLIST of one, deliberately: a new check
- * blocks unless it is added here. `missing-decision-options` (mt#3477) is not
- * added — it blocks with the original five. Its basis is recorded in
+ * The exclusion list stays a DENYLIST, deliberately: a new check blocks
+ * unless it is added here. Two are excluded. `unlinkified-reference`
+ * (mt#2918) is the second: the transform beside it is best-effort by design
+ * — it linkifies a CUED external reference and warns about the rest — and an
+ * ask carrying a citation it could not resolve is still a decidable ask, so
+ * rejecting the create would withhold a decision over a formatting gap. The
+ * warning's job is to tell the author; blocking is a different, harsher
+ * claim than the evidence supports.
+ *
+ * `missing-decision-options` (mt#3477) is NOT added — it blocks with the
+ * original five. Its basis is recorded in
  * `form-lint.ts`'s module header: no false-positive class to calibrate (an
  * optionless `direction.decide` renders zero buttons by construction), and
  * the family's own escalation threshold (mem#760: three form-failure
@@ -912,8 +925,66 @@ export function validateAuthorizationApproveOptions(params: {
  * Exported for direct testing, matching `validateFormLintNotViolated`'s
  * pattern above.
  */
+/**
+ * Return `params` with its question normalized to the form that will actually
+ * be PERSISTED (mt#2918).
+ *
+ * The single normalization seam shared by the two places that need it:
+ * `asks.create`'s `validate` hook, which must not reject a body the transform
+ * is about to fix, and `createAskWithFormLint`, which writes that body. Naming
+ * it makes the ordering legible at both call sites instead of leaving it as an
+ * implementation detail of whichever function happens to run first — PR #2755
+ * R1/R2 both landed on that ambiguity.
+ *
+ * Idempotent, because `linkifyExternalRefs` is: a question that already carries
+ * its URLs comes back unchanged, so applying this twice is a no-op rather than
+ * a double-append.
+ */
+export function normalizeQuestionForLint<T extends { question?: string }>(params: T): T {
+  if (typeof params.question !== "string") return params;
+  const { text } = linkifyExternalRefs(params.question);
+  return text === params.question ? params : { ...params, question: text };
+}
+
+/**
+ * Reject a question carrying the tool call's own parameter encoding (mt#3936).
+ *
+ * Deliberately NOT a `computeFormLintMatches` check, for two reasons. It must
+ * fire ahead of `acknowledgeFormWarnings`, which the lint pipeline sits behind;
+ * and it is not a judgment about form at all — the markers it looks for cannot
+ * occur in prose an author wrote, so there is no calibration question and no
+ * false-positive posture to tune.
+ *
+ * What this DOES and does not buy: it catches the corruption when the artifact
+ * lands IN the question, which is the shape three production rows actually
+ * took. It cannot catch the sibling shape where `options` is dropped and the
+ * question arrives clean — server-side, that is indistinguishable from an
+ * author who supplied no options, which is exactly why the
+ * `missing-decision-options` message cannot be made to tell them apart.
+ */
+export function assertNoSerializedParameterArtifact(
+  question: string | undefined,
+  surface: "asks.create" | "asks.edit" = "asks.create"
+): void {
+  if (typeof question !== "string") return;
+  const marker = findSerializedParameterArtifact(question);
+  if (marker === null) return;
+  throw new ValidationError(
+    `${surface}: the question contains \`${marker}\`, which is tool-call parameter markup, ` +
+      `not prose. This means the call's encoding leaked into the question value — and ` +
+      `anything that followed it, typically the \`options\` array, was swallowed with it ` +
+      `rather than arriving as data.\n\n` +
+      `Do NOT work around this by rewording the question or by passing ` +
+      `acknowledgeFormWarnings (it does not apply here). Re-issue the call with each ` +
+      `parameter supplied separately. If the options array keeps arriving empty while you ` +
+      `are supplying it, that is mt#3936 — a shorter question is the known workaround.`
+  );
+}
+
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
-  return matches.filter((m) => m.check !== "missing-force-immediate");
+  return matches.filter(
+    (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
+  );
 }
 
 /**
@@ -963,10 +1034,18 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
  * true` on the calibration-log entry when it is used, so override frequency
  * stays reviewable via `/calibration-review`.
  *
- * Scope: `asks.create` only. `asks.edit` does not compute form-lint at all
- * (before or after this change) — extending enforcement to edits that
- * introduce a new violation is out of scope for this task (see the spec's
- * Design Decision section).
+ * Scope, ORIGINALLY: `asks.create` only. mt#3326 recorded here that
+ * `asks.edit` "does not compute form-lint at all" and declared extending it
+ * out of scope. **mt#3929 closed that gap** — see
+ * `validateEditFormLintAgainstExistingAsk` below.
+ *
+ * Why it mattered: `asks_edit` is the repair path the corpus recommends for a
+ * rejected create (mem#760 rule 4, "prefer it over cancel+refile"), so the
+ * enforced surface handed every fix-up to the unenforced one. Measured
+ * 2026-08-10 (ask#7591): a create was hard-rejected for `over-word-budget`
+ * and `long-option-label`, trimmed to pass — and a later edit restored a body
+ * well over budget with no warning at all. Both of mt#3326's declared scope
+ * limits were exercised by one incident.
  *
  * The underlying `computeFormLintMatches` stays pure and advisory-in-itself
  * (unchanged by this task) — this function is what makes its output
@@ -985,15 +1064,45 @@ export function validateFormLintNotViolated(params: {
   options?: Array<{ label: string }>;
   forceImmediate?: boolean;
   acknowledgeFormWarnings?: boolean;
+  /**
+   * Which command boundary is rejecting, for the error text (mt#3929). Defaults to
+   * `asks.create` — the only surface that enforced this until the edit path joined it.
+   */
+  surface?: "asks.create" | "asks.edit";
 }): void {
+  // mt#3936: BEFORE the acknowledge escape, deliberately. Every other check
+  // here describes an ask that is ill-FORMED — too long, no buttons — where an
+  // author can reasonably say "yes, I meant that." This one describes a
+  // question that has swallowed the tool call's own parameter encoding, which
+  // is never something an author meant, and which silently destroyed the
+  // sibling `options` array on its way in. There is nothing to acknowledge.
+  assertNoSerializedParameterArtifact(params.question, params.surface);
   if (params.acknowledgeFormWarnings) return;
   // Absence of kind/question is a required-field concern the parameter
   // schema already enforces — nothing for this check to add.
   if (!params.kind || !params.question) return;
 
+  // mt#2918 (PR #2755 R1): lint the text that will actually be PERSISTED, not
+  // the caller's raw input. `createAskWithFormLint` linkifies external
+  // references before the repo write, so validating the pre-transform text
+  // judges a body that never exists. The failure is a false hard-reject:
+  // `portal-no-link` fires on an authorization.approve question that names a
+  // portal action and carries no URL — which is exactly the state of a
+  // question whose only citation is a Notion page id the transform was about
+  // to resolve. The author would be rejected for a defect the system had
+  // already fixed.
+  //
+  // Normalizing here rather than special-casing `portal-no-link` is
+  // deliberate: any present or future check that reads for a URL inherits the
+  // same mismatch, so the fix belongs at the text, not at the check. One
+  // consequence worth naming: `over-word-budget` now counts the appended URLs.
+  // That is correct — the budget should measure the body the principal
+  // actually receives.
+  const { text: normalizedQuestion } = linkifyExternalRefs(params.question);
+
   const matches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    question: normalizedQuestion,
     options: params.options,
     forceImmediate: params.forceImmediate,
   });
@@ -1002,13 +1111,16 @@ export function validateFormLintNotViolated(params: {
 
   const violations = blocking.map((m) => `  - ${m.check}: ${m.message}`).join("\n");
   const plural = blocking.length > 1 ? "s" : "";
+  const surface = params.surface ?? "asks.create";
+  const verb = surface === "asks.edit" ? "edit" : "create";
   throw new ValidationError(
-    `asks.create: ${blocking.length} form-lint violation${plural} — fix the ask and retry:\n` +
+    `${surface}: ${blocking.length} form-lint violation${plural} — fix the ask and retry:\n` +
       `${violations}\n\n` +
-      `Form-lint checks are consequential at the asks_create boundary (mt#3326): the create ` +
-      `is rejected rather than silently accepted with an ignorable warning. If this ask is ` +
-      `genuinely long/complex and the violation is warranted, pass acknowledgeFormWarnings: ` +
-      `true to create it anyway — this is recorded for calibration review, not a silent bypass.`
+      `Form-lint checks are consequential at the asks_${verb} boundary (mt#3326, extended to ` +
+      `edits by mt#3929): the ${verb} is rejected rather than silently accepted with an ` +
+      `ignorable warning. If this ask is genuinely long/complex and the violation is ` +
+      `warranted, pass acknowledgeFormWarnings: true to ${verb} it anyway — this is recorded ` +
+      `for calibration review, not a silent bypass.`
   );
 }
 
@@ -1384,10 +1496,19 @@ export async function createAskWithFormLint(
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<CreateAskWithFormLintResult> {
-  const ask = await createAsk(repo, params, routerOptions);
+  // mt#2918: make external artifact citations reachable BEFORE the body is
+  // persisted, so every downstream reader — the cockpit inbox, the CLI, a
+  // notification payload — carries the URL rather than a bare page id. The
+  // display-surface linkifier cannot do this job: it resolves refs against a
+  // Minsky id-set, and a Notion page id is in no Minsky index.
+  const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
+
+  const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
-    question: params.question,
+    // Lint the PERSISTED text, not the caller's input: a reference the
+    // transform just made reachable must not also be reported as a defect.
+    question: persistedParams.question,
     // Option labels are lint input too (mt#3253) — they render as the decision
     // buttons, so a 167-char label or one repeating the surface-rendered letter
     // is a form defect the producer should hear about.
@@ -1468,7 +1589,7 @@ export function formatAskWaitMessage(result: AskWaitForResponseResult): string {
 // asks.edit — schemas + validation (mt#2668)
 // ---------------------------------------------------------------------------
 
-const asksEditParams = {
+export const asksEditParams = {
   id: {
     schema: z.string().trim().min(1),
     description: "Ask ID (UUID) to edit",
@@ -1504,6 +1625,16 @@ const asksEditParams = {
     schema: z.string().trim().min(1).optional(),
     description:
       "Editor identity recorded in the provenance note; defaults to a session-unknown marker",
+    required: false,
+  },
+  acknowledgeFormWarnings: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the form-lint hard-reject (mt#3929) for this edit call. The same " +
+      "escape asks_create offers: use it when the ask is genuinely long/complex and the " +
+      "violation is warranted, or when repairing one field of an ask whose pre-existing body " +
+      "already violates. Without it, an edit whose RESULTING question/options fail any " +
+      "form-lint check is rejected.",
     required: false,
   },
 };
@@ -1659,6 +1790,113 @@ export function editRequiresApproveOptionsGuard(
   params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
 ): boolean {
   return params.options !== undefined;
+}
+
+/**
+ * Gate for whether an `asks.edit` needs the form-lint check (mt#3929).
+ *
+ * Only an edit that touches `question` or `options` can change what form-lint
+ * reads — a title/contextRefs/metadata-only edit cannot, so it skips the
+ * (persistence-touching) guard entirely rather than merely passing it. Pure and
+ * exported so that skip is directly testable, mirroring
+ * `editRequiresApproveOptionsGuard`.
+ */
+export function editRequiresFormLintGuard(
+  params: Pick<EditAskContentParams, "title" | "question" | "options" | "contextRefs" | "metadata">
+): boolean {
+  return params.question !== undefined || params.options !== undefined;
+}
+
+/**
+ * The option shape form-lint actually reads (mt#3929): it inspects `label` and nothing else.
+ * Kept deliberately wider than `AskOption` so a caller can pass either a full persisted option
+ * or a label-only literal — narrowing to `AskOption` here would buy no safety, since `value` is
+ * never consulted, and would force casts at every call site.
+ */
+export type FormLintOptionShape = { label: string; value?: unknown };
+
+/**
+ * The POST-EDIT question/options an `asks.edit` will persist (mt#3929).
+ *
+ * Form-lint has to judge the **result**, not the payload: an edit that replaces
+ * only `options` still produces a body whose word budget is set by the EXISTING
+ * question, and an edit that rewrites only `question` is bounded by the existing
+ * options' labels. Linting the payload alone would let either half slip past by
+ * being absent.
+ *
+ * Deliberately a merge, not a diff. An edit that leaves an existing violation
+ * untouched should not be blamed for it — but under this merge it IS still
+ * rejected, and that is the intended reading of "lint the result": a caller who
+ * edits an already-over-budget ask is asked to bring it into budget while they
+ * are in there. The escape is the same `acknowledgeFormWarnings` the create path
+ * offers, so the pre-existing-violation case has a one-flag answer rather than a
+ * carve-out nobody can see.
+ *
+ * Pure, so the merge semantics are testable without a repository.
+ */
+export function mergeEditForFormLint(
+  existing: Pick<Ask, "kind" | "question"> & { options?: FormLintOptionShape[] },
+  params: Pick<EditAskContentParams, "question"> & { options?: FormLintOptionShape[] }
+): { kind: AskKind; question: string; options?: FormLintOptionShape[] } {
+  return {
+    kind: existing.kind,
+    question: params.question ?? existing.question,
+    options: params.options ?? existing.options,
+  };
+}
+
+/**
+ * Run the create path's form-lint against what an `asks.edit` will actually
+ * persist (mt#3929) — closing the gap mt#3326 declared out of scope.
+ *
+ * Fetches the existing Ask to build the post-edit state (see
+ * `mergeEditForFormLint`), then delegates to the SAME
+ * `validateFormLintNotViolated` the create boundary uses, so the two surfaces
+ * cannot drift into different checks, different blocking subsets, or different
+ * override semantics. Only the surface name in the error text differs.
+ *
+ * Fail-open on a fetch failure, matching
+ * `validateEditOptionsAgainstExistingAsk` and this file's convention for
+ * resolution helpers: a transient DB blip must not block a repair to an ask
+ * that is already live.
+ */
+export async function validateEditFormLintAgainstExistingAsk(
+  repo: AskRepository | null,
+  resolvedId: string,
+  params: Pick<EditAskContentParams, "question" | "options"> & {
+    acknowledgeFormWarnings?: boolean;
+  }
+): Promise<void> {
+  // mt#3936: same reasoning as the create path — an edit can carry the
+  // artifact in exactly as a create can, and repairing a corrupted ask by
+  // writing MORE corrupted markup into it is the one outcome to prevent.
+  assertNoSerializedParameterArtifact(params.question, "asks.edit");
+  if (params.acknowledgeFormWarnings) return;
+  if (!repo) return; // fail-open — execute() surfaces its own clear error
+
+  let existing: Ask | null;
+  try {
+    existing = await repo.getById(resolvedId);
+  } catch (err: unknown) {
+    log.warn("asks.edit: could not fetch existing Ask to run form-lint (fail-open)", {
+      askId: resolvedId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return;
+  }
+  if (!existing) return; // not-found surfaces from execute()'s own lookup
+
+  const merged = mergeEditForFormLint(existing, params);
+  validateFormLintNotViolated({
+    kind: merged.kind,
+    question: merged.question,
+    options: merged.options,
+    // `forceImmediate` is not editable, so the existing value governs; reading
+    // it off the ask keeps a check that consults it (severity/transport shape)
+    // judging the real record rather than a default.
+    forceImmediate: existing.forceImmediate,
+    surface: "asks.edit",
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1936,7 +2174,15 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // mt#3326: reject a create whose question/options fail any form-lint
         // check, unless the caller explicitly acknowledges them. Runs last —
         // fixing form/wording is usually the last thing an author checks.
-        validateFormLintNotViolated(params);
+        //
+        // mt#2918 / PR #2755: the question is normalized to its PERSISTED form
+        // before it is linted, so `validate` and `execute` judge the same text.
+        // Without this a URL-reading check (`portal-no-link`) rejects a body
+        // whose only missing link the transform was about to add.
+        // `validateFormLintNotViolated` also normalizes internally, so a caller
+        // that forgets this is still correct; `linkifyExternalRefs` is
+        // idempotent, which is what makes applying it at both seams safe.
+        validateFormLintNotViolated(normalizeQuestionForLint(params));
       },
       execute: async (params, ctx: CommandExecutionContext): Promise<AsksCreateResult> => {
         const repo = await requireAskRepository(container, "asks.create");
@@ -2142,6 +2388,22 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             params.options as Array<{ label: string; value?: unknown }>
           );
         }
+
+        // mt#3929: form-lint the POST-EDIT body. mt#3326 made these checks
+        // consequential on `asks.create` and explicitly left the edit path
+        // alone — but the edit path is the repair route the corpus recommends
+        // for a rejected create (mem#760 rule 4), so every fix-up landed on
+        // the unenforced surface and a rewrite could restore a violation the
+        // create had just rejected (ask#7591, 2026-08-10).
+        if (editRequiresFormLintGuard(params)) {
+          const repo = await buildAskRepository(container);
+          const resolvedId = await resolveAskIdInput(params.id as string, container);
+          await validateEditFormLintAgainstExistingAsk(repo, resolvedId, {
+            question: params.question as string | undefined,
+            options: params.options as AskOption[] | undefined,
+            acknowledgeFormWarnings: params.acknowledgeFormWarnings as boolean | undefined,
+          });
+        }
       },
       execute: async (params): Promise<{ ask: Ask }> => {
         const repo = await requireAskRepository(container, "asks.edit");
@@ -2149,6 +2411,38 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         // mt#2696: resolve a short-prefix citation before it ever reaches a
         // Postgres `uuid` column comparison.
         const id = await resolveAskIdInput(params.id as string, container);
+
+        // mt#3929 (PR #2779 R1): re-run the form-lint here, adjacent to the
+        // write. The `validate` hook's copy reads a snapshot fetched a moment
+        // earlier, so a concurrent edit landing in between would persist a body
+        // nothing linted — the check would pass against state that no longer
+        // exists. Re-linting against a fresh read closes that window down to
+        // `editAskContent`'s own read-modify-write, which is as tight as this
+        // layer gets without a transaction; the validate-time copy stays because
+        // it is what gives a caller the rejection BEFORE any work is attempted.
+        if (editRequiresFormLintGuard(params)) {
+          await validateEditFormLintAgainstExistingAsk(repo, id, {
+            question: params.question as string | undefined,
+            options: params.options as AskOption[] | undefined,
+            acknowledgeFormWarnings: params.acknowledgeFormWarnings as boolean | undefined,
+          });
+        }
+
+        // Same window, same close, for the mt#3209 approve-options guard. The
+        // reviewer flagged only the form-lint one because that is what this PR
+        // added, but the defect is the shape — a validate-time read deciding a
+        // write that happens later — and this sibling has carried it since
+        // mt#3209. Stripping the last approve-shaped option from an
+        // authorization.approve Ask is a worse outcome to let through than an
+        // over-long label, so leaving it exposed while fixing its neighbour
+        // would be the wrong half to close.
+        if (editRequiresApproveOptionsGuard(params)) {
+          await validateEditOptionsAgainstExistingAsk(
+            repo,
+            id,
+            params.options as Array<{ label: string; value?: unknown }>
+          );
+        }
 
         return editAskContent(repo, {
           id,

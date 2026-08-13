@@ -13,6 +13,12 @@
  * Init-coalescing: concurrent callers await the same initialization promise.
  * Failure-reset: if initialize() rejects, the promise is cleared so retries work.
  */
+import {
+  classifyConnectionFailure,
+  nextRecycleIntervalMs,
+  type ConnectionFailure,
+} from "@minsky/domain/persistence/connection-failure";
+import type { PersistenceHealthMode } from "@minsky/domain/persistence/health";
 import type { PersistenceService } from "@minsky/domain/persistence/service";
 import type {
   PersistenceProvider,
@@ -191,6 +197,121 @@ export function getDbCheck(): DbCheck {
   return { ..._dbCheck };
 }
 
+// ---------------------------------------------------------------------------
+// Failure classification (mt#3826)
+//
+// `DbStatus` says the DB is unusable; it has never said WHY. That is the whole
+// gap: a half-open pool wedge and a network that refuses the port produce the
+// identical `degraded`, so the recycle remedy is applied to both and helps only
+// one. These two values carry the missing kind and how long it has persisted.
+// ---------------------------------------------------------------------------
+
+/** Classification of the most recent failure in the CURRENT degraded run. */
+let _lastFailure: ConnectionFailure | null = null;
+
+/** Recycles attempted in the current degraded run; resets on probe success. */
+let _consecutiveRecycles = 0;
+
+/** ISO timestamp of the last connection ATTEMPT, per ADR-035 rule 4. */
+let _lastInitAttemptAt: string | null = null;
+
+/**
+ * The cockpit persistence layer's liveness payload, in ADR-035 rule 4's shape.
+ *
+ * Rule 4 requires a subsystem with a network-dependent initializer to expose
+ * `mode` / `reason` / `lastAttemptAt` on its liveness surface, and rule 3
+ * requires "configured but failing" to stay distinguishable from "not
+ * configured". This reuses `PersistenceHealthMode` rather than declaring a
+ * fourth vocabulary for the same three states — the convergence rule 4 asks
+ * for. `failure` is the addition: the discriminated form of `reason`, so a
+ * consumer branches on a value instead of parsing prose.
+ */
+export interface DbHealth {
+  mode: PersistenceHealthMode;
+  reason?: string;
+  lastAttemptAt?: string;
+  /**
+   * The classification, WITHOUT the driver's raw message (PR #2732 R1).
+   *
+   * `ConnectionFailure.message` is the driver's own text, which for a
+   * postgres-js connection error embeds `host:port` and for a server-side
+   * `PostgresError` is arbitrary server-controlled text. `/api/health` is
+   * polled by the tray and by three webview query keys, so it is the wrong
+   * place to forward text this process did not author. `kind` and `code` are
+   * the parts a consumer branches on, `reason` is prose this module wrote, and
+   * the full message is still logged where an operator debugging the daemon
+   * will find it.
+   */
+  failure?: Omit<ConnectionFailure, "message">;
+}
+
+/**
+ * Read-only liveness payload. Does not probe; safe on every health request.
+ *
+ * `unconfigured` is deliberately never returned here: this module is only
+ * reached once the cockpit has decided to use Postgres, so "no connection
+ * configured" is not one of its reachable states. The distinction rule 3 cares
+ * about is made upstream by `assessPersistenceHealth`.
+ */
+export function getDbHealth(): DbHealth {
+  const mode: PersistenceHealthMode = _dbStatus === "ok" ? "connected" : "unavailable";
+  return {
+    mode,
+    ...(_lastFailure
+      ? {
+          // Project explicitly rather than spreading — a spread would silently
+          // start re-exposing `message` if the shared type ever grows a field.
+          failure: { kind: _lastFailure.kind, code: _lastFailure.code },
+          reason: describeFailure(_lastFailure),
+        }
+      : {}),
+    ...(_lastInitAttemptAt ? { lastAttemptAt: _lastInitAttemptAt } : {}),
+  };
+}
+
+/** Operator-facing prose for a classified failure. */
+function describeFailure(failure: ConnectionFailure): string {
+  switch (failure.kind) {
+    case "connect-timeout":
+      return (
+        "Nothing answered on the database port before the connect deadline. " +
+        "This is what an outbound-port block on the current network looks like; " +
+        "it is also what a saturated server looks like."
+      );
+    case "refused":
+      return "The host is reachable but actively refused the connection on this port.";
+    case "dns":
+      return "The database hostname did not resolve.";
+    case "auth":
+      return "The server answered and rejected the credentials or database name.";
+    case "circuit-breaker":
+      return "The connection pooler's breaker is open; it is refusing new connections upstream.";
+    case "connection-lost":
+      return "An established connection went away. A pool recycle is the remedy for this one.";
+    case "unknown":
+      return `Unclassified connection failure${failure.code ? ` (${failure.code})` : ""}.`;
+  }
+}
+
+/**
+ * Record a failure observation, classifying it by the driver's error code.
+ *
+ * **A weaker classification never overwrites a stronger one within the same
+ * degraded run.** This is load-bearing, not defensive coding: the probe's own
+ * 5 s deadline (`DB_REACHABILITY_PROBE_TIMEOUT_MS`) fires BEFORE postgres-js's
+ * 10 s `connect_timeout`, so on a blocked port the first error this module sees
+ * is our own deadline `Error` — which carries no `code` and classifies as
+ * `unknown`. The driver's real `CONNECT_TIMEOUT` arrives ~5 s later on the
+ * late-rejection path. Letting a subsequent `unknown` clobber that would throw
+ * away the one signal the whole task exists to capture.
+ */
+function noteFailure(err: unknown): void {
+  const classified = classifyConnectionFailure(err);
+  if (classified.kind !== "unknown" || _lastFailure === null) {
+    _lastFailure = classified;
+  }
+}
+
 /** The query the probe runs. Injectable so tests need no database. */
 export type DbReachabilityProbe = () => Promise<unknown>;
 
@@ -273,9 +394,11 @@ export async function refreshDbReachability(
     _dbStatus = _instance ? "degraded" : "unreachable";
     _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
     _lastProbeFinishedAtMs = Date.now();
+    noteFailure(err);
     noteDegradedObservation();
     log.warn("[shared-persistence] DB reachability probe failed to start", {
       message: err instanceof Error ? err.message : String(err),
+      failureKind: _lastFailure?.kind,
     });
     return _dbStatus;
   }
@@ -298,9 +421,17 @@ export async function refreshDbReachability(
     // carries. Logged only in the post-deadline case; a pre-deadline rejection
     // is already reported by the catch block, and logging both would double up.
     if (!raceSettled) return;
+    // mt#3826: this late error is the ONLY place the driver's real code is
+    // visible on a blocked port — our 5s probe deadline fires before
+    // postgres-js's 10s connect_timeout, so the race below only ever sees our
+    // own code-less deadline Error. Classifying here is what turns "degraded"
+    // into "CONNECT_TIMEOUT", and it is why noteFailure refuses to let a later
+    // `unknown` overwrite it.
+    noteFailure(err);
     log.warn("[shared-persistence] DB reachability probe rejected after its deadline", {
       message: err instanceof Error ? err.message : String(err),
       cause: err instanceof Error && err.cause !== undefined ? String(err.cause) : undefined,
+      failureKind: _lastFailure?.kind,
     });
   });
 
@@ -320,10 +451,12 @@ export async function refreshDbReachability(
   } catch (err) {
     _dbStatus = _instance ? "degraded" : "unreachable";
     _dbCheck = { ..._dbCheck, checkedAt: new Date().toISOString() };
+    noteFailure(err);
     noteDegradedObservation();
     log.warn("[shared-persistence] DB unreachable from this daemon", {
       message: err instanceof Error ? err.message : String(err),
       status: _dbStatus,
+      failureKind: _lastFailure?.kind,
     });
   } finally {
     if (timer) clearTimeout(timer);
@@ -392,6 +525,96 @@ let _epoch = 0;
 /** Current persistence generation. Cheap; safe to call on every cache read. */
 export function getPersistenceEpoch(): number {
   return _epoch;
+}
+
+/**
+ * Wrap an async resolver so its result is cached only for as long as the
+ * persistence generation it was resolved under is still current (mt#3721).
+ *
+ * This is the primitive that makes the epoch contract above hold by
+ * CONSTRUCTION rather than by each consumer remembering to check. Before
+ * mt#3721, `getPersistenceEpoch` had exactly two callers — `db-providers.ts`
+ * and `widgets/agents.ts` — while eight other module-level caches held
+ * provider-derived handles with no epoch check at all. A recycle
+ * (`recycleSharedPersistence`) restored the pool and those eight stayed pinned
+ * to the ENDED one, which postgres-js rejects forever (`CONNECTION_ENDED` is
+ * raised whenever the `Sql` instance's `ending` flag is set, and nothing
+ * clears it). Observed 2026-08-05: `/api/health` reported `db: "ok"` at 152ms
+ * while five widget endpoints served placeholders eight minutes after a
+ * successful recycle.
+ *
+ * Lives here rather than in `db-providers.ts` because it is a pure epoch
+ * utility that knows nothing about persistence SHAPES — the epoch's owner is
+ * the right home, and it keeps consumers from importing db-providers' much
+ * heavier graph just to wrap a cache. `db-providers.ts` keeps its specialized
+ * `createCachedSqlDbGetter` (which additionally owns negative caching and the
+ * mt#3254 test-environment guard); this is the general-purpose sibling.
+ *
+ * **Successes only.** A `null`/`undefined` result is returned but NOT cached,
+ * so the next call retries. Every site migrated in mt#3721 already behaved
+ * this way (`if (_cached) return _cached;` — a failure threw or returned null
+ * and was never stored), so this preserves their behavior exactly rather than
+ * silently introducing negative caching. A resolver that THROWS likewise
+ * caches nothing.
+ *
+ * @param resolve Builds the value. Called again after any epoch move.
+ * @param options.getEpoch Test seam: override the epoch read. Production
+ *   callers never set this.
+ */
+export function createEpochKeyedCache<T>(
+  resolve: () => Promise<T>,
+  options?: { getEpoch?: () => number }
+): () => Promise<T> {
+  const getEpoch = options?.getEpoch ?? getPersistenceEpoch;
+  let cached: T | null = null;
+  let cachedAtEpoch = -1;
+  let inflight: Promise<T> | null = null;
+
+  async function build(): Promise<T> {
+    // Rebuild until the epoch is STABLE ACROSS CONSTRUCTION — the discipline
+    // PR #2586 R1 added by hand to `widgets/agents.ts`, generalized here so
+    // every consumer inherits it. Checking the epoch only on entry is not
+    // enough: a recycle landing DURING `resolve()` yields a value already
+    // wrapping the torn-down pool, and caching it reintroduces exactly the
+    // latch this helper exists to remove. Bounded in practice — the epoch moves
+    // at most once per `RECYCLE_MIN_INTERVAL_MS`, so a second pass is already
+    // rare and a third essentially impossible.
+    for (;;) {
+      const epochAtBuild = getEpoch();
+      const value = await resolve();
+      if (getEpoch() !== epochAtBuild) continue;
+      if (value !== null && value !== undefined) {
+        cached = value;
+        cachedAtEpoch = epochAtBuild;
+      }
+      return value;
+    }
+  }
+
+  return async function getEpochKeyedValue(): Promise<T> {
+    if (cached !== null && cachedAtEpoch === getEpoch()) return cached;
+
+    // Single-flight (PR #2663 R1): concurrent callers arriving on a cold or
+    // just-invalidated cache share ONE build. Without this, N simultaneous
+    // callers each run `resolve()` and each publishes its own instance, so a
+    // single epoch can yield several distinct "the" values — and for a resolver
+    // that opens a connection (the SSE broker's LISTEN socket, a pool handle)
+    // every loser is a live resource nothing subsequently closes. This is the
+    // same hazard mt#2699 fixed by hand in `routes/events.ts`; since the point
+    // of this helper is that consumers inherit the discipline instead of
+    // re-deriving it, it belongs here.
+    if (inflight) return inflight;
+
+    inflight = build();
+    try {
+      return await inflight;
+    } finally {
+      // Cleared on settle, success or failure: a failed build must not pin
+      // every later caller to the same rejected promise, and a successful one
+      // is already served by the `cached` short-circuit above.
+      inflight = null;
+    }
+  };
 }
 
 /** Recycle telemetry for /api/health (`dbRecycle`), sibling of getDbCheck. */
@@ -474,6 +697,11 @@ export function shouldRecycleNow(input: {
 /** Probe success: close the degraded run so the duration clock starts fresh. */
 function noteProbeSuccess(): void {
   _degradedRunSinceMs = null;
+  // mt#3826: the backoff exists to stop pointless recycling, so any success
+  // must return the cadence to its floor — otherwise an operator who rejoins a
+  // working network stays on a 15-minute interval for the rest of the process.
+  _consecutiveRecycles = 0;
+  _lastFailure = null;
 }
 
 /**
@@ -483,6 +711,17 @@ function noteProbeSuccess(): void {
 function noteDegradedObservation(): void {
   const nowMs = Date.now();
   if (_degradedRunSinceMs === null) _degradedRunSinceMs = nowMs;
+  // mt#3826: the recycle floor is no longer a constant. For a failure a fresh
+  // pool cannot fix — a blocked port, a refused port, dead DNS, bad credentials
+  // — the floor grows once recycling has demonstrably not helped, so the
+  // ~500-recycles-in-9-hours shape of the 2026-08-07 incident cannot recur.
+  // Every other kind, including the pool wedge this recycle was built for,
+  // keeps the flat floor.
+  const minIntervalMs = nextRecycleIntervalMs({
+    failure: _lastFailure,
+    consecutiveRecycles: _consecutiveRecycles,
+    baseIntervalMs: _recycleMinIntervalMs,
+  });
   const eligible = shouldRecycleNow({
     nowMs,
     degradedSinceMs: _degradedRunSinceMs,
@@ -492,11 +731,14 @@ function noteDegradedObservation(): void {
     // a recycle would be a no-op that still burned the rate-limit window.
     hasService: _instance !== null || _initPromise !== null,
     afterDegradedMs: _recycleAfterDegradedMs,
-    minIntervalMs: _recycleMinIntervalMs,
+    minIntervalMs,
   });
   if (!eligible) return;
+  _consecutiveRecycles++;
   recycleSharedPersistence(
-    `db degraded continuously for ${Math.round((nowMs - _degradedRunSinceMs) / 1000)}s`
+    `db degraded continuously for ${Math.round((nowMs - _degradedRunSinceMs) / 1000)}s` +
+      ` (failure: ${_lastFailure?.kind ?? "unclassified"}, recycle ${_consecutiveRecycles}` +
+      ` of this run, next no sooner than ${Math.round(minIntervalMs / 1000)}s)`
   );
 }
 
@@ -605,6 +847,10 @@ export async function getSharedPersistenceService(
 
   _initPromise = (async () => {
     const startedAt = Date.now();
+    // ADR-035 rule 4: stamp the ATTEMPT, not the outcome. An operator seeing
+    // `unavailable` needs to know whether anything has been tried since boot —
+    // a stuck process and a real outage otherwise render identically.
+    _lastInitAttemptAt = new Date().toISOString();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timeoutHandle = setTimeout(
@@ -624,6 +870,11 @@ export async function getSharedPersistenceService(
       const svc = await Promise.race([init, timeout]);
       _instance = svc;
       _dbStatus = "ok"; // gh#1761: mark DB healthy on successful init
+      // mt#3826: a successful init is as much a recovery signal as a
+      // successful probe, and it does NOT pass through noteProbeSuccess — so
+      // clear the classification here too, or a stale `connect-timeout` would
+      // keep the cadence escalated on a connection that is now working.
+      noteProbeSuccess();
       return svc;
     } catch (err) {
       // Clear the cached promise so the NEXT caller retries with fresh state,
@@ -631,6 +882,11 @@ export async function getSharedPersistenceService(
       // would wedge every subsequent caller forever (mt#2244).
       _initPromise = null;
       _dbStatus = "degraded"; // gh#1761: mark DB degraded on any init failure
+      // mt#3826: init is where the driver's connect error surfaces FIRST and
+      // most directly — before any probe deadline can mask it behind a
+      // code-less Error. Classifying here is what makes a blocked port legible
+      // on the very first attempt rather than only via the late-rejection path.
+      noteFailure(err);
       if (err instanceof PersistenceInitTimeoutError) {
         log.warn(
           `[shared-persistence] PersistenceService init timed out after ` +
@@ -755,4 +1011,9 @@ export function __resetSharedPersistenceForTests(): void {
   _recycleCount = 0;
   _recycleAfterDegradedMs = RECYCLE_AFTER_DEGRADED_MS;
   _recycleMinIntervalMs = RECYCLE_MIN_INTERVAL_MS;
+  // mt#3826: classification state is module-level too — a leftover
+  // `connect-timeout` would leave the next test's cadence already escalated.
+  _lastFailure = null;
+  _consecutiveRecycles = 0;
+  _lastInitAttemptAt = null;
 }

@@ -112,3 +112,27 @@ export function turnSeparator(
 
   return null;
 }
+
+/**
+ * A DATED range, for a reader with no other context (mt#4024).
+ *
+ * The cockpit's own thread deliberately shows bare clock times per turn and
+ * puts the day on a separator, which works because the operator arrived from a
+ * list that already told them which run this is. Two surfaces have no such
+ * approach and need the day inline: the published share page (the reader
+ * clicked a URL out of a message) and the publish confirmation (the operator is
+ * being asked to authorize exposure of a specific conversation, and "16:00:00"
+ * does not identify one). Shared so those two cannot drift.
+ */
+export function formatDatedRange(
+  first: string | undefined,
+  last: string | undefined
+): string | null {
+  if (!first) return null;
+  const day = formatLocalDay(first);
+  const start = formatLocalTime(first);
+  if (!last || last === first) return `${day}, ${start}`;
+  return isDifferentLocalDay(first, last)
+    ? `${day}, ${start} – ${formatLocalDay(last)}, ${formatLocalTime(last)}`
+    : `${day}, ${start} – ${formatLocalTime(last)}`;
+}

@@ -52,6 +52,7 @@ import {
   isToolOnlyWorkChain,
   findTurnBoundaryTimestamps,
   buildTurnAnchor,
+  computeStalenessMinutes,
   GAP_MINUTES_THRESHOLD,
   TOOL_CALL_THRESHOLD,
   INJECTION_ENABLED,
@@ -390,6 +391,9 @@ const HOOK_EVENT_NAME = "UserPromptSubmit";
 /** Closing prompt used by the stretch fixtures below. */
 const STRETCH_CLOSING_PROMPT = "why has nothing happened?";
 
+/** Closing prompt for the short-chain fixtures that must NOT cross a threshold. */
+const NEXT_INSTRUCTION_PROMPT = "next instruction";
+
 const HOOK_INPUT: ClaudeHookInput = {
   session_id: "test-session",
   transcript_path: "/mock/transcript.jsonl",
@@ -485,7 +489,7 @@ describe("run() (dispatcher-compatible)", () => {
     const transcriptLines = [
       userPromptLine(0),
       ...toolCallChain(1, 5),
-      userPromptLine(1 + 5 * 5 + 10, "next instruction"),
+      userPromptLine(1 + 5 * 5 + 10, NEXT_INSTRUCTION_PROMPT),
     ];
     expect(run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps())).toBeNull();
   });
@@ -498,7 +502,7 @@ describe("run() (dispatcher-compatible)", () => {
     const transcriptLines = [
       userPromptLine(0),
       ...toolCallChain(1, 5),
-      userPromptLine(1 + 5 * 5 + 10, "next instruction"),
+      userPromptLine(1 + 5 * 5 + 10, NEXT_INSTRUCTION_PROMPT),
     ];
 
     expect(run(HOOK_INPUT, makeCtx(transcriptLines), deps)).toBeNull();
@@ -739,7 +743,11 @@ describe("buildTurnAnchor", () => {
 
   test("the SAME turn (identical boundaries) always produces the SAME anchor", () => {
     const boundaries = { turnStartTimestamp: ts(0), turnEndTimestamp: ts(50) };
-    expect(buildTurnAnchor(boundaries)).toBe(buildTurnAnchor({ ...boundaries }));
+    // Same-value comparison, but the spread-arg call types as `string |
+    // undefined`; prove it present before comparing (mt#2900).
+    const fromCopy = buildTurnAnchor({ ...boundaries });
+    expect(fromCopy).toBeDefined();
+    expect(buildTurnAnchor(boundaries)).toBe(fromCopy as string);
   });
 });
 
@@ -966,5 +974,166 @@ describe("mt#3003 acceptance tests", () => {
     // old bug of measuring to the NEXT prompt instead).
     expect(gap).toBeGreaterThanOrEqual(39);
     expect(gap).toBeLessThan(41);
+  });
+});
+
+describe("mt#4018 — staleness of the record relative to the turn it measures", () => {
+  // AT1. Exactness lives here rather than in a run() test on purpose: run()
+  // reads the real clock for `firedAt`, so a run()-level assertion can only
+  // bound the value, never pin it. The pure function is where the arithmetic
+  // is actually checkable.
+  test("AT1: staleness is the minutes from the turn's END to the fire", () => {
+    const turnEnd = "2026-08-10T18:29:15.000Z";
+    const firedNinetyMinutesLater = "2026-08-10T19:59:15.000Z";
+    expect(computeStalenessMinutes(turnEnd, firedNinetyMinutesLater)).toBe(90);
+  });
+
+  test("AT1: the ~28h record from the originating window reproduces its delta", () => {
+    // Verbatim from .minsky/silent-stretch-calibration.jsonl — the record that
+    // opened mt#4018. turnAnchor's end component and the record's timestamp.
+    const staleness = computeStalenessMinutes(
+      "2026-08-10T18:29:15.049Z",
+      "2026-08-11T22:48:50.361Z"
+    );
+    expect(staleness).toBeGreaterThan(28 * 60);
+    expect(staleness).toBeLessThan(29 * 60);
+  });
+
+  test("an unknown turn end yields undefined, never a zero that reads as fresh", () => {
+    expect(computeStalenessMinutes(undefined, "2026-08-10T18:29:15.000Z")).toBeUndefined();
+    expect(computeStalenessMinutes("not-a-timestamp", "2026-08-10T18:29:15.000Z")).toBeUndefined();
+  });
+
+  // PR #2903 R1. The original guarded the turn-end timestamp and delegated
+  // `firedAt` to computeGapMinutes, which returns 0 for an unparsable input —
+  // so a malformed fire time produced `0`, i.e. "delivered instantly", the
+  // exact misleading value the undefined contract exists to prevent. Same
+  // class as the turn-end check directly above; one side had it, one didn't.
+  test("an unparsable firedAt yields undefined, not a 0 that reads as fresh", () => {
+    expect(computeStalenessMinutes("2026-08-10T18:29:15.000Z", "not-a-timestamp")).toBeUndefined();
+    expect(computeStalenessMinutes("2026-08-10T18:29:15.000Z", "")).toBeUndefined();
+  });
+
+  test("a fire BEFORE the turn end clamps to 0 rather than going negative", () => {
+    // computeGapMinutes already clamps; asserted here because a negative
+    // staleness would corrupt any distribution computed over the corpus.
+    expect(computeStalenessMinutes("2026-08-10T19:00:00.000Z", "2026-08-10T18:00:00.000Z")).toBe(0);
+  });
+
+  // AT2. The distribution is a property of when the guard RUNS, not of whether
+  // it fired, so a fire-only sample would be biased by construction.
+  test("AT2: a NON-firing evaluation still carries stalenessMinutes", () => {
+    const { deps, records } = capturingDeps();
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 5),
+      userPromptLine(1 + 5 * 5 + 10, NEXT_INSTRUCTION_PROMPT),
+    ];
+
+    expect(run(HOOK_INPUT, makeCtx(transcriptLines), deps)).toBeNull();
+    expect(records).toHaveLength(1);
+    expect(records[0]?.fired).toBe(false);
+    expect(typeof records[0]?.stalenessMinutes).toBe("number");
+  });
+
+  test("a FIRING turn carries stalenessMinutes on both the evaluation and the calibration record", () => {
+    const { deps, records } = capturingDeps();
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+
+    const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), deps);
+    expect(typeof outcome?.calibration?.stalenessMinutes).toBe("number");
+    expect(typeof records[0]?.stalenessMinutes).toBe("number");
+    // Both rows describe ONE firing, so they must agree exactly — a per-record
+    // clock read would let them drift by however long the dedupe reads took.
+    expect(outcome?.calibration?.stalenessMinutes).toBe(records[0]?.stalenessMinutes);
+    expect(outcome?.calibration?.timestamp).toBe(records[0]?.timestamp);
+  });
+
+  // PR #2903 R1: the missing-session_id skip path was correct but unobserved.
+  // Without the skip, `sessionHasLoggedKey` cannot key a record it has no
+  // session for, so it always reports "not logged" and the evaluation stream
+  // appends on EVERY run with no upper bound.
+  test("no session_id -> no evaluation record is appended at all", () => {
+    const { deps, records } = capturingDeps();
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+    const inputWithoutSession = { ...HOOK_INPUT, session_id: "" };
+
+    // Runs twice: an unbounded-append bug shows up as growth, not as a first
+    // bad record, so a single call could not distinguish the two.
+    run(inputWithoutSession, makeCtx(transcriptLines), deps);
+    run(inputWithoutSession, makeCtx(transcriptLines), deps);
+    expect(records).toHaveLength(0);
+  });
+
+  // AT3 — the scope boundary. This task measures; it must not change delivery.
+  // Suppressing a stale advisory is mt#4027, gated on an operator decision per
+  // ADR-031's principal-facing axis. This fixture's turn is from 2026-07-15, so
+  // its staleness is enormous by construction — and the advisory must STILL
+  // fire. If this test ever fails, the change has crossed into mt#4027.
+  test("AT3: a very stale turn still emits its advisory — delivery is unchanged", () => {
+    const transcriptLines = [
+      userPromptLine(0),
+      ...toolCallChain(1, 20, STRETCH_SPACING),
+      userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+    ];
+    const outcome = run(HOOK_INPUT, makeCtx(transcriptLines), noDedupeDeps());
+
+    expect(outcome?.calibration?.stalenessMinutes).toBeGreaterThan(60);
+    expect(outcome?.additionalContext).toBeTruthy();
+    expect(outcome?.additionalContext).toContain("silent-stretch-detector");
+  });
+
+  // AT4. The two shapes a large delta can have must not be conflated: a turn
+  // that RAN for hours is a different phenomenon from one that ENDED hours ago.
+  // The anchor carries both bounds, so the turn's own duration is derivable
+  // from the record without a second field — this test is what makes that
+  // claim checkable rather than asserted in a comment.
+  test("AT4: a long-RUNNING turn is distinguishable from a long-ABSENCE turn", () => {
+    const durationMinutes = (anchor: string): number => {
+      const [start, end] = anchor.split("::");
+      return (Date.parse(end as string) - Date.parse(start as string)) / 60000;
+    };
+
+    // Long-running: 20 calls spread 30s apart — the turn itself spans ~10 min.
+    const longRunning = run(
+      HOOK_INPUT,
+      makeCtx([
+        userPromptLine(0),
+        ...toolCallChain(1, 20, STRETCH_SPACING),
+        userPromptLine(1 + 20 * STRETCH_SPACING + 30, STRETCH_CLOSING_PROMPT),
+      ]),
+      noDedupeDeps()
+    );
+
+    // Short-but-crossing: 31 calls 2s apart clears the hard 30-call arm while
+    // the turn itself spans ~1 min. Same guard, opposite shape.
+    const shortBurst = run(
+      HOOK_INPUT,
+      makeCtx([
+        userPromptLine(0),
+        ...toolCallChain(1, 31, 2),
+        userPromptLine(1 + 31 * 2 + 10, STRETCH_CLOSING_PROMPT),
+      ]),
+      noDedupeDeps()
+    );
+
+    const longAnchor = longRunning?.calibration?.turnAnchor as string;
+    const shortAnchor = shortBurst?.calibration?.turnAnchor as string;
+    expect(longAnchor).toBeTruthy();
+    expect(shortAnchor).toBeTruthy();
+
+    // Both carry staleness; the DURATION is what tells the two shapes apart.
+    expect(typeof longRunning?.calibration?.stalenessMinutes).toBe("number");
+    expect(typeof shortBurst?.calibration?.stalenessMinutes).toBe("number");
+    expect(durationMinutes(longAnchor)).toBeGreaterThan(5);
+    expect(durationMinutes(shortAnchor)).toBeLessThan(3);
   });
 });

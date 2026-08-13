@@ -19,8 +19,32 @@
  * DO share keys with CommandPalette because their shapes are compatible
  * (both extract only ids from the WidgetData wrapper).
  *
+ * FRESHNESS (mt#3732): every query below sets `refetchInterval`, not just
+ * `staleTime`. Linkification is id-set gated — `resolveEntityId` returns null for
+ * an id the index doesn't hold, and the ref renders as plain text — so an id-set
+ * that never revalidates makes every entity created AFTER mount permanently
+ * unlinkable in that view. `staleTime` alone does not revalidate anything: it only
+ * says how long cached data counts as fresh, and the three triggers that would
+ * refetch a stale query (query mount, window refocus, network reconnect) never fire
+ * on a long-mounted page whose app disables `refetchOnWindowFocus` (`main.tsx`).
+ * Measured before the fix: `/api/tasks/ids` fired exactly once over ~4 minutes on a
+ * live page whose sibling widget queries polled throughout.
+ *
+ * The driven-session view is the surface that made this visible, because it is the
+ * one where an agent mints ids in front of the operator and then references them
+ * seconds later.
+ *
+ * Cadence: 60s, matching the two existing hooks over the same data class —
+ * `useReadyCount` and `useTaskBacklogCounts`, both `staleTime: 30s` /
+ * `refetchInterval: 60s` ("breath-clock"). This is the baseline layer mt#1148
+ * ("polling v0 with SSE migration adapter") assumes; `sse-client.ts` can later
+ * invalidate these keys for faster-than-polling freshness without changing this.
+ * `refetchIntervalInBackground` is deliberately left at its `false` default, so a
+ * hidden tab stops polling.
+ *
  * @see entity-linkifier.tsx — the tokenizer + rehype plugin that consume the index
  * @see mt#2518 — original linkifier; mt#2550 — Markdown rendering that reuses this
+ * @see mt#3732 — the mount-time-snapshot bug the refetchIntervals below fix
  */
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
@@ -29,6 +53,14 @@ import type { RoutableEntityType } from "./entity-codec";
 import { fetchWidgetData, type WidgetData } from "./widget-client";
 import type { ChangesetsListResponse } from "../widgets/Changesets";
 import { extractConversationRows } from "./conversations-source";
+
+/**
+ * Revalidation cadence for every id-set query `useEntityIndex` composes — the
+ * "breath-clock" 60s this codebase already uses for task-shaped data
+ * (`useReadyCount`, `useTaskBacklogCounts`). See the module header for why an
+ * interval is required at all and why 60s rather than a fresh number.
+ */
+const ENTITY_INDEX_REFETCH_MS = 60_000;
 
 /**
  * Fetch ALL task ids from the uncapped /api/tasks/ids endpoint (mt#2518 R5).
@@ -71,21 +103,29 @@ function extractAgentSessionShortIds(data: WidgetData | undefined): ShortIdAlias
     .map((a) => ({ shortId: a.shortId as string, id: a.sessionId }));
 }
 
-function extractAskIds(data: WidgetData | undefined): string[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { cohort?: { id: string }[] };
-  if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort.map((a) => a.id);
-}
-
-/** `ask#N` → uuid aliases from the same attention payload (mt#3259). */
-function extractAskShortIds(data: WidgetData | undefined): ShortIdAlias[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { cohort?: { id: string; shortId?: string | null }[] };
-  if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort
-    .filter((a) => Boolean(a.shortId))
-    .map((a) => ({ shortId: a.shortId as string, id: a.id }));
+/**
+ * `ask#N` → uuid aliases (mt#3259, re-sourced mt#4095).
+ *
+ * Fetched from the uncapped, state-agnostic `/api/asks/ids` rather than read
+ * out of the attention widget's payload. That payload is the RADIATOR feed —
+ * pending operator asks in the active service window — so an `ask#N` written in
+ * a memory, a task spec or a transcript linkified while its ask was open and
+ * silently stopped resolving the moment it closed. Nothing errored; the ref
+ * just quietly became plain text, which is why it went unnoticed.
+ *
+ * Fails open to `[]`, matching every other channel here: an asks-endpoint
+ * hiccup must not break linkification for the other entity types.
+ */
+async function fetchAskShortIds(): Promise<ShortIdAlias[]> {
+  try {
+    const res = await fetch("/api/asks/ids");
+    if (!res.ok) return [];
+    const data = (await res.json()) as { ids?: { shortId: string; id: string }[] };
+    if (!Array.isArray(data?.ids)) return [];
+    return data.ids.filter((r) => Boolean(r?.shortId) && Boolean(r?.id));
+  } catch {
+    return [];
+  }
 }
 
 function extractMemoryIds(data: WidgetData | undefined): string[] {
@@ -217,22 +257,35 @@ function labelsFromChangesetEntries(
 export function useEntityLabels(): EntityLabelIndex {
   const [agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ] = useQueries({
     queries: [
-      { queryKey: ["agents"], queryFn: () => fetchWidgetData("agents"), staleTime: 30_000 },
-      { queryKey: ["attention"], queryFn: () => fetchWidgetData("attention"), staleTime: 30_000 },
+      {
+        queryKey: ["agents"],
+        queryFn: () => fetchWidgetData("agents"),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        queryKey: ["attention"],
+        queryFn: () => fetchWidgetData("attention"),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
       {
         queryKey: ["widget", "memories-list", "", "", true],
         queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["entity-index", "changesets"],
         queryFn: fetchChangesetEntries,
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["context-inspector", "sessions"],
         queryFn: () => fetchWidgetData("context-inspector"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
     ],
   });
@@ -341,11 +394,16 @@ export function useTaskLabel(id: string | undefined): EntityLabelInfo | null {
 }
 
 /**
- * Resolve `{label, status}` for ANY of the six entity types — the single
- * entry point `<EntityRef>` uses. Dispatches to the batched task channel for
+ * Resolve `{label, status}` for ANY routable entity type — the single entry
+ * point `<EntityRef>` uses. Dispatches to the batched task channel for
  * `type: "task"`; every other type resolves from the free client-side
  * extraction in `useEntityLabels`. Both underlying hooks are called
  * unconditionally (rules-of-hooks) regardless of `type`.
+ *
+ * A type with no label channel resolves to `null`, which is the correct
+ * answer rather than a gap: `interceptor` (mt#4010) is keyed by `guardName`,
+ * and that id is already the human-readable label, so there is nothing to
+ * look up.
  */
 export function useResolvedEntityLabel(
   type: RoutableEntityType,
@@ -361,7 +419,7 @@ export function useResolvedEntityLabel(
  * Returns an always-present EntityIndex (may be empty on load or error).
  */
 export function useEntityIndex(): EntityIndex {
-  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ] = useQueries({
+  const [tasksQ, agentsQ, memoriesQ, changesetsQ, conversationsQ, askIdsQ] = useQueries({
     queries: [
       {
         // Distinct key from CommandPalette's "command-palette-tasks" — different shape
@@ -371,21 +429,24 @@ export function useEntityIndex(): EntityIndex {
         queryKey: ["entity-index", "tasks"],
         queryFn: fetchAllTaskIds,
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         queryKey: ["agents"],
         queryFn: () => fetchWidgetData("agents"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
-      {
-        queryKey: ["attention"],
-        queryFn: () => fetchWidgetData("attention"),
-        staleTime: 30_000,
-      },
+      // The ["attention"] widget query used to live here, feeding the ask
+      // id-set and alias map. Both moved to /api/asks/ids (mt#4095), which is
+      // state-agnostic, so this hook no longer reads the radiator cohort at
+      // all — and subscribing to a query it never reads would only re-render
+      // it every refetch.
       {
         queryKey: ["widget", "memories-list", "", "", true],
         queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         // Distinct key from ChangesetsPage's ["changesets"] — different shape
@@ -397,6 +458,7 @@ export function useEntityIndex(): EntityIndex {
         queryKey: ["entity-index", "changesets"],
         queryFn: fetchChangesetEntries,
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
       {
         // Shared key with ConversationPage's ["context-inspector", "sessions"]
@@ -407,16 +469,32 @@ export function useEntityIndex(): EntityIndex {
         queryKey: ["context-inspector", "sessions"],
         queryFn: () => fetchWidgetData("context-inspector"),
         staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        // The ask id channel (mt#4095). Distinct key from ["attention"] — that
+        // one is the radiator widget's payload and carries pending asks only.
+        queryKey: ["entity-index", "ask-ids"],
+        queryFn: fetchAskShortIds,
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
       },
     ],
   });
+
+  // One fetch answers BOTH ask channels (mt#4095). `askIds` gates a bare uuid
+  // in prose and `askShortIds` gates an `ask#N`; both were read out of the
+  // pending-only attention cohort, so both stopped resolving when an ask
+  // closed. Fixing only the short-id half would have left the same defect
+  // behind under a different ref shape.
+  const askAliases = (askIdsQ.data as ShortIdAlias[] | undefined) ?? [];
 
   return useMemo(
     () =>
       buildEntityIndex({
         taskIds: (tasksQ.data as string[] | undefined) ?? [],
         sessionIds: extractAgentSessionIds(agentsQ.data as WidgetData | undefined),
-        askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
+        askIds: askAliases.map((a) => a.id),
         memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),
         changesetIds: (
           (changesetsQ.data as { id: string; title: string | null; state: string }[] | undefined) ??
@@ -424,16 +502,18 @@ export function useEntityIndex(): EntityIndex {
         ).map((c) => c.id),
         conversationIds: extractConversationIds(conversationsQ.data as WidgetData | undefined),
         memoryShortIds: extractMemoryShortIds(memoriesQ.data as WidgetData | undefined),
-        askShortIds: extractAskShortIds(attentionQ.data as WidgetData | undefined),
+        askShortIds: askAliases,
         sessionShortIds: extractAgentSessionShortIds(agentsQ.data as WidgetData | undefined),
       }),
-    [
-      tasksQ.data,
-      agentsQ.data,
-      attentionQ.data,
-      memoriesQ.data,
-      changesetsQ.data,
-      conversationsQ.data,
-    ]
+    // `askIdsQ.data` is load-bearing (PR #2965 R1): without it the index never
+    // recomputes when /api/asks/ids refreshes, so a newly-created ask's `ask#N`
+    // stays unlinkified until some UNRELATED query happens to change.
+    //
+    // `attentionQ.data` is deliberately NOT here any more — nothing in the memo
+    // body reads it since the ask channels moved off the cohort. Leaving it
+    // would have masked the missing dep above: attention refetches on the same
+    // interval, so the index would recompute anyway and the staleness would
+    // only show up if that query ever went quiet.
+    [tasksQ.data, agentsQ.data, memoriesQ.data, changesetsQ.data, conversationsQ.data, askIdsQ.data]
   );
 }

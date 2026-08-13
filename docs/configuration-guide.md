@@ -196,6 +196,58 @@ reviewer:
 > Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
 > not require any token (the reviewer bot advertises it in its status comment).
 
+## Cockpit Configuration
+
+The cockpit daemon binds to loopback (`127.0.0.1`) and enforces a Host-header allowlist as a
+DNS-rebinding defense (mt#2538): only the standard loopback aliases and the `--host` bind value
+(if you opted into one) are accepted by default. `cockpit.allowedHosts` (mt#3641) adds
+operator-configured extra Host names ON TOP of that default — an allowlist ADDITION, never a
+bypass — so the daemon can accept requests forwarded through `tailscale serve` under the node's
+Tailscale MagicDNS name while staying bound to loopback (Tailscale's own recommended posture).
+
+```yaml
+cockpit:
+  # TCP port the daemon serves on AND the port the menu-bar tray supervises.
+  port: 4317
+
+  # Extra Host-header names the daemon accepts, beyond the loopback aliases
+  # and any --host bind value. Typically a Tailscale MagicDNS name.
+  allowedHosts:
+    - "my-node.tail1234.ts.net"
+```
+
+- `cockpit.port` (mt#3988) — optional, defaults to `3737`. Environment override:
+  `MINSKY_COCKPIT_PORT`. An explicit `--port` on `cockpit start` / `status` / `install` outranks
+  both.
+
+  This is the **one** place the port is decided. The macOS tray reads this same value at startup
+  (via `config get cockpit.port`, run against the tree it spawns the daemon from) and uses it for
+  every probe, adoption decision, conflict label, the in-app webview URL, and the webview's
+  same-origin navigation check. Before it, the tray hardcoded 3737 in four separate constants, so
+  a daemon on any other port was invisible to it: not adopted, not controlled by
+  Start/Stop/Restart, and liable to have a second daemon spawned beside it — which happened on
+  2026-06-04, with the browser reading the stale one.
+
+  **A tray already running does not pick up a change to this key**; it resolves once at launch.
+  Quit and relaunch the tray after changing it. A tray whose Minsky checkout predates this key
+  falls back to 3737 and logs that it did.
+
+  **Do not set this to 80 or 443.** The tray's webview treats a navigation as same-origin only on
+  an EXPLICIT port match, and a URL at a scheme's default port carries no explicit port — so at 80
+  or 443 the check matches nothing and cockpit links open in the OS browser instead of in the app.
+  Matching the implicit default instead would widen a security check to admit any portless
+  `http://localhost/…`, so the tray deliberately fails closed here (PR #2882 R1). This is not a
+  practical restriction: the daemon serves plain HTTP on loopback, and binding 80 needs root.
+
+- `cockpit.allowedHosts` — optional, defaults to `[]` (no extra hosts; the pre-mt#3641
+  loopback-only behavior). Environment override: `MINSKY_COCKPIT_ALLOWED_HOSTS` → comma-separated
+  list, e.g. `MINSKY_COCKPIT_ALLOWED_HOSTS=my-node.tail1234.ts.net`.
+- A request whose `Host` matches an entry here is also, by construction, treated as arriving
+  off-box: the plain-HTTP cookie bootstrap is withheld for it regardless of the daemon's own bind
+  address (see `src/cockpit/auth.ts`'s `cookieBootstrapMiddleware`/`buildOffBoxHostSet`) — a
+  request via the standard loopback aliases is unaffected and keeps minting the cookie as before.
+- Per the precedence order above, environment variables override the config-file value.
+
 ## Deployment Configuration
 
 `deployment_status` / `deployment_wait-for-latest` / `deployment_logs` accept an optional
@@ -216,3 +268,27 @@ deployment:
   `RAILWAY_SERVICE_ID` variable is matched against each candidate's declared `railway.serviceId`.
 - If neither resolves, the error lists every candidate service name — see
   [Deployment Platforms](./deployment-platforms.md#service-resolution).
+
+## Observability (Braintrust)
+
+Relocated from the top-level README (mt#3828).
+
+To use Braintrust for LLM observability, both an API key and a project name are required.
+The project name has **no default** — it must be set explicitly so traces do not silently
+accumulate in a project named after someone else's installation:
+
+```bash
+# Configure via config
+minsky config set observability.providers.braintrust.apiKey --value <your-key>
+minsky config set observability.providers.braintrust.projectName --value <your-project>
+
+# Or via environment variables
+export BRAINTRUST_API_KEY=<your-key>
+export BRAINTRUST_PROJECT_NAME=<your-project>
+
+# Verify connectivity
+minsky observability smoke-test
+```
+
+See `observability.providers.braintrust.projectName` in the configuration schema
+(`packages/domain/src/configuration/schemas/observability.ts`).

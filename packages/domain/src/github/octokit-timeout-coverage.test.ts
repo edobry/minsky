@@ -14,7 +14,7 @@
  */
 /* eslint-disable custom/no-real-fs-in-tests -- scanning the shipped source tree for unbounded Octokit clients IS the point of this coverage guard; DI cannot verify what is actually on disk */
 import { describe, test, expect } from "bun:test";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, type Dirent } from "node:fs";
 import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "../../../..");
@@ -30,7 +30,10 @@ const ALLOWLIST = new Set<string>([]);
 
 function collectTsFiles(dir: string): string[] {
   const out: string[] = [];
-  let entries: ReturnType<typeof readdirSync>;
+  // `Dirent[]`, not `ReturnType<typeof readdirSync>`: that resolves to the
+  // LAST overload (`Dirent<Buffer>[]`), so every `entry.name` below was typed
+  // Buffer and none of the string methods used on it existed.
+  let entries: Dirent[];
   try {
     entries = readdirSync(dir, { withFileTypes: true });
   } catch {
@@ -65,7 +68,7 @@ function octokitConstructorArgs(src: string): string[] {
   let idx = src.indexOf(marker);
   while (idx !== -1) {
     let i = idx + marker.length;
-    while (i < src.length && /\s/.test(src[i])) i++;
+    while (i < src.length && /\s/.test(src[i] ?? "")) i++;
     if (src[i] === "(") {
       let depth = 0;
       const start = i;

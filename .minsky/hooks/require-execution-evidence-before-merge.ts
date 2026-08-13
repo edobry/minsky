@@ -47,7 +47,13 @@ import { computeFenceInternalLines, collectHeadingSections } from "./markdown-se
 import { elideQuotedContexts } from "./elision";
 import { runScCoverageCalibration, SC_COVERAGE_CALIBRATION_LOG } from "./success-criteria-coverage";
 import { runTestFirstCalibration, TEST_FIRST_CALIBRATION_LOG } from "./test-first-evidence";
+import { runRenderPathCalibration, RENDER_PATH_CALIBRATION_LOG } from "./render-path-evidence";
 import { isTestFile } from "./pr-file-predicates";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
 import { classifyOverride } from "./fire-log";
 import {
   deriveRepoFromGit as deriveRepoFromGitImpl,
@@ -144,10 +150,24 @@ export function isOperationalScript(filename: string): boolean {
  *     the previous filename did NOT match a test pattern (i.e. this is a conversion
  *     into a test file, not merely a rename of an existing test file).
  */
-export function findNewTestFiles(files: PrFile[]): string[] {
+export function findNewTestFiles(
+  files: PrFile[],
+  /**
+   * The test-file predicate, injectable (mt#3868).
+   *
+   * Defaults to the shared {@link isTestFile}, so every production caller is
+   * unchanged. The seam exists so a measurement can REPLAY this exact function
+   * under a different predicate instead of re-implementing its status logic —
+   * the renamed/copied/`previous_filename` handling below is subtle enough that
+   * a copy would drift from it, and a measurement that drifts from the gate is
+   * not a measurement of the gate. Used by
+   * `scripts/measure-tsx-test-gate-impact.ts`.
+   */
+  isTest: (filename: string) => boolean = isTestFile
+): string[] {
   return files
     .filter((f) => {
-      if (!isTestFile(f.filename)) return false;
+      if (!isTest(f.filename)) return false;
       if (f.status === "added") return true;
       if (f.status === "renamed" || f.status === "copied") {
         // Only count if the source was NOT already a test file (new-test-file
@@ -156,7 +176,7 @@ export function findNewTestFiles(files: PrFile[]): string[] {
         // ./pr-context explains why `!== undefined` alone is unsafe), not
         // just `!== undefined`.
         if (f.previous_filename != null) {
-          return !isTestFile(f.previous_filename);
+          return !isTest(f.previous_filename);
         }
         // No previous_filename info available — conservatively include it
         return true;
@@ -201,18 +221,26 @@ export function findNewOperationalScripts(files: PrFile[]): string[] {
  * Returns true when the PR body contains an "Execution evidence" block with
  * non-empty content following the marker.
  *
- * Acceptance criteria (mt#2648 — accepted marker forms, case-insensitive):
+ * Accepted marker forms (case-insensitive; mt#2648, widened mt#3968):
  *   - A Markdown heading, any level 1-6, with an OPTIONAL trailing colon
  *     (e.g. `## Execution evidence`, `### Execution evidence:`).
  *   - A standalone label line WITH a colon (`Execution evidence: <content>`) —
  *     the colon is REQUIRED for the non-heading form so bare prose containing
  *     the phrase doesn't false-positive.
+ *   - The label form may be wrapped in `**bold**` / `__bold__` — either around
+ *     the whole `Execution evidence:` including the colon, or around just the
+ *     phrase with the colon outside (`**Execution evidence**:`) — and may be
+ *     preceded by a leading `-`/`*`/`+` bullet marker. This mirrors the
+ *     negative-control matcher's documented allowance (mt#3778) on the sibling
+ *     hook, which already accepted this exact shape while this one did not.
+ *     The colon is still REQUIRED either way — only the decoration around the
+ *     label widened, not the delimiter that keeps bare prose out.
  *   - Negation phrases like "No Execution evidence:" do NOT qualify.
  *   - The marker must be followed by non-whitespace content (inline or on a
  *     subsequent line before the next heading).
  *
  * Detection strategy:
- *   1. Find a line that matches one of the two accepted marker forms above.
+ *   1. Find a line that matches one of the accepted marker forms above.
  *   2. Verify the heading line itself does NOT start with "No " (negation guard).
  *   3. Require that there is at least one non-empty line of content after the
  *      heading and before the next Markdown heading or end-of-string.
@@ -222,19 +250,31 @@ export function hasExecutionEvidence(prBody: string): boolean {
   // in rendered Markdown and must not count as evidence.
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
 
-  // Matches lines in one of two forms (mt#2648):
+  // Matches lines in one of two forms (mt#2648, widened mt#3968):
   //   A. Markdown heading (any level 1-6) + "execution evidence" with an
   //      OPTIONAL trailing colon — e.g. "## Execution evidence",
   //      "### Execution evidence:".
   //   B. Plain label line — "execution evidence:" with a REQUIRED colon (no
   //      heading marker). Keeping the colon required here preserves the
-  //      original true-negative behavior for bare prose mentions.
-  // Anchored at start-of-line via the `m` flag. Group 1 (heading hashes, form
-  // A only) is unused downstream; group 2 captures trailing inline content.
-  // Up to 3 leading spaces before a heading marker, per CommonMark (spaces
-  // only — not \s, which would let the match skip across blank lines).
-  const headingPattern =
-    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+  //      original true-negative behavior for bare prose mentions. The label
+  //      may carry an optional leading `-`/`*`/`+` bullet and optional
+  //      `**`/`__` emphasis wrapping either the whole "phrase:" span (mt#3968
+  //      AT1: `**Execution evidence:**`) or just the phrase with the colon
+  //      outside (mt#3968 AT2 shape: `**Execution evidence**:`).
+  // Anchored at start-of-line via the `m` flag — the bullet/emphasis
+  // decoration is adjacency-anchored immediately before "execution evidence",
+  // so a negation like "**No execution evidence:**" still cannot match: "No "
+  // sits where the pattern requires the literal phrase, same as the plain
+  // "No execution evidence:" case already did. Group 1 (heading hashes, form
+  // A only) is unused downstream; the final group captures trailing inline
+  // content. Up to 3 leading spaces before a heading marker, per CommonMark
+  // (spaces only — not \s, which would let the match skip across blank lines).
+  const BULLET_PREFIX = "(?: {0,3}[-*+]\\s+)?";
+  const EMPHASIS = "(?:\\*\\*|__)?";
+  const headingPattern = new RegExp(
+    `^(?: {0,3}(#{1,6})\\s+execution evidence\\s*:?|${BULLET_PREFIX}${EMPHASIS}execution evidence${EMPHASIS}\\s*:${EMPHASIS})\\s*(.*)$`,
+    "im"
+  );
 
   const lines = strippedBody.split("\n");
   // Fence-aware (mt#3530). A marker whose only occurrence is inside a code fence is
@@ -368,7 +408,10 @@ export function checkExecutionEvidence(
     `execution-evidence block.${scriptNote}\n\n` +
     `Accepted marker forms (case-insensitive): \`Execution evidence:\` (plain label, colon ` +
     `required) OR a Markdown heading of any level with an optional trailing colon ` +
-    `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`).\n\n` +
+    `(e.g. \`## Execution evidence\`, \`### Execution evidence:\`). The label may also be ` +
+    `\`**bold**\` (\`**Execution evidence:**\` or \`**Execution evidence**:\`) and/or preceded ` +
+    `by a leading Markdown bullet (\`-\`, \`*\`, or \`+\`) — the colon is still required either ` +
+    `way.\n\n` +
     `Evidence-requiring files:\n${fileList}\n\n` +
     `To unblock, choose one of:\n` +
     `  1. Run the artifact and paste output under an \`Execution evidence\` section ` +
@@ -606,9 +649,11 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  * between an accepted marker (mirrors `hasExecutionEvidence`'s accepted forms) and the
  * next heading or end-of-string. Used as the search text for AT-coverage matching. If
  * multiple evidence blocks exist, all are concatenated. Returns `""` when no evidence
- * marker is present — this is a plain text-extraction helper, deliberately independent
- * of `hasExecutionEvidence` (which stays byte-for-byte unchanged per mt#3033 constraint
- * 2) so neither function's behavior can regress the other's test suite.
+ * marker is present — this is a plain text-extraction helper whose code is separate from
+ * `hasExecutionEvidence` (which stays byte-for-byte unchanged, so this module's fix cannot
+ * regress a BLOCKING gate's test suite). Separate code, NOT separate accepted forms: the two
+ * sets are pinned equal by the parity test, for the reason `buildEvidenceMarkerPattern` below
+ * records. Reading the separation as licence to let the forms diverge is what shipped mt#4054.
  *
  * **mt#3316 FP-3 fix (originating incident: mt#3174 / PR #2264).** The scan ALSO covers
  * any PR-body section whose heading names "acceptance test(s)" — e.g. `### Acceptance
@@ -643,10 +688,40 @@ export function isExecutableAcceptanceTest(text: string, taskKind?: string): boo
  */
 const ACCEPTANCE_TESTS_HEADING_LINE_PATTERN = /^ {0,3}#{1,6}\s+.*\bacceptance tests?\b/i;
 
+/**
+ * Builds the accepted-marker pattern for the extractor below. Recognizes the same forms
+ * `hasExecutionEvidence` does: a Markdown heading with an optional colon, or a plain label
+ * with a REQUIRED colon, the label optionally `**bold**`/`__bold__` (colon inside or outside)
+ * and optionally preceded by a `-`/`*`/`+` bullet.
+ *
+ * **Why this is a second construction rather than a shared one (mt#4054).** mt#3033 requires
+ * `hasExecutionEvidence` — a BLOCKING gate — to stay byte-for-byte unchanged, so its pattern
+ * is built inline in its own body and cannot be hoisted here without editing it. The forms
+ * therefore live in two places, and the thing that keeps them from drifting is the parity test
+ * (`ACCEPTED_MARKER_FORMS` in this module's test file), which asserts both functions against
+ * ONE table and fails if either accepts a form the other rejects. Do not add a form here
+ * without adding it to that table.
+ *
+ * That divergence is exactly what mt#4054 fixed: mt#3968 widened the blocking check to accept
+ * bold and bulleted labels and left the extractor's regex behind, so a PR body using
+ * `**Execution evidence:**` — a form the gate itself accepts — extracted to the empty string.
+ * Every executable acceptance test in such a PR then read as unaddressed no matter where its
+ * evidence sat, including correctly inside the block, and the gate's own prescribed remedy
+ * (move the references INSIDE the block) could not work. Retiring the duplication altogether
+ * is mt#4070.
+ */
+function buildEvidenceMarkerPattern(): RegExp {
+  const BULLET_PREFIX = "(?: {0,3}[-*+]\\s+)?";
+  const EMPHASIS = "(?:\\*\\*|__)?";
+  return new RegExp(
+    `^(?: {0,3}(#{1,6})\\s+execution evidence\\s*:?|${BULLET_PREFIX}${EMPHASIS}execution evidence${EMPHASIS}\\s*:${EMPHASIS})\\s*(.*)$`,
+    "im"
+  );
+}
+
 export function extractExecutionEvidenceText(prBody: string): string {
   const strippedBody = prBody.replace(/<!--[\s\S]*?-->/g, "");
-  const headingPattern =
-    /^(?: {0,3}(#{1,6})\s+execution evidence\s*:?|execution evidence\s*:)\s*(.*)$/im;
+  const headingPattern = buildEvidenceMarkerPattern();
   const lines = strippedBody.split("\n");
   const fenceInternal = computeFenceInternalLines(lines);
   const collected: string[] = [];
@@ -976,6 +1051,19 @@ export function runAtCoverageCalibrationWithSpec(
         task,
         prNumber,
         surface: "execution-evidence-at-coverage",
+        // mt#3607: this verdict is computed from two MUTABLE artifacts — the PR
+        // body and the bound task's spec — and carried neither, so a
+        // retrospective re-check had to re-fetch whatever they say NOW. Both are
+        // routinely edited between the fire and the review (a spec gains a
+        // planning audit; a PR body gains the evidence block the gate asked
+        // for), which is the mt#3584 class: the record cannot be re-classified
+        // and the miss becomes invisible. Neither is elided — matching here
+        // depends on fenced-block structure (the gate scans INSIDE the
+        // `Execution evidence:` block and nowhere else), so blanking fences
+        // would destroy what a re-derivation needs.
+        [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+        judgedPrBody: captureArtifact(prBody),
+        judgedSpec: captureArtifact(specFetch.content),
         executableAtCount: coverage.executableAts.length,
         unaddressedAts: coverage.unaddressedAts.map((at) => ({ number: at.number, text: at.text })),
         // mt#3339 (FP-4): the absent-vs-present-elsewhere partition. Additive — every
@@ -1067,6 +1155,9 @@ if (import.meta.main) {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     recordAndExit("warn");
   }
 
@@ -1081,7 +1172,9 @@ if (import.meta.main) {
           "⚠️ [execution-evidence] Could not derive owner/repo from git remote — check skipped.",
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    recordAndExit("warn", undefined, "crashed");
   }
 
   // mt#2617: ONE consolidated fetch (PR-number resolution + title/body/files)
@@ -1104,7 +1197,9 @@ if (import.meta.main) {
           .join("\n"),
       },
     });
-    recordAndExit("warn");
+    // mt#3920: `crashed` — the PR-context fetch failed, so the check never ran. Fail-open
+    // on a broken probe, not a verdict.
+    recordAndExit("warn", undefined, "crashed");
   }
 
   const { title: prTitle, body: prBody, files: prFiles, warnings: topLevelWarnings } = context;
@@ -1178,6 +1273,19 @@ if (import.meta.main) {
   if (testFirst.warning) {
     allWarnings.push(testFirst.warning);
   }
+
+  // mt#2421: FOURTH additive calibration surface. Like the test-first surface it is driven by
+  // the PR's FILE LIST rather than a spec section — its trigger is that the change touches a
+  // user-facing render path — but unlike every sibling it needs no spec at all, so it runs
+  // unconditionally rather than under the `specFetch.ok` guard. Log-only: never influences
+  // `result.blocked`.
+  const renderPath = runRenderPathCalibration(task, context.prNumber, prFiles, prBody);
+  if (renderPath.calibrationRecord) {
+    appendCalibrationRecord(renderPath.calibrationRecord, repoRootDir, RENDER_PATH_CALIBRATION_LOG);
+  }
+  if (renderPath.warning) {
+    allWarnings.push(renderPath.warning);
+  }
   // mt#3084: MINSKY_SKIP_AT_COVERAGE is a documented escape hatch
   // (`isAtCoverageSkipped`, consulted inside `runAtCoverageCalibration`) —
   // `ranCheck: false` is how the skip surfaces back here without threading a
@@ -1205,7 +1313,11 @@ if (import.meta.main) {
         permissionDecisionReason: `${warningContext}${result.reason}`,
       },
     });
-    recordAndExit("deny", atCoverageOverrideFields);
+    // mt#3920: the three exits below are all downstream of `checkExecutionEvidence` — the
+    // gate exercised its check and reached a verdict, so each is clean-run evidence.
+    // `atCoverageOverrideFields` does NOT change that: those overrides neutralize the
+    // log-only AT/SC cross-reference sub-checks and the gate keeps running.
+    recordAndExit("deny", atCoverageOverrideFields, "decided");
   } else if (allWarnings.length > 0) {
     // Allowed but with warnings: single writeOutput with aggregated context.
     writeOutput({
@@ -1214,7 +1326,7 @@ if (import.meta.main) {
         additionalContext: allWarnings.map((w) => `⚠️ ${w}`).join("\n"),
       },
     });
-    recordAndExit("warn", atCoverageOverrideFields);
+    recordAndExit("warn", atCoverageOverrideFields, "decided");
   }
-  recordAndExit("allow", atCoverageOverrideFields);
+  recordAndExit("allow", atCoverageOverrideFields, "decided");
 }

@@ -40,6 +40,9 @@ import type {
   SubagentInvocationOutcome,
 } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { DISPATCH_RECOVERY_STALE_MS } from "@minsky/domain/session/dispatch-recovery-classifier";
+import type { TaskClaimLivenessResult } from "@minsky/domain/session/task-claim-liveness";
+import { classifyFreshPeerClaim } from "@minsky/domain/session/task-claim-liveness";
+import type { AnnotatedPresenceClaim } from "@minsky/domain/presence/types";
 import {
   PROMPT_TYPE_TO_AGENT_TYPE,
   PROMPT_WATERMARK,
@@ -57,6 +60,8 @@ const TRACKER_UNAVAILABLE_STATUS = "tracker-unavailable";
 const DO_NOT_REDISPATCH_WARNING = "Do NOT redispatch";
 /** mt#3193: the IN-REVIEW+open-PR gate's activitySource value, asserted from multiple tests. */
 const IN_REVIEW_OPEN_PR_ACTIVITY_SOURCE = "in-review-open-pr";
+/** mt#3952: the progress-starvation note's leading token, asserted from multiple tests. */
+const PROGRESS_STARVED_MARKER = "Progress-starved";
 
 // ---------------------------------------------------------------------------
 // Fake tracker — duck-typed, implements only what the command calls.
@@ -78,6 +83,8 @@ class FakeTracker {
       parentSessionId: row.parentSessionId ?? null,
       parentTaskId: row.parentTaskId ?? null,
       subagentSessionId: row.subagentSessionId ?? null,
+      parentAgentSessionId: row.parentAgentSessionId ?? null,
+      parentToolUseId: row.parentToolUseId ?? null,
       agentType: row.agentType ?? "implementer",
       suggestedModel: row.suggestedModel ?? null,
       actualModel: row.actualModel ?? null,
@@ -187,6 +194,9 @@ function makeActivityOps(
   return {
     lastPresenceActivityAtMs: async () => null,
     lastWorkspaceMtimeAtMs: async () => null,
+    // mt#3121: default to "no peer claim" so tests that don't care about the
+    // contested gate see the pre-mt#3121 recover/escalate behavior unchanged.
+    taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({ cause: "no-fresh-claim" }),
     ...overrides,
   };
 }
@@ -226,6 +236,8 @@ function makeCommand(opts: {
   gitOps?: DispatchRecoveryGitOps;
   activityOps?: DispatchRecoveryActivityOps;
   staleMs?: number;
+  /** mt#3952: override the progress-starvation bound (default DISPATCH_PROGRESS_STALE_MS). */
+  progressStaleMs?: number;
   taskService?: TaskServiceInterface;
 }) {
   return createTasksDispatchRecoverCommand(
@@ -238,11 +250,187 @@ function makeCommand(opts: {
       activityOps: opts.activityOps ?? makeActivityOps(),
       now: () => NOW,
       staleMs: opts.staleMs,
+      progressStaleMs: opts.progressStaleMs,
     }
   );
 }
 
 describe("tasks.dispatch-recover", () => {
+  // mt#3121: the task-grain contested gate. A stale (silent) dispatch reaches this
+  // gate; what happens next depends on whether a PEER holds a fresh task-grain claim.
+  // The self-exclusion logic itself is unit-tested in task-claim-liveness.test.ts
+  // (classifyFreshPeerClaim); here we test the command's branching on the injected
+  // taskClaimLiveness seam's four-branch `cause`.
+  describe("task-grain contested gate (mt#3121)", () => {
+    const PEER = "com.anthropic.claude-code:conv:peer-bbbb";
+
+    // A dispatch started 40 min ago with no commit/presence/workspace activity is
+    // stale (past the 30 min window), so execution reaches the contested gate.
+    function staleDispatch() {
+      const tracker = new FakeTracker();
+      tracker.seed({
+        taskId: "mt#2831",
+        subagentSessionId: "sess-1",
+        startedAt: new Date(NOW.getTime() - 40 * 60 * 1000),
+      });
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      return { tracker, sessionProvider };
+    }
+
+    test("a fresh peer claim -> contested, surfacing the peer, WITHOUT consuming an attempt (SC1/SC3)", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+          cause: "contested",
+          peerActorId: PEER,
+          peerLastRefreshedAt: "2026-07-17T11:59:50.000Z",
+        }),
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("contested");
+      expect(result.peerActorId).toBe(PEER);
+      expect(result.peerLastRefreshedAt).toBe("2026-07-17T11:59:50.000Z");
+      // SC3: classification must NOT consume one of the caller's two attempts.
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+
+    test("a claim-store read failure -> contested (fail-closed), no attempt consumed", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+          cause: "read-failure",
+        }),
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("read-failure");
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+
+    test("no fresh peer claim -> the recover path proceeds unchanged (no over-fire, AT3)", async () => {
+      const { tracker, sessionProvider } = staleDispatch();
+      // Default activityOps -> taskClaimLiveness returns no-fresh-claim.
+      const cmd = makeCommand({ tracker, sessionProvider });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("recover");
+      // The recover path records exactly one resumed attempt, as before.
+      expect(tracker.recordedAttempts.length).toBe(1);
+    });
+
+    // mt#3958 SC1/SC2: `taskClaimLiveness` can also come back `unavailable` — the
+    // claim store was never successfully QUERIED at all. Before mt#3958 every one
+    // of these conditions returned the SAME value a genuinely empty read returns
+    // (`no-fresh-claim`), silently falling through to the attempt/recover logic —
+    // the mt#3812 double-dispatch's mechanism. Every reason except `no-provider`
+    // must now fail closed, exactly like `read-failure`.
+    describe("claim-store 'unavailable' (mt#3958)", () => {
+      test.each([["no-connection"], ["no-repo"], ["invalid-subject"]] as const)(
+        "unavailableReason=%s fails CLOSED to contested, no attempt consumed",
+        async (reason) => {
+          const { tracker, sessionProvider } = staleDispatch();
+          const activityOps = makeActivityOps({
+            taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+              cause: "unavailable",
+              unavailableReason: reason,
+            }),
+          });
+          const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+          const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<
+            string,
+            unknown
+          >;
+
+          expect(result.status).toBe("contested");
+          expect(result.cause).toBe("unavailable");
+          expect(result.unavailableReason).toBe(reason);
+          expect(tracker.recordedAttempts.length).toBe(0);
+        }
+      );
+
+      test("unavailableReason='no-provider' is the ROUTINE case — proceeds unchanged, no fail-closed", async () => {
+        const { tracker, sessionProvider } = staleDispatch();
+        const activityOps = makeActivityOps({
+          taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => ({
+            cause: "unavailable",
+            unavailableReason: "no-provider",
+          }),
+        });
+        const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+        const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<
+          string,
+          unknown
+        >;
+
+        // A persistence-less CLI/test context is routine, not evidence of a peer —
+        // it keeps the pre-mt#3958 behavior (proceed to recover), same as
+        // `no-fresh-claim` above.
+        expect(result.status).toBe("recover");
+        expect(tracker.recordedAttempts.length).toBe(1);
+      });
+    });
+
+    // mt#3958 SC3: regression test driven from the recorded mt#3812 shape — two
+    // fresh task-grain claims, NEITHER matching the caller (callerActorId was
+    // never passed to the real `dispatch-recover` call, so it is `null` here),
+    // subject stored as "mt3812". Feeds the pure classifier's real output
+    // through the command's injected seam, confirming the whole chain surfaces
+    // `contested` with the live peer populated — not the `escalate` the
+    // collapsed-abstain defect produced on 2026-08-10.
+    test("mt#3812 regression (SC3): two fresh non-caller claims, subject 'mt3812' -> contested with peerActorId", async () => {
+      /** The peer conversation's actorId as recorded in the mt#3958 spec's evidence. */
+      const RECORDED_PEER_ACTOR_ID =
+        "com.anthropic.claude-code:conv:c4d477ed-06f4-4a8b-884d-e306ec3ac523";
+      const { tracker, sessionProvider } = staleDispatch();
+      const recordedClaims: AnnotatedPresenceClaim[] = [
+        {
+          id: "claim-c4d477ed",
+          subjectKind: "task",
+          subjectId: "mt3812",
+          actorId: RECORDED_PEER_ACTOR_ID,
+          claimedAt: "2026-08-11T02:48:51.049Z",
+          lastRefreshedAt: "2026-08-11T02:48:51.049Z",
+          stale: false,
+        },
+        {
+          id: "claim-caller",
+          subjectKind: "task",
+          subjectId: "mt3812",
+          actorId: "com.anthropic.claude-code:conv:orchestrator-own-claim",
+          claimedAt: "2026-08-11T02:48:40.000Z",
+          lastRefreshedAt: "2026-08-11T02:48:40.000Z",
+          stale: false,
+        },
+      ];
+      // callerActorId was never passed in the originating incident.
+      const classified = classifyFreshPeerClaim(recordedClaims, null);
+      expect(classified.cause).toBe("contested");
+      expect(classified.peerActorId).toBe(RECORDED_PEER_ACTOR_ID);
+
+      const activityOps = makeActivityOps({
+        taskClaimLiveness: async (): Promise<TaskClaimLivenessResult> => classified,
+      });
+      const cmd = makeCommand({ tracker, sessionProvider, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      expect(result.status).toBe("contested");
+      expect(result.cause).toBe("contested");
+      expect(result.peerActorId).toBe(RECORDED_PEER_ACTOR_ID);
+      expect(tracker.recordedAttempts.length).toBe(0);
+    });
+  });
+
   test("no dispatch found for the task -> no-dispatch, no error", async () => {
     const tracker = new FakeTracker();
     const sessionProvider = new FakeSessionProvider();
@@ -409,6 +597,94 @@ describe("tasks.dispatch-recover", () => {
     expect(result.success).toBe(true);
     expect(result.status).toBe("recover");
     expect(result.resumedFromInvocationId).toBe(original.id);
+  });
+
+  // ---------------------------------------------------------------------------
+  // mt#3952: progress bound — a dispatch emitting tool calls (refreshing
+  // presence) but writing nothing no longer holds `healthy` forever.
+  // mt#3812 is the standing instance this closes: presence refreshed every
+  // ~10 minutes for 8+ hours while the workspace was never touched, and
+  // `tasks.dispatch-recover` kept reporting `healthy`.
+  // ---------------------------------------------------------------------------
+
+  test("mt#3812-shaped: presence pings for 8h+ but no commit and no file write ever -> NOT healthy, recovers with a progressNote naming the starvation (mt#3952 AT4)", async () => {
+    const tracker = new FakeTracker();
+    const original = tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 8 * 60 * 60 * 1000), // dispatched 8h ago
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null }); // no commits, ever
+    const activityOps = makeActivityOps({
+      // presence keeps refreshing right up to "now" — this is exactly what
+      // held the pre-mt#3952 classifier at `healthy` indefinitely.
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 3 * 60 * 1000,
+      // the workspace has never been touched
+      lastWorkspaceMtimeAtMs: async () => null,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.success).toBe(true);
+    // The pre-mt#3952 bug: this used to be "healthy" here.
+    expect(result.status).not.toBe("healthy");
+    expect(result.status).toBe("recover"); // attempt 1 -> auto-resume, not yet escalated
+    expect(result.resumedFromInvocationId).toBe(original.id);
+    expect(typeof result.progressNote).toBe("string");
+    expect(result.progressNote as string).toContain(PROGRESS_STARVED_MARKER);
+  });
+
+  test("progress-starved dispatch on its 3rd stale classification -> escalate, with progressNote naming the starvation", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 8 * 60 * 60 * 1000),
+      attemptNumber: 2, // already auto-resumed once; this call is the 3rd classification
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 3 * 60 * 1000,
+      lastWorkspaceMtimeAtMs: async () => null,
+    });
+    const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.status).toBe("escalate");
+    const escalation = result.escalation as { message: string; progressNote: string };
+    expect(escalation.progressNote).toContain(PROGRESS_STARVED_MARKER);
+    expect(escalation.message).toContain(PROGRESS_STARVED_MARKER);
+  });
+
+  test("a custom progressStaleMs override is honored", async () => {
+    const tracker = new FakeTracker();
+    tracker.seed({
+      taskId: "mt#2831",
+      subagentSessionId: "sess-1",
+      startedAt: new Date(NOW.getTime() - 20 * 60 * 1000), // dispatched 20 min ago
+    });
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+    const gitOps = makeGitOps({ lastCommitAtMs: async () => null });
+    const activityOps = makeActivityOps({
+      lastPresenceActivityAtMs: async () => NOW.getTime() - 1000, // presence very fresh
+      lastWorkspaceMtimeAtMs: async () => null,
+    });
+    // 20 minutes with no progress, against a 10-minute progress bound.
+    const cmd = makeCommand({
+      tracker,
+      sessionProvider,
+      gitOps,
+      activityOps,
+      progressStaleMs: 10 * 60 * 1000,
+    });
+
+    const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+    expect(result.status).not.toBe("healthy");
   });
 
   test("stale, clean tree, no commits -> crashed-no-output, continuation prompt returned, attempt recorded", async () => {
@@ -901,6 +1177,35 @@ describe("tasks.dispatch-recover", () => {
       expect(escalation.probe?.dirtyFileCount).toBe(0);
       expect(escalation.message).toContain("workspace tree is clean");
       expect(escalation.message).not.toContain("in-flight work");
+    });
+
+    // mt#3958 SC4/AT3: workspaceMtimeAgoMs only advances on a dirty-file write —
+    // an agent that is reading, planning, or running tests writes nothing, so a
+    // clean tree untouched for hours must NOT be described to the caller as
+    // dead. Originating incident: mt#3812's escalate message presented exactly
+    // this shape (clean tree, ~12.5h since last write) with no caveat, and the
+    // orchestrator treated it as evidence of death.
+    test("mt#3958: a clean tree untouched for hours is NOT described as dead — the message names the write-only limit", async () => {
+      const tracker = new FakeTracker();
+      seedTwoAttemptChain(tracker);
+      const sessionProvider = new FakeSessionProvider({ initialSessions: [makeSessionRecord()] });
+      const gitOps = makeGitOps({ commitsAheadOfBase: async () => 0 });
+      // No dirty files, no recent writes — mirrors mt#3812's probe shape
+      // (dirtyFileCount: 0 after normalization here is implied; the recorded
+      // incident itself had dirtyFileCount: 10, but the write-only-clock
+      // caveat applies identically to the clean-tree case, which is the
+      // sharper version: zero signals at all).
+      const activityOps = makeActivityOps({ lastWorkspaceMtimeAtMs: async () => STALE_MTIME_MS() });
+      const cmd = makeCommand({ tracker, sessionProvider, gitOps, activityOps });
+
+      const result = (await cmd.execute({ taskId: "mt#2831" } as never)) as Record<string, unknown>;
+
+      const escalation = result.escalation as { message: string };
+
+      // Must state the discriminating limit: the clock is a no-writes signal,
+      // not a no-agent signal.
+      expect(escalation.message).toContain("NOT the same claim as");
+      expect(escalation.message.toLowerCase()).toContain("no recent writes");
     });
 
     test("AT3: the message names the workspace signal as discriminating and no longer offers proxy-only verification", async () => {

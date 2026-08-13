@@ -19,12 +19,35 @@ owns, exclusively:
 | ---------------------------------------------------------- | ----------------------------------------------------------- |
 | `agent_session_id`                                         | the harness `agent_id` (joins `agent_transcripts`, mt#1313) |
 | `ended_at`                                                 | Stop time — **the dispatch watchdog's liveness signal**     |
-| `outcome`, `pr_url`, `last_commit_hash`, `handoff_written` | `classifyWorkspaceOutcome`                                  |
+| `outcome`, `pr_url`, `last_commit_hash`, `handoff_written` | `classifyWorkspaceOutcome` — or `no-workspace`, see below   |
 | `tool_use_count`, `total_tokens`, `duration_ms`            | `readTranscriptMetrics` (mt#2649)                           |
 | `actual_model`                                             | `extractActualModel` (mt#2796)                              |
 
 If this hook does not run, `outcome` is a constant and `ended_at` is never set — which means
 `src/cockpit/dispatch-watchdog.ts`'s `WHERE ended_at IS NULL` in-flight set never drains.
+
+## Subagents with no workspace (mt#3894)
+
+`classifyWorkspaceOutcome` runs ONLY when the subagent had a workspace of its own. The
+discriminator is `subagentSessionId`, derived from the cwd path
+(`~/.local/state/minsky/sessions/<sessionId>`), so it is null exactly when there is no Minsky
+workspace to inspect — which is every raw harness `Agent` dispatch, since `prompt-generation.ts`
+forbids `cd` and the subagent therefore runs with the MAIN repo as its cwd. In that case the hook
+writes `outcome = 'no-workspace'` and leaves `pr_url` / `last_commit_hash` null and
+`handoff_written` false, via `resolveRecordedClassification`.
+
+Why a distinct value rather than one of the six workspace classes: each of those is a predicate
+over a workspace, so against a main-repo cwd they describe the OPERATOR's checkout. All three
+rows written this way between mt#2292 and this fix read `partial-committed-handoff-written` with
+main's HEAD in `last_commit_hash`, for subagents that committed nothing — and the label varied
+with the operator's tree rather than with anything the subagent did. Reusing `pending` was
+rejected: it means "no outcome observed YET", and this absence is permanent. See the enum's doc
+comment in `subagent-invocations-schema.ts`.
+
+Downstream, `no-workspace` emits NEITHER `subagent.failed` NOR `subagent.completed` (joining
+`rate-limited`), counts toward no escalation threshold, and is not a `tasks.dispatch-recover`
+resumable class — there is no workspace to resume. Each of those is pinned by a test, because a
+deliberate omission and an accidental one look identical from outside.
 
 ## The entry-point bootstrap contract (mt#3019)
 
@@ -110,3 +133,20 @@ None. There is no bypass env var — the hook is fail-safe by construction rathe
   bootstrap fix), mt#3046 (entry-point smoke test).
 - `guard-dispatcher-framework.md` — why this hook is standalone rather than a registry member.
 - `dispatch-watchdog-injection-hook.md` — the primary consumer of `ended_at`.
+
+## The PreToolUse half: the agent-dispatch record and its stamp (mt#2292)
+
+Everything above is the `SubagentStop` side. Its counterpart is a `PreToolUse` guard on the
+`Agent` tool that writes the `pending` `subagent_invocations` row on the **RAW spawn path** — the
+one `tasks_dispatch` / `session_generate_prompt` never see, because those tools write the row
+themselves.
+
+It also stamps the harness `(session_id, tool_use_id)` pair into the dispatch prompt via
+`updatedInput`, and **that stamp is the JOIN**: `PreToolUse` has no `agent_id`, `SubagentStop` has
+no `tool_use_id`, and nothing else connects the two events. The Stop side recovers the stamp from
+`agent_transcript_path` to close on the parent key.
+
+Posture: it never denies, and it **emits the stamp even when the DB write fails** — the prompt is
+sent either way, so a lost row must not also cost the correlation key.
+
+Override: `MINSKY_SKIP_AGENT_DISPATCH_RECORD=1`.

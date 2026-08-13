@@ -36,6 +36,25 @@ explicit licence to falsify it ("...if that basis doesn't hold, say so and proce
 strips the recipient of standing to correct you. Detector: `hook-observers.mdc §Bare-prohibition
 dispatch`.
 
+**The same bound covers DATA-EXISTENCE negatives (mt#3849).** "That field / column / payload key
+isn't there" is the same shape as "the capability is unavailable" — a negative bounded to the one
+view you read. The falsifier is the PRIMARY source, never the accessor: the raw file, not the
+parsed view; the call sites, not the type signature; the component, not a screenshot of it. A
+derived view is accurate about ITSELF and silent about the question you are asking, so **absence in
+a derived view is not evidence of absence in the source** — there is no error to notice, only a
+gap, which is why this passes a check that a wrong VALUE would fail. Incident (2026-08-08): a live
+probe showed a `tool_result` block carrying no HTTP metadata, which became "the metadata never
+enters the transcript" in a task spec; the record's sibling `toolUseResult` field held it all along
+and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
+plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
+
+**Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
+phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
+accessor, the transcript is the source. It presents as introspection rather than a lookup, and is
+asked when a fire is demanding more work. Name the kind and carry its evidence: **pattern-false**
+(text absent — grep the transcript, locating THIS conversation's file first, since a null from an
+unverified one is not evidence) or **semantic-false** (present but misread — argued, quote acknowledged).
+
 **A relayed claim is never `verified` (mt#3152).** A dispatched subagent's report, a `WebSearch`
 synthesis paragraph, and a safety-monitor's verdict are one epistemic class: evidence a claim needs
 checking, never a finding to repeat. Until you read the PRIMARY source yourself — the vendor doc
@@ -57,7 +76,17 @@ imposed on a problem — carries no independent warrant; it is `inferred` at mos
 across files does not upgrade it. The file format renders both identically, which is what makes
 the confusion easy. "Per `<rule>.mdc`" answers WHEN a claim was written, never WHETHER it is true.
 On a provenance challenge, answer with `git_log` / `git_blame` on the file and say plainly if the
-answer is "an agent did" — a file path is not an answer. Incident + worked examples:
+answer is "an agent did" — a file path is not an answer.
+
+**NORMATIVE content is in this class, and CARRYING it is where it breaks (mt#4051).** A
+recommendation, a ranking, a `(recommended)` marker is a chosen framing — `inferred` at most, same
+as a coined term. In its home artifact it is self-labelling: an ask carries a requestor, a memory an
+author, a handoff says whose framing it is. Copy it into a NEW principal-facing surface — an
+`AskUserQuestion` option label, a fresh ask — and every one of those carriers is left behind, so the
+marker's only available referent is you. Nothing is contradicted and there is no error to notice;
+the provenance is simply not carried, which is why it survives your own review. Before handing the
+principal an option set you did not derive this turn, say whose it is in the same sentence.
+Checklist: `/escalation-packaging §Content checklist` items 2 and 4. Incident + worked examples:
 `docs/rules-rationale/claim-confidence.md §The corpus is agent-authored`.
 
 Full detail + RFC reconciliation: `docs/rules-rationale/claim-confidence.md`.

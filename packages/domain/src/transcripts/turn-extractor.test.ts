@@ -14,7 +14,11 @@
 import { describe, test, expect } from "bun:test";
 
 import type { RawTurnLine } from "./transcript-source";
-import { extractTurns } from "./turn-extractor";
+import {
+  CHILD_AGENT_SESSION_ID_KEY,
+  extractTurns,
+  normalizeChildAgentSessionId,
+} from "./turn-extractor";
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -87,6 +91,30 @@ function toolResultLine(toolUseId = "toolu_agent_1", ts = TS3): RawTurnLine {
       ],
     },
   };
+}
+
+/**
+ * A tool-result line carrying the Agent tool's own result payload (mt#3962).
+ *
+ * Mirrors the real record shape, verified against a stored transcript
+ * 2026-08-12: `toolUseResult` is a SIBLING of `message` (not a content block),
+ * and the id it belongs to lives in `message.content[].tool_use_id`.
+ */
+function agentResultLine(toolUseId: string, agentId: string, ts = TS3): RawTurnLine {
+  return {
+    type: "user",
+    timestamp: ts,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: toolUseId, content: [] }],
+    },
+    toolUseResult: {
+      status: "async_launched",
+      agentId,
+      description: "Fix mt#999",
+      resolvedModel: "claude-sonnet-5",
+    },
+  } as unknown as RawTurnLine;
 }
 
 // ── Helper: assert turn exists and return it (avoids repeated narrowing boilerplate) ──
@@ -476,6 +504,193 @@ describe("extractTurns", () => {
       const turns = extractTurns([queueOpLine(TS1), userLine("hello"), assistantLine("hi")]);
       expect(turns).toHaveLength(1);
       expect(assertTurn(turns, 0).userText).toBe("hello");
+    });
+  });
+
+  /**
+   * mt#3883 — sibling fusion. One emitted turn must correspond to one model
+   * turn. The discriminator is `message.id`: shared across the JSONL records of
+   * ONE model turn, different between two.
+   */
+  describe("sibling fusion (mt#3883)", () => {
+    /** An assistant line carrying an explicit Messages-API `message.id`. */
+    function assistantLineWithId(
+      text: string,
+      messageId: string,
+      toolCalls: Record<string, unknown>[] = [],
+      ts = TS2
+    ): RawTurnLine {
+      const content: Record<string, unknown>[] = [];
+      if (text) content.push({ type: "text", text });
+      content.push(...toolCalls);
+      return {
+        type: "assistant",
+        timestamp: ts,
+        message: { role: "assistant", id: messageId, content },
+      };
+    }
+
+    test("two consecutive assistant lines with DIFFERENT message.id produce two turns", () => {
+      const turns = extractTurns([
+        userLine("do two things", TS1),
+        assistantLineWithId("first model turn", "msg_a", [], TS2),
+        assistantLineWithId("second model turn", "msg_b", [], TS3),
+      ]);
+
+      expect(turns).toHaveLength(2);
+      expect(assertTurn(turns, 0).userText).toBe("do two things");
+      expect(assertTurn(turns, 0).assistantText).toBe("first model turn");
+      expect(assertTurn(turns, 1).userText).toBeNull();
+      expect(assertTurn(turns, 1).assistantText).toBe("second model turn");
+      expect(assertTurn(turns, 0).turnIndex).toBe(0);
+      expect(assertTurn(turns, 1).turnIndex).toBe(1);
+    });
+
+    test("consecutive assistant lines SHARING a message.id accumulate into one turn", () => {
+      const turns = extractTurns([
+        userLine("one thing", TS1),
+        assistantLineWithId("first half", "msg_a", [], TS2),
+        assistantLineWithId("second half", "msg_a", [], TS3),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).assistantText).toBe("first half\nsecond half");
+    });
+
+    test("a parallel tool batch under ONE message.id stays a single turn", () => {
+      // This is the population the earlier 12-of-12 sample looked at: several
+      // tool_use blocks belonging to one model turn. Accumulation is CORRECT
+      // here — a fusion fix that split these would be a regression, not a fix.
+      const turns = extractTurns([
+        userLine("search two places", TS1),
+        assistantLineWithId("dispatching", "msg_a", [regularToolCall("Grep", "toolu_1")], TS2),
+        assistantLineWithId("", "msg_a", [regularToolCall("Glob", "toolu_2")], TS3),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).toolCalls).toHaveLength(2);
+    });
+
+    test("assistant lines with NO message.id accumulate, as they did before mt#3883", () => {
+      // Absence carries no boundary signal; treating it as one would manufacture
+      // turn splits out of missing data.
+      const turns = extractTurns([
+        userLine("legacy shape", TS1),
+        assistantLine("part one", [], TS2),
+        assistantLine("part two", [], TS3),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).assistantText).toBe("part one\npart two");
+    });
+
+    test("a same-id continuation after an assistant-only line is not split", () => {
+      // Pre-mt#3883 an assistant line with no pending user flushed eagerly, so
+      // the continuation landed in its own turn — the fusion defect running the
+      // other way.
+      const turns = extractTurns([
+        assistantLineWithId("bare start", "msg_a", [], TS1),
+        assistantLineWithId("bare continued", "msg_a", [], TS2),
+      ]);
+
+      expect(turns).toHaveLength(1);
+      expect(assertTurn(turns, 0).userText).toBeNull();
+      expect(assertTurn(turns, 0).assistantText).toBe("bare start\nbare continued");
+    });
+
+    test("a fusion boundary shifts every later turn index by one", () => {
+      // The downstream consequence the consumer audit rests on: correcting a
+      // boundary renumbers every turn after it, which is why re-extraction
+      // cannot preserve embeddings by index (see turn-writer.ts).
+      const turns = extractTurns([
+        userLine("first", TS1),
+        assistantLineWithId("reply one", "msg_a", [], TS2),
+        assistantLineWithId("reply two", "msg_b", [], TS3),
+        userLine("second", TS3),
+        assistantLineWithId("reply three", "msg_c", [], TS4),
+      ]);
+
+      expect(turns.map((t) => t.turnIndex)).toEqual([0, 1, 2]);
+      expect(assertTurn(turns, 2).userText).toBe("second");
+    });
+  });
+
+  describe("child agent session id projection (mt#3962)", () => {
+    /** A real Agent-result id shape: bare `a` + 16 hex, as the harness reports it. */
+    const RAW_CHILD_ID = "a2967d2071b06d0fc";
+    /** The same id in the form `agent_transcripts.agent_session_id` stores. */
+    const PREFIXED_CHILD_ID = `agent-${RAW_CHILD_ID}`;
+
+    function childIdOf(turn: ReturnType<typeof assertTurn>, index = 0): unknown {
+      const call = turn.toolCalls?.[index] as Record<string, unknown> | undefined;
+      return call?.[CHILD_AGENT_SESSION_ID_KEY];
+    }
+
+    test("attaches the child id the Agent call's result reported", () => {
+      const turns = extractTurns([
+        userLine("dispatch one"),
+        assistantLine("dispatching", [agentToolCall("toolu_a")]),
+        agentResultLine("toolu_a", RAW_CHILD_ID),
+      ]);
+
+      expect(childIdOf(assertTurn(turns, 0))).toBe(PREFIXED_CHILD_ID);
+    });
+
+    test("two Agent calls on ONE turn resolve to DISTINCT children", () => {
+      // The case that is 0-of-159 in production: the cwd-time heuristic hands
+      // both calls the same answer because its inputs do not vary per call.
+      const turns = extractTurns([
+        userLine("dispatch two"),
+        assistantLine("dispatching both", [agentToolCall("toolu_a"), agentToolCall("toolu_b")]),
+        agentResultLine("toolu_a", "aaaa111122223333"),
+        agentResultLine("toolu_b", "bbbb444455556666"),
+      ]);
+
+      const turn = assertTurn(turns, 0);
+      expect(turn.toolCalls).toHaveLength(2);
+      expect(childIdOf(turn, 0)).toBe("agent-aaaa111122223333");
+      expect(childIdOf(turn, 1)).toBe("agent-bbbb444455556666");
+      expect(childIdOf(turn, 0)).not.toBe(childIdOf(turn, 1));
+    });
+
+    test("a call whose result never arrived carries no child id", () => {
+      const turns = extractTurns([
+        userLine("dispatch one"),
+        assistantLine("dispatching", [agentToolCall("toolu_a")]),
+      ]);
+
+      expect(childIdOf(assertTurn(turns, 0))).toBeUndefined();
+    });
+
+    test("a result with no agentId (an ordinary tool) attaches nothing", () => {
+      const turns = extractTurns([
+        userLine("run a command"),
+        assistantLine("running", [regularToolCall("Bash", "toolu_bash")]),
+        toolResultLine("toolu_bash"),
+      ]);
+
+      expect(childIdOf(assertTurn(turns, 0))).toBeUndefined();
+    });
+
+    test("does not mutate the caller's transcript blocks", () => {
+      const call = agentToolCall("toolu_a");
+      extractTurns([
+        userLine("dispatch"),
+        assistantLine("dispatching", [call]),
+        agentResultLine("toolu_a", RAW_CHILD_ID),
+      ]);
+
+      expect(call[CHILD_AGENT_SESSION_ID_KEY]).toBeUndefined();
+    });
+
+    describe("normalizeChildAgentSessionId", () => {
+      test("prefixes a bare result id with the transcript-side form", () => {
+        expect(normalizeChildAgentSessionId(RAW_CHILD_ID)).toBe(PREFIXED_CHILD_ID);
+      });
+
+      test("leaves an already-prefixed id alone, so a re-parse cannot double-prefix", () => {
+        expect(normalizeChildAgentSessionId(PREFIXED_CHILD_ID)).toBe(PREFIXED_CHILD_ID);
+      });
     });
   });
 });

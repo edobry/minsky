@@ -50,7 +50,7 @@ import { dirname, join } from "path";
 // mt#3046: STATIC — installs the tsyringe reflect polyfill before any domain
 // module loads. The dynamic persistence import below needs it, and a dynamic
 // import cannot install it retroactively.
-import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
 const COVERED_TOOL_NAME = "mcp__minsky__session_start";
 /** Single source for this hook's name — used in the log prefix AND as the `hook` field of every failure record. */
@@ -60,10 +60,11 @@ const LOG_PREFIX = `[${HOOK_NAME}]`;
 /**
  * Overall budget for the DB work, well inside the hook's own timeout.
  *
- * Mirrors `stamp-pr-author-link.ts`'s deadline: `ensureHookDomainBootstrap`
- * caps the CONNECT phase at 2s (mt#2982), but nothing bounds the queries
- * afterwards. This deadline covers the whole path so a hung query cannot hold
- * PostToolUse open.
+ * Mirrors `stamp-pr-author-link.ts`'s deadline, and carries the same mt#3879
+ * note: the 2s connect cap this budget was originally sized alongside is gone
+ * (it sat below the measured cold-connect cost, so no hook ever reached a
+ * provider). This deadline is now the only bound on the whole path — connect
+ * plus queries — so a hung query cannot hold PostToolUse open.
  */
 const DB_DEADLINE_MS = 8000;
 
@@ -328,16 +329,27 @@ if (import.meta.main) {
       process.exit(0);
     }
 
-    const { resolvePersistenceProvider } = await import(
+    const { resolvePersistenceProviderOrError } = await import(
       "../../packages/domain/src/persistence/factory"
     );
     const { writeSessionCreatorLink } = await import(
       "../../packages/domain/src/transcripts/session-creator-link-writer"
     );
 
-    const provider = await resolvePersistenceProvider();
-    if (!provider || !("getDatabaseConnection" in provider)) {
-      recordFailure("warn: no SQL-capable persistence provider", { conversationId, taskId });
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) {
+      recordFailure(`warn: ${describeProviderResolutionFailure(resolution)}`, {
+        conversationId,
+        taskId,
+      });
+      process.exit(0);
+    }
+    const provider = resolution.provider;
+    if (!("getDatabaseConnection" in provider)) {
+      recordFailure(`warn: provider ${provider.constructor.name} is not SQL-capable`, {
+        conversationId,
+        taskId,
+      });
       process.exit(0);
     }
 

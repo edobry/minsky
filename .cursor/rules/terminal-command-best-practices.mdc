@@ -12,6 +12,16 @@ tags:
   keep commands simple.
 - **One verification command per call, output visible.** Never `>/dev/null` a result you must
   read; never chain checks with `&&`/`;` — you lose which one failed.
+- **Truncating is suppressing, and it hides better (mt#4096).** `| tail -N` / `| head -N` on a
+  command whose OUTCOME FIELDS you are about to rely on discards them by position, and unlike
+  `>/dev/null` it leaves plausible-looking output — so their absence produces no error to notice.
+  Highest-cost case: `session commit` / `session update` / `session pr create|merge` / `git push`,
+  whose `pushed` / `pushUnconfirmed` / `pushConfirmedVia` are exactly what a `tail -6` cuts
+  (`CLAUDE.md §Sequence Dependent Tool Calls` requires reading them). Use `--json` plus a field
+  read (`| jq -r '.pushed, .pushUnconfirmed'`); a TARGETED read (`jq`, `grep <field>`) is fine —
+  positional truncation is not. **When you switch to `| tail` to diagnose a failure, the re-run
+  after the fix is a verification again — switch back.** Observer:
+  `truncated-outcome-read` (`hook-observers.mdc`).
 - **Bulk/loop commands:** never suppress a per-item result (tally+log, not `>/dev/null`
   per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
   loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
@@ -41,6 +51,23 @@ cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one fie
 UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
 a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
 Never `producer | gh secret set` (empty stdin writes an EMPTY secret): capture → guard → write.
+
+**Do not hand-roll the filter — a sanctioned check exists (mt#4022).** A hand-written pattern is a
+hypothesis about the text, not a measurement of it, and this has already failed in both directions
+eleven days apart: mem#808 (a `postgres://`-only pattern silently passed a `postgresql://`
+credential through unchanged) and mem#972 (a pattern that also matched `maskConnectionString`'s own
+`://***:***@` redaction, reporting a correctly-masked command as a leak). Pipe the candidate output
+through the vetted shape list instead of writing a new regex:
+
+```bash
+producer | minsky security check-credentials --quiet
+```
+
+Exit 0 = checked, clean. Exit 1 = checked, an unmasked credential shape was found — the command's
+own output never prints the matched text, on any path, including its error path (exit 2 = the
+check itself did not complete — never conflated with a clean pass). Reuses the same shape list the
+transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
+already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
 File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
 discipline-tier. Recipes + leak-containment runbook:

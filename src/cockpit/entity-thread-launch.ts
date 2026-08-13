@@ -41,6 +41,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   startDrivenSession,
   sendDrivenSessionInput,
+  buildReconnectingDrivenSessionRecord,
   drivenSessionRegistry,
   hasLiveActuator,
   DEFAULT_PERMISSION_MODE,
@@ -61,6 +62,8 @@ import {
   entityThreadLocalId,
   type EntityThreadEntityType,
 } from "@minsky/domain/transcripts/entity-thread-store";
+import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
+import { pendingReplyBuffer, schedulePendingDrain } from "./entity-thread-reply-buffer";
 
 // ---------------------------------------------------------------------------
 // Seeding (pure)
@@ -425,13 +428,58 @@ export interface EntityThreadSession {
    * session as ready.
    */
   seeded: boolean;
+  /**
+   * The conversation this call REPLACED with a fresh seeded child (mt#4093).
+   *
+   * Present only on the one path that actually replaces something: a persisted
+   * row naming a conversation that could not be resumed. Absent for a first
+   * launch, a reuse, a resume, and for a row that never linked a conversation
+   * — in none of those is there a prior exchange the new agent is missing.
+   *
+   * The caller MUST record and surface it. Every turn already on the operator's
+   * screen belongs to this conversation, and the agent about to answer has
+   * never seen any of them; left unsaid, the panel renders continuity that does
+   * not exist. It is reported here because this is the last moment it is
+   * knowable — the spawn below upserts `driven_sessions` on the same
+   * `localId`, overwriting `harness_session_id` with the new conversation.
+   */
+  replacedConversationId?: string;
+  /**
+   * Why this call spawned a fresh seeded child, when it spawned one (mt#4093).
+   * Absent for a reuse and for a resume — neither spawned fresh.
+   *
+   * Reported as a VALUE, not left to the log line that renders it. The log is
+   * what a human reads after the fact; a caller (and a test) needs the reason
+   * itself, and deriving it a second time from a formatted string would be the
+   * usual way the two drift apart. It is also what makes "every fresh spawn
+   * says why" checkable without patching the logger.
+   */
+  freshSpawnReason?: FreshSpawnReason;
 }
 
-/** What {@link respawnThreadActuator} decided to do about a dead record. */
+/**
+ * Why a thread ended up spawning a fresh seeded child instead of resuming.
+ *
+ * Named rather than collapsed to a boolean because the three cases call for
+ * different things: the first is an ordinary first launch, the second is a
+ * CONVERSATION SWAP the operator has to be told about, and the third is a
+ * failure whose cause is unknown to this layer.
+ */
+export type FreshSpawnReason =
+  /** No persisted row, or no database — this thread has never had an agent. */
+  | "no-prior-conversation"
+  /** A row exists and names a conversation that cannot be resumed. A SWAP. */
+  | "prior-conversation-unrecoverable"
+  /** A row exists but never linked a conversation (spawn died before `init`). */
+  | "prior-spawn-never-linked"
+  /** The resume itself threw — the store may simply be unreachable. */
+  | "resume-attempt-failed";
+
+/** What {@link respawnThreadActuator} decided to do about an absent or dead record. */
 type ThreadActuatorRespawn =
   | { kind: "resumed"; record: DrivenSessionRecord }
   /** Nothing to resume — the caller should spawn a fresh seeded child. */
-  | { kind: "spawn-fresh" }
+  | { kind: "spawn-fresh"; reason: FreshSpawnReason; replacedConversationId?: string }
   /** Another process holds the resume lock for this conversation right now. */
   | { kind: "held-elsewhere" };
 
@@ -472,27 +520,42 @@ async function respawnThreadActuator(
     // rather than leaving the thread with no agent at all.
     const message = err instanceof Error ? err.message : String(err);
     log.warn(`entity-thread: resume attempt failed for ${localId}: ${message}`);
-    return { kind: "spawn-fresh" };
+    return { kind: "spawn-fresh", reason: "resume-attempt-failed" };
   }
 
   switch (outcome.outcome) {
     case "resumed":
-      log.info(`entity-thread: resumed the dead actuator for ${localId}`);
+      log.info(`entity-thread: resumed the actuator for ${localId}`);
       return { kind: "resumed", record: outcome.record };
     case "locked":
       log.info(`entity-thread: another process is resuming ${localId} — not spawning a rival`);
       return { kind: "held-elsewhere" };
-    case "not-found":
     case "unrecoverable":
-    default:
-      // `not-found` covers the never-persisted and no-database cases;
-      // `unrecoverable` covers a child that died before `init` (no harness
-      // session id to resume) and a vanished cwd. Both are answered the same
-      // way — start over and re-seed.
+      // Split from `not-found` (mt#4093). Both end in a fresh seeded spawn, but
+      // only this one REPLACES something: a row exists, and when it names a
+      // conversation, the turns already on the operator's screen belong to that
+      // conversation and the incoming agent has never seen them. Collapsing the
+      // two hid exactly that distinction.
       log.info(
-        `entity-thread: ${localId} is not resumable (${outcome.outcome}) — spawning a fresh seeded child`
+        `entity-thread: ${localId} is not resumable (${outcome.reason}) — spawning a fresh seeded child${
+          outcome.harnessSessionId ? `, replacing conversation ${outcome.harnessSessionId}` : ""
+        }`
       );
-      return { kind: "spawn-fresh" };
+      return {
+        kind: "spawn-fresh",
+        reason: outcome.harnessSessionId
+          ? "prior-conversation-unrecoverable"
+          : "prior-spawn-never-linked",
+        ...(outcome.harnessSessionId ? { replacedConversationId: outcome.harnessSessionId } : {}),
+      };
+    case "not-found":
+    default:
+      // The never-persisted and no-database cases. Nothing is being replaced —
+      // this is an ordinary first launch (or a launch the store cannot see).
+      log.info(
+        `entity-thread: no resumable conversation for ${localId} — spawning a fresh seeded child`
+      );
+      return { kind: "spawn-fresh", reason: "no-prior-conversation" };
   }
 }
 
@@ -525,23 +588,60 @@ export async function startEntityThreadSession(
     return { localId, record: existing, spawned: false, seeded: true };
   }
 
-  if (existing) {
-    const respawn = await respawnThreadActuator(localId, opts);
-    if (respawn.kind === "resumed") {
-      // Already seeded — a resume continues the conversation the seed prompt
-      // scoped, so re-sending it would repeat the whole scoping instruction to
-      // an agent that has it.
-      return { localId, record: respawn.record, spawned: true, seeded: true };
-    }
-    if (respawn.kind === "held-elsewhere") {
-      // `seeded: false` (PR #2601 R1 BLOCKING): no actuator is behind this
-      // record, so nothing accepted anything. The thread's conversation WAS
-      // scoped once, but reporting that as `seeded` here would tell the caller
-      // an agent is ready when none is reachable until the other process
-      // releases the lock — which is how a stuck thread gets masked, the exact
-      // failure this task exists to end.
-      return { localId, record: existing, spawned: false, seeded: false };
-    }
+  // mt#4093: consulted whenever no LIVE actuator is behind the thread — NOT
+  // only when the registry happens to hold a record. The `if (existing)` this
+  // replaced made an ABSENT record fall straight through to the fresh spawn
+  // below, so a thread whose conversation the registry had simply not loaded
+  // (a daemon restart before boot reconciliation populated it, or a row whose
+  // terminal status excluded it from that read) silently continued under a new
+  // agent with none of the history the panel kept rendering. None of this
+  // function's three resume branches even ran, which is why the incident logs
+  // showed no trace of a declined resume: there was no resume to decline.
+  //
+  // The resume path does not need the registry. `orchestrateDrivenSessionResume`
+  // reads the PERSISTED row and builds its `previous` record from it, and
+  // `registry.replace` guards its old-record lookup — so installing over an
+  // empty slot is safe. This is also what the sibling caller already does:
+  // ./driven-session-ws.ts consults the same orchestration unconditionally and
+  // treats only a `not-found` OUTCOME as gone. The two callers of one
+  // orchestration no longer disagree about when to ask it.
+  const respawn = await respawnThreadActuator(localId, opts);
+  if (respawn.kind === "resumed") {
+    // Already seeded — a resume continues the conversation the seed prompt
+    // scoped, so re-sending it would repeat the whole scoping instruction to
+    // an agent that has it.
+    return { localId, record: respawn.record, spawned: true, seeded: true };
+  }
+  if (respawn.kind === "held-elsewhere") {
+    // `seeded: false` (PR #2601 R1 BLOCKING): no actuator is behind this
+    // record, so nothing accepted anything. The thread's conversation WAS
+    // scoped once, but reporting that as `seeded` here would tell the caller
+    // an agent is ready when none is reachable until the other process
+    // releases the lock — which is how a stuck thread gets masked, the exact
+    // failure this task exists to end.
+    //
+    // With no registry record to hand back, a placeholder is built rather than
+    // spawning a rival — the lock exists precisely to stop a second child
+    // against one conversation, and that constraint does not weaken just
+    // because this daemon has not loaded the record. `driven-session-ws.ts`
+    // builds the same placeholder for the same reason. It has no actuator, so
+    // `sendDrivenSessionInput` refuses and the caller reports the message
+    // undelivered — which is the truth, and clears in seconds.
+    const record =
+      existing ??
+      buildReconnectingDrivenSessionRecord({
+        localId,
+        harnessSessionId: null,
+        cwd: opts.cwd ?? process.cwd(),
+        permissionMode: DEFAULT_PERMISSION_MODE,
+        taskId: null,
+        minskySessionId: null,
+        status: "reconnecting",
+        unrecoverableReason: null,
+        actuatorGeneration: 0,
+        startedAt: new Date().toISOString(),
+      });
+    return { localId, record, spawned: false, seeded: false };
   }
 
   log.debug(`startEntityThreadSession: spawning for ${localId}`);
@@ -590,7 +690,16 @@ export async function startEntityThreadSession(
     log.warn(`startEntityThreadSession: spawned ${localId} but the seed prompt was not accepted`);
   }
 
-  return { localId, record: result.record, spawned: true, seeded };
+  return {
+    localId,
+    record: result.record,
+    spawned: true,
+    seeded,
+    freshSpawnReason: respawn.reason,
+    ...(respawn.replacedConversationId
+      ? { replacedConversationId: respawn.replacedConversationId }
+      : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -641,11 +750,21 @@ export function extractAssistantTextFromEvent(payload: Record<string, unknown>):
  * open would silently lose exactly the replies the principal stepped away
  * from.
  *
- * Write failures are logged and swallowed: this subscriber runs on the live
- * session's event path, where the sibling observers' convention (see
+ * A write failure never throws: this subscriber runs on the live session's
+ * event path, where the sibling observers' convention (see
  * ./driven-session-launch.ts) is that persistence must never disturb the
- * running child. A dropped turn degrades the thread's history; a throw here
- * would degrade the session itself.
+ * running child. That constraint is unchanged.
+ *
+ * What CHANGED at mt#4036 is what happens instead of throwing. This used to
+ * log and drop, on the reasoning that "a dropped turn degrades the thread's
+ * history." The 2026-08-11 outage falsified that: the panel renders the thread
+ * from this table, so a dropped reply is not a history gap — it is the ANSWER,
+ * and its absence is indistinguishable from an agent that never replied. Four
+ * replies were lost that way while the agent worked, and the operator sat
+ * looking at silence. Not-throwing and not-losing were being treated as the
+ * same choice; they are independent. The reply now goes to
+ * ./entity-thread-reply-buffer.ts, which reconciles it back into the table when
+ * the store recovers and reports it to the operator until then.
  */
 export function createEntityThreadReplyRecorder(
   db: PostgresJsDatabase,
@@ -656,9 +775,29 @@ export function createEntityThreadReplyRecorder(
       const text = extractAssistantTextFromEvent(event.payload);
       if (!text) return;
       void appendEntityThreadTurn(db, { localId, role: "agent", content: text }).catch((err) => {
-        log.warn(`entity-thread reply recorder: failed to persist turn for ${localId}`, {
-          error: err instanceof Error ? err.message : String(err),
-        });
+        // The EVENT's instant, not the rejection's (PR #2913 R1 non-blocking):
+        // a slow failure path would push the watermark later than the reply
+        // actually was, which is the direction that makes the reconcile miss a
+        // turn that did land. Defensive parse — a malformed timestamp falls
+        // back to the buffer's own default rather than poisoning the watermark
+        // with NaN.
+        const observedAt = Date.parse(event.receivedAt);
+        const report = pendingReplyBuffer.buffer(
+          localId,
+          text,
+          Number.isNaN(observedAt) ? undefined : observedAt
+        );
+        // `getLoggableErrorSummary`, not `err.message`: on a Drizzle failure the
+        // message is the QUERY TEXT and the Postgres cause sits on `.cause`
+        // (mt#3398). Reading `err.message` alone is why the four 2026-08-11 log
+        // lines carried the entire rejected INSERT — reply body included — and
+        // still did not say WHY it failed. The helper keeps the cause and bounds
+        // each level, so the body can no longer be emitted whole.
+        log.warn(
+          `entity-thread reply recorder: failed to persist turn for ${localId} — buffered, ${report.pending} pending`,
+          { error: getLoggableErrorSummary(err) }
+        );
+        schedulePendingDrain(db);
       });
     },
     // An actuator swap replaces the record this subscriber is attached to. The

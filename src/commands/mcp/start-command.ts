@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { createServer } from "http";
 import { Command } from "commander";
 // mt#1719 Intervention 2: `express`, `launchInspector`/`isInspectorAvailable`,
 // and `resolveOAuthProvider` were top-level imports. They are HTTP-only
@@ -56,6 +57,28 @@ import {
 // at runtime by TypeScript and stay top-level.
 import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
 import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
+// mt#3814: local shared MCP daemon lifecycle. Statically imported despite the
+// cold-start discipline above — the module's whole dependency graph is
+// node builtins plus `health-identity` (a pure function file), so there is no
+// closure here worth deferring, and the bind-error handler needs it
+// synchronously at `app.listen` time.
+import {
+  ensureLocalDaemonToken,
+  writeDiscoveryRecord,
+  removeDiscoveryRecord,
+  probeHealthIdentity,
+  classifyPortConflict,
+  formatPortConflictFailure,
+  findListenerPid,
+  resolveLocalDaemonDefaults,
+  DEFAULT_LOCAL_DAEMON_PORT,
+  DEFAULT_LOCAL_DAEMON_HOST,
+  LOCAL_DAEMON_IDLE_TIMEOUT_MS,
+} from "../../mcp/daemon/local-daemon";
+import {
+  createAdmissionGate,
+  resolveAdmissionWatermarkBytes,
+} from "../../mcp/daemon/memory-admission";
 import { profileCheckpoint } from "../../utils/cold-start-profile";
 
 const DEFAULT_HTTP_PORT = 3000;
@@ -387,6 +410,8 @@ async function startHttpServer(
     host: string;
     endpoint: string;
     requireAuth?: boolean;
+    /** mt#3814: run as the shared local daemon (ADR-038). */
+    localDaemon?: boolean;
   },
   projectContext?: ReturnType<typeof createProjectContext>,
   oauthProvider?: OAuthIdentityProvider,
@@ -405,6 +430,20 @@ async function startHttpServer(
   // endpoints to advertise the correct public `https://` URL.
   app.set("trust proxy", 1);
   app.use(express.json());
+
+  // mt#3814 / ADR-038 §Question 5: the local daemon is auth-required, and it
+  // supplies its own token rather than expecting the launcher to. Generation
+  // is idempotent — the tray supervisor (mt#3815) and `minsky setup local-http`
+  // (mt#3816) call the same helper, and only the first one to run mints. This
+  // MUST run before the token is read below, which is why it sits here rather
+  // than with the rest of the daemon wiring further down.
+  if (options.localDaemon && !process.env.MINSKY_MCP_AUTH_TOKEN?.trim()) {
+    const ensured = ensureLocalDaemonToken();
+    process.env.MINSKY_MCP_AUTH_TOKEN = ensured.token;
+    log.cli(
+      `Local MCP daemon token ${ensured.created ? "generated at" : "read from"} ${ensured.path}`
+    );
+  }
 
   // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
   // --require-auth was passed. /health remains public for Railway probes.
@@ -792,7 +831,17 @@ async function startHttpServer(
   // / `trust proxy`, so the metadata they emit reflects the externally-
   // observed URL even though these log lines do not.
   const httpPort = parseInt(options.port, 10);
-  app.listen(httpPort, options.host, () => {
+
+  // PR #2871 R1 BLOCKING: construct the server and attach the bind-error
+  // handler BEFORE listening, rather than attaching to what `app.listen()`
+  // returns. Node defers an `EADDRINUSE` to `process.nextTick`, so attaching
+  // afterwards is safe there — but this runs on Bun, and the correctness of
+  // the adopt-or-fail path should not rest on a runtime's emit timing when
+  // ordering the two lines removes the question entirely. An unhandled
+  // 'error' on a server is a process crash, which is the failure mode this
+  // handler exists to replace with a legible message.
+  const httpServer = createServer(app);
+  const onListening = (): void => {
     log.cli("Minsky MCP Server started with HTTP transport");
     log.cli(`Server listening on ${options.host}:${httpPort}`);
     log.cli(`MCP endpoint: http://${options.host}:${httpPort}${options.endpoint}`);
@@ -801,7 +850,80 @@ async function startHttpServer(
       log.cli(`Repository path: ${projectContext.repositoryPath}`);
     }
     log.cli("Ready to receive MCP requests via HTTP");
+
+    // mt#3814: the discovery record is written from the LISTEN callback, not
+    // before the bind, so the file can never advertise a port this process did
+    // not actually get. It is for the supervisor, the CLI, and (mt#2430) hook
+    // subprocesses — never for the MCP client, which reads a static config.
+    if (options.localDaemon) {
+      try {
+        const written = writeDiscoveryRecord({
+          port: httpPort,
+          host: options.host,
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+        });
+        log.cli(`Local MCP daemon discovery file: ${written}`);
+      } catch (error) {
+        // Non-fatal: a daemon nobody can discover still serves every client
+        // that has the static URL, which is all of them today.
+        log.warn("Failed to write the local MCP daemon discovery file (non-fatal)", {
+          error: getErrorMessage(error),
+        });
+      }
+    }
+  };
+
+  // mt#3814 / ADR-038 §Question 4: identity-asserting adopt-or-fail.
+  //
+  // Without a listener on 'error', an EADDRINUSE is an unhandled event that
+  // crashes the process with a stack trace naming neither the port's owner nor
+  // what to do about it. Two outcomes only — adopt an asserted `minsky-mcp`
+  // incumbent, or fail loudly. Never bind elsewhere: the port is the contract
+  // the static client config targets, so a "helpful" fallback produces a
+  // running daemon no client can reach.
+  //
+  // Identity is asserted rather than inferred from a 200, because mt#3811
+  // observed a client's own model spawning a competing daemon on this port
+  // with its shell access — "something answers" is exactly the case this has
+  // to discriminate.
+  httpServer.on("error", (error: NodeJS.ErrnoException) => {
+    if (error.code !== "EADDRINUSE") {
+      log.cliError(`HTTP server error: ${getErrorMessage(error)}`);
+      exit(1);
+      return;
+    }
+    if (!options.localDaemon) {
+      log.cliError(`Port ${options.host}:${httpPort} is already in use.`);
+      exit(1);
+      return;
+    }
+    void (async () => {
+      const probe = await probeHealthIdentity(`http://${options.host}:${httpPort}/health`);
+      const decision = classifyPortConflict(probe);
+      if (decision.action === "adopt") {
+        log.cli(
+          `Local MCP daemon already running on ${options.host}:${httpPort} — ${decision.detail}. ` +
+            `Adopting the incumbent and exiting; the port has exactly one owner (ADR-014).`
+        );
+        exit(0);
+        return;
+      }
+      log.cliError(
+        formatPortConflictFailure({
+          host: options.host,
+          port: httpPort,
+          pid: findListenerPid(httpPort),
+          detail: decision.detail,
+        })
+      );
+      exit(1);
+    })();
   });
+
+  // Bind LAST: every handler above is registered before the socket can produce
+  // an event, so there is no window in which an EADDRINUSE has nowhere to go.
+  httpServer.listen(httpPort, options.host, onListening);
 
   // Initialize the MCP server (without connecting transport since HTTP is on-demand)
   await server.start();
@@ -1192,7 +1314,15 @@ export function createStartCommand(
       "--require-auth",
       "Require bearer-token auth on the HTTP MCP endpoint (token from MINSKY_MCP_AUTH_TOKEN env)"
     )
-    .action(async (options) => {
+    .option(
+      "--local-daemon",
+      `Run as the shared local MCP daemon (mt#3814, ADR-038): implies --http, defaults to ` +
+        `${DEFAULT_LOCAL_DAEMON_HOST}:${DEFAULT_LOCAL_DAEMON_PORT}, generates and uses the 0600 ` +
+        `bearer token, writes a discovery file, adopts-or-fails on a port conflict, and reaps ` +
+        `idle sessions after ${LOCAL_DAEMON_IDLE_TIMEOUT_MS / 60000} minutes instead of the ` +
+        `hosted 2h default (override with MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS)`
+    )
+    .action(async (options, command) => {
       try {
         // mt#1745: cold-start profiling. `profileCheckpoint` is shared with
         // `src/cli.ts` so all checkpoint `t=` values are relative to the
@@ -1206,6 +1336,31 @@ export function createStartCommand(
         if (!container) {
           const { createDomainContainer } = await import("@minsky/domain/composition/domain");
           container = await createDomainContainer();
+        }
+
+        // mt#3814: --local-daemon is a MODE, and the transport is one of the
+        // things the mode decides. It implies --http and supplies ADR-038's
+        // port/host contract for any value the caller did not pass
+        // explicitly. `getOptionValueSource` is what distinguishes "the user
+        // typed --port 3000" from "commander filled in its default" — without
+        // it, an explicit `--port 3000 --local-daemon` would be silently
+        // overridden, which is the same class of surprise as picking a
+        // different port on conflict.
+        if (options.localDaemon) {
+          options.http = true;
+          const defaults = resolveLocalDaemonDefaults({
+            portFromCli: command.getOptionValueSource("port") === "cli",
+            hostFromCli: command.getOptionValueSource("host") === "cli",
+            currentPort: options.port,
+            currentHost: options.host,
+            currentIdleTimeoutMs: process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS,
+          });
+          options.port = defaults.port;
+          options.host = defaults.host;
+          // Assigned before the server is constructed and reads it. Scoped to
+          // this branch, so a plain `--http` server keeps the hosted 2h default
+          // untouched.
+          process.env.MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS = defaults.sessionIdleTimeoutMs;
         }
 
         // Determine transport type from --http flag
@@ -1763,6 +1918,7 @@ export function createStartCommand(
               host: options.host,
               endpoint: options.endpoint,
               requireAuth: options.requireAuth,
+              localDaemon: Boolean(options.localDaemon),
             },
             projectContext,
             oauthProvider,
@@ -1832,6 +1988,22 @@ export function createStartCommand(
             });
           });
 
+        // Fire-and-forget second writer of the prod-state cache (mt#3922, implementing
+        // mt#3896). Staleness-gated: it refreshes only when the cache is absent or older
+        // than one missed daemon sweep, so this server's ~100 restarts a day do not become
+        // ~100 ledger reads a day. The cockpit daemon keeps its own sweep — this is
+        // redundancy across two process lifetimes, not a relocation.
+        import("../../mcp/prod-state-boot-refresh")
+          .then(({ triggerProdStateBootRefresh }) => {
+            if (!container) return;
+            return triggerProdStateBootRefresh(container.get("persistence"));
+          })
+          .catch((err) => {
+            log.warn("Prod-state boot refresh failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
+
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start
         // path — never from `minsky --help` or any CLI-only code path.
@@ -1874,6 +2046,20 @@ export function createStartCommand(
           // never hangs indefinitely (e.g. when Claude Code closes the stdio pipe
           // without sending a signal — mt#1417).
           const drainAndClose = async (): Promise<void> => {
+            // mt#3814: stop advertising before draining, so a supervisor or a
+            // CLI reading the discovery file during the drain window does not
+            // hand out a daemon that is on its way out. Guarded on pid, so a
+            // process that adopted an incumbent (or lost a bind race) never
+            // deletes the winner's record.
+            if (options.localDaemon) {
+              try {
+                removeDiscoveryRecord(process.pid);
+              } catch (error) {
+                log.warn("Failed to remove the local MCP daemon discovery file (non-fatal)", {
+                  error: getErrorMessage(error),
+                });
+              }
+            }
             try {
               // Stop the scheduler first so in-flight syncs complete before closing.
               if (scheduler) {
@@ -1937,6 +2123,101 @@ export function createStartCommand(
         process.on("SIGTERM", cleanup);
         process.on("SIGINT", cleanup);
         process.on("SIGHUP", cleanup);
+
+        // mt#3764: HTTP-mode orphan/idle process exit path. Prevents an
+        // ad-hoc, locally-spawned `mcp start --http` (e.g. a subagent
+        // testing a server in a session workspace and never terminating
+        // it) from running indefinitely — see src/mcp/orphan-exit.ts for
+        // the two mechanisms (parent-death ppid-transition detection,
+        // never-connected idle timeout) and why neither affects the
+        // Railway/Docker hosted entrypoint (its ppid is 1 from the first
+        // tick, per the Dockerfile's shell-form CMD, and stays 1 for the
+        // container's lifetime).
+        const {
+          wireOrphanExitWatchers,
+          wireMemoryCeilingWatcher,
+          getCurrentProcessPpid,
+          getCurrentProcessUptimeSeconds,
+          getCurrentProcessMemoryBytes,
+          resolveMemoryCeilingBytes,
+        } = await import("../../mcp/orphan-exit");
+        const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
+
+        // mt#3814: name the shared daemon distinctly in every memory record.
+        // mt#3885's central open premise is that the 40–60GB runaway is NOT
+        // attributable — the panic reports carry no argv and `procname` is
+        // "bun" for at least four Minsky process classes — so a breach record
+        // reading `mcp start (http)` for both a one-off HTTP server and the
+        // shared daemon would reproduce exactly that ambiguity in the one
+        // place set up to resolve it.
+        const processRole = options.localDaemon
+          ? "mcp start (local-daemon)"
+          : `mcp start (${transportType})`;
+
+        if (transportType === "http") {
+          wireOrphanExitWatchers({
+            initialPpid: getCurrentProcessPpid(),
+            getCurrentPpid: getCurrentProcessPpid,
+            hasEverConnected: () => server.hasEverHadHttpSession(),
+            onExit: () => void cleanup(),
+          });
+        }
+
+        // mt#3886: resident-memory ceiling. Deliberately OUTSIDE the
+        // HTTP gate above — the per-conversation fleet that panicked the
+        // machine on 2026-08-08 (three `bun` processes at 15.5/54.2/59.9
+        // GB against 64 GB of RAM) runs this server over STDIO, so an
+        // HTTP-only guard would not have covered a single one of them.
+        wireMemoryCeilingWatcher({
+          initialPpid: getCurrentProcessPpid(),
+          processRole,
+          getUptimeSeconds: getCurrentProcessUptimeSeconds,
+          getDiagnostics: () =>
+            transportType === "http" ? { everConnected: server.hasEverHadHttpSession() } : {},
+          onExit: () => void cleanup(),
+        });
+
+        // mt#3973: the forensic half. A SEPARATE one-shot watcher at a lower
+        // watermark writes what this process was DOING — the MCP tool calls in
+        // flight and their elapsed times — which the ceiling's breach record
+        // does not carry and mt#3885 cannot proceed without. Deliberately not
+        // folded into the ceiling watcher above: the self-terminate is the
+        // machine's protection against a kernel panic and must not be able to
+        // fail, or be delayed, because a diagnostic did.
+        wireMemoryCaptureWatcher({
+          processRole,
+          ceilingBytes: resolveMemoryCeilingBytes(),
+          getResidentBytes: getCurrentProcessMemoryBytes,
+          getUptimeSeconds: getCurrentProcessUptimeSeconds,
+          getInFlightToolCalls: () => server.getInFlightToolCalls(),
+          getDiagnostics: () =>
+            transportType === "http" ? { everConnected: server.hasEverHadHttpSession() } : {},
+        });
+
+        // mt#3814: the graceful step BEFORE the ceiling. The ceiling's exit is
+        // already graceful for in-flight work — `onExit` runs the same
+        // `cleanup` as SIGTERM, which calls `server.drain()` (new tool calls
+        // rejected, up to 5s for in-flight ones, then close) — so nothing here
+        // re-implements draining. What it adds is the state between "serving
+        // normally" and "gone": above the watermark, refuse NEW sessions while
+        // established ones keep working. Armed only for the shared daemon,
+        // because refusing a session is a behavior change and the hosted
+        // Railway surface is out of this task's scope.
+        if (options.localDaemon) {
+          const watermarkBytes = resolveAdmissionWatermarkBytes(resolveMemoryCeilingBytes());
+          if (watermarkBytes !== null) {
+            server.setSessionAdmissionGate(
+              createAdmissionGate({
+                getResidentBytes: getCurrentProcessMemoryBytes,
+                watermarkBytes,
+              })
+            );
+            log.cli(
+              `Local MCP daemon session-admission watermark: ` +
+                `${Math.round(watermarkBytes / (1024 * 1024))}MB`
+            );
+          }
+        }
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard

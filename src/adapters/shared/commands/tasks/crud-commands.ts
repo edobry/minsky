@@ -785,6 +785,8 @@ export class TasksCreateCommand extends BaseTaskCommand<typeof tasksCreateParams
 export class TasksDeleteCommand extends BaseTaskCommand<typeof tasksDeleteParams> {
   readonly id = "tasks.delete";
   readonly name = "delete";
+  // mt#3924: drift-gated — irreversible deletion of a durable record.
+  readonly mutating = true;
   readonly description = "Delete a task";
   readonly parameters = tasksDeleteParams;
 

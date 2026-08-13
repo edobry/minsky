@@ -18,17 +18,18 @@ installed, or the terminal is non-macOS / lacks OSC-8 — the link degrades to t
 (which is why the label must always be a readable ref). This does NOT gate emission: emit the
 link unconditionally and let it degrade gracefully.
 
-This is Surface A (the terminal). Linking here is **agent discipline** — you emit the markdown by
-hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its own side via
-mt#2518.)
+This is Surface A (the terminal). Linking here **was** agent discipline throughout — you emitted
+the markdown by hand. (Surface B, the in-cockpit transcript view, linkifies the same refs on its
+own side via mt#2518.)
 
-**That is a fact about today, not a permanent constraint — corrected 2026-08-04.** This paragraph
-used to read "There is no harness hook that rewrites assistant output," which was true when
-written and is now false: Claude Code's `MessageDisplay` hook (2.1.152+) does exactly that. The
-stale sentence was load-bearing — mt#2565 inherited it as a settled premise and scoped itself
-around a seam it assumed did not exist. Discipline remains the mechanism _until the hook is
-built_ (mt#2565), not because no alternative exists. See
-§The one-link-per-entity ration is provisional below for the evidence and the decision.
+**As of mt#2565 that is only half true.** The paragraph here once read "There is no harness hook
+that rewrites assistant output" — accurate when written, false from Claude Code 2.1.152, and
+load-bearing while it lasted: mt#2565 inherited it as a settled premise and scoped itself around a
+seam it assumed did not exist. The hook now exists and ships (`linkify-message-display.ts`), so on
+Claude Code `mt#NNNN` and `PR #N` are linkified for you. Discipline still owns everything else —
+every other harness, and every ref whose target is not derivable from its label. See
+§The one-link-per-entity ration is provisional below for the evidence, the decision, and what the
+build found.
 
 ## Additional examples
 
@@ -101,11 +102,39 @@ second surface, not merely analogous to it.
   fenced blocks, inline spans and blockquotes with same-length whitespace, preserving character
   offsets — exactly what a position-based rewriter needs.
 
-**Status.** The decision is recorded; the hook is not built. Until it ships the rule's line stands
-as written, with the compliance half tightened: the first mention of an entity is always linked,
-no exceptions. (The originating session also contained a genuine violation — an entity bare on its
-FIRST mention — which is ordinary discipline, not a rule-design question, and needed no rule
+**Status: built (mt#2565, 2026-08-10).** `.claude/hooks/linkify-message-display.ts` rewrites bare
+`mt#NNNN` and `PR #N` into deeplinks as a message is displayed; `.minsky/hooks/entity-linkify.ts`
+is the pure transform it wraps. The rule's ration is retired for those two classes — write the
+clean bare ref. (The originating session also contained a genuine violation — an entity bare on
+its FIRST mention — which is ordinary discipline, not a rule-design question, and needed no rule
 change.)
+
+**What the implementation learned that the decision above did not know.** The feasibility check
+read the client's CHANGELOG; the build read the installed binary's own embedded schema (2.1.226),
+and the event is narrower than the changelog sentence suggests. It fires **per batch of newly
+completed lines while the message streams** — input `{turn_id, message_id, index, final, delta}`,
+dispatched with `forceSyncExecution` — not once per finished message. Three consequences:
+
+- The hook sits in the display hot path, so it loads no domain code and touches no DB or network.
+  Measured cost is ~22ms per invocation (20 runs of the compiled hook against a representative
+  delta), which is process startup plus one small state-file read.
+- Fenced-code elision needs state the delta cannot carry: a ```fence opens in one delta and
+closes in a later one. Hence a single`message_id`-keyed state file, reset when a new message
+starts and deleted on the final flush. Inline spans and blockquotes are line-local and need no
+state, so `elideMarkdownContexts`'s posture carries over directly.
+- **Only refs whose target is derivable from the label can be rewritten.** `mt#2565` →
+  `minsky://task/mt%232565` is a pure string transform. `ask#N` / `mem#N` / `ws#N` are not: ADR-029
+  makes the full UUID the sole target, and resolving a short id needs an id-set the display path
+  cannot read. Those stay bare, which is exactly the class mem#623 R6 measured failing (6 of 6
+  derivable refs linked, 0 of 3 of these). mt#3914 owns closing it with a cached map, following
+  ADR-028 D7(5)'s cache-and-sweep pattern.
+
+**On the harness-specific constraint above.** It is not a temporary bridge and so carries no
+retirement task: `MessageDisplay` is a Claude Code affordance, and on a harness without an
+equivalent seam the authoring discipline is the only mechanism there will ever be — permanently
+harness-conditional rather than provisional. The threshold that would change this: if a second
+harness becomes a working surface for principal-facing output, its linkification gap needs its own
+answer at that point.
 
 ### The noise tradeoff of the tightening, demonstrated
 
@@ -144,8 +173,35 @@ and did not.
 still bare, so a reader landing mid-message on the second `mt#3198` still cannot click it. The
 tightening removes the arbitrariness; only the linkifier removes the problem.
 
+## The emit set and the accept set are different lists (mt#3800, 2026-08-05)
+
+The rule's five-type table governs what an agent WRITES in terminal output. `parseMinskyUri`
+governs what the cockpit RESOLVES when a URL arrives from the OS. Those had been the same list,
+which made it easy to read either as the other's contract; mt#3800 separated them by adding
+`conversation` to the accept set only.
+
+**Why accept it.** `/cockpit` opens the conversation the operator is currently in. Without a
+`conversation` URI type the only reachable target is a raw `http://localhost:<port>/…`, which
+means hard-coding a port the tray does not own and landing in a browser tab rather than the
+cockpit window the operator already has open.
+
+**Why not emit it.** A conversation reference in prose fails both halves of the label/target
+split this rule is built on: the id is a bare uuid with no readable short form (unlike
+`mt#2370`, `mem#728`, `PR #1234`), and the reader of an agent message is BY CONSTRUCTION already
+inside the conversation being referenced — the link would point at where they are.
+
+**A correction this change carries.** From mt#2769 until mt#3800 the codec's module header
+attributed the five-type restriction to an "ADR-022 stage-1 constraint." ADR-022 contains no
+mention of `minsky://`, URIs, or a deeplink type table; its stage-1 text scopes to vocabulary
+adoption in new code and to leaving `session_*` tools, params, DB columns, and session paths
+untouched. The restriction was real and deliberate, but it was a code comment's own decision
+wearing an ADR's authority — an instance of the pattern `claim-confidence.mdc §The corpus is
+agent-authored` names. The header now states the accept-vs-emit split directly and records what
+the ADR does and does not say.
+
 ## Cross-references
 
+- mt#3800 — `conversation` added to the accept set; the `/cockpit` command; the accept-vs-emit split.
 - mt#3459 — this decision; mt#3259 — the cockpit-side bare-short-id linkifier that is its precedent.
 - mt#2517 — parent umbrella (cockpit deeplinks); mt#2519 — the compiled rule (Surface A / terminal).
 - mt#2518 — Surface B (cockpit transcript linkifier) + the shared `(type,id) ↔ minsky:// URI ↔ path` codec this format matches.

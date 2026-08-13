@@ -545,29 +545,80 @@ via `psql` that the `tasks` table was created AND that a follow-up dry-run repor
 migrations. A successful run conclusively proves the bundled binary resolves its migrations
 from an arbitrary working directory.
 
-## Cockpit daemon: circuit-breaker degradation mode (gh#1761)
+### Pending-migration detection (per-migration hash, not row count)
 
-When the cockpit daemon's postgres-js connection trips the Supavisor circuit breaker
-(or any other DB-layer error occurs — `ECIRCUITBREAKER`, `EDBHANDLEREXITED`,
-`CONNECTION_CLOSED`, `CONNECTION_DESTROYED`, or a `PersistenceInitTimeoutError`),
-the daemon's `unhandledRejection` handler catches the error and degrades gracefully
-instead of crashing.
+Relocated from the top-level README (mt#3828).
 
-### What happens on a DB error
+`persistence migrate` (both `--dry-run` and `--execute`) reports which local migrations
+are **pending** — not yet recorded as applied — by comparing each local `.sql` file's
+sha256 hash against the full set of hashes recorded in `drizzle.__drizzle_migrations`,
+NOT by subtracting row counts (`fileCount - appliedCount`). A raw count comparison
+silently reports 0 pending whenever the DB's applied-row count meets or exceeds the local
+file count for any reason unrelated to a specific migration's apply state — a historical
+ledger squash/consolidation, a duplicate or orphaned ledger row, an out-of-band insert —
+while a genuinely-unapplied migration goes unreported. The per-migration hash comparison
+is robust to any such count offset: a migration is pending iff its file's hash is absent
+from the ledger, full stop.
 
-1. `isDbDegradationError(reason)` classifies the rejection as DB-specific.
-2. `markDbDegraded()` resets the shared-persistence singleton so the next
-   `getSharedPersistenceService()` call retries from scratch.
-3. `startDbRetryBackoff()` starts a background loop that retries
+`getPostgresMigrationsStatus` exposes this as `pendingCount` (a number) and `pendingTags`
+(the specific migration tags, e.g. `["0060_slow_kang"]`); the dry-run plan additionally
+carries `plan.pendingFiles` (the same set, as filenames with `.sql`). A missing or
+unreadable migration file (partial checkout, in-flight rename, permissions issue) is
+never silently dropped — it is reported pending and logged as a warning, so the operator
+sees the read failure rather than an unexplained gap in the count.
+
+**The pending list is informational, not a guaranteed preview of what `migrate()` will
+apply.** drizzle-orm's own `migrate()` does not decide what to run by hash-set
+membership — it applies by a single-row **timestamp high-water-mark** (the latest
+`created_at` already in the ledger vs. each journal entry's `when`). When the ledger has
+an anomaly (a duplicate/orphaned row, an out-of-band insert, migrations recorded out of
+`when`-order), the hash-missing set this tool reports and the set drizzle's own
+high-water-mark check will actually apply can diverge — a migration this list names may
+be silently skipped by drizzle (permanently shadowed), or the reverse. Every CLI listing
+of pending migrations is labeled accordingly; treat it as "these files' hashes are not
+recorded as applied," not as an exact forecast of `migrate()`'s next run.
+
+## Cockpit daemon: unhandled-rejection dispositions (gh#1761, mt#4100)
+
+When a DB-layer error reaches the cockpit daemon's `unhandledRejection` handler, the
+daemon degrades gracefully or survives in place instead of crashing.
+
+### The three dispositions (mt#4100)
+
+`classifyUnhandledRejection(reason)` returns one of three, over **two distinct code
+spaces** — conflating them is what mt#4100 was, so the docblock names which is which:
+
+| Disposition | What reaches it                                                                                                                                                                                                                                                                                                     | Response                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `degrade`   | postgres-js **client-side** codes (`ECIRCUITBREAKER`, `EDBHANDLEREXITED`, `CONNECTION_CLOSED`, `CONNECTION_DESTROYED`), `PersistenceInitTimeoutError`, and **server-side** SQLSTATEs whose connection or server is unusable — class `08` (Connection Exception), `53` (Insufficient Resources), and `57P01`–`57P04` | steps 1–3 below                                                            |
+| `survive`   | server-side SQLSTATEs where one STATEMENT failed on a healthy connection — `57014` query_canceled, `57P05` idle_session_timeout, and class `40` (Transaction Rollback)                                                                                                                                              | log via the rate-limited survived-error logger; **no state change at all** |
+| `exit`      | anything else, including class `42` (Syntax Error or Access Rule Violation) — a malformed query is our bug                                                                                                                                                                                                          | `cleanupSync()` + `process.exit(1)`                                        |
+
+Server-side codes are matched by SQLSTATE **class**, not by an enumerated list, so a
+sibling code is covered without another incident. Class names are PostgreSQL's own
+([Appendix A, Error Codes](https://www.postgresql.org/docs/current/errcodes-appendix.html)).
+The assignment principle for a member named nowhere above: _is the connection unusable,
+or did just this statement fail?_
+
+### What happens on a `degrade`
+
+1. `markDbDegraded()` resets the shared-persistence singleton so the next
+   `getSharedPersistenceService()` call retries from scratch, and bumps the
+   persistence epoch every cached consumer keys on (mt#3638).
+2. `startDbRetryBackoff()` starts a background loop that retries
    `getSharedPersistenceService()` every 30 s (default;
    `DEFAULT_DB_RETRY_INTERVAL_MS`). On success the loop cancels its pending timer
    and stops — no further retries.
-4. The `/api/health` endpoint returns `db: "degraded"` until the retry succeeds,
+3. The `/api/health` endpoint returns `db: "degraded"` until the retry succeeds,
    at which point it returns `db: "ok"`.
 
-The daemon **does not call `process.exit(1)`** for DB errors. Only errors that are
-not classified as DB-specific (programming errors, unrelated library bugs, etc.)
-still trigger the exit path.
+A `survive` does **none** of that, deliberately: a cancelled statement leaves the pool
+working, so tearing it down would invalidate every epoch-keyed cache and publish
+`db: "degraded"` for a database that is fine.
+
+The daemon **does not call `process.exit(1)`** for a condition at the database. Only
+errors that are not classified as DB conditions (programming errors, unrelated library
+bugs, etc.) still trigger the exit path.
 
 ### Why this matters
 
@@ -596,7 +647,7 @@ threshold was hit (~9 s later).
 | File                                    | Role                                                                                  |
 | --------------------------------------- | ------------------------------------------------------------------------------------- |
 | `src/cockpit/shared-persistence.ts`     | `startDbRetryBackoff`, `markDbDegraded`, `getDbStatus`, `PersistenceInitTimeoutError` |
-| `src/commands/cockpit/start-command.ts` | `isDbDegradationError`, `unhandledRejection` handler                                  |
+| `src/commands/cockpit/start-command.ts` | `classifyUnhandledRejection`, `createUnhandledRejectionHandler`                       |
 | `src/cockpit/server.ts`                 | `/api/health` endpoint (`db: getDbStatus()`)                                          |
 
 ## Boot-time init failure: re-initialization on use (mt#3635)

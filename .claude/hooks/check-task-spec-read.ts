@@ -329,11 +329,20 @@ async function main(): Promise<void> {
   // mt#2889 (evaluation-loop Phase 1 completion): fire-log every evaluation,
   // exactly once per invocation regardless of which early-return fires
   // (not-guarded / non-READY / no-transcript / spec-surfaced / denied).
-  const recordAndExit = (decision: "allow" | "deny"): never => {
+  /**
+   * mt#3920 — `outcome` is clean-run evidence for guard-health's recovery join, and only
+   * the two exits downstream of the transcript scan may claim it. The override exit, the
+   * unresolvable-target-id exit and the absent-`transcript_path` exit are all left UNSET:
+   * none of them ran the scan, and none of them broke — the harness simply did not hand
+   * this guard something to check. The catch is `crashed`: the only way to reach it is
+   * `readInput()` itself throwing, which is a genuine failed evaluation that fails open.
+   */
+  const recordAndExit = (decision: "allow" | "deny", outcome?: "decided" | "crashed"): never => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision,
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: Date.now() - startMs,
       toolName: toolNameForLog,
       sessionId,
@@ -374,7 +383,7 @@ async function main(): Promise<void> {
     if (!transcriptPath) return recordAndExit("allow");
 
     if (specWasSurfacedInAnyTranscript(transcriptPath, input.agent_id, targetId)) {
-      return recordAndExit("allow");
+      return recordAndExit("allow", "decided");
     }
 
     const rawTaskId =
@@ -389,7 +398,7 @@ async function main(): Promise<void> {
       },
     };
     process.stdout.write(`${JSON.stringify(output)}\n`);
-    return recordAndExit("deny");
+    return recordAndExit("deny", "decided");
   } catch (err) {
     process.stderr.write(
       `[check-task-spec-read] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
@@ -405,7 +414,9 @@ async function main(): Promise<void> {
     // from in that case; the error message on stderr above is the only
     // available diagnostic. Skipping the "populate what exists" advice
     // here deliberately, since there is genuinely nothing to populate.
-    return recordAndExit("allow");
+    // mt#3920: `crashed` — a failed evaluation that fails open, the case the marker
+    // exists to keep out of guard-health's recovery join.
+    return recordAndExit("allow", "crashed");
   }
 }
 

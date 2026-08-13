@@ -4,6 +4,9 @@
   "description": "Minsky domain layer — core business logic, independent of interface concerns.",
   "private": true,
   "type": "module",
+  "scripts": {
+    "typecheck": "tsgo --noEmit"
+  },
   "exports": {
     "./auth": "./src/auth/index.ts",
     "./configuration": "./src/configuration/index.ts",
@@ -16,11 +19,13 @@
     "./schemas": "./src/schemas/index.ts",
     "./session": "./src/session/index.ts",
     "./setup/github-app": "./src/setup/github-app/index.ts",
+    "./storage/archive": "./src/storage/archive/index.ts",
     "./tasks": "./src/tasks/index.ts",
     "./github/octokit-timeout": "./src/github/octokit-timeout.ts",
     "./*": "./src/*.ts"
   },
   "dependencies": {
-    "@minsky/shared": "workspace:*"
+    "@minsky/shared": "workspace:*",
+    "@supabase/storage-js": "^2.110.1"
   }
 }

@@ -8,7 +8,7 @@
  */
 
 /* eslint-disable custom/no-real-fs-in-tests -- mt#3397: the host preflights its spawn cwd against the REAL filesystem, so these launches need a real directory as their cwd — there is no fs to inject through the code path under test. A per-run mkdtemp dir keeps the "fixed mock path" race the rule guards against from applying. */
-import { describe, expect, test, afterAll } from "bun:test";
+import { describe, expect, test, afterAll, afterEach } from "bun:test";
 import { EventEmitter } from "events";
 import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
@@ -42,6 +42,8 @@ import {
   taskToEntitySeed,
   type EntitySeedContext,
 } from "./entity-thread-launch";
+import { pendingReplyBuffer, stopPendingDrain } from "./entity-thread-reply-buffer";
+import { getLoggableErrorSummary, MAX_LOGGED_ERROR_CHARS } from "@minsky/domain/errors/index";
 
 const ASK_ID = "38b1c0de-0000-4000-8000-000000000000";
 const ASK_QUESTION = "Approve the schema change?";
@@ -505,6 +507,85 @@ describe("createEntityThreadReplyRecorder", () => {
     const recorder = createEntityThreadReplyRecorder(capturingDb().db as never, "t");
     expect(() => recorder.onSwap()).not.toThrow();
   });
+
+  /**
+   * mt#4036 — a failed write must not silently discard the reply.
+   *
+   * The test above only asserts the recorder doesn't THROW, which was already
+   * true on 2026-08-11 while four replies were lost. Not-throwing and
+   * not-losing are independent properties; this covers the second one.
+   */
+  describe("a failed write is buffered rather than dropped (mt#4036)", () => {
+    afterEach(() => {
+      stopPendingDrain();
+      pendingReplyBuffer.reset();
+    });
+
+    test("the reply text survives the failure and is reported as pending", async () => {
+      pendingReplyBuffer.reset();
+      const failingDb = {
+        execute: async () => {
+          throw new Error("CONNECTION_CLOSED");
+        },
+      };
+      const recorder = createEntityThreadReplyRecorder(failingDb as never, RECORDER_THREAD_ID);
+      recorder.onEvent({
+        seq: 1,
+        receivedAt: "2026-08-11T03:29:35Z",
+        payload: {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "Both filed. mt#4030 and mt#4028." }] },
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const report = pendingReplyBuffer.report(RECORDER_THREAD_ID);
+      expect(report.pending).toBe(1);
+      expect(report.oldestFailedAt).not.toBeNull();
+    });
+
+    test("a successful write buffers nothing", async () => {
+      pendingReplyBuffer.reset();
+      const cap = capturingDb();
+      const recorder = createEntityThreadReplyRecorder(cap.db as never, RECORDER_THREAD_ID);
+      recorder.onEvent({
+        seq: 1,
+        receivedAt: "2026-08-11T03:29:35Z",
+        payload: { type: "assistant", message: { content: [{ type: "text", text: "ok" }] } },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(pendingReplyBuffer.report(RECORDER_THREAD_ID).pending).toBe(0);
+    });
+  });
+
+  /**
+   * mt#4036 AT4 — the failure log must name the cause and must not emit the
+   * whole reply body.
+   *
+   * Asserted against the formatter the recorder passes its error to, given the
+   * REAL error shape the 2026-08-11 failures had: a Drizzle wrapper whose
+   * message is the full INSERT with the reply text interpolated as a parameter,
+   * wrapping the Postgres error that actually explains the failure. Reading
+   * `err.message` — what the recorder used to do — keeps the body and loses the
+   * cause; this checks the inversion.
+   */
+  test("the failure formatter keeps the cause and bounds the reply body (mt#4036)", () => {
+    const replyBody = "x".repeat(MAX_LOGGED_ERROR_CHARS * 2);
+    const drizzleError = new Error(
+      `Failed query: INSERT INTO entity_thread_turns ...\nparams: ${RECORDER_THREAD_ID},agent,${replyBody}`,
+      { cause: new Error("write CONNECTION_CLOSED aws-0-us-west-2.pooler.supabase.com:6543") }
+    );
+
+    const summary = getLoggableErrorSummary(drizzleError);
+
+    // The cause — absent from `err.message` entirely — is what makes the line
+    // diagnosable. Its absence is why the real incident's four log lines never
+    // said why the write failed.
+    expect(summary).toContain("CONNECTION_CLOSED aws-0-us-west-2.pooler.supabase.com");
+    // The body is bounded, not emitted whole.
+    expect(summary).not.toContain(replyBody);
+    expect(summary.length).toBeLessThan(replyBody.length);
+  });
 });
 
 /**
@@ -874,6 +955,211 @@ describe("re-spawn after the agent exits (mt#3550)", () => {
     });
 
     expect(swaps).toBe(1);
+  });
+
+  /**
+   * mt#4093 — the ABSENT record, which mt#3550 above never covered.
+   *
+   * Every test in the parent block starts by spawning, so a registry record
+   * always exists by the time the second call runs. Production's common case
+   * after a daemon restart is the opposite: the registry is EMPTY, because boot
+   * reconciliation loads only non-terminal rows and may not have run at all.
+   * The guard read `if (existing)` before consulting the resume path, so that
+   * case fell straight through to a fresh spawn — none of the three resume
+   * branches ran, which is why the 2026-08-12 incident logs carried no trace of
+   * a declined resume. The thread continued under an agent that had never seen
+   * a word of it while the panel kept rendering the whole history.
+   */
+  describe("the registry is EMPTY — the post-restart state (mt#4093)", () => {
+    /** The persisted row's conversation, as boot reconciliation never loaded it. */
+    const PERSISTED_ID = "4093bbbb-0000-4000-8000-000000000000";
+
+    test("a thread with a persisted conversation RESUMES it, with nothing in the registry", async () => {
+      const registry = new DrivenSessionRegistry();
+      const spawns: Spawn[] = [];
+      const localId = entityThreadLocalId("ask", "empty-registry-resume");
+      expect(registry.get(localId)).toBeUndefined();
+
+      let consulted = 0;
+      const session = await startEntityThreadSession({
+        seed: seed("empty-registry-resume"),
+        cwd: TEST_CWD,
+        spawnFn: recordingSpawn(spawns),
+        registry,
+        command: "fake-claude",
+        onStateChange: () => {},
+        onResultSummary: () => {},
+        // Stands in for the persisted-row lookup + advisory lock only. The
+        // respawn below is the REAL one, so the argv asserted afterwards is
+        // the production article — this is what makes the test a check on
+        // `--resume` actually being passed rather than on a fixture.
+        resumeSession: async (id: string) => {
+          consulted += 1;
+          const { record } = resumeDrivenSession({
+            previous: {
+              localId: id,
+              cwd: TEST_CWD,
+              permissionMode: DEFAULT_PERMISSION_MODE,
+              harnessSessionId: PERSISTED_ID,
+              taskId: null,
+              minskySessionId: null,
+              startedAt: new Date().toISOString(),
+              actuatorGeneration: 0,
+            },
+            registry,
+            spawnFn: recordingSpawn(spawns),
+            command: "fake-claude",
+            mcpConfig: null,
+          });
+          return { outcome: "resumed", record } as const;
+        },
+      });
+
+      // The load-bearing assertion: the resume path was REACHED. Before the
+      // fix this was 0 and the assertions below all failed on a fresh spawn.
+      expect(consulted).toBe(1);
+      expect(spawns).toHaveLength(1);
+      expect(spawns[0]?.argv).toContain("--resume");
+      expect(spawns[0]?.argv).toContain(PERSISTED_ID);
+      // AT4: a resume continues the SAME conversation rather than minting one.
+      expect(session.record.harnessSessionId).toBe(PERSISTED_ID);
+      // Already scoped — re-seeding would repeat the whole prompt to an agent
+      // that has it, and would be the tell that this was really a fresh spawn.
+      expect(spawns[0]?.proc.written.join("")).not.toContain(SEED_MARKER);
+      expect(session.replacedConversationId).toBeUndefined();
+      expect(session.freshSpawnReason).toBeUndefined();
+    });
+
+    test("a fresh spawn over an unresumable conversation REPORTS which one it replaced", async () => {
+      const registry = new DrivenSessionRegistry();
+      const spawns: Spawn[] = [];
+
+      const session = await startEntityThreadSession({
+        seed: seed("empty-registry-swap"),
+        cwd: TEST_CWD,
+        spawnFn: recordingSpawn(spawns),
+        registry,
+        command: "fake-claude",
+        // The row names a conversation, and it cannot be resumed — a deleted
+        // workspace is the production shape (mt#3397).
+        resumeSession: async () =>
+          ({
+            outcome: "unrecoverable",
+            reason: "deleted cwd",
+            harnessSessionId: PERSISTED_ID,
+          }) as const,
+        onStateChange: () => {},
+        onResultSummary: () => {},
+      });
+
+      expect(session.spawned).toBe(true);
+      expect(spawns).toHaveLength(1);
+      expect(spawns[0]?.argv).not.toContain("--resume");
+      // The disclosure the panel renders. Reported HERE because this is the
+      // last moment it is knowable: the spawn just upserted `driven_sessions`
+      // on this localId, overwriting `harness_session_id` with the new
+      // conversation.
+      expect(session.replacedConversationId).toBe(PERSISTED_ID);
+      expect(session.freshSpawnReason).toBe("prior-conversation-unrecoverable");
+      // A fresh child knows nothing about the entity until it is seeded.
+      expect(spawns[0]?.proc.written.join("")).toContain(SEED_MARKER);
+    });
+
+    test("a row that never linked a conversation replaces nothing, and says so", async () => {
+      const registry = new DrivenSessionRegistry();
+      const spawns: Spawn[] = [];
+
+      const session = await startEntityThreadSession({
+        seed: seed("empty-registry-never-linked"),
+        cwd: TEST_CWD,
+        spawnFn: recordingSpawn(spawns),
+        registry,
+        command: "fake-claude",
+        // spawn-died-before-init: a row exists but no conversation was ever
+        // linked to it.
+        resumeSession: async () =>
+          ({ outcome: "unrecoverable", reason: "spawn-died-before-init" }) as const,
+        onStateChange: () => {},
+        onResultSummary: () => {},
+      });
+
+      expect(session.spawned).toBe(true);
+      // Distinct from the case above, and the distinction is the point: there
+      // is no earlier exchange the operator can be reading, so claiming a swap
+      // would put a notice on screen about a conversation that never existed.
+      expect(session.replacedConversationId).toBeUndefined();
+      expect(session.freshSpawnReason).toBe("prior-spawn-never-linked");
+    });
+
+    test("a first-ever launch names its reason too, and replaces nothing", async () => {
+      const registry = new DrivenSessionRegistry();
+      const spawns: Spawn[] = [];
+
+      const session = await startEntityThreadSession({
+        seed: seed("empty-registry-first-launch"),
+        cwd: TEST_CWD,
+        spawnFn: recordingSpawn(spawns),
+        registry,
+        command: "fake-claude",
+        resumeSession: nothingToResume,
+        onStateChange: () => {},
+        onResultSummary: () => {},
+      });
+
+      expect(session.spawned).toBe(true);
+      expect(session.freshSpawnReason).toBe("no-prior-conversation");
+      expect(session.replacedConversationId).toBeUndefined();
+    });
+
+    test("a resume that THREW still spawns, and does not claim to know why", async () => {
+      const registry = new DrivenSessionRegistry();
+      const spawns: Spawn[] = [];
+
+      const session = await startEntityThreadSession({
+        seed: seed("empty-registry-resume-threw"),
+        cwd: TEST_CWD,
+        spawnFn: recordingSpawn(spawns),
+        registry,
+        command: "fake-claude",
+        resumeSession: async () => {
+          throw new Error("store unreachable");
+        },
+        onStateChange: () => {},
+        onResultSummary: () => {},
+      });
+
+      expect(session.spawned).toBe(true);
+      expect(session.freshSpawnReason).toBe("resume-attempt-failed");
+      // A throw says nothing about whether a conversation existed, so nothing
+      // is asserted about one — an invented swap notice would be worse than
+      // none.
+      expect(session.replacedConversationId).toBeUndefined();
+    });
+
+    test("a lock held elsewhere does not spawn a rival, even with an empty registry", async () => {
+      const registry = new DrivenSessionRegistry();
+      const spawns: Spawn[] = [];
+
+      const session = await startEntityThreadSession({
+        seed: seed("empty-registry-locked"),
+        cwd: TEST_CWD,
+        spawnFn: recordingSpawn(spawns),
+        registry,
+        command: "fake-claude",
+        resumeSession: async () => ({ outcome: "locked" }) as const,
+        onStateChange: () => {},
+        onResultSummary: () => {},
+      });
+
+      // The lock exists to stop a second child against one conversation, and
+      // that does not weaken just because THIS daemon never loaded the record.
+      // With nothing in the registry to hand back, a placeholder stands in.
+      expect(spawns).toHaveLength(0);
+      expect(session.spawned).toBe(false);
+      expect(session.seeded).toBe(false);
+      expect(session.record.localId).toBe(session.localId);
+      expect(sendDrivenSessionInput(session.record, "well?")).toBe(false);
+    });
   });
 });
 

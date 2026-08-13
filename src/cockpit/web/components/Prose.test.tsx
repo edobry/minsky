@@ -126,6 +126,22 @@ describe("Prose — minsky:// markdown deeplinks (mt#2797)", () => {
     expect(a?.getAttribute("target")).toBe("_blank");
   });
 
+  // mt#2918: the ask-body transform appends a BARE URL rather than a markdown
+  // link — there is no title to use as a label, and a raw-UUID label is the
+  // very defect ADR-029 names. That only reaches the reader as something
+  // clickable if GFM autolink literals are active here. Asserted rather than
+  // assumed: the transform's whole point is a link the principal can open.
+  test("a bare external URL in prose is autolinked (GFM autolink literals)", () => {
+    const { container } = renderProse(
+      <Prose>{"Accept the RFC (https://app.notion.com/p/3a0937f03cb481a68699e419a5ce4da0)"}</Prose>
+    );
+    const a = container.querySelector(
+      'a[href="https://app.notion.com/p/3a0937f03cb481a68699e419a5ce4da0"]'
+    );
+    expect(a).not.toBeNull();
+    expect(a?.getAttribute("target")).toBe("_blank");
+  });
+
   test("relative links still render as in-SPA links (unchanged)", () => {
     const { container } = renderProse(<Prose>{"[tasks](/tasks/mt%232370)"}</Prose>);
     const a = container.querySelector('a[href="/tasks/mt%232370"]');

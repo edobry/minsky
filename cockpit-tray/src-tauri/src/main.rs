@@ -2,7 +2,8 @@
 //
 // A macOS system-tray application that owns the cockpit daemon's lifecycle:
 // it spawns the daemon as a managed child, supervises it (respawn-on-crash +
-// throttle), ADOPTS an already-running daemon on :3737 instead of double-
+// throttle), ADOPTS an already-running daemon on the configured cockpit port
+// (`cockpit.port`, default 3737 — mt#3988) instead of double-
 // spawning, tears down what it spawned on quit, and registers itself as a
 // macOS Login Item for auto-start. launchd (`minsky cockpit install`) is
 // retained as an optional opt-in headless mode. See
@@ -25,6 +26,8 @@ mod hotkey;
 mod launchd;
 mod menu;
 mod mouse_nav;
+mod port;
+mod single_instance;
 mod supervisor;
 mod watcher_backend;
 mod watcher_web;
@@ -36,11 +39,33 @@ use tauri::RunEvent;
 use supervisor::SpawnedPgid;
 
 fn main() {
+    // Before anything that can observe it: the single-instance callback reads
+    // this to tell the login-time launch race from a deliberate re-launch.
+    single_instance::mark_started();
+
     let spawned: SpawnedPgid = Arc::new(Mutex::new(None));
     let spawned_setup = spawned.clone();
 
-    #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+
+    // Single-instance guard (mt#3770). Registered FIRST, per the plugin's own
+    // documentation ("must be the first one to be registered to work well" --
+    // https://v2.tauri.app/plugin/single-instance/).
+    //
+    // Release-only, for the same class of reason autostart is: the debug and
+    // release builds share the `com.minsky.cockpit-tray` identifier, and the
+    // guard keys its rendezvous socket on that identifier. Enabled in debug,
+    // `bun run dev` would exit on launch whenever the installed /Applications
+    // app is running -- which it nearly always is -- breaking the tray dev loop
+    // documented in cockpit-tray/CLAUDE.md. The duplicate this closes is a
+    // release-build phenomenon (both processes in the originating incident were
+    // `/Applications/Minsky Cockpit.app`).
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(single_instance::plugin());
+    }
+
+    builder = builder
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         // minsky:// URL-scheme handler (mt#2528, ADR-023).
@@ -57,6 +82,15 @@ fn main() {
     // (com.minsky.cockpit-tray) at login — the RunAtLoad replacement from
     // ADR-014. Distinct from the daemon's own com.minsky.cockpit launchd plist
     // (the optional headless path). Release-only so dev runs stay pristine.
+    //
+    // This LaunchAgent is what RACED LaunchServices in mt#3770's incident, and
+    // it is deliberately KEPT: the guard above absorbs the duplicate, and no
+    // change here could close the general case anyway (a user double-clicking
+    // the app while it runs is the same collision from a different direction).
+    // The considered alternative -- switching to `MacosLauncher::AppleScript`,
+    // so login goes through LaunchServices like every other launch and dedupes
+    // there -- was rejected as a larger, riskier change than the defect
+    // warrants: it needs System Events automation permission, which prompts.
     #[cfg(not(debug_assertions))]
     {
         builder = builder.plugin(tauri_plugin_autostart::init(
@@ -68,6 +102,18 @@ fn main() {
     let app = builder
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Resolve the cockpit port BEFORE anything that consumes it
+            // (mt#3988): the tray menu, the webview's same-origin check, the
+            // deep-link recovery loop and the supervisor all read
+            // `port::cockpit_port()`, and resolving first is what guarantees
+            // none of them can observe a different value than the others.
+            // Synchronous on purpose — see `port::init` for the cost and why it
+            // is paid here rather than raced against.
+            //
+            // Inside setup(), not main(), so a second instance rejected by the
+            // single-instance guard does not pay for a lookup it will never use.
+            port::init(&supervisor::path_env());
             // Register zoom state before any menu handler that can read it
             // (mt#2334 review): menu events fire post-setup, but managing it up
             // front guarantees `try_state::<ZoomLevel>()` is always populated.
@@ -134,7 +180,9 @@ fn main() {
             // app and the daemon alive — this is a menu-bar app; only an
             // explicit app.exit() (code Some — the Quit path) proceeds to
             // teardown.
-            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            RunEvent::ExitRequested {
+                code: None, api, ..
+            } => api.prevent_exit(),
             RunEvent::Exit => {
                 // Synchronous teardown of the daemon we spawned. Idempotent, so
                 // it's safe to fire here on the explicit-quit path.

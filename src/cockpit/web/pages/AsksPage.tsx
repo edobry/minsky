@@ -20,8 +20,18 @@
  * order is needs-me (kind priority, then oldest first — accumulated debt on
  * top), matching the home triage band.
  *
+ * Resolved view (mt#4092): the page also reaches TERMINAL asks, via a
+ * pending/resolved control that defaults to pending. Before it, a resolved ask
+ * was reachable only if you already held its deeplink — the per-id route
+ * resolves any state (mt#2669) but no list in the product returned one, so an
+ * ask closed by accident was gone from the product's navigation entirely. It is
+ * a drill-down inside this console rather than a history route: an entity-browse
+ * destination on the supervision spine is the IA this page was rebuilt away
+ * from, and the operator who lost an ask is already standing here.
+ *
  * Self-fetching via TanStack Query against GET /api/asks (shared ["asks"]
- * cache with the home TriageBand).
+ * cache with the home TriageBand; the resolved view uses its own key so the
+ * band never sees a terminal ask).
  */
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -49,6 +59,7 @@ import { cn } from "../lib/utils";
 import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
 import {
   fetchAsks,
+  fetchTerminalAsks,
   resolveAsk,
   deferAsk,
   composeResolvePayload,
@@ -72,6 +83,16 @@ import {
 // ---------------------------------------------------------------------------
 
 type SortKey = "priority" | "age" | "kind";
+
+/**
+ * Which slice of the queue the page is showing (mt#4092).
+ *
+ * `resolved` is a drill-down INSIDE this console, not a separate destination: a
+ * top-level history route would put an entity-browse page on the supervision
+ * spine, and the operator who wants a resolved ask is already standing on the
+ * page where it disappeared from.
+ */
+type AskView = "pending" | "resolved";
 
 type Filters = {
   kind: string;
@@ -268,19 +289,30 @@ function AskRow({
   ask,
   actions,
   inGroup,
+  resolved = false,
 }: {
   ask: AskItem;
   actions: InlineAskActions;
   inGroup: boolean;
+  /**
+   * Render as a RECORD rather than a decision (mt#4092). A terminal ask has
+   * nothing to act on, so the inline action bar is gone; the deadline and the
+   * standing marker are gone too — both are statements about attention still
+   * owed, and this ask no longer owes any. What replaces them is what the
+   * operator came for: which terminal state it landed in, when it concluded,
+   * and who concluded it.
+   */
+  resolved?: boolean;
 }) {
   const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const ks = kindStyle(ask.kind);
-  const deadlineStr = formatDeadlineRemaining(ask.deadline);
+  const deadlineStr = resolved ? null : formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
-  const standing = isStanding(ask);
+  const standing = !resolved && isStanding(ask);
   const pending = actions.pendingId === ask.id;
-  const inline = inlineActionsFor(ask);
+  const inline = resolved ? [] : inlineActionsFor(ask);
+  const concludedAt = ask.closedAt ?? ask.respondedAt ?? ask.createdAt;
 
   return (
     <div
@@ -347,8 +379,29 @@ function AskRow({
             {deadlineStr}
           </span>
         )}
-        <span className="w-14 flex-shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-          {formatRelative(ask.createdAt)}
+        {/* Which terminal state, named (mt#4092). `closed` is the ordinary
+            answered case and reads as noise on every row, so it stays implicit;
+            `cancelled` and `expired` mean the ask went away WITHOUT the
+            operator answering it, which is exactly what someone hunting for a
+            lost decision needs to see. */}
+        {resolved && ask.state !== "closed" && (
+          <span className="flex-shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+            {ask.state}
+          </span>
+        )}
+        {resolved && ask.response?.responder && (
+          <span
+            className="hidden flex-shrink-0 max-w-[140px] truncate text-xs italic text-muted-foreground sm:block"
+            title={`Concluded by ${ask.response.responder}`}
+          >
+            {ask.response.responder}
+          </span>
+        )}
+        <span
+          className="w-14 flex-shrink-0 text-right text-xs tabular-nums text-muted-foreground"
+          title={resolved ? `Concluded ${concludedAt}` : `Opened ${ask.createdAt}`}
+        >
+          {formatRelative(resolved ? concludedAt : ask.createdAt)}
         </span>
 
         {/* Navigation, not a decision — anchored at the row's right edge so
@@ -382,7 +435,9 @@ function AskRow({
           <p className="min-w-0 flex-1 basis-64 truncate text-xs text-muted-foreground">
             {consequenceSnippet(ask.question)}
           </p>
-          <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+          {!resolved && (
+            <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+          )}
         </div>
       )}
 
@@ -392,9 +447,11 @@ function AskRow({
       {expanded && (
         <>
           <AskExpandedBody ask={ask} />
-          <div className="px-3 pb-2 pl-9">
-            <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
-          </div>
+          {!resolved && (
+            <div className="px-3 pb-2 pl-9">
+              <InlineActionBar ask={ask} actions={actions} inline={inline} pending={pending} />
+            </div>
+          )}
         </>
       )}
     </div>
@@ -473,19 +530,38 @@ function GroupCard({ group, actions }: { group: AskGroup; actions: InlineAskActi
 export function AsksPage() {
   const actions = useInlineAskActions();
 
+  /**
+   * Pending is the DEFAULT and is not persisted (mt#4092). The page's job is to
+   * show what still needs the principal; landing on a history view because of
+   * something you did last week would defeat it. The resolved view is a
+   * drill-down you ask for, every time.
+   */
+  const [view, setView] = useState<AskView>("pending");
+  const resolvedView = view === "resolved";
+
   const query = useQuery<AsksListResponse, Error>({
-    queryKey: ["asks"],
-    queryFn: fetchAsks,
-    staleTime: 10_000,
-    refetchInterval: 10_000,
+    // A SEPARATE cache key from ["asks"] — that one is shared with the home
+    // TriageBand, which must keep seeing only pending asks.
+    queryKey: resolvedView ? ["asks", "terminal"] : ["asks"],
+    queryFn: () => (resolvedView ? fetchTerminalAsks() : fetchAsks()),
+    staleTime: resolvedView ? 60_000 : 10_000,
+    // A record does not change under you; polling it every 10s buys nothing.
+    refetchInterval: resolvedView ? false : 10_000,
   });
 
   const asks = query.data?.asks ?? [];
+  const truncated = query.data?.truncated === true;
+  const matchedTotal = query.data?.total ?? asks.length;
 
   const uniqueKinds = [...new Set(asks.map((a) => a.kind))].sort();
   const uniqueRequestors = [...new Set(asks.map((a) => a.requestor))].sort();
   const uniqueCohorts = [...new Set(asks.map((a) => a.windowKey ?? "(none)"))].sort();
-  const standingTotal = asks.filter((a) => isStanding(a)).length;
+  // Standing is "open past 24h" — a statement about attention still owed, so it
+  // is meaningless once every row in the list is terminal (mt#4092). Left
+  // uncomputed rather than merely unrendered: every resolved ask older than a
+  // day satisfies isStanding(), so a resolved view would otherwise carry a
+  // permanently over-budget alarm chip about nothing.
+  const standingTotal = resolvedView ? 0 : asks.filter((a) => isStanding(a)).length;
   const overBudget = standingTotal > STANDING_ASK_BUDGET;
 
   // useListControls supplies filter state + Clear only. Pagination is
@@ -549,7 +625,15 @@ export function AsksPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-h1 font-semibold text-foreground">
           Asks
-          {filteredAsks.length > 0 && (
+          {filteredAsks.length > 0 && resolvedView && (
+            <span className="ml-2 text-sm font-normal text-muted-foreground">
+              {filteredAsks.length} resolved
+              {/* Honest about the cap: the list is bounded, and saying so beats
+                  a page that silently looks like the whole record. */}
+              {truncated && ` of ${matchedTotal}`}
+            </span>
+          )}
+          {filteredAsks.length > 0 && !resolvedView && (
             <span className="ml-2 text-sm font-normal text-muted-foreground">
               {filteredAsks.length} pending · {groups.length} decisions
             </span>
@@ -568,6 +652,16 @@ export function AsksPage() {
         </h1>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Select value={view} onValueChange={(v) => setView(v as AskView)}>
+            <SelectTrigger aria-label="View">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">Pending</SelectItem>
+              <SelectItem value="resolved">Resolved</SelectItem>
+            </SelectContent>
+          </Select>
+
           <Select
             value={controls.filters.kind}
             onValueChange={(v) => controls.setFilter("kind", v)}
@@ -622,20 +716,25 @@ export function AsksPage() {
             </SelectContent>
           </Select>
 
-          <Select
-            value={groupSort}
-            onValueChange={(v) => setGroupSort(v as `${SortKey}_${SortDir}`)}
-          >
-            <SelectTrigger aria-label="Sort order">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="priority_asc">Needs me first</SelectItem>
-              <SelectItem value="age_asc">Oldest first</SelectItem>
-              <SelectItem value="age_desc">Newest first</SelectItem>
-              <SelectItem value="kind_asc">Kind (A-Z)</SelectItem>
-            </SelectContent>
-          </Select>
+          {/* Sorts GROUPS, and the resolved view has none — its order is fixed
+              at most-recently-concluded, which is the only order the "where did
+              my ask go" question has an answer in. */}
+          {!resolvedView && (
+            <Select
+              value={groupSort}
+              onValueChange={(v) => setGroupSort(v as `${SortKey}_${SortDir}`)}
+            >
+              <SelectTrigger aria-label="Sort order">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="priority_asc">Needs me first</SelectItem>
+                <SelectItem value="age_asc">Oldest first</SelectItem>
+                <SelectItem value="age_desc">Newest first</SelectItem>
+                <SelectItem value="kind_asc">Kind (A-Z)</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
 
           {controls.hasActiveFilters && (
             <Button variant="ghost" size="sm" onClick={controls.clearFilters} className="text-xs">
@@ -647,6 +746,27 @@ export function AsksPage() {
 
       {query.isLoading ? (
         <LoadingState message="Loading..." variant="page" />
+      ) : resolvedView ? (
+        filteredAsks.length === 0 ? (
+          <div className="py-12 text-center">
+            <p className="text-sm font-medium text-foreground">No resolved asks</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {controls.hasActiveFilters
+                ? "No asks match your current filters."
+                : "Nothing has been closed, cancelled, or expired yet."}
+            </p>
+          </div>
+        ) : (
+          /* Flat and newest-concluded-first — NOT grouped. Unit-of-work bundles
+             exist so N look-alike approvals become one decision; there is no
+             decision left to make here, and grouping a record only hides rows
+             behind a header. */
+          <div className="space-y-1.5">
+            {filteredAsks.map((ask) => (
+              <AskRow key={ask.id} ask={ask} actions={actions} inGroup={false} resolved />
+            ))}
+          </div>
+        )
       ) : groups.length === 0 ? (
         <div className="py-12 text-center">
           <p className="text-sm font-medium text-foreground">No pending asks</p>

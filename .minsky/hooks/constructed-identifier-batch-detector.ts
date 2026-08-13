@@ -71,6 +71,15 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { elideQuotedContexts } from "./elision";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
+import type { ArtifactCapture } from "./judged-input-capture";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection (mt#3125 SC3)
@@ -250,6 +259,29 @@ export interface BatchMatch {
   consumeField: string;
   /** First 200 chars of the free-text field's value, for the calibration record. */
   excerpt: string;
+  /** The judged field value, bounded and hashed — see {@link judgedCapture}. */
+  judged: ArtifactCapture;
+}
+
+/**
+ * Snapshot the free-text field value this detector judged (mt#3607).
+ *
+ * `excerpt` above stays exactly 200 chars because it is written to the record
+ * as `phrase`, which is the calibration sweep's diversity axis. That truncation
+ * is also the whole complaint ask#6932 filed: a reviewer reading 200 characters
+ * of a PR body cannot tell whether the pairing was a real
+ * mint-then-consume dependence or two independent calls that happened to share
+ * a block, and the ask recorded its own confidence as capped by it.
+ *
+ * The value is ELIDED before capture. This detector's judged input is a
+ * tool-call field the agent authored — a PR body, a spec, a memory — and
+ * widening what reaches a log is exactly where pasted output starts travelling
+ * with it. Eliding costs nothing here because the verdict is CATEGORICAL (the
+ * co-occurrence of the two tool categories is the whole signal); the text is
+ * evidence for the human reviewer, never an input to the decision.
+ */
+function judgedCapture(rawValue: string): ArtifactCapture {
+  return captureArtifact(elideQuotedContexts(rawValue));
 }
 
 /**
@@ -301,6 +333,7 @@ export function detectBatchedMintAndConsume(turnLines: TranscriptLine[]): BatchM
           consumeTool: consumeBlock.name,
           consumeField: spec.field,
           excerpt: rawValue.slice(0, 200),
+          judged: judgedCapture(rawValue),
         });
       }
     }
@@ -321,6 +354,8 @@ export interface ConsumeBeforeMintMatch {
   /** What the later mint actually returned — best-effort, may be undefined. */
   mintedId: string | undefined;
   excerpt: string;
+  /** The judged field value, bounded and hashed — see {@link judgedCapture}. */
+  judged: ArtifactCapture;
 }
 
 /**
@@ -336,11 +371,22 @@ export interface ConsumeBeforeMintMatch {
  *
  * Unlike the categorical batch pass, this one is EXACT rather than
  * co-occurrence-based, because it runs post-hoc over the transcript where the
- * minted id is present in the later tool_result. The discriminator that keeps
- * it precise is the prior-source check: an id the agent wrote with no prior
- * occurrence anywhere before that write is an id it could not have read — a
- * legitimate reference to an EXISTING entity would have a source (a tool
- * result, the user's prompt, an earlier read).
+ * minted id is present in the later tool_result. The first discriminator is the
+ * prior-source check: an id the agent wrote with no prior occurrence anywhere
+ * before that write is an id it could not have read in THIS transcript.
+ *
+ * That check alone is not sufficient, and the calibration data says so
+ * (mt#3991). It assumed "a legitimate reference to an EXISTING entity would
+ * have a source (a tool result, the user's prompt, an earlier read)" — but an
+ * agent routinely cites a task it knows from the task graph, from an injected
+ * memory, or from the always-loaded rules, with no occurrence anywhere in the
+ * transcript window. Measured over the 10 fires to 2026-08-11: **9 wrote an id
+ * that already existed**, by margins from 20 minutes to nearly four months.
+ *
+ * So the SECOND discriminator — existence — is applied by the caller, which
+ * filters these matches through {@link withoutExistingIds}. It is deliberately
+ * not applied in here: this function stays pure and synchronous, and the
+ * lookup it would need is IO.
  *
  * CROSS-MESSAGE ONLY (PR #2418 R1). The mint must be in a STRICTLY LATER
  * message than the write. A mint in the SAME message is the batch pass's
@@ -406,6 +452,7 @@ export function detectConsumeBeforeMint(
           mintTool: laterMint.name,
           mintedId,
           excerpt: rawValue.slice(0, 200),
+          judged: judgedCapture(rawValue),
         });
       }
     }
@@ -418,6 +465,79 @@ export function detectConsumeBeforeMint(
   }
 
   return matches;
+}
+
+/**
+ * Drop matches whose written id ALREADY EXISTED — the existence discriminator
+ * (mt#3991). Pure: the caller supplies the set, so this is testable without
+ * reaching a database.
+ *
+ * `existing` of `null` means the lookup could not run. That case must keep every
+ * match — **fail toward firing**. A detector that goes quiet when its dependency
+ * is unavailable is indistinguishable from a dead one (ADR-032), and this file's
+ * whole family exists because silent-when-broken is the failure mode that costs
+ * weeks to notice. Reporting a false positive is recoverable; reporting nothing
+ * is not.
+ */
+export function withoutExistingIds(
+  matches: ConsumeBeforeMintMatch[],
+  existing: ReadonlySet<string> | null
+): ConsumeBeforeMintMatch[] {
+  if (existing === null) return matches;
+  return matches.filter((m) => !existing.has(m.writtenId));
+}
+
+/**
+ * Which of `ids` name a task that exists. Returns `null` on ANY failure — see
+ * {@link withoutExistingIds} for why null must not be read as "none exist".
+ *
+ * ONE query over the distinct ids rather than a lookup per id: this runs on
+ * every Stop event, and the id count per turn is small (typically one) but the
+ * round trips are not free.
+ *
+ * SCOPE: `mt#` only. The detector also recognizes `ask#` and `mem#`, whose short
+ * ids live in different tables; every fire in the mt#3991 calibration window was
+ * `mt#`, so those families keep their prior behavior rather than getting an
+ * existence check written against no evidence. Widening is a follow-on, not a
+ * silent extension.
+ */
+export async function resolveExistingTaskIds(
+  ids: readonly string[]
+): Promise<ReadonlySet<string> | null> {
+  const taskIds = [...new Set(ids.filter((id) => id.startsWith("mt#")))];
+  if (taskIds.length === 0) return new Set();
+
+  try {
+    const bootstrap = await ensureHookDomainBootstrap();
+    if (!bootstrap.ok) return null;
+
+    const { resolvePersistenceProviderOrError } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
+    const resolution = await resolvePersistenceProviderOrError();
+    if (!resolution.ok) return null;
+
+    const provider = resolution.provider;
+    if (!provider.capabilities.sql || typeof provider.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const db = await (provider as SqlCapablePersistenceProvider).getDatabaseConnection();
+    if (!db) return null;
+
+    const { sql } = await import("drizzle-orm");
+    const rows = await db.execute(sql`select id from tasks where id in ${taskIds}`);
+    const found = Array.isArray(rows) ? rows : ((rows as { rows?: unknown[] }).rows ?? []);
+    return new Set(
+      found
+        .map((r) => (r as { id?: unknown }).id)
+        .filter((id): id is string => typeof id === "string")
+    );
+  } catch {
+    // Deliberate: every failure shape collapses to "could not check", which the
+    // caller renders as "fire anyway". Rethrowing would take the whole Stop
+    // hook down over a detector's optional refinement.
+    return null;
+  }
 }
 
 /** First mint of `family` in a STRICTLY LATER line than `afterLineIndex`. */
@@ -504,7 +624,10 @@ export function buildReminder(matches: BatchMatch[]): string {
     "PR number, ask uuid, memory id) before the minting call returns it.",
     "",
     "If the two calls are genuinely INDEPENDENT (the consuming call's text does not",
-    `reference the minted id), this is a false positive under calibration review — set ${OVERRIDE_ENV_VAR}=1.`,
+    "reference the minted id), this is a false positive — say so rather than complying.",
+    // Override advertisement removed (mt#4002) — see `guard-feedback-authoring.mdc`.
+    // The legitimate-halt branch it was attached to is kept: that IS part of the
+    // advisory shape; naming the env var is not.
   ].join("\n");
 }
 
@@ -537,8 +660,56 @@ export function buildConsumeBeforeMintReminder(matches: ConsumeBeforeMintMatch[]
     "in a source file the wrong id ships and is read as fact (mem#511; CLAUDE.md §Sequence",
     "Dependent Tool Calls).",
     "",
-    `If the id was legitimately known from outside this transcript, set ${OVERRIDE_ENV_VAR}=1.`,
+    "If the id was legitimately known from outside this transcript, say so rather",
+    "than complying.",
+    // Override advertisement removed (mt#4002) — see `guard-feedback-authoring.mdc`.
   ].join("\n");
+}
+
+/**
+ * Worst-case render for the registry's `renderProbe` (mt#4002).
+ *
+ * This guard has TWO renderers for its two passes, so the probe returns the
+ * LARGER — measuring only one would bound only one, which is the single-axis
+ * under-posing `guard-feedback-authoring.mdc` warns about.
+ *
+ * **Growth-shaped, count axis NOT capped:** both renderers emit one line per
+ * match with no `…and N more` bound. Posed at a representative saturation; the
+ * cap is the preferred fix and belongs to this guard's owner.
+ *
+ * The casts are deliberate and measurement-only: both renderers read a handful
+ * of string fields and never touch `judged`, so constructing a full
+ * `ArtifactCapture` here would add coupling that buys the measurement nothing.
+ */
+export function renderWorstCase(): string {
+  const excerpt = "x".repeat(120);
+  const batch = buildReminder(
+    Array.from(
+      { length: 5 },
+      () =>
+        ({
+          mintTool: "mcp__minsky__tasks_create",
+          consumeTool: "mcp__minsky__session_pr_create",
+          consumeField: "body",
+          excerpt,
+        }) as BatchMatch
+    )
+  );
+  const consumeBeforeMint = buildConsumeBeforeMintReminder(
+    Array.from(
+      { length: 5 },
+      () =>
+        ({
+          consumeTool: "mcp__minsky__session_pr_create",
+          consumeField: "body",
+          writtenId: "mt#9999",
+          mintTool: "mcp__minsky__tasks_create",
+          mintedId: "mt#1234",
+          excerpt,
+        }) as ConsumeBeforeMintMatch
+    )
+  );
+  return batch.length >= consumeBeforeMint.length ? batch : consumeBeforeMint;
 }
 
 // ---------------------------------------------------------------------------
@@ -552,7 +723,14 @@ export function buildConsumeBeforeMintReminder(matches: ConsumeBeforeMintMatch[]
  * Calibration is logged unconditionally on a match; `additionalContext` is
  * gated behind `INJECTION_ENABLED` (false — calibration-first, mt#3125 SC3).
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+// Async since mt#3991: the existence discriminator needs a database lookup.
+// `GuardRegistration.run` already accepts `GuardRunResult | Promise<...>`
+// (registry.ts), and the sibling `duplicate-signature-scan` is async for the
+// same reason — this is the established shape for a guard that queries.
+export async function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -574,7 +752,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   let matches: BatchMatch[];
   let orderMatches: ConsumeBeforeMintMatch[];
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
     matches = detectBatchedMintAndConsume(turnLines);
     orderMatches = detectConsumeBeforeMint(turnLines, priorTextFor(lines, turnLines));
@@ -585,6 +763,14 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     return null;
   }
 
+  // Existence discriminator (mt#3991) — applied AFTER detection so the lookup
+  // covers only ids that actually produced a candidate, and so a lookup failure
+  // cannot suppress the batch pass beside it.
+  orderMatches = withoutExistingIds(
+    orderMatches,
+    await resolveExistingTaskIds(orderMatches.map((m) => m.writtenId))
+  );
+
   if (matches.length === 0 && orderMatches.length === 0) return null;
 
   const outcome: GuardOutcome = {
@@ -592,6 +778,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
       injection_enabled: INJECTION_ENABLED,
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
       // "matches"-shape family (mirrors retrospective-trigger / ask-routing-deferral /
       // pre-narration — see src/domain/calibration/calibration-sweep.ts's fallback
       // parse branch). `category` is the (mintTool, consumeTool) pair label the
@@ -627,10 +814,18 @@ function priorTextFor(lines: TranscriptLine[], turnLines: TranscriptLine[]): str
 function batchRecords(matches: BatchMatch[]): Array<Record<string, unknown>> {
   return matches.map((m) => ({
     category: `${m.mintTool}+${m.consumeTool}`,
-    phrase: m.excerpt,
+    // mt#3781: `phrase` is the sweep's diversity axis. It used to hold
+    // `m.excerpt` — a 200-char prefix of the judged field value — so no two
+    // fires were ever byte-equal and the diversity gate was satisfied by
+    // construction, i.e. inert. This detector is CATEGORICAL: what makes two
+    // fires "the same shape" is the (mint, consume, field) triple, which is
+    // also the key it already dedupes on. The text is not lost — mt#3607's
+    // `judged` capture below carries it, bounded and hashed.
+    phrase: `${m.mintTool}|${m.consumeTool}|${m.consumeField}`,
     mintTool: m.mintTool,
     consumeTool: m.consumeTool,
     consumeField: m.consumeField,
+    judged: m.judged,
   }));
 }
 
@@ -638,12 +833,16 @@ function batchRecords(matches: BatchMatch[]): Array<Record<string, unknown>> {
 function orderRecords(matches: ConsumeBeforeMintMatch[]): Array<Record<string, unknown>> {
   return matches.map((m) => ({
     category: `consume-before-mint:${m.consumeTool}+${m.mintTool}`,
-    phrase: m.excerpt,
+    // mt#3781, same reasoning as `batchRecords` above. This pass's dedupe key is
+    // (consumeTool, field, token), and the written id IS the distinguishing
+    // shape here — two writes naming the same id are one pattern, not two.
+    phrase: `${m.consumeTool}|${m.consumeField}|${m.writtenId}`,
     consumeTool: m.consumeTool,
     consumeField: m.consumeField,
     writtenId: m.writtenId,
     mintTool: m.mintTool,
     mintedId: m.mintedId ?? null,
+    judged: m.judged,
   }));
 }
 
@@ -708,6 +907,12 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Existence discriminator (mt#3991) — see the guard path above.
+  orderMatches = withoutExistingIds(
+    orderMatches,
+    await resolveExistingTaskIds(orderMatches.map((m) => m.writtenId))
+  );
+
   if (matches.length === 0 && orderMatches.length === 0) {
     process.exit(0);
   }
@@ -718,6 +923,7 @@ export async function main(): Promise<void> {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
     injection_enabled: INJECTION_ENABLED,
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
     matches: [...batchRecords(matches), ...orderRecords(orderMatches)],
   });
 

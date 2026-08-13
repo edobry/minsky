@@ -17,9 +17,9 @@ use tauri::webview::WebviewWindow;
 use tauri::{AppHandle, Manager, Url, Wry};
 
 use crate::menu::{
-    ensure_cockpit_window_visible, set_dock_presence, COCKPIT_URL, COCKPIT_WINDOW_LABEL,
+    cockpit_url, ensure_cockpit_window_visible, set_dock_presence, COCKPIT_WINDOW_LABEL,
 };
-use crate::supervisor::DAEMON_PORT;
+use crate::port::cockpit_port;
 
 // Recovery-loop constants (mt#2528, ADR-023 cold-start handling; reworked
 // mt#2688). The loop ticks until the deep link is delivered onto a LIVE
@@ -255,15 +255,48 @@ pub(crate) fn register(app: &tauri::App<Wry>, handle: &AppHandle) {
 /// hands the URL to the recovery loop, which creates a missing window,
 /// heals a dead document, and delivers the link (mt#2688).
 pub(crate) fn handle_deep_link(app: &AppHandle, url: String) {
-    // Dock presence first (mt#2675): the window may be hidden via hide-on-close
-    // with the app back in Accessory; Regular must be restored BEFORE show/focus
-    // or macOS may refuse to front the window.
+    present_cockpit_window(app, Some(url));
+}
+
+/// Bring the cockpit window to the front for an out-of-band request that
+/// carries NO deep link -- currently the mt#3770 single-instance guard, which
+/// refuses a second app launch and fronts the first instance's window instead
+/// of leaving the user's double-click with nothing to show for it.
+///
+/// Shares `present_cockpit_window`'s deferred-creation discipline rather than
+/// calling `WebviewWindowBuilder::build()` inline: creation from an out-of-band
+/// callback is precisely what mt#2546 got wrong, and the recovery loop is the
+/// path that fixed it. Showing an EXISTING window is the cheap case and is safe
+/// from any thread -- see `present_cockpit_window`.
+pub(crate) fn present_cockpit_window_no_link(app: &AppHandle) {
+    present_cockpit_window(app, None);
+}
+
+/// Show/focus an existing cockpit window and hand everything else -- creation,
+/// cold-start healing, and delivery of `deep_link_url` if there is one -- to the
+/// recovery loop.
+///
+/// `show()`/`set_focus()` are called directly from whatever thread the caller is
+/// on, which is safe by the runtime's own construction rather than by assumption
+/// (PR #2668 R1): every `WindowMessage` goes through
+/// `tauri-runtime-wry-2.11.2/src/lib.rs:235-255` `send_user_message`, which
+/// branches on `current_thread().id() == context.main_thread_id` -- handling the
+/// message inline on the main thread, and otherwise posting it to the event-loop
+/// proxy so the AppKit work still lands on the main thread when the loop drains.
+/// There is no main-thread affinity at the call site. Window CREATION is the
+/// different case and stays with the recovery loop, which defers it the way
+/// mt#2546 established.
+///
+/// Dock presence is restored FIRST (mt#2675): the window may be hidden via
+/// hide-on-close with the app back in Accessory, and macOS may refuse to front a
+/// window without Dock presence.
+fn present_cockpit_window(app: &AppHandle, deep_link_url: Option<String>) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         set_dock_presence(app, true);
         let _ = window.show();
         let _ = window.set_focus();
     }
-    spawn_window_recovery(app, Some(url));
+    spawn_window_recovery(app, deep_link_url);
 }
 
 /// Trigger the recovery loop (mt#2528 + mt#2688): bring the cockpit window
@@ -319,13 +352,16 @@ pub(crate) fn refresh_or_heal_window(app: &AppHandle) {
     });
 }
 
-/// Parse `COCKPIT_URL`'s origin (ascii serialization, e.g.
-/// "http://localhost:3737"). None only on a malformed constant.
+/// Parse the cockpit URL's origin (ascii serialization, e.g.
+/// "http://localhost:3737"). None only on a malformed URL — which, since
+/// mt#3988, means a resolved port that cannot be formatted into a valid URL
+/// rather than a mistyped constant.
 fn cockpit_origin() -> Option<String> {
-    match COCKPIT_URL.parse::<Url>() {
+    let cockpit = cockpit_url();
+    match cockpit.parse::<Url>() {
         Ok(u) => Some(u.origin().ascii_serialization()),
         Err(e) => {
-            eprintln!("[cockpit-tray] invalid cockpit URL {COCKPIT_URL:?}: {e}");
+            eprintln!("[cockpit-tray] invalid cockpit URL {cockpit:?}: {e}");
             None
         }
     }
@@ -376,7 +412,7 @@ fn recovery_ticks(app: &AppHandle) {
     let Some(cockpit_origin) = cockpit_origin() else {
         return;
     };
-    let cockpit: Url = match COCKPIT_URL.parse() {
+    let cockpit: Url = match cockpit_url().parse() {
         Ok(u) => u,
         Err(_) => return, // unreachable: cockpit_origin() already parsed it
     };
@@ -395,7 +431,7 @@ fn recovery_ticks(app: &AppHandle) {
             let probed = probe_document_origin(w);
             origin_is_live(probed.as_deref(), &cockpit_origin)
         });
-        let daemon_up = daemon_accepting(DAEMON_PORT);
+        let daemon_up = daemon_accepting(cockpit_port());
         let rescue_armed =
             last_rescue_tick.map_or(true, |t| attempt.saturating_sub(t) >= RESCUE_REARM_TICKS);
 
@@ -553,7 +589,10 @@ mod tests {
             TickAction::AwaitDaemon
         );
         // An unscriptable webview (probe timeout) is treated as dead too.
-        assert_eq!(decide_tick(true, false, None, true), TickAction::AwaitDaemon);
+        assert_eq!(
+            decide_tick(true, false, None, true),
+            TickAction::AwaitDaemon
+        );
     }
 
     #[test]
@@ -564,7 +603,10 @@ mod tests {
         );
         // Unscriptable counts as dead: WKWebView reports the REQUESTED url
         // for failed loads, so the in-document probe is the authority.
-        assert_eq!(decide_tick(true, true, None, true), TickAction::RescueNavigate);
+        assert_eq!(
+            decide_tick(true, true, None, true),
+            TickAction::RescueNavigate
+        );
         // An issued navigation gets RESCUE_REARM_TICKS to commit before a
         // re-issue restarts the load.
         assert_eq!(
@@ -599,7 +641,10 @@ mod tests {
     #[test]
     fn origin_matching_is_exact() {
         let cockpit = "http://localhost:3737";
-        assert_eq!(origin_is_live(Some("http://localhost:3737"), cockpit), Some(true));
+        assert_eq!(
+            origin_is_live(Some("http://localhost:3737"), cockpit),
+            Some(true)
+        );
         // Blank document.
         assert_eq!(origin_is_live(Some("null"), cockpit), Some(false));
         // Port-prefix trap: a string-prefix comparison would accept this.

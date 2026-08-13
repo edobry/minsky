@@ -16,6 +16,10 @@ import {
   EntityThreadPanel,
   deriveComposerState,
   deriveOriginNotice,
+  derivePendingRepliesNotice,
+  deriveAgentStoppedNotice,
+  deriveConversationSwapNotice,
+  deriveRecoveredRepliesNotice,
   derivePollInterval,
   fetchEntityThread,
   isThreadStranded,
@@ -375,6 +379,211 @@ describe("deriveOriginNotice (mt#3367)", () => {
     // Same discipline as `live` (mt#3402): a daemon that doesn't report the
     // field must not be read as a negative answer.
     expect(deriveOriginNotice(undefined)).toBeNull();
+  });
+});
+
+/**
+ * mt#4036 AT3 — a dropped reply must render as something the operator can tell
+ * apart from an agent that never answered.
+ *
+ * On 2026-08-11 both states rendered identically: nothing. The operator asked
+ * "Well?" into that silence and the reply to that was dropped too.
+ */
+describe("derivePendingRepliesNotice (mt#4036)", () => {
+  test("says the agent DID answer when a reply is still being retried", () => {
+    const notice = derivePendingRepliesNotice({
+      pending: 1,
+      lost: 0,
+      oldestFailedAt: "2026-08-11T03:29:35Z",
+    });
+    // The load-bearing half: it must not read as agent silence.
+    expect(notice).toMatch(/agent answered/i);
+    expect(notice).toMatch(/retrying/i);
+  });
+
+  test("says plainly when a reply is not coming back", () => {
+    const notice = derivePendingRepliesNotice({ pending: 0, lost: 2, oldestFailedAt: null });
+    expect(notice).toMatch(/lost/i);
+    // An operator told only "lost" has no next move; the notice must give one.
+    expect(notice).toMatch(/ask again/i);
+  });
+
+  test("leads with the lost replies when some are lost and some pending", () => {
+    const notice = derivePendingRepliesNotice({
+      pending: 3,
+      lost: 1,
+      oldestFailedAt: "2026-08-11T03:29:35Z",
+    });
+    expect(notice?.indexOf("lost")).toBeLessThan(notice?.indexOf("retried") ?? 0);
+  });
+
+  test("singular and plural read correctly", () => {
+    expect(derivePendingRepliesNotice({ pending: 1, lost: 0, oldestFailedAt: null })).toContain(
+      "1 reply"
+    );
+    expect(derivePendingRepliesNotice({ pending: 2, lost: 0, oldestFailedAt: null })).toContain(
+      "2 replies"
+    );
+  });
+
+  test("an absent field says NOTHING — same discipline as live and originSeeded", () => {
+    // A daemon predating this field reports nothing; inventing a reassuring
+    // "0 pending" would assert a check that never ran.
+    expect(derivePendingRepliesNotice(undefined)).toBeNull();
+  });
+
+  test("an all-zero report says nothing", () => {
+    expect(derivePendingRepliesNotice({ pending: 0, lost: 0, oldestFailedAt: null })).toBeNull();
+  });
+});
+
+/**
+ * mt#4037 — a restart-killed agent must not be reported as an agent that gave
+ * up, and the operator must be told they can get it back.
+ *
+ * On 2026-08-11 a cockpit restart killed a thread's agent mid-task and the
+ * panel said "The agent stopped before answering — send again to ask." That
+ * blames the agent for a daemon shutdown; the operator waited 12h34m.
+ */
+describe("deriveAgentStoppedNotice (mt#4037)", () => {
+  test("names the COCKPIT as what stopped the agent, not the agent", () => {
+    const notice = deriveAgentStoppedNotice("cockpit-restart");
+    expect(notice).toMatch(/cockpit restarted/i);
+    // The load-bearing half the stranded line lacked: a way back.
+    expect(notice).toMatch(/send anything/i);
+  });
+
+  test("says plainly when the conversation cannot be resumed at all", () => {
+    const notice = deriveAgentStoppedNotice("unrecoverable");
+    expect(notice).toMatch(/can't be resumed/i);
+    // Must still leave the operator a move, or the panel is a dead end.
+    expect(notice).toMatch(/start a fresh one/i);
+  });
+
+  test("UNKNOWN says NOTHING rather than inventing a cause", () => {
+    // Same discipline as `live` and `originSeeded`: a daemon that reports no
+    // reason must not be read as asserting one. The panel falls back to the
+    // vaguer stranded line, which is at least true.
+    expect(deriveAgentStoppedNotice(undefined)).toBeNull();
+  });
+});
+
+/**
+ * mt#4093 — the panel must not render continuity that is not there.
+ *
+ * On 2026-08-12 a thread's agent was silently replaced by a fresh one with no
+ * history. The operator nudged the thread and the incoming agent answered
+ * "Nothing was in flight" — true of the conversation IT could see, false of the
+ * 119 turns still on screen. Nothing in the panel distinguished the two.
+ */
+describe("deriveConversationSwapNotice (mt#4093)", () => {
+  test("says the current agent has not seen the messages above", () => {
+    const notice = deriveConversationSwapNotice({
+      replacedConversationId: "1b355295-0000-4000-8000-000000000000",
+    });
+    // The state, not the mechanism — this is what tells the operator to re-ask
+    // rather than wait for an answer that is never coming.
+    expect(notice).toMatch(/has not seen the messages above/i);
+    expect(notice).toMatch(/fresh agent/i);
+  });
+
+  test("does not put the replaced conversation id on screen", () => {
+    // It addresses an on-disk transcript the panel cannot open, so rendering it
+    // would offer the operator a handle that leads nowhere.
+    const notice = deriveConversationSwapNotice({
+      replacedConversationId: "1b355295-0000-4000-8000-000000000000",
+    });
+    expect(notice).not.toContain("1b355295-0000-4000-8000-000000000000");
+  });
+
+  test("says NOTHING when no swap is on record", () => {
+    // Absent means "no swap recorded", the same discipline `agentStopReason`
+    // and `originSeeded` follow. A daemon predating the field must not be read
+    // as asserting continuity it never checked.
+    expect(deriveConversationSwapNotice(undefined)).toBeNull();
+  });
+
+  test("the notice REACHES the render, above the history it qualifies", async () => {
+    // The derive tests above prove the string; this proves the panel actually
+    // puts it on screen. A correct notice the render never reaches is exactly
+    // the shape of the defect — a true fact the operator cannot see.
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [
+        block({ id: "t#1", type: "user-prompt" }),
+        block({ id: "t#2", type: "assistant-text", rawJsonlType: "assistant" }),
+      ],
+      live: false,
+      conversationSwap: { replacedConversationId: "1b355295-0000-4000-8000-000000000000" },
+    });
+    renderPanel();
+
+    const notice = await screen.findByTestId("entity-thread-conversation-swap");
+    expect(notice.textContent).toMatch(/has not seen the messages above/i);
+  });
+
+  test("a recovered reply is disclosed, and coexists with the swap notice", async () => {
+    // mt#4073. The recovered turn lands at the END of the thread carrying its
+    // ORIGINAL timestamp, so without this the operator sees an hour-old answer
+    // below newer messages and no reason for it. Asserted alongside the swap
+    // notice because the restart that recovers one reply is frequently the same
+    // restart that swapped the conversation — both must show.
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [block({ id: "t#1", type: "user-prompt" })],
+      live: false,
+      recoveredReplies: { count: 1, oldestOriginallySentAt: "2026-08-12T21:01:32.000Z" },
+      conversationSwap: { replacedConversationId: "1b355295-0000-4000-8000-000000000000" },
+    });
+    renderPanel();
+
+    const notice = await screen.findByTestId("entity-thread-recovered-replies");
+    expect(notice.textContent).toMatch(/recovered from the agent's transcript/i);
+    expect(await screen.findByTestId("entity-thread-conversation-swap")).toBeDefined();
+  });
+
+  test("a thread with nothing recovered renders no recovery notice", async () => {
+    // No reassuring zero — absent means "nothing to report", the same
+    // discipline `shouldReportPendingReplies` and `originSeeded` follow.
+    expect(deriveRecoveredRepliesNotice(undefined)).toBeNull();
+    expect(deriveRecoveredRepliesNotice({ count: 0 })).toBeNull();
+  });
+
+  test("the recovery notice is pluralized on its count", async () => {
+    expect(deriveRecoveredRepliesNotice({ count: 1 })).toMatch(/^A reply that failed to save/);
+    expect(deriveRecoveredRepliesNotice({ count: 3 })).toMatch(/^3 replies that failed to save/);
+  });
+
+  test("a swapped-in agent that is ALSO stranded shows both notices, not one", async () => {
+    // The swap notice sits outside the pending/stopped/stranded chain on
+    // purpose: those are mutually exclusive answers to "why is no reply
+    // coming?", while this answers "whose conversation is the history?".
+    // Suppressing it to show one of them would restore the silent continuity.
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [block({ id: "t#1", type: "user-prompt" })],
+      live: false,
+      agentStopReason: "cockpit-restart",
+      conversationSwap: { replacedConversationId: "1b355295-0000-4000-8000-000000000000" },
+    });
+    renderPanel();
+
+    expect(await screen.findByTestId("entity-thread-conversation-swap")).toBeDefined();
+    expect(await screen.findByTestId("entity-thread-agent-stopped")).toBeDefined();
+  });
+
+  test("no swap on the response renders no notice at all", async () => {
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [block({ id: "t#1", type: "user-prompt" })],
+      live: true,
+    });
+    renderPanel();
+
+    // Waited for the panel to settle first, so this is an assertion about a
+    // rendered thread rather than about a component that had not loaded yet.
+    await screen.findByText("Discussion");
+    expect(screen.queryByTestId("entity-thread-conversation-swap")).toBeNull();
   });
 });
 

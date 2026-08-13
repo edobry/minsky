@@ -45,6 +45,7 @@ import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
 import type { ExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
+import { formatExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
@@ -202,9 +203,8 @@ export function registerTranscriptIndexEmbeddingsCommand(
       // separate, API-free stage from embedding; we run it first so historical
       // sessions (ingested before extraction-on-capture) have turn rows for the
       // vector-only backfill to fill.
-      const { extractTurnsForAllTranscripts, writeTurnsForTranscript } = await import(
-        "@minsky/domain/transcripts/turn-writer"
-      );
+      const { extractTurnsForAllTranscripts, writeTurnsForTranscript, classifyWriteOutcome } =
+        await import("@minsky/domain/transcripts/turn-writer");
       const pgDb = db as import("drizzle-orm/postgres-js").PostgresJsDatabase;
 
       // ── Execute: --all mode ──────────────────────────────────────────────
@@ -246,7 +246,9 @@ export function registerTranscriptIndexEmbeddingsCommand(
         }
 
         const message =
-          `Extraction: turnsWritten=${extractionResult?.turnsWritten ?? "error"}; ` +
+          `Extraction: ${
+            extractionResult ? formatExtractAllTurnsResult(extractionResult) : "error"
+          }; ` +
           `Embedding: embedded=${perTurnResult?.turnsEmbedded ?? "error"}; ` +
           `Summary: processed=${summaryResult?.transcriptsProcessed ?? "error"}`;
 
@@ -274,23 +276,32 @@ export function registerTranscriptIndexEmbeddingsCommand(
           .from(agentTranscriptsTable)
           .where(eq(agentTranscriptsTable.agentSessionId, sessionId as AgentSessionId))
           .limit(1);
-        const {
-          written: turnsWritten,
-          nonEmptyYieldedZero,
-          erroredChunks,
-        } = await writeTurnsForTranscript(pgDb, sessionId as string, trows[0]?.transcript ?? null);
+        const writeResult = await writeTurnsForTranscript(
+          pgDb,
+          sessionId as string,
+          trows[0]?.transcript ?? null
+        );
         // mt#2457 R1 review: mirror extractTurnsForAllTranscripts's per-row
         // classification exactly (turn-writer.ts) so the single-session path
         // reports the same degraded-state signal as the --all sweep and the
         // forward ingest path, instead of a plain skip with zero errors.
-        const hasWriteError = erroredChunks > 0;
+        //
+        // mt#3514: mirror it by CALLING classifyWriteOutcome rather than
+        // restating its logic. The restated copy had already drifted out of
+        // reach of a new error condition — a failed orphan DELETE — which the
+        // sweep honors and this path would have silently reported as success.
+        const classification = classifyWriteOutcome(writeResult);
         extractionResult = {
           transcriptsScanned: 1,
-          transcriptsProcessed: !hasWriteError && turnsWritten > 0 ? 1 : 0,
-          transcriptsSkipped: !hasWriteError && turnsWritten === 0 ? 1 : 0,
-          transcriptsErrored: hasWriteError ? 1 : 0,
-          turnsWritten,
-          nonEmptyYieldedZero: nonEmptyYieldedZero ? 1 : 0,
+          transcriptsProcessed: classification.bucket === "processed" ? 1 : 0,
+          transcriptsSkipped: classification.bucket === "skipped" ? 1 : 0,
+          transcriptsErrored: classification.bucket === "errored" ? 1 : 0,
+          turnsWritten: classification.turnsWritten,
+          turnsExtracted: classification.turnsExtracted,
+          chunkSplits: classification.chunkSplits,
+          orphanDeletesFailed: classification.orphanDeleteFailed ? 1 : 0,
+          nonEmptyYieldedZero: classification.countNonEmptyYieldedZero ? 1 : 0,
+          orphansDeleted: classification.orphansDeleted,
           aborted: false,
         };
       } catch (err) {
@@ -326,8 +337,14 @@ export function registerTranscriptIndexEmbeddingsCommand(
         });
       }
 
+      // mt#3911: render from the result's SHAPE, not from a hand-picked field
+      // list. The previous line printed `extracted=${turnsWritten}` — the wrong
+      // field under a label that reads like the right one, so a session that
+      // extracted 604 turns and wrote 104 reported `extracted=104`.
       const message =
-        `Session ${sessionId}: extracted=${extractionResult?.turnsWritten ?? "error"}, ` +
+        `Session ${sessionId}: ${
+          extractionResult ? formatExtractAllTurnsResult(extractionResult) : "extraction=error"
+        }, ` +
         `embedded=${perTurnResult?.turnsEmbedded ?? "error"}; ` +
         `summary=${summaryProcessed ? "generated" : "skipped"}`;
 

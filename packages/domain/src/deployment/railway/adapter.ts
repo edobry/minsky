@@ -19,6 +19,7 @@ import {
   type DeploymentRecord,
   type DeploymentStatus,
   DeploymentWaitTimeoutError,
+  NoDeploymentSinceError,
   isTerminalStatus,
   type LogLine,
   type LogType,
@@ -195,6 +196,71 @@ export function deriveRestartCount(
   return { count, windowHours, since, byStatus };
 }
 
+/**
+ * Parse a `notBefore` bound into epoch-ms, or null when unset (mt#3890).
+ * Throws on a malformed value rather than degrading to "unset" — silently
+ * dropping the bound would restore the exact hole it closes.
+ */
+export function parseNotBefore(value: string | undefined): number | null {
+  if (value === undefined) return null;
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    throw new Error(
+      `waitForLatestDeployment: notBefore is not a valid ISO8601 timestamp: ${value}`
+    );
+  }
+  return parsed;
+}
+
+export interface AcquireDeploymentOptions {
+  /** Returns the service's newest deployment node, or undefined when it has none. */
+  fetchNewest: () => Promise<RailwayDeploymentNode | undefined>;
+  /** Epoch-ms lower bound; null disables the check (legacy "whatever is latest"). */
+  notBeforeMs: number | null;
+  /** The original ISO string, for the error message. */
+  notBefore: string | undefined;
+  timeoutSeconds: number;
+  /** Epoch-ms deadline. */
+  deadlineMs: number;
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  pollIntervalMs: number;
+}
+
+/**
+ * Acquire the deployment a wait should track.
+ *
+ * With `notBeforeMs` set, a deployment created before the bound does NOT
+ * qualify — the caller is verifying that a specific merge deployed, and a
+ * pre-existing record is evidence of the opposite. Polls until one appears or
+ * the deadline passes, then throws {@link NoDeploymentSinceError} carrying the
+ * newest record actually seen so the caller can say how stale the service is.
+ *
+ * Extracted with injected fetch/clock/sleep so the loop is testable without
+ * patching module imports (`testing-standards.mdc §Testable Design`).
+ */
+export async function acquireDeploymentAtOrAfter(
+  options: AcquireDeploymentOptions
+): Promise<RailwayDeploymentNode | undefined> {
+  let node = await options.fetchNewest();
+  if (options.notBeforeMs === null) return node;
+
+  let newestSeen = node;
+  while (!node || Date.parse(node.createdAt) < options.notBeforeMs) {
+    if (options.now() >= options.deadlineMs) {
+      throw new NoDeploymentSinceError(
+        options.notBefore as string,
+        options.timeoutSeconds,
+        newestSeen ? toRecord(newestSeen) : null
+      );
+    }
+    await options.sleep(options.pollIntervalMs);
+    node = await options.fetchNewest();
+    if (node) newestSeen = node;
+  }
+  return node;
+}
+
 @injectable()
 export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
   constructor(private readonly config: RailwayDeploymentConfig) {}
@@ -217,13 +283,29 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
     const pollIntervalSeconds = options?.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS;
     const deadline = Date.now() + timeoutSeconds * 1000;
 
+    // mt#3890: with `notBefore`, "latest at call time" is not good enough —
+    // an old deployment must not satisfy a wait for a NEW one. Parsed up
+    // front so a malformed value fails loudly instead of silently disabling
+    // the bound (which would restore the very hole this closes).
+    const notBefore = options?.notBefore;
+    const notBeforeMs = parseNotBefore(notBefore);
+
     // Identify the deployment we're waiting on at start time. If a new
     // deployment kicks off mid-wait (e.g., another push) we will still be
     // tracking the one that was latest at call time — by design, since the
     // caller's intent is "the deploy I just pushed."
     const token = await getValidRailwayToken();
-    const initial = await fetchDeployments(this.config.serviceId, 1, token);
-    const initialNode = initial[0];
+    const initialNode = await acquireDeploymentAtOrAfter({
+      fetchNewest: async () => (await fetchDeployments(this.config.serviceId, 1, token))[0],
+      notBeforeMs,
+      notBefore,
+      timeoutSeconds,
+      deadlineMs: deadline,
+      now: () => Date.now(),
+      sleep,
+      pollIntervalMs: pollIntervalSeconds * 1000,
+    });
+
     if (!initialNode) {
       throw new Error(
         `No deployments found for Railway service ${this.config.serviceId}. ` +

@@ -331,12 +331,29 @@ async function main(): Promise<void> {
     overrideFields?: {
       overrideEnvVar: string;
       overrideClassification: ReturnType<typeof classifyOverride>;
-    }
+    },
+    /**
+     * mt#3920 — clean-run evidence, set only at the two exits downstream of the banner
+     * scan. The four above it stay UNSET, each for its own reason: an unguarded tool and
+     * an active override are not evaluations at all; an unextractable target path is an
+     * input-shape mismatch, not a broken probe.
+     *
+     * The fourth — `scanResult.skipReason` — is UNSET rather than `crashed`, deliberately.
+     * That field is set from ONE catch that covers both a missing file and an unreadable
+     * one, and the missing case is the ordinary state of a `Write` creating a new file.
+     * Marking the pair `crashed` would report a routine create as a guard failure, and
+     * marking it `decided` would claim the scan ran when it did not — so the honest answer
+     * is neither. Splitting the two would take an error-code discriminator inside
+     * `scanFileForBanner`; the fire log is not the failure-side tracker (guard-health.ts
+     * owns that), so the gain does not carry the change.
+     */
+    outcome?: "decided" | "crashed"
   ): never => {
     recordFireLogEntry({
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision,
+      ...(outcome !== undefined ? { guardOutcome: outcome } : {}),
       durationMs: Date.now() - startMs,
       toolName: input.tool_name,
       sessionId: input.session_id,
@@ -379,7 +396,8 @@ async function main(): Promise<void> {
 
   if (!scanResult.found) {
     // No banner marker — permit
-    return recordAndExit("allow");
+    // mt#3920: `decided` — the file was read and scanned; a clean scan is a verdict.
+    return recordAndExit("allow", undefined, "decided");
   }
 
   // Banner found. Check for override; if set, audit-log with the matched
@@ -407,7 +425,7 @@ async function main(): Promise<void> {
       permissionDecisionReason: denialReason,
     },
   });
-  return recordAndExit("deny");
+  return recordAndExit("deny", undefined, "decided");
 }
 
 if (import.meta.main) {

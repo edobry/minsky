@@ -21,13 +21,46 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Server | Express (`src/cockpit/server.ts`) |
 | Frontend | React (`src/cockpit/web/{pages,widgets,components}/*.tsx` — see §Widget vocabulary below) |
 | Styling | Tailwind (`tailwind.config.ts`, scoped to `src/cockpit/web/**`) |
-| Component lib | shadcn/ui conventions (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`). Primitives are **hand-authored** thin Radix wrappers following shadcn's documented subcomponent contracts; there is NO `components.json`, so the `shadcn add` CLI is not the mechanism here (verified mt#3347). Add a primitive by matching the house idiom in `ui/popover.tsx` / `ui/select.tsx`. |
+| Component lib | shadcn/ui conventions (mt#1773 shipped — `src/cockpit/web/components/ui/*.tsx`). Primitives are **hand-authored** thin Radix wrappers following shadcn's documented subcomponent contracts. Add one by matching the house idiom in `ui/popover.tsx` / `ui/select.tsx`; do **not** use `shadcn add` — see §Why primitives are hand-authored below. |
 | Data layer | TanStack Query (mt#1773 shipped — pages/widgets self-fetch via `useQuery`/`useMutation`; no bare `fetch` + `useState` for server data anywhere in `web/**` per mt#2616 + mt#2641, which migrated the last two `Rail.tsx` holdouts) |
 | Build | Vite (`vite.config.ts`) |
 | Tests | bun test (`src/cockpit/cockpit.test.ts`, `bun run test:components` for pages/widgets/components) |
 | Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) — backend contract only, see §Widget vocabulary |
 | Config | None per-widget — registry-gated; future cockpit config goes under a `cockpit` tree in `~/.config/minsky/config.yaml` (mt#2294) |
 | DI | None (standalone Express, no tsyringe) |
+
+### Why primitives are hand-authored (mt#4062)
+
+**Not because the CLI is unusable here.** `src/cockpit/web/components.json` exists and is a valid
+shadcn config; `shadcn add` reads it, resolves, and proceeds.
+
+The reason is that the CLI now defaults to **Base UI**. It prompts `Select a component library ›
+Base UI (Recommended) / React Aria / Radix UI`, and `--yes` does not answer that prompt — so an
+unattended `shadcn add` drops a Base UI primitive into a tree whose primitives are all Radix
+wrappers. That is the second-primitive-library deviation mt#3347's gate-(l) analysis identified and
+rejected. If you do want the CLI, answer the prompt with Radix UI and then reconcile the output
+against the house idiom by hand.
+
+**A verification note, which is the more portable lesson.** Until mt#4062 this row asserted the
+opposite — that no such config existed, and that this was why the CLI was unavailable. It
+carried a verification stamp, which is what let it survive: readers saw a checked claim. The check
+was real but bounded. mt#3347 recorded it as `find -maxdepth 3 -not -path node_modules`, and
+`./src/cockpit/web/components.json` is four path components deep, so that search could not have
+found the file no matter what was there:
+
+```
+$ find . -maxdepth 3 -name components.json -not -path '*/node_modules/*'
+(no output)
+$ find . -maxdepth 4 -name components.json -not -path '*/node_modules/*'
+./src/cockpit/web/components.json
+```
+
+**Generalize it: a depth-bounded or path-bounded absence check is evidence about the region it
+searched, not about the repo.** When you record a negative, record its bound with it — "no match
+under `src/cockpit/web`", not "does not exist" — so the next reader can see what the check could
+not have seen. This is the same discipline `claim-confidence.mdc` states for negatives bounded to
+one channel; a nearby instance is mt#3362's stale `sticky h-14 AppHeader` premise elsewhere in
+these docs.
 
 ### Widget vocabulary (mt#2616)
 
@@ -59,6 +92,12 @@ categorization for a naming problem that a doc paragraph already resolves.
 ### Guard/interlock vocabulary (mt#2626)
 
 "Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, the `/plant/interlock-history` page); "weld" survives at most as a verb ("welding an interlock").
+
+**The genus noun is `interceptor` (ask#7119, closed 2026-08-11).** The ~90-entity enforcement corpus — merge gates, PreToolUse denials, Stop scanners, per-turn injections, calibration recorders, pre-commit checks — is named **interceptors**; **guard**, **detector**, and **injector** are COMPUTED family words (filters over intervention type: deny/allow, calibration-first record, and inject respectively), not assigned labels. The activity noun is "interception"; the catalog route is `/interceptors`, and a catalog deeplink type follows the same noun. Describe an individual entity by its coordinates — `<interception point> + <intervention type(s)> + <decision mechanism>` — when precision matters.
+
+**This does NOT reopen mt#2626, and the paragraph above stands unchanged:** "hook" stays registration mechanics (the MCP Interceptors WG charter makes the same split, ruling client-specific hook internals out of protocol scope), and "interlock" stays the plant-UI deny noun in shipped copy. Nor does it rename any code or storage: `guardName` fire-log keys are not migrated — new code reaches interceptor vocabulary via a read-side alias only.
+
+Full model — the three axes, the four amendments the codebase audit forced, the entity strata, and the MCP disambiguation — is [`docs/architecture/interceptors.md`](../../docs/architecture/interceptors.md). Read it before writing cockpit copy or component names for any surface that renders this corpus.
 
 ## Design vocabulary
 

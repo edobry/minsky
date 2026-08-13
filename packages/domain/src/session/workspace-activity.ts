@@ -191,6 +191,14 @@ async function resolveGitIndexPath(sessionDir: string): Promise<string | null> {
  * and deletions", for the full rationale. This means a change set that is
  * ENTIRELY deletions still produces a non-null, reasonably-fresh signal
  * instead of collapsing to `null`.
+ *
+ * **Contract caution (mt#3958):** this clock only advances on a dirty-file
+ * WRITE. A caller that is reading source, planning, or running tests without
+ * touching the working tree produces no write, so a large "ago" value
+ * computed from this function's result means "no writes recently" — it does
+ * NOT mean "no agent is here." Do not use it alone as a liveness/death
+ * signal; see `tasks.dispatch-recover`'s escalate-message caution for the
+ * consumer-facing wording this produced.
  */
 export async function resolveLastWorkspaceMtimeAtMs(
   sessionDir: string,

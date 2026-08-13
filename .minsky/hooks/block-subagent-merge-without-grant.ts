@@ -210,7 +210,8 @@ if (import.meta.main) {
       `[block-subagent-merge-without-grant] warn: grant store read error (${storeResult.message}) ` +
         "— failing open (allowing this call)."
     );
-    recordAndExit("allow");
+    // mt#3920: `crashed` — this allow is a fail-open on a broken store read, not a verdict.
+    recordAndExit("allow", undefined, "crashed");
   }
 
   const decision = decideMergeGrant(taskId, agentId, storeResult.grants, Date.now());
@@ -218,7 +219,9 @@ if (import.meta.main) {
   if (decision.decision === "allow") {
     // Grant-backed allow is an audit event too — stdout, same convention.
     process.stdout.write(`[block-subagent-merge-without-grant] ${decision.reason} — allowing.\n`);
-    recordAndExit("allow");
+    // mt#3920: downstream of `decideMergeGrant` — the gate read the store and reached a
+    // verdict, so this record is clean-run evidence.
+    recordAndExit("allow", undefined, "decided");
   }
 
   writeOutput({
@@ -228,5 +231,5 @@ if (import.meta.main) {
       permissionDecisionReason: decision.reason,
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, "decided");
 }

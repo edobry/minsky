@@ -43,19 +43,35 @@ import type { GuardRegistration, GuardModule } from "./registry";
 
 const MINSKY_STATE_DIR_VAR = "MINSKY_STATE_DIR";
 const CLAUDE_PROJECT_DIR_VAR = "CLAUDE_PROJECT_DIR";
+const CANARY_MODE_VAR = "MINSKY_CANARY_MODE";
 const CHECK_GUESSED_SESSION_PATH = "check-guessed-session-path";
 const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 
 let canaryTestStateDir: string;
 let prevMinskyStateDir: string | undefined;
 let prevClaudeProjectDir: string | undefined;
+let prevCanaryMode: string | undefined;
 
 beforeAll(() => {
   canaryTestStateDir = mkdtempSync(join(tmpdir(), "mt2889-canary-runner-test-isolation-"));
   prevMinskyStateDir = process.env[MINSKY_STATE_DIR_VAR];
   prevClaudeProjectDir = process.env[CLAUDE_PROJECT_DIR_VAR];
+  prevCanaryMode = process.env[CANARY_MODE_VAR];
   process.env[MINSKY_STATE_DIR_VAR] = canaryTestStateDir;
   process.env[CLAUDE_PROJECT_DIR_VAR] = canaryTestStateDir;
+  // mt#2292: the DB half of the isolation the block comment above describes.
+  // The two vars above redirect guards' filesystem writes to a temp dir; this
+  // one is what keeps a guard from reaching the live DATABASE, and the file was
+  // running the whole registry without it. `MINSKY_CANARY_MODE` is what
+  // `record-agent-dispatch` and `duplicate-signature-scan` check to short-circuit
+  // their persistence work, and both bound that work with a multi-second deadline
+  // — so without this the runner pays a real connect attempt per DB-touching
+  // guard and "returns one result per registration" blows its 15s budget.
+  // Set here rather than at module load because this file imports the registry
+  // statically and no guard reads it at import time (unlike
+  // guard-feedback-shape.test.ts, which dynamic-imports and therefore must set
+  // it first). Same value that file and `scripts/run-guard-canaries.ts` set.
+  process.env[CANARY_MODE_VAR] = "1";
 });
 
 afterAll(() => {
@@ -63,6 +79,8 @@ afterAll(() => {
   else process.env[MINSKY_STATE_DIR_VAR] = prevMinskyStateDir;
   if (prevClaudeProjectDir === undefined) delete process.env[CLAUDE_PROJECT_DIR_VAR];
   else process.env[CLAUDE_PROJECT_DIR_VAR] = prevClaudeProjectDir;
+  if (prevCanaryMode === undefined) delete process.env[CANARY_MODE_VAR];
+  else process.env[CANARY_MODE_VAR] = prevCanaryMode;
   rmSync(canaryTestStateDir, { recursive: true, force: true });
 });
 
@@ -125,6 +143,13 @@ describe("runGuardCanary — real guard, real canary", () => {
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       // no `canary` field
     };
     const result = await runGuardCanary(syntheticReg);
@@ -180,6 +205,13 @@ describe("runGuardCanary — SABOTAGE DETECTION (mt#2889 acceptance test)", () =
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       canary: { input: {}, expects: "warn" },
     };
     const result = await runGuardCanary(sabotagedWarnReg);
@@ -205,6 +237,13 @@ describe("runGuardCanary — setup hook", () => {
         }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       canary: {
         input: {},
         expects: "warn",
@@ -290,6 +329,13 @@ describe("mt#3004 — MISSING result carries no expects", () => {
       module: () => Promise.resolve<GuardModule>({ run: () => null }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
     };
     const result = await runGuardCanary(syntheticReg);
     expect(result.passed).toBeUndefined();
@@ -314,6 +360,13 @@ describe("mt#3004 — runGuardCanary restores env mutated by setup (PR #2145 R1)
         }),
       timeoutMs: 5000,
       denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
       canary: {
         input: {},
         expects: "warn",

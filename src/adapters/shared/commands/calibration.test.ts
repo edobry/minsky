@@ -35,7 +35,7 @@
    ask-form-lint-calibration.test.ts's justification) */
 
 import { describe, test, expect, afterEach } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sharedCommandRegistry } from "../command-registry";
@@ -56,6 +56,23 @@ function getCommand() {
   }
   if (!command) throw new Error(`${COMMAND_ID} not registered`);
   return command;
+}
+
+/**
+ * Run the read-only sweep and return the receipt it issues (mt#3906).
+ *
+ * Every `ack: true` below goes through this, because that is now the only way
+ * to ack: the token binds the counts the reviewer saw, so the ack cannot write
+ * a count nobody looked at. In these tests the fixture does not grow between
+ * the read and the ack, so the bound count equals the ack-time count and every
+ * pre-existing expectation is unchanged.
+ */
+async function readReviewToken(workspace: string): Promise<string> {
+  const result = (await getCommand().execute(
+    { ack: false, json: true },
+    { workspacePath: workspace }
+  )) as { reviewToken: string };
+  return result.reviewToken;
 }
 
 const tempDirs: string[] = [];
@@ -153,7 +170,7 @@ describe("observability.calibration-review — silent-stretch (mt#2866)", () => 
 
     const command = getCommand();
     const result = (await command.execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as { success: boolean; watermarkAdvanced: boolean };
 
@@ -252,6 +269,8 @@ type AckResult = {
   success: boolean;
   watermarkAdvanced: boolean;
   skippedOpenAskPaths: string[];
+  driftedPaths: string[];
+  clearedAskId: boolean;
   reviewDue: Array<{ name: string; reason: string }>;
   results: Array<{ name: string; pastThreshold: boolean; openAskId?: string }>;
 };
@@ -274,7 +293,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     expect(before.results.find((r) => r.name === "causal-premise")?.pastThreshold).toBe(false);
 
     const acked = (await command.execute(
-      { ack: true, json: true, askId: ASK_ID },
+      { ack: true, json: true, askId: ASK_ID, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
@@ -313,7 +332,7 @@ describe("observability.calibration-review — --ack covers all review-due legs 
     expect(before.results.find((r) => r.name === "silent-stretch")?.pastThreshold).toBe(false);
 
     const acked = (await command.execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
@@ -324,26 +343,46 @@ describe("observability.calibration-review — --ack covers all review-due legs 
   test("still skips a newly-covered-leg log whose ask is open when no askId is supplied", async () => {
     // The mt#2659 safety property must survive the widening: --ack without
     // askId must not silently discharge a log the operator is still deciding.
+    //
+    // mt#3818: this test used to also assert `acked.watermarkAdvanced === false`.
+    // That flag is a PROCESS-GLOBAL boolean — `calibration.ts` sets it true the
+    // moment `selectAckablePaths` returns ANY ackable path, not specifically
+    // this one. It is not a safe proxy for "this log's watermark held": once
+    // wall-clock passes any OTHER registry entry's `liveSinceDate +
+    // reviewByDays` window (e.g. `knowledge-acquisition`'s 2026-07-23 + 14
+    // days = 2026-08-06), that unrelated entry's never-fired leg (mt#3078)
+    // becomes review-due and ackable in this test's temp workspace too — which
+    // flips the global flag to `true` while the invariant this test actually
+    // cares about (SILENT_STRETCH_PATH's watermark is untouched) still holds.
+    // The per-path assertions below are the actual safety property; the
+    // deleted global-flag assertion carried a latent wall-clock dependency on
+    // registry entries this test never touches. See the mt#3818 spec's
+    // Diagnosis section for the full mechanism and the negative-control run
+    // that confirmed it (neutralizing the tripping entry's `liveSinceDate`
+    // made the old assertion pass).
     const workspace = makeWorkspace();
     const lines = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
     writeFileSync(join(workspace, ".minsky", SILENT_STRETCH_LOG), `${lines.join("\n")}\n`, "utf-8");
+    const originalWatermark = {
+      lastReviewedCount: 1,
+      lastReviewedAt: daysAgoIso(20),
+      openAskId: ASK_ID,
+    };
     writeWatermarks(workspace, {
-      [SILENT_STRETCH_PATH]: {
-        lastReviewedCount: 1,
-        lastReviewedAt: daysAgoIso(20),
-        openAskId: ASK_ID,
-      },
+      [SILENT_STRETCH_PATH]: originalWatermark,
     });
 
     const command = getCommand();
     const acked = (await command.execute(
-      { ack: true, json: true },
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
     expect(acked.skippedOpenAskPaths).toContain(SILENT_STRETCH_PATH);
-    expect(acked.watermarkAdvanced).toBe(false);
-    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.lastReviewedCount).toBe(1);
+    // The per-path property the mt#2659 safety invariant actually encodes: a
+    // skipped log's watermark entry is byte-for-byte unchanged — not merely
+    // its count, but its timestamp and openAskId too.
+    expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]).toEqual(originalWatermark);
   });
 
   test("supplying askId reaffirms an open-ask log on a newly-covered leg", async () => {
@@ -360,12 +399,147 @@ describe("observability.calibration-review — --ack covers all review-due legs 
 
     const command = getCommand();
     const acked = (await command.execute(
-      { ack: true, json: true, askId: ASK_ID },
+      { ack: true, json: true, askId: ASK_ID, reviewToken: await readReviewToken(workspace) },
       { workspacePath: workspace }
     )) as AckResult;
 
     expect(acked.skippedOpenAskPaths).toHaveLength(0);
     expect(acked.watermarkAdvanced).toBe(true);
     expect(readWatermarks(workspace)[SILENT_STRETCH_PATH]?.openAskId).toBe(ASK_ID);
+  });
+});
+
+describe("observability.calibration-review — concurrent-write reconciliation (mt#3899)", () => {
+  // The drift DECISION is a pure function, pinned exhaustively in
+  // `src/domain/calibration/calibration-sweep.test.ts` (`mergeWatermarkWrite`).
+  // These assert the command level: two real passes racing over one store, and
+  // the uncontended contract.
+
+  test("two overlapping passes each keep the other's write (spec AT1)", async () => {
+    // The incident, at the level it happened. Two passes overlap; each read the
+    // store before either wrote it. Pre-fix, both wrote their own stale
+    // whole-store snapshot, so whichever finished last erased the other's
+    // effect — silently, with both passes reporting success.
+    //
+    // The two passes must intend DIFFERENT writes for this to be able to fail:
+    // when both compute the same values, a stale write is indistinguishable
+    // from a fresh one and the test proves nothing (measured — an earlier
+    // version of this test used two identical acks and passed against the
+    // pre-fix code). So:
+    //   pass A = --ack, which skips the open-ask log and advances the other;
+    //   pass B = --clearAskId, which touches ONLY the open-ask log.
+    // Disjoint targets, one store, one write each.
+    //
+    // Concurrency is real: no module is patched and no timing is asserted. Both
+    // calls start together and each spends its sweep between its read and its
+    // write. The assertion holds under either completion order.
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+    const silentStretch = Array.from({ length: 3 }, (_, i) => makeSilentStretchRecord(`conv-${i}`));
+    writeFileSync(
+      join(workspace, ".minsky", SILENT_STRETCH_LOG),
+      `${silentStretch.join("\n")}\n`,
+      "utf-8"
+    );
+    writeWatermarks(workspace, {
+      // Carries the open ask -> pass A skips it, pass B clears it.
+      [CAUSAL_PREMISE_PATH]: {
+        lastReviewedCount: 0,
+        lastReviewedAt: daysAgoIso(40),
+        openAskId: ASK_ID,
+      },
+      // No ask -> pass A advances it, pass B never touches it.
+      [SILENT_STRETCH_PATH]: { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20) },
+    });
+
+    const command = getCommand();
+    // Pass A's receipt is taken BEFORE the pair starts, which is faithful to
+    // the incident: both passes read the world, then both write into it.
+    const passAToken = await readReviewToken(workspace);
+    await Promise.all([
+      command.execute(
+        { ack: true, json: true, reviewToken: passAToken },
+        { workspacePath: workspace }
+      ),
+      command.execute({ ack: false, json: true, clearAskId: ASK_ID }, { workspacePath: workspace }),
+    ]);
+
+    // BOTH effects must survive. Pre-fix, exactly one does.
+    const after = readWatermarks(workspace);
+    expect(after[SILENT_STRETCH_PATH]?.lastReviewedCount).toBe(3);
+    expect(after[CAUSAL_PREMISE_PATH]?.openAskId).toBeUndefined();
+  });
+
+  test("an uncontended ack reports no dropped writes and still advances", async () => {
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+
+    const acked = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: await readReviewToken(workspace) },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(acked.driftedPaths).toEqual([]);
+    expect(readWatermarks(workspace)[CAUSAL_PREMISE_PATH]?.lastReviewedCount).toBe(3);
+  });
+
+  test("ack without a reviewToken is REFUSED and writes nothing (mt#3906)", async () => {
+    // The refusal is the point: with no receipt the command cannot know what
+    // was classified, and the only count available to it is the one that
+    // caused the defect. Failing closed costs one read-only call.
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+
+    const refused = (await getCommand().execute(
+      { ack: true, json: true },
+      { workspacePath: workspace }
+    )) as { success: boolean; error: string };
+
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("reviewToken");
+    // No watermark file was created — the refusal happens before any write.
+    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+  });
+
+  test("ack with a token claiming more records than the log holds is REFUSED (mt#3906)", async () => {
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+    // A receipt taken while the log held 3 records, replayed against a log
+    // that now holds 1 — the shape a rotated log or a foreign tree produces.
+    const token = await readReviewToken(workspace);
+    writeAgedCausalPremiseLog(workspace, 1);
+
+    const refused = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: token },
+      { workspacePath: workspace }
+    )) as { success: boolean; error: string };
+
+    expect(refused.success).toBe(false);
+    expect(refused.error).toContain("the log holds");
+    expect(existsSync(join(workspace, ".minsky", WATERMARKS_FILE))).toBe(false);
+  });
+
+  test("an uncontended clear reports no dropped writes and leaves the counts alone", async () => {
+    // Doubles as the mt#3899 regression pin from the task's Acceptance Test 4:
+    // clearing an ask must not move lastReviewedCount/At. That behavior was
+    // CORRECT before this change — the first diagnosis of the incident wrongly
+    // blamed it — and the reconciliation must not disturb it.
+    const workspace = makeWorkspace();
+    writeAgedCausalPremiseLog(workspace, 3);
+    const original = { lastReviewedCount: 1, lastReviewedAt: daysAgoIso(20), openAskId: ASK_ID };
+    writeWatermarks(workspace, { [CAUSAL_PREMISE_PATH]: original });
+
+    const cleared = (await getCommand().execute(
+      { ack: false, json: true, clearAskId: ASK_ID },
+      { workspacePath: workspace }
+    )) as AckResult;
+
+    expect(cleared.clearedAskId).toBe(true);
+    expect(cleared.driftedPaths).toEqual([]);
+    const after = readWatermarks(workspace)[CAUSAL_PREMISE_PATH];
+    expect(after?.lastReviewedCount).toBe(original.lastReviewedCount);
+    expect(after?.lastReviewedAt).toBe(original.lastReviewedAt);
+    expect(after?.openAskId).toBeUndefined();
   });
 });

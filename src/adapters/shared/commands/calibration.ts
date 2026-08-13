@@ -29,12 +29,17 @@ import {
   type CommandExecutionContext,
 } from "../command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
+import { buildSweptEntries } from "../../../domain/calibration/swept-entries";
 import {
-  CALIBRATION_LOG_REGISTRY,
   runSweep,
   computeReviewDueLogs,
   advanceWatermarks,
+  buildReviewToken,
   clearResolvedAskIds,
+  InvalidReviewTokenError,
+  mergeWatermarkWrite,
+  parseReviewToken,
+  reconcileReviewReceipt,
   selectAckablePaths,
   UNKNOWN_SILENT_STRETCH_SESSION_LABEL,
   type CalibrationLogResult,
@@ -48,6 +53,18 @@ import {
 // ---------------------------------------------------------------------------
 
 const WATERMARK_STORE_PATH = ".minsky/calibration-review-watermarks.json";
+
+/**
+ * Lock guarding the watermark store's read-merge-write critical section
+ * (mt#3899). A directory, because `mkdir` is atomic and exclusive on every
+ * platform we run on — no dependency, no partial-create state.
+ */
+const WATERMARK_LOCK_PATH = ".minsky/calibration-review-watermarks.lock";
+/** A holder older than this is treated as dead; the section is ~2 file ops. */
+const WATERMARK_LOCK_STALE_MS = 10_000;
+/** Give up waiting and proceed unlocked rather than lose the pass's work. */
+const WATERMARK_LOCK_MAX_WAIT_MS = 5_000;
+const WATERMARK_LOCK_RETRY_MS = 15;
 
 // ---------------------------------------------------------------------------
 // Per-record context rendering (mt#3289)
@@ -166,11 +183,82 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
 }
 
+/**
+ * Run `critical` with exclusive access to the watermark store (mt#3899).
+ *
+ * Re-reading before writing narrows the race but does not close it: another
+ * pass can still write in the gap between this pass's re-read and its own
+ * write. That gap is small — two file operations — but it is exactly where two
+ * in-process passes land, and it is where the originating incident's write
+ * would have landed too. The lock makes read-merge-write indivisible.
+ *
+ * **Failure mode, stated because a lock has one.** The lock is a directory, so
+ * a process that dies mid-section leaves it behind. Two bounds keep that from
+ * wedging the loop: a holder older than `WATERMARK_LOCK_STALE_MS` is removed as
+ * dead, and a waiter that has spun for `WATERMARK_LOCK_MAX_WAIT_MS` proceeds
+ * WITHOUT the lock rather than failing. Proceeding unlocked degrades to
+ * re-read-and-merge — the narrow race — which is strictly better than throwing
+ * away a pass's classification work over a stale directory. The section holds
+ * the lock for two file ops, never for the multi-second sweep, so contention is
+ * brief by construction.
+ */
+async function withWatermarkLock<T>(workspacePath: string, critical: () => Promise<T>): Promise<T> {
+  const { join } = await import("node:path");
+  const { mkdir, rm, stat } = await import("node:fs/promises");
+  const lockPath = join(workspacePath, WATERMARK_LOCK_PATH);
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const deadline = Date.now() + WATERMARK_LOCK_MAX_WAIT_MS;
+  let held = false;
+  while (Date.now() < deadline) {
+    try {
+      await mkdir(lockPath, { recursive: false });
+      held = true;
+      break;
+    } catch {
+      // Held by someone. Reap it if the holder looks dead, then retry.
+      try {
+        const info = await stat(lockPath);
+        if (Date.now() - info.mtimeMs > WATERMARK_LOCK_STALE_MS) {
+          await rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // Vanished between the failed mkdir and the stat — the holder released
+        // it, so retry immediately rather than sleeping.
+        continue;
+      }
+      await sleep(WATERMARK_LOCK_RETRY_MS);
+    }
+  }
+
+  try {
+    return await critical();
+  } finally {
+    if (held) {
+      await rm(lockPath, { recursive: true, force: true }).catch(() => {
+        // intentional-swallow: releasing a lock we hold is best-effort. A
+        // failure here leaves a directory the staleness reaper collects; it
+        // must not mask the critical section's own result or error.
+      });
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Result formatting
 // ---------------------------------------------------------------------------
 
-function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
+/**
+ * Render the sweep for a human reader.
+ *
+ * Exported for direct testing (mt#3898 / PR #2884 R1). Nothing covered this
+ * surface, which is why a property present in the JSON could go missing from
+ * the text with every check green — the reviewer caught exactly that here, and
+ * PR #2599 R1 had caught the same class one property earlier. A formatter whose
+ * only verification is a reviewer's eye keeps re-losing fields.
+ */
+export function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]): string {
   const lines: string[] = ["=== Calibration Review Sweep ===", ""];
   const reasonByPath = new Map(reviewDue.map((d) => [d.path, d.reason]));
 
@@ -181,10 +269,20 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
     lines.push(`  Watermark count:        ${r.watermarkCount}`);
     lines.push(`  Fires since review:     ${r.firesSinceLastReview}`);
     // mt#3197: the positional count above includes detections that were
-    // suppressed before reaching the operator. Show the split so a reviewer
-    // never mistakes log volume for attention cost.
-    if (r.suppressedSinceLastReview > 0) {
-      lines.push(`    ...suppressed:        ${r.suppressedSinceLastReview} (never injected)`);
+    // suppressed before reaching the operator. mt#3863 widens the split with
+    // evaluation-only records — a record carrying no match at all, from a
+    // detector that logs on every turn regardless of outcome. Show all three
+    // so a reviewer never mistakes log volume (or evaluation volume) for
+    // attention cost.
+    if (r.suppressedSinceLastReview > 0 || r.evaluatedOnlySinceLastReview > 0) {
+      if (r.suppressedSinceLastReview > 0) {
+        lines.push(`    ...suppressed:        ${r.suppressedSinceLastReview} (never injected)`);
+      }
+      if (r.evaluatedOnlySinceLastReview > 0) {
+        lines.push(
+          `    ...evaluated-only:    ${r.evaluatedOnlySinceLastReview} (no match, mt#3863)`
+        );
+      }
       lines.push(`    ...injected:          ${r.injectedFiresSinceLastReview}`);
     }
     lines.push(`  Distinct phrases:       ${r.distinctPhrases}`);
@@ -222,6 +320,26 @@ function formatResult(results: CalibrationLogResult[], reviewDue: ReviewDueLog[]
       // cannot be rated," which is why the verdict distinguishes them at all;
       // showing only two of three states re-hides that distinction.
       lines.push(`  Classifiable:           n/a — no un-reviewed records to assess`);
+    }
+    // mt#3898 / PR #2884 R1: render the recoverability signal too. Same class
+    // as the PR #2599 R1 fix directly above — a property the JSON carries and
+    // the text omits is a property the reader of the text does not have. It
+    // matters more here than for the verdict: the whole point of the property
+    // is that `classifiable` alone misleads, so printing the verdict WITHOUT
+    // it reproduces the gap this shipped to close.
+    const judged = classifiability.judgedText;
+    if (judged.recoverability === "recoverable") {
+      lines.push(`  Judged text:            recoverable — all ${judged.recordsAssessed} record(s)`);
+    } else if (judged.recoverability === "partial") {
+      lines.push(
+        `  Judged text:            PARTIAL — ${judged.capturedRecords} of ${judged.recordsAssessed} record(s); bound any rate to the captured ones`
+      );
+    } else if (judged.recoverability === "unrecoverable") {
+      lines.push(
+        `  Judged text:            GONE — ${judged.recordsAssessed} record(s) carry no capture; you can rate what matched, not whether it was right in context`
+      );
+    } else {
+      lines.push(`  Judged text:            n/a — no un-reviewed records to assess`);
     }
     if (r.atCountThreshold && r.newRecords.length > 0) {
       lines.push(`  New records (${r.newRecords.length}):`);
@@ -335,6 +453,18 @@ export function registerCalibrationCommands(): void {
         required: false,
         defaultValue: false,
       },
+      reviewToken: {
+        schema: z.string(),
+        description:
+          "The `reviewToken` returned by the READ-ONLY sweep whose records you classified " +
+          "(mt#3906). REQUIRED with ack:true. It carries the per-log fire counts as of that " +
+          "read, so the watermark records what was actually reviewed instead of whatever the " +
+          "log has grown to by ack time — records that arrive mid-pass stay unreviewed and " +
+          "are reported as `midPassArrivals` rather than silently marked seen. A token that " +
+          "is malformed, or that claims more records than the log holds, is REJECTED (no " +
+          "watermark moves); one whose count sits below an existing watermark is raised to it.",
+        required: false,
+      },
       askId: {
         schema: z.string(),
         description:
@@ -377,19 +507,70 @@ export function registerCalibrationCommands(): void {
 
         let watermarks = await loadWatermarks(workspacePath);
 
+        // Every write below goes through `persistWatermarks` (mt#3899), which
+        // re-reads the store and drops any target another pass changed
+        // underneath us. Drifted paths accumulate here and are reported.
+        const driftedPaths: string[] = [];
+
+        /**
+         * Persist `intended` against the store as it stands NOW, not against
+         * the snapshot this pass read (mt#3899). Returns the paths whose edit
+         * was dropped because a concurrent writer got there first; the caller
+         * decides what that means for its own success flag.
+         */
+        const persistWatermarks = async (
+          base: WatermarkStore,
+          intended: WatermarkStore,
+          targetPaths: ReadonlySet<string>
+        ): Promise<{ store: WatermarkStore; drifted: string[] }> =>
+          // The re-read and the write must be indivisible: re-reading alone
+          // still loses to a writer that lands in between, which is where two
+          // in-process passes reliably collide (measured — the AT1 test failed
+          // against the re-read-only version of this fix).
+          withWatermarkLock(workspacePath, async () => {
+            const fresh = await loadWatermarks(workspacePath);
+            const { merged, driftedPaths: drifted } = mergeWatermarkWrite(
+              base,
+              intended,
+              fresh,
+              targetPaths
+            );
+            await saveWatermarks(workspacePath, merged);
+            driftedPaths.push(...drifted);
+            return { store: merged, drifted };
+          });
+
         // Clear a resolved disposition-ask reference first (mt#2659) — this
         // is independent of --ack and does not touch lastReviewedCount/At.
         let clearedAskId = false;
         if (params.clearAskId) {
-          const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
-          if (clearedWatermarks !== watermarks) {
-            watermarks = clearedWatermarks;
-            await saveWatermarks(workspacePath, watermarks);
-            clearedAskId = true;
+          // Select the entries FIRST, and gate on that rather than on
+          // `clearResolvedAskIds`'s return reference: it copies the store
+          // whenever the id set is non-empty, so reference-inequality holds even
+          // when the id matches no entry — which would otherwise read+write the
+          // whole store to change nothing (PR #2753 R1).
+          const targets = new Set(
+            Object.keys(watermarks).filter((p) => watermarks[p]?.openAskId === params.clearAskId)
+          );
+          if (targets.size > 0) {
+            const clearedWatermarks = clearResolvedAskIds(watermarks, new Set([params.clearAskId]));
+            const { store, drifted } = await persistWatermarks(
+              watermarks,
+              clearedWatermarks,
+              targets
+            );
+            watermarks = store;
+            // Honest reporting: a clear whose every target drifted cleared
+            // nothing, so it must not claim it did.
+            clearedAskId = drifted.length < targets.size;
           }
         }
 
-        const results = await runSweep(CALIBRATION_LOG_REGISTRY, readContent, watermarks);
+        // mt#3716: sweep the DERIVED set when the declaration surfaces are
+        // reachable (see buildSweptEntries's doc comment); falls back to the
+        // static registry otherwise.
+        const sweptEntries = await buildSweptEntries();
+        const results = await runSweep(sweptEntries, readContent, watermarks);
 
         // Review-due determination (mt#2896) — the SAME domain function the
         // cadence hook uses, so the command surfaces time-stale / never-reviewed
@@ -428,23 +609,73 @@ export function registerCalibrationCommands(): void {
         // whatever accumulated since. When `askId` IS supplied, the caller is
         // explicitly (re)affirming an ask for every review-due log this
         // call, so no log is skipped on that basis.
+        // mt#3906: the token the READ-ONLY sweep issued is what makes the ack
+        // honest. Issued on every invocation (including this one) so a pass
+        // always leaves with a receipt for its next round.
+        const reviewToken = buildReviewToken(results, new Date().toISOString());
+
         let watermarkAdvanced = false;
         let skippedOpenAskPaths: string[] = [];
+        let midPassArrivals: { path: string; count: number }[] = [];
+        let clampedPaths: string[] = [];
+        let unreceiptedPaths: string[] = [];
         if (params.ack) {
+          // Refuse rather than fall back. An ack with no receipt cannot know
+          // what was classified, and re-deriving the count here is the whole
+          // defect (mt#3906) — so the answer is a one-call remedy, not a
+          // silent write over records nobody looked at.
+          if (!params.reviewToken) {
+            return {
+              success: false,
+              json: params.json ?? false,
+              error:
+                "ack:true requires reviewToken — the token returned by the read-only sweep whose " +
+                "records you classified (mt#3906). Without it the watermark would be advanced to " +
+                "the log's count RIGHT NOW, marking every record that arrived during your review " +
+                "as reviewed by nobody. Re-run this command read-only and pass the `reviewToken` " +
+                "from its result.",
+            };
+          }
           const reviewDuePaths = new Set(reviewDue.map((d) => d.path));
           const reviewDueResults = results.filter((r) => reviewDuePaths.has(r.entry.path));
           const selection = selectAckablePaths(reviewDueResults, params.askId);
           skippedOpenAskPaths = selection.skippedOpenAskPaths;
-          if (selection.ackablePaths.size > 0) {
+
+          let reconciliation;
+          try {
+            reconciliation = reconcileReviewReceipt(
+              parseReviewToken(params.reviewToken),
+              results,
+              selection.ackablePaths,
+              watermarks
+            );
+          } catch (error) {
+            if (error instanceof InvalidReviewTokenError) {
+              return { success: false, json: params.json ?? false, error: error.message };
+            }
+            throw error;
+          }
+          midPassArrivals = reconciliation.midPassArrivals;
+          clampedPaths = reconciliation.clampedPaths;
+          unreceiptedPaths = reconciliation.unreceiptedPaths;
+
+          // Target only the paths the receipt actually covers: an unreceipted
+          // log is left alone, so it must not count toward the write set or
+          // toward `watermarkAdvanced`.
+          const advancedPaths = new Set(Object.keys(reconciliation.reviewedCounts));
+          if (advancedPaths.size > 0) {
             const updated = advanceWatermarks(
               watermarks,
               results,
               selection.ackablePaths,
               new Date().toISOString(),
+              reconciliation.reviewedCounts,
               params.askId
             );
-            await saveWatermarks(workspacePath, updated);
-            watermarkAdvanced = true;
+            const { drifted } = await persistWatermarks(watermarks, updated, advancedPaths);
+            // An ack whose every target drifted advanced nothing. Reporting it
+            // as advanced is what makes the race silent (mt#3899).
+            watermarkAdvanced = drifted.length < advancedPaths.size;
           }
         }
 
@@ -461,6 +692,7 @@ export function registerCalibrationCommands(): void {
               firesSinceLastReview: r.firesSinceLastReview,
               suppressedSinceLastReview: r.suppressedSinceLastReview,
               injectedFiresSinceLastReview: r.injectedFiresSinceLastReview,
+              evaluatedOnlySinceLastReview: r.evaluatedOnlySinceLastReview,
               distinctPhrases: r.distinctPhrases,
               atCountThreshold: r.atCountThreshold,
               lowDiversity: r.lowDiversity,
@@ -486,6 +718,18 @@ export function registerCalibrationCommands(): void {
             watermarkAdvanced,
             clearedAskId,
             skippedOpenAskPaths,
+            // mt#3899: paths whose intended write was dropped because another
+            // pass changed them mid-sweep. Empty on every uncontended run.
+            driftedPaths,
+            // mt#3906: the receipt for THIS read — pass it back as
+            // `reviewToken` on the ack that follows.
+            reviewToken,
+            // Records that landed while the reviewer was working. They stay
+            // unreviewed by design; naming them is what lets a reviewer see
+            // the tail rather than infer it from a later sweep.
+            midPassArrivals,
+            clampedPaths,
+            unreceiptedPaths,
           };
         }
 
@@ -501,14 +745,58 @@ export function registerCalibrationCommands(): void {
             ? `\nSkipped ${skippedOpenAskPaths.length} log(s) with a still-open disposition ask ` +
               `(no askId supplied): ${skippedOpenAskPaths.join(", ")}`
             : "";
+        // mt#3899: name the dropped writes. A pass that silently loses the race
+        // reads identically to one that won it, which is what made the
+        // originating incident invisible until the counts were compared by hand.
+        const driftedSuffix =
+          driftedPaths.length > 0
+            ? `\nDropped ${driftedPaths.length} write(s) — another pass changed these logs ` +
+              `mid-sweep; their values stand: ${driftedPaths.join(", ")}`
+            : "";
+
+        // mt#3906: the tail the ack declined to advance over. A reviewer who
+        // cannot see this number has to infer it from a later sweep, which is
+        // how it went unnoticed for as long as it did.
+        const midPassSuffix =
+          midPassArrivals.length > 0
+            ? `\nLeft ${midPassArrivals.reduce((n, a) => n + a.count, 0)} record(s) unreviewed — ` +
+              `they arrived after the read this ack is bound to: ${midPassArrivals
+                .map((a) => `${a.path} (+${a.count})`)
+                .join(", ")}`
+            : "";
+        const clampedSuffix =
+          clampedPaths.length > 0
+            ? `\nRaised ${clampedPaths.length} count(s) to the existing watermark — the token ` +
+              `predates a later review: ${clampedPaths.join(", ")}`
+            : "";
+        const unreceiptedSuffix =
+          unreceiptedPaths.length > 0
+            ? `\nNot advanced (the token does not cover these logs; re-run read-only for a ` +
+              `current token): ${unreceiptedPaths.join(", ")}`
+            : "";
+        const tokenSuffix = `\nreviewToken: ${reviewToken}`;
 
         return {
           success: true,
           json: false,
-          message: text + suffix + clearedSuffix + skippedSuffix,
+          message:
+            text +
+            suffix +
+            clearedSuffix +
+            skippedSuffix +
+            driftedSuffix +
+            midPassSuffix +
+            clampedSuffix +
+            unreceiptedSuffix +
+            tokenSuffix,
           watermarkAdvanced,
           clearedAskId,
           skippedOpenAskPaths,
+          driftedPaths,
+          reviewToken,
+          midPassArrivals,
+          clampedPaths,
+          unreceiptedPaths,
         };
       } catch (error) {
         return {

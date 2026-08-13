@@ -94,6 +94,29 @@ describe("stripHarnessMarkup", () => {
   test("matches case-insensitively (reviewer-bot PR #1919 R1)", () => {
     expect(stripHarnessMarkup("<Command-Message>error-handling</Command-Message>")).toBe(" ");
   });
+
+  // mt#4058 — the bash-mode family. Two surfaces read this function: a
+  // conversation's LABEL (the snippet in the rail), and `transcripts get`'s
+  // `projection: "text"` output, which sets its `injected` flag from whether
+  // this stripped anything. Both showed raw `<bash-input>` before the tags
+  // joined the inventory.
+  test("drops a bash-input block entirely (tag + the typed command)", () => {
+    expect(stripHarnessMarkup("<bash-input> minsky cockpit open</bash-input>")).toBe(" ");
+  });
+
+  test("drops BOTH halves of the concatenated bash output pair", () => {
+    // They arrive in one turn; stripping only the first would leave the second
+    // as the conversation's visible label.
+    expect(
+      stripHarnessMarkup("<bash-stdout>OPENED x</bash-stdout><bash-stderr>warn</bash-stderr>")
+    ).toBe("  ");
+  });
+
+  test("a bash turn's operator continuation survives the strip", () => {
+    expect(stripHarnessMarkup("<bash-input> ls</bash-input>\nwhy is that empty?")).toBe(
+      " \nwhy is that empty?"
+    );
+  });
 });
 
 describe("truncateSnippet", () => {

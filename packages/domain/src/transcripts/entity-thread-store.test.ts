@@ -17,9 +17,11 @@ import {
   entityThreadTurnId,
   listEntityThreadBlocks,
   listEntityThreadTurns,
+  mapRawEntityThreadRow,
   mapRawEntityThreadTurnRow,
   turnToSnapshotBlock,
   type EntityThreadTurn,
+  type RawEntityThreadRow,
   type RawEntityThreadTurnRow,
 } from "./entity-thread-store";
 
@@ -143,6 +145,74 @@ describe("mapRawEntityThreadTurnRow", () => {
     // render as an agent message — attributing operator text to the agent (or
     // vice versa) is worse than a conservative default.
     expect(mapRawEntityThreadTurnRow({ ...raw, role: "wat" }).role).toBe("operator");
+  });
+});
+
+/**
+ * mt#4093 — the swap columns are reported by PRESENCE, so the mapper's job is
+ * to omit rather than to null.
+ *
+ * The route spreads this onto the response body, and the panel keys its notice
+ * on the field being there. A `replacedConversationId: null` key would read as
+ * "there was a swap" to a presence check while rendering a notice about
+ * nothing, which is the same class of unfounded claim the `originSeeded`
+ * omission discipline exists to prevent.
+ */
+describe("mapRawEntityThreadRow (mt#4093)", () => {
+  /** The conversation abandoned in the 2026-08-12 incident. */
+  const REPLACED_ID = "1b355295-0000-4000-8000-000000000000";
+  const REPLACED_AT = "2026-08-12T20:41:27.456Z";
+  const ID_KEY = "replacedConversationId";
+  const AT_KEY = "replacedAt";
+
+  const raw: RawEntityThreadRow = {
+    local_id: THREAD_ID,
+    entity_type: "ask",
+    entity_id: "abc",
+  };
+
+  test("omits both swap fields entirely when nothing was replaced", () => {
+    const mapped = mapRawEntityThreadRow(raw);
+    expect(ID_KEY in mapped).toBe(false);
+    expect(AT_KEY in mapped).toBe(false);
+    expect(mapped.localId).toBe(THREAD_ID);
+  });
+
+  test("treats an explicit null, and a whitespace-only id, as no swap", () => {
+    const nulled = mapRawEntityThreadRow({ ...raw, replaced_conversation_id: null });
+    expect(ID_KEY in nulled).toBe(false);
+    // A blank id names no conversation; carrying it would render a notice
+    // claiming a swap the daemon cannot point at.
+    const blank = mapRawEntityThreadRow({ ...raw, replaced_conversation_id: "   " });
+    expect(ID_KEY in blank).toBe(false);
+  });
+
+  test("carries a recorded swap through, parsing a string timestamp", () => {
+    const mapped = mapRawEntityThreadRow({
+      ...raw,
+      replaced_conversation_id: REPLACED_ID,
+      replaced_at: REPLACED_AT,
+    });
+    expect(mapped.replacedConversationId).toBe(REPLACED_ID);
+    expect(mapped.replacedAt?.toISOString()).toBe(REPLACED_AT);
+  });
+
+  test("reports a swap whose instant was never recorded, without inventing one", () => {
+    const mapped = mapRawEntityThreadRow({
+      ...raw,
+      replaced_conversation_id: REPLACED_ID,
+      replaced_at: null,
+    });
+    expect(mapped.replacedConversationId).toBe(REPLACED_ID);
+    expect(AT_KEY in mapped).toBe(false);
+  });
+
+  test("drops a stray timestamp that names no conversation", () => {
+    // Half a fact is not a fact: a notice with no conversation behind it is
+    // exactly the unsupported claim the omission discipline forbids.
+    const mapped = mapRawEntityThreadRow({ ...raw, replaced_at: REPLACED_AT });
+    expect(AT_KEY in mapped).toBe(false);
+    expect(ID_KEY in mapped).toBe(false);
   });
 });
 

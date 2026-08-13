@@ -35,7 +35,9 @@ function mkDeployment(overrides: Partial<DeploymentRecord> = {}): DeploymentReco
 function makeDeps(
   changedFiles: PrChangedFile[],
   deploymentByService: Record<string, DeploymentRecord> = {}
-): SessionPrDrivePostMergeDependencies & { waitCalls: Array<{ service: string }> } {
+): SessionPrDrivePostMergeDependencies & {
+  waitCalls: Array<{ service: string; notBefore?: string }>;
+} {
   const sessionRecord: SessionRecord = {
     session: SESSION_ID,
     repoName: "edobry-minsky",
@@ -55,20 +57,24 @@ function makeDeps(
     },
   } as unknown as RepositoryBackend;
 
-  const waitCalls: Array<{ service: string }> = [];
+  const waitCalls: Array<{ service: string; notBefore?: string }> = [];
 
   return {
     sessionDB,
     createBackend: async () => backend,
     listAvailableServices: () => AVAILABLE_SERVICES,
-    waitForDeployment: async (service: string) => {
-      waitCalls.push({ service });
+    waitForDeployment: async (service: string, options?: { notBefore?: string }) => {
+      // mt#3890: the options are recorded, not just the service name — whether
+      // the bound reaches the adapter is the thing under test.
+      waitCalls.push({ service, notBefore: options?.notBefore });
       return deploymentByService[service] ?? mkDeployment();
     },
     get waitCalls() {
       return waitCalls;
     },
-  } as unknown as SessionPrDrivePostMergeDependencies & { waitCalls: Array<{ service: string }> };
+  } as unknown as SessionPrDrivePostMergeDependencies & {
+    waitCalls: Array<{ service: string; notBefore?: string }>;
+  };
 }
 
 describe("sessionPrDrivePostMerge", () => {
@@ -135,5 +141,54 @@ describe("sessionPrDrivePostMerge", () => {
 
     expect(result.skipped).toBe(false);
     expect(result.results[0]?.deployment.status).toBe("FAILED");
+  });
+});
+
+/**
+ * mt#3890, reviewer round 1: the `notBefore` mechanism only matters if the
+ * production post-merge watch actually passes it. PR #2750's first revision
+ * shipped the mechanism with no caller — the bot correctly flagged that the
+ * legacy unbounded path was still the only one in use.
+ */
+describe("sessionPrDrivePostMerge deployment bound (mt#3890)", () => {
+  const MERGED_AT = "2026-08-09T03:50:26.330Z";
+
+  test("threads mergedAt to every service's deployment wait", async () => {
+    const deps = makeDeps([]);
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer", "minsky-mcp"], mergedAt: MERGED_AT },
+      deps
+    );
+
+    expect(result.deployBoundApplied).toBe(true);
+    expect(deps.waitCalls).toHaveLength(2);
+    // Every service, not just the first — an unbounded wait on any one of them
+    // is a deploy that can silently pass.
+    for (const call of deps.waitCalls) {
+      expect(call.notBefore).toBe(MERGED_AT);
+    }
+  });
+
+  test("reports deployBoundApplied: false when no mergedAt is supplied", async () => {
+    const deps = makeDeps([]);
+    const result = await sessionPrDrivePostMerge(
+      { sessionId: SESSION_ID, services: ["reviewer"] },
+      deps
+    );
+
+    // The unbounded watch still runs (back-compat), but the result says so —
+    // a SUCCESS from it is not evidence this merge deployed, and the caller
+    // can now tell the difference.
+    expect(result.deployBoundApplied).toBe(false);
+    expect(deps.waitCalls[0]?.notBefore).toBeUndefined();
+  });
+
+  test("a skipped watch reports the bound as applied, not as unbounded", async () => {
+    const deps = makeDeps([]);
+    const result = await sessionPrDrivePostMerge({ sessionId: SESSION_ID, services: [] }, deps);
+
+    expect(result.skipped).toBe(true);
+    expect(result.deployBoundApplied).toBe(true);
+    expect(deps.waitCalls).toHaveLength(0);
   });
 });

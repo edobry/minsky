@@ -10,7 +10,9 @@ Minsky's MCP server is transport-agnostic — the same tool registry serves stdi
 
 ## What ships in the image: the bundle and its source map (mt#3023)
 
-The root `Dockerfile` builds the CLI into `dist/minsky.js` at image-build time and the `CMD` execs that bundle directly. Two artifacts land in the image, and **both are intentional**:
+The root `Dockerfile` builds the CLI into `dist/minsky.js` at image-build time and the `CMD` execs that bundle directly — `bun run dist/minsky.js mcp start --http ...`, with no preload flag. Two artifacts land in the image, and **both are intentional**:
+
+**Do not add `--preload reflect-metadata` back to the `CMD`.** It was there from mt#3561 until mt#3680, because bun's bundler emitted reflect-metadata's CommonJS require after the init calls that reach tsyringe, so the bundle could not boot on its own. mt#3680 fixed that ordering inside the bundle (`src/reflect-polyfill.ts`). Re-adding the flag would not be merely redundant: a preloaded invocation boots whether or not the bundle is self-sufficient, so it would make production the one place that never exercises the real path — and would silently disarm the bundle-boot smoke, which gates on this exact command.
 
 | Artifact             | Approx. size | Why it is there                                  |
 | -------------------- | ------------ | ------------------------------------------------ |
@@ -211,6 +213,54 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 ```
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
+
+### Two services ride `ghcr.io/edobry/minsky:latest` — both must be redeployed (mt#3933)
+
+`services/minsky-mcp/deploy.config.ts` and `services/minsky-ops/deploy.config.ts`
+declare the **same** image tag, in the same Railway project and environment.
+They differ only by a start-command override (minsky-ops runs `ops start`;
+minsky-mcp runs the image's own `CMD`), which lives in dashboard-only state
+(mt#3848). `services/reviewer` is on a separate tag
+(`ghcr.io/edobry/minsky-reviewer:latest`) and is deployed by
+`deploy-reviewer.yml`.
+
+Pushing the tag does not deploy anything by itself — a redeploy has to be
+triggered per service, and `railway redeploy` alone replays the existing
+deployment snapshot. Only `railway redeploy --from-source` re-resolves the tag
+(`railway redeploy --help`: "Pull and deploy the latest commit or image from the
+configured source, instead of redeploying the existing deployment"; the
+snapshot-replay half is recorded in mem#700).
+
+**`deploy-minsky-mcp.yml` therefore redeploys every service on the tag**, and
+its `Trigger Railway redeploy` step carries a coverage guard: if any
+`services/*/deploy.config.ts` declares this image **in this same project and
+environment** and is missing from the workflow's `REDEPLOY_SERVICES` list, the
+deploy FAILS rather than silently leaving that service on a stale image. The
+project/environment half of that test is not incidental — a variant riding the
+same base tag in a different Railway project is outside this job's reach (it
+holds one project+environment), so flagging it would fail a production deploy
+over a service this workflow could not have redeployed anyway. Until 2026-08-11 the step redeployed
+only minsky-mcp, and minsky-ops served one image from 2026-07-31 to 2026-08-10
+— SUCCESS on Railway and 200 on `/health` throughout, visible only to the
+digest comparison in the post-deploy health monitor.
+
+Re-verify the wiring without a deploy:
+
+```bash
+bun scripts/verify-deploy-redeploy-coverage.ts
+```
+
+That script extracts the workflow's actual bash and runs it against a stub
+`railway` binary, so it checks the shipping code rather than a copy of it.
+
+**Railway's native "Image Auto Updates" is the vendor-canonical alternative and
+was deliberately not used.** It supports `ghcr.io` and watches non-semver tags
+for new pushes, but enablement is dashboard-only (no API or config-as-code
+path), and its detection is cached "up to a few hours"
+(`docs.railway.com/deployments/image-auto-updates`). Both are disqualifying
+here: this repo deploys on every merge to main, and dashboard-only state is the
+standing problem in this service pair (mt#3848), not an acceptable home for new
+deploy behavior.
 
 ## Standing deployment triggers vs `sourceImage` (mt#3142)
 
@@ -508,10 +558,21 @@ Concretely, every Minsky service emits a `service` field in its health body:
 | ---------- | ------------- | ----------------- |
 | cockpit    | `/api/health` | `minsky-cockpit`  |
 | minsky-mcp | `/health`     | `minsky-mcp`      |
+| minsky-ops | `/health`     | `minsky-ops`      |
 | reviewer   | `/health`     | `minsky-reviewer` |
 | site       | `/health`     | `minsky-site`     |
 
-`minsky-ops` has no application source and therefore no health endpoint.
+`minsky-ops` used to be listed here as having "no application source and
+therefore no health endpoint." That has been false since 2026-07-29 (mt#2132),
+which gave it `source.image` and a start command; it answers `/health` 200 with
+`"service": "minsky-ops"` plus a per-loop status array (read live 2026-08-11).
+mt#3921 corrected three other copies of the same stale claim; mt#3933 found
+these. The identity assertion matters MORE for this service than for the
+others, not less: it runs the SAME `ghcr.io/edobry/minsky:latest` image as
+minsky-mcp and differs only by a start-command override held in dashboard-only
+state (mt#3848). If that override is ever lost it boots a second MCP server and
+answers 200 from the wrong application — the mt#3142 failure mode, with both
+candidate identities baked into one image.
 
 `minsky-mcp` **also** retains its pre-existing `server: "Minsky MCP Server"`
 key. That key is what mt#3142's own diagnosis read to identify the wrong app,
@@ -580,7 +641,7 @@ automatically on the next run.
 | `reviewer`   | yes                                | `https://minsky-reviewer-webhook-production.up.railway.app/health` |
 | `cockpit`    | yes                                | `https://cockpit-preview-production.up.railway.app/api/health`     |
 | `site`       | yes                                | `https://minsky-site-production.up.railway.app/health`             |
-| `minsky-ops` | no (empty serviceId) — skipped     | `null` — no health check                                           |
+| `minsky-ops` | yes (`f6e3f285-…`, since mt#2132)  | `https://minsky-ops-production.up.railway.app/health`              |
 
 **Alerts:**
 
@@ -588,8 +649,34 @@ automatically on the next run.
    open) per service+failure-class. De-duplicated so a sustained outage produces one
    issue, not N. Issues are labelled `p0-outage` and `post-deploy-monitor`.
 
-   - To mute during a planned redeploy: close the issue manually or let it
-     auto-resolve (close the issue once the service is confirmed healthy).
+   - **Resolution is automatic (mt#3963).** Once a run observes the failure class
+     RECOVERED — the check that detects it RAN and found no problem — the monitor
+     stamps a `P0_RECOVERY_FIRST_OBSERVED_AT` marker in the issue body; once that
+     recovery has held for 8 minutes (mirroring the escalation side's sustained
+     threshold, so an issue cannot flap open/closed across a rolling deploy) it
+     comments with the run that observed the recovery and closes the issue. A
+     check that could not RUN is not a recovery: an unrunnable check leaves the
+     P0 open, exactly as it raises one (mt#3921).
+
+     This bullet used to read "or let it auto-resolve (close the issue once the
+     service is confirmed healthy)," which described behavior that did not
+     exist — nothing closed an escalated P0. Four were open when mt#3963
+     shipped, the oldest for 54 days, every one for a condition the same monitor
+     run reported OK.
+
+   - To mute during a planned redeploy: close the issue manually. A manually
+     closed issue is not reopened; the monitor opens a NEW issue if the
+     condition is still there on a later run.
+
+   - Only issues this monitor opened are auto-closed — the resolver requires
+     both labels AND the `Auto-opened by [post-deploy-health-monitor]` signature
+     in the body, so a hand-filed `p0-outage` issue is never touched.
+
+   - **Retitling a P0 is safe.** Identity comes from a `P0_SUBJECT: <service>|<class>`
+     marker in the body, so adding context to the title mid-incident does not
+     strand the issue open. Issues opened before that marker existed are matched
+     on their canonical title as a substring, which tolerates an added prefix or
+     suffix. Do not hand-edit either marker line.
 
 2. **Secondary (best-effort):** when `MINSKY_MCP_AUTH_TOKEN` is set and the MCP service
    is reachable, a `coordination.notify` ask is created over hosted MCP so it surfaces
@@ -814,3 +901,45 @@ This is v1 authentication:
 - Adequate while consumer count ≤ 3 and all consumers live in trusted infrastructure (Railway project, CI)
 
 Follow-up when those bounds are exceeded: JWT issuance from Minsky, per-agent claims, rotation protocol, audit log. File as a separate task when the situation demands it.
+
+## Cockpit preview: passkey gate (mt#4023)
+
+The `cockpit-preview` service (`https://cockpit-preview-production.up.railway.app`) is
+**passkey-gated and denies by default**. It previously served the live corpus to anyone with the
+URL — measured 2026-08-11: an unauthenticated `GET /api/tasks` returned 500 production tasks.
+
+**First run.** Open the URL. With no passkey registered, the sign-in screen offers _Set up a
+passkey_; completing that ceremony both enrolls the credential and signs you in. **That window is
+once-only** — once a passkey exists, enrolling another requires an existing session. If you lose
+every credential, delete the rows from `cockpit_passkeys` to reopen the bootstrap window.
+
+**Adding a second device.** Sign in first, then use _Add another passkey_ on the same screen.
+
+**What stays public:** `/api/health` (the healthcheck and the mt#1302 post-deploy monitor depend
+on it) and `/api/auth/*`. Everything else under `/api` requires a session.
+
+**Env vars** (both optional; defaults suit the current deployment):
+
+| Variable                | Default                                     | Notes                                                                                                                                              |
+| ----------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MINSKY_COCKPIT_RP_ID`  | `cockpit-preview-production.up.railway.app` | The WebAuthn relying-party id. Must be the full hostname — `up.railway.app` is on the Public Suffix List, so no shorter registrable suffix exists. |
+| `MINSKY_COCKPIT_ORIGIN` | `https://<rpID>`                            | Override only if scheme or port differs.                                                                                                           |
+
+**Moving to a custom domain invalidates every enrolled passkey.** A credential is bound to the
+rpID it was created under, so changing `MINSKY_COCKPIT_RP_ID` means re-enrolling. Plan for it
+rather than being surprised by a sign-in screen that rejects a working passkey.
+
+**Verifying the gate** (safe, read-only, no credential needed):
+
+```bash
+bun scripts/verify-cockpit-passkey-gate.ts
+# → 5/5 checks: health 200, auth status gated:true, data routes 401
+```
+
+**If sign-in returns 503**, the auth tables are missing or unreachable — check that migration
+`0094` applied. The gate fails CLOSED in that state: data routes keep returning 401, so a 503 is
+an availability problem, never an exposure.
+
+**Database note.** This service connects to the production database as the SELECT-only
+`minsky_preview` role, so migration `0094` grants write on exactly `cockpit_passkeys` and
+`cockpit_auth_sessions` — the only two tables it needs to write. See mem#973.

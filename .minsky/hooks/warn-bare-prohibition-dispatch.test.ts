@@ -131,13 +131,17 @@ describe("buildCalibrationRecord", () => {
     expect(record["has_licence_to_falsify"]).toBe(false);
   });
 
-  test("a basis-carrying but licence-less prompt is categorized no-licence", () => {
+  test("a basis-carrying but licence-less prompt produces no match at all (mt#3167)", () => {
+    // Under v1 this recorded one `no-licence` match. That category measured 8/8 false positives
+    // and was retired from the fire path, so the prompt now produces an empty match list — while
+    // `has_licence_to_falsify` keeps recording the property for future measurement.
     const text = "Do not build the polling path because the webhook already covers it.";
     const report = analyzeNegativeConstraints(text);
     const record = buildCalibrationRecord(agentCall(text), report, false);
     const matches = record["matches"] as Array<Record<string, unknown>>;
 
-    expect(matches[0]?.["category"]).toBe("no-licence");
+    expect(matches).toEqual([]);
+    expect(record["has_licence_to_falsify"]).toBe(false);
   });
 
   // PR #2260 R1: the record previously read the module constant, so a decision made with an

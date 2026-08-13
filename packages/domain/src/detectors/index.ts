@@ -46,3 +46,51 @@ export {
   MAX_SEGMENT_CHARS,
 } from "./embedding-nomination";
 export { resolveNominationDeps } from "./embedding-nomination-factory";
+
+export type {
+  SearchObservation,
+  ClaimMatch,
+  NegativeExistenceClaimInput,
+  NegativeExistenceClaimResult,
+} from "./negative-existence-claim";
+export {
+  detectNegativeExistenceClaim,
+  extractNegativeExistenceClaims,
+  extractCitedTaskIds,
+  countSearchHits,
+  isSearchCall,
+  isThinSearch,
+  NEGATIVE_EXISTENCE_PATTERNS,
+  SEARCH_TOOL_NAMES,
+  SEARCH_COMMAND_LEADERS,
+} from "./negative-existence-claim";
+
+export type { FlakinessClaim, FlakinessAttributionResult } from "./flakiness-attribution";
+export {
+  detectFlakinessAttribution,
+  extractFlakinessClaims,
+  hasIsolationControl,
+  hasUnverifiedMarkerNearClaim,
+  FLAKINESS_ATTRIBUTION_PATTERNS,
+  FLAKINESS_DENIAL_PATTERNS,
+  UNVERIFIED_MARKER,
+} from "./flakiness-attribution";
+
+export type {
+  AbsenceClaim,
+  ProbeObservation,
+  CapabilityAbsenceInput,
+  CapabilityAbsenceResult,
+} from "./capability-absence-escalation";
+export {
+  detectCapabilityAbsenceEscalation,
+  extractCapabilityAbsenceClaims,
+  classifyProbeChannel,
+  distinctProbeChannels,
+  isOperatorRoutedAskResult,
+  secondChannelFor,
+  CAPABILITY_ABSENCE_PATTERNS,
+  PROBE_CHANNEL_RULES,
+  MIN_INDEPENDENT_CHANNELS,
+  MAX_SUBJECT_CHARS,
+} from "./capability-absence-escalation";

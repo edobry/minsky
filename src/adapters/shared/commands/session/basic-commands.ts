@@ -10,6 +10,7 @@ import type {
   SqlCapablePersistenceProvider,
 } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
+import type { ExecFailure } from "@minsky/shared/exec";
 import {
   sessionListCommandParams,
   sessionGetCommandParams,
@@ -17,6 +18,8 @@ import {
   sessionDirCommandParams,
   sessionSearchCommandParams,
   sessionExecCommandParams,
+  SESSION_EXEC_DEFAULT_TIMEOUT_MS,
+  SESSION_EXEC_MAX_TIMEOUT_MS,
 } from "./session-parameters";
 import {
   annotateSessionsWithAttachment,
@@ -378,6 +381,73 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
   };
 }
 
+/**
+ * Resolve the timeout a `session_exec` invocation will actually run under.
+ *
+ * The bounds live in `session-parameters.ts` beside the schema that enforces
+ * them (mt#3923) — this reads them rather than restating them. The schema is
+ * what REJECTS an over-cap request; this clamp is defense-in-depth for callers
+ * that bypass the schema, and is exported so a test can assert the two agree
+ * instead of trusting that they do.
+ */
+export function resolveSessionExecTimeout(requested: number | undefined): number {
+  return Math.min(requested ?? SESSION_EXEC_DEFAULT_TIMEOUT_MS, SESSION_EXEC_MAX_TIMEOUT_MS);
+}
+
+/**
+ * Shape a caught exec error into `session_exec`'s failure result (mt#3909).
+ *
+ * Exported and pure so the decision can be tested against real error objects
+ * without standing up a session or patching the handler's dynamic imports —
+ * the functional-core split `testing-standards.mdc §Testable Design` asks for.
+ * `failure` is passed in rather than classified here so the caller owns the one
+ * import, and so a test can drive both halves independently.
+ */
+export function buildSessionExecFailureResult(
+  error: unknown,
+  failure: ExecFailure,
+  context: { timeoutMs: number; workdir: string }
+): Record<string, unknown> {
+  const execError = error as { stdout?: string; stderr?: string };
+  const timedOut = failure.kind === "timeout";
+
+  return {
+    success: false,
+    stdout: (execError.stdout ?? "").trim(),
+    stderr: (execError.stderr ?? "").trim(),
+    // DEPRECATED as a failure discriminator — branch on `failureKind` /
+    // `timedOut` instead. Only an `exit` failure has a real exit code; every
+    // other kind reports 1, so a bare 1 cannot distinguish "your command
+    // failed" from "we killed your command," and those have opposite remedies.
+    //
+    // mt#3923 decided to KEEP the 1 rather than report null for non-exit
+    // failures. A consumer sweep of `src/`, `packages/`, `.minsky/`, `scripts/`
+    // and `services/` found no in-repo reader of this field on THIS result —
+    // the consumers are agents reading the MCP result — so nulling it would buy
+    // no information (`failureKind` already carries all of it) while adding a
+    // third state every agent-side reader would have to handle. The tool
+    // description already steers callers to the discriminating fields.
+    exitCode: failure.exitCode ?? 1,
+    failureKind: failure.kind,
+    timedOut,
+    ...(timedOut
+      ? {
+          timeoutMs: context.timeoutMs,
+          killedSignal: failure.signal ?? "SIGTERM",
+          // The signal goes to the shell this command started, not to whatever
+          // that shell spawned. A grandchild can outlive it and keep running —
+          // holding a lock, writing a file, consuming an API budget. Observed
+          // in mt#3909's originating incident, where an orphaned `bun` process
+          // ran to completion after its parent was killed, which is why its log
+          // looked like a success.
+          descendantsMaySurvive: true,
+        }
+      : {}),
+    workdir: context.workdir,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
 export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
     id: "session.exec",
@@ -393,10 +463,15 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
       "block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec " +
       "the same way it denies them on Bash (mt#1196). Inside a session, the carved-out " +
       "commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via " +
-      "session_exec because they're the recommended escape hatch.",
+      "session_exec because they're the recommended escape hatch. TIMEOUT: a command is KILLED " +
+      "after `timeout` ms (default 30s, max 120s) — the result then carries `timedOut: true`, " +
+      '`failureKind: "timeout"` and `descendantsMaySurvive: true` rather than a bare ' +
+      "`exitCode: 1`. Do NOT retry on a timeout as though the command had failed: it may have " +
+      "done part of its work, and anything it spawned can outlive the kill. For work that may " +
+      "exceed the cap, launch it detached (`nohup … &`) and read a log file instead.",
     parameters: sessionExecCommandParams,
     execute: withErrorLogging("session.exec", async (params: Record<string, unknown>) => {
-      const { executeCommand } = await import("@minsky/shared/exec");
+      const { executeCommand, classifyExecFailure } = await import("@minsky/shared/exec");
       const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
@@ -407,7 +482,7 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
         repo: params.repo as string | undefined,
       });
 
-      const timeout = Math.min((params.timeout as number | undefined) ?? 30000, 120000);
+      const timeout = resolveSessionExecTimeout(params.timeout as number | undefined);
 
       try {
         const { stdout, stderr } = await executeCommand(params.command as string, {
@@ -420,17 +495,13 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
           stderr: stderr.trim(),
           workdir,
           exitCode: 0,
+          timedOut: false,
         };
       } catch (error) {
-        const execError = error as { code?: number; stdout?: string; stderr?: string };
-        return {
-          success: false,
-          stdout: (execError.stdout ?? "").trim(),
-          stderr: (execError.stderr ?? "").trim(),
-          exitCode: execError.code ?? 1,
+        return buildSessionExecFailureResult(error, classifyExecFailure(error), {
+          timeoutMs: timeout,
           workdir,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        });
       }
     }),
   };

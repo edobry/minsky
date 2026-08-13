@@ -27,6 +27,8 @@
 import type { ClaudeHookInput } from "./types";
 import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
+import type { RecordedTurnAnchor } from "./turn-anchor-store";
+import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -128,6 +130,25 @@ export interface DispatchContext {
    * is a pure read with no shared state) and, unlike the old default, it is explicit.
    */
   transcriptLines: TranscriptLine[];
+  /**
+   * The turn anchor recorded by the `Stop`-side recorder for THIS conversation,
+   * or `undefined` when none was recorded (mt#3490, ADR-031).
+   *
+   * Resolved once per dispatch here — the extension this interface's header
+   * already anticipated ("a new field and a new opt-in check") — so no guard
+   * reads the anchor store itself, exactly as none reads `transcript_path`
+   * itself. Populated only when the registration sets `needsTranscript`, since
+   * an anchor is only meaningful to a guard that also has lines to slice.
+   *
+   * **`undefined` is a NORMAL, expected value, not an error.** A turn that
+   * ended on an API error ran `StopFailure` instead of `Stop`; a first run
+   * after this shipped has nothing recorded yet; a compacted transcript may no
+   * longer contain the anchored line. In every such case the consumer falls
+   * back to {@link resolveCompletedTurn} — i.e. to the pre-mt#3490 behaviour —
+   * so anchor-absence degrades to today rather than to a gap. Do NOT write a
+   * guard that treats a missing anchor as a reason to skip its scan.
+   */
+  recordedAnchor?: RecordedTurnAnchor;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +187,14 @@ export interface GuardOutcome {
    * JSON was found to be discarded wholesale by Claude Code whenever stdout
    * carried anything else — so an audit line could silently void a later
    * guard's deny on the same call.
+   *
+   * That behavior is reproducible on demand: `bun
+   * scripts/run-dispatcher-scenario.ts --scenario override-deny-precedence`
+   * (mt#3756). It is deliberately NOT a unit test — `dispatcher.test.ts`
+   * injects `recordFireLogFn`/`resolveDispatchContextFn`, so it cannot observe
+   * the real write path this bug lived on, which is why the original
+   * measurement was taken against the live dispatcher and left 19 fixture
+   * records in the production fire-log.
    */
   auditLines?: string[];
   /**
@@ -300,6 +329,15 @@ export interface GuardRegistration {
   /** Whether this guard participates in first-deny-wins short-circuiting (D1). */
   denyCapable: boolean;
   /**
+   * Per-effect verdict-shape + failure-posture declarations (thin-hooks RFC
+   * rev. 2 phase 1, mt#3981). Non-empty — every guard produces at least one
+   * distinguishable effect (a pure denier's is `"deny"`). See
+   * `GuardEffectDeclaration` for the shape and the phase-1 INERTNESS note:
+   * this field is descriptive metadata only, consumed by nothing in the
+   * dispatch path — the mt#2597 fail-open-on-throw semantics are unchanged.
+   */
+  effects: [GuardEffectDeclaration, ...GuardEffectDeclaration[]];
+  /**
    * Tuning-ownership class (mt#3518; mem#802; beyond-Minsky RFC amendment
    * 2026-08-01 §3). Names WHO may move this guard's thresholds and through
    * WHAT surface — the registration-schema sibling of `attentionCost`
@@ -418,7 +456,15 @@ export interface GuardRegistration {
    * `"calibration"` (outcome.calibration set — a calibration-first detector
    * like `causal-premise-detector` with `INJECTION_ENABLED=false`), or
    * `"sessionTitle"` (outcome.sessionTitle set — `auto-session-title`'s
-   * scalar-output shape).
+   * scalar-output shape), or `"updatedInput"` (outcome.updatedInput set —
+   * `record-agent-dispatch`'s argument-rewrite shape, mt#2292).
+   *
+   * `"updatedInput"` was added because a guard whose PRIMARY output is the
+   * rewrite would otherwise be canaried on a secondary field:
+   * `record-agent-dispatch` emits both a rewrite and a calibration record, so a
+   * `"calibration"` canary would keep passing after the rewrite stopped being
+   * emitted — exactly the broken-vs-dormant blindness this mechanism exists to
+   * remove.
    */
   canary?: GuardCanary;
 
@@ -450,6 +496,43 @@ export interface GuardRegistration {
    * test renders BOTH and enforces the ceiling against the larger.
    */
   worstCaseCanary?: GuardCanary;
+
+  /**
+   * For a CALIBRATION-FIRST guard — one whose module gates injection off — a
+   * function that renders the advisory the guard WOULD emit, at its worst case
+   * (mt#4002).
+   *
+   * Declaring this asserts two things about the guard, and both are consumed:
+   *
+   * 1. **It renders but does not inject.** `guard-feedback-shape.test.ts`
+   *    enforces `attentionCost.denialMessageSizeChars` against a guard's live
+   *    `additionalContext`, and such a guard returns NONE — so the ceiling was
+   *    being checked against an empty string. Measured 2026-08-12 across the
+   *    whole population: five guards, ceilings declared 400-1650, every one
+   *    measured at 0. `operator-deferral-detector` declared 600 against a
+   *    1049-char render and nothing noticed for the guard's entire lifetime.
+   *    With this declared, the test measures THIS instead.
+   * 2. **It contributes no chars to a real turn.** So it is excluded from the
+   *    top-five conditional bucket `MERGED_CONTEXT_BUDGET_CHARS` is derived
+   *    from. A never-injecting guard in that bucket models a turn that cannot
+   *    occur, and inflates the shared per-turn budget for text that is never
+   *    sent — which is what mt#3533 did (6156 -> 7206) and what mt#3997 avoided
+   *    hours earlier by trimming its guard instead.
+   *
+   * Pose it SATURATED, exactly as `worstCaseCanary` requires: every axis at its
+   * cap at once, not the axis you happened to change.
+   *
+   * Async and self-importing, mirroring `module` — the registry must not eagerly
+   * import guard modules. Point it at a `renderWorstCase()` the MODULE exports,
+   * rather than constructing the renderer's input here: the guard owns its own
+   * input types and its own caps, and building a saturated `BatchMatch` (say) in
+   * the registry would drag guard-internal types into it and go stale the moment
+   * either changes.
+   *
+   * DELETE this when the guard's injection gate flips to true — at that point the
+   * live `additionalContext` is real and both consumers above should see it.
+   */
+  renderProbe?: () => Promise<string>;
 }
 
 /**
@@ -462,7 +545,7 @@ export interface GuardRegistration {
 export interface GuardCanary {
   input: Partial<ClaudeHookInput> & Record<string, unknown>;
   transcriptLines?: TranscriptLine[];
-  expects: "deny" | "warn" | "calibration" | "sessionTitle";
+  expects: "deny" | "warn" | "calibration" | "sessionTitle" | "updatedInput";
   /**
    * Optional pre-invocation priming hook for STATEFUL guards whose real
    * outcome depends on a prior invocation (e.g. `skill-staleness-detector`
@@ -482,6 +565,134 @@ export interface GuardCanary {
     ctx: DispatchContext
   ) => Record<string, unknown> | void | Promise<Record<string, unknown> | void>;
 }
+
+// ---------------------------------------------------------------------------
+// Failure posture + verdict shape (thin-hooks RFC, phase 1 — mt#3981)
+// ---------------------------------------------------------------------------
+
+/**
+ * Verdict shape for one guard EFFECT, along SEP-2624's validator/mutator
+ * taxonomy plus the two additive shapes `GuardOutcome` already has:
+ *
+ * - `"validator"` — a deny/allow decision (`GuardOutcome.deny`).
+ * - `"mutator"` — a payload transform (`GuardOutcome.updatedInput`).
+ * - `"injector"` — an additive side-channel a turn can run without
+ *   (`additionalContext`, `sessionTitle`).
+ * - `"recorder"` — a write with no in-turn consumer (`calibration`,
+ *   `auditLines`, or an out-of-band store write, e.g. the turn-anchor).
+ */
+export type VerdictShape = "validator" | "mutator" | "injector" | "recorder";
+
+/**
+ * Two-axis failure posture for ONE guard effect (thin-hooks RFC — Notion page
+ * `3b9937f0-3cb4-81a1-8604-c32c862a0329`, rev. 2 — "Failure posture is
+ * per-EFFECT, declared, and two-axis" finding). Vocabulary adopted from
+ * Kubernetes admission `failurePolicy` (Fail/Ignore) and SEP-2624's
+ * `failOpen`, primary-source-verified in mt#3754's field-alignment synthesis.
+ *
+ * *** THIS DATA IS INERT IN PHASE 1. NOTHING READS IT. *** The dispatcher's
+ * existing mt#2597 semantics — a THROWN guard fails OPEN, unconditionally,
+ * regardless of what any registration declares here — are UNCHANGED by this
+ * field (see `dispatcher.ts:894` and its own mt#2597 comment). A
+ * `failurePolicy: "closed"` entry below is a declared FUTURE intent, not
+ * enforced behavior; it becomes live only once the RFC's phase 4 explicitly
+ * scopes the mt#2597 reversal. Do not read a `"closed"` value here as "this
+ * guard currently denies when the daemon is unreachable" — there is no
+ * daemon relay yet for any guard to be unreachable FROM.
+ */
+export interface EffectFailurePosture {
+  /**
+   * Axis 1 — posture when the daemon ITSELF is unreachable (down, or the
+   * relay's connection attempt fails outright). `"closed"` denies with a
+   * stated reason, `"open"` proceeds silently (today's mt#2597 default for
+   * every guard, since nothing routes through a daemon yet), `"spool"`
+   * writes locally for the daemon to ingest once it returns (today's JSONL
+   * calibration-log pattern, already in production use for every
+   * `calibrationLog`-bearing guard).
+   */
+  failurePolicy: "closed" | "open" | "spool";
+  /**
+   * Axis 2 (new in RFC rev. 2 — rev. 1's matrix had only one axis) —
+   * posture when the daemon IS reachable but a dependency (the WAN
+   * Postgres) is degraded or unreachable. Adds `"open-with-warning"` to the
+   * axis-1 vocabulary: per the RFC, "many enforcement effects want
+   * fail-closed on the first and open-with-warning on the second; a laptop
+   * on a plane should be able to commit" — a daemon that is up but cannot
+   * reach its DB should still let an offline commit through, with a visible
+   * warning rather than either a silent pass or a hard deny. Also accepts
+   * `"spool"` for a RECORDER effect: a local write (today's JSONL pattern)
+   * needs no DB dependency at all, so a degraded-Postgres condition doesn't
+   * change its posture — it keeps spooling either way.
+   */
+  degradedPolicy: "closed" | "open" | "open-with-warning" | "spool";
+}
+
+/**
+ * One guard EFFECT's declared verdict shape + failure posture. A guard
+ * declares ONE of these per distinguishable output it can produce — most
+ * guards (a pure denier, a pure injector) have exactly one; a MIXED-PURITY
+ * guard declares one per effect because the posture genuinely differs
+ * between them. The canonical case is `record-agent-dispatch`: its
+ * `updatedInput` stamp must never be lost (that guard's own header comment:
+ * "The stamp is computed from the payload alone and returned even when the
+ * DB write fails or times out ... The cheap, irreversible half must not be
+ * gated on the expensive, recoverable one"), while its DB-row write is
+ * separately recoverable via a Stop-side reconciliation — two effects, two
+ * postures, neither gated on the other. See that guard's registration below
+ * for the worked declaration.
+ */
+export interface GuardEffectDeclaration {
+  /** Which `GuardOutcome` field (or named out-of-band write) this declares. */
+  effect:
+    | "deny"
+    | "additionalContext"
+    | "updatedInput"
+    | "sessionTitle"
+    | "calibration"
+    | (string & {});
+  verdictShape: VerdictShape;
+  failurePolicy: EffectFailurePosture;
+  /**
+   * Required when the assignment is not the obvious default for a guard/
+   * effect of this shape (SC5: "enforcement guards closed, advisory
+   * injectors open, recorders spool — any deviation is justified inline").
+   */
+  rationale?: string;
+}
+
+/**
+ * SC5-default effect-declaration factories + posture constants. Exported
+ * (mt#3981) so both `GUARD_REGISTRY` below AND
+ * `scripts/lib/standalone-guard-canaries.ts`'s `STANDALONE_GUARD_CANARIES`
+ * build their `effects` declarations from the SAME defaults — the mt#3586
+ * constraint against hand-copied mirrors applies to these too, so the
+ * standalone-canary population imports them rather than redefining the SC5
+ * posture triad a second time.
+ */
+
+// Extracted to `./registry-effects` (mt#3658) so this file stays under its
+// 1500-line ceiling — it sat at 1499, one line from refusing the next guard.
+// Imported once and re-exported from those bindings, so every existing import
+// site is unchanged and the module specifier appears exactly once.
+import {
+  ENFORCEMENT_POSTURE,
+  ADVISORY_POSTURE,
+  RECORDER_POSTURE,
+  enforcementEffect,
+  advisoryEffect,
+  recorderEffect,
+  mutatorEffect,
+} from "./registry-effects";
+
+export {
+  ENFORCEMENT_POSTURE,
+  ADVISORY_POSTURE,
+  RECORDER_POSTURE,
+  enforcementEffect,
+  advisoryEffect,
+  recorderEffect,
+  mutatorEffect,
+};
 
 // ---------------------------------------------------------------------------
 // Registry (Phase 1: one entry — the pilot migration)
@@ -541,9 +752,21 @@ export interface GuardCanary {
 // cadence-detector; both are appended here, BEFORE calibration-review-
 // cadence-detector, which is relocated to stay the true last entry (its
 // documented invariant — see the comment on that registration below).
+// A registration here is NOT sufficient to make a guard run (mt#3823).
+// `.claude/settings.json` must ALSO route the guard's event — and, for a
+// tool-scoped event, its exact `matcher` string — to the matching
+// `dispatch-*.ts` entrypoint; the dispatcher process is spawned by that entry,
+// not by this array. Adding a registration on a matcher no settings.json block
+// carries yields a guard that is fully declared, fully tested, and never once
+// invoked: `require-duplicate-check-record` and `duplicate-signature-scan` sat
+// that way from the day they shipped until 2026-08-10, with zero fire-log
+// records the whole time. `registry.test.ts`'s parity block is what fails now
+// when the pair comes apart; ADR-028 Phase 7 retires it by generating the
+// settings.json `hooks` block from this array.
 export const GUARD_REGISTRY: GuardRegistration[] = [
   {
     name: "check-guessed-session-path",
+    effects: [enforcementEffect()],
     tuningOwnership: "invariant",
     event: "PreToolUse",
     matcher: "Bash|mcp__minsky__session_exec",
@@ -581,6 +804,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "require-duplicate-check-record",
+    effects: [enforcementEffect()],
     // `invariant`: whether a create records its duplicate check is not a
     // threshold to tune — the record is either present or it is not.
     tuningOwnership: "invariant",
@@ -612,7 +836,330 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   {
+    // mt#3658. Contract, tier rationale and the measured-ceiling derivation are
+    // in the module header; matcher in
+    // `packages/domain/src/detectors/flakiness-attribution.ts`.
+    name: "flakiness-control-detector",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every matched path AND an `additionalContext` injection (SC2's WARN —
+    // `flakiness-control-detector.ts` sets `outcome.additionalContext` under
+    // `INJECTION_ENABLED`). Declaring recorder-only under-described what ships
+    // and took the recorder's spool/spool posture for an injector that should
+    // fail OPEN (`registry-effects.ts`). Same finding as PR #2886 R1 on the
+    // sibling at `duplicate-check-search-provenance`; PR #2909 R4 here.
+    effects: [recorderEffect(), advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./flakiness-control-detector").then((m) => ({ run: m.run })),
+    // No `renderProbe`: this guard INJECTS (log-only means a WARN plus a
+    // record, per the spec's SC2), so its text is measurable from the canary
+    // like any other injecting guard — and a probe would exclude it from the
+    // `MERGED_CONTEXT_BUDGET_CHARS` bucket it genuinely contributes to
+    // (mt#4002). `worstCaseCanary` below poses the ceiling instead.
+    timeoutMs: 5000,
+    calibrationLog: "flakiness-control",
+    denyCapable: false,
+    // MEASURED via `worstCaseCanary` below with both axes saturated — a proved
+    // ceiling, not a sample. (Not `renderProbe`: this guard injects, so it has
+    // none — see the note above.) Derivation in the module header.
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec: "## Summary\n\nThe suite fails intermittently under load; it looks flaky.\n",
+        },
+      },
+      expects: "calibration",
+    },
+    // Saturates BOTH rendered axes at once: more claims than MAX_RENDERED_CLAIMS
+    // (so the `...and N more` line renders too) AND a denial among them (the
+    // longer of the two directive branches). Posing only the claim count would
+    // measure the shorter branch and understate the ceiling — the under-posing
+    // mt#3767 hit.
+    worstCaseCanary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec:
+            "It is not load-dependent and not timing-dependent; it fails deterministically. " +
+            "The suite is flaky, intermittent, load-sensitive, and only under parallelism; " +
+            "it passes in isolation and looks timing-dependent, a race-condition.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  {
+    name: "duplicate-signature-scan",
+    effects: [recorderEffect()],
+    // `advisory`: unlike its sibling above — where the record is either present
+    // or it is not — this guard's token SELECTION is a heuristic with a real
+    // false-positive surface, and the calibration log exists to size it.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-signature-scan").then((m) => ({ run: m.run })),
+    // MUST stay above the module's SCAN_TIMEOUT_MS (15s), so the guard's OWN
+    // deadline is what fires: that path returns a recorded `skipped` calibration
+    // outcome, whereas a dispatcher kill records nothing and a sustained infra
+    // outage would then read as a clean pass. This was 8000 against a 5s scan
+    // and stayed 8000 when the scan's deadline was re-based to 15s on
+    // measurement — inverting the ordering the comment claimed. 18s keeps ~3s of
+    // margin over the scan and sits under the DERIVED (mt#3981, absorbing
+    // mt#3675) per-hook-entry cap that `.claude/settings.json` sets for
+    // `mcp__minsky__tasks_create` — see `.minsky/hooks/dispatch-timeout-budget.ts`.
+    timeoutMs: 18000,
+    calibrationLog: "duplicate-signature-scan",
+    // NEVER denies — the deny half of this concern is the sibling above, which
+    // is deliberately zero-false-positive. See this module's `run()` doc.
+    denyCapable: false,
+    // MEASURED against the worst-case canary below, not estimated: the message
+    // is bounded by MAX_REPORTED_MATCHES (5) x one 200-char excerpt plus a
+    // ~380-char header/footer, which renders at ~1.7KB. 2000 leaves headroom
+    // without widening the merged-context budget more than the shape needs.
+    attentionCost: { denialMessageSizeChars: 2000, optionCount: 1 },
+    // The scan needs a live database, which a canary process does not have, so
+    // the healthy canary outcome is a RECORDED skip — `calibration`, not
+    // `warn`. That is the honest assertion for this guard: it verifies the
+    // module loads, reads its input, and reports rather than throwing.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "GET /api/canary signature scan",
+          spec: "## Summary\n\nA spec citing `src/cockpit/routes/sweeps.test.ts`.\n\nDuplicate check: no candidates found.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4004 — the duplicate-check record claims a search that never ran.
+  //
+  // Third guard on the same record, and the one that closes the gap between the
+  // other two: `require-duplicate-check-record` checks the line is PRESENT,
+  // `duplicate-signature-scan` checks its VERDICTS are true, neither asks
+  // whether the search RAN. Originating incident mt#4003 — a fabricated search
+  // narrative filed against four tasks that already owned the work; the
+  // signature scan caught it only because the false provenance happened to
+  // coincide with wrong verdicts.
+  //
+  // Unusually mechanizable for its family (`assertion-without-verification`,
+  // anchor mt#2544), which has repeatedly chosen "no detector, deliberately"
+  // because its members turn on whether a claim about the WORLD is true. This
+  // one is about the SESSION: the call is in the transcript's tool list or it is
+  // not. A phrase the pattern misses is a false NEGATIVE, never a false
+  // positive, which is what keeps it off ADR-024's regex arms-race.
+  // -------------------------------------------------------------------------
+  {
+    name: "duplicate-check-search-provenance",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every path, and an `additionalContext` injection on the matched one
+    // (PR #2886 R1 — the injector declaration was missing while the module
+    // returned `additionalContext`, so the declaration under-described what
+    // ships).
+    effects: [recorderEffect(), advisoryEffect()],
+    // `advisory`: which prose counts as CLAIMING a search is a heuristic, and
+    // the calibration log exists to size it. The session-state half it gates on
+    // is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-check-search-provenance").then((m) => ({ run: m.run })),
+    // A regex over one paragraph plus a membership test over lines the
+    // dispatcher already parsed — no IO of its own, so this is generous.
+    timeoutMs: 5000,
+    calibrationLog: "duplicate-check-search-provenance",
+    // LOAD-BEARING (PR #2886 R1). `ctx.transcriptLines` is populated ONLY for a
+    // registration that declares this (D6), and the session's tool-call list is
+    // this guard's entire discriminating half. Without it the guard records
+    // `skipped` on every live run — present, tested, green, and inert. The unit
+    // tests could not catch that: they construct the context directly, so they
+    // exercise the module and say nothing about whether the dispatcher will
+    // hand it anything. `registry.test.ts` now asserts the coupling for every
+    // guard whose source reads `transcriptLines`.
+    needsTranscript: true,
+    // Calibration-first per ADR-024 and ask#6982. The module asserts this in a
+    // test rather than only intending it.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // The canary carries a record claiming a search, in a canary process whose
+    // transcript is empty — so the healthy outcome is a RECORDED skip, which is
+    // this guard's honest answer to a claim it cannot adjudicate. Asserting
+    // `matched` here would bake in the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary provenance task",
+          spec: "## Context\n\nDuplicate check: searched `tasks_search` for canary; no candidates.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#3910 — chained verification commands, detected at the tool boundary.
+  //
+  // `terminal-command-best-practices.mdc §Verification Commands` bans this and
+  // has shipped TWICE at prose tier (mt#2371, widened by mt#2571). The class
+  // recurred anyway on 2026-08-10 with the rule in always-on context and read —
+  // the signature of a control that depends on recall at the moment attention is
+  // on the outcome. See mem#553's R2 section for the containment argument.
+  //
+  // NOT an ADR-024 rung: that ladder scopes itself to UserPromptSubmit guidance
+  // hooks matching trigger phrases in agent PROSE, and neither of its axes
+  // (quotation-elision, embedding recall) applies to parsing a command string.
+  // Calibration-first here follows the observer convention, not that ADR.
+  // -------------------------------------------------------------------------
+  {
+    name: "chained-verification-commands",
+    effects: [recorderEffect()],
+    // `advisory`: which binaries count as "verification" is a heuristic with a
+    // real false-positive surface, and the calibration log exists to size it
+    // before any enforcement posture is considered.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./chained-verification-commands-detector").then((m) => ({ run: m.run })),
+    // The scan is a pure string parse with no IO — it cannot approach this.
+    timeoutMs: 5000,
+    calibrationLog: "chained-verification-commands",
+    // NEVER denies. A false fire here would block a legitimate command, and the
+    // trigger's narrowness is unproven until the calibration data says otherwise.
+    denyCapable: false,
+    // MEASURED, not estimated: `buildWarning()` renders 501 chars for the
+    // two-command case (the dominant shape). Each additional chained command
+    // adds ~30 chars for its backticked name, so 700 covers a 6-command chain
+    // without widening the merged-context budget beyond what the shape needs.
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
+    // The scan is pure over its input, so the canary exercises the real decision
+    // path — no DB, no environment dependency. It asserts a genuine MATCH rather
+    // than a skip: this guard's healthy behavior is observable in a canary
+    // process, unlike its DB-dependent siblings above.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "bun run format:all; bun test packages/",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4096 — truncated-outcome read. Sibling of the chained-verification scan
+  // above and the same matcher class (a structured command string, no
+  // paraphrase axis). Where that one catches "the exit code is unattributable",
+  // this one catches "the outcome field was discarded before anyone read it".
+  // -------------------------------------------------------------------------
+  {
+    name: "truncated-outcome-read",
+    effects: [recorderEffect()],
+    // `advisory`: which commands count as outcome-bearing is a curated list with
+    // a real false-positive surface, and the calibration log exists to size it
+    // before any enforcement posture is considered.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./truncated-outcome-read-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./truncated-outcome-read-detector").then((m) => m.renderWorstCase()),
+    // A pure string parse with no IO — it cannot approach this.
+    timeoutMs: 5000,
+    calibrationLog: "truncated-outcome-read",
+    // NEVER denies. Truncating output is ORDINARY; only the conjunction with an
+    // outcome-bearing command makes it a defect, and that trigger's precision is
+    // unproven until the calibration data says otherwise. Contrast the deny-tier
+    // command-string guards (block-bulk-process-kill and siblings): those match
+    // commands that are categorically wrong to run, which this is not.
+    denyCapable: false,
+    // MEASURED via `renderProbe` (mt#4002), not estimated: 508 chars for a
+    // long `session pr create` invocation. Bounded on the axis that grows — the
+    // echoed command string — with headroom for a longer one.
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
+    // The scan is pure over its input, so the canary exercises the real decision
+    // path and asserts a genuine MATCH — this is the originating incident's own
+    // command shape (mt#4096).
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "minsky session commit --task 'mt#1' 'msg' 2>&1 | tail -6",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  {
+    name: "record-agent-dispatch",
+    effects: [
+      mutatorEffect(
+        "updatedInput",
+        ADVISORY_POSTURE,
+        'computed purely from the payload with no DB dependency; must never be lost since the prompt is already sent — see this guard\'s own header comment ("the cheap, irreversible half must not be gated on the expensive, recoverable one").'
+      ),
+      recorderEffect(
+        "calibration",
+        "the dispatch-row write; recoverable via the Stop-side reconciliation if lost, so it can spool independently of the updatedInput stamp above."
+      ),
+    ],
+    // `invariant`: this guard has no threshold to tune. It writes an
+    // observability row and stamps a correlation key — behavior an operator
+    // turns off (the override env var) rather than adjusts.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Agent",
+    module: () => import("./record-agent-dispatch").then((m) => ({ run: m.run })),
+    // MUST stay above the module's DISPATCH_RECORD_TIMEOUT_MS (10s) so the
+    // guard's OWN deadline fires first: that path returns the stamp plus a
+    // recorded `write-failed` outcome, whereas a dispatcher kill loses the STAMP
+    // as well as the row — and the stamp is the unrecoverable half, since the
+    // prompt is sent either way. 13s keeps margin under the dispatcher's
+    // DERIVED (mt#3981, absorbing mt#3675) settings.json entry cap for this
+    // matcher — see `.minsky/hooks/dispatch-timeout-budget.ts`.
+    timeoutMs: 13000,
+    calibrationLog: "agent-dispatch-record",
+    // NEVER denies. An observability writer must not be able to block a
+    // dispatch — that would trade the failure this task fixes for a worse one.
+    denyCapable: false,
+    // This guard emits no agent-facing `additionalContext` at all: its outputs
+    // are `updatedInput` (consumed by the harness) and `auditLines` (stderr, for
+    // an operator reading a failure). So the attention cost is the audit line's
+    // size, not a denial message's — measured against the longest of the three,
+    // the write-failure line carrying an interpolated error message.
+    attentionCost: { denialMessageSizeChars: 300, optionCount: 0 },
+    // Canaried on `updatedInput`, not `calibration`: the stamp is this guard's
+    // load-bearing output and the one whose loss is unrecoverable. `CANARY_MODE`
+    // short-circuits the DB write in the module, so this exercises the pure
+    // stamp path without reaching a live corpus (the mt#3824 lesson).
+    canary: {
+      input: {
+        tool_name: "Agent",
+        tool_use_id: "toolu_01CanaryAgentDispatch",
+        tool_input: {
+          description: "canary dispatch",
+          prompt: "Do the thing.",
+          subagent_type: "general-purpose",
+        },
+      },
+      expects: "updatedInput",
+    },
+    // No `worstCaseCanary`, and the reason is a constraint rather than a
+    // deferral: the only growth-shaped output is the write-failure audit line,
+    // which interpolates a caught driver error — and canary mode short-circuits
+    // BEFORE the write, so no canary can reach that branch to pose it. The
+    // registry's stated preference applies instead: the guard CAPS the
+    // interpolated message itself (`safeTruncate`, see AUDIT_ERROR_MAX_CHARS),
+    // so the line is bounded by construction and the annotation above is a true
+    // ceiling rather than a sample.
+  },
+  {
     name: "block-secret-file-read",
+    effects: [enforcementEffect()],
     // `invariant`: the set of files whose content is credential material is not
     // an operator preference to tune. Widening the path list is a code change
     // with its own review, not a threshold knob.
@@ -645,11 +1192,99 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#4055: the duplication-gate family's first EXECUTION-surface member.
+  // Every sibling gate binds to a task-graph surface (`tasks_create`,
+  // `session_start`, `tasks_dispatch`), so `bun scripts/<x>.ts --execute`
+  // reached production through no check at all — which is how two concurrent
+  // full-keyset backfills ran against one production table for ~50 minutes on
+  // 2026-08-12. See mem#999.
+  // -------------------------------------------------------------------------
+  {
+    name: "block-concurrent-bulk-mutation",
+    // BOTH effects, and the recorder is load-bearing (PR #2937 R3): this guard denies AND writes
+    // a calibration record on every governed command — including the `overridden` outcome, which
+    // is the whole point of recording the override rather than returning null. Declaring only the
+    // enforcement effect left the records with nowhere to land: emitted by `run`, dropped by the
+    // dispatcher for want of a `calibrationLog`. Silent, and exactly the shape of defect this
+    // guard's own docblock warns about elsewhere.
+    effects: [enforcementEffect(), recorderEffect()],
+    // `invariant`: "do not start a second copy of a script that is already
+    // running" is not a threshold an operator tunes. The escape is the
+    // documented override on the individual call, not a knob.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-concurrent-bulk-mutation").then((m) => ({ run: m.run })),
+    // Two short-lived subprocess calls (`pgrep`, then `ps` on the matched pids),
+    // and only on a command that already matched the pure trigger.
+    timeoutMs: 5000,
+    calibrationLog: "block-concurrent-bulk-mutation",
+    denyCapable: true,
+    // MEASURED against buildDenialReason()'s fixed body plus one process entry
+    // — ~780 chars. The per-process line adds ~140 chars, and a collision with
+    // more than two other runs is not a shape worth budgeting for. One
+    // remediation option (the MINSKY_ALLOW_CONCURRENT_BULK_MUTATION override).
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    // Expects `calibration`, NOT `deny`, and that is deliberate: the deny
+    // depends on the HOST's process table, which a canary cannot arrange
+    // without actually starting a second process. So the canary exercises the
+    // real trigger (pure, string-driven) and stops there — `run` short-circuits
+    // in canary mode before the probe, so no canary shells out. The deny path's
+    // own coverage lives in block-concurrent-bulk-mutation.test.ts, where the
+    // probe is injected.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "bun scripts/backfill-agent-tool-call-projection.ts --execute",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4081: the ACT-path half of the operator-deferral family. Its sibling
+  // detector catches the DEFER path (prose handing a fixable thing to the
+  // operator); the act path emits no prose at all — the agent concludes a
+  // capability is unavailable and quietly builds a destructive workaround. On
+  // 2026-08-13 that workaround was `kill` on 26 live sessions, and the operator
+  // denied it by hand. See mem#707 R8.
+  // -------------------------------------------------------------------------
+  {
+    name: "block-bulk-process-kill",
+    // BOTH effects, for the same reason the sibling above declares both: the
+    // `overridden` outcome is the record most worth keeping, and a guard that
+    // declares only the enforcement effect has nowhere to land it.
+    effects: [enforcementEffect(), recorderEffect()],
+    // `invariant`: "do not mass-kill the operator's working set" is not a
+    // threshold anyone tunes. The escape is the documented per-call override.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-bulk-process-kill").then((m) => ({ run: m.run })),
+    // Pure string decision — no subprocess, no process table.
+    timeoutMs: 2000,
+    calibrationLog: "block-bulk-process-kill",
+    denyCapable: true,
+    // MEASURED against buildDenialReason(): 708 chars for the PID form (8 pids,
+    // the originating incident's shape), 699 for the process-name form. One
+    // remediation option (the MINSKY_ALLOW_BULK_PROCESS_KILL override).
+    attentionCost: { denialMessageSizeChars: 800, optionCount: 1 },
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: { command: "kill 111 222 333" },
+      },
+      expects: "deny",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
   // Phase 2a dispatcher slot in the pre-migration settings.json order.
   // -------------------------------------------------------------------------
   {
     name: "auto-session-title",
+    effects: [advisoryEffect("sessionTitle")],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./auto-session-title").then((m) => ({ run: m.run })),
@@ -673,6 +1308,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-current-time",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-current-time").then((m) => ({ run: m.run })),
@@ -689,6 +1325,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-git-state",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-git-state").then((m) => ({ run: m.run })),
@@ -732,6 +1369,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "inject-prod-state",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-prod-state").then((m) => ({ run: m.run })),
@@ -748,7 +1386,39 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     canary: { input: {}, expects: "warn" },
   },
   {
+    name: "inject-memory-capture",
+    effects: [advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./inject-memory-capture").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    // mt#3997: fires only when a process has actually crossed a resident-memory
+    // watermark — rare by construction (nothing since 2026-08-08), and when it
+    // does fire it carries the evidence mt#3885 is blocked on. High priority
+    // because being dropped returns it to the state this hook exists to end:
+    // an artifact on disk that nobody is told about.
+    contextPriority: 10,
+    // MEASURED, not estimated (PR #2881 R1). The first declaration said 400
+    // against a 407-char render, which the mt#3479 size-ceiling test caught;
+    // the honest worst case was then 889, which pushed this guard into the
+    // top-five conditional bucket `MERGED_CONTEXT_BUDGET_CHARS` is derived from
+    // and broke the mt#3394 budget test. Rather than grow a shared per-turn
+    // budget for a RARE notice, the guard's own caps came down
+    // (MAX_DESCRIBED_CAPTURES 3 -> 1, tool calls 3 -> 2, footer 3 lines -> 1).
+    // Worst case is now 326 chars, a single capture 292. 400 leaves headroom
+    // without re-entering that bucket.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 0 },
+    // mt#2889: the hook PRIMES a synthetic capture when MINSKY_CANARY_MODE=1
+    // (into the runner's isolated MINSKY_STATE_DIR), so the canary exercises
+    // the FIRING path — read, format, watermark — and not the silent one. A
+    // canary that can only observe silence cannot distinguish a broken guard
+    // from a dormant one, which is what this mechanism exists to detect.
+    canary: { input: {}, expects: "warn" },
+  },
+  {
     name: "inject-dispatch-watchdog",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./inject-dispatch-watchdog").then((m) => ({ run: m.run })),
@@ -764,10 +1434,14 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // true maximum. Measured at 1488 with the widest realistic values — longest
     // agentType (`claude-code-guide`), a full-UUID sessionId, an `unknown` age
     // string, the longest activitySource, and a 9-char taskId — flat from 6
-    // flags to 1000. Ordinary render is 866. Declared at 1550 above that
-    // measured maximum, because this guard's annotation is the one the merged
-    // budget can least afford to understate.
-    attentionCost: { denialMessageSizeChars: 1550, optionCount: 3 },
+    // flags to 1000. Ordinary render is 866.
+    //
+    // mt#3121: the injected instruction gained a `contested` branch (a fresh
+    // task-grain peer claim / read-failure -> do NOT redispatch), re-measured at
+    // 1714 by the same structural saturation. 1550 -> 1750; optionCount 3 -> 4.
+    // Declared above the measured maximum, because this guard's annotation is the
+    // one the merged budget can least afford to understate.
+    attentionCost: { denialMessageSizeChars: 1750, optionCount: 4 },
     canary: {
       input: {},
       expects: "warn",
@@ -801,6 +1475,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "memory-search",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./memory-search").then((m) => ({ run: m.run })),
@@ -858,6 +1533,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "skill-staleness-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./skill-staleness-detector").then((m) => ({ run: m.run })),
@@ -897,6 +1573,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "mcp-daemon-staleness-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./mcp-daemon-staleness-detector").then((m) => ({ run: m.run })),
@@ -988,6 +1665,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "substrate-bypass-detector",
+    effects: [
+      advisoryEffect(
+        "additionalContext",
+        "live for unencoded commitments/retro-prose/DB-bypass; the post-merge instruction leg is log-only — one additionalContext effect covers both since the split is per finding class, not per output shape."
+      ),
+      recorderEffect(),
+    ],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     // mt#3519: this guard writes `.minsky/operator-instruction-trigger-calibration.jsonl`
@@ -1035,6 +1719,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // invocation and for `tasks_status_get` calls), and tool calls are read at
     // the moment of MAXIMUM transcript flush.
     name: "retrospective-completeness-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./retrospective-completeness-detector").then((m) => ({ run: m.run })),
@@ -1045,6 +1730,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "retrospective-trigger-scanner",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./retrospective-trigger-scanner").then((m) => ({ run: m.run })),
@@ -1071,6 +1757,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "pre-narration-detector",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
@@ -1103,9 +1790,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "causal-premise-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./causal-premise-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./causal-premise-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "causal-premise",
     denyCapable: false,
@@ -1114,7 +1803,11 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // (dormant by flag). The canary asserts the calibration outcome, not
     // additionalContext, so a future INJECTION_ENABLED flip doesn't silently
     // break this canary (it would simply gain an ADDITIONAL warn outcome).
-    attentionCost: { denialMessageSizeChars: 550, optionCount: 2 },
+    // MEASURED via `renderProbe` (mt#4002): 1518 at 8 matched phrases. Was 550,
+    // never checked against real text because this guard injects nothing. The
+    // count axis is UNCAPPED (one line per hit), so this is a saturated sample,
+    // not a proved ceiling — capping it is this guard's own follow-up.
+    attentionCost: { denialMessageSizeChars: 1550, optionCount: 2 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1137,7 +1830,52 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   {
+    // mt#3918. Full contract in the module's header; matcher in
+    // `packages/domain/src/detectors/negative-existence-claim.ts`.
+    name: "negative-existence-claim-detector",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "UserPromptSubmit",
+    module: () => import("./negative-existence-claim-detector").then((m) => ({ run: m.run })),
+    renderProbe: () =>
+      import("./negative-existence-claim-detector").then((m) => m.renderWorstCase()),
+    timeoutMs: 10000,
+    calibrationLog: "negative-existence-claim",
+    denyCapable: false,
+    needsTranscript: true,
+    // MEASURED via `renderProbe`: 1559 saturated. Claim axis posed at its bound
+    // (7 patterns); the DONE-task-id axis is UNCAPPED, so this is a sample, not
+    // a ceiling — `render-probe-sample`, and a cap is owed before injection.
+    attentionCost: { denialMessageSizeChars: 1600, optionCount: 2 },
+    // Calibration-first: the canary asserts `calibration`, not additionalContext,
+    // so a later INJECTION_ENABLED flip gains an outcome rather than breaking it.
+    // It cites mt#2677 — a really-DONE task — which makes it deterministic in
+    // BOTH lookup states: the check passes with a database, and without one the
+    // lookup returns null and conjunct 3 fails TOWARD firing. A nonexistent id
+    // would fire only in the second state.
+    canary: {
+      input: { transcript_path: "mt3918-canary-transcript" },
+      transcriptLines: [
+        userPromptLine("first turn"),
+        toolUseLine("toolu_canary_search", "Grep", { pattern: "progress" }),
+        toolResultLine("toolu_canary_search", "src/mcp/server.ts:214: progress"),
+        toolUseLine("toolu_canary_artifact", "mcp__minsky__tasks_create", {
+          spec: "There are zero production call sites for the progress mechanism mt#2677 shipped.",
+        }),
+        userPromptLine("second turn"),
+      ],
+      expects: "calibration",
+    },
+  },
+  {
     name: "code-mechanism-assertion-detector",
+    effects: [
+      advisoryEffect(
+        "additionalContext",
+        "live in chat per hook-observers.mdc; comments/durable-artifact surfaces are log-only. One additionalContext effect covers the live surface, one recorder effect covers all three (the canary exercises the recorder path only)."
+      ),
+      recorderEffect(),
+    ],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./code-mechanism-assertion-detector").then((m) => ({ run: m.run })),
@@ -1169,6 +1907,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "ask-routing-deferral-detector",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./ask-routing-deferral-detector").then((m) => ({ run: m.run })),
@@ -1202,14 +1941,21 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "constructed-identifier-batch-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./constructed-identifier-batch-detector").then((m) => ({ run: m.run })),
+    renderProbe: () =>
+      import("./constructed-identifier-batch-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "constructed-identifier-batch",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // MEASURED via `renderProbe` (mt#4002): 2139 for the larger of its two
+    // renderers at 5 matches. Was 600 — a 3.6x understatement, the largest in
+    // the population, invisible because this guard injects nothing. Count axis
+    // UNCAPPED on both renderers; saturated sample, not a proved ceiling.
+    attentionCost: { denialMessageSizeChars: 2200, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1254,14 +2000,34 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "operator-deferral-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "operator-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // MEASURED, not estimated (mt#3533; re-measured mt#3999). `buildReminder` at
+    // its saturated worst case — all FOUR prose/denial/ask-justification surfaces
+    // matching at once, each `context` at its 240-char cap and surface E's
+    // subject at `MAX_SUBJECT_CHARS`, so all three directive branches render — is
+    // 2068 chars. It was 1609 with three surfaces; mt#3999 added the fourth.
+    // Bounded by construction: each detector returns at most one match and every
+    // context is capped, so there is no unbounded axis (the property mt#3705
+    // required after `guard-health-escalation-detector` was annotated off a
+    // one-item canary).
+    //
+    // The prior 600 was ALREADY understated before this surface existed: the
+    // two-prose-match worst case measures 1049. It went unnoticed because
+    // `guard-feedback-shape.test.ts` renders the canary and reads
+    // `additionalContext`, which this guard leaves empty while
+    // INJECTION_ENABLED is false — so the enforced ceiling has always been
+    // measured against an empty string here. `operator-deferral-detector.test.ts`
+    // now pins the render against this number directly; the structural gap in the
+    // shape test is mt#4002.
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -1283,15 +2049,26 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   },
   {
     name: "operator-deferral-ask-surface",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "PreToolUse",
     matcher: "AskUserQuestion",
     module: () => import("./operator-deferral-detector").then((m) => ({ run: m.runAskSurface })),
+    // Same module, same renderer, same injection gate — so the same probe. It
+    // OVER-poses this surface (three matches where the ask surface returns one),
+    // which is the safe direction for a ceiling.
+    renderProbe: () => import("./operator-deferral-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "operator-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // Matches its sibling registration: same module, same renderer, so the same
+    // measured 2068 (mt#4002, re-measured mt#3999). It was left at 600 when
+    // mt#3533 corrected the sibling — the two registrations render identical text
+    // and only one was fixed, which the sweep caught. Kept in step deliberately:
+    // this surface never returns an `ask-justification` match, so the shared
+    // probe OVER-poses it, which is the safe direction for a ceiling.
+    attentionCost: { denialMessageSizeChars: 2100, optionCount: 1 },
     canary: {
       input: {
         transcript_path: "mt2889-canary-transcript",
@@ -1317,6 +2094,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "guard-health-escalation-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./guard-health-escalation-detector").then((m) => ({ run: m.run })),
@@ -1419,6 +2197,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "silent-stretch-detector",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./silent-stretch-detector").then((m) => ({ run: m.run })),
@@ -1488,6 +2267,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "wall-of-text-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./wall-of-text-detector").then((m) => ({ run: m.run })),
@@ -1549,16 +2329,20 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "build-claim-injection-detector",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./build-claim-injection-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./build-claim-injection-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "build-claim-injection",
     denyCapable: false,
     needsTranscript: true,
     // mt#2923: INJECTION_ENABLED=false — calibration-first, same rationale as
     // causal-premise-detector above; canary asserts calibration, not warn.
-    attentionCost: { denialMessageSizeChars: 500, optionCount: 1 },
+    // MEASURED via `renderProbe` (mt#4002): 1115 at the file list's own
+    // `.slice(0, 6)` cap. Was 500. Bounded on the axis that grows.
+    attentionCost: { denialMessageSizeChars: 1150, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2923-canary-transcript" },
       transcriptLines: [
@@ -1591,74 +2375,6 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
-  // mt#2708 — knowledge-acquisition detector (mt#2707 RFC's B proactive-
-  // trigger half of the learn-capture primitive). New guard, not part of any
-  // legacy settings.json migration. Fires on in-task research relevant to a
-  // loaded skill with no propagation (memory_create / /learn / tasks_create)
-  // in a trailing window of turns. Needs transcriptLines (D6) to scan the
-  // WHOLE session (loaded skills + research occurrences), not just the last
-  // turn — mirrors build-claim-injection-detector.ts's widening.
-  // -------------------------------------------------------------------------
-  {
-    name: "knowledge-acquisition-detector",
-    tuningOwnership: "advisory",
-    event: "UserPromptSubmit",
-    module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
-    timeoutMs: 10000,
-    calibrationLog: "knowledge-acquisition",
-    denyCapable: false,
-    needsTranscript: true,
-    // mt#2708: INJECTION_ENABLED=false — calibration-first, same rationale as
-    // causal-premise-detector/build-claim-injection-detector above; canary
-    // asserts calibration, not warn.
-    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
-    canary: {
-      // input.cwd defaults to the canary runner's real process.cwd() (a real
-      // repo checkout, per baseCanaryInput) — readSkillDescription resolves
-      // the REAL `.claude/skills/engineering-writing/SKILL.md` frontmatter,
-      // so the canary exercises the rung-2-lite keyword-overlap gate against
-      // real skill data, not a synthetic stand-in. `session_id` is a
-      // canary-only literal, distinct from any real conversation id, so the
-      // dedupe read in `loadAlreadyLoggedDedupeKeys` can never match a
-      // genuine prior record and silently suppress this canary forever.
-      input: { session_id: "mt2708-canary-session", transcript_path: "mt2708-canary-transcript" },
-      transcriptLines: [
-        { type: "user", message: { role: "user", content: "first turn" } },
-        {
-          type: "assistant",
-          message: {
-            role: "assistant",
-            content: [{ type: "tool_use", name: "Skill", input: { skill: "engineering-writing" } }],
-          },
-        },
-        { type: "user", message: { role: "user", content: "second turn" } },
-        {
-          type: "assistant",
-          message: {
-            role: "assistant",
-            content: [
-              {
-                type: "tool_use",
-                name: "WebSearch",
-                input: { query: "argumentative prose AI writing tells overused phrases" },
-              },
-            ],
-          },
-        },
-        // TRAILING_WINDOW_TURNS (5) filler turns so the grace period has elapsed.
-        ...Array.from({ length: 5 }, (_, i) => [
-          { type: "user", message: { role: "user", content: `filler turn ${i}` } },
-          {
-            type: "assistant",
-            message: { role: "assistant", content: [{ type: "text", text: "continuing" }] },
-          },
-        ]).flat(),
-        { type: "user", message: { role: "user", content: "current turn" } },
-      ],
-      expects: "calibration",
-    },
-  },
-  // -------------------------------------------------------------------------
   // Stop event (mt#2357) — the framework's FIRST Stop-event guard. Runs via
   // the new `dispatch-stop.ts` entrypoint. Placed BEFORE the
   // calibration-review-cadence-detector entry to preserve that entry's
@@ -1666,7 +2382,110 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // inert (getGuardsForEvent filters by event before running in order).
   // -------------------------------------------------------------------------
   {
+    // mt#3490 / ADR-031 — a RECORDER, not a detector. Placed first among the
+    // Stop guards so the anchor is durable before any later Stop guard can
+    // error; nothing else reads it within this dispatch.
+    //
+    // No `canary`: `GuardCanary.expects` is `"deny" | "warn" | "calibration" |
+    // "sessionTitle"`, and this guard produces NONE of those — it always
+    // returns null and its only observable effect is a file write. There is no
+    // honest value to declare, so it is omitted deliberately rather than
+    // mis-declared to satisfy the shape test (which measures emitted feedback,
+    // and so has nothing to measure here). Its behaviour is covered by
+    // `record-turn-anchor.test.ts` against an injected store dir instead.
+    //
+    // `attentionCost` is zero because it emits nothing —
+    // `MERGED_CONTEXT_BUDGET_CHARS` is DERIVED from these annotations, so a
+    // padded number here would widen the injection budget for every turn in
+    // the repo (mem#865).
+    name: "record-turn-anchor",
+    effects: [
+      recorderEffect(
+        "turnAnchorWrite",
+        "writes the turn-anchor store (ADR-031), not a calibration log — same recorder shape: a local write with no in-turn consumer, read later by the Stop-side resolver via ctx.recordedAnchor."
+      ),
+    ],
+    tuningOwnership: "invariant",
+    event: "Stop",
+    module: () => import("./record-turn-anchor").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 0, optionCount: 0 },
+  },
+  {
+    // mt#3286 — R3-R6 of the linked-reference-actionability family (mem#623):
+    // a turn's closing message hands the operator entities they cannot click.
+    // Advisory-only and calibration-first per ADR-024: this is a Rung-1
+    // deterministic matcher over SYNTAX (a deeplink has one correct written
+    // form), not over prose, so the ladder's paraphrase-driven escalation to
+    // Rung 2 does not apply — there is no paraphrase axis for a URL.
+    //
+    // `attentionCost` mirrors ADVISORY_BUDGET_CHARS in the guard, which bounds
+    // the render in code; `guard-feedback-shape.test.ts` asserts the two agree.
+    name: "turn-end-bare-ref-scan",
+    effects: [
+      advisoryEffect(
+        "additionalContext",
+        "LIVE for the bare-short-id/malformed-target/raw-uuid-label classes; the bare-mt#/PR# class is record-only (mt#3897) — one additionalContext effect covers both since the split is per finding class, not per guard output shape."
+      ),
+      recorderEffect(),
+    ],
+    tuningOwnership: "advisory",
+    event: "Stop",
+    module: () => import("./turn-end-bare-ref-scan").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "bare-entity-ref",
+    denyCapable: false,
+    needsTranscript: true,
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 0 },
+    canary: {
+      // A bare short id with no link anywhere in the message — the enforced
+      // class as of mt#3897. It used to be a bare `mt#`/`PR #` pair; those are
+      // record-only now (the display linkifier repairs them), so that input
+      // stopped firing and left this guard invisible to the shape test.
+      // `transcript_path` is deliberately nonexistent: this guard prefers
+      // `last_assistant_message` and must work when the transcript has not yet
+      // flushed the final message.
+      input: {
+        session_id: "mt3286-bare-ref-canary",
+        transcript_path: "/nonexistent/mt3286-canary.jsonl",
+        last_assistant_message: "Pending your call on ask#1234 and mem#5678.",
+      },
+      transcriptLines: [],
+      expects: "warn",
+    },
+    // GROWTH-SHAPED (mt#3705): the render emits one line per finding, so the
+    // canary above establishes the FLOOR, not the ceiling. This poses the
+    // largest input the guard can actually face — a long closing status report
+    // enumerating many entities, none linked — so the declared
+    // denialMessageSizeChars is measured against a real worst case rather than
+    // a comfortable one. The in-code budget fit is what actually bounds it.
+    worstCaseCanary: {
+      // Re-posed at the mt#3897 flag set. The previous worst case saturated on
+      // bare `mt#`/`PR #`, which are record-only now — it would still have
+      // returned "warn" (the two malformed links below flag regardless) while
+      // measuring only 2 rendered lines instead of 18, quietly understating the
+      // budget it exists to bound. Saturates every FLAGGED axis at once: many
+      // bare short ids across all three families, plus both malformed classes.
+      input: {
+        session_id: "mt3286-bare-ref-worst-case",
+        transcript_path: "/nonexistent/mt3286-worst.jsonl",
+        last_assistant_message:
+          "Status: ask#10001 ask#10002 ask#10003 ask#10004 ask#10005 ask#10006 " +
+          "mem#10007 mem#10008 mem#10009 mem#10010 mem#10011 mem#10012 " +
+          "ws#10013 ws#10014 ws#10015 ws#10016 ws#10017 ws#10018 are pending; " +
+          "see [ask#…deadbeef](minsky://ask/1e2d3c4b-5a69-4788-9910-aabbccddeeff) " +
+          "and [mem#…cafebabe](minsky://memory/2f3e4d5c-6b7a-4899-8a0b-bbccddeeff00) " +
+          "and [ws#42](minsky://session/short).",
+      },
+      transcriptLines: [],
+      expects: "warn",
+    },
+  },
+  {
     name: "turn-end-retro-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-retro-scan").then((m) => ({ run: m.run })),
@@ -1711,16 +2530,31 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // in `last_assistant_message`, so nothing followed it), not on the agent's
     // stated reason. Full rationale: the guard module's header.
     name: "turn-end-untaken-action-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-untaken-action-scan").then((m) => ({ run: m.run })),
     timeoutMs: 5000,
     calibrationLog: "untaken-action",
     denyCapable: false,
-    // False by design (PR #2293 R1): detection reads last_assistant_message, and
-    // the dedup key is derived from that message — NOT from the transcript,
-    // whose absent-case default would suppress the phrase session-wide.
-    needsTranscript: false,
+    // True since mt#4063, for the SUPPRESSION signal only. PR #2293 R1's
+    // reasoning for setting this false still holds and is unchanged: detection
+    // reads `last_assistant_message`, and the dedup key is derived from that
+    // message — NOT from the transcript, whose absent-case default would
+    // suppress the phrase session-wide. Both remain message-derived.
+    //
+    // What the transcript is read for is the armed-watcher suppression, whose
+    // absent-case default runs the OTHER way: no transcript means no
+    // tool-call evidence, which means no suppression, which means the guard
+    // fires exactly as it did before. That asymmetry is what makes the read
+    // safe here and is pinned by a test ("with no transcript in context the
+    // guard behaves exactly as before"), so the canary below — which carries
+    // no `transcriptLines` and expects `warn` — stays valid unchanged.
+    //
+    // Marginal cost is ~zero: `resolveDispatchContext` resolves the transcript
+    // once per dispatch, and the sibling `turn-end-unwalked-task-scan` already
+    // requests it on this same Stop event.
+    needsTranscript: true,
     attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {
@@ -1738,6 +2572,42 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         store.clearFlagged("mt3179-untaken-action-canary");
       },
     },
+    // mt#3767 — the SATURATING input for this guard, on BOTH axes at once:
+    // enough commitment families to drive the evidence list to its cap of 3 plus
+    // the "…and N more" line, AND a deferral phrase, which selects the longer of
+    // the two directive branches. Posing it at only one axis is what hid the
+    // overflow: the originating single-match sentence renders 339, this renders
+    // 430, and the ceiling is 450. (mem#865 predicted this blind spot for guards
+    // whose output varies by input, after mt#3699 hit it on the sibling — and the
+    // commitment branch turned out to be over the ceiling at cap ALREADY, which
+    // the previous "capped" classification meant nothing ever rendered.)
+    worstCaseCanary: {
+      input: {
+        session_id: "mt3767-untaken-action-worstcase-canary",
+        transcript_path: "/nonexistent/mt3767-worstcase-canary.jsonl",
+        // mt#3853 re-posed. The previous canary fired MANY families, which
+        // reads like saturation and is not: matches emit in PATTERN order, the
+        // evidence list caps at 3, and the first three patterns
+        // (taking-forward / next-step / next-up) all have SHORT fixed phrases.
+        // So a message matching everything spends its three slots on the
+        // cheapest lines and measures 430 — while a message matching ONLY the
+        // long-phrase families puts them in all three slots and measures 443,
+        // on the longer of the two directives. That second shape is the real
+        // worst case; posing the first is how mt#3767 measured 383 for a branch
+        // whose true worst case was 474.
+        //
+        // Deliberately excludes "say the word": that routes to the overlap
+        // directive, which is SHORTER, so including it would understate again.
+        last_assistant_message:
+          "I'll proceed ahead with the migration. I'll implement the remaining detector " +
+          "work, and I'm going to write and PR the reviewer replacement work.",
+      },
+      expects: "warn",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt3767-untaken-action-worstcase-canary");
+      },
+    },
   },
   {
     // mt#3536 — state-keyed sibling of the guard above. That one keys on the
@@ -1747,6 +2617,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // silent — the silent stop is the gap this closes. Full rationale: the
     // guard module's header.
     name: "turn-end-unwalked-task-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-unwalked-task-scan").then((m) => ({ run: m.run })),
@@ -1813,6 +2684,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // final message while the absence check stays structural (an `asks_create`
     // carrying severity: "incident"). Full rationale: the guard module's header.
     name: "turn-end-unescalated-incident-scan",
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "Stop",
     module: () => import("./turn-end-unescalated-incident-scan").then((m) => ({ run: m.run })),
@@ -1864,6 +2736,7 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // rationale, including the recorded ADR-031 deviation for the Stop-side
     // tool-call read: the guard module's header.
     name: "stop-at-decision-scan",
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "Stop",
     module: () => import("./stop-at-decision-scan").then((m) => ({ run: m.run })),
@@ -1881,6 +2754,88 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     needsTranscript: true,
   },
   // -------------------------------------------------------------------------
+  // mt#2708 — knowledge-acquisition detector (mt#2707 RFC's B proactive-
+  // trigger half of the learn-capture primitive). Fires on in-task research
+  // relevant to a loaded skill with no propagation (memory_create / /learn /
+  // tasks_create) anywhere in the session. Needs transcriptLines (D6) to scan
+  // the WHOLE session (loaded skills + research occurrences), not just the
+  // last turn — mirrors build-claim-injection-detector.ts's widening.
+  //
+  // mt#3720 moved it from UserPromptSubmit to Stop and re-grained it from
+  // per-research-call to per-session. Stop rather than SessionEnd because
+  // SessionEnd has no guards wired through this registry — the repo's one
+  // SessionEnd hook is wired directly in settings.json, outside the
+  // calibration/canary/override plumbing this detector depends on — and per
+  // ADR-017 /exit and /clear do not fire SessionEnd at all. Full reasoning and
+  // the accepted residual (mt#3740): the guard module's header.
+  // -------------------------------------------------------------------------
+  {
+    name: "knowledge-acquisition-detector",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "Stop",
+    module: () => import("./knowledge-acquisition-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./knowledge-acquisition-detector").then((m) => m.renderWorstCase()),
+    timeoutMs: 10000,
+    calibrationLog: "knowledge-acquisition",
+    denyCapable: false,
+    needsTranscript: true,
+    // mt#2708: INJECTION_ENABLED=false — calibration-first, same rationale as
+    // causal-premise-detector/build-claim-injection-detector; canary asserts
+    // calibration, not warn.
+    // MEASURED via `renderProbe` (mt#4002): 627 at 6 research tools. Was 400.
+    // The template is fixed; only the joined tool list grows.
+    attentionCost: { denialMessageSizeChars: 650, optionCount: 1 },
+    canary: {
+      // input.cwd defaults to the canary runner's real process.cwd() (a real
+      // repo checkout, per baseCanaryInput) — readSkillDescription resolves
+      // the REAL `.claude/skills/engineering-writing/SKILL.md` frontmatter,
+      // so the canary exercises the rung-2-lite keyword-overlap gate against
+      // real skill data, not a synthetic stand-in. `session_id` is a
+      // canary-only literal, distinct from any real conversation id, so the
+      // dedupe read in `loadAlreadyLoggedDedupeKeys` can never match a
+      // genuine prior record and silently suppress this canary forever.
+      input: { session_id: "mt2708-canary-session", transcript_path: "mt2708-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_use", name: "Skill", input: { skill: "engineering-writing" } }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                name: "WebSearch",
+                input: { query: "argumentative prose AI writing tells overused phrases" },
+              },
+            ],
+          },
+        },
+        // TRAILING_WINDOW_TURNS (5) filler turns so the grace period has
+        // elapsed. Single-occurrence fixture, so the session-grain verdict and
+        // the old per-occurrence one coincide — the canary's expected outcome
+        // is unchanged by mt#3720.
+        ...Array.from({ length: 5 }, (_, i) => [
+          { type: "user", message: { role: "user", content: `filler turn ${i}` } },
+          {
+            type: "assistant",
+            message: { role: "assistant", content: [{ type: "text", text: "continuing" }] },
+          },
+        ]).flat(),
+        { type: "user", message: { role: "user", content: "current turn" } },
+      ],
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept
   // as the LAST entry across the mt#2812 x mt#2824 merge (2026-07-16): both
@@ -1892,11 +2847,20 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // -------------------------------------------------------------------------
   {
     name: "calibration-review-cadence-detector",
+    effects: [advisoryEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./calibration-review-cadence-detector").then((m) => ({ run: m.run })),
     timeoutMs: 10000,
     denyCapable: false,
+    // 450, unchanged (mt#3824 R2): the OLD 450 was a moving target because the
+    // render was uncapped — a due-log count driven by real activity AND by
+    // wall-clock (`liveSinceDate + reviewByDays` window closures) scaled the
+    // message linearly, with no worst case. `formatCadenceWarning` is now a
+    // dynamic byte-budget fit against ADVISORY_BUDGET_CHARS in the module
+    // itself (see that constant's doc comment) — the render is
+    // self-enforcing and can never exceed 450, so the number does not need
+    // to move. MUST equal that module's `ADVISORY_BUDGET_CHARS`.
     attentionCost: { denialMessageSizeChars: 450, optionCount: 1 },
     canary: {
       input: {}, // cwd populated dynamically by setup below
@@ -1956,136 +2920,13 @@ export function getGuardsForEvent(
   });
 }
 
-// ---------------------------------------------------------------------------
-// D7(2) — duplicate-registration check (registry-completeness lint)
-// ---------------------------------------------------------------------------
-
-export interface DuplicateRegistration {
-  a: string;
-  b: string;
-  event: LifecycleEvent;
-  /** The matcher token(s) shared by both registrations. */
-  sharedTokens: string[];
-}
-
-/**
- * Lifecycle events with NO tool-name concept — `matcher` is meaningless for
- * these (mirrors `getGuardsForEvent`'s "a matcher-less registration always
- * matches once its event matches" comment). Used by
- * {@link findDuplicateRegistrations} to scope the matcher-less-pair
- * exemption (R1 fix, mt#2652): the exemption is ONLY valid on these events.
- * `PreToolUse` and `PostToolUse` are tool-scoped — two matcher-less
- * registrations there genuinely both match every tool call, which IS a real
- * overlap risk and must still be flagged.
- */
-export const NON_TOOL_SCOPED_EVENTS: ReadonlySet<LifecycleEvent> = new Set([
-  "UserPromptSubmit",
-  "SessionStart",
-  "Stop",
-  "SubagentStop",
-  "SessionEnd",
-]);
-
-/**
- * Detect two registrations with the same event and an overlapping matcher —
- * ADR-028 D7(2)'s "duplicate-registration check". Two matchers "overlap"
- * when they share at least one literal `|`-delimited alternative token (a
- * conservative, false-positive-tolerant heuristic — exact regex
- * intersection is undecidable in general, and today's matcher strings are
- * always simple `|`-joined tool-name alternatives, never true regex
- * features).
- *
- * A registration with no matcher is treated as "matches everything." When
- * matched against a registration THAT HAS a matcher, this is a genuine
- * overlap risk (the matcher-less guard fires on every tool the matchered
- * guard's tokens name too) and is still flagged — on EVERY event, tool-scoped
- * or not. When BOTH registrations in a pair lack a matcher, the exemption is
- * narrower: it applies ONLY on {@link NON_TOOL_SCOPED_EVENTS} (Phase 2a,
- * mt#2652; scope-corrected R1) — there, a matcher-less registration is the
- * NORMAL, by-design shape (there is no tool name to match against), and
- * multiple independent guards legitimately share it — e.g. the six
- * UserPromptSubmit guidance detectors migrated in this phase. On a
- * TOOL-SCOPED event (`PreToolUse`/`PostToolUse`), two matcher-less
- * registrations genuinely BOTH match every tool call — that is exactly the
- * accidental-duplicate shape D7(2) exists to catch, so it is still flagged
- * there.
- */
-/**
- * Guard pairs that INTENTIONALLY share an event + matcher (mt#3282).
- *
- * The overlap heuristic below is deliberately false-positive-tolerant, and two
- * tool-scoped guards on the same matcher is a shape it cannot distinguish from
- * an accidental double-registration. The dispatcher supports it: on a matched
- * event `getGuardsForEvent` returns EVERY matching registration and
- * `runGuards` executes them in registry order, short-circuiting on the first
- * `deny` (D1 first-deny-wins). Neither guard shadows the other — a guard only
- * pre-empts a later one by denying, which blocks the call either way.
- *
- * An entry here is a DECLARATION, not a silencer: each pair must be listed
- * explicitly with a rationale, so a genuinely accidental duplicate (the shape
- * ADR-028 D7(2) exists to catch) still fails the check.
- *
- * Keys are the two guard names, order-insensitive.
- */
-export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]> = [
-  // Both inspect a Bash/session_exec command string for an unrelated defect:
-  // one for a constructed session path, one for a secret-bearing file read.
-  // Independent checks, independent overrides; running both is the point.
-  ["check-guessed-session-path", "block-secret-file-read"],
-];
-
-/** Is this pair declared as an intentional co-registration? */
-export function isIntentionalPair(a: string, b: string): boolean {
-  return INTENTIONAL_MATCHER_PAIRS.some(([x, y]) => (x === a && y === b) || (x === b && y === a));
-}
-
-export function findDuplicateRegistrations(
-  registrations: GuardRegistration[]
-): DuplicateRegistration[] {
-  const dupes: DuplicateRegistration[] = [];
-  const tokensOf = (matcher: string | undefined): Set<string> | null =>
-    matcher === undefined
-      ? null
-      : new Set(
-          matcher
-            .split("|")
-            .map((t) => t.trim())
-            .filter(Boolean)
-        );
-
-  for (let i = 0; i < registrations.length; i++) {
-    for (let j = i + 1; j < registrations.length; j++) {
-      const a = registrations[i];
-      const b = registrations[j];
-      if (!a || !b) continue;
-      if (a.event !== b.event) continue;
-      if (a.name === b.name) continue;
-      if (isIntentionalPair(a.name, b.name)) continue;
-
-      const aTokens = tokensOf(a.matcher);
-      const bTokens = tokensOf(b.matcher);
-      if (aTokens === null && bTokens === null && NON_TOOL_SCOPED_EVENTS.has(a.event)) {
-        // Both matcher-less on a non-tool-scoped event: the normal shape
-        // for a family of independent guards — not a duplicate registration.
-        continue;
-      }
-      if (aTokens === null || bTokens === null) {
-        // Either exactly one side is matcher-less (genuine overlap risk on
-        // any event), OR both sides are matcher-less on a TOOL-SCOPED event
-        // (both genuinely match every tool call — still a real duplicate).
-        dupes.push({
-          a: a.name,
-          b: b.name,
-          event: a.event,
-          sharedTokens: ["<matches everything>"],
-        });
-        continue;
-      }
-      const shared = [...aTokens].filter((t) => bTokens.has(t));
-      if (shared.length > 0) {
-        dupes.push({ a: a.name, b: b.name, event: a.event, sharedTokens: shared });
-      }
-    }
-  }
-  return dupes;
-}
+// The D7(2) duplicate-registration check moved to ./registry-matcher-pairs (mt#4055),
+// alongside the intentional-pair list it consults — one overlap concern, one module.
+// Re-exported so every existing importer is unaffected.
+export {
+  INTENTIONAL_MATCHER_PAIRS,
+  isIntentionalPair,
+  NON_TOOL_SCOPED_EVENTS,
+  findDuplicateRegistrations,
+} from "./registry-matcher-pairs";
+export type { DuplicateRegistration } from "./registry-matcher-pairs";

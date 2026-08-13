@@ -1,8 +1,12 @@
 # operator-deferral-detector
 
-Two calibration-first, LOG-ONLY detection surfaces for the **operator-deferral family** —
+Calibration-first, LOG-ONLY detection surfaces for the **operator-deferral family** —
 the agent handing the principal an action it could have performed itself, without first
 running the capability probe `user-preferences.mdc §Probe before deferring` requires.
+
+**There are SIX surfaces; sections A and B below were the original two.** The full set is
+enumerated under "The page says two surfaces above" — read that before assuming this page's
+opening sections are the whole detector.
 
 Source: `.minsky/hooks/operator-deferral-detector.ts` (generated copy:
 `.claude/hooks/operator-deferral-detector.ts` — do not hand-edit).
@@ -94,6 +98,155 @@ a **decision** being deferred to the principal in chat prose instead of through 
 substrate. This detector covers an **action** being deferred. A turn can legitimately fire
 both.
 
+## The page says "two surfaces" above; there are now SIX
+
+Sections A and B predate the four added later. The full set:
+
+**C. Permission-deferral prose (mt#3463)** — "I can, shall I?" rather than "I can't". It
+EXCLUDES genuinely destructive or principal-reserved actions, because for those the ask is
+CORRECT and firing would train the wrong behavior.
+
+**D. Denial-anchored (mt#3533)** — an escalation or deferral resting on a permission-denied
+`tool_result`, with no same-turn retry in a different **command shape** (the leading token
+differs, or a compound command became simple).
+
+Surface D is anchored on a STRUCTURED result rather than a phrase, and that is the whole
+design. The prose accompanying this failure is third-person about a tool — "the API was
+denied" — and the four recorded instances each worded it differently, so no phrase corpus
+reaches them. ADR-024's ladder therefore governs the phrase half of the trigger and not the
+denial half: a paraphrase-miss argument does not apply to parsing a `tool_result`.
+
+Measured before shipping: 73 permission denials across 460 local transcripts, each an
+`is_error: true` `tool_result` opening with one of exactly two canned strings.
+
+**A denial whose stated reason names a security concern never fires** — mem#276's
+stop-and-escalate carve-out, where stopping is the correct response. That control is
+**SYNTHETIC**: zero of the 73 denials in the local corpus carried a security framing, so the
+regression test is built from mem#276's recorded 2026-04-23 reason string and is labeled
+synthetic in the test rather than presented as a replay.
+
+**E. Ask-justification capability-absence (mt#3999)** — an `asks_create` the router sent to
+the **operator**, whose justification asserts a named capability, credential, tool or flag
+does not exist, in a turn that consulted **fewer than two distinct channels**.
+
+**F. Act-path workaround (mt#4081)** — a destructive command in a turn containing NO capability
+search. The only surface here that reads no prose at all: both legs are tool-call state. Its
+own section at the end of this page carries the measured surface-E miss that produced it, and
+its blocking sibling is the `block-bulk-process-kill` guard.
+
+Three things about this surface are easy to get wrong later, so they are recorded here.
+
+**It does NOT suppress on `hasProbeEvidence`, deliberately.** On its own anchor instance the
+agent HAD probed — it called `config_credentials_list`, which is on that function's probe list
+— and that call is exactly what produced the false premise, returning exit-0, well-formed JSON
+that silently omitted the provider. Suppressing on "did it probe at all" would blind this
+surface to the only incident it exists for. What was missing was a SECOND, independent channel
+(`ai_providers_list` and `ai_validate` both reported the credential present the whole time), so
+the conjunct counts DISTINCT channel families instead — `config-store` and `provider-validate`
+are different channels; two calls to the config store are one. Erring toward firing follows this
+detector's stated asymmetry: a false positive costs a glance at a record, a false suppression
+hides the failure silently.
+
+**The routed-outcome conjunct reads the RESULT, not the input.** `asks_create` has no
+`routingTarget` parameter — routing is computed downstream by `policyFirstRoute` from kind +
+severity plus a policy phase — so the input side is genuinely blind to it. The result is
+`RoutedAsk | SuspendedAsk | ElicitationClosedAsk` and all three carry the field, joined to the
+call by mt#3918's `findToolCallsWithResults`. A **policy-covered ask is EXCLUDED** rather than
+counted: it short-circuits to closed with `routingTarget: "policy"`, never reaches a human, and
+so spends none of the attention this surface is about.
+
+**Its phrase family is a THIRD one, not a widening of an existing corpus.** Measured before
+shipping, by running both existing corpora against the two recorded instances: surface A's
+`CAPABILITY_DEFERRAL_PATTERNS` matches NEITHER, and mt#3918's `NEGATIVE_EXISTENCE_PATTERNS`
+matches neither either. The shapes are distinct — surface A is deferral of an ACTION ("requires
+Railway access"), mt#3918 is absence of CALLERS ("nothing calls onProgress"), this is absence of
+a CAPABILITY ("I have no OpenAI key"). A test pins the mutual non-coverage in both directions,
+so a future widening of any of the three cannot silently start double-firing on one sentence.
+
+The anchor is **n=1** and the spec says so: only the credential instance (2026-08-01, mt#3547,
+ask#6754) occurred at an ask. The 90-minutes-later bun `--changed` instance was chat prose plus
+a build decision, with no ask at all — it belongs to surface A's population and is retained as
+evidence about the FAMILY's rate, not as a fixture. n=1 is proportionate because the increment
+is a surface on an existing detector; it would not carry a fifth standalone detector.
+
+Surface E's advisory has **its own directive**, per `guard-feedback-authoring.mdc §The directive
+has to fit the shape of the fire`. The generic branch says "run the capability probe", which on
+this surface is the wrong instruction and invites reading a true positive as a false one — so
+surface E is excluded from that branch and names the concrete second channel for the claim's
+subject instead.
+
+### What the matcher does NOT treat as a deferral (mt#3865)
+
+Three calibration windows put the FP rate at 31–43%, roughly half of it in shapes where the
+trigger phrase is present but no deferral is being made. Each suppression below is tied to
+specific rated records; none was written for a shape that has not fired.
+
+| Suppression                     | Window it reads           | What it removes                                                                                         |
+| ------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `NEGATION_LEAD_PATTERN`         | 40 chars before the match | A PROHIBITION carrying the phrase — "Don't paste the token into this chat"                              |
+| `DESCRIPTIVE_FRAME_PATTERNS`    | match sentence + 1 lead   | A deferral ATTRIBUTED to a document or third party — reported speech, an enumerated `open question (b)` |
+| `STANDING_INSTRUCTION_PATTERNS` | match sentence + 1 lead   | Naming a standing instruction AND asking in the same message — the remedy mt#3930 prescribes            |
+| `SETTLED_DECISION_PATTERNS`     | match sentence + 1 lead   | An offer attached to a decision already made, on a RESOURCING reason                                    |
+
+**The negation case is the one that matters most.** Both records were the agent refusing to
+RECEIVE a secret, which the security rules require — so the advisory fired on correct behavior,
+and acting on it would have degraded it. `NEGATION_LEAD_PATTERN` deliberately omits a bare
+`not`: "I will not be able to provide the token" IS a capability deferral, and a bare-`not`
+pattern would swallow it.
+
+**The exclusion set is matched against two different windows, and that split is load-bearing.**
+At the symbol level: the single `PERMISSION_ESCALATION_EXCLUSIONS` array is GONE, replaced by two
+exported arrays the matcher checks separately. No aggregate of the two is exported — an aggregate
+nothing matches against would describe neither window, which is the whole point of the split. The
+two halves:
+
+- `DESTRUCTIVE_EXCLUSIONS` stays scoped to the match SENTENCE. `/\bproduction\b/i` is a bare
+  word, and sentence-scoping is what stops an incidental mention nearby from masking a real
+  permission-ask about something else.
+- `PRINCIPAL_RESERVED_EXCLUSIONS` reads one sentence further back, via `sentenceWithLead`.
+  A reserved-category declaration is naturally written BEFORE the ask — "Both are
+  standing-default changes, so I'm not making them unilaterally. Want me to pick mt#3711 back
+  up?" — so the sentence-scoped check could not see the very thing making the ask correct.
+
+That list had also gone stale against its own source: `principal-context.mdc §Decisions Eugene
+reserves` gained "preferences that set a durable default" via ask#7587 on 2026-08-10, after the
+list was written. Fixing the staleness WITHOUT the window widening would have left the
+originating record firing — both halves were needed.
+
+**What was deliberately NOT tuned.** The "X unless you'd rather Y" offer shape belongs to
+mt#3801, which takes the opposite position on the same sentences in this same file; suppressing
+it here would pre-empt that decision. And three turn-end offers to begin the next unit of work
+are genuinely unratable — whether they are deferrals or the junction `/disambiguate-next`
+covers depends on whether sibling tasks were walkable, which the record cannot show. A
+suppression there would silence real positives.
+
+`scripts/replay-operator-deferral-calibration.ts` replays the log through the current matcher.
+Read its denominator: records with no `context` (pre-`captureSchema`) and records whose phrase
+was truncated out of the 240-char window are reported SEPARATELY from suppressions, because a
+record silent for those reasons is not one the tune removed.
+
+### The evaluation stream
+
+The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL SIX surfaces,
+fired or not — the miss RATE is what ADR-024's rung decisions need, and a fire-only log cannot
+give it.
+
+Records carry `evaluated: "prose-turn" | "ask-tool-call"`. **Group by that field rather than
+pooling**: the two are different denominators — per completed turn versus per `AskUserQuestion`
+call — so a pooled rate is not a rate of anything.
+
+**Surface E did NOT add a third value, and that is a judgment about what the field means**
+(mt#3999). `evaluated` names the GRAIN that was evaluated, and surface E's grain is the completed
+turn — it runs in the same `UserPromptSubmit` pass as A/C/D. Its population is narrower (turns
+that created an operator-routed ask), and a population is a filter on a denominator, not a
+different one. So a qualifying turn still produces exactly ONE record, which carries an
+`ask_justification: {operatorRoutedAsks, absenceClaimPresent, distinctChannels}` object. Recover
+surface E's population by filtering on `operatorRoutedAsks > 0`; `distinctChannels` is the
+suppressing conjunct, so it is what a miss-rate review reads.
+
+Graduation threshold for surface D specifically: a `/calibration-review` pass over >=10
+classified fires, per ADR-024's ladder.
+
 ## Graduation
 
 Calibration-first per the mt#2057 → mt#2216 → mt#2694 ladder: `INJECTION_ENABLED = false`
@@ -115,5 +268,48 @@ because it shipped — it works only when its fire-log proves it covered its spa
 - mt#1819, mt#1988 — the rule-tier fixes this escalates past
 - mt#1833 — the skill/rule tier that deferred the AskUserQuestion hook pending R5's evidence
 - mt#3154 — generalizes probe-before-deferring to the self-improvise (act) path; complementary surface
+- mt#3999 — surface E (ask-justification capability-absence); matcher in
+  `packages/domain/src/detectors/capability-absence-escalation.ts`
+- mt#3918 / `negative-existence-claim-detector.md` — the sibling absence-of-CALLERS detector,
+  whose `findToolCallsWithResults` join surface E reuses; the two corpora are pinned
+  mutually non-covering by test
+- mem#804 — the family's bridge memory, whose budget this slice spent
 - mem#582 (R5 incident, replayed as a test fixture) · mem#535 (R2/R4, owned by mt#2303)
 - mem#528 — why the tool-interleaved test fixture is mandatory for any turn-scanning hook
+
+## Surface F — act-path workaround (mt#4081)
+
+**Trigger:** a destructive command (`kill` / `pkill` / `killall`) in a turn that contains no
+capability search (`WebSearch`, `WebFetch`, or a `Skill` load). Both legs are tool-call state;
+**no prose is read**.
+
+### Why it is not a sixth phrase family
+
+Surfaces A–E all key on something the agent SAID. The act path says nothing — the agent concludes
+a capability is unavailable and quietly builds around it. On 2026-08-13 (mem#707 R8) surface E
+evaluated exactly such a turn and scored it `fired: false`:
+
+```
+evaluated: "prose-turn"   fired: false   surfaces: []
+ask_justification: { operatorRoutedAsks: 0, absenceClaimPresent: false, distinctChannels: 1 }
+```
+
+`distinctChannels: 1` was CORRECT — the turn probed one channel. The leg that failed was
+`absenceClaimPresent`: the turn's two absence claims ("a no-op, so that path is out"; "I don't
+know of a scripted path for it") matched no pattern in the corpus.
+
+Widening that corpus is the response ADR-024 §Context names as the anti-pattern ("R1 → R5 — an
+arms race"). So surface F keys on the two facts that need no matching at all: the destruction
+happened, and no search preceded it.
+
+### What it deliberately does not fire on
+
+An agent that searched and then destroyed made an informed choice — the absence of the search is
+what makes the shape reportable, not the destruction. A turn containing any capability-search tool
+call is silent.
+
+### Blocking sibling
+
+`block-bulk-process-kill` (PreToolUse, denies from day one) is the enforcement half; this surface
+is the measurement half, and exists so the family's miss rate on the act path stays observable the
+way surface E's was here. See `docs/architecture/hooks/block-bulk-process-kill.md`.

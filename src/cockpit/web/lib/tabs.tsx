@@ -58,7 +58,8 @@ export type EntityTabKind =
   | "ask"
   | "memory"
   | "changeset"
-  | "driven";
+  | "driven"
+  | "interceptor";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -309,6 +310,17 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
     return { kind: "task", entityId: id, path: pathname, label: id };
   }
 
+  // mt#4010 — an interceptor detail page. The id is a `guardName`, which is
+  // already a readable kebab-case label, so it is NOT shortened the way a uuid
+  // is; `shortenId` would turn "turn-end-bare-ref-scan" into a prefix that
+  // names nothing. The bare `/interceptors` catalog is a list route, not an
+  // entity route, so it deliberately does not match here.
+  const interceptor = pathname.match(/^\/interceptors\/([^/]+)$/);
+  if (interceptor?.[1]) {
+    const id = decodeURIComponent(interceptor[1]);
+    return { kind: "interceptor", entityId: id, path: pathname, label: id };
+  }
+
   return null;
 }
 
@@ -380,7 +392,8 @@ export function isAcceptedTabKind(kind: unknown): kind is EntityTabKind {
     // Omitting a kind here does NOT just skip one tab — this filter runs at
     // load, so an unlisted kind is dropped from the restored set: the tab works
     // for the session and silently disappears on the next reload.
-    kind === "driven"
+    kind === "driven" ||
+    kind === "interceptor"
   );
 }
 

@@ -122,6 +122,11 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { claimSetSignature, shouldInjectClaimSet } from "./code-mechanism-assertion-dedup-store";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  captureArtifact,
+} from "./judged-input-capture";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -169,7 +174,34 @@ export const PREDICATE_PATTERNS: RegExp[] = [
   /\b(overrides?|overwrites?|shadows?)\b/i,
   /\b(returns?|yields?|resolves?\s+to)\b/i,
   /\b(throws?|raises?|rejects?|aborts?)\b/i,
-  /\b(enforces?|validates?|guards?|requires?)\b/i,
+  /\b(enforces?|validates?|requires?)\b/i,
+  // `guard` is split out of the alternation above because it is the only member
+  // whose bare form is a common NOUN in this corpus — "the `tasks_create`
+  // guard", "a guard that denies", "guard-health", "the deny-tier sibling
+  // guard". Its siblings have distinct noun forms (enforcement, validation,
+  // requirement), so none of them collides this way. Matching `guards?` read
+  // "the X guard" as the mechanism claim "X guards", and that drove 6 of the 10
+  // injected fires in the 2026-08-09 calibration pass (mt#3876).
+  //
+  // Two changes, both verb-morphology requirements (SC1's third option):
+  //
+  //   1. The bare `guard` is gone. A behavioral claim about a single named
+  //      symbol takes the third-person singular — "`X` guards against Y" — so
+  //      bare `guard` in this corpus is a noun essentially without exception.
+  //      This alone kills all four observed noun forms.
+  //   2. `guards` survives only OUTSIDE noun position. The lookbehind rejects a
+  //      preceding determiner, possessive, quantifier or the adjectives this
+  //      corpus actually uses, which is what separates the plural noun ("the
+  //      two guards", "sibling guards") from the verb ("`X` guards against Y",
+  //      "the parallel-work hook guards the merge"). In the verb case the token
+  //      before `guards` is the SUBJECT, not a determiner — which is why a
+  //      lookbehind discriminates here and a following-context test does not.
+  //
+  // NOT widened to the other noun-ambiguous predicates above (`caps?`,
+  // `limits?`, `drops?`) — mt#3876 SC2 requires each non-`guard` fire to be
+  // re-examined on its own evidence first, and none of those appeared in the
+  // injected set. Recorded in that task rather than fixed on suspicion.
+  /(?<!\b(?:the|a|an|this|that|these|those|its|their|our|his|her|two|three|several|many|sibling|deny-tier|per-detector)\s)\bguards\b/i,
   /\b(ignores?|drops?|swallows?|discards?|skips?)\b/i,
   /\b(truncates?|trims?|strips?)\b/i,
   /\b(falls?\s+back|short[- ]circuits?|no-?ops?)\b/i,
@@ -1292,6 +1324,40 @@ export interface RunDeps {
  * signature (always computed, for the calibration record) so callers don't
  * need to recompute it.
  */
+/**
+ * The suppression labels for the two NON-CHAT claim surfaces.
+ *
+ * Extracted from `run()`/`main()` (mt#3876) so both label strings can be
+ * pinned by a test. `computeSuppressionReasons` below owns the other three
+ * (`same-turn-read`, `write-echo-backed`, `deduped`) and never saw these two,
+ * because it is not passed the per-surface results — so until this extraction
+ * nothing asserted either string anywhere, and a typo in one would have been
+ * caught by no test and noticed only as a gap in a calibration sweep.
+ *
+ * The labels matter more than they look. `isSuppressedRecord`
+ * (`calibration-sweep.ts`) is `suppressionReasons.length > 0`, and treats a
+ * record with NO reason as injected — "unknown is treated as operator-facing so
+ * a missing outcome can never hide a real fire." So an unlabeled surface-only
+ * record would inflate the injected count AND drive the review cadence, which
+ * keys off `injectedFiresSinceLastReview`.
+ *
+ * Only reached when the CHAT surface did not match: a chat match is a real
+ * injection, and the non-chat surfaces are log-only riders on it. Since mt#3642
+ * there are three surfaces, so each non-chat one labels itself rather than
+ * relying on `!matched` to imply which fired.
+ */
+export function surfaceOnlyReasons(
+  chatMatched: boolean,
+  commentMatched: boolean,
+  artifactMatched: boolean
+): string[] {
+  if (chatMatched) return [];
+  const reasons: string[] = [];
+  if (commentMatched) reasons.push("comment-surface-only");
+  if (artifactMatched) reasons.push("artifact-surface-only");
+  return reasons;
+}
+
 export function computeSuppressionReasons(
   result: CodeMechanismDetectionResult,
   relay: RelayDetectionResult,
@@ -1403,7 +1469,7 @@ export function run(
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }
@@ -1413,8 +1479,16 @@ export function run(
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
+  // can capture it — without it a record carries claims but nothing to re-run a
+  // changed detector against. ELIDED, never raw (PR #2926 R1): per
+  // `judged-input-capture.ts`, "the elision is what makes the wider window safe
+  // rather than a new exposure" — and it is also what the detector matches on,
+  // so it is the true replay input.
+  let judgedText = "";
   try {
     const assistantText = extractAssistantText(turnLines);
+    judgedText = elideBlocksAndQuotes(assistantText);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
@@ -1476,10 +1550,9 @@ export function run(
   // itself. Leaving the unconditional push would have mislabeled an
   // artifact-only record as comment-only; leaving no label at all is the worse
   // failure the paragraph above describes.
-  if (!result.matched) {
-    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
-    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
-  }
+  suppressionReasons.push(
+    ...surfaceOnlyReasons(result.matched, commentResult.matched, artifactResult.matched)
+  );
 
   const outcome: GuardOutcome = {
     calibration: {
@@ -1502,6 +1575,13 @@ export function run(
       // before anyone proposes wiring it.
       artifactSurfaceClaims: artifactResult.claims,
       artifactSurfaceClaimCount: artifactResult.claims.length,
+      // mt#3649: the judged input itself, so a CHANGED detector can be replayed
+      // over this record rather than its effect inferred. Bounded and hashed by
+      // the shared mt#3607 capture. `captureSchema` marks the record
+      // re-classifiable; its ABSENCE marks a pre-capture record as
+      // unrecoverable rather than as clean.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedInput: captureArtifact(judgedText),
     },
   };
 
@@ -1573,8 +1653,16 @@ export async function main(): Promise<void> {
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
+  // can capture it — without it a record carries claims but nothing to re-run a
+  // changed detector against. ELIDED, never raw (PR #2926 R1): per
+  // `judged-input-capture.ts`, "the elision is what makes the wider window safe
+  // rather than a new exposure" — and it is also what the detector matches on,
+  // so it is the true replay input.
+  let judgedText = "";
   try {
     const assistantText = extractAssistantText(turnLines);
+    judgedText = elideBlocksAndQuotes(assistantText);
     const corpus = buildVerificationCorpus(turnLines);
     result = detectCodeMechanismAssertion(assistantText, corpus, buildWriteEchoCorpus(turnLines));
     const relayCorpus = buildRelayCorpus(turnLines);
@@ -1619,10 +1707,9 @@ export async function main(): Promise<void> {
   // itself. Leaving the unconditional push would have mislabeled an
   // artifact-only record as comment-only; leaving no label at all is the worse
   // failure the paragraph above describes.
-  if (!result.matched) {
-    if (commentResult.matched) suppressionReasons.push("comment-surface-only");
-    if (artifactResult.matched) suppressionReasons.push("artifact-surface-only");
-  }
+  suppressionReasons.push(
+    ...surfaceOnlyReasons(result.matched, commentResult.matched, artifactResult.matched)
+  );
 
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
@@ -1641,6 +1728,13 @@ export async function main(): Promise<void> {
       // before anyone proposes wiring it.
       artifactSurfaceClaims: artifactResult.claims,
       artifactSurfaceClaimCount: artifactResult.claims.length,
+      // mt#3649: the judged input itself, so a CHANGED detector can be replayed
+      // over this record rather than its effect inferred. Bounded and hashed by
+      // the shared mt#3607 capture. `captureSchema` marks the record
+      // re-classifiable; its ABSENCE marks a pre-capture record as
+      // unrecoverable rather than as clean.
+      [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+      judgedInput: captureArtifact(judgedText),
     });
   }
 

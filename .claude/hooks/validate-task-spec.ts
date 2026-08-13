@@ -133,6 +133,9 @@ if (import.meta.main) {
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision: result.valid ? "allow" : "deny",
+      // mt#3920: `decided` — downstream of `validateSpecContent`, which is pure heading
+      // matching over the tool input with no probe that can fail.
+      guardOutcome: "decided",
       durationMs: Date.now() - startMs,
       toolName,
       sessionId,
@@ -146,6 +149,9 @@ if (import.meta.main) {
       guardName: GUARD_NAME,
       event: "PreToolUse",
       decision: "allow",
+      // mt#3920: `crashed` — a failed evaluation that fails open, which must never count
+      // as clean-run evidence for guard-health's recovery join.
+      guardOutcome: "crashed",
       durationMs: Date.now() - startMs,
       toolName,
       sessionId,

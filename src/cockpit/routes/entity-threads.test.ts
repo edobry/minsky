@@ -19,6 +19,8 @@ import {
   isPgRetryableConnectionError,
 } from "@minsky/domain/persistence/postgres-retry";
 import {
+  deriveAgentStopReason,
+  deriveAgentStopReasonWithPersisted,
   mountEntityThreadRoutes,
   parseEntityType,
   parseMessageBody,
@@ -177,6 +179,130 @@ describe("supportsOriginSeeding (mt#3367, PR #2493 R1 BLOCKING)", () => {
     const originCapable = ENTITY_THREAD_SUPPORTED_TYPES.filter(supportsOriginSeeding);
     expect(originCapable.length).toBeGreaterThan(0);
     expect(originCapable.length).toBeLessThan(ENTITY_THREAD_SUPPORTED_TYPES.length);
+  });
+});
+
+/**
+ * mt#4037 — the panel's claim about a stopped agent must come from state the
+ * restart could not erase (criterion 4).
+ *
+ * `reconnecting` is that state: boot reconciliation builds it FROM the persisted
+ * `driven_sessions` row, for a row still non-terminal when the daemon stopped
+ * writing. Every other status is either live, or a terminal verdict the actuator
+ * wrote about itself — neither of which is evidence the cockpit killed it.
+ */
+describe("deriveAgentStopReason (mt#4037)", () => {
+  const LOCAL_ID = "entity-thread:ask:a902cba7";
+
+  function registryWith(record: unknown) {
+    return { get: (id: string) => (id === LOCAL_ID ? record : undefined) } as never;
+  }
+
+  /** The shape boot reconciliation registers for a resumable persisted row. */
+  function bootRecord(status: string) {
+    return { localId: LOCAL_ID, status, proc: undefined, harnessSessionId: "1b355295" };
+  }
+
+  test("a boot-reconciled record reports the cockpit as the cause", () => {
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("reconnecting")))).toBe(
+      "cockpit-restart"
+    );
+  });
+
+  test("an unresumable record says so instead", () => {
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("unrecoverable")))).toBe(
+      "unrecoverable"
+    );
+  });
+
+  test("an agent that exited on its own is NOT reported as a restart kill", () => {
+    // The actuator wrote its own terminal status, so the cockpit did not kill
+    // it. Claiming otherwise would tell the operator to re-send at a thread
+    // whose agent decided it was finished.
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("exited")))).toBeUndefined();
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(bootRecord("crashed")))).toBeUndefined();
+  });
+
+  test("no record at all is UNKNOWN, not a restart", () => {
+    expect(deriveAgentStopReason(LOCAL_ID, registryWith(undefined))).toBeUndefined();
+  });
+});
+
+/**
+ * mt#4093 — the registry-only form above says nothing in the one case that
+ * matters most after a restart: an ABSENT record.
+ *
+ * Boot reconciliation loads only non-terminal rows and may not run at all, so
+ * "no record" is routine — and it renders identically to a thread that never
+ * had an agent. The persisted row settles it, and the row is the same evidence
+ * boot reconciliation would have built its record from.
+ */
+describe("deriveAgentStopReasonWithPersisted (mt#4093)", () => {
+  const LOCAL_ID = "entity-thread:ask:a902cba7";
+  const EMPTY_REGISTRY = { get: () => undefined } as never;
+  const db = {} as never;
+
+  test("an absent record falls back to the persisted row and reports the restart", async () => {
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () =>
+        ({ localId: LOCAL_ID, status: "spawned", harnessSessionId: "1b355295" }) as never,
+    });
+    // A row naming a conversation IS resumable — the next message resumes it,
+    // which is exactly what `cockpit-restart` already means to the panel.
+    expect(reason).toBe("cockpit-restart");
+  });
+
+  test("a persisted unrecoverable verdict is reported as such", async () => {
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () =>
+        ({ localId: LOCAL_ID, status: "unrecoverable", harnessSessionId: "1b355295" }) as never,
+    });
+    expect(reason).toBe("unrecoverable");
+  });
+
+  test("a row that never linked a conversation stays UNKNOWN", async () => {
+    // There is nothing to resume, so telling the operator "send anything to
+    // pick it back up" would be false.
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () =>
+        ({ localId: LOCAL_ID, status: "spawned", harnessSessionId: null }) as never,
+    });
+    expect(reason).toBeUndefined();
+  });
+
+  test("no row at all is still UNKNOWN", async () => {
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () => null,
+    });
+    expect(reason).toBeUndefined();
+  });
+
+  test("a registry record present is answered by the registry — the store is not consulted", async () => {
+    let consulted = 0;
+    const registry = {
+      get: (id: string) =>
+        id === LOCAL_ID
+          ? { localId: LOCAL_ID, status: "exited", proc: undefined, harnessSessionId: "1b355295" }
+          : undefined,
+    } as never;
+
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry,
+      getPersisted: async () => {
+        consulted += 1;
+        return { localId: LOCAL_ID, status: "spawned", harnessSessionId: "1b355295" } as never;
+      },
+    });
+
+    // An `exited` record is the actuator's own verdict about itself. Re-deriving
+    // from the row could only disagree with it — and would turn "the agent
+    // finished" into "send anything to pick it back up".
+    expect(reason).toBeUndefined();
+    expect(consulted).toBe(0);
   });
 });
 

@@ -353,6 +353,9 @@ Gate criterion (h).
 - Renaming or retiring a skill, command, or CLI subcommand
 - Renaming or retiring an env-var or config key
 - Changing a schema field name, type, or required-status
+- Making a command/tool parameter REQUIRED, or adding a new required one (mt#3969). This fires
+  even when no function signature changed and nothing was renamed — a command's params map is
+  the contract, and tightening it breaks callers that were previously valid
 
 If none of these apply, this criterion passes automatically. State that explicitly:
 "(h) No contract modification — criterion passes."
@@ -366,6 +369,24 @@ If none of these apply, this criterion passes automatically. State that explicit
 | Skill text / command name | All skill files under `.claude/skills/` and `.claude/agents/`, all `CLAUDE.md` sections that reference the skill/command by name |
 | Env-var rename            | All reads in `src/`, `services/`, `scripts/`, `.github/` **and** deployed-environment artifacts (see below)                      |
 | Config key / schema field | All reads in `src/`, `tests/`, `services/`, `.github/`, `docs/` **and** deployed-environment artifacts (see below)               |
+| Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the `*.test.ts` beside the command), skill, rule and `docs/` text that shows a call, and the generated CLI/MCP surface (`src/generated/completion-manifest.json`) |
+
+**Callers of a COMMAND are a different population from callers of the FUNCTION behind it
+(mt#3969).** The row above exists because the two rows above it cannot find them:
+
+- A grep for the function name finds nothing. A caller invokes the command through the shared
+  registry and never mentions the function the command happens to call.
+- A grep for READS of the parameter finds nothing either. A caller breaks by **omitting** the
+  now-required parameter, so its name does not appear at the call site — the defect is an
+  absence, and absence is what a read-grep cannot see.
+
+Enumerate by INVOCATION: who calls this command? Originating incident — mt#3906 / PR #2849
+(2026-08-11) made `reviewToken` required on `observability.calibration-review`. The planning pass
+grepped `advanceWatermarks` (one non-test call site), correctly established that the cadence hook
+only READS watermarks, and recorded the enumeration as complete. Seven cases in
+`src/adapters/shared/commands/calibration.test.ts` called the command with `{ ack: true }` and
+never mentioned either name; all seven failed at the first commit, caught by the pre-commit
+related-test gate rather than by this gate.
 
 **Deployed-environment artifacts (required callout for env-var and config-key changes).**
 Source-code consumers are not the only consumers. When an env-var or config key changes, the
@@ -1033,6 +1054,8 @@ conversations, all of them this skill's gate reports).
    - Scope changes to in-flight work
    - Vendor commitments
    - Framework choices when stakes are principal-level
+   - Preferences that set a durable default (the default model, a standing tool or format
+     choice). A one-off preference call is the agent's — make it and say what you picked.
 
    That list is restated here because the halt happens here, but it is a COPY. The canonical
    source is `principal-context.mdc §Decisions Eugene reserves` — edit there first; if the two

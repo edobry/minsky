@@ -23,6 +23,11 @@
  * @see mt#2216 — causal-premise calibration log origin
  */
 
+// The one import this module carries: hashing the review receipt (mt#3906) is
+// pure computation, not I/O, so it does not break the module's testability
+// contract above.
+import { createHash } from "node:crypto";
+
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
@@ -100,6 +105,79 @@ export interface CalibrationLogEntry {
    *   matched-phrase record: diversity is measured over distinct target task
    *   ids — the signal is "how many different decision-owning tasks got
    *   silently stopped at," mirroring knowledge-acquisition's non-phrase axis.
+   *
+   * mt#3716 — ten kinds added for logs that were declared (on one of the three
+   * declaration surfaces — see `deriveCalibrationLogEntries` below) but never
+   * visited by `runSweep`, because nothing outside this file's hand-maintained
+   * `CALIBRATION_LOG_REGISTRY` could add an entry for them. Each parses via the
+   * shared "matches"-shape fallback branch below (no dedicated `kind === ...`
+   * case) — the fallback never returns `null`, so every line still produces a
+   * record even where the raw shape carries no `family`/`phrase` keys; in that
+   * case the record's real fields ride through as `detectorFields` instead of
+   * populating `matches[].phrase`, which means the diversity signal
+   * (`extractDistinctPhrases`) reads as low/flat for these logs until a
+   * dedicated branch or a diversity-signal declaration (mt#3789, the sibling
+   * ADR-028 §D4 half) gives them a real axis. That is a review-QUALITY gap,
+   * not a reachability gap — SC4's bar ("no log silently parsing to zero
+   * records") is met by the fallback alone.
+   *   "bare-prohibition"              → matches: {category, phrase, excerpt, hasBasis}[]
+   *     (mem#702 / mt#3162 `warn-bare-prohibition-dispatch.ts`) — already
+   *     matches-shaped (`category` is the recognized label key), so this one
+   *     gets a real diversity signal from the fallback with no changes needed.
+   *   "execution-evidence-at-coverage" → {timestamp, task, prNumber, surface,
+   *     captureSchema, judgedPrBody, ...} (mt#3033 `require-execution-evidence-before-merge.ts`'s
+   *     `appendAtCoverageCalibration`) — a "judged input capture" shape, no
+   *     `matches` array at all; falls through with `matches: []`.
+   *   "execution-evidence-test-first" → {timestamp, task, prNumber, decision,
+   *     captureSchema, prTitle, judgedPrBody, judgedSpec, modifiedTestFiles, ...}
+   *     (mt#3244 `test-first-evidence.ts`) — same capture-shape family as
+   *     execution-evidence-at-coverage; no `matches` array.
+   *   "ask-form-lint"                 → {timestamp, askId?, kind, matches:
+   *     {class, phrase}[], acknowledged?} (mt#2798
+   *     `ask-form-lint-calibration.ts`) — already matches-shaped (`class` is a
+   *     recognized label key); SC2 resolution — see `NON_GUARD_CALIBRATION_PRODUCERS`
+   *     in `scripts/lib/calibration-log-declarations.ts`.
+   *   "unwalked-task"                 → {source, channel, timestamp, session_id,
+   *     stop_hook_active, unwalkedTaskIds: string[], ...} (mt#3536
+   *     `turn-end-unwalked-task-scan.ts`) — no `matches` array.
+   *   "unescalated-incident"          → {source, channel, timestamp, session_id,
+   *     stop_hook_active, incidentFamilies: string[]} (mt#3593
+   *     `turn-end-unescalated-incident-scan.ts`) — no `matches` array.
+   *   "operator-instruction-trigger"  → written by `substrate-bypass-detector.ts`
+   *     — no `matches` array.
+   *   "agent-dispatch-record"         → {ts/timestamp, sessionId, outcome,
+   *     reason?} (mt#2292 `record-agent-dispatch.ts`, via the ADR-028 §D4
+   *     dispatcher's `logCalibrationRecord`) — an outcome-status record, no
+   *     `matches` array.
+   *   "chained-verification-commands" → {timestamp, session_id, outcome}
+   *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
+   *     path) — an outcome-status record, no `matches` array.
+   *   "truncated-outcome-read"        → {timestamp, session_id, outcome,
+   *     mutatingCommand?, filter?} (mt#4096
+   *     `truncated-outcome-read-detector.ts`, same D4 write path) — an
+   *     outcome-status record, no `matches` array. The two extra fields carry
+   *     the violation SHAPE (which command, which truncator), which is the
+   *     sweep's diversity axis for this kind.
+   *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
+   *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
+   *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
+   *     array, but its per-match keys (`taskId`/`token`/`rule`/`excerpt`) are
+   *     none of the recognized `family|class|category`/`phrase` labels, so
+   *     every match's real content rides through as `detectorFields` rather
+   *     than `phrase`.
+   *
+   * "generic-matches" (PR #2822 review) — the SAFE catch-all `deriveCalibrationLogEntries`
+   *   assigns a runtime-derived declared name that is not already one of the
+   *   literal members above. It exists so that cast is never `as` past a
+   *   membership check: casting an unrecognized string directly to this union
+   *   would silently admit it as though it had been consciously classified,
+   *   defeating the exhaustiveness `KNOWN_KIND_MEMBERSHIP` (below) and
+   *   `KIND_FIXTURES` (in the test file) rely on. A future detector's log
+   *   therefore parses safely (shared fallback, same as every other
+   *   unclassified-shape kind above) the moment it declares `calibrationLog`
+   *   — giving it its OWN kind (and a `KIND_FIXTURES` entry) remains a
+   *   deliberate follow-up for real diversity signal, not a blocker to being
+   *   swept at all.
    */
   kind:
     | "causal-premise"
@@ -116,7 +194,21 @@ export interface CalibrationLogEntry {
     | "operator-deferral"
     | "untaken-action"
     | "retrospective-completeness"
-    | "stop-at-decision";
+    | "stop-at-decision"
+    | "bare-entity-ref"
+    | "bare-prohibition"
+    | "execution-evidence-at-coverage"
+    | "execution-evidence-test-first"
+    | "ask-form-lint"
+    | "unwalked-task"
+    | "unescalated-incident"
+    | "operator-instruction-trigger"
+    | "agent-dispatch-record"
+    | "chained-verification-commands"
+    | "truncated-outcome-read"
+    | "block-concurrent-bulk-mutation"
+    | "duplicate-signature-scan"
+    | "generic-matches";
   /**
    * Optional per-entry override (mt#2896) for the never-reviewed-aging review
    * trigger: the number of days a NEVER-reviewed log may accumulate fires
@@ -316,7 +408,49 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // `findInvalidLiveSinceDates` (above) only catches unparseable/future
     // dates, not a stale-but-still-past one, so the citation convention is
     // the enforcement for that residual case.
-    liveSinceDate: "2026-07-23",
+    //
+    // mt#3755 (2026-08-08): re-anchored again, and the DISPOSITION is KEEP —
+    // the silence is measured DORMANCY, not breakage and not deterrence.
+    //
+    // The anchor is the LIVENESS PROOF date, per this field's own contract
+    // above ("the date the detector's full invocation path ... was PROVEN
+    // alive"). Proof: `bun scripts/run-guard-canaries.ts --json` on 2026-08-08
+    // returned `build-claim-injection-detector` `passed: true` with a real
+    // calibration outcome (timestamp 2026-08-08T23:53:07.794Z, matchedPhrases
+    // ["you can use it"]); suite 42 passed / 0 failed. mt#3755's Success
+    // Criterion 1 named the earlier 2026-08-05 canary run as the anchor; a
+    // FRESHER proof of the same property supersedes it, and dating the clock
+    // from a stale proof would understate the contract's runway. Amendment
+    // recorded in mt#3755 `## Criterion 1 amendment`.
+    //
+    // Dormancy evidence: `bun scripts/replay-build-claim-injection.ts --json`
+    // replayed the detector over all 805 transcripts since 2026-07-23
+    // (3,048 evaluation points) and it would have fired ZERO times. The corpus
+    // grows, so absolute counts drift on a re-run; the funnel SHAPE and the
+    // zero-fire result are the finding. It localizes why, and it is condition
+    // (a), not the claim patterns:
+    //
+    //     620 sessions  no in-session `*session_pr_merge` tool_use at all
+    //     176 sessions  merged, but no deploy-surface file edited in-transcript
+    //       8 sessions  merge + surface edit, but no usability claim
+    //       1 session   all three met -> correctly SUPPRESSED by real rebuild
+    //                   evidence (a true negative, not a miss)
+    //
+    // So the detector is not failing to recognize claims; its condition-(a)
+    // PROXY — "a deploy-surface file was edited via a file-edit tool in THIS
+    // transcript" — is near-unsatisfiable in Minsky's actual workflow, because
+    // `DEPLOY_SURFACE_PATTERNS` matches only deploy CONFIG files (infra/,
+    // Dockerfiles, railway.json, deploy workflows) and merges frequently
+    // happen in a main-agent conversation whose file edits live in a
+    // subagent's transcript. That defect is tracked at mt#3819 rather than
+    // fixed here.
+    //
+    // Kept rather than retired because the cost is ~zero — INJECTION_ENABLED
+    // is false, so it logs nothing and injects nothing — while retiring would
+    // re-open the mt#2707 RFC's "merged != usable" chat seam, which no other
+    // mechanism covers at the CHAT surface (the sibling mt#2545 gate covers
+    // the PR-BODY surface only).
+    liveSinceDate: "2026-08-08",
   },
   {
     path: ".minsky/knowledge-acquisition-calibration.jsonl",
@@ -358,6 +492,28 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     // fallback branch with no dedicated parser case. It still gets its OWN kind:
     // the registry invariant (PR #2263 R1) requires unique kinds per entry.
     kind: "untaken-action",
+  },
+  {
+    path: ".minsky/bare-entity-ref-calibration.jsonl",
+    name: "bare-entity-ref",
+    // mt#3286 — turn-end-bare-ref-scan (family:linked-reference-actionability,
+    // mem#623 R1-R6): a turn's CLOSING message referencing an entity the
+    // operator cannot click, plus two deterministically-malformed link shapes
+    // (a non-UUID ask/memory/session target, R4; a raw-UUID-fragment label,
+    // R5).
+    //
+    // Emits `matches: {family, phrase}[]` — family is the defect class, phrase
+    // the offending ref — so it parses through the shared fallback branch with
+    // no dedicated parser case, and diversity is measured over distinct refs.
+    // It still takes its OWN kind: the registry invariant (PR #2263 R1)
+    // requires unique kinds per entry.
+    //
+    // The record ALSO carries `logged_only`, the bare ask#N / mem#N / ws#N
+    // population the v0 Success Criteria deliberately do not flag. Reviewing
+    // this log means comparing the two populations, not just rating `matches`:
+    // R6's whole argument is that the log-only carve-out is where the real
+    // failures sit.
+    kind: "bare-entity-ref",
   },
   {
     path: ".minsky/retrospective-completeness-calibration.jsonl",
@@ -585,6 +741,18 @@ export interface SilentStretchRecord {
   gapMinutes: number;
   toolCallCount: number;
   hadTextInTurn?: boolean;
+  /**
+   * Minutes from the measured turn's END to the moment the guard fired
+   * (mt#4018). Distinct from `gapMinutes`, which measures silence INSIDE the
+   * turn — this measures how long ago that turn finished, which for a
+   * `UserPromptSubmit` guard is the operator's away-time.
+   *
+   * Optional because every record written before mt#4018 lacks it. Absent is
+   * NOT zero: a zero means "fired the instant the turn ended", so a reader
+   * computing a staleness distribution must exclude absent rather than
+   * average them in.
+   */
+  stalenessMinutes?: number;
 }
 
 /**
@@ -676,6 +844,20 @@ export interface StopAtDecisionRecord {
  */
 export interface SharedCalibrationFields {
   /**
+   * Timestamp of an EARLIER record this one revises (mt#3740).
+   *
+   * A detector that fires on `Stop` sees a growing transcript, so its first
+   * verdict can be formed on a partial session and later become stale rather
+   * than wrong. Such a detector writes a fresh record naming the one it
+   * replaces instead of leaving the stale answer standing. Superseded records
+   * stay in the log — the revision history is the point — but they are not
+   * counted as their own review-worthy fire, so a revised session contributes
+   * ONE outcome, not two.
+   *
+   * Producers: `knowledge-acquisition` (mt#3740). Absent everywhere else.
+   */
+  supersedes?: string;
+  /**
    * Injection-layer suppression outcome — the convention
    * `code-mechanism-assertion` introduced in mt#3113, generalized here.
    *
@@ -690,7 +872,7 @@ export interface SharedCalibrationFields {
    * | detector | reasons |
    * | --- | --- |
    * | `code-mechanism-assertion` | `same-turn-read`, `deduped`, ... |
-   * | `wall-of-text` | `depth-request-override` |
+   * | `wall-of-text` | `depth-request-override`, `question-answer-override` |
    * | `untaken-action` | (none — see below) |
    * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
    * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
@@ -768,15 +950,29 @@ export interface CalibrationLogResult {
    */
   suppressedSinceLastReview: number;
   /**
-   * `firesSinceLastReview` minus the suppressed ones — the count the review
-   * thresholds actually key off, because a suppressed detection is not an
-   * operator-facing fire (mt#3197).
+   * `firesSinceLastReview` minus the suppressed ones and the evaluation-only
+   * ones — the count the review thresholds actually key off, because neither
+   * a suppressed detection nor a no-match evaluation record is an
+   * operator-facing fire (mt#3197; evaluation-only widened in mt#3863).
    *
    * Records from detectors that don't record a suppression outcome, and
    * records predating the field, count as injected here: unknown is treated
    * as operator-facing so a missing outcome can never hide a real fire.
    */
   injectedFiresSinceLastReview: number;
+  /**
+   * Of `firesSinceLastReview`, how many carry no match and were never
+   * injected (mt#3863) — see `isEvaluationOnlyRecord`.
+   *
+   * A detector that writes a record on every turn regardless of outcome
+   * (retrospective-trigger's Rung-2 nominations; bare-entity-ref's
+   * record-only classes) produces mostly this population. Reported
+   * separately from `suppressedSinceLastReview` — a suppressed record DID
+   * match something and was withheld after the fact; an evaluation-only
+   * record never matched at all — so a reviewer can tell "detected then
+   * silenced" apart from "nothing was there."
+   */
+  evaluatedOnlySinceLastReview: number;
   /** Number of distinct matched phrases across all fires-since-last-review records. */
   distinctPhrases: number;
   /** True when fires-since-last-review >= FIRES_THRESHOLD (count bar, diversity-agnostic). */
@@ -862,6 +1058,43 @@ export function hasSuppressionOutcome(record: CalibrationRecord): boolean {
 }
 
 /**
+ * True when a record carries no match and nothing was injected (mt#3863).
+ *
+ * Some detectors write an EVALUATION record on every turn they run,
+ * regardless of outcome — retrospective-trigger's Rung-2 nomination path logs
+ * a record even when the nomination timed out or was never confirmed
+ * (`matches: []`), and bare-entity-ref logs a record for a message carrying
+ * ONLY log-only findings (`matches: []`, with the observations sitting in
+ * `logged_only` under `detectorFields` instead). Neither reached the
+ * operator. Counting them as fires is what kept these logs permanently
+ * `pastThreshold` — measured at 193 counted vs 8 actual for
+ * retrospective-trigger's 2026-08-08 review window, and 50 counted vs 3
+ * actual for bare-entity-ref's 2026-08-11 window (mt#3863).
+ *
+ * The discriminator is already in every record that can exhibit this shape:
+ * `matches` is populated ONLY when the detector actually found something —
+ * verified against every producer that parses through the shared
+ * matches-shape fallback branch in `parseCalibrationRecordCore` (the tail
+ * branch below), each of which appends its record whether or not `matches`
+ * ends up empty. `flagged_count` / `advisory_emitted`, the bare-entity-ref
+ * fields the mt#3863 spec also names, are redundant with this check rather
+ * than a second discriminator to apply: `matches` on that detector IS
+ * `flagged.map(...)`, so `matches.length === 0` and `flagged_count === 0`
+ * agree by construction.
+ *
+ * Deliberately scoped to record kinds that HAVE a `matches` field
+ * (`"matches" in record`). Detectors like `causal-premise` and
+ * `code-mechanism-assertion` gate the calibration WRITE itself on a match
+ * (`if (!result.matched) return null`), so `matchedPhrases` / `claims` are
+ * never empty in their logs — there is no evaluation-only population to
+ * exclude for those kinds, and this predicate returns `false` for them
+ * unconditionally rather than guessing at a shape they don't have.
+ */
+export function isEvaluationOnlyRecord(record: CalibrationRecord): boolean {
+  return "matches" in record && record.matches.length === 0;
+}
+
+/**
  * Match keys the shared fallback branch consumes structurally (mt#3289).
  *
  * `family`/`class`/`category` are the three per-detector label keys the branch
@@ -940,8 +1173,12 @@ export function parseCalibrationRecord(
   if (record === null) return null;
   const suppressionReasons = parseSuppressionReasons(raw);
   const detectorFields = parseDetectorFields(raw, record);
+  // mt#3740: a non-string `supersedes` is dropped rather than coerced — a
+  // malformed marker must not silently suppress a real record from the counts.
+  const supersedes = typeof raw["supersedes"] === "string" ? raw["supersedes"] : undefined;
   return {
     ...record,
+    ...(supersedes === undefined ? {} : { supersedes }),
     ...(suppressionReasons === undefined ? {} : { suppressionReasons }),
     ...(detectorFields === undefined ? {} : { detectorFields }),
   };
@@ -1036,6 +1273,11 @@ function parseCalibrationRecordCore(
         toolCallCount: raw["toolCallCount"],
         hadTextInTurn:
           raw["hadTextInTurn"] !== undefined ? Boolean(raw["hadTextInTurn"]) : undefined,
+        // mt#4018. Only a NUMBER is accepted: a malformed value must read as
+        // absent, not coerce to a plausible-looking figure that would then be
+        // averaged into a staleness distribution as though it were measured.
+        stalenessMinutes:
+          typeof raw["stalenessMinutes"] === "number" ? raw["stalenessMinutes"] : undefined,
       } satisfies SilentStretchRecord;
     }
 
@@ -1234,6 +1476,24 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       for (const skill of rec.loadedSkills) {
         phrases.add(skill);
       }
+    } else if (
+      rec.detectorFields &&
+      typeof rec.detectorFields["mutatingCommand"] === "string" &&
+      typeof rec.detectorFields["filter"] === "string"
+    ) {
+      // truncated-outcome-read (mt#4096): diversity axis = the violation SHAPE
+      // (which outcome-bearing command, which truncator), read out of the
+      // mt#3289 `detectorFields` passthrough rather than a dedicated parse
+      // branch — the record is matches-shaped and carries no `matches`, so
+      // without this clause it would fall to the `else` below, add nothing, and
+      // sit at zero diversity forever no matter how varied the real fires were.
+      // That is the mt#3781 inert-sweep defect, which this detector's own
+      // record-shape comment cites; PR #2960 R1 caught it reproduced here.
+      //
+      // The raw command is deliberately NOT the axis: it is near-unique, which
+      // would satisfy the distinct-phrase gate by construction — the same defect
+      // from the opposite direction.
+      phrases.add(`${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
@@ -1278,7 +1538,42 @@ export function computeLogResult(
   // arithmetic must stay aligned with it; the threshold keys off the injected
   // count instead.
   const suppressedSinceLastReview = newRecords.filter(isSuppressedRecord).length;
-  const injectedFiresSinceLastReview = firesSinceLastReview - suppressedSinceLastReview;
+
+  // mt#3740: a record another record SUPERSEDES is a revised answer, not a
+  // second fire. Counting both would make one session look like two — the
+  // double-count its criterion 3 forbids.
+  //
+  // Derived by FILTERING rather than by subtracting a second count, because a
+  // record can be both suppressed and superseded (a propagated verdict carries
+  // a suppression reason, and a later re-research supersedes it); two
+  // independent subtractions would remove it twice and under-report the
+  // injected count.
+  // Scoped to (session_id, timestamp), NOT to the timestamp alone (PR #2873 R1).
+  // A timestamp is only unique WITHIN a session — two detectors' records, or two
+  // sessions writing in the same millisecond, can collide — and supersession is
+  // by definition a within-session relation. Keying on the bare timestamp would
+  // let one session's revision silently delete an unrelated session's fire from
+  // the counts.
+  //
+  // A marker on a record with no `session_id` scopes to nothing, so it drops
+  // nothing: same fail-safe direction as a dangling marker.
+  const supersededKeys = new Set(
+    newRecords
+      .filter((r) => typeof r.supersedes === "string" && r.session_id !== undefined)
+      .map((r) => `${r.session_id}::${r.supersedes}`)
+  );
+  const isRevisedAway = (r: CalibrationRecord): boolean =>
+    r.session_id !== undefined && supersededKeys.has(`${r.session_id}::${r.timestamp}`);
+
+  // mt#3863: a record carrying no match and no injection never reached the
+  // operator either — same non-fire status as a suppressed detection, just a
+  // different mechanism (nothing was detected at all, rather than something
+  // detected-then-withheld). Reported as its own figure below
+  // (`evaluatedOnlySinceLastReview`) so a reviewer can tell the two apart.
+  const evaluatedOnlySinceLastReview = newRecords.filter(isEvaluationOnlyRecord).length;
+  const injectedFiresSinceLastReview = newRecords.filter(
+    (r) => !isSuppressedRecord(r) && !isRevisedAway(r) && !isEvaluationOnlyRecord(r)
+  ).length;
 
   // The review threshold is DIVERSITY-AWARE (spec Success Criterion #3): a log is
   // only "past threshold" — i.e. worth surfacing for review — when it has enough
@@ -1298,6 +1593,7 @@ export function computeLogResult(
     firesSinceLastReview,
     suppressedSinceLastReview,
     injectedFiresSinceLastReview,
+    evaluatedOnlySinceLastReview,
     distinctPhrases,
     atCountThreshold,
     lowDiversity,
@@ -1330,10 +1626,27 @@ export function computeLogResult(
  * a fire; they are not evidence for judging one, so they never make a log
  * classifiable on their own.
  */
+/**
+ * mt#3607's capture-schema marker key, named once and used twice.
+ *
+ * It is excluded from evidence (below) AND read as the recoverability signal
+ * (`hasCaptureMarker`). Those are opposite uses of the same key, which is
+ * exactly the pair a duplicated string literal would eventually split apart.
+ * Source of truth for the value is `CAPTURE_SCHEMA_FIELD` in
+ * `.minsky/hooks/judged-input-capture.ts`; it is restated rather than imported
+ * because domain code does not depend on the hooks tree.
+ */
+const CAPTURE_SCHEMA_KEY = "captureSchema";
+
 const NON_EVIDENCE_KEYS: ReadonlySet<string> = new Set([
   "timestamp",
   "session_id",
   "suppressionReasons",
+  // mt#3607's capture-schema marker. It says the record's judged input WAS
+  // captured; it is not itself something to judge a fire by. Listing it here
+  // keeps a hypothetical record carrying the marker and nothing else from
+  // reporting `classifiable` on the strength of its own bookkeeping.
+  CAPTURE_SCHEMA_KEY,
 ]);
 
 /**
@@ -1365,6 +1678,32 @@ function isVacuousEvidence(value: unknown): boolean {
 /** Whether a log's records carry anything a reviewer could classify a fire from. */
 export type ClassifiabilityVerdict = "classifiable" | "not-classifiable" | "no-records";
 
+/**
+ * Whether the TEXT a detector judged can still be read back (mt#3898).
+ *
+ * A sibling of {@link ClassifiabilityVerdict}, deliberately not folded into it:
+ * they answer different questions and a log can score well on one and badly on
+ * the other. `classifiable` means "these records carry SOMETHING to judge a
+ * fire by" — `matches[].phrase` alone satisfies it. This asks the narrower
+ * question a reviewer actually needs: "can I re-read what the detector was
+ * looking at?"
+ *
+ * The gap between them is not hypothetical. A `/calibration-review` pass on
+ * `bare-entity-ref` (2026-08-10, mem#623 R7) read `classifiable`, correctly,
+ * and could establish WHICH refs were flagged — while the messages those refs
+ * appeared in were gone, so the one question that mattered (was each ref
+ * genuinely un-clickable in context?) could not be answered at all. The pass
+ * had no way to learn that from the sweep's output.
+ */
+export type JudgedTextRecoverability = "recoverable" | "partial" | "unrecoverable" | "no-records";
+
+export interface JudgedTextAssessment {
+  recoverability: JudgedTextRecoverability;
+  /** Records carrying the mt#3607 capture marker. */
+  capturedRecords: number;
+  recordsAssessed: number;
+}
+
 export interface ClassifiabilityAssessment {
   verdict: ClassifiabilityVerdict;
   /**
@@ -1375,6 +1714,11 @@ export interface ClassifiabilityAssessment {
   evidenceFields: string[];
   /** How many records the verdict was computed over. */
   recordsAssessed: number;
+  /**
+   * Whether the judged text is recoverable — see {@link JudgedTextRecoverability}
+   * for why this is reported beside `verdict` rather than merged into it.
+   */
+  judgedText: JudgedTextAssessment;
 }
 
 /**
@@ -1415,9 +1759,63 @@ export interface ClassifiabilityAssessment {
  * them into one boolean is the conflation `coverage-receipt.ts` (mt#3502) was
  * split apart to end, so this does not repeat it.
  */
+/**
+ * The mt#3607 capture marker.
+ *
+ * Read from the PASSTHROUGH only, and that is provably the whole story rather
+ * than an omission: no per-kind parse branch names `captureSchema`, so
+ * `parseDetectorFields` routes it into `detectorFields` for every log kind —
+ * the same mechanism `NON_EVIDENCE_KEYS` documents one screen up ("a key like
+ * `captureSchema` reaches this loop rather than the one above — for every log
+ * at once", PR #2679 R1).
+ *
+ * An earlier draft also read the top level, on the theory that the
+ * execution-evidence parsers hoist it. A staged negative control disproved
+ * that: disabling the top-level read left every test green, including one
+ * written specifically to exercise it. The branch was dead code carrying a
+ * false rationale, so it is gone. If a future per-kind branch ever does name
+ * the marker, this needs a top-level read AND a test that fails without it.
+ *
+ * Marker-only, deliberately. A writer that captures under its own key —
+ * `wall-of-text`'s `textHash`, `retrospective-trigger`'s `transcript_excerpt` —
+ * reads as unrecoverable here, and that is the intended answer rather than a
+ * false negative: `judged-input-capture.ts` defines the marker as the contract
+ * (`hasJudgedInputCapture` is the same one-line predicate), and its own doc
+ * tells readers to treat its absence as "un-auditable". Matching a bespoke-key
+ * allowlist here would be a second list to drift, and would remove the only
+ * incentive to adopt the shared path.
+ */
+function hasCaptureMarker(record: CalibrationRecord): boolean {
+  const passthrough = (record as SharedCalibrationFields).detectorFields;
+  return typeof passthrough?.[CAPTURE_SCHEMA_KEY] === "number";
+}
+
+function assessJudgedText(records: CalibrationRecord[]): JudgedTextAssessment {
+  if (records.length === 0) {
+    return { recoverability: "no-records", capturedRecords: 0, recordsAssessed: 0 };
+  }
+  const capturedRecords = records.filter(hasCaptureMarker).length;
+  // `partial` is its own answer, not a rounding of the other two. Adoption
+  // lands mid-log — `pre-narration` sat at 133 captured of 375 the day this
+  // shipped — and a reviewer facing a partial log can rate the captured half
+  // while knowing the rest is gone. Collapsing it either way would hide that.
+  const recoverability: JudgedTextRecoverability =
+    capturedRecords === 0
+      ? "unrecoverable"
+      : capturedRecords === records.length
+        ? "recoverable"
+        : "partial";
+  return { recoverability, capturedRecords, recordsAssessed: records.length };
+}
+
 export function assessClassifiability(records: CalibrationRecord[]): ClassifiabilityAssessment {
   if (records.length === 0) {
-    return { verdict: "no-records", evidenceFields: [], recordsAssessed: 0 };
+    return {
+      verdict: "no-records",
+      evidenceFields: [],
+      recordsAssessed: 0,
+      judgedText: assessJudgedText(records),
+    };
   }
 
   const fields = new Set<string>();
@@ -1433,6 +1831,14 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     const passthrough = (record as SharedCalibrationFields).detectorFields;
     if (passthrough) {
       for (const [key, value] of Object.entries(passthrough)) {
+        // NON_EVIDENCE_KEYS applies on BOTH levels (PR #2679 R1). The top-level
+        // check alone is not enough, and for a NEW bookkeeping key it is not
+        // even the path that runs: `parseDetectorFields` treats every key no
+        // per-kind branch named as passthrough, so a key like `captureSchema`
+        // reaches this loop rather than the one above — for every log at once.
+        // Excluding it in only one place would have left the marker counted as
+        // evidence everywhere it actually appears.
+        if (NON_EVIDENCE_KEYS.has(key)) continue;
         if (isVacuousEvidence(value)) continue;
         fields.add(`detectorFields.${key}`);
       }
@@ -1443,13 +1849,152 @@ export function assessClassifiability(records: CalibrationRecord[]): Classifiabi
     verdict: fields.size > 0 ? "classifiable" : "not-classifiable",
     evidenceFields: [...fields].sort(),
     recordsAssessed: records.length,
+    judgedText: assessJudgedText(records),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Registry derivation (mt#3716 — ADR-028 §D4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Exhaustive runtime membership check for `CalibrationLogEntry["kind"]` (PR #2822
+ * review). `Record<CalibrationLogEntry["kind"], true>` forces this object literal
+ * to have EXACTLY one property per union member — the same idiom the test
+ * file's `KIND_FIXTURES` already uses for the same purpose — so adding a kind
+ * to the union without adding it here fails to compile, and this object can
+ * never silently fall out of sync with the type it mirrors.
+ *
+ * `deriveCalibrationLogEntries` uses this to validate a runtime-derived
+ * declared name BEFORE casting it to `kind`: an unchecked `as` would silently
+ * admit any string as though it had been consciously classified, defeating
+ * the exhaustiveness this object (and `KIND_FIXTURES`) exist to guarantee.
+ */
+const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
+  "causal-premise": true,
+  "retrospective-trigger": true,
+  "ask-routing-deferral": true,
+  "code-mechanism-assertion": true,
+  "pre-narration": true,
+  "policy-coverage": true,
+  "silent-stretch": true,
+  "wall-of-text": true,
+  "build-claim-injection": true,
+  "knowledge-acquisition": true,
+  "constructed-identifier-batch": true,
+  "operator-deferral": true,
+  "untaken-action": true,
+  "retrospective-completeness": true,
+  "stop-at-decision": true,
+  "bare-entity-ref": true,
+  "bare-prohibition": true,
+  "execution-evidence-at-coverage": true,
+  "execution-evidence-test-first": true,
+  "ask-form-lint": true,
+  "unwalked-task": true,
+  "unescalated-incident": true,
+  "operator-instruction-trigger": true,
+  "agent-dispatch-record": true,
+  "chained-verification-commands": true,
+  "truncated-outcome-read": true,
+  "block-concurrent-bulk-mutation": true,
+  "duplicate-signature-scan": true,
+  "generic-matches": true,
+};
+
+/** The safe catch-all kind — see its doc comment on `CalibrationLogEntry["kind"]` above. */
+const GENERIC_MATCHES_KIND: CalibrationLogEntry["kind"] = "generic-matches";
+
+/**
+ * Build the sweep entries `runSweep` should actually visit, from a set of
+ * DECLARED log names (the union of the three declaration surfaces — see
+ * `scripts/lib/calibration-log-declarations.ts`'s `getDeclaredCalibrationLogNames`)
+ * plus the pre-existing hand-typed `knownEntries` (default: `CALIBRATION_LOG_REGISTRY`).
+ *
+ * This function is PURE and takes `declaredNames` as data rather than importing
+ * `GUARD_REGISTRY`/`STANDALONE_GUARD_CANARIES` itself — this module (`src/`) does
+ * not cross into `.minsky/hooks/` (see this file's own `CALIBRATION_NAME_TO_GUARD_NAME`
+ * doc comment for the established precedent). Callers that CAN reach the
+ * declaration surfaces (`.minsky/hooks/calibration-review-cadence-detector.ts`,
+ * `src/adapters/shared/commands/calibration.ts`) supply `declaredNames` and get
+ * back a full `CalibrationLogEntry[]` to pass into `runSweep`.
+ *
+ * For a declared name that already has a `knownEntries` entry, that entry is
+ * reused UNCHANGED (preserving its `kind`, `reviewByDays`, `liveSinceDate`).
+ * For a declared name with no existing entry, a generic one is synthesized:
+ * `{ path: ".minsky/<name>-calibration.jsonl", name, kind }` — relying on the
+ * file-naming convention every registry entry already follows. `kind` is
+ * `name` itself ONLY when `name` is a KNOWN kind literal (checked against
+ * `KNOWN_KIND_MEMBERSHIP` above — the `kind === name` convention every
+ * hand-typed entry follows); a genuinely new declared name — one no PR has
+ * yet added to the `kind` union — gets `GENERIC_MATCHES_KIND` instead of an
+ * unchecked cast (PR #2822 review), so the type system's exhaustiveness
+ * guarantee is never silently bypassed at the boundary where a runtime string
+ * becomes a `kind`. Either way the result parses via the shared matches-shape
+ * fallback — see the ten mt#3716 kinds' doc comments above.
+ *
+ * `knownEntries` not present in `declaredNames` are ALSO included (union, not
+ * intersection) — a registry entry whose declaration surface a caller does not
+ * (yet) enumerate must not silently drop out of the sweep.
+ */
+export function deriveCalibrationLogEntries(
+  declaredNames: Iterable<string>,
+  knownEntries: readonly CalibrationLogEntry[] = CALIBRATION_LOG_REGISTRY
+): CalibrationLogEntry[] {
+  const byName = new Map(knownEntries.map((e) => [e.name, e]));
+  const names = new Set<string>([...declaredNames, ...byName.keys()]);
+  const entries: CalibrationLogEntry[] = [];
+  for (const name of [...names].sort()) {
+    const existing = byName.get(name);
+    if (existing) {
+      entries.push(existing);
+      continue;
+    }
+    entries.push({
+      path: `.minsky/${name}-calibration.jsonl`,
+      name,
+      // Only cast `name` to `kind` when it is a KNOWN kind literal (the
+      // `kind === name` convention every hand-typed entry follows) — an
+      // unrecognized declared name gets the safe generic-matches catch-all
+      // instead of an unchecked `as` (PR #2822 review).
+      kind:
+        name in KNOWN_KIND_MEMBERSHIP
+          ? (name as CalibrationLogEntry["kind"])
+          : GENERIC_MATCHES_KIND,
+    });
+  }
+  return entries;
+}
+
+/**
+ * SC3/SC5 drift check (mt#3716): given the calibration-log stems actually found
+ * on disk (`.minsky/*-calibration.jsonl`, minus the `-calibration.jsonl` suffix)
+ * and the set of names `runSweep` will actually visit (typically
+ * `deriveCalibrationLogEntries(...).map(e => e.name)`), return the on-disk
+ * stems that are NOT in the swept set — i.e. a producer writing a log no sweep
+ * will ever read.
+ *
+ * Pure and reachability-keyed rather than declaration-surface-keyed, per this
+ * task's amendment: a log declared ONLY as a `GuardRegistration.calibrationLog`
+ * (write side) used to pass a presence-in-declaration check while still never
+ * being swept. Once `sweptNames` is built via `deriveCalibrationLogEntries`
+ * over the derived declared-name union, that class is naturally covered — this
+ * function's residual job is catching a log whose producer is declared on NO
+ * surface at all.
+ */
+export function findUnsweptCalibrationLogs(
+  onDiskStems: readonly string[],
+  sweptNames: ReadonlySet<string> | readonly string[]
+): string[] {
+  const swept = sweptNames instanceof Set ? sweptNames : new Set(sweptNames);
+  return onDiskStems.filter((stem) => !swept.has(stem)).sort();
 }
 
 /**
  * Compute results for all entries in the registry.
  *
- * @param entries      - registry (defaults to CALIBRATION_LOG_REGISTRY)
+ * @param entries      - the entries to sweep (typically `CALIBRATION_LOG_REGISTRY`
+ *                       or `deriveCalibrationLogEntries(declaredNames)`)
  * @param readContent  - function to read a log file; returns null if absent
  * @param watermarks   - current watermark store
  */
@@ -1645,6 +2190,219 @@ export function computeReviewDueLogs(
   return due;
 }
 
+// ---------------------------------------------------------------------------
+// Review receipts (mt#3906)
+// ---------------------------------------------------------------------------
+
+/**
+ * The per-log fire counts a READ-ONLY sweep observed, carried forward into the
+ * later `--ack` invocation.
+ *
+ * Why this exists: a review pass is TWO command invocations — a read-only sweep
+ * the reviewer classifies against, then an `--ack` minutes later. Each runs its
+ * own sweep, so re-deriving the count at ack time records whatever the log has
+ * grown to, marking every record that arrived mid-pass as reviewed by nobody.
+ * Measured on the 2026-08-10 `bare-entity-ref` pass: 93 records classified, 99
+ * acked, six discarded unseen. The gap is the pass's duration times the
+ * detector's fire rate, so the busiest log — the one most worth reviewing —
+ * loses the most.
+ *
+ * The receipt is the fix: the read sweep says what it showed, and the ack
+ * honors that rather than re-measuring. Same shape as `computeDryRunToken` in
+ * `packages/domain/src/tasks/bulk-edit.ts`, with one deliberate difference —
+ * bulk-edit ABORTS on drift because drift means the world moved under an
+ * approval, whereas records arriving mid-pass here are expected and benign, so
+ * the ack advances to the bound count and REPORTS the tail instead of refusing.
+ *
+ * NOT a security boundary. The checksum detects truncation and corruption, not
+ * forgery: a caller who hand-writes counts is lying to its own audit trail. The
+ * bounds in `reconcileReviewReceipt` (never above the log, never below the
+ * existing watermark) are what keep a wrong token from destroying data.
+ */
+export interface ReviewReceipt {
+  /** ISO timestamp of the read-only sweep that issued this receipt. */
+  issuedAt: string;
+  /** Log path → the log's total fire count at read time. */
+  counts: Record<string, number>;
+}
+
+/** Thrown when a supplied review token is malformed, corrupt, or impossible. */
+export class InvalidReviewTokenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidReviewTokenError";
+  }
+}
+
+/** Length of the truncated checksum appended to a token. */
+const REVIEW_TOKEN_CHECKSUM_CHARS = 16;
+
+/** Canonical JSON for the receipt payload: keys sorted, so the hash is stable. */
+function canonicalReceiptJson(receipt: ReviewReceipt): string {
+  const sortedPaths = Object.keys(receipt.counts).sort();
+  const counts: Record<string, number> = {};
+  for (const path of sortedPaths) {
+    counts[path] = receipt.counts[path] as number;
+  }
+  return JSON.stringify({ issuedAt: receipt.issuedAt, counts });
+}
+
+function receiptChecksum(payloadJson: string): string {
+  return createHash("sha256")
+    .update(payloadJson)
+    .digest("hex")
+    .slice(0, REVIEW_TOKEN_CHECKSUM_CHARS);
+}
+
+/**
+ * Issue a receipt token over what THIS sweep observed, for every log that
+ * exists (not only the review-due ones — which logs are due can change between
+ * the read and the ack, and a receipt that omits a log cannot ack it).
+ */
+export function buildReviewToken(results: CalibrationLogResult[], issuedAt: string): string {
+  const counts: Record<string, number> = {};
+  for (const r of results) {
+    counts[r.entry.path] = r.totalFires;
+  }
+  const payloadJson = canonicalReceiptJson({ issuedAt, counts });
+  const payload = Buffer.from(payloadJson, "utf8").toString("base64url");
+  return `${payload}.${receiptChecksum(payloadJson)}`;
+}
+
+/**
+ * Decode a token back into its receipt, or throw `InvalidReviewTokenError`.
+ *
+ * Every rejection here is a REFUSAL to advance, never a silent fallback to the
+ * ack-time count: falling back would restore the exact defect the receipt
+ * exists to close, and would do it on the path where the caller believed it was
+ * protected.
+ */
+export function parseReviewToken(token: string): ReviewReceipt {
+  const parts = token.split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    throw new InvalidReviewTokenError(
+      "Review token is malformed (expected `<payload>.<checksum>`). Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  const [payload, checksum] = parts as [string, string];
+  let payloadJson: string;
+  try {
+    payloadJson = Buffer.from(payload, "base64url").toString("utf8");
+  } catch {
+    throw new InvalidReviewTokenError(
+      "Review token payload is not valid base64url. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  if (receiptChecksum(payloadJson) !== checksum) {
+    throw new InvalidReviewTokenError(
+      "Review token checksum does not match its payload — the token was truncated or edited. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadJson);
+  } catch {
+    throw new InvalidReviewTokenError(
+      "Review token payload is not valid JSON. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new InvalidReviewTokenError("Review token payload is not an object.");
+  }
+  const { issuedAt, counts } = parsed as { issuedAt?: unknown; counts?: unknown };
+  if (typeof issuedAt !== "string" || typeof counts !== "object" || counts === null) {
+    throw new InvalidReviewTokenError(
+      "Review token payload is missing `issuedAt` or `counts`. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  const validated: Record<string, number> = {};
+  for (const [path, count] of Object.entries(counts as Record<string, unknown>)) {
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) {
+      throw new InvalidReviewTokenError(
+        `Review token carries a non-integer count for ${path}. Re-run the read-only sweep and pass the token it returns.`
+      );
+    }
+    validated[path] = count;
+  }
+  return { issuedAt, counts: validated };
+}
+
+/** Outcome of checking a receipt against the log state at ack time. */
+export interface ReceiptReconciliation {
+  /** Log path → the count to write, taken from the receipt (never re-derived). */
+  reviewedCounts: Record<string, number>;
+  /** Records that arrived between the read sweep and the ack, per log. */
+  midPassArrivals: { path: string; count: number }[];
+  /** Paths whose receipt count sat BELOW the existing watermark, raised to it. */
+  clampedPaths: string[];
+  /** Ackable paths the receipt does not cover, so they cannot be advanced. */
+  unreceiptedPaths: string[];
+}
+
+/**
+ * Reconcile a receipt against the current sweep, producing the counts to write.
+ *
+ * The three failure modes SC3 asks to be stated, and what each does:
+ *
+ *   - **Count ABOVE the log's current total** — impossible for a receipt this
+ *     log issued (a JSONL only grows), so the token belongs to a different
+ *     tree or the log was rotated. REJECTED outright: writing it would mark
+ *     records reviewed that do not exist yet, and every future sweep would
+ *     read them as already-seen the moment they land.
+ *   - **Count BELOW the existing watermark** — a stale token from an earlier
+ *     pass. CLAMPED UP to the watermark and named in `clampedPaths`: a
+ *     watermark that moves backwards would re-open records a prior pass
+ *     legitimately reviewed, which is the same data loss in the other
+ *     direction.
+ *   - **Path absent from the receipt** — the read sweep never showed this log,
+ *     so nothing is known about what was classified. NOT advanced, and named
+ *     in `unreceiptedPaths`. Advancing on a guess is the defect.
+ */
+export function reconcileReviewReceipt(
+  receipt: ReviewReceipt,
+  results: CalibrationLogResult[],
+  ackablePaths: Set<string>,
+  watermarks: WatermarkStore
+): ReceiptReconciliation {
+  const reviewedCounts: Record<string, number> = {};
+  const midPassArrivals: { path: string; count: number }[] = [];
+  const clampedPaths: string[] = [];
+  const unreceiptedPaths: string[] = [];
+
+  for (const result of results) {
+    const path = result.entry.path;
+    if (!ackablePaths.has(path)) continue;
+
+    const receiptCount = receipt.counts[path];
+    if (receiptCount === undefined) {
+      unreceiptedPaths.push(path);
+      continue;
+    }
+    if (receiptCount > result.totalFires) {
+      throw new InvalidReviewTokenError(
+        `Review token claims ${receiptCount} reviewed record(s) for ${path}, but the log holds ${result.totalFires}. ` +
+          "A calibration log only grows, so this token was issued against a different tree or a rotated log. " +
+          "Re-run the read-only sweep and pass the token it returns."
+      );
+    }
+
+    const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
+    if (receiptCount < watermarkCount) {
+      clampedPaths.push(path);
+      reviewedCounts[path] = watermarkCount;
+    } else {
+      reviewedCounts[path] = receiptCount;
+    }
+
+    const arrived = result.totalFires - (reviewedCounts[path] as number);
+    if (arrived > 0) {
+      midPassArrivals.push({ path, count: arrived });
+    }
+  }
+
+  return { reviewedCounts, midPassArrivals, clampedPaths, unreceiptedPaths };
+}
+
 /**
  * Produce an updated watermark store by advancing marks for all logs that
  * have been acknowledged (acked).
@@ -1653,8 +2411,15 @@ export function computeReviewDueLogs(
  * Returns a new store (does not mutate the input).
  *
  * @param current    - current watermark store
- * @param results    - sweep results (used to read current total counts)
+ * @param results    - sweep results (the entries to walk; the COUNT written
+ *                     comes from `reviewedCounts`, never from a result — see
+ *                     mt#3906 and `reconcileReviewReceipt` above)
  * @param ackedPaths - set of log paths whose watermarks should be advanced
+ * @param reviewedCounts - log path → the count the reviewer actually
+ *                     classified, carried from the read-only sweep's receipt.
+ *                     A path absent here is NOT advanced: this function has no
+ *                     defensible count to write for it, and defaulting to the
+ *                     ack-time total is precisely the mt#3906 defect.
  * @param now        - timestamp string to use for lastReviewedAt
  * @param askId      - optional ID of the disposition Ask the /calibration-review
  *                     skill just filed covering ALL acked logs in this pass
@@ -1677,19 +2442,22 @@ export function advanceWatermarks(
   results: CalibrationLogResult[],
   ackedPaths: Set<string>,
   now: string,
+  reviewedCounts: Record<string, number>,
   askId?: string
 ): WatermarkStore {
   const updated: WatermarkStore = { ...current };
   for (const result of results) {
-    if (ackedPaths.has(result.entry.path)) {
-      const priorOpenAskId = current[result.entry.path]?.openAskId;
-      const nextOpenAskId = askId ?? priorOpenAskId;
-      updated[result.entry.path] = {
-        lastReviewedCount: result.totalFires,
-        lastReviewedAt: now,
-        ...(nextOpenAskId ? { openAskId: nextOpenAskId } : {}),
-      };
-    }
+    const path = result.entry.path;
+    if (!ackedPaths.has(path)) continue;
+    const reviewedCount = reviewedCounts[path];
+    if (reviewedCount === undefined) continue;
+    const priorOpenAskId = current[path]?.openAskId;
+    const nextOpenAskId = askId ?? priorOpenAskId;
+    updated[path] = {
+      lastReviewedCount: reviewedCount,
+      lastReviewedAt: now,
+      ...(nextOpenAskId ? { openAskId: nextOpenAskId } : {}),
+    };
   }
   return updated;
 }
@@ -1719,6 +2487,89 @@ export function clearResolvedAskIds(
     }
   }
   return updated;
+}
+
+/**
+ * Outcome of reconciling a pass's intended watermark write against the store
+ * as it stands at write time (mt#3899).
+ */
+export interface WatermarkMergeResult {
+  /** The store to persist: `fresh`, with this pass's non-drifted edits applied. */
+  merged: WatermarkStore;
+  /**
+   * Target paths whose entry changed under the pass between its read and its
+   * write. Their intended edit was DROPPED — the concurrent writer's value
+   * stands. Sorted, so callers and tests get a stable order.
+   */
+  driftedPaths: string[];
+}
+
+/** True when two entries carry identical review state (absent === absent). */
+function watermarkEntriesEqual(a?: LogWatermark, b?: LogWatermark): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.lastReviewedCount === b.lastReviewedCount &&
+    a.lastReviewedAt === b.lastReviewedAt &&
+    a.openAskId === b.openAskId
+  );
+}
+
+/**
+ * Reconcile a pass's intended watermark write against the store re-read
+ * immediately before persisting (mt#3899).
+ *
+ * The command reads the store once, sweeps every calibration log — tens of
+ * seconds of IO — decides what to advance, then writes the whole store back.
+ * With concurrent agent sessions that read-modify-write races: a second pass
+ * that acks mid-sweep is invisible to the first, whose whole-store write then
+ * silently reverts it. The observed instance advanced one log's watermark to
+ * its full fire count while another pass was mid-classification on exactly
+ * those fires; nothing surfaced, because the losing write reported success.
+ *
+ * Two rules, both required:
+ *
+ * - **Start from `fresh`, not from the pass's stale snapshot.** An entry the
+ *   pass never intended to touch keeps whatever the concurrent writer left
+ *   there, so a whole-store rewrite cannot clobber an unrelated log.
+ * - **Drop a target whose entry moved.** If `fresh` disagrees with `base` for
+ *   a path this pass meant to change, another writer got there first; its
+ *   value stands and the path is REPORTED rather than overwritten. Silently
+ *   winning the race is the failure mode — a dropped edit the caller can see
+ *   is recoverable, one it cannot is not.
+ *
+ * Last-writer-wins is preserved deliberately for the no-contention case: when
+ * nothing changed underneath, `fresh` equals `base` and every intended edit
+ * applies.
+ *
+ * @param base Store snapshot the pass computed its decisions from.
+ * @param intended `base` with this pass's edits applied.
+ * @param fresh Store as re-read immediately before writing.
+ * @param targetPaths Paths this pass intends to change.
+ */
+export function mergeWatermarkWrite(
+  base: WatermarkStore,
+  intended: WatermarkStore,
+  fresh: WatermarkStore,
+  targetPaths: ReadonlySet<string>
+): WatermarkMergeResult {
+  const merged: WatermarkStore = { ...fresh };
+  const driftedPaths: string[] = [];
+
+  for (const path of targetPaths) {
+    if (!watermarkEntriesEqual(base[path], fresh[path])) {
+      driftedPaths.push(path);
+      continue;
+    }
+    const next = intended[path];
+    if (next) {
+      merged[path] = next;
+    } else {
+      delete merged[path];
+    }
+  }
+
+  driftedPaths.sort();
+  return { merged, driftedPaths };
 }
 
 /**
@@ -1858,6 +2709,9 @@ export interface CalibrationAsFireLogEntry {
  * with the registry it must exhaustively cover).
  */
 const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
+  // mt#3286 — the log is named for the DEFECT it measures, the guard for the
+  // moment it runs, so the two names differ and the mapping is required.
+  "bare-entity-ref": "turn-end-bare-ref-scan",
   "causal-premise": "causal-premise-detector",
   "retrospective-trigger": "retrospective-trigger-scanner",
   "ask-routing-deferral": "ask-routing-deferral-detector",
@@ -1882,6 +2736,20 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "retrospective-completeness": "retrospective-completeness-detector",
   "stop-at-decision": "stop-at-decision-scan",
 };
+
+/**
+ * The guard name a calibration log's state attaches to, in the FIRE-LOG
+ * name-space (mt#4009). The fire-log population uses `GuardRegistration`
+ * names (`wall-of-text-detector`, `turn-end-bare-ref-scan`, ...), which is
+ * exactly what {@link CALIBRATION_NAME_TO_GUARD_NAME} maps to — exported as
+ * a function so consumers joining calibration state onto fire-log-derived
+ * rows share THIS mapping instead of minting a second one (the
+ * `stream-sources.ts` per-stream labels are a different name-space and do
+ * NOT join against fire-log rows).
+ */
+export function guardNameForCalibrationLog(logName: string): string {
+  return CALIBRATION_NAME_TO_GUARD_NAME[logName] ?? logName;
+}
 
 /**
  * Map ONE legacy calibration record to the fire-log schema's decision axis.

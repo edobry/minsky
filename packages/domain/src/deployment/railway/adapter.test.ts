@@ -6,9 +6,12 @@ import {
   notifyStatusObserved,
   railwayAdapterFactory,
   RailwayDeploymentAdapter,
+  parseNotBefore,
+  acquireDeploymentAtOrAfter,
 } from "./adapter";
 import type { DeploymentConfig } from "../config";
 import type { DeploymentRecord } from "../types";
+import { NoDeploymentSinceError } from "../types";
 import type { RailwayDeploymentNode, RailwayMetricSeries } from "./graphql-client";
 
 describe("railwayAdapterFactory", () => {
@@ -208,5 +211,132 @@ describe("notifyStatusObserved", () => {
         throw new Error("async boom");
       }, deploymentRecord("SUCCESS"))
     ).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * mt#3890: the post-merge deploy gate must be able to FAIL.
+ *
+ * Originating incident: `minsky-mcp`'s workflow redeploy step was returning
+ * `Not Authorized` and treating it as non-fatal, so no deployment was created
+ * for ~4.5 days. `waitForLatestDeployment` returned the 2026-08-05 SUCCESS
+ * record to every post-merge gate that asked, and every one of them passed.
+ * The dates below are the real ones from that incident.
+ */
+describe("notBefore bound on deployment waits (mt#3890)", () => {
+  const STALE = "2026-08-05T23:31:02.995Z";
+  const MERGE = "2026-08-09T03:50:26.330Z";
+
+  function node(createdAt: string, id = "dep-1", status = "SUCCESS") {
+    return { id, status, createdAt, meta: null, staticUrl: null };
+  }
+
+  function neverSleep() {
+    return Promise.resolve();
+  }
+
+  describe("parseNotBefore", () => {
+    test("returns null when unset, so legacy callers keep the old behavior", () => {
+      expect(parseNotBefore(undefined)).toBeNull();
+    });
+
+    test("parses a valid ISO8601 timestamp", () => {
+      expect(parseNotBefore(MERGE)).toBe(Date.parse(MERGE));
+    });
+
+    test("throws on a malformed value rather than silently dropping the bound", () => {
+      expect(() => parseNotBefore("not-a-timestamp")).toThrow(/not a valid ISO8601/);
+    });
+  });
+
+  describe("acquireDeploymentAtOrAfter", () => {
+    test("REJECTS a deployment predating the bound and reports how stale it is", async () => {
+      let calls = 0;
+      const promise = acquireDeploymentAtOrAfter({
+        fetchNewest: async () => {
+          calls++;
+          return node(STALE);
+        },
+        notBeforeMs: Date.parse(MERGE),
+        notBefore: MERGE,
+        timeoutSeconds: 600,
+        deadlineMs: 1000,
+        now: () => 2000,
+        sleep: neverSleep,
+        pollIntervalMs: 10,
+      });
+
+      await expect(promise).rejects.toThrow(NoDeploymentSinceError);
+      await promise.catch((e: NoDeploymentSinceError) => {
+        expect(e.newestRecord?.createdAt).toBe(STALE);
+        expect(e.notBefore).toBe(MERGE);
+        expect(e.message).toContain("never triggered");
+      });
+      expect(calls).toBe(1);
+    });
+
+    test("ACCEPTS a deployment created at or after the bound", async () => {
+      const fresh = node(MERGE, "dep-fresh");
+      const got = await acquireDeploymentAtOrAfter({
+        fetchNewest: async () => fresh,
+        notBeforeMs: Date.parse(MERGE),
+        notBefore: MERGE,
+        timeoutSeconds: 600,
+        deadlineMs: Number.MAX_SAFE_INTEGER,
+        now: () => 0,
+        sleep: neverSleep,
+        pollIntervalMs: 10,
+      });
+      expect(got?.id).toBe("dep-fresh");
+    });
+
+    test("polls past a stale record until a qualifying one appears", async () => {
+      const sequence = [node(STALE), node(STALE), node("2026-08-09T03:52:00.000Z", "dep-new")];
+      let i = 0;
+      const got = await acquireDeploymentAtOrAfter({
+        fetchNewest: async () => sequence[Math.min(i++, sequence.length - 1)],
+        notBeforeMs: Date.parse(MERGE),
+        notBefore: MERGE,
+        timeoutSeconds: 600,
+        deadlineMs: Number.MAX_SAFE_INTEGER,
+        now: () => 0,
+        sleep: neverSleep,
+        pollIntervalMs: 10,
+      });
+      expect(got?.id).toBe("dep-new");
+      expect(i).toBe(3);
+    });
+
+    test("reports null newestRecord when the service has no deployments at all", async () => {
+      const promise = acquireDeploymentAtOrAfter({
+        fetchNewest: async () => undefined,
+        notBeforeMs: Date.parse(MERGE),
+        notBefore: MERGE,
+        timeoutSeconds: 600,
+        deadlineMs: 1000,
+        now: () => 2000,
+        sleep: neverSleep,
+        pollIntervalMs: 10,
+      });
+      await expect(promise).rejects.toThrow(NoDeploymentSinceError);
+      await promise.catch((e: NoDeploymentSinceError) => {
+        expect(e.newestRecord).toBeNull();
+        expect(e.message).toContain("No deployments exist");
+      });
+    });
+
+    test("without a bound, returns whatever is newest — the pre-mt#3890 contract", async () => {
+      const got = await acquireDeploymentAtOrAfter({
+        fetchNewest: async () => node(STALE),
+        notBeforeMs: null,
+        notBefore: undefined,
+        timeoutSeconds: 600,
+        deadlineMs: 0,
+        now: () => 999999,
+        sleep: neverSleep,
+        pollIntervalMs: 10,
+      });
+      expect(got?.createdAt).toBe(STALE);
+    });
   });
 });

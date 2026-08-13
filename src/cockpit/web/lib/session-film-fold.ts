@@ -11,7 +11,7 @@
  * playhead would be ambiguous; a batch-row ordinal is not.
  *
  * Monotone-fold obligation (event-schema.ts's module doc comment): an
- * unpaired tool call (`outcome: undefined`) renders in-flight, and a later
+ * unpaired tool call (`outcome: undefined`) renders unresolved, and a later
  * REFINEMENT of the SAME occurrence (the same array position, re-applied
  * with more resolved fields) must never regress an already-observed
  * `outcome`/`tEnd` back to unresolved. `applyEvent` below is keyed on the
@@ -55,7 +55,7 @@ export interface EntityFoldState {
   lastTouchedAt: string;
   touchCount: number;
   lastVerb: EventVerb;
-  /** `undefined` = unresolved/in-flight (mirrors `SemanticEvent.outcome`'s doc comment). */
+  /** `undefined` = unresolved — the call's result was never found (mirrors `SemanticEvent.outcome`'s doc comment). */
   lastOutcome: EventOutcome | undefined;
 }
 

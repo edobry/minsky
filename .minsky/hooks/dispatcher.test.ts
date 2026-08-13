@@ -8,7 +8,7 @@
    guardName "throws" / sessionId "sess-1", into the operator's live
    ~/.local/state/minsky/guard-health-log.jsonl). Neither touches the
    developer's actual ~/.local/state/minsky/. */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,6 +18,8 @@ import {
   buildOverrideFireLogFields,
   calibrationLogPath,
   logCalibrationRecord,
+  evaluationLogPath,
+  logEvaluationRecord,
   resolveDispatchContext,
   runDispatcher,
   composeAdditionalContext,
@@ -28,13 +30,34 @@ import {
   type ContextFragment,
 } from "./dispatcher";
 import { GUARD_REGISTRY } from "./registry";
-import type { GuardRegistration } from "./registry";
+import type { GuardRegistration, GuardEffectDeclaration } from "./registry";
 import type { ToolHookInput, HookOutput, HostCapInfo } from "./types";
 import type { TranscriptLine } from "./transcript";
-import type { RecordFireLogInput } from "./fire-log";
 
-/** The dispatcher's own compiled filename, used throughout as `hookFilename`. */
-const DISPATCH_HOOK_FILENAME = "dispatch-pretooluse.ts";
+/**
+ * Shared placeholder `effects` declaration for this file's ad-hoc
+ * `GuardRegistration` fixtures (mt#3981 made the field required). These
+ * fixtures test dispatcher MECHANICS — deny short-circuiting, output
+ * composition, timeout handling — not posture semantics, so one uniform
+ * "deny" validator declaration satisfies the type everywhere without
+ * repeating the object literal at each of this file's call sites.
+ */
+const FIXTURE_EFFECTS: [GuardEffectDeclaration, ...GuardEffectDeclaration[]] = [
+  {
+    effect: "deny",
+    verdictShape: "validator",
+    failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+  },
+];
+import type { RecordFireLogInput } from "./fire-log";
+import {
+  DISPATCH_HOOK_FILENAME,
+  baseInput,
+  stubContext,
+  makeStderrSpy,
+  useIsolatedStateDir,
+} from "./test-support/dispatcher-harness";
+
 const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 
 // mt#2597: runDispatcher now fire-logs EVERY matched guard's outcome via the
@@ -45,30 +68,11 @@ const USER_PROMPT_SUBMIT = "UserPromptSubmit";
 // pre-existing — can ever write through the developer's real
 // `~/.local/state/minsky/fire-log.jsonl` (the mt#2876 class this task's
 // coordination brief calls out explicitly).
-let fireLogTestStateDir: string;
-let prevMinskyStateDir: string | undefined;
-
-beforeAll(() => {
-  fireLogTestStateDir = mkdtempSync(join(tmpdir(), "mt2597-dispatcher-fire-log-isolation-"));
-  prevMinskyStateDir = process.env.MINSKY_STATE_DIR;
-  process.env.MINSKY_STATE_DIR = fireLogTestStateDir;
-});
-
-afterAll(() => {
-  if (prevMinskyStateDir === undefined) delete process.env.MINSKY_STATE_DIR;
-  else process.env.MINSKY_STATE_DIR = prevMinskyStateDir;
-  rmSync(fireLogTestStateDir, { recursive: true, force: true });
-});
+useIsolatedStateDir("mt2597-dispatcher-fire-log-isolation-");
 
 // ---------------------------------------------------------------------------
 // checkOverride (D3)
 // ---------------------------------------------------------------------------
-
-/** Collects stderr writes for assertion without touching the real process.stderr. */
-function makeStderrSpy(): { writes: string[]; write: (s: string) => void } {
-  const writes: string[] = [];
-  return { writes, write: (s) => writes.push(s) };
-}
 
 /** Known-guard-name universe used by the checkOverride tests below — decoupled from the
  * real (growing) GUARD_REGISTRY so these tests don't need updating as guards migrate. */
@@ -287,7 +291,11 @@ describe("checkOverride", () => {
       overridden: true,
       grantReason: GRANT_REASON,
     });
-    expect(seenArgs).toEqual(["duplicate-child-matcher", "mt#2581", 1000]);
+    // Annotated alias: `seenArgs` is only ever assigned inside the findGuardGrant
+    // callback, which control-flow analysis cannot see running, so it narrows to
+    // `null` here and `toEqual` would then only accept `null` (mt#2900).
+    const capturedArgs = seenArgs as [string, string, number] | null;
+    expect(capturedArgs).toEqual(["duplicate-child-matcher", "mt#2581", 1000]);
   });
 
   test("env-var override takes precedence over a grant match (grant lookup never invoked)", () => {
@@ -423,6 +431,128 @@ describe("calibrationLogPath", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// evaluationLogPath / logEvaluationRecord (mt#3745)
+// ---------------------------------------------------------------------------
+
+describe("evaluationLogPath", () => {
+  test("uses the -evaluations.jsonl filename convention", () => {
+    expect(evaluationLogPath("silent-stretch", { projectDir: "/repo" })).toBe(
+      "/repo/.minsky/silent-stretch-evaluations.jsonl"
+    );
+  });
+
+  // AT1 — the regression this task exists to pin. Two of the three hand-rolled
+  // writers resolved `findRepoRoot(cwd)` directly, so with cwd pointing at a
+  // session workspace the stream landed THERE while the calibration log —
+  // routed through `calibrationLogPath` — landed in the repo. 12 stray files
+  // across 6 workspaces; the one detector that already preferred
+  // CLAUDE_PROJECT_DIR had zero.
+  test("CLAUDE_PROJECT_DIR outranks a guard's raw cwd (mt#3745 acceptance test)", () => {
+    const projectRepo = mkdtempSync(join(tmpdir(), "mt3745-project-"));
+    const strayRepo = mkdtempSync(join(tmpdir(), "mt3745-stray-"));
+    try {
+      mkdirSync(join(projectRepo, ".git"));
+      mkdirSync(join(strayRepo, ".git"));
+
+      const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      process.env.CLAUDE_PROJECT_DIR = projectRepo;
+      try {
+        // `fallbackCwd` is what a guard passes from `input.cwd` — it must NOT win.
+        const result = evaluationLogPath("silent-stretch", { fallbackCwd: strayRepo });
+        expect(result).toBe(join(projectRepo, ".minsky", "silent-stretch-evaluations.jsonl"));
+        expect(result.startsWith(strayRepo)).toBe(false);
+      } finally {
+        if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+        else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      }
+    } finally {
+      rmSync(projectRepo, { recursive: true, force: true });
+      rmSync(strayRepo, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to the guard's cwd when CLAUDE_PROJECT_DIR is unset", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt3745-fallback-"));
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+      const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+      delete process.env.CLAUDE_PROJECT_DIR;
+      try {
+        expect(evaluationLogPath("stop-at-decision", { fallbackCwd: repoRoot })).toBe(
+          join(repoRoot, ".minsky", "stop-at-decision-evaluations.jsonl")
+        );
+      } finally {
+        if (prevProjectDir !== undefined) process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+      }
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicit projectDir outranks CLAUDE_PROJECT_DIR", () => {
+    const prevProjectDir = process.env.CLAUDE_PROJECT_DIR;
+    process.env.CLAUDE_PROJECT_DIR = "/env-dir";
+    try {
+      expect(evaluationLogPath("retrospective-trigger", { projectDir: "/explicit" })).toBe(
+        "/explicit/.minsky/retrospective-trigger-evaluations.jsonl"
+      );
+    } finally {
+      if (prevProjectDir === undefined) delete process.env.CLAUDE_PROJECT_DIR;
+      else process.env.CLAUDE_PROJECT_DIR = prevProjectDir;
+    }
+  });
+});
+
+describe("logEvaluationRecord", () => {
+  test("writes one JSONL record to the resolved path", () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "mt3745-write-"));
+    try {
+      mkdirSync(join(repoRoot, ".git"));
+      logEvaluationRecord("silent-stretch", { hook: "x", fired: false }, { projectDir: repoRoot });
+      const written = readFileSync(
+        join(repoRoot, ".minsky", "silent-stretch-evaluations.jsonl"),
+        "utf-8"
+      );
+      expect(JSON.parse(written.trim())).toEqual({ hook: "x", fired: false });
+    } finally {
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  // The measurement stream must never be able to break the guard it measures.
+  test("fails open when the write throws, and reports rather than swallowing", () => {
+    const messages: string[] = [];
+    const prevWrite = process.stderr.write.bind(process.stderr);
+    (process.stderr as any).write = (chunk: string) => {
+      messages.push(String(chunk));
+      return true;
+    };
+    try {
+      expect(() =>
+        logEvaluationRecord(
+          "silent-stretch",
+          { hook: "x" },
+          {
+            projectDir: "/repo",
+            deps: {
+              existsSync: () => false,
+              mkdirSync: () => {
+                throw new Error("EROFS: read-only file system");
+              },
+              appendFileSync: () => undefined,
+            },
+          }
+        )
+      ).not.toThrow();
+    } finally {
+      (process.stderr as any).write = prevWrite;
+    }
+    expect(messages.join("")).toContain("EROFS");
+    expect(messages.join("")).toContain("silent-stretch");
+  });
+});
+
 function makeFakeDeps(): CalibrationWriteDeps & {
   files: Map<string, string>;
   dirsCreated: string[];
@@ -497,15 +627,27 @@ describe("logCalibrationRecord", () => {
 describe("resolveDispatchContext", () => {
   const fakeHostCap: HostCapInfo = { hostCapSec: 20, source: "settings.json" };
 
+  /**
+   * `resolveDispatchContext` takes a Pick of ToolHookInput in which `session_id`
+   * is REQUIRED — these fixtures only ever vary transcript_path/agent_id, so the
+   * id is supplied once here rather than repeated at every call site (mt#2900).
+   */
+  function dispatchInput(
+    overrides: Partial<Pick<ToolHookInput, "agent_id" | "session_id" | "transcript_path">> = {}
+  ): Pick<ToolHookInput, "agent_id" | "session_id" | "transcript_path"> {
+    return {
+      session_id: "dispatcher-test-session",
+      transcript_path: undefined,
+      agent_id: undefined,
+      ...overrides,
+    };
+  }
+
   test("no transcript_path -> empty candidates/lines, budgets still derived", () => {
-    const ctx = resolveDispatchContext(
-      "PreToolUse",
-      { transcript_path: undefined, agent_id: undefined },
-      {
-        hookFilename: DISPATCH_HOOK_FILENAME,
-        readHostCapFn: () => fakeHostCap,
-      }
-    );
+    const ctx = resolveDispatchContext("PreToolUse", dispatchInput(), {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      readHostCapFn: () => fakeHostCap,
+    });
     expect(ctx.transcriptCandidates).toEqual([]);
     expect(ctx.transcriptLines).toEqual([]);
     expect(ctx.hostCapSec).toBe(20);
@@ -518,7 +660,7 @@ describe("resolveDispatchContext", () => {
     let parseCallCount = 0;
     const ctx = resolveDispatchContext(
       "PreToolUse",
-      { transcript_path: "/t/main.jsonl", agent_id: undefined },
+      dispatchInput({ transcript_path: "/t/main.jsonl" }),
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
@@ -553,7 +695,7 @@ describe("resolveDispatchContext", () => {
 
     const ctx = resolveDispatchContext(
       USER_PROMPT_SUBMIT,
-      { transcript_path: parentPath, agent_id: undefined },
+      dispatchInput({ transcript_path: parentPath }),
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
@@ -583,7 +725,7 @@ describe("resolveDispatchContext", () => {
 
     const ctx = resolveDispatchContext(
       USER_PROMPT_SUBMIT,
-      { transcript_path: subagentPath, agent_id: "abc" },
+      dispatchInput({ transcript_path: subagentPath, agent_id: "abc" }),
       {
         hookFilename: DISPATCH_HOOK_FILENAME,
         readHostCapFn: () => fakeHostCap,
@@ -601,18 +743,14 @@ describe("resolveDispatchContext", () => {
   test("passes hookFilename and events through to readHostCapFn", () => {
     let seenFilename = "";
     let seenEvents: readonly string[] | undefined;
-    resolveDispatchContext(
-      "PostToolUse",
-      {},
-      {
-        hookFilename: "dispatch-posttooluse.ts",
-        readHostCapFn: (filename, _dir, opts) => {
-          seenFilename = filename;
-          seenEvents = opts?.events;
-          return fakeHostCap;
-        },
-      }
-    );
+    resolveDispatchContext("PostToolUse", dispatchInput(), {
+      hookFilename: "dispatch-posttooluse.ts",
+      readHostCapFn: (filename, _dir, opts) => {
+        seenFilename = filename;
+        seenEvents = opts?.events;
+        return fakeHostCap;
+      },
+    });
     expect(seenFilename).toBe("dispatch-posttooluse.ts");
     expect(seenEvents).toEqual(["PostToolUse"]);
   });
@@ -621,27 +759,6 @@ describe("resolveDispatchContext", () => {
 // ---------------------------------------------------------------------------
 // runDispatcher (D1 core loop)
 // ---------------------------------------------------------------------------
-
-function baseInput(overrides: Partial<ToolHookInput> = {}): ToolHookInput {
-  return {
-    session_id: "sess-1",
-    cwd: "/tmp",
-    hook_event_name: "PreToolUse",
-    tool_name: "Bash",
-    tool_input: { command: "ls" },
-    ...overrides,
-  };
-}
-
-function stubContext() {
-  return {
-    event: "PreToolUse" as const,
-    hostCapSec: 15,
-    budgets: { overallBudgetMs: 9000, fetchTimeoutMs: 4950, gitTimeoutMs: 1530 },
-    transcriptCandidates: [],
-    transcriptLines: [],
-  };
-}
 
 describe("runDispatcher", () => {
   test("no guards match -> writeOutputFn never called, no stdout", async () => {
@@ -657,6 +774,7 @@ describe("runDispatcher", () => {
           module: () => Promise.resolve({ run: () => ({ deny: { reason: "x" } }) }),
           timeoutMs: 1000,
           denyCapable: true,
+          effects: FIXTURE_EFFECTS,
         },
       ],
       readInputFn: () => Promise.resolve(baseInput({ tool_name: "Bash" })),
@@ -679,6 +797,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "second",
@@ -693,6 +812,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -718,6 +838,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "fragment A" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "b",
@@ -726,6 +847,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "fragment B" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -758,6 +880,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -812,6 +935,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "second",
@@ -826,6 +950,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -872,6 +997,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -926,6 +1052,7 @@ describe("runDispatcher", () => {
             }),
           timeoutMs: 1000,
           denyCapable: true,
+          effects: FIXTURE_EFFECTS,
         },
         {
           name: "second",
@@ -940,6 +1067,7 @@ describe("runDispatcher", () => {
             }),
           timeoutMs: 1000,
           denyCapable: false,
+          effects: FIXTURE_EFFECTS,
         },
       ];
       await runDispatcher("PreToolUse", {
@@ -981,6 +1109,7 @@ describe("runDispatcher", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         calibrationLog: "detector-log",
       },
     ];
@@ -1005,6 +1134,7 @@ describe("runDispatcher", () => {
         module: () => Promise.resolve({ run: () => ({ calibration: { matched: true } }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1032,6 +1162,7 @@ describe("runDispatcher", () => {
           Promise.resolve({ run: () => ({ auditLines: ["[g] legacy override active\n"] }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1072,6 +1203,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => null }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1099,6 +1231,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1123,6 +1256,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "fyi" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1152,6 +1286,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1186,6 +1321,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     process.env[HOOK_OVERRIDE_ENV_VAR] = "pilot";
@@ -1264,6 +1400,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "A" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "b",
@@ -1272,6 +1409,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => null }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1297,6 +1435,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ deny: { reason: "nope" } }) }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "second",
@@ -1311,6 +1450,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: true,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1337,6 +1477,7 @@ describe("runDispatcher fire-log integration (mt#2597)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "ok" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     // No recordFireLogFn override — exercises the real default wiring,
@@ -1473,8 +1614,14 @@ describe("composeAdditionalContext (mt#3394)", () => {
     // registry means changing an annotation automatically changes what this
     // asserts, and `guard-feedback-shape.test.ts` separately keeps the
     // annotations honest against each guard's real rendered output.
+    // `renderProbe` marks a guard that RENDERS but does not INJECT (mt#4002).
+    // Such a guard contributes zero chars to any real turn, so including it in
+    // the modelled turn sizes the shared budget for text that is never sent —
+    // which is exactly what mt#3533 did (6156 -> 7206 for a guard whose
+    // `INJECTION_ENABLED` is false), and what mt#3997 avoided hours earlier by
+    // trimming its guard instead. A turn containing one cannot occur.
     const annotated = GUARD_REGISTRY.filter(
-      (r) => r.event === USER_PROMPT_SUBMIT && r.attentionCost !== undefined
+      (r) => r.event === USER_PROMPT_SUBMIT && r.attentionCost !== undefined && !r.renderProbe
     );
     const size = (name: string) =>
       annotated.find((r) => r.name === name)?.attentionCost?.denialMessageSizeChars ?? 0;
@@ -1541,6 +1688,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         contextPriority: 10,
       },
       {
@@ -1556,6 +1704,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
           }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         calibrationLog: "quiet-low",
       },
     ];
@@ -1596,6 +1745,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({}) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
       {
         name: "empty-string-guard",
@@ -1604,6 +1754,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {
@@ -1626,6 +1777,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "SECOND-DECLARED" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
         contextPriority: 99,
       },
       {
@@ -1635,6 +1787,7 @@ describe("runDispatcher merged-context behavior (mt#3394)", () => {
         module: () => Promise.resolve({ run: () => ({ additionalContext: "FIRST-DECLARED" }) }),
         timeoutMs: 1000,
         denyCapable: false,
+        effects: FIXTURE_EFFECTS,
       },
     ];
     await runDispatcher("PreToolUse", {

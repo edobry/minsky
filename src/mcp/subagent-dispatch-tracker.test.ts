@@ -57,6 +57,7 @@ const OUTCOME_PARTIAL_COMMITTED_HANDOFF: SubagentInvocationOutcome =
 const OUTCOME_PARTIAL_UNCOMMITTED: SubagentInvocationOutcome = "partial-uncommitted-no-handoff";
 const OUTCOME_CRASHED: SubagentInvocationOutcome = "crashed-no-output";
 const OUTCOME_RATE_LIMITED: SubagentInvocationOutcome = "rate-limited";
+const OUTCOME_NO_WORKSPACE: SubagentInvocationOutcome = "no-workspace";
 
 // ---------------------------------------------------------------------------
 // Row type + ID counter
@@ -901,15 +902,16 @@ describe("SubagentDispatchTracker", () => {
   // -------------------------------------------------------------------------
 
   describe("getCadence - byOutcome", () => {
-    test("all 6 outcome classes present with zero counts for empty table", async () => {
+    test("every outcome value is present with a zero count for an empty table", async () => {
       const cadence = await tracker.getCadence(BASE_DATE);
       for (const outcome of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
         expect(cadence.byOutcome[outcome]).toBe(0);
       }
     });
 
-    test("counts 20 rows distributed across 6 outcome classes", async () => {
-      // Seed 20 rows: distribute across the 6 outcome classes
+    test("counts 20 rows distributed across the 6 workspace-derived classes", async () => {
+      // Seed 20 rows: distribute across the 6 workspace-derived classes (not `pending`, which
+      // only the dispatcher writes, nor `no-workspace`, which has no workspace to derive from).
       const distribution: Array<[SubagentInvocationOutcome, number]> = [
         [OUTCOME_COMPLETED_WITH_PR, 5],
         [OUTCOME_COMMITTED_NO_PR, 4],
@@ -1673,6 +1675,17 @@ describe("SubagentDispatchTracker — system event emission (mt#2487)", () => {
   test("emits neither completed nor failed for rate-limited", async () => {
     await tracker.recordSubagentInvocation(makeInput({ outcome: OUTCOME_RATE_LIMITED }));
     expect(emitter.emitted.length).toBe(0);
+  });
+
+  test("emits neither completed nor failed for no-workspace (mt#3894)", async () => {
+    // A deliberate decision, not a fall-through — and the two are indistinguishable from the
+    // outside, which is exactly why it is pinned here. `subagent.failed` would assert a failure
+    // nobody observed (the false-crash harm mt#1770 removed); `subagent.completed` would assert
+    // a success nobody observed. A subagent with no workspace produced no evidence for either.
+    await tracker.recordSubagentInvocation(makeInput({ outcome: OUTCOME_NO_WORKSPACE }));
+    expect(emitter.emitted.length).toBe(0);
+    // The row is still written — silence in the event streams is not silence in the record.
+    expect(store.size).toBe(1);
   });
 
   test("records the row even with no event emitter wired (emit is best-effort/optional)", async () => {

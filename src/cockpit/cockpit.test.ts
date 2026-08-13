@@ -538,8 +538,11 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/session_list error/i);
-    expect(body.reason).toMatch(/DB connection failed/i);
+    // Pin the COMPOSED shape, not two independent substring hits (PR #2702 R1):
+    // separate `toMatch`es for the label and the message pass even if the
+    // separator or ordering regresses, which is the format this widget's
+    // operator-facing text depends on.
+    expect(body.reason).toBe("session_list: DB connection failed");
   });
 
   // ---------------------------------------------------------------------------
@@ -732,7 +735,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/task_graph error/i);
+    expect(body.reason).toMatch(/task_graph/i);
     expect(body.reason).toMatch(/task DB unavailable/i);
   });
 
@@ -886,7 +889,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/workstreams error/i);
+    expect(body.reason).toMatch(/workstreams/i);
     expect(body.reason).toMatch(/task DB connection failed/i);
   });
 
@@ -1442,7 +1445,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { state: string; reason: string };
     expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/attention error/i);
+    expect(body.reason).toMatch(/attention/i);
     expect(body.reason).toMatch(/DB unavailable/i);
   });
 
@@ -1565,6 +1568,10 @@ describe("Cockpit server", () => {
         displayName: string;
         configPath: string;
         configured: boolean;
+        // mt#3569: required on the domain type — a listing entry must always say
+        // whether it is manageable. Defaulted in the mapping below so existing
+        // fixtures keep their meaning (they were all provider-backed).
+        source?: "provider" | "schema";
         lastValidatedAt?: string;
         lastValidationDetail?: string;
       }>;
@@ -1604,7 +1611,8 @@ describe("Cockpit server", () => {
             stored: validateOk ? { configFilePath: `/mock/config.yaml` } : undefined,
             test: validateOk ? { ok: true, detail: "smoke ok" } : undefined,
           }),
-      listCredentials: async () => listResult,
+      listCredentials: async () =>
+        listResult.map((entry) => ({ source: "provider" as const, ...entry })),
       removeCredential: async (_provider: string) => removeResult,
       listCredentialProviders: () => [
         {
@@ -1894,3 +1902,9 @@ describe("Cockpit server", () => {
     }
   });
 });
+
+// describeWidgetDegradedReason (mt#3825) is unit-tested directly in
+// db-providers.test.ts alongside its sibling describeFailedPersistenceInit —
+// cockpit.test.ts is already at eslint.config.js's max-lines budget, and this
+// file's job is exercising widgets through the HTTP surface, not the pure
+// classifier function.

@@ -54,9 +54,27 @@
  *   (different preceding context) logs BOTH occurrences, each with its own
  *   correct `suppressedByDepthRequest` value
  *
+ * Covers (mt#3972 acceptance tests — question-answer lookback widened past
+ * non-principal turn openers):
+ * - (AT1) the live 2026-08-11T17:21:47Z shape — principal question,
+ *   `<task-notification>` opener, 458-word over-budget report — suppresses
+ *   after the widening (negative control against the pre-tune anchor
+ *   recorded in the mt#3972 PR body)
+ * - (AT2) a lookback window with no principal question still fires
+ * - (AT3) a label-led report after a question still fires (SC3 preserved)
+ * - `isNonPrincipalTurnOpener` matches `<task-notification>`,
+ *   `<system-reminder>`, and the `[SYSTEM NOTIFICATION` preamble form
+ * - `findRecentPrincipalPromptIndex` skips non-principal openers, is bounded
+ *   by `QUESTION_ANSWER_LOOKBACK_TURNS`, and fails CLOSED outside the window
+ * - `resolveQuestionAnswerCheck` still does NOT skip past a genuine
+ *   principal turn that isn't a question, hunting for an older one (the
+ *   FP-risk bound SC1 requires)
+ *
  * @see mt#2870
  * @see mt#3028
  * @see mt#3112
+ * @see mt#3718
+ * @see mt#3972
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
@@ -68,6 +86,8 @@ import {
   readCalibrationLogText,
   MAX_DEDUPE_READ_BYTES,
   WORD_COUNT_THRESHOLD,
+  LEAD_WORD_BUDGET,
+  OVER_BUDGET_MULTIPLIER,
   LEAD_WINDOW_WORDS,
   EXCERPT_MAX_CHARS,
   EXCERPT_TRUNCATION_MARKER,
@@ -81,12 +101,20 @@ import {
   resolveDepthCheck,
   sessionHasLoggedTextAndSuppression,
   SUPPRESSION_DEPTH_REQUEST,
+  SUPPRESSION_QUESTION_ANSWER,
+  QUESTION_MIN_WORDS,
+  detectSubstantiveQuestion,
+  resolveQuestionAnswerCheck,
+  QUESTION_ANSWER_LOOKBACK_TURNS,
+  isNonPrincipalTurnOpener,
+  findRecentPrincipalPromptIndex,
   run,
   type RunDeps,
 } from "./wall-of-text-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
+import { ARTIFACT_CAPTURE_MAX_CHARS } from "./judged-input-capture";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -101,6 +129,44 @@ const OPENING_PROMPT_TEXT = "please do the thing";
 // Shared depth-request phrase fixtures (custom/no-magic-string-duplication).
 const DEPTH_REQUEST_PHRASE = "walk me through everything in detail";
 const DEPTH_REQUEST_PHRASE_BARE = "walk me through everything";
+// Shared question-answer phrase fixtures (custom/no-magic-string-duplication) —
+// mt#3718. The two ask#6891 FP shapes: a plain interrogative and a
+// multi-question prompt.
+const QUESTION_ANSWER_PHRASE = "what happened with the deploy?";
+const QUESTION_ANSWER_PHRASE_BUN_BUG =
+  "Is this a known, reported Bun bug, or something specific to our setup?";
+// mt#3972 — a multi-part question, mirroring the shape of the live
+// 2026-08-11T17:21:47Z record's opening question (session `25a27bdb`).
+// Used ONLY by the mt#3972 lookback tests, which exist to prove the
+// QUESTION-ANSWER gate finds a principal question past a non-principal turn
+// opener. It must therefore trip that gate and no other: if it also matched
+// `DEPTH_REQUEST_PATTERNS`, those tests would pass via the depth gate even
+// with the lookback widening reverted — a probe that cannot fail (mem#704).
+//
+// mt#4031 removed a leading "Help me understand more precisely:" from this
+// fixture for exactly that reason. Worth recording rather than just deleting:
+// this fixture was drawn from the live 2026-08-11T17:21:47Z record, so its
+// original wording is an independently-collected THIRD instance of the shape
+// mt#4031's `help-me-understand` widening is calibrated from — one found by a
+// different task, months of records apart, without looking for it. The
+// remaining text is still a multi-part substantive question, which is all
+// these three tests need.
+const MULTI_PART_QUESTION =
+  "What's the actual mechanism here, why does it apply in this case, and how does it compare to the alternative we discussed?";
+// mt#4031 — the VERBATIM `precedingPrompt` excerpts from the two 2026-08-12
+// over-budget records that carried `suppressedByDepthRequest: false`, plus the
+// name of the pattern added to match them. Verbatim is the point: these are a
+// regression test for the measured misses, not a restatement of the regex.
+const MT4031_PATTERN_NAME = "help-me-understand";
+const MT4031_MEASURED_PROMPT_ONE =
+  "help me understand what your proposal would actually look like and how it would work";
+const MT4031_MEASURED_PROMPT_TWO =
+  "help me understand where those missing subagent launches went, i feel like i'm missing something here. and that other ask is answered";
+// mt#3972 — non-principal turn-opener fixtures (task-notification /
+// system-reminder), matching the shapes `isNonPrincipalTurnOpener` matches.
+const TASK_NOTIFICATION_TEXT =
+  "<task-notification>\n<task-id>abc123</task-id>\n<tool-use-id>toolu_01</tool-use-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>";
+const SYSTEM_REMINDER_TEXT = "<system-reminder>\nInjected reminder content.\n</system-reminder>";
 
 const BASE_TS = Date.parse("2026-07-17T10:00:00.000Z");
 
@@ -220,6 +286,24 @@ function pointerFreeOverBudgetReport(): string {
   return `Status update, no pointers at all. ${words(500)}`;
 }
 
+/**
+ * A 458-word over-budget report — the mt#3972 AT1 fixture, matching the live
+ * 2026-08-11T17:21:47Z record's measured word count (session `25a27bdb`).
+ */
+function report458Words(): string {
+  return `Status update on the research thread. ${words(452)}`;
+}
+
+/** A turn opener the operator did not type — `isNonPrincipalTurnOpener` matches it (mt#3972). */
+function taskNotificationLine(offsetSeconds: number): TranscriptLine {
+  return userPromptLine(offsetSeconds, TASK_NOTIFICATION_TEXT);
+}
+
+/** A hook-injected reminder turn opener — `isNonPrincipalTurnOpener` matches it (mt#3972). */
+function systemReminderLine(offsetSeconds: number): TranscriptLine {
+  return userPromptLine(offsetSeconds, SYSTEM_REMINDER_TEXT);
+}
+
 // ---------------------------------------------------------------------------
 // measureWallOfText — pure function
 // ---------------------------------------------------------------------------
@@ -242,11 +326,51 @@ describe("measureWallOfText", () => {
     expect(m.trigger).toBe("none");
   });
 
-  test("over-budget alone (clean prose at 2x budget) -> trigger 'over-budget'", () => {
+  test("over-budget alone (clean prose at the threshold) -> trigger 'over-budget'", () => {
     const m = measureWallOfText(words(WORD_COUNT_THRESHOLD));
     expect(m.matched).toBe(true);
     expect(m.trigger).toBe("over-budget");
     expect(m.leadLabelHits).toEqual([]);
+  });
+
+  // mt#3942: the multiplier dropped 2 -> 1.5, narrowing the silent band from
+  // 201-399 to 201-299 at the default budget. These pin the DECISION (the
+  // multiplier) and the BEHAVIOUR (the newly-covered band) separately, and both
+  // are expressed relative to the constants — `LEAD_WORD_BUDGET` is tunable via
+  // MINSKY_WALL_OF_TEXT_WORD_BUDGET, so a literal word count would make these
+  // tests fail on a tuned machine for a reason unrelated to what they assert
+  // (PR #2798 R1 BLOCKING).
+  test("the over-budget multiplier is 1.5x the contract budget", () => {
+    expect(OVER_BUDGET_MULTIPLIER).toBe(1.5);
+    expect(WORD_COUNT_THRESHOLD).toBe(Math.ceil(LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER));
+  });
+
+  test("the threshold is a whole number of words for any tuned budget", () => {
+    // A non-integer multiplier makes an odd budget produce a fractional
+    // threshold (141 * 1.5 = 211.5), which no word count can equal — so every
+    // equality-based edge test would under-shoot it. WORD_COUNT_THRESHOLD
+    // rounds up to stay in the same domain as the counts it is compared
+    // against; this pins that so a future multiplier change cannot silently
+    // reintroduce the fractional case. (PR #2798 R2 BLOCKING.)
+    expect(Number.isInteger(WORD_COUNT_THRESHOLD)).toBe(true);
+  });
+
+  test("a report just over the threshold fires — the band the old 2x multiplier missed", () => {
+    // Under the old 2x this length sat below the threshold and produced no
+    // record at all, which is why an over-long report drew a human complaint
+    // instead of a warning.
+    const m = measureWallOfText(words(WORD_COUNT_THRESHOLD + 20));
+    expect(m.matched).toBe(true);
+    expect(m.trigger).toBe("over-budget");
+  });
+
+  test("a report below the threshold still does not fire, so margin over the budget survives", () => {
+    // 1.5x deliberately leaves headroom above the ~200-word target rather than
+    // firing on every report that runs slightly long — the lower-bound control.
+    const m = measureWallOfText(words(WORD_COUNT_THRESHOLD - 50));
+    expect(m.wordCount).toBeLessThan(WORD_COUNT_THRESHOLD);
+    expect(m.matched).toBe(false);
+    expect(m.trigger).toBe("none");
   });
 
   test("under budget but 'gate (l)' in the lead -> trigger 'lead-labels'", () => {
@@ -509,8 +633,14 @@ describe("run — mt#3112 depth-request override", () => {
   });
 
   test("(mt#3207) an INJECTED report records an empty suppressionReasons, not an absent one", () => {
+    // mt#3718: the opening prompt here MUST NOT be a substantive question —
+    // it would then trip the new question-answer override and suppress the
+    // fire, defeating this test's purpose (demonstrating the UNSUPPRESSED,
+    // injected shape). "what happened with the deploy?" (the original
+    // fixture) is itself a substantive question under the new logic, so a
+    // plain non-question opening prompt is used instead.
     const lines = transcriptWithFinalReportAndOpeningPrompt(
-      "what happened with the deploy?",
+      OPENING_PROMPT_TEXT,
       pointerFreeOverBudgetReport()
     );
     const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
@@ -575,8 +705,61 @@ describe("run — mt#3112 depth-request override", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// mt#4031 — the question-answer override missed explanation-answers
+//
+// End-to-end counterpart to the unit tests below. The two prompts are the
+// verbatim `precedingPrompt` excerpts from the records that made this task
+// measurable; the third test is the negative control the spec's AT2 requires,
+// and it is the one that would catch an over-broad widening: an ordinary
+// over-budget turn-end report must still fire, or the detector has lost its
+// purpose (spec SC3).
+// ---------------------------------------------------------------------------
+
+describe("run — mt#4031 help-me-understand override", () => {
+  test("an over-budget report answering the first measured prompt is suppressed", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      MT4031_MEASURED_PROMPT_ONE,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("over-budget");
+    expect(cal.suppressedByDepthRequest).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+
+  test("an over-budget report answering the second measured prompt is suppressed", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      MT4031_MEASURED_PROMPT_TWO,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByDepthRequest).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+
+  // NEGATIVE CONTROL (spec AT2 / SC3). The identical report, preceded by an
+  // ordinary prompt, must STILL fire. Without this, a widening that matched
+  // everything would pass both tests above.
+  test("the same report after an ordinary prompt still fires", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      OPENING_PROMPT_TEXT,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByDepthRequest).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+});
+
 describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
-  test("exposes the three mt#3112 patterns plus the four mt#3336 widenings", () => {
+  test("exposes the three mt#3112 patterns, the four mt#3336 widenings, and the mt#4031 widening", () => {
     expect(DEPTH_REQUEST_PATTERNS.map((p) => p.name)).toEqual([
       "walk-me-through",
       "show-the-detail",
@@ -585,6 +768,7 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
       "go-into-detail",
       "be-expansive",
       "in-full-detail",
+      "help-me-understand",
     ]);
   });
 
@@ -604,6 +788,27 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
     expect(detectDepthRequest(["explain it in full detail"]).matched).toBe(true);
   });
 
+  test("matches the mt#4031 measured prompts", () => {
+    expect(detectDepthRequest([MT4031_MEASURED_PROMPT_ONE]).matched).toBe(true);
+    expect(detectDepthRequest([MT4031_MEASURED_PROMPT_ONE]).matchedPattern).toBe(
+      MT4031_PATTERN_NAME
+    );
+    expect(detectDepthRequest([MT4031_MEASURED_PROMPT_TWO]).matched).toBe(true);
+    expect(detectDepthRequest([MT4031_MEASURED_PROMPT_TWO]).matchedPattern).toBe(
+      MT4031_PATTERN_NAME
+    );
+  });
+
+  // The widening is bounded to the phrase the records name. These adjacent
+  // shapes are the neighborhood it deliberately does NOT reach — pinning them
+  // as non-matching is what keeps a later edit from quietly generalizing the
+  // entry into "any request for an explanation".
+  test("mt#4031 widening does not reach adjacent unmeasured phrasings", () => {
+    expect(detectDepthRequest(["explain the sweep logic"]).matched).toBe(false);
+    expect(detectDepthRequest(["i don't understand the sweep logic"]).matched).toBe(false);
+    expect(detectDepthRequest(["do you understand the sweep logic"]).matched).toBe(false);
+  });
+
   test("does not match ordinary prose", () => {
     expect(detectDepthRequest(["please fix the bug in session.ts"]).matched).toBe(false);
     expect(detectDepthRequest(["background this for me"]).matched).toBe(false);
@@ -615,6 +820,426 @@ describe("detectDepthRequest / DEPTH_REQUEST_PATTERNS", () => {
 
   test("empty input -> not matched", () => {
     expect(detectDepthRequest([]).matched).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3718 — question-answer override widening
+// ---------------------------------------------------------------------------
+
+describe("detectSubstantiveQuestion", () => {
+  test("matches a plain interrogative", () => {
+    expect(detectSubstantiveQuestion(QUESTION_ANSWER_PHRASE).matched).toBe(true);
+  });
+
+  test("matches a multi-question prompt", () => {
+    expect(
+      detectSubstantiveQuestion(
+        "What happened with the pickup ack? Why didn't I see it? Should the retrospective watcher have caught this?"
+      ).matched
+    ).toBe(true);
+  });
+
+  test("does not match a brief affirmative with no question mark", () => {
+    expect(detectSubstantiveQuestion("proceed").matched).toBe(false);
+  });
+
+  test("does not match a bare 'ok?' below the word floor", () => {
+    expect(detectSubstantiveQuestion("ok?").matched).toBe(false);
+  });
+
+  test("does not match an empty string", () => {
+    expect(detectSubstantiveQuestion("").matched).toBe(false);
+    expect(detectSubstantiveQuestion("   ").matched).toBe(false);
+  });
+
+  test("QUESTION_MIN_WORDS is the floor separating 'ok?' from a real question", () => {
+    const belowFloor = Array.from({ length: QUESTION_MIN_WORDS - 1 }, () => "w").join(" ");
+    expect(detectSubstantiveQuestion(`${belowFloor}?`).matched).toBe(false);
+    const atFloor = Array.from({ length: QUESTION_MIN_WORDS }, () => "w").join(" ");
+    expect(detectSubstantiveQuestion(`${atFloor}?`).matched).toBe(true);
+  });
+});
+
+describe("resolveQuestionAnswerCheck", () => {
+  test("a REAL principal turn between a question and the opening does not suppress (bound preserved)", () => {
+    // mt#3972 widened this gate to skip NON-PRINCIPAL openers, but a
+    // genuine principal turn that intervenes — and isn't itself a question —
+    // still stops the walk: the gate must not keep hunting further back for
+    // an OLDER question once it lands on a real principal prompt. This is
+    // exactly the FP-risk guard SC1 requires preserved (it is what the
+    // original mt#3718 single-opening-prompt anchor protected against).
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, OPENING_PROMPT_TEXT),
+      assistantToolUseLine(4),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
+
+  test("matches when the OPENING prompt itself is a substantive question", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE,
+      pointerFreeOverBudgetReport()
+    );
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("fails CLOSED when findOpeningPromptIndex cannot anchor", () => {
+    expect(resolveQuestionAnswerCheck([userPromptLine(0, "only one prompt?")]).matched).toBe(false);
+  });
+
+  // mt#3972 — widened lookback past non-principal turn openers.
+  test("widens past a SINGLE task-notification opener to the principal's question", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok, digging in"),
+      taskNotificationLine(30),
+      assistantToolUseLine(31),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("widens past a SINGLE system-reminder opener to the principal's question", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok, digging in"),
+      systemReminderLine(30),
+      assistantToolUseLine(31),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("widens past MULTIPLE consecutive non-principal openers within the bound", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok, digging in"),
+      taskNotificationLine(10),
+      taskNotificationLine(20),
+      taskNotificationLine(30),
+      assistantToolUseLine(31),
+      assistantTextLine(60, pointerFreeOverBudgetReport()),
+      userPromptLine(120, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(true);
+  });
+
+  test("does NOT widen past QUESTION_ANSWER_LOOKBACK_TURNS non-principal openers (bound is enforced)", () => {
+    // Exactly QUESTION_ANSWER_LOOKBACK_TURNS real-prompt slots are consumed
+    // entirely by non-principal openers before the principal's question is
+    // reached — it has scrolled out of the bounded window, so this must NOT
+    // suppress. This is the SC1 bound doing its job: without it, this fixture
+    // would suppress too, on the grounds that a question exists SOMEWHERE in
+    // the transcript. Generated from the constant (rather than a hardcoded
+    // count) so the test tracks the bound if it is ever retuned.
+    const openers: TranscriptLine[] = Array.from(
+      { length: QUESTION_ANSWER_LOOKBACK_TURNS },
+      (_, i) => taskNotificationLine(10 * (i + 1))
+    );
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      ...openers,
+      assistantToolUseLine(200),
+      assistantTextLine(210, pointerFreeOverBudgetReport()),
+      userPromptLine(300, "next prompt"),
+    ];
+    expect(resolveQuestionAnswerCheck(lines).matched).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isNonPrincipalTurnOpener / findRecentPrincipalPromptIndex — mt#3972
+// ---------------------------------------------------------------------------
+
+describe("isNonPrincipalTurnOpener", () => {
+  test("matches a task-notification block", () => {
+    expect(isNonPrincipalTurnOpener(TASK_NOTIFICATION_TEXT)).toBe(true);
+  });
+
+  test("matches a system-reminder block", () => {
+    expect(isNonPrincipalTurnOpener(SYSTEM_REMINDER_TEXT)).toBe(true);
+  });
+
+  test("matches the [SYSTEM NOTIFICATION preamble form", () => {
+    expect(
+      isNonPrincipalTurnOpener(
+        "[SYSTEM NOTIFICATION - NOT USER INPUT]\nAn automated event, not from the user."
+      )
+    ).toBe(true);
+  });
+
+  test("does not match an ordinary operator prompt", () => {
+    expect(isNonPrincipalTurnOpener(QUESTION_ANSWER_PHRASE)).toBe(false);
+    expect(isNonPrincipalTurnOpener(OPENING_PROMPT_TEXT)).toBe(false);
+  });
+
+  test("tolerates leading/trailing whitespace", () => {
+    expect(isNonPrincipalTurnOpener(`  \n${TASK_NOTIFICATION_TEXT}\n  `)).toBe(true);
+  });
+});
+
+describe("findRecentPrincipalPromptIndex", () => {
+  test("returns the opening prompt itself when it is already principal-authored", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "report"),
+      userPromptLine(2, "current prompt"),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 0)).toBe(0);
+  });
+
+  test("skips a single non-principal opener to find the principal prompt before it", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      taskNotificationLine(2),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 2)).toBe(0);
+  });
+
+  test("returns undefined when every prompt within the window is non-principal", () => {
+    const lines: TranscriptLine[] = [
+      taskNotificationLine(0),
+      systemReminderLine(1),
+      taskNotificationLine(2),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 2)).toBeUndefined();
+  });
+
+  test("respects an explicit lookback override smaller than QUESTION_ANSWER_LOOKBACK_TURNS", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      taskNotificationLine(1),
+      taskNotificationLine(2),
+    ];
+    // With the default lookback (5) the principal prompt at index 0 is
+    // reachable; with lookback=2 only the two notifications are in the
+    // window, so it is not.
+    expect(findRecentPrincipalPromptIndex(lines, 2)).toBe(0);
+    expect(findRecentPrincipalPromptIndex(lines, 2, 2)).toBeUndefined();
+  });
+
+  test("never reaches past throughIndex, even when later prompts exist", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, QUESTION_ANSWER_PHRASE),
+      assistantTextLine(1, "ok"),
+      userPromptLine(2, "prompt after throughIndex"),
+    ];
+    expect(findRecentPrincipalPromptIndex(lines, 0)).toBe(0);
+  });
+});
+
+describe("run — mt#3718 question-answer override", () => {
+  // AT1 — the 2026-08-03T21:48Z FP shape (ask#6891).
+  test("(AT1) over-budget report answering a substantive opening question -> suppressed, logged", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressedByDepthRequest).toBe(false);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // AT2 — the 2026-08-03T22:38Z FP shape (multi-question Telegram reply).
+  test("(AT2) over-budget report answering a multi-question opening prompt -> suppressed, logged", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "What happened with the pickup ack? Why didn't I see it? Should the retrospective watcher have caught this?",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  test("a brief affirmative opening prompt ('proceed') -> fires as today, not suppressed", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      "proceed",
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // SC3 — a label-led report is never excused by a preceding question, even
+  // though the trigger is "both" (over-budget AND lead-labels).
+  test("a label-led report preceded by a substantive question -> STILL fires (SC3)", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      labelHeavyReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("both");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // SC3, pure lead-labels leg (under budget, label hit only) — extra
+  // coverage that the question-answer gate never applies outside the pure
+  // over-budget trigger.
+  test("a PURE lead-labels report (under budget) preceded by a substantive question -> still fires", () => {
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      `Gate (l) blocked promotion. ${words(150)}`
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("lead-labels");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  test("both gates can suppress independently: a depth-request opening prompt is unaffected", () => {
+    // Regression guard: the question-answer gate is ADDITIVE, not a
+    // replacement — a depth-request phrase (no "?") still suppresses via
+    // suppressedByDepthRequest, with suppressedByQuestionAnswer false.
+    const lines = transcriptWithFinalReportAndOpeningPrompt(
+      DEPTH_REQUEST_PHRASE,
+      pointerFreeOverBudgetReport()
+    );
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByDepthRequest).toBe(true);
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+  });
+});
+
+describe("run — mt#3972 question-answer lookback widened past non-principal openers", () => {
+  // mt#4031 guard. Every test below asserts `suppressionReasons` is exactly
+  // the question-answer reason, which only isolates the gate under test while
+  // the fixture trips no other. Pinning that here means a later edit that
+  // reintroduces a depth-request phrase into the fixture fails HERE, naming
+  // the cause, instead of silently making the three tests below pass for the
+  // wrong reason.
+  test("(mt#4031) the fixture trips the question gate only, never the depth gate", () => {
+    expect(detectDepthRequest([MULTI_PART_QUESTION]).matched).toBe(false);
+    expect(detectSubstantiveQuestion(MULTI_PART_QUESTION).matched).toBe(true);
+  });
+
+  // AT1 — reproduces the live 2026-08-11T17:21:47Z record's shape (session
+  // `25a27bdb`): a principal multi-part question, a SINGLE
+  // `<task-notification>` turn opener, then the 458-word over-budget report
+  // that answers the question. Negative control (run against the pre-mt#3972
+  // single-opening-prompt anchor): this exact fixture FIRES —
+  // `suppressedByQuestionAnswer: false` and `additionalContext` defined —
+  // because the opening prompt IS the task-notification, not the question.
+  // See the mt#3972 PR body's execution-evidence block for the recorded
+  // negative-control run.
+  test("(AT1) 17:21 shape suppresses after the widened lookback", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(600),
+      assistantToolUseLine(601),
+      assistantTextLine(700, report458Words()),
+      userPromptLine(800, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.wordCount).toBe(458);
+    expect(cal.trigger).toBe("over-budget");
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // SC2 — the sibling 2026-08-11T19:16:53Z record (475 words, same session)
+  // shares the identical general shape: a substantive principal question,
+  // then a `<task-notification>` opener, then the over-budget report
+  // answering it. (Direct verification against the raw session transcript,
+  // done for this task: the LITERAL immediate real prompt before that
+  // record's notification opener was a short post-interrupt aside — "i
+  // switched to fable btw" — not itself a question; per SC1's FP-risk bound
+  // this gate correctly stops there rather than skipping past a genuine
+  // principal turn to reach the substantive question two turns earlier. This
+  // fixture reproduces the GENERAL shape both records exemplify, per the
+  // spec's own framing of AT1 as "the 17:21 shape" rather than a byte-exact
+  // replay.)
+  test("(SC2) 19:16 shape suppresses after the widened lookback", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(900),
+      assistantToolUseLine(901),
+      assistantTextLine(1000, `Status update on the research thread. ${words(469)}`),
+      userPromptLine(1100, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeUndefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.wordCount).toBe(475);
+    expect(cal.suppressedByQuestionAnswer).toBe(true);
+    expect(cal.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+  });
+
+  // AT2 — the lookback window contains NO principal question (the one real
+  // prompt in the window is not a question) -> still fires, exactly as an
+  // ordinary unsuppressed report does today. This is the required control:
+  // widening the lookback must not turn into "suppress whenever ANY prompt
+  // exists nearby," only "suppress when a PRINCIPAL QUESTION is found."
+  test("(AT2) no principal question within the lookback window -> still fires", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, OPENING_PROMPT_TEXT), // not a question
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(600),
+      assistantToolUseLine(601),
+      assistantTextLine(700, report458Words()),
+      userPromptLine(800, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
+  });
+
+  // AT3 — SC3: a label-led report is never excused by a preceding question,
+  // even across the widened lookback (trigger exclusion is unchanged).
+  test("(AT3) label-led report after a question with a task-notification opener -> still fires", () => {
+    const lines: TranscriptLine[] = [
+      userPromptLine(0, MULTI_PART_QUESTION),
+      assistantTextLine(5, "ok, digging in"),
+      taskNotificationLine(600),
+      assistantToolUseLine(601),
+      assistantTextLine(700, labelHeavyReport()),
+      userPromptLine(800, "next prompt"),
+    ];
+    const outcome = run(makeInput(), makeCtx(lines), noDedupeDeps());
+    expect(outcome).not.toBeNull();
+    expect(outcome?.additionalContext).toBeDefined();
+    const cal = outcome?.calibration as Record<string, unknown>;
+    expect(cal.trigger).toBe("both");
+    expect(cal.suppressedByQuestionAnswer).toBe(false);
+    expect(cal.suppressionReasons).toEqual([]);
   });
 });
 
@@ -701,37 +1326,90 @@ describe("resolveDepthCheck", () => {
 // ---------------------------------------------------------------------------
 
 describe("sessionHasLoggedTextAndSuppression", () => {
-  test("matches when both textHash AND suppressedByDepthRequest agree", () => {
+  test("matches when both textHash AND the legacy suppressedByDepthRequest agree", () => {
     const log = `${JSON.stringify({
       session_id: "s",
       textHash: "hash-A",
       suppressedByDepthRequest: true,
     })}\n`;
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(true);
+    // Legacy (pre-mt#3207) shape: no `suppressionReasons` array, so the
+    // record's implied reason set is derived from the boolean alone.
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(true);
   });
 
-  test("does NOT match when textHash agrees but suppressedByDepthRequest differs (the R1 fix)", () => {
+  test("does NOT match when textHash agrees but the legacy suppressedByDepthRequest differs (the R1 fix)", () => {
     const log = `${JSON.stringify({
       session_id: "s",
       textHash: "hash-A",
       suppressedByDepthRequest: false,
     })}\n`;
-    // Same text, but this occurrence's suppression state is TRUE while the
-    // logged record's is FALSE — a genuinely different depth-request context
-    // coincidentally producing identical text; must NOT be treated as a
-    // stale re-measurement.
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+    // Same text, but this occurrence's suppression state is non-empty while
+    // the logged record's is empty — a genuinely different depth-request
+    // context coincidentally producing identical text; must NOT be treated
+    // as a stale re-measurement.
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(false);
   });
 
-  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as suppressed=false", () => {
+  test("a pre-mt#3112 record (no suppressedByDepthRequest field) is treated as an empty reason set", () => {
     const log = `${JSON.stringify({ session_id: "s", textHash: "hash-A" })}\n`;
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", false)).toBe(true);
-    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", true)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [])).toBe(true);
+    expect(
+      sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_DEPTH_REQUEST])
+    ).toBe(false);
   });
 
   test("undefined log text / session id -> false", () => {
-    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", false)).toBe(false);
-    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", false)).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression(undefined, "s", "hash-A", [])).toBe(false);
+    expect(sessionHasLoggedTextAndSuppression("{}", undefined, "hash-A", [])).toBe(false);
+  });
+
+  // mt#3718 R1 fix (PR #2651 review round 1): the case a collapsed boolean
+  // could not distinguish — same "suppressed" verdict, DIFFERENT gate.
+  describe("mt#3718 R1 — reason-SET-aware, not just suppressed-or-not", () => {
+    test("a differing reason SET is NOT a duplicate, even though both are non-empty", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+      })}\n`;
+      // Both this occurrence and the logged record are "suppressed" (a
+      // non-empty reason set) — the pre-R1 collapsed-boolean comparison
+      // would have matched these as duplicates. They must NOT match: the
+      // gates differ.
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_QUESTION_ANSWER])
+      ).toBe(false);
+    });
+
+    test("reason sets compare order-independently", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [SUPPRESSION_DEPTH_REQUEST, SUPPRESSION_QUESTION_ANSWER],
+      })}\n`;
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [
+          SUPPRESSION_QUESTION_ANSWER,
+          SUPPRESSION_DEPTH_REQUEST,
+        ])
+      ).toBe(true);
+    });
+
+    test("an empty suppressionReasons array (injected) matches an empty query, not a non-empty one", () => {
+      const log = `${JSON.stringify({
+        session_id: "s",
+        textHash: "hash-A",
+        suppressionReasons: [],
+      })}\n`;
+      expect(sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [])).toBe(true);
+      expect(
+        sessionHasLoggedTextAndSuppression(log, "s", "hash-A", [SUPPRESSION_QUESTION_ANSWER])
+      ).toBe(false);
+    });
   });
 });
 
@@ -981,6 +1659,54 @@ describe("run — mt#3112 R1 dedupe-vs-suppression interaction", () => {
   });
 });
 
+describe("run — mt#3718 R1 dedupe-vs-suppression interaction (reason-set-aware dedupe)", () => {
+  test("same text suppressed by DIFFERENT gates across occurrences logs BOTH (reason-set collapse fix)", () => {
+    const input = makeInput();
+    const report = pointerFreeOverBudgetReport();
+
+    // Occurrence 1: opening prompt is a depth-request phrase -> suppressed by
+    // the depth-request gate.
+    const lines1 = transcriptWithFinalReportAndOpeningPrompt(DEPTH_REQUEST_PHRASE, report);
+    const outcome1 = run(input, makeCtx(lines1), noDedupeDeps());
+    expect(outcome1?.calibration).toBeDefined();
+    const cal1 = outcome1?.calibration as Record<string, unknown>;
+    expect(cal1.suppressedByDepthRequest).toBe(true);
+    expect(cal1.suppressedByQuestionAnswer).toBe(false);
+    expect(cal1.suppressionReasons).toEqual([SUPPRESSION_DEPTH_REQUEST]);
+    const hash1 = cal1.textHash as string;
+
+    // Simulate occurrence 1 having been appended to the calibration log.
+    const priorLogText = `${JSON.stringify({
+      session_id: input.session_id,
+      textHash: hash1,
+      suppressedByDepthRequest: true,
+      suppressedByQuestionAnswer: false,
+      suppressionReasons: [SUPPRESSION_DEPTH_REQUEST],
+    })}\n`;
+
+    // Occurrence 2: BYTE-IDENTICAL report text, but this time the opening
+    // prompt is a substantive QUESTION rather than a depth-request phrase
+    // -> suppressed by the OTHER gate. Before the R1 fix, the dedupe check
+    // compared only the combined `suppressed` boolean (true in both cases),
+    // so this record was wrongly treated as an unchanged duplicate and
+    // dropped -- losing the fact that a DIFFERENT gate suppressed it.
+    const lines2 = transcriptWithFinalReportAndOpeningPrompt(
+      QUESTION_ANSWER_PHRASE_BUN_BUG,
+      report
+    );
+    const outcome2 = run(input, makeCtx(lines2), {
+      readCalibrationLogTextFn: () => priorLogText,
+    });
+    expect(outcome2?.calibration).toBeDefined();
+    const cal2 = outcome2?.calibration as Record<string, unknown>;
+    expect(cal2.suppressedByDepthRequest).toBe(false);
+    expect(cal2.suppressedByQuestionAnswer).toBe(true);
+    expect(cal2.suppressionReasons).toEqual([SUPPRESSION_QUESTION_ANSWER]);
+    expect(cal2.textHash).toBe(hash1); // same text, confirmed via identical hash
+    expect(outcome2?.additionalContext).toBeUndefined();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // readCalibrationLogText — mt#3028 / PR #2165 R1 BLOCKING #2: bounded tail read
 // ---------------------------------------------------------------------------
@@ -1073,3 +1799,106 @@ describe("compiled .claude/hooks/ copy stays in sync with this source file", () 
   });
 });
 /* eslint-enable custom/no-real-fs-in-tests */
+
+// ---------------------------------------------------------------------------
+// Preceding-prompt capture (mt#4048) — AT1..AT4
+//
+// The override RESOLVES the principal prompt to decide suppression and used to
+// discard it, so a reviewer could see that it declined to fire but not what it
+// was looking at. mt#4031's two candidate causes are indistinguishable without
+// this.
+// ---------------------------------------------------------------------------
+
+describe("preceding-prompt capture (mt#4048)", () => {
+  /**
+   * Over-budget with NO lead labels, so `trigger` is exactly `over-budget`
+   * — the only leg the question-answer override guards, and therefore the
+   * only one where a prompt is resolved at all.
+   */
+  const STATUS_KEY = "precedingPromptStatus";
+
+  function plainOverBudgetReport(): string {
+    return words(900);
+  }
+
+  function recordFor(openingPrompt: string, report: string): Record<string, unknown> {
+    const outcome = run(
+      makeInput(),
+      makeCtx(transcriptWithFinalReportAndOpeningPrompt(openingPrompt, report)),
+      noDedupeDeps()
+    );
+    return outcome?.calibration as Record<string, unknown>;
+  }
+
+  test("AT1: a substantive question is captured on the record", () => {
+    const cal = recordFor("Why did the dedup miss on the second scan?", plainOverBudgetReport());
+    expect(cal[STATUS_KEY]).toBe("captured");
+    const captured = cal["precedingPrompt"] as { excerpt: string; truncated: boolean };
+    // The observable that matters: the recorded prompt IS the opening prompt.
+    expect(captured.excerpt).toContain("Why did the dedup miss");
+    expect(captured.truncated).toBe(false);
+    // Consistency: the override fired, and the recorded prompt is the one it
+    // fired on.
+    expect(cal["suppressedByQuestionAnswer"]).toBe(true);
+  });
+
+  test("AT2: a NON-question prompt is still captured — the not-fired case is what needs inspecting", () => {
+    const cal = recordFor("go ahead and ship it", plainOverBudgetReport());
+    expect(cal[STATUS_KEY]).toBe("captured");
+    const captured = cal["precedingPrompt"] as { excerpt: string };
+    expect(captured.excerpt).toContain("go ahead and ship it");
+    expect(cal["suppressedByQuestionAnswer"]).toBe(false);
+  });
+
+  test("PR #2928 R1: the shared judged-input marker is NOT stamped for this capture", () => {
+    // `hasJudgedInputCapture` means "this writer captured its JUDGED input".
+    // The preceding prompt is a different message, so stamping the marker for it
+    // would make that predicate answer differently across records whose
+    // judged-text capture is identical.
+    const cal = recordFor("Why did the dedup miss?", plainOverBudgetReport());
+    expect(cal["precedingPrompt"]).toBeDefined();
+    expect(cal["captureSchema"]).toBeUndefined();
+  });
+
+  test("AT3: an unresolved prompt is distinguishable from an empty one", () => {
+    // No principal prompt at all: the status says so rather than recording an
+    // empty string that would read as "the prompt was empty".
+    const outcome = run(
+      makeInput(),
+      makeCtx([assistantTextLine(60, plainOverBudgetReport())]),
+      noDedupeDeps()
+    );
+    const cal = outcome?.calibration as Record<string, unknown> | undefined;
+    if (cal !== undefined) {
+      expect(cal[STATUS_KEY]).not.toBe("captured");
+      expect(cal["precedingPrompt"]).toBeUndefined();
+    } else {
+      // No measurement at all for this shape is also acceptable; the point is
+      // that no record ever claims a captured prompt it did not resolve.
+      expect(outcome).toBeNull();
+    }
+  });
+
+  test("the capture is the ELIDED copy — a fenced paste never reaches the log", () => {
+    const secretish = "sk-live-DO-NOT-LOG-abcdefghijklmnop";
+    const cal = recordFor(
+      `Why is this failing?\n\n\`\`\`\n${secretish}\n\`\`\`\n`,
+      plainOverBudgetReport()
+    );
+    const captured = cal["precedingPrompt"] as { excerpt: string };
+    expect(captured.excerpt).not.toContain(secretish);
+    expect(captured.excerpt).toContain("Why is this failing");
+  });
+
+  test("AT4: capture is bounded by the shared documented cap", () => {
+    const cal = recordFor(`Why ${"padding ".repeat(4000)}?`, plainOverBudgetReport());
+    const captured = cal["precedingPrompt"] as {
+      excerpt: string;
+      truncated: boolean;
+      length: number;
+    };
+    expect(captured.truncated).toBe(true);
+    expect(captured.excerpt.length).toBeLessThanOrEqual(ARTIFACT_CAPTURE_MAX_CHARS + 1);
+    expect(captured.length).toBeGreaterThan(ARTIFACT_CAPTURE_MAX_CHARS);
+  });
+});

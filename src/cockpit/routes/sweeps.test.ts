@@ -99,8 +99,21 @@ describe("GET /api/sweeps", () => {
     // reports both, and the field's presence is what makes the second
     // observable at all.
     expect(Object.hasOwn(body, "transcriptCoverage")).toBe(true);
-    // null here means "not measured" (no SQL provider in this harness), which
-    // is deliberately distinct from a measured zero.
-    expect(body.transcriptCoverage).toBeNull();
+
+    // The VALUE is deliberately not asserted here (mt#3600). This test used to
+    // require null, on the premise "no SQL provider in this harness" — false on
+    // a machine with Postgres configured, and true-until-a-sibling-test-runs
+    // even there, because the provider is a process-wide singleton. That made
+    // an unrelated commit's pre-commit gate fail depending on which other files
+    // shared the batch. Both value branches, and the measured-zero vs
+    // not-measured distinction this route exists to preserve, are pinned in
+    // `src/cockpit/transcript-coverage.test.ts` against an EXPLICIT provider.
+    // Here we only require the shape to be one of the two legal ones.
+    const coverage = body.transcriptCoverage;
+    expect(coverage === null || typeof coverage === "object").toBe(true);
+    if (coverage !== null) {
+      expect(Object.hasOwn(coverage as object, "total")).toBe(true);
+      expect(Object.hasOwn(coverage as object, "titlePct")).toBe(true);
+    }
   });
 });

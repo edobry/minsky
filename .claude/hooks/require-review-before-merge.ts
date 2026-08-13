@@ -1128,6 +1128,9 @@ async function main(): Promise<void> {
         additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
       },
     });
+    // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+    // check. Neither a clean decision nor a crash: nothing broke, there was simply
+    // nothing to check against.
     return recordAndExit("warn");
   }
 
@@ -1152,7 +1155,9 @@ async function main(): Promise<void> {
           "⚠️ [require-review-before-merge] Could not derive owner/repo from git remote — review-gate check skipped.",
       },
     });
-    return recordAndExit("warn");
+    // mt#3920: `crashed` — repo derivation failed, so the gate could not run. The warn is
+    // a fail-open on a broken probe, not a verdict (same call as the sibling gates).
+    return recordAndExit("warn", undefined, "crashed");
   }
 
   const branch = `task/${task.replace("#", "-")}`;
@@ -1162,6 +1167,8 @@ async function main(): Promise<void> {
   // base branch dynamically instead of the prior hardcoded "main" (mt#2653
   // item 5), used below by the branch-protection fetch.
   const ref = resolvePrRefByBranch(repo, branch, { cwd: input.cwd });
+  // mt#3920: UNSET — no PR on the branch, so the review check never ran. Not clean-run
+  // evidence, and not a crash either.
   if (!ref) return recordAndExit("allow");
   const { pr, headSha, baseBranch } = ref;
 
@@ -1173,6 +1180,19 @@ async function main(): Promise<void> {
     submitted_at: string;
     user_login?: string;
   }>;
+  // mt#3920: a failed fetch and a PR with genuinely no reviews both arrive at the
+  // no-review deny below, via an empty array. They are NOT the same evidence: the first
+  // means the gate's probe broke, the second is a real verdict. Track which one happened
+  // so the fire-log record can say — without changing what is decided (both still deny).
+  //
+  // R1: keyed on the SUBPROCESS RESULT first, not only on a parse throw. An earlier draft
+  // set this in the `catch` alone, which reads probe health off the STRING SHAPE of stdout:
+  // a `gh` call that fails but still emits parseable JSON — an empty array with the real
+  // error on stderr, or a wrapper normalizing a failure to `[]` — parses cleanly and would
+  // have been recorded `decided`. That is the exact misclassification this task exists to
+  // remove, reintroduced one layer down. Non-zero exit is the primary signal; the parse
+  // throw is the fallback for a zero-exit call that emitted garbage.
+  let reviewsFetchFailed = reviewsJson.exitCode !== 0;
   try {
     const raw = JSON.parse(reviewsJson.stdout.trim()) as Array<{
       body: string;
@@ -1188,6 +1208,7 @@ async function main(): Promise<void> {
     }));
   } catch {
     reviews = [];
+    reviewsFetchFailed = true;
   }
 
   // Check that at least one review exists
@@ -1199,7 +1220,10 @@ async function main(): Promise<void> {
         permissionDecisionReason: `No review on PR #${pr}. Ensure the reviewer bot posts a review before merging.`,
       },
     });
-    return recordAndExit("deny");
+    // mt#3920: `crashed` when the reviews fetch/parse failed — the deny is correct either
+    // way, but a broken forge transport is not clean-run evidence. A genuinely empty
+    // review list IS a verdict on real data, so that case is `decided`.
+    return recordAndExit("deny", undefined, reviewsFetchFailed ? "crashed" : "decided");
   }
 
   // mt#2055: structured provenance inspection with text-matching fallback.
@@ -1221,7 +1245,12 @@ async function main(): Promise<void> {
         permissionDecisionReason: provenanceResult.reason,
       },
     });
-    return recordAndExit("deny");
+    // mt#3920: `decided` — every exit from here on is downstream of a completed review
+    // fetch and a real evaluation of its content, so each is clean-run evidence. The
+    // `overrideFields` attached below come from sub-check overrides (smoke,
+    // bundle-boot-smoke, required-checks) that neutralize ONE downstream check while the
+    // gate keeps running — unlike a top-level override, which would exit unevaluated.
+    return recordAndExit("deny", undefined, "decided");
   }
 
   // mt#2989: a REQUEST_CHANGES finding was overridden via the operator-approved
@@ -1266,7 +1295,7 @@ async function main(): Promise<void> {
           permissionDecisionReason: smokeResult.reason,
         },
       });
-      return recordAndExit("deny", overrideFields);
+      return recordAndExit("deny", overrideFields, "decided");
     }
   }
 
@@ -1311,7 +1340,7 @@ async function main(): Promise<void> {
           permissionDecisionReason: checkRunsResult.reason,
         },
       });
-      return recordAndExit("deny", overrideFields);
+      return recordAndExit("deny", overrideFields, "decided");
     }
   }
 
@@ -1342,7 +1371,7 @@ async function main(): Promise<void> {
           permissionDecisionReason: bundleResult.reason,
         },
       });
-      return recordAndExit("deny", overrideFields);
+      return recordAndExit("deny", overrideFields, "decided");
     }
   }
 
@@ -1386,10 +1415,16 @@ async function main(): Promise<void> {
           permissionDecisionReason: requiredResult.reason,
         },
       });
-      return recordAndExit("deny", overrideFields);
+      return recordAndExit("deny", overrideFields, "decided");
     }
   }
-  return recordAndExit("allow", overrideFields);
+  // mt#3920 R1, found by the class-not-instance scan the reviews-fetch finding prompted —
+  // the same shape, at a site the review did not name. All three CI sub-checks above are
+  // `else if (headSha)`-guarded, so an empty `headSha` skips every one of them and drops
+  // straight here. `resolvePrRefByBranch` returning a row without a head SHA is a degraded
+  // resolve, not a clean bill of health: marking it `decided` would let a gate that
+  // silently stopped checking CI report itself recovered on every merge.
+  return recordAndExit("allow", overrideFields, headSha ? "decided" : "crashed");
 }
 
 if (import.meta.main) {

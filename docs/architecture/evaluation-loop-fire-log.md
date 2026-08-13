@@ -444,9 +444,16 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   command path was rejected: the fire log is the GUARD invocation log (`guardName` is its
   identity field), and `src/` is bundled into the deployed MCP server, which must not import
   `.minsky/hooks/`.
-- **Invocation path.** `scripts/check-coverage-receipts.ts` discovers every
-  `.minsky/*-calibration.jsonl`, checks each, prints an `[OK]`/`[FLAGGED]` report, and exits
-  non-zero when any detector is flagged. It runs at calibration-review cadence
+- **Invocation path.** `scripts/check-coverage-receipts.ts` checks the UNION of every
+  DECLARED detector (`calibrationLog` on `GUARD_REGISTRY` plus `STANDALONE_GUARD_CANARIES`)
+  and every `.minsky/*-calibration.jsonl` on disk, prints an `[OK]`/`[DORMANT]`/`[FLAGGED]`
+  report, and exits non-zero when any detector is flagged. **The declared half is load-bearing
+  (mt#3742):** a detector that has never fired writes no file, so a disk-only scan cannot see
+  it — and "no records at all" is the dead-entry-point symptom this gate exists to catch, so
+  enumerating by presence-of-output made the check structurally blind to its own subject.
+  The "nothing to check" early exit therefore gates on whether ANY calibration log exists on
+  disk, not on the detector set: the union is never empty while any guard declares a log, and
+  calibration logs are gitignored, so gating on the set would flag everything in a fresh clone. It runs at calibration-review cadence
   (`/calibration-review` Step 1b), NOT as a merge gate — a flagged detector is a review
   signal, not a commit blocker.
 
@@ -572,3 +579,30 @@ first child task is an emitter rather than a tuner). The decider itself ships pu
 `src/domain/calibration/threshold-tuning.ts`; it discards records written before 2026-07-29
 (mt#3280's turn-attribution fix, commit `4b88d928c`) as a provenance boundary, which does not
 affect the count-based reads the rationalization panel above performs.
+
+## Laptop-freshness coupling (mt#4035, SC4)
+
+The DB-ingested copy of this stream — and every other guard/calibration stream mt#4035's ingest
+covers — carries the SAME freshness property as `agent_transcripts` (mt#2192/mt#2320's ADR-017
+capture layer): **the data is only as fresh as the last time the operator's laptop was open and
+running an ingest tick.** Both the SessionEnd hook
+(`.minsky/hooks/guard-events-ingest-on-session-end.ts`) and the cockpit daemon sweep
+(`startGuardEventsSweepBackstop`, `src/cockpit/sweepers.ts`) run ON the laptop, reading files
+that live ON the laptop (`.minsky/*.jsonl` in the checked-out repo, and the state-dir streams
+under `~/.local/state/minsky/`). A closed laptop means:
+
+- No new fires are written to `guard_events` for any stream, because nothing runs the ingest.
+- A cloud-side query over an ingested window (mt#4009's consumer, or mt#4035 AT3's "denials per
+  guard per week" query) silently answers as of the last tick BEFORE the laptop closed — it has
+  no signal that the laptop is closed, only that no new rows have landed.
+- Re-opening the laptop and running one ingest tick (either invocation path) catches the gap up
+  completely — nothing is lost, because the on-disk JSONL/JSON-array files (the system of record
+  per the schema doc-comment) keep accumulating locally while the laptop is open and running
+  Claude Code sessions; only the DB copy's freshness lags. A closed laptop also means no NEW
+  local fires are being produced at all (the guard/hook dispatcher itself only runs during an
+  active session), so "stale" here means "as of the last session," not "missing data that
+  happened while closed."
+
+This is the same shape mt#2320's ADR-017 module doc already names for transcripts; recorded here
+so a miner reading THIS corpus's freshness guarantee does not have to cross-reference the
+transcript path to learn it applies here too.

@@ -185,3 +185,34 @@ describe("session_* family: sessionId => task parity (mt#2816 sibling check)", (
     expect(editFile?.parameters && "task" in editFile.parameters).toBe(true);
   });
 });
+
+/**
+ * The tool-boundary half of mt#3212 (PR #2943 R1).
+ *
+ * mt#3212 made `sessionId` and `description` optional on the DOMAIN schema
+ * `SessionStartParametersSchema`, and the review asked — reasonably — for
+ * evidence that this does not move the MCP/CLI-declared contract. It cannot,
+ * and the reason is structural rather than incidental: the tool surface is the
+ * hand-declared `sessionStartCommandParams` map in `./session-parameters.ts`,
+ * which `createSessionStartCommand` passes as `parameters:`. The domain schema
+ * is not referenced there, or anywhere outside `packages/domain`.
+ *
+ * "Structural" is a claim that decays, so this asserts it against the BUILT
+ * command definition rather than against the source file: if someone later
+ * wires the domain schema into the registry, or flips either field to
+ * required, this fails. Both fields were already declared optional before
+ * mt#3212 — the assertion pins the state, it does not bless a change.
+ */
+describe("session.start tool-boundary parameter surface (mt#3212)", () => {
+  test("declares sessionId and description OPTIONAL, independent of the domain schema", () => {
+    const start = COMMANDS.find((c) => c.id === "session.start");
+    const params = start?.parameters as Record<string, { required?: boolean }> | undefined;
+
+    expect(params).toBeDefined();
+    expect(params?.sessionId?.required).toBe(false);
+    expect(params?.description?.required).toBe(false);
+    // `task` is the other half of the either/or the CLI help documents; pinned
+    // here so "optional" cannot quietly become "unreachable".
+    expect(params?.task?.required).toBe(false);
+  });
+});

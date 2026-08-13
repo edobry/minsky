@@ -462,7 +462,10 @@ if (import.meta.main) {
     // mt#2617 R1 BLOCKING #1: fail-open WITH an audit signal, matching the
     // transport-error fail-open paths below, instead of a silent exit.
     console.error(buildRepoDerivationFailureWarning(input.cwd));
-    recordAndExit("allow");
+    // mt#3920: `crashed`, not `decided` — the gate did not run. An `allow` here is a
+    // fail-open, and counting it as clean-run evidence would let guard-health report a
+    // guard that cannot resolve its own repo as recovered.
+    recordAndExit("allow", undefined, "crashed");
   }
 
   // Single gh call per invocation (unchanged from PR #1020 R1 BLOCKING #1
@@ -489,10 +492,14 @@ if (import.meta.main) {
           additionalContext: `⚠️ ${unresolvedTaskWarning(GUARD_NAME)}`,
         },
       });
+      // mt#3920: UNSET, deliberately — no task id resolved, so the gate never ran its
+      // check. Neither a clean decision nor a crash: nothing broke, there was simply
+      // nothing to check against.
       recordAndExit("warn");
     }
     const resolved = resolvePrBodyFromTask(repo, task, { cwd: input.cwd, timeout: ghTimeoutMs });
     // null = no PR exists for branch (legitimate; allow silently)
+    // mt#3920: UNSET — the scan never ran, so this allow is not clean-run evidence.
     if (resolved === null) recordAndExit("allow");
     if (!resolved.ok) {
       // Fail-open: emit a warning to stderr (the conventional channel for
@@ -502,7 +509,8 @@ if (import.meta.main) {
         `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
           `Reason: ${resolved.error}`
       );
-      recordAndExit("allow");
+      // mt#3920: the message says it — "gate did not run". Fail-open, so `crashed`.
+      recordAndExit("allow", undefined, "crashed");
     }
     prNumber = resolved.prNumber;
     body = resolved.body;
@@ -517,7 +525,8 @@ if (import.meta.main) {
         `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
           `Reason: ${resolved.error}`
       );
-      recordAndExit("allow");
+      // mt#3920: same fail-open as the sibling branch above — `crashed`.
+      recordAndExit("allow", undefined, "crashed");
     }
     prNumber = extractedPrNumber;
     body = resolved.body;
@@ -537,7 +546,10 @@ if (import.meta.main) {
   const matches = scanForTriggerPhrases(body);
   if (matches.length === 0) {
     // No coupled-step language in PR body — allow.
-    recordAndExit("allow");
+    // mt#3920: the fetch succeeded and the scan ran — a clean bill of health is a verdict
+    // on real data, so this is clean-run evidence (unlike the no-PR / not-a-merge exits
+    // above, where the scan never ran).
+    recordAndExit("allow", undefined, "decided");
   }
 
   // Triggers found. Check for operator override.
@@ -557,5 +569,5 @@ if (import.meta.main) {
       permissionDecisionReason: buildDenialReason(prNumber, matches),
     },
   });
-  recordAndExit("deny");
+  recordAndExit("deny", undefined, "decided");
 }

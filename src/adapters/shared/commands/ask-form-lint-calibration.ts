@@ -25,14 +25,15 @@
  * process whose cwd is not tied to any repo) skips the write with a
  * warning rather than silently landing a JSONL file somewhere unexpected.
  *
- * Deliberately NOT registered in
- * `src/domain/calibration/calibration-sweep.ts`'s `CALIBRATION_LOG_REGISTRY`
- * in v1 — that registry has fixed test-asserted length/contents
- * (`calibration-sweep.test.ts`), and registering a 7th log is not named in
- * this task's Success Criteria or Acceptance Tests. The JSONL log itself
- * is still perfectly reviewable by hand (`cat .minsky/ask-form-lint-calibration.jsonl
- * | jq`) in the interim; registry wiring is a natural follow-up once this
- * log has accumulated enough fires to be worth a first review pass.
+ * Originally (mt#2798) NOT registered in
+ * `src/domain/calibration/calibration-sweep.ts`'s `CALIBRATION_LOG_REGISTRY`,
+ * deferred until "this log has accumulated enough fires to be worth a first
+ * review pass." Resolved by mt#3716 SC2 at 35+ fires over 21+ days: rather
+ * than hand-add a 17th literal entry to that array (the anti-pattern
+ * ADR-028 §D4 rejects), this log is now enumerated as a non-guard producer in
+ * `scripts/lib/calibration-log-declarations.ts`'s `NON_GUARD_CALIBRATION_PRODUCERS`,
+ * so it is picked up automatically by `deriveCalibrationLogEntries` and swept
+ * like any other declared log.
  */
 
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";

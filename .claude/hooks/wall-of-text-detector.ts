@@ -33,10 +33,13 @@
 //     the pointer-presence signal (detail should live behind pointers).
 //
 // **Thresholds.** The contract's Tier-1 budget is verbatim "hard budget:
-// readable in under 30 seconds (~200 words)". A record is logged at 2x that
-// budget (>= 400 words) — a clear violation, not a borderline expanded
+// readable in under 30 seconds (~200 words)". A record is logged at
+// OVER_BUDGET_MULTIPLIER times that budget — 1.5x since mt#3942, so >= 300
+// words at the default budget — a clear violation, not a borderline expanded
 // report (severity legitimately pierces the register; calibration data will
-// show how often that happens) — OR on any lead-label hit.
+// show how often that happens) — OR on any lead-label hit. Both factors are
+// tunable (the budget via MINSKY_WALL_OF_TEXT_WORD_BUDGET), so read the
+// constants rather than the figures quoted here.
 //
 // **mt#3028 — two measurement-integrity fixes (2026-07-21 calibration review,
 // ask 8bf53c54, tune-both disposition).**
@@ -103,6 +106,55 @@
 // still logs its own record, instead of silently inheriting a stale
 // suppression verdict from an unrelated earlier turn (PR #2228 R1 BLOCKING).
 //
+// **mt#3718 — question-answer override widening (2026-08-04 calibration
+// review, ask#6891, "Approve: keep 1, file tunes for 2 and 3").** The
+// review found the residual FP shape shared one property: each flagged turn
+// directly ANSWERED a substantive question the principal had just asked
+// (depth was solicited, not volunteered) — distinct from mt#3112's
+// depth-request phrases, which are explicit imperative requests ("walk me
+// through everything"). Two confirmed FPs from the live calibration log:
+// the Bun-bug research answer (2026-08-03T21:48:54Z) and the Telegram
+// three-questions reply (2026-08-03T22:38:07Z), both opened by an
+// interrogative. `detectSubstantiveQuestion` / `resolveQuestionAnswerCheck`
+// add a SECOND, independent suppression gate (`SUPPRESSION_QUESTION_ANSWER`)
+// alongside the depth-request override: unlike the depth-request lookback,
+// it originally anchored on the single OPENING prompt of the measured turn
+// only (widened by mt#3972 below), and it is gated to the PURE `over-budget`
+// trigger — a label-led report (`lead-labels` or `both`) is NEVER excused by
+// a preceding question, per the spec's SC3. Every matched fire still logs
+// (now via `suppressedByQuestionAnswer` alongside `suppressedByDepthRequest`),
+// and `sessionHasLoggedTextAndSuppression`'s dedupe check now compares the
+// COMBINED suppression verdict across both gates via the generalized
+// `isRecordSuppressed` helper.
+//
+// **mt#3972 — lookback widened past non-principal turn openers (2026-08-11
+// calibration review).** The single-opening-prompt anchor above under-covers
+// the shape a background-heavy session produces constantly: the principal
+// asks a substantive question, one or more harness-injected turns land
+// before the agent's answer (a `<task-notification>` background-task
+// completion notice, mt#3396; a `<system-reminder>` block, e.g. from
+// memory-search.ts or another hook's injected nudge — the "hook-continuation
+// message" case), and the turn that carries the answer OPENS with that
+// injected content rather than the question itself. `findOpeningPromptIndex`
+// still correctly identifies THAT line as the turn boundary (it IS a "real"
+// user prompt per `isRealUserPrompt` — it carries text, not a tool_result),
+// but it is not principal-authored, so anchoring on it directly reads "no
+// question" even though the principal asked one moments earlier. Confirmed
+// against the live 2026-08-11 calibration log (session `25a27bdb`): the
+// 17:21:47Z and 19:16:53Z fires both opened on exactly this shape and both
+// logged `suppressedByQuestionAnswer: false`. `resolveQuestionAnswerCheck`
+// now walks backward through the SAME `findRealPromptIndices` list
+// `recentUserPromptTexts` already draws from, skipping entries classified as
+// `isNonPrincipalTurnOpener`, until it finds the most recent PRINCIPAL
+// prompt — bounded to `QUESTION_ANSWER_LOOKBACK_TURNS` real-prompt slots (see
+// that constant for why the bound exists and how it was sized) so the
+// widening cannot regress into the exact FP risk that motivated the original
+// narrow anchor: an unbounded lookback would excuse ANY long report in a
+// question-heavy session, not just one genuinely answering the question that
+// triggered it. A question found several REAL PRINCIPAL turns back — i.e.
+// past another turn the principal actually typed, not past injected content
+// — still does NOT suppress; only non-principal openers are skipped.
+//
 // @see .minsky/hooks/silent-stretch-detector.ts — the under-signaling sibling this file mirrors structurally
 // @see .minsky/rules/communication-contract.mdc — the Tier-1 contract shape being measured; its
 //   rationale doc (docs/rules-rationale/communication-contract.md §Override) names the
@@ -119,6 +171,8 @@
 // @see mt#3028 — the two fixes above
 // @see mt#3112 — this task (live-injection flip + depth-request override); mt#2838 — the
 //   escalation budget this flip's disposition tripped; mt#2870 — RFC Phase-3 enforcement pair
+// @see mt#3718 — question-answer override widening (ask#6891 disposition)
+// @see mt#3972 — question-answer lookback widened past non-principal turn openers
 // @see .minsky/hooks/registry.ts — ADR-028 GUARD_REGISTRY entry for this guard; D6 `DispatchContext` doc comment sanctions the per-candidate re-parse pattern used here
 
 import { readInput, readHostCap, deriveBudgets, findRepoRoot, readTunedThreshold } from "./types";
@@ -168,6 +222,22 @@ export const INJECTION_ENABLED = true;
  */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_WALL_OF_TEXT";
 
+// PR #2928 R1: `captureArtifact` only — deliberately NOT `CAPTURE_SCHEMA_FIELD`.
+// That marker means "this writer captured its JUDGED input", and
+// `hasJudgedInputCapture` is what downstream consumers key on to decide whether
+// a record is re-classifiable. This detector's judged input is the report
+// (`excerpt` + `textHash`), captured on every record since long before the
+// shared scheme existed; the preceding prompt is an auxiliary, optional
+// capture of a DIFFERENT message. Stamping the marker here would have made
+// `hasJudgedInputCapture` true for some wall-of-text records and false for
+// others while the judged-text capture never changed. Whether this writer
+// should join the scheme for its judged text is mt#4001's census question,
+// not this task's.
+import { captureArtifact } from "./judged-input-capture";
+// The same elision every turn-text capture uses. Imported rather than
+// re-implemented, as `negative-existence-claim-detector.ts` already does.
+import { elideBlocksAndQuotes } from "./code-mechanism-assertion-detector";
+
 const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
 
 /**
@@ -179,6 +249,17 @@ const CALIBRATION_LOG = ".minsky/wall-of-text-calibration.jsonl";
  * reviewer must be able to tell WHICH gate fired from the record alone.
  */
 export const SUPPRESSION_DEPTH_REQUEST = "depth-request-override";
+
+/**
+ * Reason string for this detector's SECOND suppression gate — the mt#3718
+ * question-answer override (see the section below). Distinct from
+ * {@link SUPPRESSION_DEPTH_REQUEST} because a calibration reviewer must be
+ * able to tell WHICH gate suppressed a given fire from the record alone —
+ * an explicit depth request ("walk me through everything") and a report
+ * that merely ANSWERED a substantive question the principal just asked are
+ * different phenomena with different false-positive risk profiles.
+ */
+export const SUPPRESSION_QUESTION_ANSWER = "question-answer-override";
 
 // ---------------------------------------------------------------------------
 // Thresholds (grounded in the contract — see header comment)
@@ -196,11 +277,43 @@ export const LEAD_WORD_BUDGET = readTunedThreshold("MINSKY_WALL_OF_TEXT_WORD_BUD
   readTunedValueFn: (key) => readTunedValue(key),
 });
 
-/** A record is logged at this multiple of the budget — clear violation, not borderline. */
-export const OVER_BUDGET_MULTIPLIER = 2;
+/**
+ * A record is logged at this multiple of the budget — clear violation, not
+ * borderline.
+ *
+ * Lowered 2 → 1.5 (400 → 300 words) by mt#3942. At 2× a report could run
+ * 100% over the contract's stated budget and produce no signal at all, and the
+ * 201–399 band is where reports actually land: on 2026-08-10 the principal said
+ * "Just too much information" about a run of reports in that band, and the
+ * calibration log holds no record for any of them — correctly, since a record
+ * is written only on a fire. The human was the enforcement.
+ *
+ * Why 1.5 and not 1.25: this is a first calibration move on a single operator
+ * complaint, and 1.5 still leaves a 50% margin over the target so ordinary
+ * variation does not fire. It covers the observed band; 1.25 can follow if
+ * reports keep landing at 250–299.
+ *
+ * The fire-count delta could NOT be measured from the existing corpus before
+ * changing it, and that is structural rather than an omission: records are
+ * written only when the trigger matches, so every sub-threshold turn — exactly
+ * the population this change newly covers — is absent from the log by
+ * construction. mt#3649 (records carry no input text) would block a replay even
+ * if they were present. The measurement becomes possible only after this ships.
+ */
+export const OVER_BUDGET_MULTIPLIER = 1.5;
 
-/** Word count at which the over-budget trigger fires. */
-export const WORD_COUNT_THRESHOLD = LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER;
+/**
+ * Word count at which the over-budget trigger fires.
+ *
+ * `Math.ceil` because the multiplier is no longer an integer (mt#3942): a tuned
+ * odd budget — say 141 — yields 211.5, and no word count can ever equal that.
+ * Anything comparing a measured count against the threshold for EQUALITY (the
+ * threshold-edge tests do) then under-shoots by half a word and reads as under
+ * budget. Rounding up keeps the constant in the same domain as the thing it is
+ * compared against, and ceil rather than round so the threshold is never
+ * quietly LOWER than the configured multiple. (PR #2798 R2 BLOCKING.)
+ */
+export const WORD_COUNT_THRESHOLD = Math.ceil(LEAD_WORD_BUDGET * OVER_BUDGET_MULTIPLIER);
 
 /**
  * Size of the OPENING window (in words) scanned for skill-internal labels.
@@ -303,6 +416,39 @@ export interface WallOfTextMeasurement {
    * mt#3028 contamination class) — both are what this carries.
    */
   excerpt: string;
+}
+
+/**
+ * The final assistant text, preferring the `Stop`-RECORDED value over
+ * reconstructing it from the transcript (mt#3490, ADR-031).
+ *
+ * This module is the family's one text-only detector, so it is the one place
+ * `last_assistant_message` can fully serve — which is exactly what hooks.md
+ * recommends: "hooks that need the final assistant text of the current turn
+ * should use `last_assistant_message` on Stop and SubagentStop instead of
+ * reading the transcript." The recorder captured it at `Stop`; this reads it
+ * back rather than re-deriving the same string from lines that may have lagged.
+ *
+ * `extractFinalAssistantText` is RETAINED as the fallback, not replaced —
+ * ADR-031's degradation property requires that a turn with no recorded anchor
+ * (an API-error turn, a first run after this shipped, a compacted transcript)
+ * measures exactly as it does today.
+ *
+ * A recorded-but-EMPTY message falls back too: the recorder stores `""` when
+ * the Stop event carried no text, and an empty measurement would suppress the
+ * detector entirely rather than measure the turn.
+ *
+ * Pure by construction — the anchor arrives as an argument rather than being
+ * read from the store here, so this is testable without patching anything
+ * (ADR-036).
+ */
+export function resolveFinalAssistantText(
+  turnLines: TranscriptLine[],
+  recordedAnchor: { lastAssistantMessage: string } | undefined
+): string {
+  const recorded = recordedAnchor?.lastAssistantMessage;
+  if (recorded && recorded.length > 0) return recorded;
+  return extractFinalAssistantText(turnLines);
 }
 
 /**
@@ -439,6 +585,24 @@ export const DEPTH_REQUEST_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }>
     re: /\bbe (?:expansive|exhaustive|thorough|comprehensive|detailed|verbose)\b/i,
   },
   { name: "in-full-detail", re: /\bin (?:full|complete|great) detail\b/i },
+  // mt#4031 — evidence-based widening via the same signal the narrowness note
+  // above reserves for it, and the first one able to cite the PROMPT rather
+  // than infer it: mt#4048's `precedingPrompt` capture. Two over-budget records
+  // (2026-08-12T20:37:21.742Z, 523 words; 2026-08-12T20:38:13.955Z, 373 words)
+  // carry `suppressedByDepthRequest: false` beside a captured prompt opening
+  // `help me understand ...`, and `precedingPromptStatus: "captured"` on both
+  // rules OUT a lookback miss — the prompt was resolved and simply matched
+  // nothing. It matched nothing in the sibling gate either: neither prompt
+  // carries a question mark, so `detectSubstantiveQuestion` returns false at
+  // its `QUESTION_MARK_RE` guard before the word-count floor is reached. An
+  // imperative request for an explanation belongs on THIS path by that split.
+  //
+  // Deliberately matches the measured phrase and nothing adjacent — not
+  // "explain ...", not "i don't understand ...", neither of which appears in
+  // the evidence. Widening to the plausible neighborhood rather than to what
+  // the records name is how this list would become the arms race ADR-024
+  // §Context describes.
+  { name: "help-me-understand", re: /\bhelp me understand\b/i },
 ];
 
 /** Text content of a single user-role transcript line (string or text-block-array content). */
@@ -538,6 +702,213 @@ export function resolveDepthCheck(lines: TranscriptLine[]): DepthRequestResult {
 }
 
 // ---------------------------------------------------------------------------
+// mt#3718 — question-answer override widening
+// ---------------------------------------------------------------------------
+
+/**
+ * Word-count floor for {@link detectSubstantiveQuestion} — a bare "ok?" or
+ * "?" is not a substantive question soliciting depth, it's a throwaway
+ * confirmation. Mirrors {@link LEAD_LABELS_MIN_WORDS}'s role: a floor that
+ * separates the population this gate is calibrated on (multi-clause
+ * research/status questions) from noise that happens to contain "?".
+ */
+export const QUESTION_MIN_WORDS = 3;
+
+export interface QuestionAnswerResult {
+  /** true iff the opening prompt reads as a substantive question. */
+  matched: boolean;
+  /**
+   * The principal prompt this verdict was reached on, when one was resolvable
+   * (mt#4048). Present whether or not `matched` — the NOT-matched case is
+   * exactly what a calibration review needs to inspect, since that is the
+   * override declining to suppress.
+   *
+   * Absent means no prompt could be resolved, which is a different fact from
+   * an empty prompt and must stay distinguishable from it on the record.
+   */
+  promptText?: string;
+}
+
+/** The CJK/full-width question mark (U+FF1F) — see `QUESTION_MARK_RE` below. */
+const FULL_WIDTH_QUESTION_MARK = "？";
+
+/**
+ * Matches either question-mark form this detector recognizes: ASCII `?` or
+ * the full-width `？` (U+FF1F, PR #2651 R1 nit). Broader i18n punctuation —
+ * other scripts' question indicators, CJK word segmentation for the
+ * word-count floor below, RTL text — is deliberately OUT OF SCOPE: this
+ * detector is calibration-first and English-centric (its patterns, its
+ * measured corpus, its threshold all are), and the two confirmed ask#6891 FP
+ * shapes were both plain ASCII English interrogatives. Recognizing U+FF1F is
+ * the cheapest fix for the ASCII-only nit without expanding that scope.
+ */
+const QUESTION_MARK_RE = new RegExp(`[?${FULL_WIDTH_QUESTION_MARK}]`);
+
+/**
+ * A prompt counts as a "substantive question" when it is non-empty, contains
+ * at least one question mark (`QUESTION_MARK_RE`), and clears
+ * {@link QUESTION_MIN_WORDS}. Deliberately simple (no NLP, no LLM — same
+ * calibration-first posture as `DEPTH_REQUEST_PATTERNS`): the ask#6891 FP
+ * shapes were both plain interrogatives ("Is this a known, reported Bun
+ * bug...?", a three-question Telegram reply), not edge cases needing finer
+ * classification.
+ */
+export function detectSubstantiveQuestion(text: string): QuestionAnswerResult {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return { matched: false };
+  if (!QUESTION_MARK_RE.test(trimmed)) return { matched: false };
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  if (wordCount < QUESTION_MIN_WORDS) return { matched: false };
+  return { matched: true };
+}
+
+// ---------------------------------------------------------------------------
+// mt#3972 — lookback widened past non-principal turn openers
+// ---------------------------------------------------------------------------
+
+/**
+ * Prefixes that mark an otherwise-"real" user-role transcript line
+ * (`isRealUserPrompt` in transcript.ts returns true — it carries text, not a
+ * `tool_result`) as harness-injected content the PRINCIPAL did not type,
+ * rather than an actual operator prompt.
+ *
+ * Mirrors (in hand-rolled, prefix-only form) the tag inventory in
+ * `packages/shared/src/harness-markup.ts` — NOT imported, because
+ * `.minsky/hooks/` is dependency-free by SPEC.md invariant (no imports from
+ * `src/` or `packages/`), so this list is deliberately duplicated rather
+ * than shared:
+ *
+ *   - `<task-notification` — background-task completion notices (mt#3396):
+ *     the harness emits one of these as a WHOLE `user` turn when a
+ *     background task finishes. Confirmed against the live 2026-08-11
+ *     calibration incident's own transcript (session `25a27bdb`): the turn
+ *     opener immediately before both the 17:21:47Z and 19:16:53Z fires was
+ *     exactly a `<task-notification>` block with no other content.
+ *   - `<system-reminder` — harness reminder blocks. Every Minsky hook that
+ *     injects `additionalContext` wraps it in this tag (memory-search.ts,
+ *     skill-staleness-detector.ts, substrate-bypass-detector.ts, ...), so a
+ *     hook's injected nudge or continuation — the spec's "hook-continuation
+ *     message" case — is delivered the same way and is caught by the same
+ *     check.
+ *   - `[SYSTEM NOTIFICATION` — the plain-text preamble the current harness
+ *     wire format prepends ahead of a `<task-notification>` block (observed
+ *     directly in this file's own implementation session).
+ *
+ * Checked as a PREFIX of the trimmed text, matching how these tags open a
+ * block when they constitute the whole turn — the only shape
+ * `isRealUserPrompt` lets through as "real" in the first place.
+ */
+const NON_PRINCIPAL_OPENER_PREFIXES: readonly string[] = [
+  "<task-notification",
+  "<system-reminder",
+  "[SYSTEM NOTIFICATION",
+];
+
+/** True iff `text` opens with one of {@link NON_PRINCIPAL_OPENER_PREFIXES}. */
+export function isNonPrincipalTurnOpener(text: string): boolean {
+  const trimmed = text.trim();
+  return NON_PRINCIPAL_OPENER_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
+}
+
+/**
+ * How many REAL user-prompt slots (at or before the opening prompt of the
+ * measured turn, the same population {@link recentUserPromptTexts} draws
+ * from) {@link findRecentPrincipalPromptIndex} scans backward through to find
+ * the most recent PRINCIPAL one.
+ *
+ * **Explicit and bounded, per the spec's SC1 — this is the guard against
+ * reopening the FP risk that motivated the original single-prompt anchor.**
+ * An unbounded lookback would excuse ANY long report in a question-heavy
+ * session merely because a question appears SOMEWHERE earlier in the
+ * transcript, regardless of whether it has anything to do with the report
+ * being measured — exactly the risk `resolveQuestionAnswerCheck`'s original
+ * mt#3718 doc comment cited as the reason to anchor narrowly in the first
+ * place. Bounding by REAL-PROMPT COUNT (not injected-turn count) keeps the
+ * window's actual reach small in the common case — reaching several
+ * non-principal openers back costs only ONE unit of "real" window, since a
+ * `<task-notification>`/`<system-reminder>` turn's own opener is itself one
+ * of the counted slots — while still covering the shape this task exists to
+ * fix: the live 2026-08-11 incident (session `25a27bdb`) shows bursts of
+ * several consecutive `<task-notification>` openers (parallel background
+ * subagents finishing near-simultaneously) between the principal's real
+ * question and the report answering it.
+ *
+ * Set to 5, matching the precedent of this file's OWN sibling
+ * `RETRO_INVOCATION_LOOKBACK_TURNS` (retrospective-trigger-scanner.ts) for
+ * "a bounded recent-turns window is on the order of a handful, not a
+ * multi-turn conversation stretch" — larger than
+ * {@link DEPTH_REQUEST_LOOKBACK_TURNS}'s 3 because THIS gate's window has to
+ * accommodate injected non-principal slots consuming budget that
+ * `DEPTH_REQUEST_LOOKBACK_TURNS` never has to (every slot it counts is
+ * already principal-authored), not because this gate is meant to look
+ * further into genuine principal-to-principal conversation history than that
+ * one does.
+ */
+export const QUESTION_ANSWER_LOOKBACK_TURNS = 5;
+
+/**
+ * Index of the most recent PRINCIPAL real user prompt at or before
+ * `throughIndex`, scanning back at most `lookback` real-prompt slots (the
+ * same list {@link recentUserPromptTexts} draws from) and skipping any
+ * {@link isNonPrincipalTurnOpener} hit. Returns `undefined` — fail CLOSED,
+ * i.e. the caller must treat the fire as unsuppressed — when no principal
+ * prompt is found within the bounded window, mirroring
+ * {@link findOpeningPromptIndex}'s and {@link resolveDepthCheck}'s posture.
+ */
+export function findRecentPrincipalPromptIndex(
+  lines: TranscriptLine[],
+  throughIndex: number,
+  lookback: number = QUESTION_ANSWER_LOOKBACK_TURNS
+): number | undefined {
+  const promptIndices = findRealPromptIndices(lines).filter((i) => i <= throughIndex);
+  const recent = promptIndices.slice(-lookback);
+  for (let i = recent.length - 1; i >= 0; i--) {
+    const idx = recent[i] as number;
+    const line = lines[idx];
+    if (!line) continue;
+    if (!isNonPrincipalTurnOpener(extractUserPromptText(line))) return idx;
+  }
+  return undefined;
+}
+
+/**
+ * mt#3718's original anchor was the single OPENING prompt of the measured
+ * turn ONLY (via {@link findOpeningPromptIndex}) — deliberately narrower than
+ * {@link resolveDepthCheck}'s multi-turn `DEPTH_REQUEST_LOOKBACK_TURNS`
+ * lookback: the ask#6891 disposition's shape was "the turn directly answers
+ * the question that opened it," not "a question was asked at some point in
+ * the recent conversation."
+ *
+ * mt#3972 widens that anchor ONE step: the opening prompt is not always
+ * PRINCIPAL-authored. A `<task-notification>` (background-task completion
+ * notice, mt#3396) or a `<system-reminder>` block (a hook's injected
+ * nudge/continuation, e.g. memory-search.ts) is a "real" user prompt for
+ * TURN-BOUNDARY purposes (`isRealUserPrompt` in transcript.ts correctly
+ * counts it — it carries text, not a `tool_result`) but not for "who asked
+ * the question this report is answering." {@link isNonPrincipalTurnOpener} names exactly
+ * these harness-injected shapes; {@link findRecentPrincipalPromptIndex} skips
+ * past them to the most recent PRINCIPAL prompt, bounded by
+ * {@link QUESTION_ANSWER_LOOKBACK_TURNS} so this does not regress into the
+ * unbounded-lookback FP risk the narrow anchor above was built to avoid — a
+ * question found past another REAL PRINCIPAL turn (not injected content)
+ * still does not suppress, only non-principal openers are skipped.
+ *
+ * Fails CLOSED (treats the fire as unsuppressed) when no opening-prompt
+ * index can be resolved, OR when no principal prompt is found within the
+ * bounded window, matching `resolveDepthCheck`'s fail-closed posture.
+ */
+export function resolveQuestionAnswerCheck(lines: TranscriptLine[]): QuestionAnswerResult {
+  const openingPromptIdx = findOpeningPromptIndex(lines);
+  if (openingPromptIdx === undefined) return { matched: false };
+  const principalPromptIdx = findRecentPrincipalPromptIndex(lines, openingPromptIdx);
+  if (principalPromptIdx === undefined) return { matched: false };
+  const line = lines[principalPromptIdx];
+  if (!line) return { matched: false };
+  const promptText = extractUserPromptText(line);
+  return { ...detectSubstantiveQuestion(promptText), promptText };
+}
+
+// ---------------------------------------------------------------------------
 // mt#3028 fix (1) — scope turn extraction to the PARENT transcript alone
 //
 // RETIRED by mt#3293. This file's `resolveTurnLines` was the original fix: it
@@ -618,12 +989,29 @@ export function sessionHasLoggedHash(
  * as `suppressed: false` for this comparison, matching its actual observed
  * behavior; this keeps mt#3028/PR #2165's original dedupe tests
  * (hand-built log fixtures with a bare `textHash` field) passing unchanged.
+ *
+ * **mt#3718 R1 fix (PR #2651 reviewer round 1) — reason-SET-aware, not just
+ * suppressed-or-not.** The mt#3718 initial cut collapsed both suppression
+ * gates (depth-request override, question-answer override) into a single
+ * `suppressed: boolean` before comparing — so a record suppressed by the
+ * depth-request gate and a LATER record for the same text suppressed by the
+ * DIFFERENT question-answer gate compared equal (`true === true`) and the
+ * second was wrongly dropped as an unchanged duplicate, losing the very
+ * per-gate visibility `suppressionReasons` exists to provide. Before mt#3718
+ * there was only one gate, so this case could not occur; adding a second
+ * gate made the boolean lossy. The comparison now takes the full
+ * `suppressionReasons` SET (order-independent) via
+ * {@link recordSuppressionReasons} / {@link sameSuppressionReasons} below,
+ * which prefers the shared `suppressionReasons` array (mt#3207) when present
+ * and falls back to the legacy `suppressedByDepthRequest` boolean — implying
+ * exactly `[SUPPRESSION_DEPTH_REQUEST]`, since that was the only gate that
+ * existed — for pre-mt#3207 records.
  */
 export function sessionHasLoggedTextAndSuppression(
   logText: string | undefined,
   sessionId: string | undefined,
   textHash: string,
-  suppressed: boolean
+  suppressionReasons: readonly string[]
 ): boolean {
   if (!logText || !sessionId) return false;
   for (const raw of logText.split("\n")) {
@@ -636,10 +1024,38 @@ export function sessionHasLoggedTextAndSuppression(
       continue;
     }
     if (rec["session_id"] !== sessionId || rec["textHash"] !== textHash) continue;
-    const recSuppressed = rec["suppressedByDepthRequest"] === true;
-    if (recSuppressed === suppressed) return true;
+    if (sameSuppressionReasons(recordSuppressionReasons(rec), suppressionReasons)) return true;
   }
   return false;
+}
+
+/**
+ * mt#3718 R1: per-record suppression REASON SET, generalized across every
+ * suppression gate. Prefers the shared `suppressionReasons` array (mt#3207)
+ * — present on every record written by this detector since that task — and
+ * falls back to the legacy `suppressedByDepthRequest` boolean only for
+ * records written before mt#3207 introduced the shared field (implying
+ * exactly `[SUPPRESSION_DEPTH_REQUEST]`, the only gate that existed then).
+ */
+function recordSuppressionReasons(rec: Record<string, unknown>): string[] {
+  const reasons = rec["suppressionReasons"];
+  if (Array.isArray(reasons)) {
+    return reasons.filter((r): r is string => typeof r === "string");
+  }
+  return rec["suppressedByDepthRequest"] === true ? [SUPPRESSION_DEPTH_REQUEST] : [];
+}
+
+/**
+ * Order-independent equality of two suppression-reason sets. Order
+ * independence matters because a legacy-fallback set and a freshly-computed
+ * set are each constructed by different code paths that need not agree on
+ * ordering, even though `buildSuppressionReasons` happens to be consistent.
+ */
+function sameSuppressionReasons(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((v, i) => v === sortedB[i]);
 }
 
 /**
@@ -679,12 +1095,56 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
   }
 }
 
+/**
+ * Canonical suppression-REASON-SET construction — the single source of
+ * truth for both the calibration record's `suppressionReasons` field AND
+ * the dedupe key `run()`/`main()` pass to `sessionHasLoggedTextAndSuppression`
+ * (mt#3718 R1 fix, PR #2651). Before this fix the two call sites separately
+ * derived a COLLAPSED boolean (`depthCheck.matched || questionCheck.matched`)
+ * for the dedupe key, discarding which gate(s) actually fired; two records
+ * with the same `textHash` but suppressed by DIFFERENT gates (depth-request
+ * on one turn, question-answer on a later turn) then compared equal on that
+ * boolean and the later record was wrongly dropped as a duplicate, losing
+ * per-gate calibration visibility. Routing both the record and the dedupe
+ * key through this one function makes that class of drift structurally
+ * impossible: there is exactly one place that decides what "the reasons"
+ * are for a given (depthCheck, questionCheck) pair.
+ */
+function buildSuppressionReasons(
+  suppressedByDepthRequest: boolean,
+  suppressedByQuestionAnswer: boolean
+): string[] {
+  // A fire can only ever be suppressed by one of these gates in practice
+  // today (question-answer only applies to the pure over-budget trigger,
+  // where the depth-request lookback could independently also match), so
+  // this stays a plain concatenation rather than a mutually-exclusive
+  // branch — both reasons are recorded if both ever fire together.
+  return [
+    ...(suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : []),
+    ...(suppressedByQuestionAnswer ? [SUPPRESSION_QUESTION_ANSWER] : []),
+  ];
+}
+
 function buildCalibrationRecord(
   input: ClaudeHookInput,
   m: WallOfTextMeasurement,
   textHash: string,
-  suppressedByDepthRequest: boolean
+  suppressedByDepthRequest: boolean,
+  questionCheck: QuestionAnswerResult
 ): Record<string, unknown> {
+  const suppressedByQuestionAnswer = questionCheck.matched;
+  // mt#4048: the prompt the override judged. Three states, kept distinct
+  // because collapsing them is what made this unmeasurable:
+  //   captured   — a prompt was resolved; its text is on the record
+  //   unresolved — the check ran and found no principal prompt
+  //   not-checked— the check never ran (it only guards the over-budget leg)
+  const promptResolved = questionCheck.promptText !== undefined;
+  const precedingPromptStatus =
+    measurementIsOverBudget(m) === false
+      ? "not-checked"
+      : promptResolved
+        ? "captured"
+        : "unresolved";
   return {
     timestamp: new Date().toISOString(),
     session_id: input.session_id,
@@ -710,13 +1170,40 @@ function buildCalibrationRecord(
     // so this field is what lets a future calibration pass measure the
     // override's OWN accuracy (recorded on every fire, live or suppressed).
     suppressedByDepthRequest,
+    // mt#3718: true when the opening prompt of the measured turn read as a
+    // substantive question (see `resolveQuestionAnswerCheck`) — mirrors
+    // `suppressedByDepthRequest`'s role for the SECOND suppression gate, so
+    // the override's own accuracy is separately reviewable from the first.
+    suppressedByQuestionAnswer,
     // mt#3207: the SHARED suppression contract (ADR-028 §D4, generalized by
-    // mt#3197). `suppressedByDepthRequest` above is detector-specific detail
-    // that `isSuppressedRecord` cannot see; this field is what the sweep reads
+    // mt#3197). The two detector-specific booleans above are detail that
+    // `isSuppressedRecord` cannot see; this field is what the sweep reads
     // to keep a suppressed fire out of the injected count. Empty (not absent)
     // when the fire was injected — absent means "does not record the outcome".
-    suppressionReasons: suppressedByDepthRequest ? [SUPPRESSION_DEPTH_REQUEST] : [],
+    // mt#3718 R1: built via `buildSuppressionReasons` — the same function
+    // `run()`/`main()` call to derive the dedupe key, so the two can never
+    // drift apart (see that function's doc comment).
+    suppressionReasons: buildSuppressionReasons(
+      suppressedByDepthRequest,
+      suppressedByQuestionAnswer
+    ),
+    // mt#4048: the preceding principal prompt, so the question-answer
+    // override's misses are measurable instead of inferred (mt#4031). ELIDED
+    // per `judged-input-capture.ts` — "Capture from that copy, never from the
+    // raw turn text" — which means it is NOT byte-identical to what
+    // `detectSubstantiveQuestion` judged; that mismatch is accepted here
+    // because the alternative is storing raw operator input. See the task's
+    // planning audit.
+    precedingPromptStatus,
+    ...(questionCheck.promptText !== undefined
+      ? { precedingPrompt: captureArtifact(elideBlocksAndQuotes(questionCheck.promptText)) }
+      : {}),
   };
+}
+
+/** Whether the question-answer override was even consulted for this fire. */
+function measurementIsOverBudget(m: WallOfTextMeasurement): boolean {
+  return m.trigger === "over-budget";
 }
 
 // ---------------------------------------------------------------------------
@@ -775,7 +1262,7 @@ export function run(
 
   let turnLines: TranscriptLine[];
   try {
-    turnLines = extractLastAssistantTurn(lines);
+    turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
   } catch {
     return null;
   }
@@ -784,7 +1271,7 @@ export function run(
   let measurement: WallOfTextMeasurement;
   let finalText: string;
   try {
-    finalText = extractFinalAssistantText(turnLines);
+    finalText = resolveFinalAssistantText(turnLines, ctx.recordedAnchor);
     if (finalText.length === 0) return null;
     measurement = measureWallOfText(finalText);
   } catch (err) {
@@ -802,6 +1289,19 @@ export function run(
   // `resolveDepthCheck` fails CLOSED (treats the fire as unsuppressed) when
   // fewer than 2 real prompts anchor the measured turn.
   const depthCheck = resolveDepthCheck(lines);
+  // mt#3718: the question-answer override only ever excuses the pure
+  // OVER-BUDGET leg — label-leading is never excused by a preceding
+  // question (spec SC3). Computed here, also before the dedupe check, for
+  // the same reason as `depthCheck`.
+  const questionCheck =
+    measurement.trigger === "over-budget" ? resolveQuestionAnswerCheck(lines) : { matched: false };
+  const suppressed = depthCheck.matched || questionCheck.matched;
+  // mt#3718 R1 fix: the dedupe key is the full REASON SET, not the collapsed
+  // `suppressed` boolean above (which is still used for the injection gate
+  // below, where "was this suppressed at all" is the only question) — see
+  // `buildSuppressionReasons`'s doc comment for why the collapsed boolean
+  // was wrong here specifically.
+  const suppressionReasons = buildSuppressionReasons(depthCheck.matched, questionCheck.matched);
 
   const textHash = hashText(finalText);
   if (
@@ -809,23 +1309,29 @@ export function run(
       readCalibrationLogTextFn(input.cwd),
       input.session_id,
       textHash,
-      depthCheck.matched
+      suppressionReasons
     )
   ) {
-    // mt#3028 fix (2), extended by mt#3112: a record for this session
-    // already carries this exact measured text AND the same suppression
-    // state (within the bounded lookback window) — an unchanged report
-    // already logged; skip re-logging. A textHash match with a DIFFERENT
-    // suppression state is treated as new — see
+    // mt#3028 fix (2), extended by mt#3112 and mt#3718: a record for this
+    // session already carries this exact measured text AND the same
+    // suppression reason SET (within the bounded lookback window) — an
+    // unchanged report already logged; skip re-logging. A textHash match
+    // with a DIFFERENT reason set is treated as new — see
     // `sessionHasLoggedTextAndSuppression`'s doc comment.
     return null;
   }
 
   const outcome: GuardOutcome = {
-    calibration: buildCalibrationRecord(input, measurement, textHash, depthCheck.matched),
+    calibration: buildCalibrationRecord(
+      input,
+      measurement,
+      textHash,
+      depthCheck.matched,
+      questionCheck
+    ),
   };
 
-  if (INJECTION_ENABLED && !depthCheck.matched) {
+  if (INJECTION_ENABLED && !suppressed) {
     outcome.additionalContext = buildInjectionReminder(measurement);
   }
 
@@ -939,27 +1445,36 @@ export async function main(): Promise<void> {
   // Computed BEFORE the dedupe check — the dedupe key needs the suppression
   // verdict to key on (PR #2228 R1 BLOCKING).
   const depthCheck = resolveDepthCheck(lines);
+  // mt#3718: the question-answer override only ever excuses the pure
+  // OVER-BUDGET leg (see run()'s equivalent check).
+  const questionCheck =
+    measurement.trigger === "over-budget" ? resolveQuestionAnswerCheck(lines) : { matched: false };
+  const suppressed = depthCheck.matched || questionCheck.matched;
+  // mt#3718 R1 fix: dedupe key is the full reason SET (see run()'s
+  // equivalent — `buildSuppressionReasons`'s doc comment explains why the
+  // collapsed `suppressed` boolean above is wrong for this comparison).
+  const suppressionReasons = buildSuppressionReasons(depthCheck.matched, questionCheck.matched);
 
   const textHash = hashText(finalText);
   if (Date.now() < overallDeadline) {
-    // mt#3028 fix (2), extended by mt#3112: skip re-logging an unchanged
-    // report + suppression state already recorded for this session (see the
-    // header comment + run()'s equivalent check).
+    // mt#3028 fix (2), extended by mt#3112 and mt#3718: skip re-logging an
+    // unchanged report + suppression reason set already recorded for this
+    // session (see the header comment + run()'s equivalent check).
     const alreadyLogged = sessionHasLoggedTextAndSuppression(
       readCalibrationLogText(input.cwd),
       input.session_id,
       textHash,
-      depthCheck.matched
+      suppressionReasons
     );
     if (!alreadyLogged) {
       appendCalibrationRecord(
         input.cwd,
-        buildCalibrationRecord(input, measurement, textHash, depthCheck.matched)
+        buildCalibrationRecord(input, measurement, textHash, depthCheck.matched, questionCheck)
       );
     }
   }
 
-  if (!INJECTION_ENABLED || depthCheck.matched) {
+  if (!INJECTION_ENABLED || suppressed) {
     process.exit(0);
   }
 

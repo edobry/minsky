@@ -9,7 +9,10 @@
 import { describe, test, expect } from "bun:test";
 import {
   findSecretReads,
+  findSecretScriptInvocation,
+  findSecretScriptInvocations,
   findInToolInput,
+  filePathCandidates,
   isSecretPath,
   isEmittingInvocation,
   splitSegments,
@@ -19,6 +22,7 @@ import {
   isOverrideSet,
   run,
   OVERRIDE_ENV_VAR,
+  SECRET_EMITTING_SCRIPT_PATTERNS,
 } from "./block-secret-file-read";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -28,6 +32,9 @@ const R3_COMMAND =
   "grep -rn 'connectionString\\|postgres://' ~/.config/minsky/config.yaml | sed 's/postgres:\\/\\/.*/postgres:\\/\\/<redacted>/'";
 
 const CTX = {} as DispatchContext;
+
+/** The canonical emitting read of Minsky's own config — used by several suites. */
+const CAT_MINSKY_CONFIG = "cat ~/.config/minsky/config.yaml";
 
 describe("R3 — the command that actually leaked", () => {
   test("denies the verbatim incident command", () => {
@@ -171,7 +178,7 @@ describe("segment + token parsing", () => {
 });
 
 describe("denial message", () => {
-  const hits = findSecretReads("cat ~/.config/minsky/config.yaml");
+  const hits = findSecretReads(CAT_MINSKY_CONFIG);
 
   test("names the blocked read", () => {
     expect(buildDenialReason(hits)).toContain("config.yaml");
@@ -195,10 +202,23 @@ describe("denial message", () => {
 });
 
 describe("run() — dispatcher entry point", () => {
-  const denyInput: ToolHookInput = {
-    tool_name: "Bash",
-    tool_input: { command: R3_COMMAND },
-  } as ToolHookInput;
+  /**
+   * Supplies the ToolHookInput fields these fixtures were omitting
+   * (session_id / cwd / hook_event_name), which is why the bare `as` casts were
+   * rejected as non-overlapping conversions once this file entered a typecheck
+   * project. mt#2900.
+   */
+  function hookInput(toolName: string, toolInput: Record<string, unknown>): ToolHookInput {
+    return {
+      session_id: "block-secret-file-read-test",
+      cwd: "/test/cwd",
+      hook_event_name: "PreToolUse",
+      tool_name: toolName,
+      tool_input: toolInput,
+    } as ToolHookInput;
+  }
+
+  const denyInput: ToolHookInput = hookInput("Bash", { command: R3_COMMAND });
 
   test("denies the incident command", () => {
     const prev = process.env[OVERRIDE_ENV_VAR];
@@ -216,10 +236,7 @@ describe("run() — dispatcher entry point", () => {
     const prev = process.env[OVERRIDE_ENV_VAR];
     delete process.env[OVERRIDE_ENV_VAR];
     try {
-      const out = run(
-        { tool_name: "Bash", tool_input: { command: "cat README.md" } } as ToolHookInput,
-        CTX
-      );
+      const out = run(hookInput("Bash", { command: "cat README.md" }), CTX);
       expect(out).toBeNull();
     } finally {
       if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
@@ -244,10 +261,7 @@ describe("run() — dispatcher entry point", () => {
     delete process.env[OVERRIDE_ENV_VAR];
     try {
       const out = run(
-        {
-          tool_name: "mcp__minsky__session_exec",
-          tool_input: { command: "cat .env", task: "mt#3282" },
-        } as ToolHookInput,
+        hookInput("mcp__minsky__session_exec", { command: "cat .env", task: "mt#3282" }),
         CTX
       );
       expect(out?.deny).toBeDefined();
@@ -279,5 +293,395 @@ describe("findInToolInput dedupes repeated hits", () => {
       command: "cat .env && cat .env",
     });
     expect(hits.length).toBe(1);
+  });
+});
+
+describe("mt#3703 — the two false-positive classes", () => {
+  // Every command here is a REAL denial, not a constructed one. The first two are
+  // the ones mt#3703 was filed for; the second two happened while fixing it, on
+  // this guard's own files.
+  describe("a grep PATTERN is not a file path", () => {
+    test("AT1: grepping a source file for a credential-shaped identifier is allowed", () => {
+      expect(
+        findSecretReads("grep -n 'CredentialRead' packages/domain/src/notify/principal-channel.ts")
+      ).toEqual([]);
+    });
+
+    test("a pattern naming the guard's own vocabulary is allowed", () => {
+      // Denied live on 2026-08-10 while planning this task: the guard blocked a
+      // grep over its OWN source because the search pattern said "credential"
+      // and "SECRET".
+      expect(
+        findSecretReads(
+          "grep -n 'credential\\|Credential\\|SECRET' .minsky/hooks/block-secret-file-read.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("but a secret path as the FILE argument is still denied", () => {
+      const hits = findSecretReads("grep -n 'anything' ~/.aws/credentials");
+      expect(hits.length).toBe(1);
+      expect(hits[0]?.path).toContain("credentials");
+    });
+
+    test("-e supplies the pattern and the FILE is still checked", () => {
+      const hits = findSecretReads("grep -e 'anything' ~/.aws/credentials");
+      expect(hits.length).toBe(1);
+    });
+
+    test("a credential-shaped pattern passed via -e is allowed (PR #2778 R1)", () => {
+      // R1 found the first version returning every argument when -e was present,
+      // which reinstated the pattern-as-path false positive through the flag form.
+      expect(
+        findSecretReads("grep -e 'CredentialRead' packages/domain/src/notify/principal-channel.ts")
+      ).toEqual([]);
+      expect(
+        findSecretReads(
+          "grep --regexp='CredentialRead' packages/domain/src/notify/principal-channel.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("a directory argument is still checked when the pattern is skipped", () => {
+      // The pattern is dropped, the remaining positional is not.
+      expect(findSecretReads("grep -r anything ~/.config/minsky/config.yaml").length).toBe(1);
+    });
+
+    test("a non-grep reader has no pattern argument, so every token is a file", () => {
+      expect(findSecretReads("cat credentials").length).toBe(1);
+    });
+  });
+
+  describe("a credentials/ DIRECTORY does not condemn the source file inside it", () => {
+    test("AT2: a provider implementation under credentials/ is allowed", () => {
+      expect(
+        findSecretReads(
+          "grep -n 'resolveInfraDir' packages/domain/src/credentials/providers/telegram.ts"
+        )
+      ).toEqual([]);
+    });
+
+    test("this guard's own test file is readable", () => {
+      // Also denied live on 2026-08-10 — here the FILENAME matched, not the
+      // pattern, so it is a distinct class from the block above.
+      expect(findSecretReads("cat .minsky/hooks/block-secret-file-read.test.ts")).toEqual([]);
+    });
+
+    test("a data file under a secrets/ directory is still denied", () => {
+      // The carve-out is about the FILE's extension, not the directory: this is
+      // what keeps the narrowing from becoming a coverage hole.
+      expect(findSecretReads("cat secrets/prod.yaml").length).toBe(1);
+    });
+
+    test("a credential-named data file is still denied", () => {
+      expect(findSecretReads("cat my-credentials.json").length).toBe(1);
+    });
+  });
+
+  describe("AT3/AT4 — the known-secret set still denies", () => {
+    test.each([
+      [CAT_MINSKY_CONFIG, "config.yaml"],
+      ["cat .env", ".env"],
+      ["cat .env.production", ".env.production"],
+      ["cat ~/.aws/credentials", "credentials"],
+      ["cat ~/.netrc", ".netrc"],
+      ["cat ~/.npmrc", ".npmrc"],
+      ["cat ~/.pgpass", ".pgpass"],
+      ["cat ~/.ssh/id_rsa", "id_rsa"],
+      ["cat server.pem", ".pem"],
+    ])("%s is still denied", (command, expectedPath) => {
+      const hits = findSecretReads(command);
+      expect(hits.length).toBeGreaterThan(0);
+      expect(hits[0]?.path).toContain(expectedPath);
+    });
+
+    test("an explicit pattern denies even with a source-code extension", () => {
+      // The carve-out is scoped to the GENERIC name-resemblance pattern only.
+      // A `.pem` is matched explicitly and is unaffected by extension logic.
+      expect(findSecretReads("cat key.pem").length).toBe(1);
+    });
+  });
+
+  describe("isSecretPath — the discriminator in isolation", () => {
+    test("source extensions escape only the generic pattern", () => {
+      expect(isSecretPath("src/credentials/providers/telegram.ts")).toBe(false);
+      expect(isSecretPath("src/credentials/providers/telegram.js")).toBe(false);
+      expect(isSecretPath("secrets/prod.yaml")).toBe(true);
+      expect(isSecretPath("credentials")).toBe(true);
+    });
+
+    test("a bare identifier that merely mentions credentials is not a path", () => {
+      expect(isSecretPath("CredentialRead.ts")).toBe(false);
+    });
+  });
+
+  describe("filePathCandidates", () => {
+    test("drops the pattern for grep-family readers", () => {
+      expect(filePathCandidates("grep", ["grep", "-n", "pattern", "file.ts"])).toEqual([
+        "-n",
+        "file.ts",
+      ]);
+    });
+
+    test("keeps every argument for non-conditional readers", () => {
+      expect(filePathCandidates("cat", ["cat", "a", "b"])).toEqual(["a", "b"]);
+    });
+
+    test("drops -e and its VALUE, keeping the file (PR #2778 R1)", () => {
+      expect(filePathCandidates("grep", ["grep", "-e", "p", "file.ts"])).toEqual(["file.ts"]);
+    });
+
+    test("drops an attached --regexp= pattern", () => {
+      expect(filePathCandidates("grep", ["grep", "--regexp=p", "file.ts"])).toEqual(["file.ts"]);
+    });
+
+    test("keeps a non-pattern flag token", () => {
+      // Flags are NOT dropped wholesale: `--include=<glob>` selects which files
+      // grep reads, so its value must stay reachable by the path matcher.
+      expect(filePathCandidates("grep", ["grep", "-r", "--include=x", "p", "dir"])).toContain(
+        "--include=x"
+      );
+    });
+
+    test("with -e present, the first positional is a FILE, not the pattern", () => {
+      // The positional-skip must not also fire, or the real file is dropped.
+      expect(filePathCandidates("grep", ["grep", "-e", "p", "a.ts", "b.ts"])).toEqual([
+        "a.ts",
+        "b.ts",
+      ]);
+    });
+
+    test("a pattern-only grep (reading stdin) drops it and finds no file", () => {
+      expect(filePathCandidates("grep", ["grep", "credentials"])).toEqual([]);
+    });
+  });
+});
+
+describe("mt#4017 — script invocations (command-OUTPUT shape, R4)", () => {
+  // Shared constants (custom/no-magic-string-duplication): the loader's path
+  // in its two conventional forms, and the canonical invocation command.
+  const LOADER_REL = "scripts/drizzle-config-loader.ts";
+  const LOADER_DOT_REL = `./${LOADER_REL}`;
+  const BUN_LOADER_CMD = `bun ${LOADER_DOT_REL}`;
+  const SCRIPT_INVOCATION_KIND = "script-invocation";
+
+  // AT3: attempt the guard's covered invocation → denied, with the denial
+  // naming a non-emitting alternative.
+  describe("findSecretScriptInvocations — direct invocations are denied", () => {
+    const denied = [
+      BUN_LOADER_CMD,
+      `bun ${LOADER_REL}`,
+      `bunx ${LOADER_REL}`,
+      `node ${LOADER_REL}`,
+      `ts-node ${LOADER_REL}`,
+      LOADER_DOT_REL,
+      LOADER_REL,
+    ];
+    for (const cmd of denied) {
+      test(`denies: ${cmd}`, () => {
+        const hits = findSecretScriptInvocations(cmd);
+        expect(hits.length).toBe(1);
+        expect(hits[0]?.kind).toBe(SCRIPT_INVOCATION_KIND);
+        expect(hits[0]?.path).toContain(LOADER_REL);
+      });
+    }
+
+    test("denied even with the sanctioned gate env var set inline", () => {
+      // There is no safe way to invoke it directly, per the guard's own
+      // denial text — setting the gate var in the command itself does not
+      // exempt it, since the guard fires before the process even starts.
+      const hits = findSecretScriptInvocations(`MINSKY_DRIZZLE_LOADER_GATE=1 ${BUN_LOADER_CMD}`);
+      expect(hits.length).toBe(1);
+    });
+
+    // PR #2898 review, non-blocking: a shell -c/-lc/-ic payload embeds the
+    // invocation inside a string the outer tokenizer never inspects.
+    describe("shell -c payloads are unwrapped and checked (PR #2898 non-blocking finding)", () => {
+      const wrapped = [
+        `bash -c "${BUN_LOADER_CMD}"`,
+        `bash -lc '${BUN_LOADER_CMD}'`,
+        `sh -c "${BUN_LOADER_CMD}"`,
+        `zsh -ic "${BUN_LOADER_CMD}"`,
+        `bash --command "${BUN_LOADER_CMD}"`,
+      ];
+      for (const cmd of wrapped) {
+        test(`denies: ${cmd}`, () => {
+          const hits = findSecretScriptInvocations(cmd);
+          expect(hits.length).toBe(1);
+          expect(hits[0]?.kind).toBe(SCRIPT_INVOCATION_KIND);
+          expect(hits[0]?.path).toContain(LOADER_REL);
+        });
+      }
+
+      test("an unrelated -c payload is unaffected", () => {
+        expect(findSecretScriptInvocations('bash -c "echo hello"')).toEqual([]);
+      });
+
+      test("a shell with no -c flag at all is unaffected", () => {
+        expect(findSecretScriptInvocations("bash script.sh")).toEqual([]);
+      });
+    });
+
+    test("caught anywhere in a pipeline or sequence, not just the head", () => {
+      const hits = findSecretScriptInvocations(`echo start && ${BUN_LOADER_CMD}`);
+      expect(hits.length).toBe(1);
+      expect(hits[0]?.reader).toBe("bun");
+    });
+
+    test("sudo/env-assignment prefixes do not evade it", () => {
+      expect(findSecretScriptInvocations(`sudo bun ${LOADER_REL}`).length).toBe(1);
+    });
+  });
+
+  describe("ordinary drizzle-kit / DB-check commands are unaffected", () => {
+    const allowed = [
+      // The sanctioned caller invokes the loader via a Node/Bun SUBPROCESS
+      // (execSync) from inside a drizzle-kit process — never a Bash/
+      // session_exec tool call, so these never reach the guard at all. The
+      // commands below are what an AGENT actually types, and none of them
+      // name the loader script.
+      "bun run db:generate:pg",
+      "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
+      "bun run db:migrate:apply",
+      "bun run src/cli.ts persistence check",
+      "bun test drizzle.pg.config.test.ts",
+      // Reading the SOURCE of the loader (not invoking it) is unaffected —
+      // this is the file-read check's own source-extension carve-out, and
+      // it is unrelated to the new script-invocation check.
+      `cat ${LOADER_REL}`,
+      `grep -n GATE_ENV_VAR ${LOADER_REL}`,
+      // A DIFFERENT script that merely mentions the loader by name in a
+      // comment/string is not itself the loader.
+      "bun scripts/verify-npm-pack-install.ts",
+    ];
+    for (const cmd of allowed) {
+      test(`allows: ${cmd}`, () => {
+        expect(findSecretScriptInvocations(cmd)).toEqual([]);
+      });
+    }
+  });
+
+  describe("findSecretScriptInvocation — the discriminator in isolation", () => {
+    test("matches an interpreter-prefixed invocation", () => {
+      expect(findSecretScriptInvocation("bun", ["bun", LOADER_DOT_REL])).toBe(LOADER_DOT_REL);
+    });
+
+    test("matches direct execution via the script's own shebang", () => {
+      expect(findSecretScriptInvocation(LOADER_REL, [LOADER_REL])).toBe(LOADER_REL);
+    });
+
+    test("returns null for an unrelated script", () => {
+      expect(findSecretScriptInvocation("bun", ["bun", "scripts/smoke-setup-db.ts"])).toBeNull();
+    });
+
+    test("SECRET_EMITTING_SCRIPT_PATTERNS names the loader", () => {
+      expect(SECRET_EMITTING_SCRIPT_PATTERNS.some((re) => re.test(LOADER_REL))).toBe(true);
+    });
+  });
+
+  describe("buildDenialReason — the script-invocation branch", () => {
+    const hits = findSecretScriptInvocations(BUN_LOADER_CMD);
+
+    test("names the blocked invocation", () => {
+      expect(buildDenialReason(hits)).toContain(LOADER_REL);
+    });
+
+    test("names the non-emitting alternative (AT3)", () => {
+      expect(buildDenialReason(hits)).toContain("persistence check");
+    });
+
+    test("does not pull in the file-read-only redaction warning", () => {
+      // That guidance is specific to a file-read hit and would be
+      // misleading advice for a script that always prints by design.
+      expect(buildDenialReason(hits)).not.toContain("redaction");
+    });
+
+    test("names the override", () => {
+      expect(buildDenialReason(hits)).toContain(OVERRIDE_ENV_VAR);
+    });
+  });
+
+  describe("run() — dispatcher entry point denies the script invocation", () => {
+    function hookInput(toolName: string, toolInput: Record<string, unknown>) {
+      return {
+        session_id: "block-secret-file-read-test",
+        cwd: "/test/cwd",
+        hook_event_name: "PreToolUse",
+        tool_name: toolName,
+        tool_input: toolInput,
+      } as import("./types").ToolHookInput;
+    }
+    const CTX = {} as import("./registry").DispatchContext;
+
+    test("denies a direct loader invocation via Bash", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      delete process.env[OVERRIDE_ENV_VAR];
+      try {
+        const out = run(hookInput("Bash", { command: BUN_LOADER_CMD }), CTX);
+        expect(out?.deny).toBeDefined();
+        expect(out?.deny?.reason).toContain("persistence check");
+      } finally {
+        if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+
+    test("denies via session_exec the same way as Bash", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      delete process.env[OVERRIDE_ENV_VAR];
+      try {
+        const out = run(
+          hookInput("mcp__minsky__session_exec", {
+            command: `bun ${LOADER_REL}`,
+            task: "mt#4017",
+          }),
+          CTX
+        );
+        expect(out?.deny).toBeDefined();
+      } finally {
+        if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+
+    test("the shared override allows it and leaves an audit line", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      process.env[OVERRIDE_ENV_VAR] = "1";
+      try {
+        const out = run(hookInput("Bash", { command: BUN_LOADER_CMD }), CTX);
+        expect(out?.deny).toBeUndefined();
+        expect(out?.auditLines?.[0]).toContain("OVERRIDE");
+      } finally {
+        if (prev === undefined) delete process.env[OVERRIDE_ENV_VAR];
+        else process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+
+    test("an ordinary drizzle-kit command is unaffected", () => {
+      const prev = process.env[OVERRIDE_ENV_VAR];
+      delete process.env[OVERRIDE_ENV_VAR];
+      try {
+        const out = run(hookInput("Bash", { command: "bun run db:generate:pg" }), CTX);
+        expect(out).toBeNull();
+      } finally {
+        if (prev !== undefined) process.env[OVERRIDE_ENV_VAR] = prev;
+      }
+    });
+  });
+
+  describe("findInToolInput — dedupes across both hit shapes", () => {
+    test("a repeated identical script invocation counts once", () => {
+      const hits = findInToolInput({
+        command: `${BUN_LOADER_CMD} && ${BUN_LOADER_CMD}`,
+      });
+      expect(hits.length).toBe(1);
+    });
+
+    test("a file-read hit and a script-invocation hit in the same command both surface", () => {
+      const hits = findInToolInput({
+        command: `cat ~/.aws/credentials && ${BUN_LOADER_CMD}`,
+      });
+      expect(hits.length).toBe(2);
+      const kinds = hits.map((h) => h.kind).sort();
+      expect(kinds).toEqual(["file-read", SCRIPT_INVOCATION_KIND]);
+    });
   });
 });

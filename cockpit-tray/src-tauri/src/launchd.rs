@@ -43,7 +43,8 @@ pub(crate) fn parse_launchctl_pid(output: &str) -> Option<u32> {
 /// Try to evict the legacy `com.minsky.cockpit` launchd agent if it is the
 /// process holding :3737 (gh#1761, ADR-014 single-ownership enforcement).
 ///
-/// `port_holder` is the PID currently listening on DAEMON_PORT (from `lsof`).
+/// `port_holder` is the PID currently listening on the supervised cockpit port
+/// (from `lsof`).
 /// If `None`, this function returns `false` immediately — without knowing who
 /// holds the port we must NOT disable an agent that may not be the cause.
 ///
@@ -73,7 +74,9 @@ pub(crate) fn try_evict_legacy_launchd(port_holder: Option<u32>) -> bool {
     // Step 1: refuse to evict when the port holder is unknown.
     // Without this guard we might disable a legitimately-configured launchd agent
     // that is NOT the cause of the conflict (gh#1761 R1, ADR-014 safety gate).
-    let Some(holder_pid) = port_holder else { return false; };
+    let Some(holder_pid) = port_holder else {
+        return false;
+    };
 
     // Step 2: probe whether the agent is loaded.
     let probe = Command::new("launchctl")
@@ -81,7 +84,7 @@ pub(crate) fn try_evict_legacy_launchd(port_holder: Option<u32>) -> bool {
         .output();
     let probe_out = match probe {
         Ok(out) if out.status.success() => out, // agent is loaded — continue
-        _ => return false,                       // not found or launchctl unavailable
+        _ => return false,                      // not found or launchctl unavailable
     };
 
     // Step 3: verify the launchd agent is the actual port holder.
@@ -101,9 +104,7 @@ pub(crate) fn try_evict_legacy_launchd(port_holder: Option<u32>) -> bool {
     let uid = {
         let id_out = Command::new("id").arg("-u").output();
         match id_out {
-            Ok(o) if o.status.success() => {
-                String::from_utf8_lossy(&o.stdout).trim().to_string()
-            }
+            Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).trim().to_string(),
             _ => return false,
         }
     };

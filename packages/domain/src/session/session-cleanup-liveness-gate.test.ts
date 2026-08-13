@@ -171,7 +171,9 @@ describe("cleanupSessionImpl — mt#3104 live-actor gate", () => {
   it("AT5 (strong form): a NON-terminal live session refuses with no force-style skip available, and the shared override lifts it with a session-cleanup-liveness audit event", async () => {
     const sessionDB = makeSessionDB([makeRecord()]);
 
-    const insertValues = mock(() => Promise.resolve());
+    // The row param is declared so `mock.calls` is typed `[row][]`; without it
+    // it is `[][]` and reading `calls[0][0]` below indexes an empty tuple.
+    const insertValues = mock((_row: Record<string, unknown>) => Promise.resolve());
     const fakeDb = { insert: () => ({ values: insertValues }) } as any;
     const persistenceProvider = { getDatabaseConnection: async () => fakeDb } as any;
 

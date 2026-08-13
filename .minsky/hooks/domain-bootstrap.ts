@@ -35,14 +35,37 @@
 import "reflect-metadata";
 
 /**
- * Default Postgres connect timeout (seconds) injected for hook processes.
+ * Hook processes install NO connect-timeout override (mt#3879).
  *
- * A hook runs under the harness's own host cap; a hanging DB connect would
- * otherwise burn that entire budget. mt#2982 registered
- * `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT` for exactly this, and the
- * mt#2958 probe applies the same 2s value. An operator-set value always wins.
+ * They used to force 2s. That value was set on the belief that `connect_timeout`
+ * bounds a hanging socket, so a small number looked like cheap insurance against
+ * a hook burning the harness's host budget. postgres-js documents it as bounding
+ * "the startup phase of the connection (tcp, protocol negotiation, and auth)" —
+ * the whole handshake, not a stuck socket — and measurement from a cold
+ * hook-shaped process put that handshake far above 2s:
+ *
+ *     DNS 6-353ms | TCP 866-1016ms | TLS 1406-1735ms  => 2.3-2.6s of socket alone
+ *     full resolvePersistenceProvider(): 3.3-3.7s warmed, 4.3-5.5s cold
+ *
+ * So the cap sat under half the floor and could never be reached: every
+ * DB-backed hook resolved a null provider and failed open, deterministically,
+ * for weeks — silently, because failing open is what a hook is supposed to do
+ * when the domain layer is unusable.
+ *
+ * The fix is to stop diverging rather than to pick a new number. With no
+ * override, hooks inherit the same default every other Minsky process uses
+ * (10s, applied at `postgres-provider.ts` and `validation-operations.ts`),
+ * which already bounds the hang the original 2s was reaching for and is ~1.8x
+ * the slowest observed cold resolve. An operator-set
+ * `MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT` still wins, as it did before.
+ *
+ * The cost this accepts: when Postgres is genuinely unreachable, a DB-backed
+ * hook now waits ~10s instead of ~2s before failing open. That is the same
+ * exposure every other process already carries, and it buys back checks that
+ * were not running at all. Removing the per-process cold connect entirely is
+ * the structural fix — mt#2430 / ADR-038's daemon topology — and is tracked
+ * separately rather than solved by a timeout value.
  */
-export const HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS = "2";
 
 /**
  * Make the domain layer usable from a hook process.
@@ -52,9 +75,8 @@ export const HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS = "2";
  * be a no-op rather than a re-initialization).
  *
  * Must be called BEFORE the first `resolvePersistenceProvider()` /
- * `getConfiguration()` / embedding-factory call, and before anything caches a
- * view of the environment — the connect-timeout default below is only
- * effective if it is set first.
+ * `getConfiguration()` / embedding-factory call, so configuration is
+ * initialized before anything reads it.
  *
  * Never throws: a bootstrap failure is returned as a value so the caller can
  * honor its own fail-safe contract (hooks must not block the event they
@@ -64,12 +86,6 @@ export async function ensureHookDomainBootstrap(): Promise<
   { ok: true } | { ok: false; error: string }
 > {
   try {
-    // mt#2982 fail-fast connect. Set before the first configuration or
-    // persistence-provider resolution caches its view of the env; `??=` leaves
-    // an operator-set value untouched.
-    process.env.MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT ??=
-      HOOK_POSTGRES_CONNECT_TIMEOUT_SECONDS;
-
     // Layer 2. Dynamic so the domain config module tree is loaded only when a
     // hook actually reaches its DB path, not at hook-registration time.
     const { isConfigurationInitialized } = await import(
@@ -83,4 +99,44 @@ export async function ensureHookDomainBootstrap(): Promise<
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Render a `resolvePersistenceProviderOrError()` failure into the one line a
+ * hook's degraded path reports.
+ *
+ * Lives here, beside the bootstrap every hook with a DB path already imports,
+ * because it is needed by all of them. It was written inline in
+ * `standalone-dup-probe.ts` (mt#3750) when exactly one call site had been
+ * converted; mt#3869 converted the rest, and a formatter shared by seven hooks
+ * does not belong inside one of them.
+ *
+ * What this replaced, at each site, was a FIXED string — "persistence provider
+ * unavailable" — naming no cause at all, or naming one the control flow had
+ * already excluded. A hook process exits immediately after its decision, so its
+ * stderr and anything the domain layer logs at debug level are discarded unread:
+ * whatever this returns is typically the ONLY account of the failure a reader
+ * ever gets. A 22-invocation critical-escalation guard-health streak was read as
+ * a config-init failure for three days while the real error was a driver
+ * `CONNECT_TIMEOUT` (mt#3750).
+ *
+ * ADR-035 §Decision rule 3 is the standing form of this: "configured but
+ * failing" MUST be distinguishable from "not configured." A `| null` return
+ * collapses them; `errorClass` is what separates them at a glance, which is why
+ * it is kept unconditionally — it discriminates the failure even when `error`
+ * scrubs to nothing.
+ *
+ * Both fields come from `resolvePersistenceProviderOrError`, which
+ * credential-scrubs `error` before returning it: some of these messages are
+ * persisted into guard-health records and rendered into an operator-facing
+ * banner.
+ *
+ * Structurally typed rather than importing `PersistenceProviderResolution`, so
+ * this module keeps its domain imports dynamic (see layer 1 above).
+ */
+export function describeProviderResolutionFailure(failure: {
+  error: string;
+  errorClass: string;
+}): string {
+  return `persistence provider unavailable: ${failure.errorClass}: ${failure.error}`;
 }

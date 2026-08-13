@@ -9,8 +9,10 @@
  * with zero live fires in the window is FLAGGED — "shipped is not firing"
  * (memory fc8c66e7 / the mt#2057 9-day dead-hook incident).
  *
- * Read-only: reads `.minsky/*-calibration.jsonl` and reports. It writes no
- * state, so (unlike the canary runner) it needs no temp-dir isolation.
+ * Read-only: reads `.minsky/*-calibration.jsonl` plus the guard registries'
+ * DECLARED detector names (mt#3742 — a never-fired detector has no file, so
+ * the disk scan alone cannot see it) and reports. It writes no state, so
+ * (unlike the canary runner) it needs no temp-dir isolation.
  *
  * Usage:
  *   bun scripts/check-coverage-receipts.ts                       # all detectors, 7d window
@@ -36,7 +38,9 @@
  *     nonGuard: string[]    // logs with a declared NON-guard producer
  *   }
  *
- * `results` covers the discovered calibration logs MINUS `nonGuard` — a
+ * `results` covers the UNION of the DECLARED detectors and the calibration
+ * logs discovered on disk, MINUS `nonGuard` (mt#3742 widened this from
+ * discovered-only; see `resolveDetectorsToCheck`) — a
  * non-guard producer has no entry point to instrument, so a coverage verdict
  * on it would be a claim about something that does not exist. `Checked:` in
  * the textual summary is `results.length` and therefore excludes them too;
@@ -45,7 +49,7 @@
  * output, `.minsky/skills/calibration-review/SKILL.md` Step 1b, and
  * `docs/architecture/evaluation-loop-fire-log.md` — no CI job or script parses
  * the JSON. Anything added later should read `results` + `nonGuard` together
- * if it needs the full discovered set.
+ * if it needs the full checked set.
  *
  * @see .minsky/hooks/coverage-receipt.ts — core check logic this wraps
  * @see scripts/run-guard-canaries.ts — the synthetic-input sibling (mt#2889)
@@ -62,79 +66,26 @@ const {
   summarizeCoverage,
   formatCoverageResult,
   countInvocationsPerLog,
+  resolveDetectorsToCheck,
   DEFAULT_COVERAGE_WINDOW_DAYS,
 } = await import("../.minsky/hooks/coverage-receipt");
 const { readFireLogEntries } = await import("../.minsky/hooks/fire-log");
-const { GUARD_REGISTRY } = await import("../.minsky/hooks/registry");
-const { STANDALONE_GUARD_CANARIES } = await import("./lib/standalone-guard-canaries");
+// mt#3716: the declaration-reading logic (GUARD_REGISTRY + STANDALONE_GUARD_CANARIES union,
+// plus the non-guard-producer enumeration) moved to `./lib/calibration-log-declarations` so it
+// is the ONE shared accessor mt#3742 SC5 requires — the calibration-sweep derivation
+// (`src/domain/calibration/calibration-sweep.ts`'s `deriveCalibrationLogEntries`) consumes the
+// same functions rather than re-deriving the union a second time.
+const { buildCalibrationLogToGuards, NON_GUARD_CALIBRATION_PRODUCERS } = await import(
+  "./lib/calibration-log-declarations"
+);
 
 import type { InvocationEvidence } from "../.minsky/hooks/coverage-receipt";
 
 const CALIBRATION_SUFFIX = "-calibration.jsonl";
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-/**
- * Map each calibration-log name to the guard name(s) that write it (mt#3502).
- *
- * Derived from declarations, never from string matching. The two differ for
- * real detectors — calibration log `untaken-action` is guard
- * `turn-end-untaken-action-scan`, `retrospective-trigger` is
- * `turn-end-retro-scan` — and a name-matching first pass at this reported both
- * as having zero invocations when they had 874 and 1531. Several logs are
- * written by more than one guard (`operator-deferral`,
- * `retrospective-trigger`), so the value is a list.
- *
- * `GUARD_REGISTRY`'s entries hold `module` as a lazy `() => import(...)`, so
- * importing the registry for its metadata does not load any guard module.
- */
-function buildCalibrationLogToGuards(): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  const add = (log: string, guard: string): void => {
-    const existing = map.get(log);
-    if (existing) existing.push(guard);
-    else map.set(log, [guard]);
-  };
-  // mt#3519: a declaration may name one log or several — the execution-evidence
-  // merge gate writes two. The read side was always many-to-many; this makes
-  // the write side match.
-  const addAll = (logs: string | string[], guard: string): void => {
-    for (const log of Array.isArray(logs) ? logs : [logs]) add(log, guard);
-  };
-  for (const reg of GUARD_REGISTRY) {
-    if (reg.calibrationLog) addAll(reg.calibrationLog, reg.name);
-  }
-  // Standalone guards are not in GUARD_REGISTRY; their canary declaration
-  // carries the same join key.
-  for (const canary of STANDALONE_GUARD_CANARIES) {
-    if (canary.calibrationLog) addAll(canary.calibrationLog, canary.guardName);
-  }
-  return map;
-}
-
-/**
- * Calibration logs written by something that is NOT a guard (mt#3519).
- *
- * `ask-form-lint` is the standing case: the log is written by
- * `src/adapters/shared/commands/ask-form-lint-calibration.ts` on the
- * `asks_create` command path, not by any hook. It has no guard name, no
- * dispatcher invocation, and no canary — so neither declaration mechanism can
- * reach it, and it is NOT the "no guard declares this" defect that the
- * `Unmapped` line reports.
- *
- * Deliberately NOT solved by recording fire-log entries from the command path:
- * the fire log is the GUARD invocation log (`guardName` is its identity
- * field), and `src/` is bundled into the deployed MCP server, which must not
- * import `.minsky/hooks/`. Declaring the producer keeps the signal honest —
- * these are reported in their own category and never counted as `covered`,
- * which is what the coverage receipt would otherwise imply.
- *
- * A log listed here is EXEMPT from the invocation-evidence join, not from
- * review: its records still feed the calibration sweep exactly as before.
- */
-const NON_GUARD_CALIBRATION_PRODUCERS: Record<string, string> = {
-  "ask-form-lint":
-    "src/adapters/shared/commands/ask-form-lint-calibration.ts (asks_create command path, not a hook)",
-};
+// `NON_GUARD_CALIBRATION_PRODUCERS` and `buildCalibrationLogToGuards` are imported above from
+// `./lib/calibration-log-declarations` (mt#3716) — see that module for the full doc comment.
 
 /**
  * Count fire-log invocations per calibration-log name inside the window.
@@ -194,9 +145,23 @@ function parseArgs(argv: string[]): { detectors: string[]; windowDays: number; j
 async function main(): Promise<void> {
   const { detectors: requested, windowDays, json } = parseArgs(process.argv.slice(2));
   const cwd = process.cwd();
-  const detectors = requested.length > 0 ? requested : discoverDetectors(cwd);
+  const logToGuards = buildCalibrationLogToGuards();
+  // mt#3742: enumerate the DECLARED detectors as well as the on-disk logs. A
+  // detector that has never fired writes no calibration file, so a disk-only
+  // scan cannot see it — and "no records at all" is the very symptom this gate
+  // exists to catch. An explicit CLI detector list still wins: that is the
+  // deliberate-override path.
+  const discovered = discoverDetectors(cwd);
+  const detectors =
+    requested.length > 0 ? requested : resolveDetectorsToCheck(logToGuards.keys(), discovered);
 
-  if (detectors.length === 0) {
+  // The "nothing to check" exit gates on TELEMETRY PRESENCE, not on the
+  // detector set (mt#3742). Calibration logs are gitignored, so a fresh clone
+  // has none — and since the union above is never empty while any guard
+  // declares a log, gating on `detectors` would turn every fresh checkout into
+  // a wall of FLAGGED. Absence of ALL telemetry means the sweep has nothing to
+  // reason from; absence of ONE declared detector's log is the real finding.
+  if (requested.length === 0 && discovered.length === 0) {
     if (json) {
       // Same key set as the populated path below — a JSON consumer must not
       // see a different schema just because the repo has no calibration logs.
@@ -221,7 +186,6 @@ async function main(): Promise<void> {
   }
 
   const now = new Date();
-  const logToGuards = buildCalibrationLogToGuards();
   const invocations = buildInvocationEvidence(logToGuards, windowDays, now);
 
   // A detector whose log maps to no guard gets NO invocation evidence, which

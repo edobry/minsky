@@ -37,7 +37,10 @@ import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/t
 // Static (not dynamic) per `no-dynamic-imports`: this module is types + a pure
 // string builder, so it carries none of the weight that keeps PersistenceService
 // behind the dynamic import in getCachedPersistenceProvider below.
-import { describePersistenceUnavailability } from "@minsky/domain/persistence/unconfigured-provider";
+import {
+  describePersistenceUnavailability,
+  PersistenceUnavailableError,
+} from "@minsky/domain/persistence/unconfigured-provider";
 import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
@@ -45,7 +48,12 @@ import { log } from "@minsky/shared/logger";
 // Static import is safe here (shared-persistence pulls in only types + the
 // logger); the heavyweight PersistenceService itself stays behind the dynamic
 // import in getCachedPersistenceProvider below.
-import { getPersistenceEpoch } from "./shared-persistence";
+import {
+  getPersistenceEpoch,
+  getDbStatus,
+  PersistenceInitTimeoutError,
+  type DbStatus,
+} from "./shared-persistence";
 
 // ---------------------------------------------------------------------------
 // getCachedPersistenceProvider — shared bootstrap step
@@ -106,6 +114,50 @@ export async function describeServerPersistenceUnavailability(): Promise<string>
   }
 }
 
+// ---------------------------------------------------------------------------
+// Driver-level connection-error classification (mt#3825)
+// ---------------------------------------------------------------------------
+
+/**
+ * Human-readable phrases for the postgres.js / Node socket connection-error
+ * codes that produce the `undefined:undefined` artifact (mt#3825).
+ *
+ * `node_modules/postgres/src/errors.js`'s `connection()` builder always
+ * writes `write ${code} ${host}:${port}` (`function connection(x, options,
+ * socket) { const { host, port } = socket || options; ... }`), and a
+ * pre-connection `net.Socket` has neither `host` nor `port` — so EVERY
+ * connect-level failure renders `write CONNECT_TIMEOUT undefined:undefined`
+ * regardless of how the connection is configured. The fragment reads as "a
+ * config value is missing," which is exactly backwards, while carrying zero
+ * actual diagnostic signal. Keyed on `err.code` (the field this same
+ * `connection()` builder assigns), never on matching the message text, so
+ * the raw artifact is never re-embedded even by this classification itself.
+ */
+const DRIVER_CONNECTION_ERROR_PHRASES: Record<string, string> = {
+  CONNECT_TIMEOUT: "timed out connecting to the database",
+  ETIMEDOUT: "timed out connecting to the database",
+  ECONNREFUSED: "the database refused the connection",
+  ENOTFOUND: "the database host could not be resolved",
+  EHOSTUNREACH: "the database host is unreachable",
+  ECONNRESET: "the database connection was reset",
+  EPIPE: "the database connection was broken",
+};
+
+/**
+ * Classify a caught error as a driver-level connection failure, returning a
+ * clean human-readable phrase — or `undefined` when it isn't one.
+ *
+ * Exported so a caller that already has a raw driver error (rather than a
+ * widget's generic catch-all) can reuse the same phrase table instead of
+ * re-deriving it.
+ */
+export function classifyDriverConnectionError(err: unknown): string | undefined {
+  if (!(err instanceof Error)) return undefined;
+  const code = (err as { code?: unknown }).code;
+  if (typeof code !== "string") return undefined;
+  return DRIVER_CONNECTION_ERROR_PHRASES[code];
+}
+
 /**
  * Render the cause when the cockpit's persistence bootstrap REJECTED (mt#3661).
  *
@@ -120,13 +172,98 @@ export async function describeServerPersistenceUnavailability(): Promise<string>
  * differ only in whether the bootstrap handed back a placeholder or threw.
  */
 export function describeFailedPersistenceInit(err: unknown): string {
-  const reason = err instanceof Error ? err.message : String(err);
+  const reason =
+    classifyDriverConnectionError(err) ?? (err instanceof Error ? err.message : String(err));
   return (
     `Postgres IS configured, but persistence failed to initialize: ${reason}. ` +
     "The database is unreachable — this is a degraded provider, not a missing " +
     "configuration. Check the boot logs and restart once the database is " +
     "reachable; `minsky persistence check` reports the same failure."
   );
+}
+
+// ---------------------------------------------------------------------------
+// describeWidgetDegradedReason — widget catch-all classifier (mt#3825)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a caught error from a cockpit widget's top-level catch-all into an
+ * operator-meaningful, cause-carrying reason (mt#3825).
+ *
+ * Replaces the bare `${widgetName} error: ${message}` template that every
+ * DB-backed widget used to interpolate a caught error's `.message` verbatim —
+ * which, for a connect-level driver failure, IS the `write CONNECT_TIMEOUT
+ * undefined:undefined` artifact (see {@link DRIVER_CONNECTION_ERROR_PHRASES}).
+ * That fragment carries no diagnostic signal while looking like it carries
+ * the most: it reads as "a config value is missing," which is what the
+ * originating incident's principal first suspected — and is not.
+ *
+ * Distinguishes three states, extending ADR-035 rule 3's two ("configured but
+ * failing" MUST be distinguishable from "not configured") with the third
+ * class ADR-035's own scope (the initializer) does not name:
+ *
+ *   A. **Not configured** — mt#2349's boot-tolerant `UnconfiguredProvider`
+ *      placeholder threw on use (`PersistenceUnavailableError`). Its own
+ *      message already names the missing config keys, so it is passed
+ *      through rather than re-derived.
+ *   B. **Configured but unavailable at boot** — the shared
+ *      `PersistenceService` itself failed to (re-)initialize
+ *      (`PersistenceInitTimeoutError`, or a raw driver connect failure
+ *      thrown by `getSharedPersistenceService()` — which PROPAGATES rather
+ *      than converting the failure into a value; see
+ *      {@link describeServerPersistenceUnavailability}'s own docstring for
+ *      why that asymmetry matters here too). Delegates to
+ *      {@link describeFailedPersistenceInit}, the mt#3661 helper for exactly
+ *      this state, rather than duplicating its wording.
+ *   C. **Connectivity/driver failure on an ALREADY-INITIALIZED provider** —
+ *      what the originating incident actually was: the shared service had
+ *      already initialized successfully in this process, and a LATER query
+ *      hit a driver-level connection error. `getDbStatus()` only leaves
+ *      `"ok"` via the init/reachability/recycle paths in
+ *      `shared-persistence.ts` — none of which an ordinary per-query failure
+ *      touches — so `getDbStatus() === "ok"` at the moment of this catch is
+ *      exactly the signal that distinguishes this state from B without
+ *      needing any new tracking state.
+ *
+ * An error that matches none of the above (an unrelated widget bug, not a
+ * persistence signal) is passed through unclassified — reclassifying every
+ * possible widget error as a database problem would be its own defect.
+ *
+ * @param options.getDbStatus Test seam: override the DB-status read.
+ *   Defaults to {@link getDbStatus}. Production callers never set this.
+ */
+export function describeWidgetDegradedReason(
+  widgetName: string,
+  err: unknown,
+  options?: { getDbStatus?: () => DbStatus }
+): string {
+  const readDbStatus = options?.getDbStatus ?? getDbStatus;
+  const message = err instanceof Error ? err.message : String(err);
+
+  // Case A — see docstring above.
+  if (err instanceof PersistenceUnavailableError) {
+    return `${widgetName}: ${message}`;
+  }
+
+  const driverPhrase = classifyDriverConnectionError(err);
+  if (driverPhrase !== undefined || err instanceof PersistenceInitTimeoutError) {
+    // Case C — see docstring above.
+    if (readDbStatus() === "ok") {
+      return (
+        `${widgetName}: the database connection ${driverPhrase ?? "failed"} mid-request. ` +
+        "The connection was already established for this process — this is a " +
+        "live connectivity/driver failure, not a missing or invalid " +
+        "configuration. It should clear automatically once the network path " +
+        "to Postgres is reachable again; `minsky persistence check` reports " +
+        "the same failure."
+      );
+    }
+    // Case B — see docstring above.
+    return `${widgetName}: ${describeFailedPersistenceInit(err)}`;
+  }
+
+  // Not a recognized persistence signal.
+  return `${widgetName}: ${message}`;
 }
 
 // ---------------------------------------------------------------------------

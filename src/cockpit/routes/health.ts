@@ -26,6 +26,7 @@ import { DispatchWatchdogSweepTracker } from "../dispatch-watchdog";
 import { ProdStateSweepTracker } from "../prod-state-sweep-tracker";
 import {
   getDbCheck,
+  getDbHealth,
   getDbRecycle,
   getDbStatus,
   refreshDbReachability,
@@ -180,6 +181,15 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // count across polls is the recurrence signal that used to require log
       // spelunking (or a 40-minute outage) to see.
       dbRecycle: getDbRecycle(),
+      // mt#3826: WHY the DB is unusable, not just that it is. `db` above
+      // collapses a half-open pool wedge and a network refusing the port into
+      // the same "degraded", which is what let the 2026-08-07 incident spend
+      // ~9 hours recycling a pool against a port that was never going to open.
+      // Shape is ADR-035 rule 4's (`mode`/`reason`/`lastAttemptAt`) so this
+      // subsystem reports liveness in the same vocabulary as the others; the
+      // added `failure` field is the discriminated form of `reason`, so a
+      // consumer branches on `failure.kind` instead of parsing prose.
+      dbHealth: getDbHealth(),
       // mt#3626: uncaught exceptions this process SURVIVED rather than died on
       // (transient outbound-connect failures inside the runtime's own net
       // module). Surviving is the designed behavior, so a non-zero count does
@@ -203,9 +213,22 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
+      // mt#3857: `activeSessions` carries the LIVE subset only, and the registry
+      // total rides alongside as a scalar. This endpoint is the most-polled surface
+      // in the system — every 5s by the tray supervisor, 3x/15s by the webview — so
+      // an unbounded array here is multiplied by ~12 requests a minute forever. It
+      // had grown to 1,380 entries / 209 KB per response (99.5% of the payload)
+      // before this filter; the full registry is still available via
+      // `getActiveSessions()` for any caller that wants it.
+      //
+      // Emitting a count next to a bounded list also matches the convention ADR-017
+      // set for the sibling `transcriptSweep` field ("counts + ISO timestamps only"),
+      // and matches what `contract/cockpit-health-shape.json`'s sample already
+      // assumed this field looked like.
       transcriptWatcher: {
         ...watcherTracker.getSummary(),
-        activeSessions: watcherTracker.getActiveSessions(),
+        activeSessionCount: watcherTracker.trackedSessionCount,
+        activeSessions: watcherTracker.getLiveSessions(),
       },
       // mt#3297: whether the DB has the schema this build expects. The status
       // code cannot carry this — the daemon boots fine and answers 200 whether

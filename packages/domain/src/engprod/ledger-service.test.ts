@@ -194,9 +194,17 @@ describe("ProposalLedgerService.recordSuppressedBatch (mt#3432 perf fix)", () =>
       const errorCalls: Array<[string, Record<string, unknown>]> = [];
       const warnCalls: Array<[string, Record<string, unknown>]> = [];
       const logSink = {
-        error: (event: string, payload: Record<string, unknown>) =>
-          errorCalls.push([event, payload]),
-        warn: (event: string, payload: Record<string, unknown>) => warnCalls.push([event, payload]),
+        // Braced bodies: a bare `=> arr.push(...)` returns `number`, which does
+        // not satisfy LedgerServiceLogSink's void-returning signature.
+        // `payload` is OPTIONAL in LedgerServiceLogSink; a required parameter
+        // here is not assignable to it. Braced bodies because a bare
+        // `=> arr.push(...)` returns `number`, not `void`.
+        error: (event: string, payload?: Record<string, unknown>): void => {
+          errorCalls.push([event, payload ?? {}]);
+        },
+        warn: (event: string, payload?: Record<string, unknown>): void => {
+          warnCalls.push([event, payload ?? {}]);
+        },
       };
 
       const poisonedSignature = "sig-poisoned";

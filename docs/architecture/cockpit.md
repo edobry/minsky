@@ -26,6 +26,39 @@ details (a task at `/tasks/:id`, a conversation at `/conversation/:id`, a worksp
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
+### Side peek (mt#3694)
+
+Over that shell sits a **side peek**: clicking an `EntityRef` opens the entity in a pane
+above the current page rather than navigating to it (`PeekHost`, mounted in `Layout` as a
+sibling of `<main>` so the page behind stays mounted). Operator-facing behavior and gestures:
+`docs/cockpit-ui.md` §The side peek.
+
+Three properties are load-bearing and easy to break:
+
+- **The pathname never changes.** Pane state lives entirely in a `?peek=` query parameter,
+  derived on every render with no second copy (`lib/peek.ts`). That is simultaneously why the
+  peek is URL-addressable, why Back closes it, why it is ephemeral with nothing persisted —
+  and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
+  `matchEntityRoute(pathname)` and a search-only change cannot reach it. **A peek therefore
+  cannot be implemented as a route change**; that is the constraint the whole design turns on.
+- **The panes are non-modal, and do not dismiss on outside interaction.** Coexisting with a
+  live page is the feature. Radix's default treats any outside click as a dismissal, which
+  silently breaks the hold gesture — a shift-click lands outside the open pane, so the pane
+  closes at the same moment the hold opens the next one. `PeekHost` prevents all three
+  outside-interaction events. Non-modal also means panes do NOT trap focus (verified in
+  `@radix-ui/react-dialog@1.1.15`: `DialogContentNonModal` sets `trapFocus: false`), which is
+  unavoidable — a focus trap needs exactly one region to trap into, and the hold gesture
+  allows two live panes.
+- **One renderer per entity.** A peeked entity renders the SAME component its full page
+  renders (`PeekBody`), never a compact second implementation that would drift. Types without
+  a shareable body render an open-as-page affordance carrying no entity fields rather than a
+  miniature stand-in; `PEEKABLE_WITH_BODY` pins the split and a test asserts the exact list
+  (mt#4069 completes it).
+
+The pane-list algebra and wire format are pure and separately tested (`lib/peek-codec.ts`) —
+an ordinary open replaces the last pane, a held pane survives so the next lands beside it, and
+growth costs a gesture per pane, so there is no cap or eviction policy.
+
 ### Keyboard shortcuts
 
 | Chord            | Action                                                                                              |
@@ -33,9 +66,18 @@ palette is mounted globally.
 | `⌘K`             | Open the command palette (`CommandPalette.tsx`)                                                     |
 | `⌘⇧]` / `⌘⇧[`    | Next / previous tab in **strip** order, wrapping at both ends (mt#3469)                             |
 | `⌃Tab` / `⌃⇧Tab` | Next / previous tab in **recency** order; holding `⌃` walks a frozen order, as in VS Code (mt#3469) |
+| `⌘W`             | Close the **active** tab; inert when no entity tab is in view (mt#4059)                             |
+| `⌘⇧W`            | Close (hide) the cockpit window — where plain `⌘W` used to sit (mt#4059)                            |
 
-All of them are suppressed while focus is in a text input, textarea, select, or
-contenteditable host.
+The palette and the tab-cycling chords are suppressed while focus is in a text
+input, textarea, select, or contenteditable host. `⌘W` and `⌘⇧W` are not: they
+are macOS **menu accelerators** (Window ▸ Close Tab / Close Window), which fire
+regardless of focus and never reach the document. That is the point of the
+choice — an accelerator also renders its chord in the menu, and does not depend
+on a chorded key being delivered to the webview, which is the open question
+mt#3475 tracks for the cycling chords above. `⌘W` reaches SPA state through the
+ADR-023 native→SPA seam: `menu.rs eval_close_active_tab` evals
+`window.__minskyCloseActiveTab`, installed by `components/TabCloseBridge.tsx`.
 
 **The tab shortcuts only work in the Tauri cockpit window, not in a browser tab.** Browsers
 reserve those chords for their own tab strip and never deliver them to the page, so there they
@@ -87,23 +129,25 @@ not.
 
 ## Routes
 
-| Path                       | Page              | Purpose                                                                                                                                                                                                                                                                                                                  |
-| -------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/`                        | Home              | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398) |
-| `/agents`                  | Agents            | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                   |
-| `/agents/:id`              | Workspace detail  | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                |
-| `/conversation/:id`        | Conversation      | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                  |
-| `/context`                 | Context           | Agent context inspector                                                                                                                                                                                                                                                                                                  |
-| `/workstreams`             | Workstreams       | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                        |
-| `/tasks`                   | Tasks             | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                     |
-| `/asks`                    | Asks              | Interactive ask management                                                                                                                                                                                                                                                                                               |
-| `/proposals`               | Proposals         | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                               |
-| `/activity`                | Activity          | Event stream                                                                                                                                                                                                                                                                                                             |
-| `/embeddings`              | Embeddings        | Provider health + index coverage                                                                                                                                                                                                                                                                                         |
-| `/memories`                | Memories          | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                       |
-| `/settings`                | Settings          | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                      |
-| `/plant`                   | Plant Board       | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                   |
-| `/plant/interlock-history` | Interlock history | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                                                                                                                                      |
+| Path                       | Page                | Purpose                                                                                                                                                                                                                                                                                                                  |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                        | Home                | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398) |
+| `/agents`                  | Agents              | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                   |
+| `/agents/:id`              | Workspace detail    | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                |
+| `/conversation/:id`        | Conversation        | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                  |
+| `/context`                 | Context             | Agent context inspector                                                                                                                                                                                                                                                                                                  |
+| `/workstreams`             | Workstreams         | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                        |
+| `/tasks`                   | Tasks               | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                     |
+| `/asks`                    | Asks                | Interactive ask management                                                                                                                                                                                                                                                                                               |
+| `/proposals`               | Proposals           | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                               |
+| `/activity`                | Activity            | Event stream                                                                                                                                                                                                                                                                                                             |
+| `/embeddings`              | Embeddings          | Provider health + index coverage                                                                                                                                                                                                                                                                                         |
+| `/memories`                | Memories            | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                       |
+| `/settings`                | Settings            | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                      |
+| `/plant`                   | Plant Board         | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                   |
+| `/plant/interlock-history` | Interlock history   | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                                                                                                                                      |
+| `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                  |
+| `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                           |
 
 ## Widgets
 
@@ -411,7 +455,11 @@ POST /api/follow-ups/:id/cancel — cancel a still-pending follow-up
 registrant like every other sweep in this file, so its liveness
 (lastAttemptAt/lastSuccessAt/lastErrorAt/consecutiveFailures) is already
 covered generically by the shared sweep-liveness registry on `GET /api/sweeps`
-(next section) under the name `"scheduled follow-ups"`.
+(next section) under the name `"scheduled follow-ups"`. Those fields cover the
+SCHEDULING layer only; this sweep does not yet report a domain outcome, so its
+`reportsDomainOutcome` is `false` and whether its work is succeeding is not
+currently visible anywhere (mt#3684 added the channel; migrating each sweep onto
+it is separate work).
 
 ## Sweep-liveness registry + meta-watchdog (mt#2894)
 
@@ -441,23 +489,48 @@ GET /api/sweeps
     {
       "name": "prod-state refresh",
       "intervalMs": 600000,
+      // Scheduling layer: did the timer fire, and did the callback return?
       "lastAttemptAt": "2026-07-17T13:00:00.000Z",
       "lastSuccessAt": "2026-07-17T13:00:00.050Z",
       "lastErrorAt": null,
       "consecutiveFailures": 0,
       "reinits": 0,
       "metaRestarts": 0,
+      // Domain layer (mt#3684): did the sweep's WORK succeed?
+      "reportsDomainOutcome": true,
+      "lastDomainSuccessAt": "2026-07-17T13:00:00.050Z",
+      "lastDomainFailureAt": null,
+      "consecutiveDomainFailures": 0,
     },
   ],
 }
 ```
 
+**The two groups of fields answer different questions, and reading one for the
+other is what made a 13-hour outage invisible (mt#3684).** The scheduling
+fields report that the timer fired and the tick function returned. Because the
+factory's `tick` contract asks each sweep to apply its own fail-open try/catch,
+a tick that failed still RETURNS — so on 2026-08-06 this endpoint showed
+`lastSuccessAt` one minute old and `consecutiveFailures: 0` while the
+prod-state sweep had been failing every tick for 13 hours. That reading was
+correct about scheduling and silent about the outage.
+
+A tick may therefore also report its own outcome (return `{ ok: boolean }`),
+recorded in the `*Domain*` fields. `reportsDomainOutcome` is `false` for a
+sweep that reports nothing — read the other three as meaningless in that case,
+NOT as healthy. `reinits` counts a sweep's own bounded self re-init (below);
+`metaRestarts` counts a meta-watchdog-triggered force-restart. A domain failure
+deliberately drives neither: re-init recovers a wedged tick, and mt#3682
+established that restarting the interval does nothing for a failure below the
+sweep.
+
 This is a SEPARATE endpoint from `/api/health`'s per-domain sweep trackers
-(`transcriptSweep`, `dispatchWatchdogSweep`) — it reports the SCHEDULING
-layer's liveness uniformly across all six sweeps, including the three (ask
-advancement, topology, deploy.smoke) that have no domain-specific tracker of
-their own. `reinits` counts a sweep's own bounded self re-init (below);
-`metaRestarts` counts a meta-watchdog-triggered force-restart.
+(`prodStateSweep`, `transcriptSweep`, `dispatchWatchdogSweep`). Those cover 3
+of the 11 registered sweeps; the other 8 — ask advancement, stale-ask close,
+topology, deploy.smoke, scheduled follow-ups, conversation presence,
+conversation title, conversation summary — have no domain-specific tracker of
+their own, which is why the domain fields above exist on the shared registry
+rather than being deferred to a per-sweep tracker that may not exist.
 
 **Bounded re-init.** After `REINIT_FAILURE_THRESHOLD` (3) consecutive tick
 failures (timeout or unexpected throw — NOT a domain-level failure the
@@ -617,15 +690,120 @@ connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'`. `--dev` mode (
 
 Scope: this posture covers the **local** cockpit daemon only. The Railway-deployed
 `services/cockpit/src/server.ts` is a separate entrypoint that binds `0.0.0.0` deliberately for
-the platform proxy and is out of scope here. Because both entrypoints share the same
-`createCockpitServer()` factory, the Railway entrypoint passes `isPublicDeployment: true`
-(`CockpitServerOptions`), which skips the Host-header allowlist and the bearer-token/cookie
-mutation-auth for that deployment — its incoming `Host` header is a Railway-assigned public
-hostname that could never satisfy the loopback-only allowlist, and introducing a mutation
-bearer-token requirement to an already-shipped multi-consumer production surface is out of
-scope for this task. The CSP header and the no-CORS policy are additive/response-only, so they
-still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238) owns
-its own, distinct auth surface for that separate concern.
+the platform proxy. Because both entrypoints share the same `createCockpitServer()` factory, the
+Railway entrypoint passes `isPublicDeployment: true` (`CockpitServerOptions`), which skips the
+Host-header allowlist and the bearer-token/cookie mutation-auth for that deployment — its
+incoming `Host` header is a Railway-assigned public hostname that could never satisfy the
+loopback-only allowlist. The CSP header and the no-CORS policy are additive/response-only, so
+they still apply to the Railway deployment too. The Rung 3 cloud→local relay channel (mt#2238)
+owns its own, distinct auth surface for that separate concern.
+
+### The public deployment is passkey-gated (mt#4023)
+
+**`isPublicDeployment: true` does not mean "no auth."** It did until mt#4023, and the
+consequence was measured: on 2026-08-11 an unauthenticated `GET /api/tasks` against
+`cockpit-preview-production.up.railway.app` returned 500 live production tasks, and
+`/api/cockpit/session-film/sessions` returned 49 conversations. The flag still turns off the two
+loopback-shaped defenses above, but it now turns ON a WebAuthn passkey gate in their place.
+
+- **Deny by default.** `requirePasskeySession` (`src/cockpit/passkey-auth.ts`) rejects every
+  request without a valid session cookie with `401`. The public-path list is CLOSED — `/api/health`,
+  `/api/auth/*`, and the SPA shell plus its static assets — so a route added later is gated on
+  arrival rather than by anyone remembering to add it.
+- **`/api/health` stays public**, because the Railway healthcheck and the mt#1302 post-deploy
+  monitor both poll it unauthenticated.
+- **First-run enrollment is once-only.** Enrolling a passkey is permitted without a session only
+  while ZERO passkeys exist; after that it requires an existing session. That is what makes the
+  gate a gate rather than a race for whoever loads the URL second.
+- **Sessions are stored, not signed-stateless** (`cockpit_auth_sessions`), so revoking one is a
+  row delete with no secret to rotate. The cookie carries the `__Host-` prefix under TLS.
+- **Relying-party id.** `up.railway.app` is on the Public Suffix List, so the rpID must be the
+  full deployment hostname; `MINSKY_COCKPIT_RP_ID` / `MINSKY_COCKPIT_ORIGIN` override it. Moving
+  to a custom domain changes the rpID and therefore requires re-enrolling every passkey — a
+  credential is bound to the rpID it was created under.
+- **Fail-closed.** If the auth tables are missing or the database is unreachable, the gate returns
+  `503` and keeps denying; it does not fall open. Verified by booting the deploy entrypoint before
+  migration `0094` was applied: every data route still answered `401`.
+
+**Every cockpit answers `GET /api/auth/status`**, including the local daemon, which reports
+`{ gated: false }`. That route must never be left unmounted: the SPA catch-all answers unmatched
+GETs with `index.html`, and an HTML `200` is indistinguishable from a real answer to the client,
+which fails closed on it — leaving it unmounted locally would lock the local daemon out of itself.
+
+The local (`!isPublicDeployment`) path is otherwise unchanged: no passkey middleware is mounted,
+and the Host allowlist plus bearer/cookie mutation auth apply exactly as described above.
+
+### Published conversation share links (mt#4024)
+
+**The one hole in deny-by-default, and it is operator-punched, one conversation at a time.**
+The point is handing a single conversation to a single person — "take a look at this" — without
+giving them the cockpit or an account. Nothing becomes public by deploying this.
+
+**How to publish.** Open a conversation (`/conversation/:id`) and press **Share**. That opens a
+confirmation, and the confirmation is the control, not a courtesy: it names the conversation, how
+many turns it has, and when they happened, and it states that everything in the conversation
+becomes readable — file contents, command output, tool results, anything an agent pasted in. The
+click that opens it mints nothing. **If the confirmation cannot read the conversation, it refuses
+to publish** rather than offering a button beside "could not read" — a confirmation that cannot
+say what becomes public is not one.
+
+Minting returns a URL of the form `/s/<token>`. **That is the only time the token is ever
+readable** — the database stores `sha256(token)`, so a lost URL cannot be recovered, only revoked
+and re-minted.
+
+**What the safety actually rests on, in order of how much each does:**
+
+1. **The operator publishes explicitly**, one conversation at a time, behind the confirmation above.
+2. **The credential-scrub gate** refuses any transcript ingested before `CREDENTIAL_SCRUB_CUTOFF_ISO`,
+   at BOTH publish and render. Re-checking at render matters: the gate is a property of the
+   transcript row, so a link minted while it passed stops serving if the row later does not.
+3. **Revocation is real** — a `revoked_at` flip, no secret to rotate, effective on the next request.
+
+**The scrub gate does NOT make publishing safe on its own, and the design does not pretend it
+does.** It matches credential PATTERNS. It does nothing about PII, customer data, private file
+contents, or anything else sensitive-but-unpatterned that an agent read into a transcript —
+exactly the categories ADR-025 names as the reason the transcript archive bucket must stay
+private, and the class mt#3850 records live secrets reaching transcripts through. That is why
+step 1 exists and why the confirmation says so in as many words: **read the conversation before
+you publish it.**
+
+**What a reader gets.** `/s/<token>` renders that one conversation read-only, with no cockpit
+navigation, no mutation affordances, and no path to any other entity. It mounts as a SIBLING of
+`AuthGate` and `App` (`src/cockpit/web/main.tsx`) rather than a route inside them, so a page whose
+whole purpose is being readable without an account cannot have a sign-in screen rendered over it,
+and never mounts SSE or widget polling that would `401` on every tick. It reads exactly one
+endpoint and passes an EMPTY entity index — every link it could otherwise render points at a
+cockpit route the reader has no session for.
+
+**410 vs 404 is deliberate, and it is for the reader.** A revoked token answers `410 Gone` and
+serves no content; an unknown token answers `404`. Someone holding a link that used to work needs
+to know it was turned off rather than mistyped, and guessing a 256-bit token is not a threat model.
+A transcript that stops passing the scrub gate answers `422`.
+
+**The allow-list stays closed.** `isPublicPath` exempts exactly one new data route,
+`/api/shares/public/`. Mint, list and revoke (`/api/shares`) stay gated like everything else —
+publishing one conversation opens nothing else, which `conversation-shares.test.ts` pins by
+asserting `/api/tasks` and `/api/shares` still `401` while a share is live.
+
+**Never indexed.** The server sets `X-Robots-Tag: noindex, nofollow, noarchive` on both the share
+page and its JSON, and the SPA shell carries the matching `<meta name="robots">` so it is in the
+HTML a crawler receives before any JavaScript runs. The precedent is ChatGPT's shared links turning
+up in search results in August 2025. Note the limit: `noindex` is a request that well-behaved
+crawlers honor. It is not access control — the token is.
+
+**The inventory (`/shares`)** answers "what is readable by anyone with a link right now."
+**Revoked shares stay listed**, dimmed and labeled with their revocation time, rather than
+disappearing — confirming "I turned that off" is what an operator opens the page to do, and a row
+that vanishes leaves them unable to. The header counts **live shares only**, and a revoked row
+carries no revoke control. Last-access time is what makes the page an exposure readout rather than
+a receipt: a link nobody has opened in months is a revocation candidate, and one opened after you
+thought the reader was done is worth noticing.
+
+Verification: `bun scripts/verify-conversation-share.ts [--url <base>] [--conversation <id>]` mints
+a link, reads it with no session, revokes it, and asserts the `410`. Against a gated deployment it
+additionally needs `--cookie` from a signed-in browser, since a passkey ceremony cannot be run
+headlessly; against a local daemon it reads the bearer token from
+`~/.local/state/minsky/cockpit-token` itself.
 
 ## Driven-session host and WS channel (Rung 2A, mt#2750)
 

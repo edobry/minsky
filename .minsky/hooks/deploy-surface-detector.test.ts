@@ -32,16 +32,45 @@ describe("isDeploySurfaceFile (mt#2353)", () => {
     expect(isDeploySurfaceFile(".github/workflows/deploy-reviewer.yaml")).toBe(true);
   });
 
-  test("does NOT match non-deploy files (the coverage hole this guard fills)", () => {
-    // A behavior change to deployed SOURCE with no deploy-config file touched is
-    // exactly the mt#1459 hole — but it is also NOT a deploy-surface file; the
-    // guard intentionally scopes to config-as-code, not arbitrary service source.
-    expect(isDeploySurfaceFile("services/reviewer/src/server.ts")).toBe(false);
-    expect(isDeploySurfaceFile("src/index.ts")).toBe(false);
+  test("does NOT match non-deploy files", () => {
     expect(isDeploySurfaceFile(".github/workflows/test-quality.yml")).toBe(false);
     expect(isDeploySurfaceFile("docs/deployment-platforms.md")).toBe(false);
     expect(isDeploySurfaceFile("infrastructure-notes.md")).toBe(false); // not under infra/
-    expect(isDeploySurfaceFile(`${REVIEWER_DOCKERFILE}.dev`)).toBe(false); // anchored $
+    // scripts/** is outside every deploy workflow's paths: block. (Root
+    // src/** is NOT a negative example any more — mt#4013 kept it as a
+    // minsky-mcp trigger and aligned the map; see the positive test below.)
+    expect(isDeploySurfaceFile("scripts/run-tests-main.ts")).toBe(false);
+    // A sibling service NOT scoped by mt#3523's explicit map still resolves
+    // via the per-service Dockerfile pattern's anchoring only.
+    expect(isDeploySurfaceFile("services/site/Dockerfile.dev")).toBe(false); // anchored $
+  });
+
+  // mt#3523: services/reviewer/** is now a BROAD deploy-surface pattern
+  // (deploy-reviewer.yml's own `services/reviewer/**` trigger path), so
+  // unlike the anchored per-file Dockerfile pattern above, ANY file under
+  // services/reviewer/ — including one that wouldn't match the anchored
+  // Dockerfile pattern — is now correctly a deploy surface.
+  test("mt#3523: services/reviewer/** broad pattern covers files the anchored Dockerfile pattern alone would not", () => {
+    expect(isDeploySurfaceFile(`${REVIEWER_DOCKERFILE}.dev`)).toBe(true);
+  });
+
+  // mt#3523: application SOURCE that a deploy workflow's `paths:` block
+  // actually triggers on IS a deploy surface now, not just deploy config —
+  // this closes the mt#1459 coverage hole the superseded test above
+  // (removed) used to assert was out of scope by design.
+  test("mt#3523: matches services/reviewer/** application source (deploy-reviewer.yml's own trigger paths)", () => {
+    expect(isDeploySurfaceFile("services/reviewer/src/server.ts")).toBe(true);
+    expect(isDeploySurfaceFile("services/reviewer/migrations/pg/0001_init.sql")).toBe(true);
+  });
+
+  test("mt#3523: matches packages/domain/src/** and packages/shared/src/** (both deploy workflows' trigger paths)", () => {
+    expect(isDeploySurfaceFile("packages/domain/src/transcripts/turns.ts")).toBe(true);
+    expect(isDeploySurfaceFile("packages/shared/src/index.ts")).toBe(true);
+  });
+
+  test("mt#4013: matches root src/** (deploy-minsky-mcp.yml's own trigger; bundled into the image)", () => {
+    expect(isDeploySurfaceFile("src/index.ts")).toBe(true);
+    expect(isDeploySurfaceFile("src/cockpit/web/App.tsx")).toBe(true);
   });
 
   test("normalises a leading ./ and Windows backslashes", () => {
@@ -60,7 +89,7 @@ describe("findDeploySurfaceFiles (mt#2353)", () => {
   test("returns only the deploy-surface files from a mixed changeset", () => {
     const files: PrFile[] = [
       f(INFRA_INDEX),
-      f("src/app.ts"),
+      f("scripts/app.ts"),
       f(REVIEWER_RAILWAY_JSON),
       f("README.md"),
     ];
@@ -68,7 +97,10 @@ describe("findDeploySurfaceFiles (mt#2353)", () => {
   });
 
   test("empty when no deploy surface is touched", () => {
-    const files: PrFile[] = [f("services/reviewer/src/server.ts"), f("src/util.ts", "added")];
+    // mt#3523 widened services/reviewer/** and mt#4013 root src/**, so this
+    // fixture uses files outside every mapped tree (services/site/ isn't in
+    // the map, and scripts/ is outside every workflow's paths: block).
+    const files: PrFile[] = [f("services/site/src/server.ts"), f("scripts/util.ts", "added")];
     expect(findDeploySurfaceFiles(files)).toEqual([]);
   });
 
@@ -118,7 +150,7 @@ describe("findDeploySurfaceFiles (mt#2353)", () => {
   // rather than the `f()` helper, to match the real runtime payload.
   test("mt#2809: does not throw on the actual runtime payload shape (previous_filename: null on non-renamed files)", () => {
     const files = [
-      { filename: "src/app.ts", status: "modified", previous_filename: null },
+      { filename: "scripts/app.ts", status: "modified", previous_filename: null },
       { filename: REVIEWER_RAILWAY_JSON, status: "modified", previous_filename: null },
       { filename: "README.md", status: "added", previous_filename: null },
       {

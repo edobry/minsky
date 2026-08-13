@@ -2,8 +2,12 @@
  * TranscriptFtsService
  *
  * Domain service for full-text search over agent transcripts using Postgres FTS
- * (to_tsquery / plainto_tsquery against the fts_text GENERATED column on
- * agent_transcript_turns).
+ * against the fts_text GENERATED column on agent_transcript_turns.
+ *
+ * Matching is mode-selected (mt#3713): `websearch` (default) supports quoted
+ * phrases, `or`, and `-negation`; `plain` is the original plainto_tsquery
+ * behavior; `exact` matches a literal substring. Query-shaping decisions that
+ * do not need a database live in ./transcript-fts-search-query.
  *
  * Also provides a getSession method that returns structured turns for a session,
  * optionally sliced by turn_index range.
@@ -31,10 +35,20 @@ import {
   type TranscriptTurnResult,
   type TranscriptSessionMetadata,
 } from "./transcript-similarity-service";
+import {
+  DEFAULT_FTS_SEARCH_MODE,
+  TS_HEADLINE_OPTIONS,
+  buildContainsPattern,
+  buildLiteralSnippet,
+  selectLiteralSnippetSource,
+  tsQueryFunctionFor,
+  type TranscriptFtsSearchMode,
+} from "./transcript-fts-search-query";
 
 // ── Re-export for convenience ─────────────────────────────────────────────────
 
 export type { TranscriptTurnResult, TranscriptSessionMetadata };
+export type { TranscriptFtsSearchMode };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +64,18 @@ export interface TranscriptFtsSearchOptions {
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
   sessionId?: string;
+  /**
+   * How the query string is matched. Defaults to `websearch`, which supports
+   * `"quoted phrase"` adjacency, `or`, and `-negation`. See
+   * {@link TranscriptFtsSearchMode}.
+   */
+  mode?: TranscriptFtsSearchMode;
+  /**
+   * Restrict to turns whose parent session belongs to this project (mt#2417
+   * Phase 1.4). Omit for an unscoped, all-projects read. Mirrors the scoping
+   * `TranscriptSimilarityService` already applies.
+   */
+  projectId?: string;
 }
 
 /**
@@ -65,6 +91,14 @@ export interface TranscriptGetSessionOptions {
    */
   role?: "user" | "assistant";
 }
+
+/**
+ * Score reported for `exact`-mode hits and for unranked `getSession` reads.
+ *
+ * Both match without computing relevance, so there is no ts_rank to report;
+ * a constant keeps the result shape uniform across every search path.
+ */
+const EXACT_MATCH_SCORE = 1.0;
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -89,17 +123,40 @@ export class TranscriptFtsService {
     opts: TranscriptFtsSearchOptions = {}
   ): Promise<TranscriptTurnResult[]> {
     const limit = opts.limit ?? 10;
+    const mode = opts.mode ?? DEFAULT_FTS_SEARCH_MODE;
 
-    // Use plainto_tsquery for natural-language queries (no syntax required).
-    // ts_rank returns a float between 0 and 1 (higher = more relevant).
-    const tsQueryExpr = sql`plainto_tsquery('english', ${query})`;
-    const rankExpr = sql<number>`ts_rank(${agentTranscriptTurnsTable.ftsText}, plainto_tsquery('english', ${query}))`;
+    // The parser is chosen by mode; `exact` still names one because it uses the
+    // resulting tsquery as an index-accelerated prefilter (see below).
+    const tsQueryExpr = sql.raw(`${tsQueryFunctionFor(mode)}('english', `);
+    const buildTsQuery = (): SQL => sql`${tsQueryExpr}${query})`;
+
+    // ts_rank returns a float between 0 and 1 (higher = more relevant). It is
+    // meaningless for `exact`, which matches by substring, so that mode orders
+    // by recency instead and reports a constant score.
+    const rankExpr = sql<number>`ts_rank(${agentTranscriptTurnsTable.ftsText}, ${buildTsQuery()})`;
 
     // Build WHERE conditions.
     const conditions: SQL[] = [];
 
-    // Only return turns that actually match the FTS query.
-    conditions.push(sql`${agentTranscriptTurnsTable.ftsText} @@ ${tsQueryExpr}`);
+    if (mode === "exact") {
+      // Gate the substring test behind the GIN-indexed tsvector so `exact` runs
+      // at interactive latency: measured 462ms with this prefilter versus
+      // 6,129ms for a bare ILIKE over the 267k-row / 174MB corpus (mt#3713).
+      //
+      // A query whose lexemes are not present as indexed terms would be missed,
+      // so the prefilter is skipped entirely when the query tokenizes to an
+      // EMPTY tsquery (pure punctuation or stopwords) — that case falls back to
+      // the unaccelerated scan rather than silently returning nothing.
+      conditions.push(
+        sql`(${buildTsQuery()}::text = '' OR ${agentTranscriptTurnsTable.ftsText} @@ ${buildTsQuery()})`
+      );
+      conditions.push(
+        sql`${this.concatenatedTurnText()} ILIKE ${buildContainsPattern(query)} ESCAPE '\\'`
+      );
+    } else {
+      // Only return turns that actually match the FTS query.
+      conditions.push(sql`${agentTranscriptTurnsTable.ftsText} @@ ${buildTsQuery()}`);
+    }
 
     if (opts.role === "user") {
       conditions.push(sql`${agentTranscriptTurnsTable.userText} IS NOT NULL`);
@@ -111,9 +168,29 @@ export class TranscriptFtsService {
       conditions.push(eq(agentTranscriptTurnsTable.agentSessionId, opts.sessionId));
     }
 
+    if (opts.projectId) {
+      conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
+
     // Date window binds the TURN's started_at (not the parent session's) — see
     // buildTurnDateRangeConditions / mt#2319.
     conditions.push(...buildTurnDateRangeConditions(opts.dateRange));
+
+    // `exact` bypasses tokenization, so ts_headline (which highlights tsquery
+    // lexemes) is the wrong tool for it — that mode's snippet is cut around the
+    // literal in TypeScript after the rows come back.
+    const snippetExpr =
+      mode === "exact"
+        ? sql<string | null>`NULL`
+        : sql<
+            string | null
+          >`ts_headline('english', ${this.concatenatedTurnText()}, ${buildTsQuery()}, ${TS_HEADLINE_OPTIONS})`;
+
+    // Ordering by ts_rank is what dominates this query's cost — it cannot use
+    // the GIN index and must read every matching row's tsvector. Computing the
+    // headline inline adds no measurable time on top of it (mt#3713: 6,681ms
+    // with the headline vs 7,600ms without, on a 20,488-match query).
+    const orderByExpr = sql`${rankExpr} DESC`;
 
     try {
       const rows = await this.db
@@ -126,6 +203,7 @@ export class TranscriptFtsService {
           endedAt: agentTranscriptTurnsTable.endedAt,
           isSpawnBoundary: agentTranscriptTurnsTable.isSpawnBoundary,
           score: rankExpr,
+          snippet: snippetExpr,
           sessionStartedAt: agentTranscriptsTable.startedAt,
           sessionModel: agentTranscriptsTable.model,
           sessionCwd: agentTranscriptsTable.cwd,
@@ -139,7 +217,9 @@ export class TranscriptFtsService {
         )
         .where(and(...conditions))
         .orderBy(
-          sql`ts_rank(${agentTranscriptTurnsTable.ftsText}, plainto_tsquery('english', ${query})) DESC`
+          mode === "exact"
+            ? sql`${agentTranscriptTurnsTable.startedAt} DESC NULLS LAST`
+            : orderByExpr
         )
         .limit(limit);
 
@@ -155,7 +235,21 @@ export class TranscriptFtsService {
         startedAt: row.startedAt,
         endedAt: row.endedAt,
         isSpawnBoundary: row.isSpawnBoundary,
-        score: typeof row.score === "number" ? row.score : Number(row.score),
+        // ts_rank does not apply to a substring match; `exact` reports the same
+        // sentinel getSession() uses for its unranked reads.
+        score:
+          mode === "exact"
+            ? EXACT_MATCH_SCORE
+            : typeof row.score === "number"
+              ? row.score
+              : Number(row.score),
+        snippet:
+          mode === "exact"
+            ? buildLiteralSnippet(
+                selectLiteralSnippetSource(row.userText, row.assistantText, query),
+                query
+              )
+            : (row.snippet ?? ""),
         sessionMetadata: {
           agentSessionId: row.agentSessionId,
           startedAt: row.sessionStartedAt,
@@ -246,8 +340,8 @@ export class TranscriptFtsService {
         startedAt: row.startedAt,
         endedAt: row.endedAt,
         isSpawnBoundary: row.isSpawnBoundary,
-        // getSession results don't have a relevance score; use 1.0 as sentinel.
-        score: 1.0,
+        // getSession results don't have a relevance score; use the shared sentinel.
+        score: EXACT_MATCH_SCORE,
         sessionMetadata: {
           agentSessionId: row.agentSessionId,
           startedAt: row.sessionStartedAt,
@@ -271,6 +365,17 @@ export class TranscriptFtsService {
   }
 
   // ── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * The turn's user and assistant text as one value.
+   *
+   * Mirrors the expression the `fts_text` GENERATED column is built from
+   * (migration 0027), so a substring test and a snippet see exactly the text
+   * the index was derived from.
+   */
+  private concatenatedTurnText(): SQL {
+    return sql`(coalesce(${agentTranscriptTurnsTable.userText}, '') || ' ' || coalesce(${agentTranscriptTurnsTable.assistantText}, ''))`;
+  }
 
   /**
    * Fetch the turn count for each of the given agent session IDs in a single query.

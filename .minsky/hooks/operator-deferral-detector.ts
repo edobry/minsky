@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Operator-deferral detector (mt#2459) — two calibration-first, LOG-ONLY
+// Operator-deferral detector (mt#2459) — three calibration-first, LOG-ONLY
 // surfaces for the probe-before-defer / operator-must-do-X family.
 //
 // The family: the agent hands the principal an action it could have performed
@@ -14,7 +14,7 @@
 // shipped) already owns the ACTIVATION-instruction half of the family: "after
 // your next rebuild, hard-refresh to see it", "you'll need to edit
 // cockpit.json". Do NOT add those phrasings here — they would double-fire and
-// double-count in two calibration logs. This detector owns the two surfaces
+// double-count in two calibration logs. This detector owns the three surfaces
 // mt#2303 cannot reach:
 //
 //   A. CAPABILITY-deferral prose ("requires Railway access", "deferred to
@@ -25,8 +25,23 @@
 //      infra/credential action. mt#2303 scans assistant TEXT only, so an ask
 //      whose deferral lives entirely in structured option labels is invisible
 //      to every existing detector (this is exactly how R5 escaped).
+//   C. PERMISSION-deferral prose (mt#3463) — "say the word and I'll do it",
+//      "want me to?". The opposite claim from A: the agent concedes it CAN act
+//      and asks anyway. Worse to miss than A, because A's claim is falsifiable
+//      by the probe and a permission offer never engages that check at all.
+//      Excludes genuinely destructive / principal-reserved actions, where the
+//      ask is CORRECT — see DESTRUCTIVE_EXCLUSIONS and
+//      PRINCIPAL_RESERVED_EXCLUSIONS.
+//   D. DENIAL-ANCHORED deferral (mt#3533) — an escalation or deferral resting on
+//      a permission-denied `tool_result`, with no same-turn retry in a different
+//      COMMAND SHAPE. Unlike A and C this surface's anchor is a structured tool
+//      result rather than a phrase, which is the point: the prose that
+//      accompanies it is third-person about a tool ("the API was denied"), and
+//      four recorded instances each used different wording. Excludes a denial
+//      whose reason names a security concern, where stopping IS correct — see
+//      SECURITY_FRAMED_DENIAL_PATTERNS.
 //
-// Both surfaces are LOG-ONLY in v1 (`INJECTION_ENABLED = false`), per the
+// All three surfaces are LOG-ONLY in v1 (`INJECTION_ENABLED = false`), per the
 // calibration-first ladder every sibling detector followed (mt#2057 → mt#2216
 // → mt#2694). Surface B is registered on PreToolUse and COULD deny the ask
 // before it reaches the principal (vendor docs confirm PreToolUse fires on
@@ -51,19 +66,42 @@ import {
   extractAssistantText,
   extractToolUseNames,
   findToolUseInputs,
+  findDeniedToolCalls,
+  findIndexedToolUses,
+  findToolCallsWithResults,
 } from "./transcript";
+import {
+  detectCapabilityAbsenceEscalation,
+  distinctProbeChannels,
+  isOperatorRoutedAskResult,
+  secondChannelFor,
+  MAX_SUBJECT_CHARS,
+  PROBE_SKILL_PREFIXES as DOMAIN_PROBE_SKILL_PREFIXES,
+} from "../../packages/domain/src/detectors/capability-absence-escalation";
+import type { ProbeObservation } from "../../packages/domain/src/detectors/capability-absence-escalation";
+import { isReshapedRetry, leadingTokenOf } from "./command-shape";
 import type { TranscriptLine } from "./transcript";
+import { findKillVerb } from "./block-bulk-process-kill";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { logEvaluationRecord } from "./dispatcher";
 import { elideQuotedContexts, elideDoubleQuotedSpans } from "./elision";
+import {
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+  extractMatchContext,
+} from "./judged-input-capture";
 // Surrogate-pair-safe truncation — the matched text is arbitrary assistant
 // prose / operator-authored option labels, so a raw `.slice(0, N)` can split
 // an emoji. Same cross-tree import the standalone parallel-work guard uses.
 import { safeTruncate } from "../../src/utils/safe-truncate";
 
-/** Max chars of matched text carried into a calibration record. */
-const MATCH_EXCERPT_MAX_CHARS = 200;
+// The former `MATCH_EXCERPT_MAX_CHARS = 200` is gone (PR #2687 R1): the bound on
+// captured text is now `MATCH_CONTEXT_MAX_CHARS` inside the shared
+// `judged-input-capture` module, which is where the truncation happens. Keeping
+// a second, unused cap here would be exactly the divergence that consolidation
+// removed.
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants
@@ -86,11 +124,77 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_OPERATOR_DEFERRAL";
 
 const CALIBRATION_LOG = ".minsky/operator-deferral-calibration.jsonl";
 
-export type DeferralSurface = "capability-deferral-prose" | "ask-option-label";
+export type DeferralSurface =
+  | "capability-deferral-prose"
+  | "permission-deferral-prose"
+  | "ask-option-label"
+  | "denial-anchored"
+  | "ask-justification"
+  | "act-path-workaround";
 
 export interface DeferralMatch {
   surface: DeferralSurface;
+  /**
+   * The PATTERN text that matched — `m[0]`, not the window around it (mt#3781).
+   *
+   * This field is written to the calibration record as `phrase`, and `phrase`
+   * is what `extractDistinctPhrases` (`src/domain/calibration/calibration-sweep.ts`)
+   * uses as this log's diversity axis. `computeLogResult` gates review-due on
+   * that axis with an explicit purpose — *"Ten identical fires are NOT a review
+   * signal, they're a uniform pattern; keep collecting until diversity
+   * arrives."*
+   *
+   * Until mt#3781 this field held a ±window SNIPPET of surrounding prose. No
+   * two fires are ever byte-equal under that shape, so the diversity bar was
+   * satisfied by construction and the gate was INERT — it could never hold back
+   * the uniform pattern it exists to hold back. The pattern text restores the
+   * intended meaning: two fires on the same trigger phrase count once.
+   */
   matchedPhrase: string;
+  /**
+   * The surrounding prose the pattern was found in — what `matchedPhrase` used
+   * to hold (mt#3781).
+   *
+   * Kept because it is what makes a fire CLASSIFIABLE by a human reviewer — a
+   * bare pattern hit cannot distinguish a real deferral from a quotation of one
+   * — and because it is what the guard's advisory line renders.
+   *
+   * Extracted by the SHARED `extractMatchContext` (mt#3607), not this module's
+   * former ±20/+60 window (PR #2687 R1) — so this detector does not carry its
+   * own copy of a problem three others already solved, and the window reads as
+   * prose instead of clipping mid-word.
+   *
+   * `leadSentences: 1` on the prose surfaces, and the reason is the same one
+   * mt#3607 measured for `ask-routing-deferral`: this corpus's triggers are
+   * frequently WHOLE SENTENCES (`Deferred to operator: requires Railway
+   * access.`), and for those the containing sentence alone is byte-identical
+   * across two fires — it would carry no more information than `matchedPhrase`
+   * already does. The old ±20 window happened to include a fragment of the
+   * preceding clause; one lead sentence is that property, done deliberately.
+   * The ask-option-label surface takes the default: a label is the unit, and
+   * there is no preceding sentence to reach for.
+   *
+   * The 240-char cap is wider than the old 200, so the guard's rendered
+   * advisory was re-measured against its declared `attentionCost` ceiling
+   * rather than assumed to still fit.
+   */
+  context: string;
+  /**
+   * The second channel this claim's SUBJECT should have been checked against
+   * (surface E only, mt#3999).
+   *
+   * Carried on the match rather than recomputed in the renderer because the
+   * subject is only available where the claim was matched, and the whole value
+   * of this surface's advisory is that it names a specific falsifier instead of
+   * repeating "run a probe" — which is the failure being detected, restated as
+   * advice.
+   *
+   * Not written to the calibration record: the record's shape is the shared
+   * `matches: {category, phrase, context}` family the sweep parser reads
+   * without a per-detector branch, and adding a field only one surface
+   * populates would break that uniformity for no measurement gain.
+   */
+  secondChannel?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,6 +221,108 @@ export const CAPABILITY_DEFERRAL_PATTERNS: RegExp[] = [
   /\b(this|that|it)\s+(is|'s)\s+(on|for)\s+(you|the\s+operator|the\s+principal)\s+to\s+(do|run|fix)\b/i,
 ];
 
+// ---------------------------------------------------------------------------
+// Surface C — permission-deferral prose (mt#3463)
+// ---------------------------------------------------------------------------
+
+/**
+ * Permission-deferral phrasings: the agent concedes it CAN do the thing and
+ * asks anyway. The opposite claim from Surface A — "I can, shall I?" rather
+ * than "I can't" — and the same cost to the principal: a round-trip for work
+ * that was already in-authority.
+ *
+ * **Why this needs its own surface rather than a wider Surface A.** Surface A's
+ * patterns are uniformly capability/credential/ownership-shaped, so none of
+ * these match (verified 2026-08-04; the probe and its positive controls are in
+ * mt#3463's spec). The shapes are also differently falsifiable: a capability
+ * claim can be checked by running the probe `§Probe before deferring` demands,
+ * whereas a permission offer concedes capability, so that probe never engages —
+ * there is nothing for it to check. That asymmetry is why the permission shape
+ * is the more expensive of the two to miss.
+ *
+ * LOG-ONLY, like the rest of this detector. Deliberately broad for calibration;
+ * {@link DESTRUCTIVE_EXCLUSIONS} and {@link PRINCIPAL_RESERVED_EXCLUSIONS}
+ * carry the one narrowing that is
+ * NOT tuning — see there.
+ */
+export const PERMISSION_DEFERRAL_PATTERNS: RegExp[] = [
+  /\bsay\s+the\s+word\s+and\s+(I|we)('?ll|\s+will|\s+can)\b/i,
+  /\b(want|would\s+you\s+like)\s+me\s+to\b/i,
+  /\b(shall|should)\s+I\b/i,
+  /\bdo\s+you\s+want\s+me\s+to\b/i,
+  /\blet\s+me\s+know\s+if\s+you('?d|\s+would)?\s*(like|want)\s+(me\s+to|that)\b/i,
+  /\bI\s+can\s+(?:\w+[\s-]){0,6}if\s+you('?d|\s+would)?\s*(like|want|prefer)\b/i,
+  /\b(happy|glad)\s+to\s+(?:\w+[\s-]){0,6}if\s+you\b/i,
+  /\bjust\s+say\s+(the\s+word|so)\b/i,
+];
+
+/**
+ * Escalations that SHOULD be routed to the principal — the permission-ask is
+ * correct here and must not fire.
+ *
+ * This is not false-positive tuning, and it is the load-bearing half of this
+ * surface: the patterns above match the SHAPE of a permission-ask, which is
+ * identical whether the underlying action is in-authority or genuinely
+ * reserved. Only the action discriminates. Firing on a legitimate escalation
+ * would train exactly the wrong behaviour — it would push the agent to act
+ * unilaterally on destructive or principal-reserved work, which is a far worse
+ * failure than the round-trip this surface exists to prevent.
+ *
+ * Two classes, both drawn from existing corpus rules rather than invented here:
+ *   - **Destructive / irreversible** — `git-safety.mdc`'s operation list plus
+ *     shared/production state changes.
+ *   - **Principal-reserved** — the closed category list in
+ *     `principal-context.mdc §Decisions Eugene reserves`.
+ *
+ * The two are declared SEPARATELY below because they are matched against
+ * different windows (mt#3865) — see {@link sentenceWithLead}. There is
+ * deliberately no aggregate of the two; the note beside them says why.
+ */
+export const DESTRUCTIVE_EXCLUSIONS: RegExp[] = [
+  // `drop` takes an optional article — "drop the table" is the natural phrasing
+  // and an adjacency-only pattern misses it (caught by the drop-table fixture).
+  /\b(force[\s-]?push|--force|reset\s+--hard|rm\s+-rf|truncate|revert|rollback|delete|destroy|wipe|purge)\b/i,
+  /\bdrop\s+(the\s+|a\s+|this\s+)?(table|database|schema|column|index)\b/i,
+  /\b(deploy|push|ship|release|merge)\b[^.!?]{0,40}\b(to\s+)?(prod|production|main|master|live)\b/i,
+  /\bproduction\b/i,
+];
+
+/**
+ * The principal-reserved half, mirroring the CLOSED category list in
+ * `principal-context.mdc §Decisions Eugene reserves`. One pattern family per
+ * category, in the rule's own order, so a future category addition has a
+ * visible empty slot rather than being silently absent — which is exactly how
+ * the durable-default gap below survived.
+ *
+ * Scoped WIDER than {@link DESTRUCTIVE_EXCLUSIONS} — see
+ * {@link sentenceWithLead} for why the two halves cannot share a window.
+ */
+export const PRINCIPAL_RESERVED_EXCLUSIONS: RegExp[] = [
+  // Naming (including customer-facing terms).
+  /\b(name|naming|call\s+it|rename)\b[^.!?]{0,30}\?/i,
+  // Architectural moves reaching the customer or the product surface.
+  /\b(product\s+surface|customer[\s-]facing|user[\s-]facing)\b/i,
+  // Vendor commitments.
+  /\b(vendor|pricing|paid\s+plan|upgrade\s+the\s+plan|sign\s+up)\b/i,
+  // Scope changes to in-flight work, and framework choices.
+  /\b(scope|architecture|framework)\b[^.!?]{0,30}\b(change|choice|decision)\b/i,
+  // Preferences that set a DURABLE DEFAULT — added to the rule by ask#7587 on
+  // 2026-08-10, after this list was written. A one-off preference call is the
+  // agent's to make, so these patterns require the durability marker rather
+  // than matching "preference" or "default" alone.
+  /\b(standing|durable|default)[\s-](default|preference|behaviou?r|choice)s?\b/i,
+  /\bdefault\s+(model|tool|format|setting)\b/i,
+  /\bsets?\s+(a\s+)?(durable|standing)\b/i,
+];
+
+// The pre-mt#3865 name `PERMISSION_ESCALATION_EXCLUSIONS` is deliberately GONE
+// rather than kept as a concatenation of the two arrays above. An aggregate
+// nothing matches against is a second name for a concept whose whole point is
+// now that its two halves are matched DIFFERENTLY — a reader who reaches for
+// the aggregate gets an answer that is true of neither window. mt#3801's spec
+// still cites the old name; when it lands, the two halves and
+// {@link sentenceWithLead} are what its Success Criterion 5 is asking about.
+
 /**
  * Inline probe REPORTS in the prose itself — the exact form
  * `user-preferences.mdc §Probe before deferring` prescribes for a justified
@@ -128,6 +334,95 @@ export const PROBE_PROSE_PATTERNS: RegExp[] = [
   /\bprobe\s+(results?|sequence)\b/i,
   /\bprobes?\s+(returned|failed|show(s|ed)?|came\s+back)\b/i,
   /\bran\s+the\s+probe\b/i,
+];
+
+// ---------------------------------------------------------------------------
+// mt#3865 — suppressions for prose that carries a trigger phrase without
+// performing a deferral. Each family below is tied to specific calibration
+// records; none was invented from a shape that has not fired.
+// ---------------------------------------------------------------------------
+
+/** How far back of the match {@link isNegated} reads. */
+const NEGATION_LOOKBACK_CHARS = 40;
+
+/**
+ * A PROHIBITION carrying the trigger phrase, rather than a request for it.
+ *
+ * "Don't paste the token into this chat" is the agent REFUSING to receive a
+ * secret — required by `terminal-command-best-practices.mdc` — and Surface A
+ * read it as deferring a capability. That is the worst false positive shape
+ * available: acting on the advisory would degrade the security-correct
+ * behaviour it fires on.
+ *
+ * Deliberately omits a bare `not`. "I will not be able to provide the token"
+ * IS a capability deferral, and `not` alone would swallow it; the four forms
+ * kept here all attach a prohibition directly to the verb.
+ */
+export const NEGATION_LEAD_PATTERN =
+  /\b(?:don'?t|do\s+not|never|no\s+need\s+to)\s+(?:\w+\s+){0,3}$/i;
+
+/** True when the match at `idx` sits inside a prohibition rather than a request. */
+export function isNegated(text: string, idx: number): boolean {
+  const start = Math.max(0, idx - NEGATION_LOOKBACK_CHARS);
+  return NEGATION_LEAD_PATTERN.test(text.slice(start, idx));
+}
+
+/**
+ * The deferral is attributed to a DOCUMENT or a THIRD PARTY — the agent is
+ * reporting one, not making one.
+ *
+ * Both members are narrow on purpose. Reported speech requires a naming verb
+ * plus the recipient; the open-question form requires the ENUMERATED
+ * `open question (b)` shape, because a bare "that's an open question" is
+ * ordinary prose an agent writes while genuinely deferring.
+ */
+export const DESCRIPTIVE_FRAME_PATTERNS: RegExp[] = [
+  /\b(asked|asks|told|tells|instructed|instructs|prompted|prompts|directed)\s+(the\s+)?(operator|user|users|reader|readers|principal)\s+to\b/i,
+  /\bopen\s+question\s*\(/i,
+];
+
+/**
+ * The deferral NAMES a standing instruction and poses the ask in the same
+ * message — which is the shape `user-preferences.mdc §Probe before deferring`
+ * prescribes for its third shape (mt#3930). Firing here penalises the
+ * prescribed remedy.
+ *
+ * The conjunction matters and is enforced at the call site: one of these
+ * patterns ALONE is not a suppression. "X requires your authorization, so
+ * I've left it" is a trigger phrase that rule names as the FAILURE — what
+ * makes the difference is that the ask accompanies it, and the ask is the
+ * match itself.
+ */
+export const STANDING_INSTRUCTION_PATTERNS: RegExp[] = [
+  /\byour\s+(setup|config(uration)?|instructions?|preferences?|settings?)\s+(says?|asks?|tells?|requires?)\b/i,
+  /\bthe\s+standing\s+instruction\b/i,
+  /\bI'?m\s+not\s+supposed\s+to\b/i,
+  /\byou'?ve\s+(asked|told)\s+me\s+not\s+to\b/i,
+];
+
+/**
+ * The offer attaches to a decision the agent ALREADY SETTLED, with a
+ * resourcing reason — not to a request for permission to act.
+ *
+ * The discriminator is the KIND of reason, not the presence of one. Two real
+ * positives in the corpus carry reasons too ("since they're all the same
+ * underlying fix"; "I didn't want to mint a task you may prefer to just do")
+ * and must keep firing, so a generic `since`/`because` pattern is exactly
+ * wrong here. What these three share is a reason about RESOURCING — the
+ * turn's own budget, a concurrent process, a selection already made — where
+ * the offer is a revert rather than a request.
+ *
+ * SCOPE BOUNDARY (mt#3801). This does NOT cover the offer-shape
+ * "X unless you'd rather Y", where the agent PROPOSES a next step and hands
+ * the choice over. mt#3801 owns that decision point and takes the opposite
+ * position on it. The line: a completed or firmly-stated decision of the
+ * agent's own is not a decision being handed over; a proposed next step is.
+ */
+export const SETTLED_DECISION_PATTERNS: RegExp[] = [
+  /\bI\s+(picked|chose|selected|went\s+with)\b/i,
+  /\bwith\s+fresh\s+context\b/i,
+  /\bthis\s+turn\s+has\s+run\s+long\b/i,
+  /\brather\s+not\s+derail\b/i,
 ];
 
 /**
@@ -169,21 +464,19 @@ export const PROBE_TOOL_NAME_PATTERN =
  * suppress a real deferral. Only services whose skill answers "do I have
  * access to this infra?" belong here; add a prefix when a new hosted-infra
  * skill family ships.
+ *
+ * **DERIVED from the domain list, not a second copy** (PR #2920 R1). Surface E's
+ * matcher needs the same allowlist to classify a skill load as a channel, and it
+ * cannot import from the hooks tree. The domain module is the single source; this
+ * wraps it in a Set for the `.has` lookup below. Add a prefix THERE.
+ *
+ * The sibling {@link PROBE_COMMAND_PATTERN} is deliberately NOT consolidated the
+ * same way: it and the domain's `shell-capability` channel rule are different
+ * sets on purpose. This one was narrowed by PR #2263 R1 (two members removed
+ * because they suppressed on non-probes), and merging it with a rule tuned for
+ * channel classification would silently undo that narrowing.
  */
-export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set([
-  "railway",
-  "cloudflare",
-  "supabase",
-  "github",
-  "gh",
-  "vercel",
-  "aws",
-  "gcloud",
-  "fly",
-  "heroku",
-  "docker",
-  "kubectl",
-]);
+export const PROBE_SKILL_PREFIXES: ReadonlySet<string> = new Set(DOMAIN_PROBE_SKILL_PREFIXES);
 
 /** True iff `skill` names a hosted-infra service skill (`railway:use-railway`). */
 export function isProbeSkill(skill: string): boolean {
@@ -246,16 +539,294 @@ export function detectCapabilityDeferral(turnLines: TranscriptLine[]): DeferralM
   const scanned = elideDoubleQuotedSpans(elideQuotedContexts(text));
   for (const pattern of CAPABILITY_DEFERRAL_PATTERNS) {
     const m = pattern.exec(scanned);
-    if (m) {
-      const idx = m.index ?? 0;
-      const snippet = scanned.slice(Math.max(0, idx - 20), idx + m[0].length + 60).trim();
-      return [
-        {
-          surface: "capability-deferral-prose",
-          matchedPhrase: safeTruncate(snippet, MATCH_EXCERPT_MAX_CHARS, "head"),
-        },
-      ];
+    if (!m) continue;
+    const idx = m.index ?? 0;
+    // mt#3865. A suppressed match CONTINUES to the next pattern rather than
+    // returning: a turn can carry a prohibition and a real deferral at once,
+    // and returning here would let the first hide the second. (A second
+    // occurrence of the SAME pattern is still not reached — these are
+    // non-global regexes — which is acceptable while `matchedPhrase` is an
+    // exemplar rather than an exhaustive list.)
+    if (isNegated(scanned, idx)) continue;
+    const window = sentenceWithLead(scanned, idx);
+    if (DESCRIPTIVE_FRAME_PATTERNS.some((p) => p.test(window))) continue;
+    return [
+      {
+        surface: "capability-deferral-prose",
+        matchedPhrase: m[0].trim(),
+        context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
+      },
+    ];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Surface D — denial-anchored deferral (mt#3533)
+// ---------------------------------------------------------------------------
+
+/**
+ * Denial reasons that name a SECURITY concern — mem#276's carve-out, and the
+ * load-bearing half of this surface exactly as
+ * {@link PRINCIPAL_RESERVED_EXCLUSIONS} is for Surface C.
+ *
+ * mem#276 says the opposite of this surface for one specific case: when the
+ * refusal's own message frames the action as *"credential/permission
+ * exploration"* or *"work around a security block"*, the correct response is to
+ * STOP and escalate — not to look for another route. That rule exists to stop an
+ * agent hunting for a bypass around a deliberate security design, and training
+ * the opposite would be a far worse outcome than the miss this surface fixes.
+ *
+ * Scope of the evidence, stated because it bounds what these patterns can claim:
+ * across the 73 denials in this project's local transcript corpus (2026-08-11),
+ * ZERO carried a security framing — the reason tail was the canned message
+ * echoed back, or empty. The patterns below are therefore derived from mem#276's
+ * recorded 2026-04-23 instance rather than from observed corpus data, and their
+ * regression control is a SYNTHETIC fixture labeled as such.
+ */
+export const SECURITY_FRAMED_DENIAL_PATTERNS: RegExp[] = [
+  /\bcredential\b[^.!?\n]{0,20}\bexploration\b/i,
+  /\bpermission\b[^.!?\n]{0,20}\bexploration\b/i,
+  /\bwork(ing)?\s+around\b[^.!?\n]{0,30}\b(security|merge)\s+block\b/i,
+  /\bnot\s+a\s+user-authorized\s+action\b/i,
+  /\bbypass(ing)?\b[^.!?\n]{0,20}\bsecurity\b/i,
+  /\bsecurity\s+(design|boundary|control|policy)\b/i,
+];
+
+/**
+ * Tools whose invocation IS an escalation to the principal. A denial followed by
+ * one of these is the shape that costs a decision cycle.
+ */
+export const ESCALATION_TOOL_NAME_PATTERN = /^(AskUserQuestion|mcp__minsky__asks_create)$/;
+
+/** Tools whose `command` input carries a shell command shape worth comparing. */
+export const COMMAND_TOOL_NAMES: readonly string[] = ["Bash", "mcp__minsky__session_exec"];
+
+/**
+ * Detect an escalation or deferral resting on a permission denial that was never
+ * re-attempted in a different command shape.
+ *
+ * The anchor is a STRUCTURED tool result rather than a phrase, which is what
+ * makes this surface reach a class the three prose surfaces cannot: the agent's
+ * wording here is third-person about a tool ("the API was denied", "I couldn't
+ * read branch protection"), and every pattern corpus tuned to one such phrasing
+ * has missed the next one. ADR-024's ladder scopes itself to matching trigger
+ * PHRASES, so it governs the prose half of this trigger and not the denial half
+ * — the same boundary `chained-verification-commands-detector.ts` records for
+ * itself ("a command is not prose") and that ADR-034 sets for symbol naming.
+ *
+ * Three conjuncts, all deterministic:
+ *   1. a denial occurred, and its reason does not name a security concern;
+ *   2. the turn escalated — an `AskUserQuestion` / `asks_create` AFTER the
+ *      denial, or capability-deferral prose anywhere in the turn (the existing
+ *      Rung-1 corpus, reused rather than extended);
+ *   3. no intervening RESHAPED retry, per {@link isReshapedRetry}.
+ *
+ * Conjunct 2 accepts prose without an ordering test on purpose: the turn's
+ * assistant text is concatenated across the whole turn by
+ * {@link extractAssistantText}, so no position is available for it. Tool calls,
+ * which do carry position, are ordered.
+ */
+export function detectDenialAnchoredDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const denials = findDeniedToolCalls(turnLines);
+  if (denials.length === 0) return [];
+
+  const toolUses = findIndexedToolUses(turnLines);
+  const escalations = toolUses.filter((t) => ESCALATION_TOOL_NAME_PATTERN.test(t.toolName));
+  const commandCalls = toolUses.filter(
+    (t) => COMMAND_TOOL_NAMES.includes(t.toolName) && typeof t.input["command"] === "string"
+  );
+
+  const text = extractAssistantText(turnLines);
+  const scanned = text ? elideDoubleQuotedSpans(elideQuotedContexts(text)) : "";
+  const proseDefers = CAPABILITY_DEFERRAL_PATTERNS.some((pattern) => pattern.test(scanned));
+
+  for (const denial of denials) {
+    if (SECURITY_FRAMED_DENIAL_PATTERNS.some((pattern) => pattern.test(denial.reason))) continue;
+
+    const escalatedAfter = escalations.some((e) => e.index > denial.index);
+    if (!escalatedAfter && !proseDefers) continue;
+
+    const deniedCommand = denial.command;
+    if (
+      deniedCommand &&
+      commandCalls.some(
+        (c) =>
+          c.index > denial.index && isReshapedRetry(deniedCommand, c.input["command"] as string)
+      )
+    ) {
+      continue;
     }
+
+    return [
+      {
+        surface: "denial-anchored",
+        // The diversity axis is the denied CHANNEL, not the command: two fires on
+        // two `railway` denials are one pattern, while `railway` and `gh` are two.
+        // A whole command string is near-unique per fire and would satisfy the
+        // sweep's diversity gate by construction — the inert-gate shape mt#3781
+        // removed from the other surfaces. The tool NAME is the wrong axis for
+        // the same reason in reverse: every shell denial is `Bash`, so it would
+        // collapse every distinct channel into one.
+        matchedPhrase: deniedCommand
+          ? leadingTokenOf(deniedCommand)
+          : (denial.toolName ?? "unknown-tool"),
+        context: safeTruncate(deniedCommand ?? denial.toolName ?? "", 240, "head"),
+      },
+    ];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
+// Surface F — act-path improvised workaround (mt#4081)
+//
+// Surfaces A–E all key on PROSE: something the agent SAID about deferring,
+// asking, or lacking a capability. The act path says nothing. The agent
+// concludes a capability is unavailable and quietly builds around it, and the
+// only trace is the WORKAROUND — which is why surface E, whose channel-count
+// leg worked correctly, still scored the 2026-08-13 turn `fired: false`: its
+// `absenceClaimPresent` leg needed a phrase, and the two claims present
+// ("a no-op, so that path is out"; "I don't know of a scripted path for it")
+// matched no pattern in the corpus.
+//
+// So this surface deliberately does NOT add a sixth phrase family — ADR-024
+// §Context names that arms race as the thing to stop doing. Its trigger is
+// tool-call state, which needs no matching at all: a destructive action in a
+// turn that contains no capability search. Both legs are facts about what the
+// turn DID.
+// ---------------------------------------------------------------------------
+
+/**
+ * Commands that destroy rather than change — the shape a "rebuild it instead"
+ * workaround takes.
+ *
+ * Narrow on purpose. `rm` of a path is ordinary file work and is NOT here; what
+ * this looks for is termination of running processes, which is the form the
+ * originating incident took and the one whose cost is unrecoverable state.
+ *
+ * The parse is IMPORTED from `block-bulk-process-kill` rather than restated
+ * (PR #2954 R1 BLOCKING). This surface's first version matched a kill verb
+ * anywhere in the command string, which fired on
+ * `git commit -m 'fix: kill the retry loop'` — quote characters are not segment
+ * separators, so prose inside a message read as a command. The guard already
+ * split top-level segments and takes the verb as a segment's leading token;
+ * sharing that function is what keeps the two from drifting apart again.
+ */
+export function isDestructiveCommand(command: string): boolean {
+  return findKillVerb(command) !== null;
+}
+
+/**
+ * Tools whose use IS a capability search — going outside your own model to ask
+ * whether the thing can be done.
+ *
+ * Distinct from {@link PROBE_TOOL_NAME_PATTERN}, which asks "do I have ACCESS
+ * to this service?". This asks "does this capability EXIST?", which is the
+ * question the act path skips. A `Skill` load counts for both.
+ */
+export const CAPABILITY_SEARCH_TOOL_PATTERN = /^(WebSearch|WebFetch|Skill)$/;
+
+/** True when the turn went outside itself to ask whether the capability exists. */
+export function hasCapabilitySearch(turnLines: TranscriptLine[]): boolean {
+  return extractToolUseNames(turnLines).some((name) => CAPABILITY_SEARCH_TOOL_PATTERN.test(name));
+}
+
+/**
+ * Surface F: a destructive action taken in a turn that never asked whether a
+ * non-destructive path existed.
+ *
+ * The absence of a search is what makes this reportable, not the destruction
+ * itself — an agent that searched and then destroyed made an informed choice,
+ * and this surface stays silent for it.
+ */
+export function detectActPathWorkaround(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const commands = COMMAND_TOOL_NAMES.flatMap((toolName) => findToolUseInputs(turnLines, toolName))
+    .map((input) => input["command"])
+    .filter((command): command is string => typeof command === "string");
+
+  const destructive = commands.find((command) => isDestructiveCommand(command));
+  if (!destructive) return [];
+  if (hasCapabilitySearch(turnLines)) return [];
+
+  return [
+    {
+      surface: "act-path-workaround",
+      // The diversity axis is the destructive VERB, not the command: a command
+      // carrying PIDs is near-unique per fire and would satisfy the sweep's
+      // diversity gate by construction (mt#3781).
+      matchedPhrase: leadingTokenOf(destructive),
+      context: safeTruncate(destructive, 240, "head"),
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
+// Surface E — ask-justification capability-absence (mt#3999)
+// ---------------------------------------------------------------------------
+
+/** `asks_create`, the only tool whose payload carries an ask JUSTIFICATION. */
+export const ASK_CREATE_TOOL_NAME_PATTERN = /(?:^|__)asks_create$/;
+
+/**
+ * Every tool call in the turn, reduced to what channel classification needs.
+ *
+ * Deliberately unfiltered — {@link classifyProbeChannel} decides what counts,
+ * and keeping that decision in the domain module is what lets it be tested
+ * without a transcript.
+ */
+export function collectProbeObservations(turnLines: TranscriptLine[]): ProbeObservation[] {
+  return findIndexedToolUses(turnLines).map((call) => ({
+    toolName: call.toolName,
+    command: typeof call.input["command"] === "string" ? call.input["command"] : undefined,
+    skill: typeof call.input["skill"] === "string" ? call.input["skill"] : undefined,
+  }));
+}
+
+/**
+ * Detect an operator-routed ask whose justification asserts a named capability
+ * does not exist, in a turn that consulted fewer than two distinct channels.
+ *
+ * **This surface does NOT use {@link hasProbeEvidence}, and that is the design.**
+ * On this task's anchor instance the agent DID probe — it called
+ * `config_credentials_list`, which is on that function's probe list — and that
+ * call is exactly what produced the false premise, returning exit-0 JSON that
+ * silently omitted the provider. A bare probe test would suppress this surface
+ * on the one incident it exists for. What was missing was a SECOND, independent
+ * channel, so the conjunct counts distinct channels instead.
+ *
+ * Erring toward firing follows this file's stated asymmetry: a false positive
+ * costs one glance at a calibration record, a false SUPPRESSION silently hides
+ * the failure the detector exists to catch.
+ *
+ * The routed-outcome conjunct reads the RESULT, not the input — `asks_create`
+ * has no `routingTarget` parameter, so the input side cannot see it.
+ */
+export function detectAskJustificationAbsence(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const probes = collectProbeObservations(turnLines);
+
+  for (const call of findToolCallsWithResults(turnLines)) {
+    if (!ASK_CREATE_TOOL_NAME_PATTERN.test(call.toolName)) continue;
+    if (!call.hasResult || !isOperatorRoutedAskResult(call.resultText)) continue;
+
+    const question = call.input["question"];
+    if (typeof question !== "string" || question.trim().length === 0) continue;
+
+    // Elided first so a justification QUOTING someone else's absence claim — a
+    // pasted error, a cited review comment — is not read as one it asserted.
+    const scanned = elideDoubleQuotedSpans(elideQuotedContexts(question));
+    const result = detectCapabilityAbsenceEscalation({ justification: scanned, probes });
+    const claim = result.claims[0];
+    if (!result.matched || !claim) continue;
+
+    return [
+      {
+        surface: "ask-justification",
+        matchedPhrase: claim.phrase,
+        context: safeTruncate(claim.excerpt, 240, "head"),
+        secondChannel: secondChannelFor(claim.subject, claim.phrase),
+      },
+    ];
   }
   return [];
 }
@@ -380,7 +951,10 @@ export function detectAskDeferral(
   for (const text of optionTexts) {
     // Match against the quote-STRIPPED form (see the doc comment above), but
     // report the ORIGINAL label — the calibration record should show what the
-    // agent actually wrote, not a normalized rewrite of it.
+    // agent actually wrote, not a normalized rewrite of it. That intent is
+    // preserved by `context` (mt#3781); `matchedPhrase` carries the pattern hit
+    // so the log's diversity axis counts trigger phrases rather than labels,
+    // which are near-unique per fire.
     const matchable = stripQuoteChars(text);
     for (const pattern of ASK_PRINCIPAL_ACTION_PATTERNS) {
       const m = pattern.exec(matchable);
@@ -388,7 +962,10 @@ export function detectAskDeferral(
         return [
           {
             surface: "ask-option-label",
-            matchedPhrase: safeTruncate(text, MATCH_EXCERPT_MAX_CHARS, "head"),
+            matchedPhrase: m[0].trim(),
+            // The option label IS the surrounding text here, so the shared
+            // helper is handed the label and the match's offset within it.
+            context: extractMatchContext(text, m.index ?? 0, m[0].length),
           },
         ];
       }
@@ -404,6 +981,240 @@ export function detectAskDeferral(
 function isOverridden(): boolean {
   const v = process.env[OVERRIDE_ENV_VAR];
   return v === "1" || v?.toLowerCase() === "true" || v?.toLowerCase() === "yes";
+}
+
+/**
+ * Detect a permission-ask for an action the agent could have just taken
+ * (mt#3463, Surface C).
+ *
+ * Same suppression as Surface A: a turn that ran the capability probe and then
+ * asked is not this failure.
+ *
+ * Exclusions run against TWO windows, never the whole turn (mt#3865). The
+ * DESTRUCTIVE half stays scoped to the SENTENCE the match sits in, so an
+ * unrelated mention of "production" three paragraphs away cannot mask a real
+ * permission-ask about something else. The PRINCIPAL-RESERVED half, and the
+ * suppression families beside it, read one sentence further back — see
+ * {@link sentenceWithLead} for why the two cannot share a window.
+ */
+export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const text = extractAssistantText(turnLines);
+  if (!text) return [];
+  if (hasProbeEvidence(turnLines)) return [];
+
+  const scanned = elideDoubleQuotedSpans(elideQuotedContexts(text));
+  for (const pattern of PERMISSION_DEFERRAL_PATTERNS) {
+    const m = pattern.exec(scanned);
+    if (!m) continue;
+    const idx = m.index ?? 0;
+    const sentence = sentenceAround(scanned, idx);
+    const window = sentenceWithLead(scanned, idx);
+    if (DESTRUCTIVE_EXCLUSIONS.some((x) => x.test(sentence))) continue;
+    if (PRINCIPAL_RESERVED_EXCLUSIONS.some((x) => x.test(window))) continue;
+    if (SETTLED_DECISION_PATTERNS.some((p) => p.test(window))) continue;
+    // The conjunction (mt#3865 Cause C): naming a standing instruction only
+    // suppresses BECAUSE the ask accompanies it, and the ask is `m` itself.
+    if (STANDING_INSTRUCTION_PATTERNS.some((p) => p.test(window))) continue;
+    return [
+      {
+        surface: "permission-deferral-prose",
+        matchedPhrase: m[0].trim(),
+        context: extractMatchContext(scanned, idx, m[0].length, { leadSentences: 1 }),
+      },
+    ];
+  }
+  return [];
+}
+
+/**
+ * Index of the first character of the sentence containing `idx`, bounded by
+ * terminal punctuation or a newline.
+ */
+function sentenceStartIndex(text: string, idx: number): number {
+  // Not a display truncation: this slice is only scanned for punctuation
+  // indices and is never emitted, so a split surrogate pair cannot affect the
+  // boundary it computes.
+  // eslint-disable-next-line custom/no-unsafe-string-truncation
+  const before = text.slice(0, idx);
+  return (
+    Math.max(
+      before.lastIndexOf("."),
+      before.lastIndexOf("!"),
+      before.lastIndexOf("?"),
+      before.lastIndexOf("\n")
+    ) + 1
+  );
+}
+
+/** Index one past the last character of the sentence containing `idx`. */
+function sentenceEndIndex(text: string, idx: number): number {
+  const endRel = text.slice(idx).search(/[.!?\n]/);
+  return endRel === -1 ? text.length : idx + endRel + 1;
+}
+
+/** The sentence containing `idx`, bounded by terminal punctuation or newline. */
+function sentenceAround(text: string, idx: number): string {
+  return text.slice(sentenceStartIndex(text, idx), sentenceEndIndex(text, idx));
+}
+
+/**
+ * The match's sentence PLUS one preceding sentence (mt#3865).
+ *
+ * Why a second window exists rather than widening {@link sentenceAround}: the
+ * two halves of the exclusion set need different reach, and giving them one
+ * window breaks whichever half loses.
+ *
+ * - **Principal-reserved** declarations are naturally written in the sentence
+ *   BEFORE the ask — "Both are standing-default changes, so I'm not making
+ *   them unilaterally. Want me to pick mt#3711 back up?" — so a sentence-scoped
+ *   check cannot see the very thing that makes the ask correct. That record
+ *   fired for exactly this reason, and adding the missing durable-default
+ *   pattern alone would not have stopped it.
+ * - **Destructive** patterns must NOT gain that reach. `/\bproduction\b/i` is a
+ *   bare word, and the sentence scoping is what stops an unrelated mention
+ *   nearby from masking a real permission-ask about something else — a
+ *   property the surface has a test pinning, and one this widening would
+ *   otherwise quietly remove.
+ *
+ * This also aligns the exclusion window with the window the RECORD already
+ * shows a reviewer, via `extractMatchContext(..., { leadSentences: 1 })`. They
+ * disagreed before: the reserved-category declaration was visible in the
+ * calibration record while being invisible to the matcher that produced it.
+ */
+export function sentenceWithLead(text: string, idx: number): string {
+  const ownStart = sentenceStartIndex(text, idx);
+  const start = ownStart <= 0 ? 0 : sentenceStartIndex(text, ownStart - 1);
+  return text.slice(start, sentenceEndIndex(text, idx));
+}
+
+/**
+ * Per-turn evaluation stream (mt#3463, per ask#6982's disposition).
+ *
+ * The calibration log records FIRES. A fire-only log can measure precision and
+ * cannot measure RECALL — the misses leave no trace, so "how often does this
+ * detector miss?" is unanswerable from it, and the next rung decision under
+ * ADR-024 would rest on a task count rather than a rate. This records every
+ * evaluated turn, fired or not, which is the substrate that question needs.
+ * Mirrors the retrospective-trigger evaluation stream ADR-024's 2026-08-03
+ * amendment added for exactly this reason.
+ *
+ * A bounded tail of the scanned text is stored deliberately: classifying a MISS
+ * later requires seeing what was not matched.
+ *
+ * mt#3782: the logical stream NAME, not a path — `logEvaluationRecord` derives
+ * `.minsky/<name>-evaluations.jsonl` from it, the same name/path split the
+ * registry's `calibrationLog` uses. This detector was the fourth writer, and
+ * the one mt#3745 missed: it enumerated the streams by listing
+ * `.minsky/*-evaluations.jsonl` in the repo, which is the artifact a
+ * cwd-rooting writer prevents from existing.
+ */
+const EVALUATION_LOG_NAME = "operator-deferral";
+const EVALUATION_TAIL_CHARS = 400;
+
+/**
+ * The ask's scanned text, flattened for the evaluation record.
+ * {@link extractAskTexts} returns `{ questionTexts, optionTexts }`, not an
+ * array — flattening it here keeps that shape in one place.
+ */
+function askEvaluationText(toolInput: Record<string, unknown> | undefined): string {
+  const { questionTexts, optionTexts } = extractAskTexts(toolInput);
+  return [...questionTexts, ...optionTexts].join(" | ");
+}
+
+/**
+ * The unit that was evaluated. The two are NOT the same grain and the stream
+ * says so rather than conflating them (PR #2659 R1): the prose surfaces
+ * evaluate once per completed TURN at `UserPromptSubmit`, while the ask surface
+ * evaluates once per `AskUserQuestion` TOOL CALL at `PreToolUse`. A miss rate
+ * computed over a mixed denominator would be meaningless, so anything reading
+ * this log must group by `evaluated`.
+ */
+export type EvaluatedUnit = "prose-turn" | "ask-tool-call";
+
+/**
+ * Surface E's per-turn conjunct outcomes (mt#3999).
+ *
+ * Carried on the SAME `prose-turn` record rather than as a third
+ * {@link EvaluatedUnit}, and the reason is what that type means: the unit is the
+ * grain that was evaluated, and surface E's grain IS the completed turn — it
+ * runs in the same `UserPromptSubmit` pass as A/C/D. Its POPULATION is narrower
+ * (turns that created an operator-routed ask), and a population is a filter on a
+ * denominator, not a different one. `operatorRoutedAsks` is what a review
+ * filters on to get that population back, so no measurement is lost and one turn
+ * still produces exactly one record.
+ */
+export interface AskJustificationEvaluation {
+  /** `asks_create` calls in the turn whose RESULT said the router chose the operator. */
+  operatorRoutedAsks: number;
+  /** Whether any such justification carried a capability-absence claim. */
+  absenceClaimPresent: boolean;
+  /** Distinct probe channels the turn consulted — the conjunct that suppresses. */
+  distinctChannels: number;
+}
+
+/** Compute {@link AskJustificationEvaluation} for the turn, fired or not. */
+export function summarizeAskJustificationEvaluation(
+  turnLines: TranscriptLine[]
+): AskJustificationEvaluation {
+  const probes = collectProbeObservations(turnLines);
+  let operatorRoutedAsks = 0;
+  let absenceClaimPresent = false;
+
+  for (const call of findToolCallsWithResults(turnLines)) {
+    if (!ASK_CREATE_TOOL_NAME_PATTERN.test(call.toolName)) continue;
+    if (!call.hasResult || !isOperatorRoutedAskResult(call.resultText)) continue;
+    operatorRoutedAsks += 1;
+    const question = call.input["question"];
+    if (typeof question !== "string") continue;
+    const result = detectCapabilityAbsenceEscalation({
+      justification: elideDoubleQuotedSpans(elideQuotedContexts(question)),
+      probes,
+    });
+    if (result.claims.length > 0) absenceClaimPresent = true;
+  }
+
+  return {
+    operatorRoutedAsks,
+    absenceClaimPresent,
+    // Computed ONCE from the turn's probes, not read off the loop (PR #2920 R1).
+    // Channels are a property of the TURN — `detectCapabilityAbsenceEscalation`
+    // derives them from `probes` alone, which does not vary per ask — so the
+    // earlier per-iteration assignment could not actually differ between asks.
+    // It was still wrong on a path the review did not name: an ask whose
+    // `question` is not a string `continue`s BEFORE the assignment, so a turn
+    // with such an ask reported 0 channels while having consulted several. One
+    // turn-level computation has no such path, and reads as what it is.
+    distinctChannels: distinctProbeChannels(probes).length,
+  };
+}
+
+export function buildEvaluationRecord(
+  sessionId: string | undefined,
+  matches: DeferralMatch[],
+  scannedText: string,
+  evaluated: EvaluatedUnit = "prose-turn",
+  askJustification?: AskJustificationEvaluation
+): Record<string, unknown> {
+  return {
+    timestamp: new Date().toISOString(),
+    session_id: sessionId,
+    evaluated,
+    fired: matches.length > 0,
+    surfaces: matches.map((m) => m.surface),
+    text_tail: safeTruncate(scannedText, EVALUATION_TAIL_CHARS, "tail"),
+    ...(askJustification ? { ask_justification: askJustification } : {}),
+  };
+}
+
+export function appendEvaluationRecord(
+  cwd: string | undefined,
+  record: Record<string, unknown>
+): void {
+  // mt#3782: `cwd` is the guard's raw input cwd — a FALLBACK, never a root.
+  // This used to be `resolve(findRepoRoot(cwd ?? process.cwd()), EVALUATION_LOG)`,
+  // which scattered the stream into session workspaces. `logEvaluationRecord`
+  // keeps the fail-open-and-report posture this had.
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
 }
 
 /**
@@ -423,7 +1234,16 @@ export function buildCalibrationRecord(
     session_id: sessionId,
     injection_enabled: INJECTION_ENABLED,
     source: "live",
-    matches: matches.map((m) => ({ category: m.surface, phrase: m.matchedPhrase })),
+    // mt#3781: `phrase` is the sweep's diversity axis, so it carries the PATTERN
+    // hit; `context` carries the surrounding prose that used to occupy `phrase`.
+    // Both, because the axis needs the first to be meaningful and a human
+    // reviewer needs the second to classify the fire at all.
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    matches: matches.map((m) => ({
+      category: m.surface,
+      phrase: m.matchedPhrase,
+      context: m.context,
+    })),
   };
 }
 
@@ -443,17 +1263,88 @@ function appendCalibrationRecord(cwd: string | undefined, record: Record<string,
 export function buildReminder(matches: DeferralMatch[]): string {
   const lines = ["[operator-deferral-detector] You deferred an action to the principal.", ""];
   for (const m of matches) {
-    lines.push(`  - (${m.surface}) "${m.matchedPhrase}"`);
+    // Renders `context`, not `matchedPhrase` (mt#3781). Per
+    // `guard-feedback-authoring.md`, the quoted-evidence line exists so the
+    // agent can recognize a FALSE positive — the surrounding prose does that
+    // and a bare pattern hit does not. This is the same text the line rendered
+    // before the fix, so the guard's measured `attentionCost` is unchanged.
+    lines.push(`  - (${m.surface}) "${m.context}"`);
   }
-  lines.push(
-    "",
-    "Run the capability probe BEFORE deferring, per `user-preferences.mdc §Probe before " +
-      "deferring`: `which <cli> && <cli> whoami`; a `<service>:*` skill; `config_get` for the " +
-      "named credential; `memory_search` for the service. If any probe returns available, DO " +
-      "THE WORK. If all fail, state the probe results inline so the deferral is justified.",
-    `Override: set ${OVERRIDE_ENV_VAR}=1 if this is genuinely not a deferral case.`
-  );
+  lines.push("");
+
+  // Per `guard-feedback-authoring.mdc §The directive has to fit the shape of the
+  // fire`: the denial-anchored surface's correct remedy is to re-issue the same
+  // command differently, which is a DIFFERENT action from running a capability
+  // probe. A guard that absorbs a new shape owes that shape its own directive —
+  // handing it the wrong one invites the agent to read a true positive as false.
+  // Both are emitted when a turn trips both; that pairing is this guard's worst
+  // case and is what its `worstCaseCanary` is posed at.
+  if (matches.some((m) => m.surface === "denial-anchored")) {
+    lines.push(
+      "A denial bounds the claim to the COMMAND you ran, not the capability. Re-issue the same " +
+        "channel in a simpler shape — the operation as the leading token, credentials inline — " +
+        "before escalating; a compound command matches no prefix rule. If the denial names a " +
+        "security concern, stop and escalate."
+    );
+  }
+  // Surface E owes its own directive for the same reason the denial surface
+  // does, and the mismatch here would be worse than generic: the generic branch
+  // below says "run the capability probe", and on this surface's anchor instance
+  // the agent HAD run one — a single channel that returned a clean, wrong
+  // answer. Handing it that line invites reading a true positive as false.
+  const askJustification = matches.find((m) => m.surface === "ask-justification");
+  if (askJustification) {
+    lines.push(
+      "This ask spends operator attention on a claim ONE channel supports. Check " +
+        `${askJustification.secondChannel ?? "a second, independent channel"} first — a clean ` +
+        "exit-0 listing can omit what a validation call confirms. If you did check two, say " +
+        "which, in the ask."
+    );
+  }
+  if (matches.some((m) => m.surface !== "denial-anchored" && m.surface !== "ask-justification")) {
+    lines.push(
+      "Run the capability probe BEFORE deferring, per `user-preferences.mdc §Probe before " +
+        "deferring`: `which <cli> && <cli> whoami`; a `<service>:*` skill; `config_get` for the " +
+        "named credential; `memory_search` for the service. If any probe returns available, DO " +
+        "THE WORK. If all fail, state the probe results inline so the deferral is justified."
+    );
+  }
+  // No override advertisement (mt#4002). `guard-feedback-authoring.mdc` bans it
+  // from advisory text — the agent is the wrong reader for an exit, and the
+  // overrides are catalogued in `CLAUDE.md §Hook Files` for the operator. It
+  // survived here because this guard renders nothing at runtime, so the check
+  // that enforces the authoring standard had no text to look at.
   return lines.join("\n");
+}
+
+/**
+ * The largest advisory this guard can render, for the registry's `renderProbe`
+ * (mt#4002).
+ *
+ * Bounded by construction on every axis: `run()` returns at most one match per
+ * surface and there are FOUR prose/denial/ask surfaces (mt#3999 added the
+ * fourth), and every `context` is capped at 240 chars by `extractMatchContext` /
+ * `safeTruncate`. Four matches also means ALL THREE directive branches render,
+ * which is the real worst case — posing only the branch a task changed measures
+ * that axis rather than the largest output (`guard-feedback-authoring.mdc`).
+ *
+ * Surface E's `secondChannel` is posed at its own ceiling too: the credential
+ * branch (the longer of the two) with the subject at `MAX_SUBJECT_CHARS`. That
+ * cap is what keeps this a proved ceiling rather than a saturated sample.
+ */
+export function renderWorstCase(): string {
+  const context = "x".repeat(240);
+  return buildReminder([
+    { surface: "capability-deferral-prose", matchedPhrase: "p0", context },
+    { surface: "permission-deferral-prose", matchedPhrase: "p1", context },
+    { surface: "denial-anchored", matchedPhrase: "p2", context },
+    {
+      surface: "ask-justification",
+      matchedPhrase: "p3",
+      context,
+      secondChannel: secondChannelFor("s".repeat(MAX_SUBJECT_CHARS), "no OpenAI key"),
+    },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -475,9 +1366,31 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (lines.length === 0) return null;
 
   try {
-    const turnLines = extractLastAssistantTurn(lines);
+    const turnLines = extractLastAssistantTurn(lines, ctx.recordedAnchor);
     if (turnLines.length === 0) return null;
-    return toOutcome(detectCapabilityDeferral(turnLines), input.session_id);
+    // Surface A, then C (mt#3463), then D (mt#3533), then E (mt#3999). Each
+    // returns at most one match, and a turn that trips several is reported as
+    // all of them — they are different failures, not several names for one.
+    const matches = [
+      ...detectCapabilityDeferral(turnLines),
+      ...detectPermissionDeferral(turnLines),
+      ...detectDenialAnchoredDeferral(turnLines),
+      ...detectAskJustificationAbsence(turnLines),
+      ...detectActPathWorkaround(turnLines),
+    ];
+    // Recorded for EVERY evaluated turn, including the no-match case — that is
+    // the half the calibration log cannot provide (see buildEvaluationRecord).
+    appendEvaluationRecord(
+      input.cwd,
+      buildEvaluationRecord(
+        input.session_id,
+        matches,
+        extractAssistantText(turnLines) ?? "",
+        "prose-turn",
+        summarizeAskJustificationEvaluation(turnLines)
+      )
+    );
+    return toOutcome(matches, input.session_id);
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -499,7 +1412,21 @@ export function runAskSurface(input: ToolHookInput, ctx: DispatchContext): Guard
 
   try {
     const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
-    return toOutcome(detectAskDeferral(input.tool_input, turnLines), input.session_id);
+    const matches = detectAskDeferral(input.tool_input, turnLines);
+    // Recorded here too (PR #2659 R1). A miss on this surface is exactly as
+    // invisible as a miss on the prose ones, and the rung question covers the
+    // detector as a whole — so leaving it out would have made "every evaluated
+    // unit" false, and the recall denominator silently prose-only.
+    appendEvaluationRecord(
+      input.cwd,
+      buildEvaluationRecord(
+        input.session_id,
+        matches,
+        askEvaluationText(input.tool_input),
+        "ask-tool-call"
+      )
+    );
+    return toOutcome(matches, input.session_id);
   } catch (err) {
     process.stderr.write(
       `[operator-deferral-detector] Ask-surface detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -542,9 +1469,39 @@ export async function main(): Promise<void> {
   try {
     if (input.tool_name === "AskUserQuestion") {
       matches = detectAskDeferral(input.tool_input, extractFinalTurn(lines).turnLines);
+      // Mirrors `runAskSurface` (PR #2659 R1) — both entrypoints render this
+      // surface, and recording in only one leaves the denominator wrong.
+      appendEvaluationRecord(
+        input.cwd,
+        buildEvaluationRecord(
+          input.session_id,
+          matches,
+          askEvaluationText(input.tool_input),
+          "ask-tool-call"
+        )
+      );
     } else {
       const turnLines = extractLastAssistantTurn(lines);
-      if (turnLines.length > 0) matches = detectCapabilityDeferral(turnLines);
+      if (turnLines.length > 0) {
+        // Same surfaces as `run()` (mt#3463, mt#3533, mt#3999). Wiring one
+        // entrypoint and not the other is the mt#3270 R1 shape.
+        matches = [
+          ...detectCapabilityDeferral(turnLines),
+          ...detectPermissionDeferral(turnLines),
+          ...detectDenialAnchoredDeferral(turnLines),
+          ...detectAskJustificationAbsence(turnLines),
+        ];
+        appendEvaluationRecord(
+          input.cwd,
+          buildEvaluationRecord(
+            input.session_id,
+            matches,
+            extractAssistantText(turnLines) ?? "",
+            "prose-turn",
+            summarizeAskJustificationEvaluation(turnLines)
+          )
+        );
+      }
     }
   } catch (err) {
     process.stderr.write(

@@ -49,7 +49,8 @@ import type {
   SessionDirParams,
   SessionUpdateParams,
 } from "../schemas/session";
-import type { SessionUpdateParameters } from "../schemas";
+// mt#3212: the `SessionUpdateParameters` type import is gone with the cast it
+// existed for — `updateSessionImpl`'s own parameter type does that checking now.
 import type { SessionPRParameters } from "../schemas";
 import type { SessionStartParametersWithIntent } from "./start-session-operations";
 import type { SessionLaunchIntent } from "./session-startability";
@@ -95,6 +96,75 @@ export interface ApproveResult {
  * Holds a set of injected dependencies and delegates each operation to the
  * corresponding impl function in the session sub-modules.
  */
+/**
+ * Build the parameter object `startSessionImpl` receives (mt#3955).
+ *
+ * Spread FIRST, then defaults, then the values this layer fixes — so a field the
+ * caller supplied reaches the domain unless something here deliberately overrides
+ * it.
+ *
+ * ## Why this is a function, and why it spreads
+ *
+ * It used to be an inline object literal listing every field by hand, and
+ * `recover` was not on the list. `startSessionImpl` therefore saw `undefined`,
+ * took its non-recover branch, and re-emitted "session appears abandoned" to an
+ * operator who had just followed that error's own instruction to re-run with
+ * `--recover`. Nothing caught it because the literal is cast with `as`: a MISSING
+ * optional field is not a type error, so the flag went nowhere in silence.
+ *
+ * This was the second time that same flag was dropped by a hand-written copy —
+ * mt#2742 fixed the adapter -> service hop with the identical symptom. Listing
+ * fields by hand makes every layer boundary an independent chance to forget one.
+ * Spreading removes the chance rather than patching the instance.
+ *
+ * Exported and pure so the construction can be asserted directly. The alternative
+ * — driving `SessionService.start` and patching its `startSessionImpl` import to
+ * see what arrived — is the shape `testing-standards.mdc §Testable Design` tells
+ * you to refactor instead of mock.
+ *
+ * ## The widened forwarding is deliberate (PR #2823 R1)
+ *
+ * Spreading forwards every enumerable property the caller passed, where the old
+ * literal forwarded an allowlist. That IS a behavior change and it is the point:
+ * the allowlist is what silently dropped `recover`. The alternative — enumerate
+ * the permitted keys — is the same construct that failed twice, so it would
+ * restore the defect to buy back the narrowing.
+ *
+ * The extra properties are inert: `startSessionImpl` destructures the fields it
+ * needs and never enumerates keys, so an unexpected one is carried and ignored
+ * rather than acted on. The narrowing that matters is the TYPE, which is why the
+ * cast below is the part worth being uncomfortable about — not the spread.
+ */
+export function buildSessionStartParams(
+  params: SessionStartParams & { launchIntent?: SessionLaunchIntent }
+): SessionStartParametersWithIntent {
+  // `satisfies`, not `as` (mt#3212). PR #2823 R1 asked for this and it did not
+  // compile at the time, because `SessionStartParametersSchema` marked
+  // `sessionId` and `description` REQUIRED — a contract nothing on the
+  // `session start --task <id>` path could satisfy, since both are derived from
+  // the task. Those two are now optional (see the schema's own docblock), so the
+  // bridge is a real type relationship rather than an assertion.
+  //
+  // This is the part that matters, not the syntax: under `as`, a field this
+  // function FAILS TO FORWARD is not a type error, which is how `recover` was
+  // dropped here silently (mt#3955) and at the adapter -> service hop before
+  // that (mt#2742). Under `satisfies` the compiler checks the object against the
+  // target type, so the next dropped-or-mistyped field stops the build instead
+  // of shipping green. Do not reintroduce a cast to make an edit compile.
+  return {
+    ...params,
+    packageManager: params.packageManager || "bun",
+    skipInstall: params.skipInstall || false,
+    noStatusUpdate: params.noStatusUpdate || false,
+    quiet: params.quiet || false,
+    // Fixed by this layer regardless of what the caller passed — these stay
+    // AFTER the spread so they win.
+    debug: false,
+    format: "text" as const,
+    force: false,
+  } satisfies SessionStartParametersWithIntent;
+}
+
 @injectable()
 export class SessionService {
   constructor(@inject("sessionDeps") private deps: SessionDeps) {}
@@ -115,6 +185,11 @@ export class SessionService {
 
   /**
    * Start a new session.
+   *
+   * Params construction is {@link buildSessionStartParams} — pure, exported, and
+   * tested directly, because the defect it fixes (mt#3955) lived entirely in that
+   * construction and could otherwise only be observed by patching the
+   * `startSessionImpl` import this method reaches itself.
    */
   async start(
     params: SessionStartParams & {
@@ -122,21 +197,7 @@ export class SessionService {
       launchIntent?: SessionLaunchIntent;
     }
   ): Promise<Session> {
-    const sessionStartParams = {
-      sessionId: params.sessionId,
-      task: params.task,
-      description: params.description || "",
-      branch: params.branch,
-      packageManager: params.packageManager || "bun",
-      skipInstall: params.skipInstall || false,
-      noStatusUpdate: params.noStatusUpdate || false,
-      quiet: params.quiet || false,
-      repo: params.repo,
-      debug: false,
-      format: "text" as const,
-      force: false,
-      launchIntent: params.launchIntent,
-    } as SessionStartParametersWithIntent;
+    const sessionStartParams = buildSessionStartParams(params);
 
     return startSessionImpl(sessionStartParams, {
       sessionDB: this.deps.sessionProvider,
@@ -178,7 +239,13 @@ export class SessionService {
    * Update a session (fetch/merge latest from base branch).
    */
   async update(params: SessionUpdateParams): Promise<SessionUpdateResult> {
-    return updateSessionImpl(params as SessionUpdateParameters, {
+    // No cast (mt#3212). `SessionUpdateParams` (schemas/session.ts) is assignable
+    // to the `SessionUpdateParameters` (schemas/session-schemas.ts) that
+    // `updateSessionImpl` takes, so the parameter type does the checking — which
+    // is the point. The `as SessionUpdateParameters` that used to sit here would
+    // have kept compiling if the two schemas drifted apart, and drift between two
+    // descriptions of one operation is what this whole call chain got wrong twice.
+    return updateSessionImpl(params, {
       gitService: this.deps.gitService,
       sessionDB: this.deps.sessionProvider,
       getCurrentSession: async (repoPath?: string) =>

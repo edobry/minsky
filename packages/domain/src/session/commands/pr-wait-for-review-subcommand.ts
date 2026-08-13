@@ -8,7 +8,10 @@
  *
  * Resolution criteria: a review on the PR with `submittedAt > since`
  * (strictly after — an exactly-equal `submittedAt` counts as already-seen,
- * mt#2656), optionally filtered by reviewer login.
+ * mt#2656), optionally filtered by reviewer login. When several reviews pass
+ * those filters, the one returned is the reviewer's STANDING VERDICT — their
+ * latest decision-bearing review — not the first in listing order
+ * (mt#3555); see `findMatchingReview`.
  *
  * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
  * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
@@ -40,6 +43,11 @@ import {
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { RepositoryBackend, ReviewListEntry } from "../../repository/index";
+import {
+  type ReviewVerdictFields,
+  pickLatestDecisionPerReviewer,
+  pickLatestSubmitted,
+} from "../../repository/review-verdict";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import type { TokenProvider, TokenRole } from "../../auth/token-provider";
 import { withDeadline, DeadlineExceededError } from "../../utils/deadline";
@@ -165,6 +173,82 @@ export interface SessionPrWaitForReviewParams {
    * `getPullRequestHeadSha` (the wait falls back to the `since` filter).
    */
   requireCurrentHead?: boolean;
+  /**
+   * The commit the caller expects the REMOTE to be serving — normally the
+   * `commitHash` that `session_commit` just returned (mt#3877).
+   *
+   * {@link requireCurrentHead} cannot cover this case, and the reason is worth
+   * being precise about: it compares a review against the remote's CURRENT
+   * head, so in the window before a push lands, the superseded commit genuinely
+   * IS that head and the stale review is admitted by exactly the filter meant
+   * to exclude it. The window is routine rather than exotic — `session_commit`
+   * runs the full suite in pre-commit and regularly exceeds the 120s MCP tool
+   * timeout, at which point it is backgrounded and finishes its push a minute
+   * later.
+   *
+   * When set, no review is considered while the remote head differs from this
+   * sha; the wait keeps polling instead. That is deliberately stronger than
+   * refusing to match: refusing alone turns a wasted review round into a
+   * confusing empty result, whereas waiting turns it into the correct one — the
+   * push lands and the real review is what the caller gets. On timeout the
+   * diagnostic names the sha the remote never reached, so an exhausted wait is
+   * actionable rather than mysterious.
+   *
+   * Opt-in by design. Local and remote HEAD legitimately differ for waits
+   * driven from a different workspace than the one that pushed, so resolving
+   * this automatically would hang those waits; the one call site that holds the
+   * intent passes it explicitly. Ignored when the backend does not implement
+   * `getPullRequestHeadSha`, or when `requireCurrentHead: false` opts out of
+   * head resolution entirely — there is no remote head to compare against in
+   * either case.
+   */
+  expectedHeadSha?: string;
+}
+
+/**
+ * Git's documented default minimum abbreviation length (`core.abbrev`).
+ *
+ * A shorter prefix is refused rather than matched: at 4 characters a prefix
+ * collides across a real repository's history often enough that "the remote is
+ * serving my commit" would stop being a claim about MY commit.
+ */
+export const MIN_ABBREVIATED_SHA_LENGTH = 7;
+
+/**
+ * Does the remote head satisfy the caller's `expectedHeadSha`?
+ *
+ * PREFIX-anchored, not equality (mt#4039). `session_commit` returns
+ * `commitHash` in ABBREVIATED form and `/implement-task` §9 tells callers to
+ * pass that value through verbatim — while the remote head is always the full
+ * 40 characters. A strict `===` therefore never matched for any caller
+ * following the documented flow: every real review was suppressed with
+ * `push-not-landed` and the wait ran to timeout, which is the exact wasted
+ * round mt#3877 added this filter to prevent. Observed on PR #2914, where two
+ * genuine reviews sat unread for 900s and the identical wait matched in 128s
+ * once the sha was expanded by hand.
+ *
+ * Undefined on either side means "no opinion" and matches, preserving the
+ * opt-in semantics: no `expectedHeadSha` is no filter, and an unresolved remote
+ * head (backend without `getPullRequestHeadSha`, or `requireCurrentHead:
+ * false`) has nothing to compare against.
+ */
+export function headShaMatchesExpected(
+  headSha: string | undefined,
+  expectedHeadSha: string | undefined
+): boolean {
+  if (expectedHeadSha === undefined || headSha === undefined) return true;
+
+  const expected = expectedHeadSha.trim().toLowerCase();
+  const head = headSha.trim().toLowerCase();
+
+  // Too short to identify a commit — never match. The command layer rejects
+  // this up front with a clear error; this branch is the defense in depth, so
+  // a caller reaching the matcher by another path cannot match promiscuously.
+  if (expected.length < MIN_ABBREVIATED_SHA_LENGTH) return false;
+  // A value longer than the head cannot be a prefix of it.
+  if (expected.length > head.length) return false;
+
+  return head.startsWith(expected);
 }
 
 export interface SessionPrWaitForReviewMatch {
@@ -371,6 +455,18 @@ export interface SessionPrWaitForReviewTimeout {
    * agents quickly see whether the `since`-default did what they expected.
    */
   sinceUsed: string;
+  /**
+   * mt#3877: set when the caller passed `expectedHeadSha` and the remote
+   * never reached it — the wait spent its whole budget on a PR whose head was
+   * still the pre-push commit. Carries the last remote head actually observed
+   * (`null` if none was ever resolved), so the timeout distinguishes "no
+   * review arrived" from "the push never landed", which call for opposite
+   * responses: wait longer versus go find out why the push is stuck.
+   *
+   * Absent (undefined) whenever `expectedHeadSha` was not passed, so an
+   * ordinary timeout payload is unchanged.
+   */
+  expectedHeadShaUnreached?: { expected: string; lastObservedHeadSha: string | null };
   /**
    * mt#2777 SC#1: whether the one-time final authoritative reviews-list
    * re-read (performed immediately before reporting this timeout) actually
@@ -673,11 +769,51 @@ export function explainReviewRejection(
 }
 
 /**
- * Pick the first review, in listing order, that matches the filter criteria.
+ * Projects `ReviewListEntry` onto the fields the shared ordering rule reads
+ * (`repository/review-verdict.ts`).
+ */
+const REVIEW_LIST_ENTRY_FIELDS: ReviewVerdictFields<ReviewListEntry> = {
+  reviewerLogin: (review) => review.reviewerLogin,
+  submittedAt: (review) => review.submittedAt,
+  state: (review) => review.state,
+};
+
+/**
+ * Pick the review representing the reviewer's STANDING VERDICT among those
+ * matching the filter criteria.
  *
- * Exported for unit tests — keeps the filter logic independent of the polling
- * loop so corner cases (missing submittedAt, case-sensitive reviewer match,
- * since boundary) can be exercised in isolation.
+ * Before mt#3555 this returned the FIRST match in listing order. Because
+ * `listReviews` returns GitHub's chronological (oldest-first) order, that
+ * meant the EARLIEST qualifying review won: on PR #2525 an APPROVED at
+ * 18:59:48Z beat the same reviewer's CHANGES_REQUESTED at 19:07:55Z **on the
+ * same commit**, and `/implement-task` §9 reads an APPROVED on current HEAD as
+ * the authorization to merge. `requireCurrentHead` could not disambiguate:
+ * both reviews were on HEAD, so the head filter admitted both and scan order
+ * decided. The head check answers "is this review about the current code",
+ * never "is this the reviewer's current verdict".
+ *
+ * Resolution order, applied to the reviews that pass the filters:
+ *
+ *   1. Reduce to the latest DECISION-BEARING review per reviewer
+ *      (`pickLatestDecisionPerReviewer`) — the same rule the approval path
+ *      uses, correct in both directions: a CHANGES_REQUESTED the reviewer
+ *      later resolved does not win, and an APPROVED they later retracted does
+ *      not either.
+ *   2. If any reviewer's standing verdict is CHANGES_REQUESTED, return the
+ *      latest of those. Only reachable without a `reviewer` filter (with one,
+ *      there is a single reviewer to reduce). Without it, returning a second
+ *      reviewer's later APPROVED while a first reviewer's rejection stands
+ *      would reproduce this same defect in multi-reviewer shape.
+ *   3. Otherwise return the latest standing verdict.
+ *   4. When NO candidate is decision-bearing — a COMMENTED-only wait — return
+ *      the latest candidate, so a caller waiting on a COMMENT still resolves.
+ *      COMMENTED is informational: it never supersedes a decision (step 1
+ *      filters it out), but it is still a review the wait tool must be able to
+ *      return, and `pr-drive-subcommand` branches on it.
+ *
+ * Exported for unit tests — keeps the resolution logic independent of the
+ * polling loop so corner cases (missing submittedAt, case-insensitive reviewer
+ * match, since boundary, supersession) can be exercised in isolation.
  */
 export function findMatchingReview(
   reviews: ReviewListEntry[],
@@ -685,12 +821,18 @@ export function findMatchingReview(
   reviewer: string | undefined,
   headSha?: string
 ): ReviewListEntry | undefined {
-  for (const review of reviews) {
-    if (explainReviewRejection(review, since, reviewer, headSha) === null) {
-      return review;
-    }
+  const candidates = reviews.filter(
+    (review) => explainReviewRejection(review, since, reviewer, headSha) === null
+  );
+  if (candidates.length === 0) return undefined;
+
+  const standing = pickLatestDecisionPerReviewer(candidates, REVIEW_LIST_ENTRY_FIELDS);
+  if (standing.length === 0) {
+    return pickLatestSubmitted(candidates, REVIEW_LIST_ENTRY_FIELDS);
   }
-  return undefined;
+
+  const blocking = standing.filter((review) => review.state === "CHANGES_REQUESTED");
+  return pickLatestSubmitted(blocking.length > 0 ? blocking : standing, REVIEW_LIST_ENTRY_FIELDS);
 }
 
 /**
@@ -704,17 +846,27 @@ export function findMatchingReview(
  * wait loop returns immediately on the first match. The defensive non-null
  * fallback below covers the edge case where annotation runs on a list
  * containing a matching review (e.g., during testing).
+ *
+ * `suppressedReason` (mt#3877) covers the one case where that fallback would
+ * LIE: with `expectedHeadSha` set and the remote not yet serving it, the wait
+ * suppresses matching wholesale, so a review passing every ordinary filter is
+ * still not a match. Annotating it "matched" inside a TIMEOUT payload asserts
+ * the opposite of what happened, in the field an agent reads to work out why
+ * the wait failed. Per-review reasons still win when they apply — they are
+ * more specific, and a review can be both stale-by-`since` and suppressed.
  */
 export function annotateReviewRejections(
   reviews: ReviewListEntry[],
   since: number,
   reviewer: string | undefined,
-  headSha?: string
+  headSha?: string,
+  suppressedReason?: string
 ): AnnotatedReview[] {
   return reviews.map((review) => ({
     ...review,
     rejectionReason:
       explainReviewRejection(review, since, reviewer, headSha) ??
+      suppressedReason ??
       "matched: review satisfies all filter criteria (annotation defensive fallback)",
   }));
 }
@@ -725,7 +877,9 @@ export function annotateReviewRejections(
  * Contract:
  * - Resolves the session's PR via `resolveSessionContextWithFeedback`.
  * - Calls `backend.review.listReviews` at each poll tick.
- * - Returns the first review matching `since` and optional `reviewer` filter.
+ * - Returns the standing verdict among the reviews matching `since` and the
+ *   optional `reviewer` filter — the reviewer's latest decision-bearing
+ *   review, not the first in listing order (mt#3555).
  * - `since` default (mt#2043): when the caller does not pass `since`, the
  *   default is the PR's `created_at` timestamp (looked up via
  *   `backend.review.getPullRequestCreatedAt`). This makes pre-existing
@@ -785,6 +939,28 @@ export async function sessionPrWaitForReview(
   // is validated here so caller-supplied bad timestamps fail fast.
   if (params.since !== undefined && Number.isNaN(Date.parse(params.since))) {
     throw new ValidationError(`Invalid --since timestamp: ${params.since}`);
+  }
+
+  // A too-short `expectedHeadSha` fails LOUDLY here rather than quietly never
+  // matching. Same reasoning as the `finalCheckDeadlineMs` validation above:
+  // the failure mode of accepting it is a wait that suppresses every review and
+  // times out, which reads as reviewer silence rather than as a bad argument
+  // (mt#4039). Hex-shape is checked too, since a non-sha value can only ever
+  // suppress.
+  if (params.expectedHeadSha !== undefined) {
+    const candidate = params.expectedHeadSha.trim();
+    if (!/^[0-9a-fA-F]+$/.test(candidate)) {
+      throw new ValidationError(
+        `expectedHeadSha must be a hexadecimal commit sha (got '${params.expectedHeadSha}')`
+      );
+    }
+    if (candidate.length < MIN_ABBREVIATED_SHA_LENGTH) {
+      throw new ValidationError(
+        `expectedHeadSha must be at least ${MIN_ABBREVIATED_SHA_LENGTH} characters ` +
+          `(got '${params.expectedHeadSha}', ${candidate.length}). Pass the commitHash ` +
+          `session_commit returned; abbreviated forms are matched as a prefix.`
+      );
+    }
   }
 
   try {
@@ -878,6 +1054,14 @@ export async function sessionPrWaitForReview(
     // surface them with per-entry rejection reasons (mt#2043).
     let lastReviews: ReviewListEntry[] = [];
 
+    // mt#3877: true once the remote head has been observed to equal the
+    // caller's `expectedHeadSha`. Until then no review is considered — the
+    // remote is still serving the pre-push tree, and any review of it is
+    // about code the caller has already superseded.
+    const expectedHeadSha = params.expectedHeadSha;
+    const remoteIsServingExpectedHead = (): boolean =>
+      headShaMatchesExpected(headSha, expectedHeadSha);
+
     const buildTimeoutResult = (
       overrides: Partial<
         Pick<SessionPrWaitForReviewTimeout, "finalCheckPerformed" | "reviewerCheckRunState">
@@ -886,8 +1070,24 @@ export async function sessionPrWaitForReview(
       matched: false,
       elapsedMs: now() - start,
       pollCount,
-      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer, headSha),
+      lastSeenReviews: annotateReviewRejections(
+        lastReviews,
+        since,
+        resolvedReviewer,
+        headSha,
+        remoteIsServingExpectedHead()
+          ? undefined
+          : `push-not-landed: matching suppressed while remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}`
+      ),
       sinceUsed: sinceIso,
+      ...(expectedHeadSha !== undefined && !remoteIsServingExpectedHead()
+        ? {
+            expectedHeadShaUnreached: {
+              expected: expectedHeadSha,
+              lastObservedHeadSha: headSha ?? null,
+            },
+          }
+        : {}),
       finalCheckPerformed: false,
       reviewerCheckRunState: null,
       ...overrides,
@@ -941,7 +1141,13 @@ export async function sessionPrWaitForReview(
         lastReviews = freshReviews;
         finalCheckPerformed = true;
 
-        const finalMatch = findMatchingReview(freshReviews, since, resolvedReviewer, headSha);
+        // mt#3877: the final authoritative re-read refreshes `headSha` above,
+        // so a push that landed inside the closing gap is picked up here — but
+        // if the remote STILL has not reached the expected sha, the same
+        // superseded-tree reasoning applies and this must not match either.
+        const finalMatch = remoteIsServingExpectedHead()
+          ? findMatchingReview(freshReviews, since, resolvedReviewer, headSha)
+          : null;
         if (finalMatch) {
           return {
             matched: true,
@@ -1001,7 +1207,13 @@ export async function sessionPrWaitForReview(
 
         const reviews = await withDeadline(listReviews(prNumber), ioDeadlineMs);
         lastReviews = reviews;
-        const match = findMatchingReview(reviews, since, resolvedReviewer, headSha);
+        // mt#3877: while the remote is still serving the pre-push tree, every
+        // review on it is about superseded code — including one that
+        // `requireCurrentHead` would happily admit, since that commit IS the
+        // current head right now. Poll on rather than return it.
+        const match = remoteIsServingExpectedHead()
+          ? findMatchingReview(reviews, since, resolvedReviewer, headSha)
+          : null;
         if (match) {
           return {
             matched: true,
@@ -1030,8 +1242,11 @@ export async function sessionPrWaitForReview(
       }
 
       const sleepMs = Math.min(intervalMs, remaining);
+      const waitingForPush = !remoteIsServingExpectedHead()
+        ? ` (remote head ${headSha ?? "<unresolved>"} != expected ${expectedHeadSha}; push not landed yet)`
+        : "";
       log.debug(
-        `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} no match; ` +
+        `session_pr_wait_for_review: PR #${prNumber} poll ${pollCount} no match${waitingForPush}; ` +
           `sleeping ${Math.round(sleepMs / 1000)}s (${Math.round(remaining / 1000)}s remaining)`
       );
       // mt#2677: once per poll interval so a legitimate long wait produces

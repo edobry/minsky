@@ -64,6 +64,11 @@ export interface SchemaReadiness {
 
 const UNCHECKED: SchemaReadiness = { current: null, pending: [], checkedAt: null };
 
+// epoch-exempt: plain data, not a provider-derived handle (mt#3721). `state` is
+// a snapshot of migration readiness — booleans, ids, a timestamp — recomputed by
+// this module's own periodic check. It holds no connection, so a pool recycle
+// cannot invalidate it: the schema of the database being described does not
+// change when the client pool is torn down and rebuilt.
 let state: SchemaReadiness = UNCHECKED;
 
 /** Current readiness snapshot, for `/api/health`. */

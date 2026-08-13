@@ -47,6 +47,7 @@ import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-t
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { writeSpawnLink } from "./spawn-link-writer";
+import { CHILD_AGENT_SESSION_ID_KEY } from "./turn-extractor";
 import {
   findAgentToolCall,
   findAgentToolCalls,
@@ -69,6 +70,18 @@ export interface SpawnsPipelineRunResult {
   childLinkedFromHeuristic: number;
   /** Spawn rows where child_agent_session_id could not be resolved (remains null). */
   childUnresolved: number;
+  /**
+   * Spawn rows left NULL because the turn dispatched MORE THAN ONE agent and the
+   * cwd-time heuristic cannot tell siblings apart (mt#3702).
+   *
+   * Counted separately from `childUnresolved` because the two mean different
+   * things to a reader deciding what to do next: an unresolved row might be
+   * reachable by a better heuristic, whereas these are refusals the heuristic can
+   * never turn into links — they need the per-call id mt#3962 is about. Folding
+   * them together would hide the size of that population behind a number that
+   * looks like ordinary miss rate.
+   */
+  childRefusedSiblingSpawn: number;
   /** Number of turns that errored and were skipped. */
   spawnsErrored: number;
   /**
@@ -140,6 +153,7 @@ export class AgentSpawnsPipeline {
       childLinkedFromMetadata: 0,
       childLinkedFromHeuristic: 0,
       childUnresolved: 0,
+      childRefusedSiblingSpawn: 0,
       spawnsErrored: 0,
       spawnLinksWritten: 0,
       spawnLinksSkippedNoPromptMatch: 0,
@@ -191,6 +205,7 @@ export class AgentSpawnsPipeline {
       childLinkedFromMetadata: result.childLinkedFromMetadata,
       childLinkedFromHeuristic: result.childLinkedFromHeuristic,
       childUnresolved: result.childUnresolved,
+      childRefusedSiblingSpawn: result.childRefusedSiblingSpawn,
       spawnsErrored: result.spawnsErrored,
       spawnLinksWritten: result.spawnLinksWritten,
       spawnLinksSkippedNoPromptMatch: result.spawnLinksSkippedNoPromptMatch,
@@ -214,6 +229,7 @@ export class AgentSpawnsPipeline {
       childLinkedFromMetadata: 0,
       childLinkedFromHeuristic: 0,
       childUnresolved: 0,
+      childRefusedSiblingSpawn: 0,
       spawnsErrored: 0,
       spawnLinksWritten: 0,
       spawnLinksSkippedNoPromptMatch: 0,
@@ -324,15 +340,48 @@ export class AgentSpawnsPipeline {
 
         // Attempt to resolve child session ID.
         let childAgentSessionId: string | null = null;
-        let linkSource: "metadata" | "heuristic" | "unresolved" = "unresolved";
+        // "refused-sibling" is a FOURTH outcome, not a flavour of "unresolved"
+        // (PR #2842 R1). Without it the refusal below falls through to the
+        // `else result.childUnresolved++` at the end of this block and every
+        // refused call is counted twice — which is precisely what
+        // `childRefusedSiblingSpawn`'s own doc comment says the separate counter
+        // exists to prevent, and it would make the counters sum to more than
+        // `spawnsWritten`.
+        let linkSource: "metadata" | "heuristic" | "refused-sibling" | "unresolved" = "unresolved";
 
-        // Primary: extract from tool-call metadata (tool result carries session ID).
-        // This is populated when the tool_calls JSONB includes a session_id field
-        // on the Agent call's input (some harness versions include this).
+        // Primary: the per-call child id the Agent tool's RESULT reported, which
+        // the turn extractor projects onto the tool_calls entry (mt#3962).
+        //
+        // Ordering is load-bearing, not incidental: this runs BEFORE the
+        // multi-spawn refusal below, so a turn that dispatched several agents
+        // now resolves each call to its OWN child instead of being refused. The
+        // refusal is what happens when this signal is absent — a pre-mt#3962 row,
+        // or a call whose result never landed — not a blanket rule about
+        // multi-spawn turns.
         const metadataSessionId = extractChildSessionIdFromMetadata(agentCall);
         if (metadataSessionId) {
           childAgentSessionId = metadataSessionId;
           linkSource = "metadata";
+        } else if (agentCalls.length > 1) {
+          // mt#3702: the cwd-time heuristic's inputs do not vary per Agent call —
+          // it takes the parent session, the parent cwd, and the TURN's endedAt.
+          // So on a turn that dispatched N agents it runs N identical lookups and
+          // hands the same answer to every one of them. Each lookup is
+          // individually "unambiguous" (exactly one candidate in the window)
+          // while the true mapping is N-to-1, which is how 27 turns came to serve
+          // the cockpit two badges pointing at one child, at least one of them
+          // wrong.
+          //
+          // The existing ambiguity guard inside `resolveChildByCwdTimeWindow` is
+          // real but scoped to a single lookup; this is the same check at the
+          // scope the ambiguity actually lives in. A wrong link is worse than no
+          // link — it is indistinguishable from a right one at every consumer.
+          //
+          // Deliberately NOT a margin or scoring change: no value of
+          // CWD_TIME_MARGIN_MS separates two agents dispatched from one cwd at
+          // one instant. Resolving these needs a per-call signal, which is
+          // mt#3962's job (the Agent result's `agentId`, dropped at ingest today).
+          linkSource = "refused-sibling";
         } else if (parentCwd && spawnedAt) {
           // Fallback: cwd-time-window heuristic.
           const heuristicId = await this.resolveChildByCwdTimeWindow(
@@ -386,6 +435,7 @@ export class AgentSpawnsPipeline {
         result.spawnsWritten++;
         if (linkSource === "metadata") result.childLinkedFromMetadata++;
         else if (linkSource === "heuristic") result.childLinkedFromHeuristic++;
+        else if (linkSource === "refused-sibling") result.childRefusedSiblingSpawn++;
         else result.childUnresolved++;
 
         // mt#2756: write the subagent_spawn minsky_session_links row using
@@ -515,14 +565,21 @@ export function extractSpawnType(agentCall: AgentToolCallBlock): "foreground" | 
 /**
  * Extract child_agent_session_id from the tool call's metadata when present.
  *
- * Some harness versions include a `session_id` field in the Agent tool call's
- * input that directly identifies the child session. This is the most reliable
- * linkage method and is preferred over the cwd-time heuristic.
+ * Reads the projected `child_agent_session_id` the turn extractor attaches from
+ * the Agent call's RESULT (mt#3962). This is the only per-call child signal that
+ * exists, so it is the only thing that can tell sibling spawns apart; the
+ * cwd-time heuristic cannot, and refuses to try (mt#3702).
+ *
+ * It replaces a read of `input["session_id"]`, whose doc-comment claimed "some
+ * harness versions include a `session_id` field in the Agent tool call's input."
+ * That was false for every call in the corpus, not merely for some versions:
+ * across all 2,583 Agent calls the input keys are `description` (2583), `prompt`
+ * (2583), `subagent_type` (2354), `model` (1994), `run_in_background` (777) and
+ * `isolation` (3) — `session_id` appears zero times. So this path could never
+ * fire, and `linkedFromMetadata = 0` was by construction (measured 2026-08-12).
  */
 export function extractChildSessionIdFromMetadata(agentCall: AgentToolCallBlock): string | null {
-  const input = agentCall.input;
-  if (!input || typeof input !== "object") return null;
-  const sessionId = (input as Record<string, unknown>)["session_id"];
-  if (typeof sessionId === "string" && sessionId.length > 0) return sessionId;
+  const childId = (agentCall as Record<string, unknown>)[CHILD_AGENT_SESSION_ID_KEY];
+  if (typeof childId === "string" && childId.length > 0) return childId;
   return null;
 }
