@@ -187,7 +187,12 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   /\bi'?ll\s+report\s+(?:back\s+)?when\b/i,
   /\bwaiting\s+(?:for|on)\s+/i,
   /\bno\s+action\s+needed\s+from\s+you\b/i,
-  /\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i,
+  // mt#4113: `/\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/i` is RETIRED from here, not merely
+  // supplemented. It was the narrow, prose-only ancestor of the principal-instruction suppression,
+  // and prose-only is exactly what mt#4063's SC2 rules out — a message could earn suppression by
+  // quoting the phrase with no instruction behind it. `detectPrincipalInstructionHalt` replaces it
+  // and corroborates against the opening prompt. Leaving both would re-create the
+  // add-beside-rather-than-replace error PR #2972 R2 caught.
   // mt#3917: the watcher reports to the AGENT, not the agent to the principal.
   // The line above covers "I'll report back when …"; the 2026-08-09T04:18Z fire
   // was "Blocked only on CI now — I'll merge when the checks task reports back",
@@ -429,6 +434,205 @@ export const CONDITIONAL_WAIT_TOOL = "mcp__minsky__session_pr_checks";
  * Returns the evidence found, most useful for the calibration record; an empty
  * array means the turn armed nothing.
  */
+/**
+ * Suppression reason for a halt whose named-but-untaken step is DESTRUCTIVE (mt#4116).
+ */
+export const SUPPRESSION_DESTRUCTIVE_ACTION_HALT = "destructive-action-halt";
+
+/**
+ * Suppression reason for a step the agent structurally CANNOT take (mt#4116).
+ */
+export const SUPPRESSION_HARNESS_COMMAND_HALT = "harness-command-halt";
+
+/**
+ * Suppression reason for the filed-for-later-by-design branch, corroborated (mt#4116).
+ */
+export const SUPPRESSION_FILED_BY_DESIGN_HALT = "filed-by-design-halt";
+
+/**
+ * Suppression reason for a scope bounded by the principal's own instruction (mt#4113).
+ */
+export const SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT = "principal-instruction-halt";
+
+/**
+ * Destructive verbs, matched inside the NAMED ACTION rather than in a self-assessment.
+ *
+ * `user-preferences.mdc §Probe before deferring` names the stopping point as "an action that is
+ * **destructive**, OR that falls under a nameable category" — destructive is a PEER of the
+ * reserved-category list, not a member, which is why `RESERVED_CATEGORY_PATTERNS` never covered it
+ * and why the 2026-08-13 pass measured it as a false positive ("Say the word and I'll SIGKILL
+ * both").
+ *
+ * ## The verb is the evidence; "this is destructive" is not
+ *
+ * This deliberately does NOT match a self-assessment. Under mt#4063's bar a suppression must key on
+ * evidence the condition holds rather than prose claiming it does, and "stopping because this is
+ * destructive" is exactly the manufacturable claim. A destructive VERB is different in kind: to
+ * earn suppression the message has to actually name the dangerous act, which a message inventing an
+ * excuse has no reason to do.
+ */
+const DESTRUCTIVE_ACTION_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bSIGKILL\b/,
+  /\bkill\s+(?:-9\s+)?(?:both|all|the\s+\w+|PID)/i,
+  /\b(?:pkill|killall)\b/,
+  /\brm\s+-rf\b/,
+  /\bforce[-\s]push(?:ing)?\b/i,
+  /\bgit\s+reset\s+--hard\b/,
+  /\bdrop\s+(?:the\s+)?(?:table|database|schema)\b/i,
+];
+
+/**
+ * Harness commands the agent structurally cannot invoke (mt#4116).
+ *
+ * A closed list, deliberately. The GENERAL "the principal has to participate" case — "I need you to
+ * reproduce the hang while I sample" — is NOT lexically separable from an excuse, and a pattern that
+ * tried would silence real deferrals; mt#4116's planning scoped that out with the reason recorded.
+ * These three are decidable because the agent has no way to issue them at all, so naming one as the
+ * blocking step is a statement about the world rather than about the agent's willingness.
+ */
+const HARNESS_COMMAND_PATTERNS: ReadonlyArray<RegExp> = [
+  /(?:^|\s)\/mcp\b/,
+  /(?:^|\s)\/clear\b/,
+  /(?:^|\s)\/config\b/,
+];
+
+/**
+ * Prose naming the filed-for-later-by-design branch (mt#4116).
+ *
+ * Corroboration is required — see {@link detectFiledByDesignHalt}. On its own this is prose and
+ * therefore manufacturable, which is precisely the confabulated-halt shape the sibling
+ * `turn-end-unwalked-task` guard exists to catch. This must never become a way to talk past it.
+ */
+const FILED_BY_DESIGN_PATTERNS: ReadonlyArray<RegExp> = [
+  /\bfiled\s+for\s+later\s+by\s+design\b/i,
+  /\bbackground\/?tracking\s+task\b/i,
+  /\btracking\s+task\s+filed\s+for\s+later\b/i,
+];
+
+/**
+ * Prose citing a principal instruction as the reason a step was not taken (mt#4113).
+ *
+ * Corroborated against the OPENING PROMPT — see {@link detectPrincipalInstructionHalt}.
+ */
+const PRINCIPAL_INSTRUCTION_PATTERNS: ReadonlyArray<RegExp> = [
+  /\byou\s+(?:said|asked\s+(?:me\s+)?(?:to|for))\b/i,
+  /\bper\s+your\s+instruction\b/i,
+  /\bas\s+you\s+(?:asked|instructed|requested)\b/i,
+];
+
+/**
+ * Every suppression that keys on the closing message runs over the ELIDED text (PR #2976 R1).
+ *
+ * `detectUntakenAction` and `detectReservedCategoryHalt` already did this; the mt#4116 additions
+ * did not, and the asymmetry is worse in the suppression direction than in the firing direction. A
+ * fire manufactured by quoted text costs one advisory beat; a SUPPRESSION manufactured by quoted
+ * text silences a real fire, and silence is the outcome nothing downstream notices.
+ *
+ * The failure was live, not hypothetical: a turn-end report that QUOTES a rule mentioning `SIGKILL`
+ * or names `/mcp` in a code span is an ordinary shape in this repo — several were written in the
+ * very session that added these suppressions — and each would have earned itself a suppression.
+ */
+function elideForSuppression(finalMessage: string): string {
+  return finalMessage ? elideQuotedAndCodeContexts(finalMessage) : "";
+}
+
+/** Destructive verbs named in the closing message. Empty when none. */
+export function detectDestructiveNamedAction(finalMessage: string): string[] {
+  const scanned = elideForSuppression(finalMessage);
+  const hits: string[] = [];
+  for (const re of DESTRUCTIVE_ACTION_PATTERNS) {
+    const m = re.exec(scanned);
+    if (m) hits.push(m[0].trim());
+  }
+  return hits;
+}
+
+/** Harness commands named as the blocking step. Empty when none. */
+export function detectHarnessCommandHalt(finalMessage: string): string[] {
+  const scanned = elideForSuppression(finalMessage);
+  const hits: string[] = [];
+  for (const re of HARNESS_COMMAND_PATTERNS) {
+    const m = re.exec(scanned);
+    if (m) hits.push(m[0].trim());
+  }
+  return hits;
+}
+
+/**
+ * The filed-for-later-by-design branch, CORROBORATED by the turn having actually minted a task.
+ *
+ * Both halves are required. The prose alone is manufacturable; the `tasks_create` call alone is the
+ * ordinary case of filing a task mid-turn and then continuing, which says nothing about why the
+ * turn ended. Their conjunction is the branch `/create-task` §6 defines and requires the agent to
+ * state out loud — and which the 2026-08-13 pass measured firing on an agent that did exactly that.
+ */
+export function detectFiledByDesignHalt(
+  finalMessage: string,
+  turnLines: Parameters<typeof findToolUseInputs>[0]
+): string[] {
+  const named = FILED_BY_DESIGN_PATTERNS.some((re) => re.test(elideForSuppression(finalMessage)));
+  if (!named) return [];
+  const created = extractToolUseNames(turnLines).filter((n) => /tasks_create$/.test(n));
+  return created.length > 0 ? created : [];
+}
+
+/**
+ * A scope the PRINCIPAL's own instruction bounded (mt#4113).
+ *
+ * Keyed on the OPENING PROMPT, not on the agent's prose, and that is the whole design. mt#4113's
+ * SC3 requires that "a message that merely ASSERTS an instruction without one having been given
+ * still fires" — no pattern over the agent's closing text can satisfy that, because a real citation
+ * and an invented one are the same words. The prompt that opened the turn is the falsifier, and
+ * `extractFinalTurn` already returns it.
+ *
+ * The bar is deliberately coarse: the citation must be present in the closing message AND the
+ * opening prompt must contain a scope-bounding directive. It does not attempt to verify that the
+ * quoted instruction MATCHES the prompt's — that is a semantic comparison this rung cannot make, and
+ * claiming it would overstate what the check does.
+ */
+/**
+ * Text of the USER line that opened the turn.
+ *
+ * Deliberately NOT `extractAssistantText`, which filters to `role === "assistant"` and therefore
+ * returns `""` for a prompt — reaching for it here would have made
+ * {@link detectPrincipalInstructionHalt} permanently inert while typechecking and reading fine.
+ * Caught before shipping by checking the extractor rather than assuming its name matched the use;
+ * it is the mt#1071 / mt#2416 dead-wiring shape (`feedback_static_helper_completeness`).
+ */
+export function extractPromptText(line: { message?: { content?: unknown } } | undefined): string {
+  const content = line?.message?.content;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (block && typeof block === "object") {
+      const b = block as Record<string, unknown>;
+      if (b["type"] === "text" && typeof b["text"] === "string") parts.push(b["text"]);
+    }
+  }
+  return parts.join("\n");
+}
+
+export function detectPrincipalInstructionHalt(
+  finalMessage: string,
+  openingPromptText: string
+): string[] {
+  if (!openingPromptText) return [];
+  // The CITATION is elided (it is the agent's own prose, and a quoted "you said file" must not
+  // manufacture a suppression). The PROMPT deliberately is NOT: it is the principal speaking, and
+  // an instruction they wrote inside a code span or a quote is still an instruction they gave.
+  const cited = PRINCIPAL_INSTRUCTION_PATTERNS.some((re) =>
+    re.test(elideForSuppression(finalMessage))
+  );
+  if (!cited) return [];
+  const directive =
+    /\b(?:just|only)\s+\w+/i.test(openingPromptText) ||
+    /\bdon'?t\s+\w+/i.test(openingPromptText) ||
+    /\bfile\s+(?:it|them)\b/i.test(openingPromptText) ||
+    /\bstop\b/i.test(openingPromptText);
+  return directive ? ["opening-prompt-directive"] : [];
+}
+
 export function detectArmedWatcherEvidence(
   turnLines: Parameters<typeof findToolUseInputs>[0]
 ): string[] {
@@ -833,22 +1037,48 @@ export function run(
   // is "a suppressed fire is recorded once per distinct turn, under the same dedup
   // as an injecting fire" — not "on every Stop." Reworded here, in the doc page,
   // and in the PR body rather than changed in behavior.
+  // mt#4116: six suppressions now share one record shape, so it is built once. Each carries its
+  // own reason plus one evidence field named for that reason — the calibration pass reads the
+  // reason to know WHY a fire was swallowed and the evidence to check whether it should have been.
+  const suppressed = (reason: string, evidenceKey: string, evidence: string[]): GuardOutcome => ({
+    calibration: {
+      source: "live",
+      channel: "stop",
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      stop_hook_active: input.stop_hook_active === true,
+      matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+      final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+      deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+      suppressionReasons: [reason],
+      [evidenceKey]: evidence,
+    },
+  });
+
   const reservedCategory = detectReservedCategoryHalt(finalMessage);
   if (reservedCategory.length > 0) {
-    return {
-      calibration: {
-        source: "live",
-        channel: "stop",
-        timestamp: new Date().toISOString(),
-        session_id: input.session_id,
-        stop_hook_active: input.stop_hook_active === true,
-        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
-        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
-        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
-        suppressionReasons: [SUPPRESSION_RESERVED_CATEGORY_HALT],
-        reservedCategoryPhrases: reservedCategory,
-      },
-    };
+    return suppressed(
+      SUPPRESSION_RESERVED_CATEGORY_HALT,
+      "reservedCategoryPhrases",
+      reservedCategory
+    );
+  }
+
+  // mt#4116, shape 1: the named-but-untaken step is DESTRUCTIVE, which
+  // `user-preferences.mdc §Probe before deferring` names as a stopping point in its own right —
+  // a PEER of the reserved-category list above rather than a member of it, which is why the list
+  // never covered it. Keyed on the destructive VERB, not on a claim of destructiveness.
+  const destructive = detectDestructiveNamedAction(finalMessage);
+  if (destructive.length > 0) {
+    return suppressed(SUPPRESSION_DESTRUCTIVE_ACTION_HALT, "destructiveActionPhrases", destructive);
+  }
+
+  // mt#4116, shape 3: the named step is a HARNESS command the agent cannot issue at all. A closed
+  // list; the general participation-required case is deliberately out of scope (see the pattern
+  // set's own comment for why it is not lexically decidable).
+  const harnessCommand = detectHarnessCommandHalt(finalMessage);
+  if (harnessCommand.length > 0) {
+    return suppressed(SUPPRESSION_HARNESS_COMMAND_HALT, "harnessCommandPhrases", harnessCommand);
   }
 
   // mt#4063: the turn ARMED a wait that outlives it, so a closing sentence
@@ -861,23 +1091,32 @@ export function run(
   // Recorded, not silent, per the same mt#3207 contract as the suppression
   // above: the failure worth catching is this predicate swallowing a TRUE
   // positive, and a suppression that returns null cannot be measured.
-  const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
+  const { turnLines, openingPrompt } = extractFinalTurn(ctx.transcriptLines ?? []);
   const armedWatcher = turnLines.length > 0 ? detectArmedWatcherEvidence(turnLines) : [];
   if (armedWatcher.length > 0) {
-    return {
-      calibration: {
-        source: "live",
-        channel: "stop",
-        timestamp: new Date().toISOString(),
-        session_id: input.session_id,
-        stop_hook_active: input.stop_hook_active === true,
-        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
-        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
-        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
-        suppressionReasons: [SUPPRESSION_ARMED_WATCHER_EVIDENCE],
-        armedWatcherEvidence: armedWatcher,
-      },
-    };
+    return suppressed(SUPPRESSION_ARMED_WATCHER_EVIDENCE, "armedWatcherEvidence", armedWatcher);
+  }
+
+  // mt#4116, shape 2: the turn named the filed-for-later-by-design branch AND actually minted a
+  // task. Both halves required — the prose alone is the confabulated-halt shape the sibling
+  // `turn-end-unwalked-task` guard exists to catch, and this must not become a way past it.
+  const filedByDesign =
+    turnLines.length > 0 ? detectFiledByDesignHalt(finalMessage, turnLines) : [];
+  if (filedByDesign.length > 0) {
+    return suppressed(SUPPRESSION_FILED_BY_DESIGN_HALT, "filedByDesignEvidence", filedByDesign);
+  }
+
+  // mt#4113: the PRINCIPAL's own instruction bounded the scope. Keyed on the opening prompt rather
+  // than the agent's prose — a real citation and an invented one are the same words, so only the
+  // prompt can tell them apart. `extractFinalTurn` already returned it; it was being discarded.
+  const openingPromptText = extractPromptText(openingPrompt);
+  const principalInstruction = detectPrincipalInstructionHalt(finalMessage, openingPromptText);
+  if (principalInstruction.length > 0) {
+    return suppressed(
+      SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
+      "principalInstructionEvidence",
+      principalInstruction
+    );
   }
 
   // mt#3620: when the same final message ALSO matches the ask-routing-deferral

@@ -296,6 +296,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "stale-signal-sweep",
+    {
+      description:
+        "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      failureClasses: ["stale-context", "unfounded-claim"],
+      provenance: [hook("stale-signal-sweep"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
