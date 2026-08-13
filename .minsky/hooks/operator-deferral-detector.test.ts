@@ -18,6 +18,7 @@ import {
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
   detectActPathWorkaround,
+  isDestructiveCommand,
   hasCapabilitySearch,
 } from "./operator-deferral-detector";
 import type { TranscriptLine } from "./transcript";
@@ -1485,5 +1486,24 @@ describe("surface F — act-path improvised workaround (mt#4081)", () => {
     expect(
       hasCapabilitySearch([correlatedToolUse("toolu_wf", "WebFetch", { url: "https://x" })])
     ).toBe(true);
+  });
+});
+
+describe("surface F — parse robustness (PR #2954 R1)", () => {
+  test("a kill verb quoted inside a commit message is not a destructive action", () => {
+    const lines = [
+      correlatedToolUse("toolu_c", "Bash", {
+        command: "git commit -m 'fix: kill the retry loop'",
+      }),
+      correlatedToolResult("toolu_c", ""),
+    ];
+    expect(detectActPathWorkaround(lines)).toHaveLength(0);
+    expect(isDestructiveCommand("git commit -m 'fix: kill the retry loop'")).toBe(false);
+  });
+
+  test("a real kill still reads as destructive, path-qualified or not", () => {
+    expect(isDestructiveCommand("kill 111 222 333")).toBe(true);
+    expect(isDestructiveCommand("/bin/kill 111")).toBe(true);
+    expect(isDestructiveCommand("echo done && killall node")).toBe(true);
   });
 });

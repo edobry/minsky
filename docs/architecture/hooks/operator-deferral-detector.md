@@ -4,7 +4,7 @@ Calibration-first, LOG-ONLY detection surfaces for the **operator-deferral famil
 the agent handing the principal an action it could have performed itself, without first
 running the capability probe `user-preferences.mdc §Probe before deferring` requires.
 
-**There are FIVE surfaces; sections A and B below were the original two.** The full set is
+**There are SIX surfaces; sections A and B below were the original two.** The full set is
 enumerated under "The page says two surfaces above" — read that before assuming this page's
 opening sections are the whole detector.
 
@@ -98,9 +98,9 @@ a **decision** being deferred to the principal in chat prose instead of through 
 substrate. This detector covers an **action** being deferred. A turn can legitimately fire
 both.
 
-## The page says "two surfaces" above; there are now FIVE
+## The page says "two surfaces" above; there are now SIX
 
-Sections A and B predate the three added later. The full set:
+Sections A and B predate the four added later. The full set:
 
 **C. Permission-deferral prose (mt#3463)** — "I can, shall I?" rather than "I can't". It
 EXCLUDES genuinely destructive or principal-reserved actions, because for those the ask is
@@ -128,6 +128,11 @@ synthetic in the test rather than presented as a replay.
 **E. Ask-justification capability-absence (mt#3999)** — an `asks_create` the router sent to
 the **operator**, whose justification asserts a named capability, credential, tool or flag
 does not exist, in a turn that consulted **fewer than two distinct channels**.
+
+**F. Act-path workaround (mt#4081)** — a destructive command in a turn containing NO capability
+search. The only surface here that reads no prose at all: both legs are tool-call state. Its
+own section at the end of this page carries the measured surface-E miss that produced it, and
+its blocking sibling is the `block-bulk-process-kill` guard.
 
 Three things about this surface are easy to get wrong later, so they are recorded here.
 
@@ -222,7 +227,7 @@ record silent for those reasons is not one the tune removed.
 
 ### The evaluation stream
 
-The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL FIVE surfaces,
+The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL SIX surfaces,
 fired or not — the miss RATE is what ADR-024's rung decisions need, and a fire-only log cannot
 give it.
 

@@ -84,6 +84,7 @@ import {
 import type { ProbeObservation } from "../../packages/domain/src/detectors/capability-absence-escalation";
 import { isReshapedRetry, leadingTokenOf } from "./command-shape";
 import type { TranscriptLine } from "./transcript";
+import { findKillVerb } from "./block-bulk-process-kill";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -706,8 +707,18 @@ export function detectDenialAnchoredDeferral(turnLines: TranscriptLine[]): Defer
  * Narrow on purpose. `rm` of a path is ordinary file work and is NOT here; what
  * this looks for is termination of running processes, which is the form the
  * originating incident took and the one whose cost is unrecoverable state.
+ *
+ * The parse is IMPORTED from `block-bulk-process-kill` rather than restated
+ * (PR #2954 R1 BLOCKING). This surface's first version matched a kill verb
+ * anywhere in the command string, which fired on
+ * `git commit -m 'fix: kill the retry loop'` — quote characters are not segment
+ * separators, so prose inside a message read as a command. The guard already
+ * split top-level segments and takes the verb as a segment's leading token;
+ * sharing that function is what keeps the two from drifting apart again.
  */
-export const DESTRUCTIVE_ACTION_PATTERN = /(?:^|[;&|]\s*|\s)(kill|pkill|killall)\s+\S/i;
+export function isDestructiveCommand(command: string): boolean {
+  return findKillVerb(command) !== null;
+}
 
 /**
  * Tools whose use IS a capability search — going outside your own model to ask
@@ -737,7 +748,7 @@ export function detectActPathWorkaround(turnLines: TranscriptLine[]): DeferralMa
     .map((input) => input["command"])
     .filter((command): command is string => typeof command === "string");
 
-  const destructive = commands.find((command) => DESTRUCTIVE_ACTION_PATTERN.test(command));
+  const destructive = commands.find((command) => isDestructiveCommand(command));
   if (!destructive) return [];
   if (hasCapabilitySearch(turnLines)) return [];
 

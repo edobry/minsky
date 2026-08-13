@@ -95,7 +95,35 @@ export interface BulkKillInvocation {
   target: string | null;
 }
 
-const KILL_SEGMENT = /(?:^|[;&|]\s*|\s)(kill|pkill|killall)\s+([^;&|]*)/i;
+/**
+ * A kill verb as the LEADING token of a segment, optionally path-qualified.
+ *
+ * Leading-token rather than anywhere-in-segment (PR #2954 R1 BLOCKING): matching anywhere let
+ * `git commit -m 'fix: kill the retry loop'` read as a kill, since the quote characters around a
+ * message are not segment separators. The verb of a command is its first token, so that is what
+ * is matched. `sudo kill …` / `time kill …` are consequently misses — recall-only, in the same
+ * direction as this file's other documented narrowings.
+ *
+ * The optional `[\w./-]*\/` prefix closes a gap the same review surfaced from the other side:
+ * `/bin/kill 1 2 3` previously did not match at all, because the character before the verb was a
+ * slash rather than whitespace.
+ */
+const KILL_SEGMENT = /^\s*(?:[\w.\-/]*\/)?(kill|pkill|killall)\b\s*([^;&|]*)/i;
+
+/**
+ * The kill verb this command invokes, if any — the shared half of the trigger.
+ *
+ * Exported because `operator-deferral-detector`'s surface F needs the same parse: its own inline
+ * regex was the subject of PR #2954 R1's quote-awareness finding, and two copies of this
+ * reasoning is exactly how they diverge.
+ */
+export function findKillVerb(command: string): string | null {
+  for (const segment of splitTopLevel(command)) {
+    const match = KILL_SEGMENT.exec(segment);
+    if (match?.[1]) return match[1].toLowerCase();
+  }
+  return null;
+}
 
 /** Parses `-9` / `-TERM` / `-s TERM` off the front of a kill's arguments. */
 function stripSignal(args: string[]): { signal: string | null; rest: string[] } {

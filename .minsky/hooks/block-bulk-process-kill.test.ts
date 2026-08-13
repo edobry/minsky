@@ -16,6 +16,7 @@ import {
   BULK_PID_THRESHOLD,
   buildDenialReason,
   findBulkKill,
+  findKillVerb,
   OVERRIDE_ENV,
   run,
 } from "./block-bulk-process-kill";
@@ -125,5 +126,30 @@ describe("run", () => {
   test("carries a bounded diversity phrase, not the raw command", () => {
     const outcome = run(input("killall claude"), ctx);
     expect(outcome?.calibration?.["phrase"]).toBe("killall claude");
+  });
+});
+
+describe("PR #2954 R1 — parse robustness", () => {
+  test("a kill verb inside a quoted commit message is not a kill", () => {
+    // The finding's own example (`echo skill 1 2 3`) never matched — verified against the
+    // pre-fix regex — but this one did: quote characters are not segment separators.
+    expect(findBulkKill("git commit -m 'fix: kill 111 222 333 retry loop'")).toBeNull();
+    expect(findBulkKill("echo 'kill 111 222 333'")).toBeNull();
+  });
+
+  test("a substring of a longer word is not a kill verb", () => {
+    expect(findBulkKill("echo skill 1 2 3")).toBeNull();
+    expect(findBulkKill("bun run skill 111 222 333")).toBeNull();
+  });
+
+  test("a path-qualified kill is still a kill", () => {
+    expect(findBulkKill("/bin/kill 111 222 333")?.pids.length).toBe(3);
+    expect(findBulkKill("/usr/bin/killall claude")?.target).toBe("claude");
+  });
+
+  test("findKillVerb is the shared parse the detector imports", () => {
+    expect(findKillVerb("kill 111")).toBe("kill");
+    expect(findKillVerb("git commit -m 'kill the loop'")).toBeNull();
+    expect(findKillVerb("echo done && killall node")).toBe("killall");
   });
 });
