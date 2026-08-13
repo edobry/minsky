@@ -55,6 +55,7 @@ import {
   isEntityThreadSupportedType,
   type EntityThreadSupportedType,
 } from "@minsky/shared/entity-thread-types";
+import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import {
   appendEntityThreadTurn,
   entityThreadLocalId,
@@ -277,6 +278,129 @@ export function parseMessageBody(body: unknown): { text: string } | { error: str
   return { text: trimmed };
 }
 
+/**
+ * Bound for resolving the db handle when arming boot work (mt#4133).
+ *
+ * Deliberately the SAME value as `driven-session-launch.ts`'s
+ * `RECONCILE_STAGE_TIMEOUT_MS` — the same handle, against the same database, at the same
+ * moment in the same daemon's boot. mt#4103 picked it for that operation; a second,
+ * differently-tuned number for the identical wait would be a distinction with no cause behind
+ * it, and would drift.
+ */
+const ARM_DB_TIMEOUT_MS = 15_000;
+
+/** What arming the entity-thread boot work actually did. See {@link armEntityThreadBootWork}. */
+export type EntityThreadArmOutcome =
+  | { kind: "armed" }
+  | { kind: "no-persistence" }
+  | { kind: "timed-out"; timeoutMs: number }
+  | { kind: "failed"; error: string };
+
+/** Injection seams for {@link armEntityThreadBootWork}. Production passes none. */
+export interface ArmEntityThreadBootWorkDeps {
+  getDb?: () => Promise<Awaited<ReturnType<typeof getEntityThreadDb>>>;
+  timeoutMs?: number;
+  timeoutSignal?: (ms: number) => Promise<{ timedOut: true }>;
+}
+
+/**
+ * Arm the two pieces of boot work this module owns — the pending-reply drain and the
+ * transcript reconcile — and RETURN what happened rather than logging it (mt#4133).
+ *
+ * The bound is the point. This previously did a bare `await getEntityThreadDb()`, so a handle
+ * that never settled left neither branch of the `if (db)` reachable: no drain, no reconcile, no
+ * error, and no log line — the daemon simply never did this work and nothing said so. That is
+ * the shape mt#4103 found next door in `loadPersistedDrivenSessions`, where an unsettled await
+ * left the driven-session registry empty for a daemon's entire life.
+ *
+ * Returning an outcome instead of logging is what makes the stall branch testable: a caller can
+ * assert on `{ kind: "timed-out" }` directly, with an injected `timeoutSignal` that resolves
+ * immediately, instead of capturing the logger or waiting out a real 15 seconds.
+ */
+export async function armEntityThreadBootWork(
+  deps: ArmEntityThreadBootWorkDeps = {}
+): Promise<EntityThreadArmOutcome> {
+  const timeoutMs = deps.timeoutMs ?? ARM_DB_TIMEOUT_MS;
+  try {
+    const dbResult = await raceAgainstTimeout(
+      (deps.getDb ?? getEntityThreadDb)(),
+      timeoutMs,
+      deps.timeoutSignal
+    );
+    if (dbResult.timedOut) {
+      return { kind: "timed-out", timeoutMs };
+    }
+    const db = dbResult.value;
+    if (!db) {
+      return { kind: "no-persistence" };
+    }
+
+    schedulePendingDrain(db);
+    // The buffer above is empty at boot BY CONSTRUCTION — that is the whole defect (mt#4073).
+    // A reply the previous process buffered and never landed is gone from memory, but not from
+    // the harness transcript the watcher ingests, so this is where it comes back. Boot is the
+    // pass immediately following the restart that lost it.
+    //
+    // Deferred off the mount path rather than awaited in it (PR #2971 R1). It walks every thread
+    // and queries the transcript per conversation, so running it inline puts an unbounded read
+    // between the daemon starting and its routes being useful, and couples startup to the
+    // store's health for no benefit — nothing about the recovery is more correct for having
+    // happened a second earlier. `unref` so a pending timer cannot hold the process open at
+    // shutdown, matching `schedulePendingDrain`'s own timer.
+    setTimeout(() => {
+      void reconcileAllThreadsFromTranscript(db);
+    }, 0).unref?.();
+
+    return { kind: "armed" };
+  } catch (err) {
+    return { kind: "failed", error: getLoggableErrorSummary(err) };
+  }
+}
+
+/**
+ * The line to emit for an arm outcome, or `null` when this outcome speaks for itself.
+ *
+ * `armed` returns null ON PURPOSE: `reconcileAllThreadsFromTranscript` logs its own unconditional
+ * outcome line moments later (`entity-thread reconcile: scanned N thread(s) at boot…`), so a
+ * second line here would report the same successful boot twice. Every other outcome means that
+ * line will never be written, which is exactly why they need one of their own.
+ *
+ * The exhaustive switch is load-bearing: a new outcome kind added without a case fails the
+ * `never` check at compile time rather than silently boot-ing with nothing logged — the failure
+ * this whole task exists to remove.
+ */
+export function describeEntityThreadArmOutcome(
+  outcome: EntityThreadArmOutcome
+): { level: "info" | "warn"; message: string } | null {
+  switch (outcome.kind) {
+    case "armed":
+      return null;
+    case "no-persistence":
+      return {
+        level: "warn",
+        message:
+          "entity-thread boot: no database at start — pending-reply drain and transcript " +
+          "reconcile were both skipped this boot",
+      };
+    case "timed-out":
+      return {
+        level: "warn",
+        message:
+          `entity-thread boot: resolving the database exceeded ${outcome.timeoutMs}ms — ` +
+          "pending-reply drain and transcript reconcile were both skipped this boot",
+      };
+    case "failed":
+      return {
+        level: "warn",
+        message: `entity-thread boot: could not arm boot work at start: ${outcome.error}`,
+      };
+    default: {
+      const exhaustive: never = outcome;
+      return exhaustive;
+    }
+  }
+}
+
 export function mountEntityThreadRoutes(
   app: express.Express,
   options: EntityThreadRoutesOptions = {}
@@ -298,38 +422,22 @@ export function mountEntityThreadRoutes(
   // with no chain behind it, and a fix that has to be remembered THEN is a
   // fix that will not be. Deliberately fire-and-forget: a db that cannot be
   // resolved at boot is the normal degraded start, not an error to raise.
+  // Still fire-and-forget, and still never throws — `armEntityThreadBootWork` converts every
+  // failure into a returned outcome, so an unhandled rejection cannot escape here and surface
+  // as a boot-time crash (or, in tests, as an unhandled rejection in every suite that mounts
+  // these routes).
+  //
+  // What changed (mt#4133): the degraded outcomes are no longer silent. They used to log at
+  // `debug` — below the default level, so a boot that skipped this work said nothing an operator
+  // would see — and the never-settling handle did not even reach that, because the bare `await`
+  // it replaced had no bound at all.
   void (async () => {
-    try {
-      const db = await getEntityThreadDb();
-      if (db) {
-        schedulePendingDrain(db);
-        // The buffer above is empty at boot BY CONSTRUCTION — that is the whole
-        // defect (mt#4073). A reply the previous process buffered and never
-        // landed is gone from memory, but not from the harness transcript the
-        // watcher ingests, so this is where it comes back. Boot is the pass
-        // immediately following the restart that lost it.
-        //
-        // Deferred off the mount path rather than awaited in it (PR #2971 R1).
-        // It walks every thread and queries the transcript per conversation, so
-        // running it inline puts an unbounded read between the daemon starting
-        // and its routes being useful, and couples startup to the store's health
-        // for no benefit — nothing about the recovery is more correct for having
-        // happened a second earlier. `unref` so a pending timer cannot hold the
-        // process open at shutdown, matching `schedulePendingDrain`'s own timer.
-        setTimeout(() => {
-          void reconcileAllThreadsFromTranscript(db);
-        }, 0).unref?.();
-      }
-    } catch (err) {
-      // Swallowed on purpose, and narrowly: this runs at MOUNT time, so an
-      // unhandled rejection here would surface as a boot-time crash (and in
-      // tests, as an unhandled-rejection failure in every suite that mounts
-      // these routes) for a call whose only job is to arm a timer over an
-      // empty queue. The failure it can produce — no db at boot — is the
-      // normal degraded start the GET route already answers with a 503.
-      log.debug(
-        `entity-thread reply buffer: no db to arm the drain against at start: ${getLoggableErrorSummary(err)}`
-      );
+    const described = describeEntityThreadArmOutcome(await armEntityThreadBootWork());
+    // `log[level]` rather than a branch per kind, so a future outcome cannot be added with no
+    // line at all: the describer owns the level, and this call site owns nothing it could
+    // forget. Mirrors `loadPersistedDrivenSessions` (mt#4103).
+    if (described) {
+      log[described.level](described.message);
     }
   })();
 
