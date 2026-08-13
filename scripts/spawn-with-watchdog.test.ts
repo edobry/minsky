@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   spawnWithWatchdog,
+  collectDescendantPids,
   resolveWatchdogBudgetMs,
   formatWatchdogTimeout,
   WATCHDOG_BUDGETS_MS,
@@ -92,6 +93,116 @@ describe("spawnWithWatchdog — hang containment", () => {
   });
 });
 
+/**
+ * mt#4098: the watchdog used to signal ONLY its direct child, so a child that
+ * had itself spawned something left that grandchild running with PPID 1 — the
+ * shape that leaked two `mcp start --http` servers to 48.2 GB and 32 GB on
+ * 2026-08-13. `bun test` is not a leaf: spawning suites live under it.
+ */
+describe("spawnWithWatchdog — descendant reaping (mt#4098)", () => {
+  /** Whether a pid still exists, without delivering a signal. */
+  function isAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Poll for a pid to disappear, so the assertion does not race signal delivery. */
+  async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
+    // performance.now(), matching the module under test: monotonic, and it does
+    // not trip `custom/no-real-fs-in-tests`, which reads a bare Date.now() in a
+    // test as unique-path construction.
+    const deadline = performance.now() + timeoutMs;
+    while (performance.now() < deadline) {
+      if (!isAlive(pid)) return true;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return !isAlive(pid);
+  }
+
+  /**
+   * A child that spawns `grandchildProgram` as its own child, announces that
+   * grandchild's pid on stdout, and then hangs so the watchdog budget fires.
+   * The inner program is JSON-escaped rather than interpolated raw — argv is an
+   * array so no shell is involved, but the inner source still has to survive
+   * being embedded in the outer source.
+   */
+  function spawnsGrandchild(grandchildProgram: string): string[] {
+    return [
+      "bun",
+      "-e",
+      `const gc = Bun.spawn(["bun", "-e", ${JSON.stringify(grandchildProgram)}], ` +
+        `{ stdout: "ignore", stderr: "ignore", stdin: "ignore" }); ` +
+        `console.log("GRANDCHILD_PID=" + gc.pid); ${SPIN}`,
+    ];
+  }
+
+  function grandchildPidFrom(stdout: string): number {
+    const match = stdout.match(/GRANDCHILD_PID=(\d+)/);
+    if (!match) throw new Error(`child never announced a grandchild pid. stdout: ${stdout}`);
+    return Number.parseInt(match[1] as string, 10);
+  }
+
+  test("a grandchild of a timed-out child is reaped, not orphaned to PPID 1", async () => {
+    const result = await spawnWithWatchdog(spawnsGrandchild(SPIN), {
+      budgetMs: BUDGET_MS,
+      graceMs: GRACE_MS,
+    });
+
+    expect(result.timedOut).toBe(true);
+    expect(result.reapedDescendants).toBeGreaterThanOrEqual(1);
+
+    const grandchildPid = grandchildPidFrom(result.stdout);
+    expect(await waitForExit(grandchildPid, 2_000)).toBe(true);
+  });
+
+  test("a SIGTERM-IGNORING grandchild is escalated to SIGKILL — the wedged case that motivated this", async () => {
+    // The orphans this fixes were wedged at ~99% CPU with a blocked event loop,
+    // so they could not have serviced SIGTERM. A grandchild that dies on SIGTERM
+    // would pass even with a broken escalation; this one cannot.
+    const result = await spawnWithWatchdog(
+      spawnsGrandchild(`process.on("SIGTERM", () => {}); ${SPIN}`),
+      { budgetMs: BUDGET_MS, graceMs: GRACE_MS }
+    );
+
+    expect(result.timedOut).toBe(true);
+    expect(result.reapedDescendants).toBeGreaterThanOrEqual(1);
+
+    const grandchildPid = grandchildPidFrom(result.stdout);
+    expect(await waitForExit(grandchildPid, 2_000)).toBe(true);
+  });
+
+  test("a run that completes within budget signals nothing", async () => {
+    const result = await spawnWithWatchdog(QUICK_CHILD, { budgetMs: 30_000 });
+    expect(result.timedOut).toBe(false);
+    expect(result.reapedDescendants).toBe(0);
+  });
+});
+
+describe("collectDescendantPids", () => {
+  test("walks the whole tree breadth-first, excluding the root itself", () => {
+    const tree: Record<number, number[]> = { 100: [200, 201], 200: [300], 201: [], 300: [400] };
+    const found = collectDescendantPids(100, (pid) => tree[pid] ?? []);
+    expect(found.sort((a, b) => a - b)).toEqual([200, 201, 300, 400]);
+  });
+
+  test("returns empty for a childless root", () => {
+    expect(collectDescendantPids(100, () => [])).toEqual([]);
+  });
+
+  test("terminates on a cycle rather than hanging inside the watchdog timer", () => {
+    // Pid reuse between two pgrep calls can present as a cycle. This loop runs
+    // inside a setTimeout with no outer watchdog, so a hang here would be
+    // unrecoverable — the cycle guard is load-bearing, not defensive dressing.
+    const cyclic: Record<number, number[]> = { 100: [200], 200: [300], 300: [100, 200] };
+    const found = collectDescendantPids(100, (pid) => cyclic[pid] ?? []);
+    expect(found.sort()).toEqual([200, 300]);
+  });
+});
+
 describe("resolveWatchdogBudgetMs", () => {
   test("uses the fallback when the override is unset", () => {
     expect(resolveWatchdogBudgetMs(5000, {})).toBe(5000);
@@ -137,6 +248,7 @@ describe("formatWatchdogTimeout", () => {
       timedOut: true,
       requiredSigkill: false,
       elapsedMs: 900_500,
+      reapedDescendants: 0,
     });
     expect(message).toContain("run-tests-main.ts");
     expect(message).toContain("900s wall-clock watchdog");
@@ -152,6 +264,7 @@ describe("formatWatchdogTimeout", () => {
       timedOut: true,
       requiredSigkill: true,
       elapsedMs: 1500,
+      reapedDescendants: 0,
     });
     expect(message).toContain("SIGKILL after ignoring SIGTERM");
   });

@@ -32,17 +32,37 @@
  * fire to send the second signal. Hence async `Bun.spawn` plus an explicit
  * two-stage kill, which is what this helper provides.
  *
- * ## Why no process-group kill
+ * ## Why no process-group kill, and what replaces it
  *
  * Killing a process GROUP (`process.kill(-pid, ...)`) requires the child to
  * lead its own group, which requires detaching it at spawn time. Bun's spawn
  * children inherit the parent's process group, so `-pid` would either fail or —
- * far worse — signal the RUNNER'S OWN group. Instead each runner watchdogs its
- * OWN direct child, with inner budgets strictly smaller than outer ones, so a
- * chain (gated -> main -> `bun test`) is reaped leaf-first: the innermost
- * watchdog fires before its parent's, killing the actual `bun test` process
- * rather than orphaning it. That composition is what the observed orphans
- * (PPID 1) needed and is why the budgets below are ordered.
+ * far worse — signal the RUNNER'S OWN group. `Bun.spawn` exposes no `detached`
+ * option to change that (verified against the installed `bun-types`), so the
+ * group route would mean abandoning `Bun.spawn` for Node's `child_process`.
+ *
+ * So each runner watchdogs its OWN direct child, with inner budgets strictly
+ * smaller than outer ones, so a chain (gated -> main -> `bun test`) is reaped
+ * leaf-first: the innermost watchdog fires before its parent's, killing the
+ * actual `bun test` process rather than orphaning it.
+ *
+ * **That ordering is necessary but NOT sufficient, and mt#4098 is where it broke.**
+ * It assumes `bun test` is a LEAF. It is not: a spawning test — e.g.
+ * `src/commands/mcp/start-command.test.ts`, whose `spawnHttpMcp()` helper starts
+ * a real `mcp start --http` server — puts a live process one level BELOW the
+ * runner. Killing the runner does not kill what the runner started, and the
+ * test's own `finally` teardown never runs, so those grandchildren reparent to
+ * PID 1 with no supervisor at all. Two such orphans were found on 2026-08-13 at
+ * 48.2 GB and 32 GB, both at ~99% CPU.
+ *
+ * The fix keeps `Bun.spawn` and signals EXPLICIT pids rather than a group: at
+ * kill time we walk the descendant tree via `pgrep -P` and signal each pid
+ * individually. A positive pid can never be mistaken for a group, so the hazard
+ * in the first paragraph is designed out rather than guarded against.
+ *
+ * **Ordering is load-bearing:** the descendants are enumerated BEFORE the direct
+ * child is signalled. Once the child dies its children reparent to PID 1, and
+ * `pgrep -P <child>` returns nothing — snapshot first, then signal.
  *
  * `bun test` itself terminates on plain SIGTERM (verified against a spinning
  * test), so stage one is sufficient for the observed hangs; the SIGKILL
@@ -204,6 +224,138 @@ export interface WatchdogSpawnResult {
   requiredSigkill: boolean;
   /** Wall-clock ms the child actually ran. */
   elapsedMs: number;
+  /**
+   * How many DESCENDANT processes the watchdog signalled — processes the child
+   * itself spawned (mt#4098). Zero on a normal run, and zero on a timed-out run
+   * whose child spawned nothing. A non-zero value is the diagnostic that says
+   * this run would have leaked orphans before mt#4098.
+   */
+  reapedDescendants: number;
+}
+
+/**
+ * Direct children of `pid`, via `pgrep -P`.
+ *
+ * Returns `[]` for every failure mode — no children (pgrep exits 1), pgrep
+ * missing, or the spawn throwing. A descendant we cannot see is a descendant we
+ * cannot signal, which is the pre-mt#4098 behavior: degraded, never worse.
+ */
+function listChildPids(pid: number): number[] {
+  try {
+    const probe = Bun.spawnSync(["pgrep", "-P", String(pid)], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    if (!probe.success) return [];
+    return (
+      probe.stdout
+        .toString()
+        .split("\n")
+        .map((line) => Number.parseInt(line.trim(), 10))
+        // Guard the signal target, not just the parse: a NaN, a 0 (our own process
+        // group) or a 1 (init) reaching process.kill would be catastrophic in a way
+        // a wrong-but-positive pid is not.
+        .filter((candidate) => Number.isInteger(candidate) && candidate > 1)
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Every descendant of `rootPid`, breadth-first, excluding `rootPid` itself
+ * (the caller signals that one through the `Subprocess` handle).
+ *
+ * MUST be called BEFORE the root is signalled — see the module header's
+ * "Ordering is load-bearing" note.
+ */
+export function collectDescendantPids(
+  rootPid: number,
+  childrenOf: (pid: number) => number[] = listChildPids
+): number[] {
+  const descendants: number[] = [];
+  const seen = new Set<number>([rootPid]);
+  const queue: number[] = [rootPid];
+
+  while (queue.length > 0) {
+    const current = queue.shift() as number;
+    for (const child of childrenOf(current)) {
+      // `seen` is a cycle guard, not an optimization. Pid reuse between the
+      // pgrep calls could otherwise present a cycle and hang this loop inside a
+      // watchdog timer — the one place a hang has no outer watchdog.
+      if (seen.has(child)) continue;
+      seen.add(child);
+      descendants.push(child);
+      queue.push(child);
+    }
+  }
+
+  return descendants;
+}
+
+/**
+ * `process.kill` is on the real `NodeJS.Process` type and present at runtime in
+ * both Node and Bun, but this repo's legacy ambient `process` shim
+ * (`src/types/node.d.ts`) omits it — the same gap `src/mcp/orphan-exit.ts`
+ * documents for `process.ppid`, and the same cast it establishes.
+ */
+function rawKill(pid: number, signal: NodeJS.Signals | 0): void {
+  // Intersection cast, not `as unknown as` — the narrower form the repo already
+  // uses at `orphan-exit.ts:93` for the same shim gap, and the one
+  // `custom/no-excessive-as-unknown` accepts.
+  (process as typeof process & { kill(pid: number, signal: NodeJS.Signals | 0): void }).kill(
+    pid,
+    signal
+  );
+}
+
+/** Whether `pid` still exists. Signal 0 checks liveness without delivering. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    rawKill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Signal `pid`, swallowing the race where it already exited. */
+function signalPid(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    rawKill(pid, signal);
+    return true;
+  } catch {
+    // ESRCH: already gone — the outcome we wanted. EPERM: not ours to kill,
+    // which no descendant of our own child should ever be.
+    return false;
+  }
+}
+
+/** How often to re-check whether SIGTERM'd descendants have exited. */
+const SURVIVOR_POLL_MS = 100;
+
+/**
+ * Wait (bounded by `graceMs`) for already-SIGTERM'd descendants to exit, then
+ * SIGKILL whatever is left. Returns how many needed the SIGKILL.
+ *
+ * Polls rather than sleeping the whole grace, so the common case — descendants
+ * that die on SIGTERM immediately — costs one tick instead of the full 5s on
+ * every timed-out run.
+ */
+async function killSurvivors(pids: number[], graceMs: number): Promise<number> {
+  const deadline = performance.now() + graceMs;
+  let survivors = pids.filter(isProcessAlive);
+
+  while (survivors.length > 0 && performance.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, SURVIVOR_POLL_MS));
+    survivors = survivors.filter(isProcessAlive);
+  }
+
+  let killed = 0;
+  for (const pid of survivors) {
+    if (signalPid(pid, "SIGKILL")) killed++;
+  }
+  return killed;
 }
 
 /**
@@ -244,10 +396,18 @@ export async function spawnWithWatchdog(
 
   let timedOut = false;
   let requiredSigkill = false;
+  let reapedDescendants = 0;
+  let descendants: number[] = [];
 
   const watchdog = setTimeout(() => {
     timedOut = true;
+    // Snapshot BEFORE signalling the child: once it dies, its children reparent
+    // to PID 1 and `pgrep -P <child>` returns nothing (mt#4098).
+    descendants = collectDescendantPids(proc.pid);
     proc.kill("SIGTERM");
+    for (const pid of descendants) {
+      if (signalPid(pid, "SIGTERM")) reapedDescendants++;
+    }
     // If the child is still alive after the grace period it either ignores
     // SIGTERM or is too wedged to service it. SIGKILL cannot be caught.
     setTimeout(() => {
@@ -263,6 +423,15 @@ export async function spawnWithWatchdog(
     await proc.exited;
   } finally {
     clearTimeout(watchdog);
+  }
+
+  // Descendant SIGKILL escalation runs HERE, awaited, rather than in an unref'd
+  // timer beside the child's. A wedged descendant is the case that matters —
+  // exactly the one that ignores SIGTERM — and an unref'd timer is not
+  // guaranteed to fire before the runner exits, so the escalation that only
+  // matters for a wedged process is the one a fire-and-forget timer would drop.
+  if (descendants.length > 0) {
+    await killSurvivors(descendants, graceMs);
   }
 
   const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
@@ -281,6 +450,7 @@ export async function spawnWithWatchdog(
     timedOut,
     requiredSigkill,
     elapsedMs: Math.round(performance.now() - startedAt),
+    reapedDescendants,
   };
 }
 
