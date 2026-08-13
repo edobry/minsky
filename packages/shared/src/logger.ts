@@ -235,13 +235,22 @@ function renderDiagnosticLine(info: Record<string, unknown>): string {
 }
 
 /**
- * Determine the current logging mode based on configuration
+ * Determine the current logging mode.
  *
- * Default behavior:
- * - HUMAN mode when running in a terminal
- * - STRUCTURED mode otherwise (CI/CD, scripts)
+ * **The mode does not vary by TTY, and never has.** `auto` — the state when `MINSKY_LOG_MODE` is
+ * unset — resolves to `HUMAN` everywhere: terminal, pipe, container, CI alike. Only an explicit
+ * `MINSKY_LOG_MODE=STRUCTURED` (or a config override) selects `STRUCTURED`.
  *
- * Can be explicitly set via configuration or MINSKY_LOG_MODE environment variable
+ * This docblock previously described TTY-based auto-detection, matching `docs/logging.md` and
+ * `services/reviewer/src/logger.ts` (which really does implement it) but not this function. The
+ * gap was load-bearing rather than cosmetic: `STRUCTURED` is what puts domain logs on stdout, so a
+ * reader reasoning about a deployed service from these words concluded its `log.info` output was
+ * already going somewhere, when in fact it was being discarded (mt#2464).
+ *
+ * Auto-detection was not added as the fix, because `STRUCTURED` writes to stdout and two consumers
+ * own that stream — a piped CLI payload and the MCP stdio JSON-RPC channel. What varies by
+ * terminal instead is `resolveDiagnosticSink` above, which writes to stderr and collides with
+ * neither.
  */
 export function getLogMode(configOverride?: LoggerConfig): LogMode {
   const config = configOverride || getLoggerConfig();
@@ -255,9 +264,10 @@ export function getLogMode(configOverride?: LoggerConfig): LogMode {
     return LogMode.HUMAN;
   }
 
-  // Auto mode: default to HUMAN for CLI to prevent accidental structured JSON
-  // leaking into user-facing output when stdout isn't a TTY (e.g., piped).
-  // Structured mode should be explicitly enabled via configuration or env.
+  // Auto mode resolves to HUMAN unconditionally — it does NOT consult the TTY. Keeping STRUCTURED
+  // opt-in is what stops machine-readable JSON from landing on stdout beside a CLI payload or
+  // inside the MCP stdio protocol stream. Domain diagnostics still reach a stream in this mode;
+  // resolveDiagnosticSink routes them to stderr rather than dropping them (mt#2464).
   return LogMode.HUMAN;
 }
 

@@ -104,10 +104,13 @@ Minsky makes a distinction between two types of logs:
 
 ## Using the Logger
 
-For developers, Minsky provides a consistent logging API through the `log` object:
+For developers, Minsky provides a consistent logging API through the `log` object. Import it from
+**`@minsky/shared/logger`** — the canonical implementation. `packages/domain/src/utils/logger.ts`
+still re-exports the same symbols so older domain-internal import sites keep working, but new code
+should name the shared package directly.
 
 ```typescript
-import { log } from "../../utils/logger.js";
+import { log } from "@minsky/shared/logger";
 
 // Agent logs (JSON to stdout)
 log.agent("Operation completed", { userId: "123" }); // info level
@@ -134,7 +137,7 @@ log.systemDebug("System debug message"); // Always shows in stderr when debug le
 You can check the current logging mode using:
 
 ```typescript
-import { isHumanMode, isStructuredMode } from "../../utils/logger.js";
+import { isHumanMode, isStructuredMode } from "@minsky/shared/logger";
 
 if (isHumanMode()) {
   // Behavior specific to HUMAN mode
