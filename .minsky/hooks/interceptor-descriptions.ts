@@ -302,6 +302,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "unrendered-result-field-scan",
+    {
+      description:
+        "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("unrendered-result-field-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:

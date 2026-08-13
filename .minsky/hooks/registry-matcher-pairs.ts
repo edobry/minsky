@@ -104,6 +104,16 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["chained-verification-commands", "truncated-outcome-read"],
   ["block-concurrent-bulk-mutation", "truncated-outcome-read"],
   ["block-bulk-process-kill", "truncated-outcome-read"],
+  // Two guards on `session_pr_create`, both reading the SAME branch diff and
+  // both asking about operator-facing output — but about opposite failures, and
+  // neither subsumes the other. `stale-signal-sweep` (mt#3959) fires on a label
+  // the diff STOPPED emitting and looks OUTWARD, at durable artifacts still
+  // quoting the old meaning. `unrendered-result-field-scan` (mt#3913) fires on a
+  // field the diff ADDED and looks INWARD, at whether anything in the diff
+  // prints it at all. One is rendered-under-a-wrong-name, the other is
+  // rendered-nowhere; a diff can trip either, both, or neither. Independent
+  // overrides; running both is the point.
+  ["stale-signal-sweep", "unrendered-result-field-scan"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
