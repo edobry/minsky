@@ -93,7 +93,7 @@ const LABEL_EMIT = /(?:^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{2,})=(?!=)/g;
  * items-center` — no `=`, no match. A real rendering site contributes
  * `Session ${id}: extracted=${n}`, which still matches.
  */
-function literalSpans(line: string): string {
+export function literalSpans(line: string): string {
   const spans: string[] = [];
   const re = /(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
   for (const m of line.matchAll(re)) {
