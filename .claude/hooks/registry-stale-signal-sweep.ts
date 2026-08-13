@@ -17,8 +17,9 @@
 // So this is a one-entry module by necessity rather than by design, and the
 // three-line margin means the NEXT guard author hits the same wall. The real
 // fix — splitting `GUARD_REGISTRY`'s 2100-line array into per-family modules —
-// is tracked separately rather than absorbed here, because refactoring the
-// registry every hook depends on is its own change with its own risk.
+// is **mt#4115**, filed rather than absorbed here because refactoring the
+// registry every hook depends on is its own change with its own risk. That task
+// deletes this file as part of its own acceptance criteria.
 //
 // The import is safe in both directions: `recorderEffect` already lives in
 // `./registry-effects`, and `GuardRegistration` is imported as a TYPE, which
