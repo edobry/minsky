@@ -432,6 +432,12 @@ export class MinskyStdioProxy {
     this.childMemoryWatcher = armChildMemoryCeiling({
       getChildPid: () => this.child?.pid,
       onBreach: (breach) => {
+        // Short-circuit before doing anything while a restart is already in
+        // flight. `restartChildForMemoryBreach` re-checks the same guards — it
+        // has to, since it is also reachable directly — but the kill can take
+        // the full SIGTERM grace period, which is several poll ticks, and this
+        // keeps those ticks from entering the restart path at all (PR #2975 R1).
+        if (this.isRestartingForMemory || this.isShuttingDown) return;
         void this.restartChildForMemoryBreach(breach);
       },
     });

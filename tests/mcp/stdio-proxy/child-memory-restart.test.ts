@@ -28,7 +28,7 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "child_process";
-import { mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -82,26 +82,26 @@ function isAlive(pid: number): boolean {
 }
 
 /**
- * Direct children of `pid` that are the FIXTURE, matched on the command line.
+ * Pids the fixture has announced, oldest first — one line per run.
  *
- * Parentage alone is not enough: the proxy shells out to `ps` while resolving
- * its harness ancestry (mt#3900), so a bare `pgrep -P` can return a transient
- * helper whose memory never moves — which reads exactly like "the ceiling never
- * fired" and is what this helper's first version actually did.
+ * A designed observable rather than a process-table scrape. Two earlier versions
+ * of this helper shelled out, and both were wrong in the same way: `pgrep -P`
+ * returned a transient `ps` the proxy itself spawns while resolving its harness
+ * ancestry (mt#3900), and the `ps -axo` parse that replaced it coupled the test
+ * to one platform's column formatting — where a `ps` that is absent, BusyBox, or
+ * formatted differently yields an EMPTY list, which is indistinguishable from
+ * "the proxy never spawned a child". A probe whose failure looks exactly like a
+ * negative result is the shape this whole task is about (mem#704).
+ *
+ * The fixture announces itself instead, so the failure mode is a `waitFor`
+ * timeout naming what it was waiting for.
  */
-function childPids(pid: number): number[] {
-  const probe = Bun.spawnSync(["ps", "-axo", "pid=,ppid=,command="]);
-  const rows = probe.stdout.toString().split("\n");
-  const pids: number[] = [];
-  for (const row of rows) {
-    const match = row.trim().match(/^(\d+)\s+(\d+)\s+(.*)$/);
-    if (!match) continue;
-    const [, childPid, parentPid, command] = match;
-    if (Number(parentPid) !== pid) continue;
-    if (!(command ?? "").includes("memory-hog-child")) continue;
-    pids.push(Number(childPid));
-  }
-  return pids;
+function announcedPids(pidFile: string): number[] {
+  if (!existsSync(pidFile)) return [];
+  return String(readFileSync(pidFile, "utf-8"))
+    .split("\n")
+    .map((line) => Number.parseInt(line.trim(), 10))
+    .filter((pid) => Number.isFinite(pid));
 }
 
 async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: string): Promise<T> {
@@ -116,11 +116,12 @@ async function waitFor<T>(probe: () => T | undefined, timeoutMs: number, what: s
 
 function startProxy(extraEnv: Record<string, string>): {
   proxy: ChildProcess;
-  proxyPid: number;
+  pidFile: string;
   stdout: () => string;
 } {
-  const markerDir = mkdtempSync(join(tmpdir(), "mt4112-"));
-  tempDirs.push(markerDir);
+  const runDir = mkdtempSync(join(tmpdir(), "mt4112-"));
+  tempDirs.push(runDir);
+  const pidFile = join(runDir, "child-pids");
 
   const proxy = spawn(
     "bun",
@@ -137,7 +138,7 @@ function startProxy(extraEnv: Record<string, string>): {
       stdio: ["pipe", "pipe", "pipe"],
       env: {
         ...process.env,
-        MT4112_MARKER: join(markerDir, "ran-once"),
+        MT4112_PIDFILE: pidFile,
         MINSKY_MCP_MEMORY_CEILING_MB: CEILING_MB,
         MINSKY_MCP_MEMORY_CEILING_POLL_MS: POLL_MS,
         // The proxy's own ceiling and the capture watcher are not under test
@@ -154,14 +155,14 @@ function startProxy(extraEnv: Record<string, string>): {
   proxy.stdout?.on("data", (chunk: Buffer | string) => {
     out += String(chunk);
   });
-  return { proxy, proxyPid: proxy.pid, stdout: () => out };
+  return { proxy, pidFile, stdout: () => out };
 }
 
 describe("mt#4112 — the proxy bounds a wedged child's memory", () => {
   test("kills the wedged child within the stated bound and serves from its replacement", async () => {
-    const { proxy, proxyPid, stdout } = startProxy({});
+    const { proxy, pidFile, stdout } = startProxy({});
 
-    const firstChild = await waitFor(() => childPids(proxyPid)[0], 30_000, "the first child");
+    const firstChild = await waitFor(() => announcedPids(pidFile)[0], 30_000, "the first child");
 
     // Time from the moment the child is actually OVER the ceiling — not from
     // spawn — so the assertion measures the mechanism's response and not the
@@ -195,7 +196,7 @@ describe("mt#4112 — the proxy bounds a wedged child's memory", () => {
 
     // AT4: a replacement exists and actually serves.
     const secondChild = await waitFor(
-      () => childPids(proxyPid).find((pid) => pid !== firstChild),
+      () => announcedPids(pidFile).find((pid) => pid !== firstChild),
       20_000,
       "the replacement child"
     );
@@ -216,9 +217,9 @@ describe("mt#4112 — the proxy bounds a wedged child's memory", () => {
   }, 90_000);
 
   test("negative control: with the ceiling disabled the same child survives", async () => {
-    const { proxyPid } = startProxy({ MINSKY_MCP_DISABLE_MEMORY_CEILING_EXIT: "1" });
+    const { pidFile } = startProxy({ MINSKY_MCP_DISABLE_MEMORY_CEILING_EXIT: "1" });
 
-    const firstChild = await waitFor(() => childPids(proxyPid)[0], 30_000, "the first child");
+    const firstChild = await waitFor(() => announcedPids(pidFile)[0], 30_000, "the first child");
 
     const { readProcessMemory } = await import("@minsky/shared/process-memory");
     await waitFor(

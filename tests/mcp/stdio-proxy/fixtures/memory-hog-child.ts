@@ -2,20 +2,24 @@
 /**
  * Fixture inner server for mt#4112's out-of-process ceiling tests.
  *
- * Stands in for `minsky mcp start` under `minsky mcp proxy`. Two modes, chosen
- * by whether `MT4112_MARKER` names a path that already exists:
+ * Stands in for `minsky mcp start` under `minsky mcp proxy`. Every run appends
+ * its own pid to `MT4112_PIDFILE`, which is how the test observes which child is
+ * serving — see the note on that file in `child-memory-restart.test.ts`.
  *
- * - **First run (marker absent)** — writes the marker, allocates past the test's
+ * Two modes, chosen by whether this is the FIRST run (the pid file was empty):
+ *
+ * - **First run (pid file empty)** — allocates past the test's
  *   ceiling, then spins in a tight SYNCHRONOUS loop. This is the case the whole
  *   task exists for: the event loop never turns, so no timer, no `process.on`
  *   handler and no SIGTERM handler in this process can run. Only SIGKILL, sent
  *   by another process, ends it.
- * - **Later runs (marker present)** — a healthy server: answers any JSON-RPC
+ * - **Later runs (pid file non-empty)** — a healthy server: answers any JSON-RPC
  *   request with an empty result and otherwise idles. This is what the proxy's
  *   respawn produces, so a test can assert the replacement actually serves.
  *
- * The marker is what makes the two-phase test deterministic: the respawned child
- * inherits the same environment, so mode cannot be selected by an env var alone.
+ * Selecting on the pid file is what makes the two-phase test deterministic: the
+ * respawned child inherits the same environment, so mode cannot be chosen by an
+ * env var alone.
  *
  * **Self-termination is deliberate and must stay.** The spin loop checks a
  * wall-clock deadline on every iteration, because a `setTimeout` could not fire
@@ -36,7 +40,7 @@
  * uses are a wall-clock deadline, not path construction.
  */
 
-import { existsSync, writeFileSync } from "fs";
+import { appendFileSync, existsSync, readFileSync } from "fs";
 
 /** Hard ceiling on this fixture's lifetime, whatever the test does. */
 const SELF_TERMINATE_AFTER_MS = 60_000;
@@ -56,8 +60,23 @@ const FILL_BYTE = 0x41;
 /** Chunks to hold. 24 x 16MB = 384MB, comfortably past the tests' 200MB ceiling. */
 const CHUNK_COUNT = 24;
 
-const markerPath = process.env.MT4112_MARKER;
-const alreadyRan = markerPath !== undefined && existsSync(markerPath);
+/**
+ * Announce this run's pid, and read how many runs preceded it.
+ *
+ * The pid file does double duty: it is the test's only handle on which process
+ * is currently serving (no `ps` parsing, so nothing depends on a platform's
+ * `ps` flavour), and its emptiness is what selects allocate-and-wedge mode.
+ */
+function announceRunAndCountPriors(): number {
+  const pidFile = process.env.MT4112_PIDFILE;
+  if (pidFile === undefined) return 0;
+  const prior = existsSync(pidFile) ? String(readFileSync(pidFile, "utf-8")) : "";
+  const priorRuns = prior.split("\n").filter((line) => line.trim() !== "").length;
+  appendFileSync(pidFile, `${process.pid}\n`);
+  return priorRuns;
+}
+
+const alreadyRan = announceRunAndCountPriors() > 0;
 
 /**
  * Install the same signal handlers `mcp start` does
@@ -84,7 +103,6 @@ function installUnrunnableSignalHandlers(): void {
 }
 
 if (!alreadyRan) {
-  if (markerPath !== undefined) writeFileSync(markerPath, "1");
   installUnrunnableSignalHandlers();
 
   // Retained so nothing is collected. Allocation happens BEFORE the spin so the

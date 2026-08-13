@@ -141,6 +141,14 @@ raise `MINSKY_MCP_MEMORY_CEILING_MB` for the duration of the investigation.
 | `MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT`       | unset                               | `1` requests a snapshot (subject to the refusal above)  |
 | `MINSKY_STATE_DIR`                       | `~/.local/state/minsky`             | Shared state dir; captures go in its `memory-captures/` |
 
+**Which of these the proxy's child-ceiling (mt#4112) reads, and the one asymmetry.** The proxy
+reads `MINSKY_MCP_MEMORY_CEILING_MB`, `_POLL_MS` and `_DISABLE_MEMORY_CEILING_EXIT` exactly as the
+in-process ceiling does, so a threshold or a disable set for one applies to both.
+`MINSKY_MCP_FORCE_MEMORY_CEILING_EXIT` is the exception and is **not** read: it exists to opt the
+hosted entrypoint into a self-kill path, and the hosted service runs `mcp start` directly — there
+is no proxy there to arm. The proxy correspondingly applies no hosted-entrypoint skip, because a
+per-conversation local supervisor is never the hosted service.
+
 ## Verifying
 
 ```bash
