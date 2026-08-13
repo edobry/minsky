@@ -85,6 +85,13 @@ export interface InterceptorEntry {
   undescribed: boolean;
   point: InterceptionPoint | null;
   pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (mt#4011): `"delivery"` for the merge
+   * gates, null where the stratum derives from point/subject. The lifecycle
+   * spine places `delivery` entries at the merge station; their `point` keeps
+   * mechanism truth (PreToolUse).
+   */
+  trajectory: "delivery" | null;
   interventions: Intervention[];
   mechanism: DecisionMechanism | null;
   role: InterceptorRole | null;

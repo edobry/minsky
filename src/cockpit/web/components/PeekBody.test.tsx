@@ -99,6 +99,7 @@ const INTERCEPTOR_ENTRY: InterceptorEntry = {
   undescribed: false,
   point: "PreToolUse",
   pointSource: "authored",
+  trajectory: null,
   interventions: [],
   mechanism: null,
   role: null,

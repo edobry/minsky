@@ -115,6 +115,11 @@ export interface InterceptorEntry {
   /** Null exactly when `coordinateGaps` contains `"point"`. */
   point: InterceptionPoint | null;
   pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (mt#4011): `"delivery"` for the merge
+   * gates, null where the stratum derives from point/subject.
+   */
+  trajectory: "delivery" | null;
   interventions: Intervention[];
   mechanism: DecisionMechanism | null;
   role: InterceptorRole | null;
@@ -246,6 +251,9 @@ function validateEntryCoordinates(
   }
   if (!VALID_POINT_SOURCES.includes(e.pointSource as string)) {
     throw new Error(where(`unknown pointSource "${String(e.pointSource)}"`));
+  }
+  if (e.trajectory !== null && e.trajectory !== "delivery") {
+    throw new Error(where(`unknown trajectory "${String(e.trajectory)}"`));
   }
   if (!Array.isArray(e.coordinateGaps)) {
     throw new Error(where("`coordinateGaps` is not an array"));

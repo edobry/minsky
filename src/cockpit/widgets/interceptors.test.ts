@@ -29,6 +29,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     // entry so each rejection test below can break exactly one field.
     point: "PreToolUse",
     pointSource: "registry",
+    trajectory: null,
     interventions: [{ type: "deny" }],
     mechanism: "structural",
     role: "judge",
@@ -57,6 +58,34 @@ describe("parseCatalog — the real artifact", () => {
     const parsed = parseCatalog(catalogJson);
     expect(parsed.entries.length).toBe(parsed.population);
     expect(parsed.entries.length).toBeGreaterThanOrEqual(92);
+  });
+
+  test("exactly the merge gates carry the authored delivery trajectory (mt#4011)", () => {
+    // The artifact half of the spine's AT1 parity: the web placement model
+    // sends `trajectory: "delivery"` to the merge station and everything else
+    // to its point, so this list IS the merge station's membership. A merge
+    // gate missing from it silently falls back into the PreToolUse cluster;
+    // a non-gate carrying it is silently promoted to the merge station.
+    const parsed = parseCatalog(catalogJson);
+    const delivery = parsed.entries
+      .filter((e) => e.trajectory === "delivery")
+      .map((e) => e.guardName)
+      .sort();
+    expect(delivery).toEqual([
+      "block-out-of-band-merge",
+      "block-subagent-bypass-merge",
+      "block-subagent-merge-without-grant",
+      "require-checks-on-bypass-merge",
+      "require-deploy-verification-before-merge",
+      "require-execution-evidence-before-merge",
+      "require-growth-justification-before-merge",
+      "require-review-before-merge",
+    ]);
+    // Every delivery entry keeps its mechanism point — the marker never
+    // overwrites axis-1 truth.
+    for (const e of parsed.entries) {
+      if (e.trajectory === "delivery") expect(e.point).toBe("PreToolUse");
+    }
   });
 });
 
@@ -126,6 +155,14 @@ describe("parseCatalog — per-row shape (PR #2930 R1)", () => {
 
   test("accepts a null stratum — that is a declared gap, not a malformation", () => {
     expect(() => parseCatalog(catalog([entry({ stratum: null })]))).not.toThrow();
+  });
+
+  test("rejects an unknown trajectory value, accepts delivery and null", () => {
+    expect(() =>
+      parseCatalog(catalog([entry({ trajectory: "repo" as unknown as "delivery" })]))
+    ).toThrow(/unknown trajectory/);
+    expect(() => parseCatalog(catalog([entry({ trajectory: "delivery" })]))).not.toThrow();
+    expect(() => parseCatalog(catalog([entry({ trajectory: null })]))).not.toThrow();
   });
 
   test("enforces description-null <-> undescribed", () => {

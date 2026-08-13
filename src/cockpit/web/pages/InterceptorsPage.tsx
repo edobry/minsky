@@ -70,6 +70,7 @@ import {
   deriveInterceptorState,
 } from "@minsky/domain/guard-events/interceptor-state";
 import type { InterceptorAggregateRow } from "@minsky/domain/guard-events/aggregates";
+import { LifecycleSpine } from "../components/LifecycleSpine";
 
 const ALL_CLASSES = "__all__";
 
@@ -282,6 +283,16 @@ export function InterceptorsPage() {
 
       {data && (
         <>
+          {/* The spatial overview (mt#4011): where each interceptor applies on
+              one turn's trajectory. Reads the same two sources as the rows
+              below — placement from the static catalog, size/health from the
+              aggregates snapshot — so it degrades exactly as they do. */}
+          <LifecycleSpine
+            entries={data.entries}
+            aggregateRows={aggregateRows}
+            windowDays={snapshot?.windowDays ?? null}
+          />
+
           <div
             className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-muted-foreground mb-3"
             data-testid="interceptors-summary"

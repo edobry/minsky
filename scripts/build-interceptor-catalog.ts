@@ -126,6 +126,13 @@ export interface CatalogEntryCoordinates {
   readonly point: InterceptionPoint | null;
   /** How axis 1 was established, so a reader can tell derived from authored. */
   readonly pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (ontology §5) — `"delivery"` for the
+   * merge gates, whose subject nothing in a declared source separates from the
+   * other PreToolUse denials; null everywhere the stratum derives. mt#4011's
+   * lifecycle spine reads this for merge-station placement.
+   */
+  readonly trajectory: "delivery" | null;
   /** Axis 2 — the capability SET, never a single primary (ontology amendment (a)). */
   readonly interventions: readonly Intervention[];
   /** Axis 3. */
@@ -194,6 +201,7 @@ function resolveEntryCoordinates(
   return {
     point: resolved.point,
     pointSource: resolved.pointSource,
+    trajectory: resolved.trajectory,
     interventions: resolved.interventions,
     mechanism: resolved.mechanism,
     role: resolved.role,
