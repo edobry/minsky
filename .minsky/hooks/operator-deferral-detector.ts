@@ -128,7 +128,8 @@ export type DeferralSurface =
   | "permission-deferral-prose"
   | "ask-option-label"
   | "denial-anchored"
-  | "ask-justification";
+  | "ask-justification"
+  | "act-path-workaround";
 
 export interface DeferralMatch {
   surface: DeferralSurface;
@@ -674,6 +675,79 @@ export function detectDenialAnchoredDeferral(turnLines: TranscriptLine[]): Defer
     ];
   }
   return [];
+}
+
+// ---------------------------------------------------------------------------
+// Surface F — act-path improvised workaround (mt#4081)
+//
+// Surfaces A–E all key on PROSE: something the agent SAID about deferring,
+// asking, or lacking a capability. The act path says nothing. The agent
+// concludes a capability is unavailable and quietly builds around it, and the
+// only trace is the WORKAROUND — which is why surface E, whose channel-count
+// leg worked correctly, still scored the 2026-08-13 turn `fired: false`: its
+// `absenceClaimPresent` leg needed a phrase, and the two claims present
+// ("a no-op, so that path is out"; "I don't know of a scripted path for it")
+// matched no pattern in the corpus.
+//
+// So this surface deliberately does NOT add a sixth phrase family — ADR-024
+// §Context names that arms race as the thing to stop doing. Its trigger is
+// tool-call state, which needs no matching at all: a destructive action in a
+// turn that contains no capability search. Both legs are facts about what the
+// turn DID.
+// ---------------------------------------------------------------------------
+
+/**
+ * Commands that destroy rather than change — the shape a "rebuild it instead"
+ * workaround takes.
+ *
+ * Narrow on purpose. `rm` of a path is ordinary file work and is NOT here; what
+ * this looks for is termination of running processes, which is the form the
+ * originating incident took and the one whose cost is unrecoverable state.
+ */
+export const DESTRUCTIVE_ACTION_PATTERN = /(?:^|[;&|]\s*|\s)(kill|pkill|killall)\s+\S/i;
+
+/**
+ * Tools whose use IS a capability search — going outside your own model to ask
+ * whether the thing can be done.
+ *
+ * Distinct from {@link PROBE_TOOL_NAME_PATTERN}, which asks "do I have ACCESS
+ * to this service?". This asks "does this capability EXIST?", which is the
+ * question the act path skips. A `Skill` load counts for both.
+ */
+export const CAPABILITY_SEARCH_TOOL_PATTERN = /^(WebSearch|WebFetch|Skill)$/;
+
+/** True when the turn went outside itself to ask whether the capability exists. */
+export function hasCapabilitySearch(turnLines: TranscriptLine[]): boolean {
+  return extractToolUseNames(turnLines).some((name) => CAPABILITY_SEARCH_TOOL_PATTERN.test(name));
+}
+
+/**
+ * Surface F: a destructive action taken in a turn that never asked whether a
+ * non-destructive path existed.
+ *
+ * The absence of a search is what makes this reportable, not the destruction
+ * itself — an agent that searched and then destroyed made an informed choice,
+ * and this surface stays silent for it.
+ */
+export function detectActPathWorkaround(turnLines: TranscriptLine[]): DeferralMatch[] {
+  const commands = COMMAND_TOOL_NAMES.flatMap((toolName) => findToolUseInputs(turnLines, toolName))
+    .map((input) => input["command"])
+    .filter((command): command is string => typeof command === "string");
+
+  const destructive = commands.find((command) => DESTRUCTIVE_ACTION_PATTERN.test(command));
+  if (!destructive) return [];
+  if (hasCapabilitySearch(turnLines)) return [];
+
+  return [
+    {
+      surface: "act-path-workaround",
+      // The diversity axis is the destructive VERB, not the command: a command
+      // carrying PIDs is near-unique per fire and would satisfy the sweep's
+      // diversity gate by construction (mt#3781).
+      matchedPhrase: leadingTokenOf(destructive),
+      context: safeTruncate(destructive, 240, "head"),
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -1291,6 +1365,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
       ...detectPermissionDeferral(turnLines),
       ...detectDenialAnchoredDeferral(turnLines),
       ...detectAskJustificationAbsence(turnLines),
+      ...detectActPathWorkaround(turnLines),
     ];
     // Recorded for EVERY evaluated turn, including the no-match case — that is
     // the half the calibration log cannot provide (see buildEvaluationRecord).

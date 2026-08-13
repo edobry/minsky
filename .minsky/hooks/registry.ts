@@ -1196,6 +1196,42 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
+  // mt#4081: the ACT-path half of the operator-deferral family. Its sibling
+  // detector catches the DEFER path (prose handing a fixable thing to the
+  // operator); the act path emits no prose at all — the agent concludes a
+  // capability is unavailable and quietly builds a destructive workaround. On
+  // 2026-08-13 that workaround was `kill` on 26 live sessions, and the operator
+  // denied it by hand. See mem#707 R8.
+  // -------------------------------------------------------------------------
+  {
+    name: "block-bulk-process-kill",
+    // BOTH effects, for the same reason the sibling above declares both: the
+    // `overridden` outcome is the record most worth keeping, and a guard that
+    // declares only the enforcement effect has nowhere to land it.
+    effects: [enforcementEffect(), recorderEffect()],
+    // `invariant`: "do not mass-kill the operator's working set" is not a
+    // threshold anyone tunes. The escape is the documented per-call override.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-bulk-process-kill").then((m) => ({ run: m.run })),
+    // Pure string decision — no subprocess, no process table.
+    timeoutMs: 2000,
+    calibrationLog: "block-bulk-process-kill",
+    denyCapable: true,
+    // MEASURED against buildDenialReason(): 708 chars for the PID form (8 pids,
+    // the originating incident's shape), 699 for the process-name form. One
+    // remediation option (the MINSKY_ALLOW_BULK_PROCESS_KILL override).
+    attentionCost: { denialMessageSizeChars: 800, optionCount: 1 },
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: { command: "kill 111 222 333" },
+      },
+      expects: "deny",
+    },
+  },
+  // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — the 8 UserPromptSubmit hooks that preceded the
   // Phase 2a dispatcher slot in the pre-migration settings.json order.
   // -------------------------------------------------------------------------

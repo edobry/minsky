@@ -268,6 +268,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
     expect(producing).toEqual(
       [
         "ask-routing-deferral-detector",
+        "block-bulk-process-kill",
         "block-secret-file-read",
         // mt#4002: the five calibration-first guards now produce measurable text
         // through `renderProbe`. Before that they were absent from this receipt
@@ -366,6 +367,9 @@ type FeedbackShape =
 
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
+  // Fixed body plus at most six PIDs (`pids.slice(0, 6)` then `…`) — the cap is
+  // in `buildDenialReason`, so the message cannot grow with the kill's size.
+  "block-bulk-process-kill": "capped",
   "block-secret-file-read": "fixed",
   // The five calibration-first guards, newly visible to this receipt (mt#4002).
   // Until `renderProbe` existed they rendered nothing measurable, so none of

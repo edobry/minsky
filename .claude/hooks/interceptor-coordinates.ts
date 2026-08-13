@@ -339,6 +339,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Verified against the module: it tests for a label file, emits its contents as a scalar title, and deletes it. No classifier — the decision is file presence. Ontology §3(c) names it the entity the genus definition fits worst; it decides nothing about the trajectory.",
     },
   ],
+  ["block-bulk-process-kill", structuralGate],
   ["block-concurrent-bulk-mutation", structuralGate],
   ["block-secret-file-read", structuralGate],
   ["build-claim-injection-detector", lexicalRecorder],

@@ -271,3 +271,40 @@ because it shipped — it works only when its fire-log proves it covered its spa
 - mem#804 — the family's bridge memory, whose budget this slice spent
 - mem#582 (R5 incident, replayed as a test fixture) · mem#535 (R2/R4, owned by mt#2303)
 - mem#528 — why the tool-interleaved test fixture is mandatory for any turn-scanning hook
+
+## Surface F — act-path workaround (mt#4081)
+
+**Trigger:** a destructive command (`kill` / `pkill` / `killall`) in a turn that contains no
+capability search (`WebSearch`, `WebFetch`, or a `Skill` load). Both legs are tool-call state;
+**no prose is read**.
+
+### Why it is not a sixth phrase family
+
+Surfaces A–E all key on something the agent SAID. The act path says nothing — the agent concludes
+a capability is unavailable and quietly builds around it. On 2026-08-13 (mem#707 R8) surface E
+evaluated exactly such a turn and scored it `fired: false`:
+
+```
+evaluated: "prose-turn"   fired: false   surfaces: []
+ask_justification: { operatorRoutedAsks: 0, absenceClaimPresent: false, distinctChannels: 1 }
+```
+
+`distinctChannels: 1` was CORRECT — the turn probed one channel. The leg that failed was
+`absenceClaimPresent`: the turn's two absence claims ("a no-op, so that path is out"; "I don't
+know of a scripted path for it") matched no pattern in the corpus.
+
+Widening that corpus is the response ADR-024 §Context names as the anti-pattern ("R1 → R5 — an
+arms race"). So surface F keys on the two facts that need no matching at all: the destruction
+happened, and no search preceded it.
+
+### What it deliberately does not fire on
+
+An agent that searched and then destroyed made an informed choice — the absence of the search is
+what makes the shape reportable, not the destruction. A turn containing any capability-search tool
+call is silent.
+
+### Blocking sibling
+
+`block-bulk-process-kill` (PreToolUse, denies from day one) is the enforcement half; this surface
+is the measurement half, and exists so the family's miss rate on the act path stays observable the
+way surface E's was here. See `docs/architecture/hooks/block-bulk-process-kill.md`.

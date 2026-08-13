@@ -332,6 +332,19 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "block-bulk-process-kill",
+    {
+      description:
+        "Denies a command that kills many processes at once — `kill` with 3+ PIDs, or `pkill`/`killall` naming an interactive process class. The denial names the move-vs-recreate alternative: a capability ruled out on ONE probed channel is not a capability that does not exist. Act-path half of the operator-deferral family, whose detector reads only deferral prose.",
+      // `unfounded-claim`, not a destruction-specific class: what this guard
+      // actually interrupts is acting irreversibly on a capability claim that
+      // one probe of one channel cannot support. The kill is the symptom.
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("block-bulk-process-kill"), HOOK_FILES_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "block-secret-file-read",
     {
       description:
