@@ -14,6 +14,7 @@ import {
   SUPPRESSION_ARMED_WATCHER_EVIDENCE,
   detectArmedWatcherEvidence,
   CONDITIONAL_WAIT_TOOL,
+  ARMED_WAIT_TOOLS,
 } from "./turn-end-untaken-action-scan";
 import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
@@ -758,6 +759,11 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
   // phrase patterns mt#3917/mt#3948 shipped. Each names an action gated on a
   // wait, which is what `work-completion.mdc §External self-resolving waits`
   // asks for — so each must go quiet when a wait was actually armed.
+  // Written out here, independently of the source's own set — that
+  // independence is what makes the membership pin below a real check rather
+  // than a tautology.
+  const WAIT_FOR_REVIEW_TOOL = "mcp__minsky__session_pr_wait-for-review";
+
   const WINDOW_PHRASINGS = [
     "That watch is armed in the background — I'll merge when it concludes.",
     "The watcher for it is armed — I'll merge when it lands.",
@@ -776,10 +782,8 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
     });
 
     test("finds a blocking reviewer wait", () => {
-      const lines = [toolUse("t1", "mcp__minsky__session_pr_wait-for-review", { task: "mt#1" })];
-      expect(detectArmedWatcherEvidence(lines)).toContain(
-        "mcp__minsky__session_pr_wait-for-review"
-      );
+      const lines = [toolUse("t1", WAIT_FOR_REVIEW_TOOL, { task: "mt#1" })];
+      expect(detectArmedWatcherEvidence(lines)).toContain(WAIT_FOR_REVIEW_TOOL);
     });
 
     test("finds a backgrounded Bash task", () => {
@@ -804,6 +808,26 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
     test("a turn that armed nothing yields no evidence", () => {
       const lines = [toolUse("t1", "Read", { file_path: "/tmp/x" })];
       expect(detectArmedWatcherEvidence(lines)).toEqual([]);
+    });
+
+    // PR #2972 R1: the set is hand-maintained and cannot be derived — blocking-
+    // ness is a property of each tool's semantics, not of anything declared. So
+    // pin its exact contents instead: a member added or removed fails here,
+    // which makes drift a deliberate edit with a visible diff rather than a
+    // silent one.
+    test("the evidence set's membership is pinned, so drift is deliberate", () => {
+      expect([...ARMED_WAIT_TOOLS].sort()).toEqual([
+        "Monitor",
+        "ScheduleWakeup",
+        "mcp__minsky__asks_wait-for-response",
+        "mcp__minsky__deployment_wait-for-latest",
+        "mcp__minsky__pr_watch_run",
+        "mcp__minsky__reviewer_watch_run",
+        WAIT_FOR_REVIEW_TOOL,
+      ]);
+      // The conditional member is deliberately NOT in that set — it is a
+      // watcher only with `wait: true`, asserted separately above.
+      expect(ARMED_WAIT_TOOLS.has(CONDITIONAL_WAIT_TOOL)).toBe(false);
     });
   });
 
@@ -843,7 +867,7 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       expect(outcome?.calibration?.["armedWatcherEvidence"]).toEqual(["ScheduleWakeup"]);
     });
 
-    test("a genuine untaken action is untouched by an unrelated armed wait", () => {
+    test("an unrelated untaken action IS swallowed when a wait was armed (accepted cost)", () => {
       // The turn armed a watcher AND named an action that has nothing to do
       // with it. This is the true positive most at risk from the suppression;
       // it is knowingly accepted, and recorded here so the trade is visible
@@ -856,6 +880,36 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
         SUPPRESSION_ARMED_WATCHER_EVIDENCE,
       ]);
+    });
+
+    // PR #2972 R1 asked whether the new suppression could skip the
+    // reserved-category one when both conditions hold. It cannot — the
+    // reserved-category check returns before this one is reached — but the
+    // ordering was load-bearing and unpinned, so pin it rather than argue it.
+    // Reserved-category must win: it is the more specific reason, and it is the
+    // one whose calibration record a reviewer of THIS guard would look for.
+    test("reserved-category wins when a reserved halt and an armed wait both hold", () => {
+      // A real attested tail that matches BOTH detectors — reserved-category
+      // (a durable-default preference) and untaken-action ("Say the word").
+      // Reused from this file's own reserved-category fixtures rather than
+      // invented, since a hand-written one silently matched neither.
+      const reservedHaltMessage =
+        "picking the replacement myself because which model becomes your default is your " +
+        "preference, not a capability gap. Say the word and a model and it's done.";
+      const outcome = run(
+        {
+          session_id: "both-conditions",
+          last_assistant_message: reservedHaltMessage,
+        } as StopHookInput,
+        ctxWith(toolUse("t1", "ScheduleWakeup", { delaySeconds: 600 })),
+        storeDir
+      );
+      expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
+        SUPPRESSION_RESERVED_CATEGORY_HALT,
+      ]);
+      expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).not.toContain(
+        SUPPRESSION_ARMED_WATCHER_EVIDENCE
+      );
     });
 
     test("with no transcript in context the guard behaves exactly as before", () => {

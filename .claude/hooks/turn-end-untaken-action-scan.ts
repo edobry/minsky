@@ -380,8 +380,24 @@ export const SUPPRESSION_ARMED_WATCHER_EVIDENCE = "armed-watcher-evidence";
  * Deliberately NOT bought: naming a blocker. "I'll merge when the review lands"
  * with no wait armed still fires, exactly as the phrase patterns intended — the
  * evidence here is the tool call, so prose cannot manufacture it.
+ *
+ * ## Keeping this set current (PR #2972 R1)
+ *
+ * The set is hand-maintained, so a new blocking-wait tool added elsewhere does
+ * not appear here on its own. There is no registry of "tools that leave
+ * something running" to derive it from — blocking-ness is a property of each
+ * tool's semantics, not of anything declared — so a parity assertion has
+ * nothing to assert against.
+ *
+ * What IS asserted is the set's exact contents (`ARMED_WAIT_TOOLS` is exported
+ * for that test alone). Adding or removing a member fails that test, which
+ * makes drift a deliberate edit with a visible diff rather than a silent one.
+ * The failure mode this leaves open is a NEW wait tool nobody adds here — it
+ * shows up as this guard firing on a correctly-armed turn, which is the same
+ * signal the calibration log already surfaces, and the same way the three
+ * phrasings in this docblock were found.
  */
-const ARMED_WAIT_TOOLS = new Set([
+export const ARMED_WAIT_TOOLS = new Set([
   "ScheduleWakeup",
   "Monitor",
   "mcp__minsky__session_pr_wait-for-review",
