@@ -523,11 +523,28 @@ const PRINCIPAL_INSTRUCTION_PATTERNS: ReadonlyArray<RegExp> = [
   /\bas\s+you\s+(?:asked|instructed|requested)\b/i,
 ];
 
+/**
+ * Every suppression that keys on the closing message runs over the ELIDED text (PR #2976 R1).
+ *
+ * `detectUntakenAction` and `detectReservedCategoryHalt` already did this; the mt#4116 additions
+ * did not, and the asymmetry is worse in the suppression direction than in the firing direction. A
+ * fire manufactured by quoted text costs one advisory beat; a SUPPRESSION manufactured by quoted
+ * text silences a real fire, and silence is the outcome nothing downstream notices.
+ *
+ * The failure was live, not hypothetical: a turn-end report that QUOTES a rule mentioning `SIGKILL`
+ * or names `/mcp` in a code span is an ordinary shape in this repo — several were written in the
+ * very session that added these suppressions — and each would have earned itself a suppression.
+ */
+function elideForSuppression(finalMessage: string): string {
+  return finalMessage ? elideQuotedAndCodeContexts(finalMessage) : "";
+}
+
 /** Destructive verbs named in the closing message. Empty when none. */
 export function detectDestructiveNamedAction(finalMessage: string): string[] {
+  const scanned = elideForSuppression(finalMessage);
   const hits: string[] = [];
   for (const re of DESTRUCTIVE_ACTION_PATTERNS) {
-    const m = re.exec(finalMessage);
+    const m = re.exec(scanned);
     if (m) hits.push(m[0].trim());
   }
   return hits;
@@ -535,9 +552,10 @@ export function detectDestructiveNamedAction(finalMessage: string): string[] {
 
 /** Harness commands named as the blocking step. Empty when none. */
 export function detectHarnessCommandHalt(finalMessage: string): string[] {
+  const scanned = elideForSuppression(finalMessage);
   const hits: string[] = [];
   for (const re of HARNESS_COMMAND_PATTERNS) {
-    const m = re.exec(finalMessage);
+    const m = re.exec(scanned);
     if (m) hits.push(m[0].trim());
   }
   return hits;
@@ -555,7 +573,7 @@ export function detectFiledByDesignHalt(
   finalMessage: string,
   turnLines: Parameters<typeof findToolUseInputs>[0]
 ): string[] {
-  const named = FILED_BY_DESIGN_PATTERNS.some((re) => re.test(finalMessage));
+  const named = FILED_BY_DESIGN_PATTERNS.some((re) => re.test(elideForSuppression(finalMessage)));
   if (!named) return [];
   const created = extractToolUseNames(turnLines).filter((n) => /tasks_create$/.test(n));
   return created.length > 0 ? created : [];
@@ -603,7 +621,12 @@ export function detectPrincipalInstructionHalt(
   openingPromptText: string
 ): string[] {
   if (!openingPromptText) return [];
-  const cited = PRINCIPAL_INSTRUCTION_PATTERNS.some((re) => re.test(finalMessage));
+  // The CITATION is elided (it is the agent's own prose, and a quoted "you said file" must not
+  // manufacture a suppression). The PROMPT deliberately is NOT: it is the principal speaking, and
+  // an instruction they wrote inside a code span or a quote is still an instruction they gave.
+  const cited = PRINCIPAL_INSTRUCTION_PATTERNS.some((re) =>
+    re.test(elideForSuppression(finalMessage))
+  );
   if (!cited) return [];
   const directive =
     /\b(?:just|only)\s+\w+/i.test(openingPromptText) ||

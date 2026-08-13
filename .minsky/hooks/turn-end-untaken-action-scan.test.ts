@@ -1077,3 +1077,50 @@ describe("corpus-mandated halt suppressions (mt#4116, absorbing mt#4113)", () =>
     });
   });
 });
+
+describe("suppressions run over ELIDED text (PR #2976 R1)", () => {
+  function up(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+  const c = { transcriptLines: [up("go")] } as unknown as DispatchContext;
+
+  // The asymmetry that makes this worse than the firing direction: a fire
+  // manufactured by quoted text costs one advisory beat; a SUPPRESSION
+  // manufactured by quoted text silences a real fire, and nothing downstream
+  // notices silence.
+  test("a QUOTED destructive verb does not manufacture a suppression", () => {
+    const msg =
+      "The rule says: `Say the word and I'll SIGKILL both.` was a false positive.\n" +
+      "Say the word and I'll merge it.";
+    const out = run({ session_id: "elide-1", last_assistant_message: msg } as never, c, storeDir);
+    expect(out?.additionalContext).toBeDefined();
+  });
+
+  test("a QUOTED harness command does not manufacture a suppression", () => {
+    const msg = "Earlier I wrote `run /mcp to reconnect`. Say the word and I'll merge it.";
+    const out = run({ session_id: "elide-2", last_assistant_message: msg } as never, c, storeDir);
+    expect(out?.additionalContext).toBeDefined();
+  });
+
+  test("a QUOTED instruction citation does not manufacture a suppression", () => {
+    const msg = "The detector matched `you said file` in that report. Say the word and I'll merge.";
+    const c2 = { transcriptLines: [up("just file it")] } as unknown as DispatchContext;
+    const out = run({ session_id: "elide-3", last_assistant_message: msg } as never, c2, storeDir);
+    expect(out?.additionalContext).toBeDefined();
+  });
+
+  test("the UNQUOTED forms still suppress — elision did not break the feature", () => {
+    const out = run(
+      {
+        session_id: "elide-4",
+        last_assistant_message: "Say the word and I'll SIGKILL both.",
+      } as never,
+      c,
+      storeDir
+    );
+    expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_DESTRUCTIVE_ACTION_HALT]);
+  });
+});
