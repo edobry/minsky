@@ -363,6 +363,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "truncated-outcome-read",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same quote-aware command-string split as `chained-verification-commands`, on a different axis: that one asks whether a non-zero exit is attributable, this one whether the OUTCOME FIELDS survived the pipeline. The decision is a set membership on the pipeline's first-stage leading command and on each later stage's leading token — no prose, no paraphrase. A heredoc body containing the shape cannot fire, because the first stage's command is `cat`.",
+    },
+  ],
+  [
     "check-guessed-session-path",
     {
       ...structuralGate,
@@ -385,6 +394,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["flakiness-control-detector", lexicalDetector],
+  [
+    "stale-signal-sweep",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Exact substring over three corpora — active task specs, live memories, accepted ADRs — for a label lifted verbatim from the PR's own diff. No similarity metric: the token is not paraphrasable.",
+    },
+  ],
   [
     "guard-health-escalation-detector",
     {

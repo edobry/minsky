@@ -84,8 +84,18 @@ export function resolveAdmissionWatermarkBytes(
 
 export interface AdmissionDecision {
   admit: boolean;
-  residentBytes: number;
+  /** `null` when memory could not be measured — see `measured`. */
+  residentBytes: number | null;
   watermarkBytes: number;
+  /**
+   * False when the reading failed and this decision is therefore a fail-open
+   * default rather than an observation (mt#4104).
+   *
+   * Without this, "comfortably under the watermark" and "we could not tell"
+   * produce the same `admit: true` — which is the shape that let a daemon
+   * holding 48 GB read as healthy.
+   */
+  measured: boolean;
 }
 
 /**
@@ -102,6 +112,8 @@ export function decideAdmission(input: {
     admit: input.residentBytes < input.watermarkBytes,
     residentBytes: input.residentBytes,
     watermarkBytes: input.watermarkBytes,
+    // This overload only accepts a real number, so reaching it IS a measurement.
+    measured: true,
   };
 }
 
@@ -110,9 +122,12 @@ export function formatAdmissionRefusal(
   decision: AdmissionDecision,
   retryAfterSecs: number
 ): string {
+  // A refusal is only ever produced from a real reading — the unmeasured branch
+  // fails open — so this formats the measured case. `?? 0` is a type-level
+  // fallback for an unreachable state, not a substituted measurement.
   return (
     `Service unavailable: the shared MCP daemon is above its session-admission watermark ` +
-    `(${Math.round(decision.residentBytes / BYTES_PER_MB)}MB of ` +
+    `(${Math.round((decision.residentBytes ?? 0) / BYTES_PER_MB)}MB of ` +
     `${Math.round(decision.watermarkBytes / BYTES_PER_MB)}MB) and is not accepting new sessions. ` +
     `Established sessions are unaffected. Retry after ${retryAfterSecs}s.`
   );
@@ -128,12 +143,23 @@ export type AdmissionGate = () => AdmissionDecision;
  * that can only assert the behavior the machine it runs on happens to produce.
  */
 export function createAdmissionGate(options: {
-  getResidentBytes: () => number;
+  getResidentBytes: () => number | null;
   watermarkBytes: number;
 }): AdmissionGate {
-  return () =>
-    decideAdmission({
-      residentBytes: options.getResidentBytes(),
-      watermarkBytes: options.watermarkBytes,
-    });
+  return () => {
+    const residentBytes = options.getResidentBytes();
+    // Fail OPEN when memory cannot be measured (mt#4104). Refusing every session
+    // because the READING failed turns a measurement gap into a total outage,
+    // which is the larger failure; `measured: false` keeps the two states
+    // distinguishable so this never silently reads as a healthy daemon.
+    if (residentBytes === null) {
+      return {
+        admit: true,
+        residentBytes: null,
+        watermarkBytes: options.watermarkBytes,
+        measured: false,
+      };
+    }
+    return decideAdmission({ residentBytes, watermarkBytes: options.watermarkBytes });
+  };
 }

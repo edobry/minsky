@@ -14,6 +14,40 @@ The capture watermark must sit **below** the ceiling or it could never fire; a m
 that puts it at or above the ceiling refuses to arm and logs an error rather than burning a timer
 to produce nothing.
 
+## What these numbers MEASURE changed on 2026-08-13 (mt#4104)
+
+Both thresholds are still expressed in MB and both defaults are unchanged — but **the quantity
+they are compared against is different**, so a number you set before that date does not mean what
+it used to.
+
+|                         | Before (mt#3886/mt#3973)                                         | Now (mt#4104)                                  |
+| ----------------------- | ---------------------------------------------------------------- | ---------------------------------------------- |
+| Reads                   | `process.memoryUsage.rss()`                                      | macOS `phys_footprint`; Linux `VmRSS + VmSwap` |
+| Sees swap?              | **No** — RSS FALLS as a process is swapped out                   | Yes                                            |
+| Sees shared file pages? | Yes — counts mapped binaries the kernel does not charge the task | No                                             |
+
+**Why it changed.** RSS moves the wrong way under exactly the condition these guards exist for. On
+2026-08-13 an orphaned `mcp start --http` process measured ~900 MB RSS while holding **48.2 GB** of
+`phys_footprint`, and sailed under a 2048 MB ceiling that was armed the whole time. This is not
+only a pathological-case problem: sampling 11 live MCP processes the same day, two read 44–56 MB
+RSS against 215–384 MB footprints.
+
+**What this means if you have tuned these.** A value you chose against RSS is not equivalent. The
+re-measured idle band is **210–413 MB** in the new units (macOS, 11 MCP processes + cockpit),
+against the 427–644 MB RSS band mt#3973 recorded. Both defaults were re-derived against the new
+band and deliberately kept — 2048 now sits ~5x above the band top instead of ~4.5x, so the change
+gains headroom rather than losing it.
+
+**Linux is unmeasured.** The band above is macOS only. The hosted Railway surface is Linux; mt#3888
+owns whether to arm the ceiling there and at what number, and the macOS band is not evidence about
+it.
+
+**A reading can now fail.** Where RSS always returned a number, `footprint(1)` or `/proc` can be
+unavailable. That case is reported, never substituted: the ceiling and capture watchers SKIP the
+tick and keep polling, and the shared-daemon admission gate fails OPEN while marking the decision
+`measured: false`. If you see admissions with `measured: false`, memory is not being read — the
+gate is not telling you the daemon is healthy, it is telling you it cannot see.
+
 ## Why they are separate
 
 The self-terminate is the machine's protection against a whole-machine kernel panic (five in four

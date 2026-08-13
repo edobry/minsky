@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 95,
+  "population": 97,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -2241,6 +2241,32 @@
       "deliberatelyUnauthored": false
     },
     {
+      "guardName": "stale-signal-sweep",
+      "description": "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      "failureClasses": ["stale-context", "unfounded-claim"],
+      "provenance": [".minsky/hooks/stale-signal-sweep.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
       "guardName": "standalone-duplicate-matcher",
       "description": "The advisory standalone-creation duplicate probe: warns when a task being created resembles one that already exists. Split out of the parallel-work guard; embedding-based, and provably unable to discriminate at the distances real duplicates sit at — which is why the deny-tier sibling is a presence check instead.",
       "failureClasses": ["duplicate-work"],
@@ -2351,6 +2377,35 @@
       "role": "judge",
       "coordinateGaps": [],
       "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "truncated-outcome-read",
+      "description": "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/truncated-outcome-read-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false
     },

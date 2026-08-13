@@ -22,11 +22,16 @@ import { PassThrough } from "stream";
 
 import {
   createDrivenSessionPersistObserver,
+  describeReconciliationOutcome,
+  getBootReconciliationDb,
   loadPersistedDrivenSessions,
   orchestrateDrivenSessionResume,
   orchestrateDrivenSessionAttach,
+  reconcilePersistedDrivenSessions,
   type OrchestrateDrivenSessionAttachDeps,
+  type ReconciliationOutcome,
 } from "./driven-session-launch";
+import { getContextInspectorDb } from "./db-providers";
 import { DrivenSessionRegistry, startDrivenSession, type ProcessLike } from "./driven-session-host";
 import type { DrivenSessionRow } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 
@@ -163,6 +168,220 @@ describe("createDrivenSessionPersistObserver", () => {
     });
     expect(() => observer(record)).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+});
+
+/**
+ * mt#4103 — every boot says what happened, and no await runs unbounded.
+ *
+ * On 2026-08-12 two of ten daemon boots produced NONE of the four outcomes
+ * this function could log. The registry stayed empty for those daemons' whole
+ * lives, which is what let an entity thread silently swap its agent (mt#4093).
+ * The function is fire-and-forget, so an await that never settles does not
+ * fail — it just never finishes, and every log line stays unwritten.
+ */
+describe("boot reconciliation observability + bounds (mt#4103)", () => {
+  /** An operation that never settles — the stall being simulated. */
+  const neverSettles = <T>(): Promise<T> => new Promise<T>(() => {});
+
+  /**
+   * A timeout signal that trips the Nth race and NEVER trips any other.
+   *
+   * A signal that fires immediately on every race is useless here: the stages
+   * run in sequence against one shared seam, so it would always trip
+   * `resolve-db` and no later stage could ever be reached. Counting races
+   * instead lets a test name the exact await it is stalling — race 1 is
+   * `resolve-db`, race 2 is `list-rows`, then two per row (cwd probe, then a
+   * verdict write for an unrecoverable row).
+   *
+   * Deterministic and instant in both directions: the tripped race resolves on
+   * a microtask, and the others never resolve, so the real operation wins them
+   * without any wall-clock wait.
+   */
+  function tripRace(n: number): (ms: number) => Promise<{ timedOut: true }> {
+    let races = 0;
+    return () => {
+      races += 1;
+      return races === n
+        ? Promise.resolve({ timedOut: true } as const)
+        : neverSettles<{ timedOut: true }>();
+    };
+  }
+
+  describe("describeReconciliationOutcome", () => {
+    test("a clean load reports the count at info", () => {
+      const { level, message } = describeReconciliationOutcome({
+        kind: "loaded",
+        count: 20,
+        degraded: [],
+      });
+      expect(level).toBe("info");
+      expect(message).toContain("loaded 20 persisted session(s)");
+    });
+
+    test("ZERO rows is its own line, not silence", () => {
+      // The whole defect in one assertion. Before this, `rows.length === 0`
+      // logged nothing, so "nothing to load" and "never finished" were the
+      // same observation — and the incident could only be found by noticing an
+      // absence across ten boots.
+      const { level, message } = describeReconciliationOutcome({ kind: "empty" });
+      expect(level).toBe("info");
+      expect(message).toContain("no non-terminal sessions to load");
+      expect(message).toContain("registry starts empty");
+    });
+
+    test("a load with degraded rows warns and names the stages, deduped", () => {
+      const { level, message } = describeReconciliationOutcome({
+        kind: "loaded",
+        count: 5,
+        degraded: ["cwd-probe", "cwd-probe", "persist-verdict"],
+      });
+      // WARN, not info: the count alone would read as a clean load while the
+      // registry is actually incomplete.
+      expect(level).toBe("warn");
+      expect(message).toContain("3 row(s) degraded");
+      // Deduped — three degradations across two stages names two stages.
+      expect(message).toContain("cwd-probe, persist-verdict");
+    });
+
+    test("a stall names the STAGE and the bound, not just 'timed out'", () => {
+      const { level, message } = describeReconciliationOutcome({
+        kind: "timed-out",
+        stage: "cwd-probe",
+        timeoutMs: 2000,
+      });
+      expect(level).toBe("warn");
+      // The stage is the diagnostic: `resolve-db` points at the pool,
+      // `cwd-probe` at a wedged filesystem path. "Reconciliation timed out"
+      // would send an operator looking in the wrong place.
+      expect(message).toContain('stage "cwd-probe"');
+      expect(message).toContain("2000ms");
+      expect(message).toContain("registry starts empty");
+    });
+
+    test("every outcome kind produces a line — none is silent", () => {
+      // The guarantee the caller depends on: it calls `log[level](message)`
+      // unconditionally, so a kind that produced an empty message would be a
+      // silent boot again.
+      const everyKind: ReconciliationOutcome[] = [
+        { kind: "loaded", count: 1, degraded: [] },
+        { kind: "empty" },
+        { kind: "no-persistence" },
+        { kind: "timed-out", stage: "list-rows", timeoutMs: 15000 },
+        { kind: "failed", message: "connection refused" },
+      ];
+      for (const outcome of everyKind) {
+        const { level, message } = describeReconciliationOutcome(outcome);
+        expect(message.length).toBeGreaterThan(0);
+        expect(["info", "warn"]).toContain(level);
+      }
+    });
+  });
+
+  test("AT1 — a handle that never resolves settles as a resolve-db stall", async () => {
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: () => neverSettles(),
+      timeoutSignal: tripRace(1),
+      stageTimeoutMs: 15_000,
+    });
+    expect(outcome).toEqual({ kind: "timed-out", stage: "resolve-db", timeoutMs: 15_000 });
+  });
+
+  test("a SELECT that never resolves settles as a list-rows stall", async () => {
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: () => neverSettles(),
+      timeoutSignal: tripRace(2),
+      stageTimeoutMs: 15_000,
+    });
+    expect(outcome).toEqual({ kind: "timed-out", stage: "list-rows", timeoutMs: 15_000 });
+  });
+
+  test("AT2 — zero rows is reported as `empty`, distinct from a stall", async () => {
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [],
+      registry: new DrivenSessionRegistry(),
+    });
+    // Distinct KIND, not a zero-count load — the two produce different lines.
+    expect(outcome).toEqual({ kind: "empty" });
+  });
+
+  test("AT4 — one wedged cwd probe degrades that row, not the run", async () => {
+    const registry = new DrivenSessionRegistry();
+    const WEDGED_CWD = join(TEST_WORKSPACE_ROOT, "on-a-hung-mount");
+    const rowA: DrivenSessionRow = { ...BASE_ROW, localId: "wedged", cwd: WEDGED_CWD };
+    const rowB: DrivenSessionRow = { ...BASE_ROW, localId: "healthy" };
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [rowA, rowB],
+      registry,
+      // The wedged mount: only THIS row's `stat` never answers. The other row
+      // probes normally, which is what makes the assertion below meaningful —
+      // a run that stalled everything would also "still register both" if the
+      // loop simply skipped the probe.
+      probeCwd: async (cwd: string) =>
+        cwd === WEDGED_CWD ? await neverSettles<"present">() : "present",
+      // Race 1 is resolve-db, race 2 is list-rows, race 3 is the FIRST row's
+      // cwd probe — so only that one row is stalled. The second row's probe
+      // (race 4) gets a never-tripping signal, and would resolve normally if
+      // its probe answered.
+      timeoutSignal: tripRace(3),
+      rowTimeoutMs: 2_000,
+    });
+
+    // The run still completed, and BOTH rows are in the registry — one wedged
+    // workspace path must not cost the whole reconciliation, which is the
+    // failure mode that leaves a thread with no record to resume from.
+    expect(outcome.kind).toBe("loaded");
+    if (outcome.kind === "loaded") {
+      expect(outcome.count).toBe(2);
+      expect(outcome.degraded).toContain("cwd-probe");
+    }
+    expect(registry.get("wedged")).toBeDefined();
+    expect(registry.get("healthy")).toBeDefined();
+    // Failing OPEN: a probe that could not answer must not retire the
+    // conversation. `unknown` is the same verdict a permission/IO error gives.
+    expect(registry.get("wedged")?.status).toBe("reconnecting");
+  });
+
+  test("a thrown error is reported, not swallowed into a silent zero", async () => {
+    const thrown = "connection refused";
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => {
+        throw new Error(thrown);
+      },
+    });
+    expect(outcome).toEqual({ kind: "failed", message: thrown });
+  });
+
+  test("AT3 — boot reconciliation does NOT borrow the latching shared getter", async () => {
+    // The wiring assertion. `getContextInspectorDb` caches a null probe for the
+    // process lifetime, so a DB blip at boot would disable reconciliation for
+    // the daemon's whole life — the exact condition present on 2026-08-12.
+    // `cacheNegative: false`'s retry-until-success behavior is covered by
+    // db-providers.test.ts; what THIS pins is that this caller uses its own
+    // handle rather than the shared one.
+    expect(getBootReconciliationDb).not.toBe(getContextInspectorDb);
+  });
+
+  test("the loader reports 0 for every non-loaded outcome", async () => {
+    // `loadPersistedDrivenSessions` returns a count, and a stall must not be
+    // reported as a successful zero-row load to its caller either.
+    const stalled = await loadPersistedDrivenSessions({
+      getDb: () => neverSettles(),
+      timeoutSignal: tripRace(1),
+    });
+    expect(stalled).toBe(0);
+
+    const loaded = await loadPersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [BASE_ROW],
+      registry: new DrivenSessionRegistry(),
+    });
+    expect(loaded).toBe(1);
   });
 });
 
@@ -351,6 +570,12 @@ describe("orchestrateDrivenSessionResume", () => {
       getPersisted: async () => ({ ...BASE_ROW, harnessSessionId: null }),
     });
     expect(outcome.outcome).toBe("unrecoverable");
+    // mt#4093: nothing to name. A caller that has to tell the operator WHICH
+    // conversation it is replacing must be able to tell this case apart from
+    // the one below — here there is no earlier exchange to have lost.
+    if (outcome.outcome === "unrecoverable") {
+      expect(outcome.harnessSessionId).toBeUndefined();
+    }
   });
 
   test("returns unrecoverable when the row is already marked unrecoverable", async () => {
@@ -362,7 +587,15 @@ describe("orchestrateDrivenSessionResume", () => {
         unrecoverableReason: "deleted cwd",
       }),
     });
-    expect(outcome).toEqual({ outcome: "unrecoverable", reason: "deleted cwd" });
+    // mt#4093 added `harnessSessionId` — the conversation that cannot be
+    // resumed. It is carried HERE because this is the last layer that can see
+    // it: the caller's fresh spawn upserts `driven_sessions` on this localId
+    // and overwrites the column.
+    expect(outcome).toEqual({
+      outcome: "unrecoverable",
+      reason: "deleted cwd",
+      harnessSessionId: "harness-1",
+    });
   });
 
   test("returns locked when another process already holds the resume lock", async () => {

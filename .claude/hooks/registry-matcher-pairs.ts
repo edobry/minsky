@@ -95,6 +95,19 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["block-secret-file-read", "block-bulk-process-kill"],
   ["chained-verification-commands", "block-bulk-process-kill"],
   ["block-concurrent-bulk-mutation", "block-bulk-process-kill"],
+  // Sixth guard on the Bash/session_exec command string (mt#4096). Every sibling
+  // asks about the command's EFFECT — what it touches, how many results it
+  // conflates, whether a twin is running, how much it destroys. This one asks
+  // about the command's OUTPUT: whether the pipeline discards the outcome fields
+  // a later claim will rest on. It is the only one whose subject is the pipe
+  // TAIL rather than the leading command, and the only one that fires on a
+  // command that is otherwise entirely correct to run. Independent overrides;
+  // running all six is the point.
+  ["check-guessed-session-path", "truncated-outcome-read"],
+  ["block-secret-file-read", "truncated-outcome-read"],
+  ["chained-verification-commands", "truncated-outcome-read"],
+  ["block-concurrent-bulk-mutation", "truncated-outcome-read"],
+  ["block-bulk-process-kill", "truncated-outcome-read"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

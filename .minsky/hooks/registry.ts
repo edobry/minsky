@@ -25,6 +25,7 @@ import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
 import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
+import { STALE_SIGNAL_SWEEP_GUARD } from "./registry-stale-signal-sweep";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -933,6 +934,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // mt#3959's entry is spread in from its own module because this file is AT
+  // the 1500-line max-lines ceiling — see that module's header for why, and for
+  // the follow-up that splits this array properly.
+  STALE_SIGNAL_SWEEP_GUARD,
   // -------------------------------------------------------------------------
   // mt#4004 — the duplicate-check record claims a search that never ran.
   //
@@ -1042,6 +1047,49 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         tool_name: "Bash",
         tool_input: {
           command: "bun run format:all; bun test packages/",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4096 — truncated-outcome read. Sibling of the chained-verification scan
+  // above and the same matcher class (a structured command string, no
+  // paraphrase axis). Where that one catches "the exit code is unattributable",
+  // this one catches "the outcome field was discarded before anyone read it".
+  // -------------------------------------------------------------------------
+  {
+    name: "truncated-outcome-read",
+    effects: [recorderEffect()],
+    // `advisory`: which commands count as outcome-bearing is a curated list with
+    // a real false-positive surface, and the calibration log exists to size it
+    // before any enforcement posture is considered.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./truncated-outcome-read-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./truncated-outcome-read-detector").then((m) => m.renderWorstCase()),
+    // A pure string parse with no IO — it cannot approach this.
+    timeoutMs: 5000,
+    calibrationLog: "truncated-outcome-read",
+    // NEVER denies. Truncating output is ORDINARY; only the conjunction with an
+    // outcome-bearing command makes it a defect, and that trigger's precision is
+    // unproven until the calibration data says otherwise. Contrast the deny-tier
+    // command-string guards (block-bulk-process-kill and siblings): those match
+    // commands that are categorically wrong to run, which this is not.
+    denyCapable: false,
+    // MEASURED via `renderProbe` (mt#4002), not estimated: 508 chars for a
+    // long `session pr create` invocation. Bounded on the axis that grows — the
+    // echoed command string — with headroom for a longer one.
+    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
+    // The scan is pure over its input, so the canary exercises the real decision
+    // path and asserts a genuine MATCH — this is the originating incident's own
+    // command shape (mt#4096).
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command: "minsky session commit --task 'mt#1' 'msg' 2>&1 | tail -6",
         },
       },
       expects: "calibration",
@@ -2490,10 +2538,24 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     calibrationLog: "untaken-action",
     denyCapable: false,
-    // False by design (PR #2293 R1): detection reads last_assistant_message, and
-    // the dedup key is derived from that message — NOT from the transcript,
-    // whose absent-case default would suppress the phrase session-wide.
-    needsTranscript: false,
+    // True since mt#4063, for the SUPPRESSION signal only. PR #2293 R1's
+    // reasoning for setting this false still holds and is unchanged: detection
+    // reads `last_assistant_message`, and the dedup key is derived from that
+    // message — NOT from the transcript, whose absent-case default would
+    // suppress the phrase session-wide. Both remain message-derived.
+    //
+    // What the transcript is read for is the armed-watcher suppression, whose
+    // absent-case default runs the OTHER way: no transcript means no
+    // tool-call evidence, which means no suppression, which means the guard
+    // fires exactly as it did before. That asymmetry is what makes the read
+    // safe here and is pinned by a test ("with no transcript in context the
+    // guard behaves exactly as before"), so the canary below — which carries
+    // no `transcriptLines` and expects `warn` — stays valid unchanged.
+    //
+    // Marginal cost is ~zero: `resolveDispatchContext` resolves the transcript
+    // once per dispatch, and the sibling `turn-end-unwalked-task-scan` already
+    // requests it on this same Stop event.
+    needsTranscript: true,
     attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {

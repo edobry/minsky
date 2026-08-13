@@ -103,9 +103,16 @@ async function attemptListen(
   });
 }
 
-// gh#1761: postgres-js error codes that indicate a DB-layer issue (circuit
-// breaker, connection recycling). Exported for unit testing.
-const DB_ERROR_CODES = new Set([
+/**
+ * postgres-js CLIENT-SIDE error codes (gh#1761): the driver's own codes for a
+ * tripped circuit breaker or a recycled connection.
+ *
+ * This is a DIFFERENT CODE SPACE from the server-side SQLSTATEs below, and
+ * conflating the two is what mt#4100 was. Every code here is client-side, so a
+ * SQLSTATE — the `code` Postgres itself returns — matched none of them, and a
+ * cancelled statement took the whole daemon down.
+ */
+const CLIENT_SIDE_DEGRADATION_CODES = new Set([
   "ECIRCUITBREAKER",
   "EDBHANDLEREXITED",
   "CONNECTION_CLOSED",
@@ -113,26 +120,170 @@ const DB_ERROR_CODES = new Set([
 ]);
 
 /**
- * Returns true when `reason` is a DB-layer error that should cause the cockpit
- * daemon to degrade gracefully (stay up, retry) rather than crash (exit 1).
+ * SQLSTATE classes describing a condition AT THE DATABASE rather than a defect
+ * in this process. Class names are PostgreSQL's own (Appendix A, Error Codes —
+ * https://www.postgresql.org/docs/current/errcodes-appendix.html):
  *
- * Covers:
- *   - postgres-js circuit-breaker / connection-recycling errors (by `code`
- *     property matching `DB_ERROR_CODES`)
- *   - `PersistenceInitTimeoutError` thrown by `getSharedPersistenceService`
- *     when the init deadline is exceeded
+ *   08 — Connection Exception
+ *   40 — Transaction Rollback
+ *   53 — Insufficient Resources
+ *   57 — Operator Intervention
  *
- * Everything else — unrelated application bugs, programming errors, etc. —
- * must NOT be swallowed; callers should exit(1) for those.
+ * Deliberately NOT called "transient" (mt#4100 planning): `57P04`
+ * database_dropped, `53100` disk_full and `08P01` protocol_violation are
+ * members that will not pass on their own. They belong here anyway, because
+ * the question this classifier answers is **"is this a defect in THIS
+ * process?"** — and killing a daemon that is serving live clients does not
+ * undrop a database. It drops every in-flight page load, SSE stream and
+ * driven-session websocket, and respawns straight back into the same
+ * condition; ADR-014 raised `ThrottleInterval` to 60 s to survive exactly that
+ * loop.
+ */
+const DB_CONDITION_SQLSTATE_CLASSES = new Set(["08", "40", "53", "57"]);
+
+/**
+ * The subset of the above that failed ONE STATEMENT on a connection that is
+ * still fine — as opposed to a connection or server that is unusable.
+ *
+ * Class 40 (Transaction Rollback: serialization_failure, deadlock_detected) is
+ * per-transaction by definition. `57014` query_canceled is a statement timeout.
+ * `57P05` idle_session_timeout reaped one idle session, which needs a new
+ * connection, not a new pool.
+ *
+ * The distinction matters because "degrade" is not free: `markDbDegraded()`
+ * nulls the shared singleton and bumps the persistence epoch, which every
+ * cached consumer keys on (mt#3638), and publishes `db: "degraded"` on
+ * `/api/health` — a surface the tray watches. Doing that because one query
+ * timed out tears down a working pool and reports a false problem.
+ */
+const STATEMENT_LEVEL_SQLSTATES = new Set(["57014", "57P05"]);
+const STATEMENT_LEVEL_SQLSTATE_CLASSES = new Set(["40"]);
+
+/** SQLSTATEs are exactly five characters; the first two are the class. */
+function sqlStateClass(code: string): string | undefined {
+  return code.length === 5 ? code.slice(0, 2) : undefined;
+}
+
+/**
+ * What the `unhandledRejection` handler should do with `reason`.
+ *
+ * Mirrors `classifyUncaughtException`'s two-way disposition in
+ * `daemon-error-policy.ts`, with a third arm the DB side needs: `"degrade"`
+ * changes daemon state (pool teardown + retry backoff), `"survive"` changes
+ * nothing at all.
+ */
+export type UnhandledRejectionDisposition = "degrade" | "survive" | "exit";
+
+function readErrorCode(reason: unknown): string | undefined {
+  if (reason === null || typeof reason !== "object") return undefined;
+  if (!("code" in reason)) return undefined;
+  const code = (reason as { code: unknown }).code;
+  return code === undefined || code === null ? undefined : String(code);
+}
+
+/**
+ * Decides whether an unhandled rejection should degrade the DB, be survived
+ * silently, or terminate the daemon.
+ *
+ * Two code spaces reach this, and they are matched separately:
+ *
+ *   - **Client-side** — postgres-js's own codes (`CLIENT_SIDE_DEGRADATION_CODES`)
+ *     plus `PersistenceInitTimeoutError`. All connection-level → `"degrade"`.
+ *   - **Server-side** — a five-character SQLSTATE returned by Postgres. Matched
+ *     by CLASS (`DB_CONDITION_SQLSTATE_CLASSES`), not by an enumerated list, so
+ *     a sibling code is covered without another incident. Split into
+ *     `"survive"` and `"degrade"` per `STATEMENT_LEVEL_SQLSTATES`.
+ *
+ * Assignment principle for a member not named above: **is the connection
+ * unusable, or did just this statement fail?** Statement → `"survive"`;
+ * connection or server → `"degrade"`.
+ *
+ * Everything else exits. That deliberately includes class 42 (Syntax Error or
+ * Access Rule Violation) — a malformed query is a bug in our code, and this
+ * classifier must not become "swallow everything".
  *
  * @internal Exported for unit testing only.
  */
-export function isDbDegradationError(reason: unknown): boolean {
-  if (reason instanceof PersistenceInitTimeoutError) return true;
-  if (reason != null && typeof reason === "object" && "code" in reason) {
-    return DB_ERROR_CODES.has(String((reason as { code: unknown }).code));
-  }
-  return false;
+export function classifyUnhandledRejection(reason: unknown): UnhandledRejectionDisposition {
+  if (reason instanceof PersistenceInitTimeoutError) return "degrade";
+
+  const code = readErrorCode(reason);
+  if (code === undefined) return "exit";
+  if (CLIENT_SIDE_DEGRADATION_CODES.has(code)) return "degrade";
+
+  const stateClass = sqlStateClass(code);
+  if (stateClass === undefined || !DB_CONDITION_SQLSTATE_CLASSES.has(stateClass)) return "exit";
+
+  return STATEMENT_LEVEL_SQLSTATES.has(code) || STATEMENT_LEVEL_SQLSTATE_CLASSES.has(stateClass)
+    ? "survive"
+    : "degrade";
+}
+
+/**
+ * The side effects the `unhandledRejection` handler performs, injected so the
+ * handler's branching is testable without patching the modules it reaches.
+ */
+export interface UnhandledRejectionEffects {
+  /**
+   * Rate-limited survived-error logger (`createSurvivedErrorLogger`). The
+   * `"survive"` branch uses it rather than a bare write because a statement
+   * timeout recurs for as long as the load does — the same repetition that put
+   * one signature in a rotated log 190 times (mt#3626).
+   */
+  logSurvived: (reason: unknown) => void;
+  /**
+   * Writes ONE operator-facing line to **stderr**, for the degrade and exit
+   * branches.
+   *
+   * The stderr binding is part of the contract, not an implementation detail
+   * of the current wiring (PR #2970 R1). These lines are what an operator
+   * greps `cockpit-daemon.log` for when a daemon degrades or dies, and
+   * `daemon-file-log.ts` captures the stream — routing them to stdout or into
+   * a structured logger that drops the stream would silently retire an
+   * operator-visible signature with nothing failing. The exact text of both
+   * lines is asserted in `start-command.test.ts` for the same reason.
+   */
+  logErrorLine: (line: string) => void;
+  markDegraded: () => void;
+  /** Starts the retry loop and returns its stop function. */
+  startRetryBackoff: () => () => void;
+  cleanup: () => void;
+  exit: () => void;
+}
+
+/**
+ * Builds the `unhandledRejection` handler, closing over the retry-loop handle
+ * so a second degradation cancels the first loop rather than stacking one.
+ *
+ * @internal Exported for unit testing only.
+ */
+export function createUnhandledRejectionHandler(
+  effects: UnhandledRejectionEffects
+): (reason: unknown) => void {
+  let stopDbRetry: (() => void) | null = null;
+
+  return (reason: unknown) => {
+    switch (classifyUnhandledRejection(reason)) {
+      case "survive":
+        effects.logSurvived(reason);
+        return;
+      case "degrade": {
+        const message = reason instanceof Error ? reason.message : String(reason);
+        effects.logErrorLine(`Cockpit: DB unavailable — degrading gracefully: ${message}`);
+        effects.markDegraded();
+        if (stopDbRetry !== null) stopDbRetry();
+        stopDbRetry = effects.startRetryBackoff();
+        return;
+      }
+      case "exit":
+        effects.cleanup();
+        // mt#3626: the degradation branch above keeps its message-only line
+        // (its errors are classified, and their text is the useful part); this
+        // fatal branch records the stack, same as `uncaughtException`.
+        effects.logErrorLine(`Cockpit: unhandled rejection: ${formatErrorForLog(reason)}`);
+        effects.exit();
+    }
+  };
 }
 
 /**
@@ -332,9 +483,18 @@ export function createStartCommand(): Command {
       // mirrors startSseBrokerWarmup()'s posture below; a client connecting
       // before this resolves just sees a brief "not found yet" that a retry
       // clears once reconciliation completes.
+      // The handler below no longer catches reconciliation FAILURES (mt#4103).
+      // `loadPersistedDrivenSessions` now reports every outcome it can reach —
+      // including a stall, an unavailable database, and a thrown error — as its
+      // own single log line, so nothing it handles arrives here. What is left
+      // is a genuine backstop: a throw from OUTSIDE its own error handling
+      // would otherwise become an unhandled rejection on a fire-and-forget
+      // call. Kept for that, and reworded so it can no longer be read as the
+      // failure path — a second "reconciliation failed" line would now
+      // contradict the one the function itself emits.
       void loadPersistedDrivenSessions().catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`Warning: driven-session boot reconciliation failed: ${message}`);
+        console.warn(`Warning: driven-session boot reconciliation threw unexpectedly: ${message}`);
       });
 
       try {
@@ -546,7 +706,7 @@ export function createStartCommand(): Command {
       // cockpit daemon out from under the tray is a different decision with a
       // different blast radius, and it is not this task's to make.
       const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
-      const { getCurrentProcessResidentBytes, getCurrentProcessUptimeSeconds } = await import(
+      const { getCurrentProcessMemoryBytes, getCurrentProcessUptimeSeconds } = await import(
         "../../mcp/orphan-exit"
       );
       wireMemoryCaptureWatcher({
@@ -557,7 +717,7 @@ export function createStartCommand(): Command {
         // Above the 1.31 GB measured baseline, so this fires on genuine growth
         // rather than on every cockpit start.
         defaultWatermarkMb: 2048,
-        getResidentBytes: getCurrentProcessResidentBytes,
+        getResidentBytes: getCurrentProcessMemoryBytes,
         getUptimeSeconds: getCurrentProcessUptimeSeconds,
       });
 
@@ -592,27 +752,23 @@ export function createStartCommand(): Command {
       // causes KeepAlive to respawn it, which re-trips the circuit breaker in a
       // tight loop — exactly the 49,650-restart incident.
       //
-      // The fix: detect DB-specific errors by their postgres-js error codes,
-      // mark the singleton degraded (so /api/health reports db:"degraded"), and
-      // start a background retry loop.  Non-DB errors still exit(1).
-      let stopDbRetry: (() => void) | null = null;
-
-      proc.on("unhandledRejection", (reason: unknown) => {
-        if (isDbDegradationError(reason)) {
-          const r = reason instanceof Error ? reason.message : String(reason);
-          console.error(`Cockpit: DB circuit-breaker error — degrading gracefully: ${r}`);
-          markDbDegraded();
-          if (stopDbRetry !== null) stopDbRetry();
-          stopDbRetry = startDbRetryBackoff();
-          return; // do NOT exit — daemon stays up
-        }
-        cleanupSync();
-        // mt#3626: the DB-degradation branch above keeps its message-only line
-        // (its errors are classified, and their text is the useful part); this
-        // fatal branch records the stack, same as `uncaughtException`.
-        console.error(`Cockpit: unhandled rejection: ${formatErrorForLog(reason)}`);
-        process.exit(1);
-      });
+      // mt#4100 widened this from four client-side codes to the server-side
+      // SQLSTATE space as well, and split the response in two: a connection or
+      // server that is unusable degrades (as before), while a single cancelled
+      // statement is survived without tearing down a healthy pool. See
+      // `classifyUnhandledRejection`. Non-DB errors still exit(1).
+      proc.on(
+        "unhandledRejection",
+        createUnhandledRejectionHandler({
+          logSurvived: logSurvivedError,
+          // stderr, per `UnhandledRejectionEffects.logErrorLine`'s contract.
+          logErrorLine: (line) => console.error(line),
+          markDegraded: markDbDegraded,
+          startRetryBackoff: () => startDbRetryBackoff(),
+          cleanup: cleanupSync,
+          exit: () => process.exit(1),
+        })
+      );
 
       console.log(`Cockpit running at http://localhost:${port}`);
       if (isDev) {

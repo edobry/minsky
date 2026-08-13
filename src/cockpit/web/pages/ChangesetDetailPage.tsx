@@ -23,7 +23,13 @@ import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { CopyId } from "../components/CopyId";
 
-async function fetchChangeset(id: string): Promise<ChangesetDetailPayload | null> {
+/**
+ * Exported (mt#3694) so the peek adapter runs the SAME fetch this page runs
+ * rather than a copy of it. Two copies of a URL and its 404 handling are two
+ * things that can drift; the shared query key additionally lets TanStack dedupe
+ * a peek of a changeset that is already open as a page.
+ */
+export async function fetchChangeset(id: string): Promise<ChangesetDetailPayload | null> {
   const res = await fetch(`/api/changeset/${encodeURIComponent(id)}`);
   if (res.status === 404) {
     return null;

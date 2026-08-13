@@ -2138,7 +2138,7 @@ export function createStartCommand(
           wireMemoryCeilingWatcher,
           getCurrentProcessPpid,
           getCurrentProcessUptimeSeconds,
-          getCurrentProcessResidentBytes,
+          getCurrentProcessMemoryBytes,
           resolveMemoryCeilingBytes,
         } = await import("../../mcp/orphan-exit");
         const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
@@ -2187,7 +2187,7 @@ export function createStartCommand(
         wireMemoryCaptureWatcher({
           processRole,
           ceilingBytes: resolveMemoryCeilingBytes(),
-          getResidentBytes: getCurrentProcessResidentBytes,
+          getResidentBytes: getCurrentProcessMemoryBytes,
           getUptimeSeconds: getCurrentProcessUptimeSeconds,
           getInFlightToolCalls: () => server.getInFlightToolCalls(),
           getDiagnostics: () =>
@@ -2208,7 +2208,7 @@ export function createStartCommand(
           if (watermarkBytes !== null) {
             server.setSessionAdmissionGate(
               createAdmissionGate({
-                getResidentBytes: getCurrentProcessResidentBytes,
+                getResidentBytes: getCurrentProcessMemoryBytes,
                 watermarkBytes,
               })
             );

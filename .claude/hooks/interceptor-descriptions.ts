@@ -296,6 +296,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "stale-signal-sweep",
+    {
+      description:
+        "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      failureClasses: ["stale-context", "unfounded-claim"],
+      provenance: [hook("stale-signal-sweep"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
@@ -312,6 +322,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records a Bash or `session_exec` command string chaining two or more verification commands with `;`/`&&`/`||`, which makes a non-zero exit unattributable to any one check. Deliberately narrow: a single verification command wrapped in labels or a `cd` prefix does not fire.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("chained-verification-commands-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "truncated-outcome-read",
+    {
+      description:
+        "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("truncated-outcome-read-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
