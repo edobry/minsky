@@ -1476,6 +1476,24 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       for (const skill of rec.loadedSkills) {
         phrases.add(skill);
       }
+    } else if (
+      rec.detectorFields &&
+      typeof rec.detectorFields["mutatingCommand"] === "string" &&
+      typeof rec.detectorFields["filter"] === "string"
+    ) {
+      // truncated-outcome-read (mt#4096): diversity axis = the violation SHAPE
+      // (which outcome-bearing command, which truncator), read out of the
+      // mt#3289 `detectorFields` passthrough rather than a dedicated parse
+      // branch — the record is matches-shaped and carries no `matches`, so
+      // without this clause it would fall to the `else` below, add nothing, and
+      // sit at zero diversity forever no matter how varied the real fires were.
+      // That is the mt#3781 inert-sweep defect, which this detector's own
+      // record-shape comment cites; PR #2960 R1 caught it reproduced here.
+      //
+      // The raw command is deliberately NOT the axis: it is near-unique, which
+      // would satisfy the distinct-phrase gate by construction — the same defect
+      // from the opposite direction.
+      phrases.add(`${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
