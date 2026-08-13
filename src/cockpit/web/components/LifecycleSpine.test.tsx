@@ -76,6 +76,13 @@ function rowMap(rows: InterceptorAggregateRow[]): Map<string, InterceptorAggrega
   return new Map(rows.map((r) => [r.guardName, r]));
 }
 
+/** Guard-scoped dot lookup — never assumes the spine renders exactly one dot. */
+function dotFor(guardName: string): Element {
+  const dot = document.querySelector(`[data-testid="spine-dot"][data-guard="${guardName}"]`);
+  if (!dot) throw new Error(`no spine dot rendered for ${guardName}`);
+  return dot;
+}
+
 function renderSpine(props: Parameters<typeof LifecycleSpine>[0]) {
   return render(
     <MemoryRouter>
@@ -139,7 +146,7 @@ describe("LifecycleSpine", () => {
       aggregateRows: passing,
       windowDays: 7,
     });
-    expect(screen.getByTestId("spine-dot").getAttribute("data-state")).toBe("active");
+    expect(dotFor("pre-gate").getAttribute("data-state")).toBe("active");
 
     const broken = rowMap([
       aggregateRow({
@@ -156,7 +163,7 @@ describe("LifecycleSpine", () => {
         />
       </MemoryRouter>
     );
-    expect(screen.getByTestId("spine-dot").getAttribute("data-state")).toBe("broken");
+    expect(dotFor("pre-gate").getAttribute("data-state")).toBe("broken");
   });
 
   test("each dot links to the catalog detail route (SC3)", () => {
@@ -165,8 +172,7 @@ describe("LifecycleSpine", () => {
       aggregateRows: rowMap([aggregateRow({ guardName: "pre-gate" })]),
       windowDays: 7,
     });
-    const dot = screen.getByTestId("spine-dot");
-    expect(dot.getAttribute("href")).toBe("/interceptors/pre-gate");
+    expect(dotFor("pre-gate").getAttribute("href")).toBe("/interceptors/pre-gate");
   });
 
   test("states the sizing window when the snapshot is ready (SC2), and pending otherwise", () => {
@@ -180,7 +186,7 @@ describe("LifecycleSpine", () => {
 
     renderSpine({ entries: [entry()], aggregateRows: null, windowDays: null });
     expect(screen.getByTestId("spine-window-note").textContent).toContain("placement only");
-    expect(screen.getByTestId("spine-dot").getAttribute("data-state")).toBe("pending");
+    expect(dotFor("example-guard").getAttribute("data-state")).toBe("pending");
   });
 
   test("renders the domain-command, CI and review population gaps as text, never as entities", () => {
@@ -194,8 +200,14 @@ describe("LifecycleSpine", () => {
 
   test("marks system-subject entries distinctly and counts unplaced names", () => {
     renderSpine({ entries: population, aggregateRows: rowMap([]), windowDays: 7 });
-    const meta = document.querySelector('[data-guard="meta-scan"]');
-    expect(meta?.getAttribute("data-subject")).toBe("system");
+    const meta = dotFor("meta-scan");
+    expect(meta.getAttribute("data-subject")).toBe("system");
+    // The marker must be a REAL utility, applied to the dot fill. `ring-dashed`
+    // shipped once and rendered a solid ring — Tailwind's ring has no style
+    // variant, so the dashed marker is an outline (PR #2989 R1).
+    expect(meta.querySelector("span")?.className).toContain("outline-dashed");
+    const trajectoryDot = dotFor("pre-gate");
+    expect(trajectoryDot.querySelector("span")?.className).not.toContain("outline-dashed");
     const note = screen.getByTestId("spine-population-note").textContent ?? "";
     expect(note).toContain("bare");
     expect(note).toContain("fixture/retired");

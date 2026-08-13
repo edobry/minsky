@@ -100,7 +100,12 @@ function SpineDot({
     >
       <span
         className={`block rounded-full ${fill} ${
-          entry.subject === "system" ? "ring-1 ring-dashed ring-muted-foreground/70" : ""
+          // `outline`, not `ring`: Tailwind's ring has no style variant, so a
+          // dashed marker is only expressible as a dashed outline (PR #2989 R1
+          // — `ring-dashed` is not a utility and rendered a solid ring).
+          entry.subject === "system"
+            ? "outline outline-1 outline-dashed outline-muted-foreground/70 outline-offset-1"
+            : ""
         }`}
         style={{ width: size, height: size }}
       />
@@ -203,8 +208,8 @@ export function LifecycleSpine({
           </span>
         ))}
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/25 ring-1 ring-dashed ring-muted-foreground/70" />
-          dashed ring: subject is the interception system, not this turn
+          <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/25 outline outline-1 outline-dashed outline-muted-foreground/70 outline-offset-1" />
+          dashed outline: subject is the interception system, not this turn
         </span>
       </div>
 
