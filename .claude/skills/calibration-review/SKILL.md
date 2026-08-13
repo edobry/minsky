@@ -30,21 +30,24 @@ packaging an enforcement-posture change as an Ask (Step 4's split, mt#3769).
 
 Calibration logs are a SHARED resource across concurrent sessions, and a second
 pass over the same log is pure waste: both agents classify the same records, and
-only one ack can survive. **Run this probe BEFORE the sweep** — every step below
-is work you cannot get back if a pass is already in flight.
+only one ack can survive. **Both checks below run before Step 2's
+classification** — that is the expensive and unrecoverable work. The sweep
+itself is read-only and cheap, which is why one check sits on each side of it.
 
 Two checks, both cheap:
 
-1. **Search for a tune task or disposition ask already filed against the
-   detectors you are about to review** — `mcp__minsky__tasks_search` on the
-   detector name, and `mcp__minsky__asks_list` with `kind: "direction.decide"`
-   for the ask side. One created in the last few minutes, naming one of your
-   logs, is the visible signature of a pass in flight. That is exactly how R2
-   below was caught.
-2. **Re-read the watermark before you classify.** If a log's `watermarkCount`
-   moved between your read-only sweep and the moment you start classifying it,
-   another pass acked it underneath you and those records are no longer yours to
-   review.
+1. **Before the sweep — search for a tune task or disposition ask already filed**
+   against the detectors you are about to review: `mcp__minsky__tasks_search` on
+   the detector name, and `mcp__minsky__asks_list` with
+   `kind: "direction.decide"` for the ask side. One created in the last few
+   minutes, naming one of your logs, is the visible signature of a pass in
+   flight. That is exactly how R2 below was caught, and it is the cheapest of the
+   two — it needs nothing but the detector names.
+2. **After the sweep, before you classify — re-read the watermark.** This one
+   consumes the sweep's own output, so it cannot run any earlier: if a log's
+   `watermarkCount` moved between your read-only sweep and the moment you start
+   classifying it, another pass acked it underneath you and those records are no
+   longer yours to review.
 
 **If the probe HITS: stand down on that log.** Do not classify it in parallel
 and reconcile afterwards — the other pass owns it. Read what they filed, and if
@@ -685,7 +688,7 @@ no longer reports success.
 **Prevention lives in Step 1, not here (mt#4119).** `driftedPaths` is the
 DETECTION half of this problem, and it can only fire after a pass has already
 done its classification. The PREVENTION half — probe for a pass already in
-flight, before you sweep — is stated at the top of **Step 1**, because that is
+flight, before you CLASSIFY — is stated at the top of **Step 1**, because that is
 the only place it can be read in time to act on. It is deliberately NOT restated
 here: this paragraph exists to point at it. (This relocation IS mt#4119; the
 guidance previously sat in this section, where an agent following the skill in
