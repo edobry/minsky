@@ -18,6 +18,7 @@ import {
   deriveOriginNotice,
   derivePendingRepliesNotice,
   deriveAgentStoppedNotice,
+  deriveConversationSwapNotice,
   derivePollInterval,
   fetchEntityThread,
   isThreadStranded,
@@ -463,6 +464,93 @@ describe("deriveAgentStoppedNotice (mt#4037)", () => {
     // reason must not be read as asserting one. The panel falls back to the
     // vaguer stranded line, which is at least true.
     expect(deriveAgentStoppedNotice(undefined)).toBeNull();
+  });
+});
+
+/**
+ * mt#4093 — the panel must not render continuity that is not there.
+ *
+ * On 2026-08-12 a thread's agent was silently replaced by a fresh one with no
+ * history. The operator nudged the thread and the incoming agent answered
+ * "Nothing was in flight" — true of the conversation IT could see, false of the
+ * 119 turns still on screen. Nothing in the panel distinguished the two.
+ */
+describe("deriveConversationSwapNotice (mt#4093)", () => {
+  test("says the current agent has not seen the messages above", () => {
+    const notice = deriveConversationSwapNotice({
+      replacedConversationId: "1b355295-0000-4000-8000-000000000000",
+    });
+    // The state, not the mechanism — this is what tells the operator to re-ask
+    // rather than wait for an answer that is never coming.
+    expect(notice).toMatch(/has not seen the messages above/i);
+    expect(notice).toMatch(/fresh agent/i);
+  });
+
+  test("does not put the replaced conversation id on screen", () => {
+    // It addresses an on-disk transcript the panel cannot open, so rendering it
+    // would offer the operator a handle that leads nowhere.
+    const notice = deriveConversationSwapNotice({
+      replacedConversationId: "1b355295-0000-4000-8000-000000000000",
+    });
+    expect(notice).not.toContain("1b355295-0000-4000-8000-000000000000");
+  });
+
+  test("says NOTHING when no swap is on record", () => {
+    // Absent means "no swap recorded", the same discipline `agentStopReason`
+    // and `originSeeded` follow. A daemon predating the field must not be read
+    // as asserting continuity it never checked.
+    expect(deriveConversationSwapNotice(undefined)).toBeNull();
+  });
+
+  test("the notice REACHES the render, above the history it qualifies", async () => {
+    // The derive tests above prove the string; this proves the panel actually
+    // puts it on screen. A correct notice the render never reaches is exactly
+    // the shape of the defect — a true fact the operator cannot see.
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [
+        block({ id: "t#1", type: "user-prompt" }),
+        block({ id: "t#2", type: "assistant-text", rawJsonlType: "assistant" }),
+      ],
+      live: false,
+      conversationSwap: { replacedConversationId: "1b355295-0000-4000-8000-000000000000" },
+    });
+    renderPanel();
+
+    const notice = await screen.findByTestId("entity-thread-conversation-swap");
+    expect(notice.textContent).toMatch(/has not seen the messages above/i);
+  });
+
+  test("a swapped-in agent that is ALSO stranded shows both notices, not one", async () => {
+    // The swap notice sits outside the pending/stopped/stranded chain on
+    // purpose: those are mutually exclusive answers to "why is no reply
+    // coming?", while this answers "whose conversation is the history?".
+    // Suppressing it to show one of them would restore the silent continuity.
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [block({ id: "t#1", type: "user-prompt" })],
+      live: false,
+      agentStopReason: "cockpit-restart",
+      conversationSwap: { replacedConversationId: "1b355295-0000-4000-8000-000000000000" },
+    });
+    renderPanel();
+
+    expect(await screen.findByTestId("entity-thread-conversation-swap")).toBeDefined();
+    expect(await screen.findByTestId("entity-thread-agent-stopped")).toBeDefined();
+  });
+
+  test("no swap on the response renders no notice at all", async () => {
+    stubFetch({
+      localId: "entity-thread:ask:abc",
+      blocks: [block({ id: "t#1", type: "user-prompt" })],
+      live: true,
+    });
+    renderPanel();
+
+    // Waited for the panel to settle first, so this is an assertion about a
+    // rendered thread rather than about a component that had not loaded yet.
+    await screen.findByText("Discussion");
+    expect(screen.queryByTestId("entity-thread-conversation-swap")).toBeNull();
   });
 });
 

@@ -170,6 +170,46 @@ export function mapRawEntityThreadTurnRow(raw: RawEntityThreadTurnRow): EntityTh
   };
 }
 
+/** Shape of one raw `entity_threads` row as returned by `postgres-js` (snake_case). */
+export interface RawEntityThreadRow {
+  local_id: string;
+  entity_type: string;
+  entity_id: string;
+  replaced_conversation_id?: string | null;
+  replaced_at?: Date | string | null;
+}
+
+/**
+ * Project a raw thread row to {@link EntityThread}.
+ *
+ * The swap columns are OMITTED rather than set to `undefined`/`null` when the
+ * row carries no swap, so `{...thread}` onto a response body cannot produce a
+ * `replacedConversationId: null` key. The panel treats presence as the signal
+ * (the same discipline `originSeeded` and `pendingReplies` already follow at
+ * the route), and a present-but-null key would read as "we checked and there
+ * was a swap" to anything doing a key check.
+ *
+ * `replacedAt` is dropped when `replacedConversationId` is absent even if the
+ * column somehow holds a timestamp: a swap instant with no conversation behind
+ * it is not a fact this can report, and reporting half of it would render a
+ * notice naming no conversation.
+ */
+export function mapRawEntityThreadRow(raw: RawEntityThreadRow): EntityThread {
+  const replaced = raw.replaced_conversation_id?.trim();
+  const base: EntityThread = {
+    localId: raw.local_id,
+    entityType: raw.entity_type as EntityThreadEntityType,
+    entityId: raw.entity_id,
+  };
+  if (!replaced) return base;
+  const at = raw.replaced_at;
+  return {
+    ...base,
+    replacedConversationId: replaced,
+    ...(at ? { replacedAt: at instanceof Date ? at : new Date(at) } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Writes
 // ---------------------------------------------------------------------------
@@ -183,6 +223,15 @@ export interface EntityThread {
   localId: string;
   entityType: EntityThreadEntityType;
   entityId: string;
+  /**
+   * The conversation a fresh seeded agent replaced, when one was replaced
+   * (mt#4093) — see the schema column's docblock. Absent, not null, when
+   * nothing was replaced, so a caller spreading this onto a response body omits
+   * the field entirely rather than asserting a swap that did not happen.
+   */
+  replacedConversationId?: string;
+  /** When {@link replacedConversationId} was replaced. Present iff that is. */
+  replacedAt?: Date;
 }
 
 /**
@@ -210,14 +259,76 @@ export async function getOrCreateEntityThread(
     entityId: input.entityId,
     updatedAt: new Date(),
   };
-  await db
+  // `returning` (mt#4093): the conflict branch is the COMMON one — an existing
+  // thread being touched — and that row may carry a recorded conversation swap
+  // the caller has to report. Constructing the result from the INPUT instead,
+  // as this did, cannot see any column the caller did not supply.
+  const rows = await db
     .insert(entityThreadsTable)
     .values(values)
     .onConflictDoUpdate({
       target: entityThreadsTable.localId,
       set: { updatedAt: values.updatedAt },
+    })
+    .returning({
+      localId: entityThreadsTable.localId,
+      entityType: entityThreadsTable.entityType,
+      entityId: entityThreadsTable.entityId,
+      replacedConversationId: entityThreadsTable.replacedConversationId,
+      replacedAt: entityThreadsTable.replacedAt,
     });
-  return { localId, entityType: input.entityType, entityId: input.entityId };
+  const row = rows[0];
+  // Defensive: an upsert that matched and updated always returns its row, but a
+  // thread the caller can act on matters more than the swap field, so a missing
+  // row degrades to the input-derived shape rather than throwing.
+  if (!row) return { localId, entityType: input.entityType, entityId: input.entityId };
+  return mapRawEntityThreadRow({
+    local_id: row.localId,
+    entity_type: row.entityType,
+    entity_id: row.entityId,
+    replaced_conversation_id: row.replacedConversationId,
+    replaced_at: row.replacedAt,
+  });
+}
+
+/**
+ * Record that a fresh seeded agent replaced `replacedConversationId` on this
+ * thread (mt#4093).
+ *
+ * Called at the moment of the swap, from the message path — which is the ONLY
+ * moment the outgoing conversation id is still knowable. `driven_sessions` is
+ * keyed on the same `local_id` and is about to be upserted by the fresh spawn,
+ * overwriting `harness_session_id`; after that the id survives nowhere but the
+ * on-disk JSONL.
+ *
+ * LAST WRITE WINS on a second swap, deliberately. The panel's notice says "the
+ * agent answering you has not seen the turns above", which is true of the most
+ * recent swap and would be understated by pinning the first one. A full swap
+ * HISTORY is a different feature; nothing asks for it yet.
+ *
+ * Never throws — a thread that works without the notice is strictly better than
+ * a message path that 500s because the disclosure could not be written. The
+ * failure is logged, and the operator gets the swapped-in agent either way.
+ */
+export async function recordEntityThreadConversationSwap(
+  db: PostgresJsDatabase,
+  input: { localId: string; replacedConversationId: string; replacedAt?: Date }
+): Promise<void> {
+  const replaced = input.replacedConversationId.trim();
+  if (!replaced) return;
+  try {
+    await db.execute(sql`
+      UPDATE entity_threads
+      SET replaced_conversation_id = ${replaced},
+          replaced_at = ${(input.replacedAt ?? new Date()).toISOString()},
+          updated_at = now()
+      WHERE local_id = ${input.localId}
+    `);
+  } catch (err) {
+    log.warn(`recordEntityThreadConversationSwap: failed for ${input.localId}`, {
+      error: getLoggableErrorSummary(err),
+    });
+  }
 }
 
 export interface AppendEntityThreadTurnInput {
@@ -319,21 +430,15 @@ export async function findEntityThread(
   const localId = entityThreadLocalId(entityType, entityId);
   try {
     const result = await db.execute(sql`
-      SELECT local_id, entity_type, entity_id
+      SELECT local_id, entity_type, entity_id, replaced_conversation_id, replaced_at
       FROM entity_threads
       WHERE local_id = ${localId}
       LIMIT 1
     `);
-    const rows = Array.from(
-      result as Iterable<{ local_id: string; entity_type: string; entity_id: string }>
-    );
+    const rows = Array.from(result as Iterable<RawEntityThreadRow>);
     const row = rows[0];
     if (!row) return null;
-    return {
-      localId: row.local_id,
-      entityType: row.entity_type as EntityThreadEntityType,
-      entityId: row.entity_id,
-    };
+    return mapRawEntityThreadRow(row);
   } catch (err) {
     log.warn(`findEntityThread: failed for ${localId}`, {
       error: getLoggableErrorSummary(err),

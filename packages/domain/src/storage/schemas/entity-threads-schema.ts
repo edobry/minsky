@@ -89,6 +89,29 @@ export const entityThreadsTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     /** No DB trigger — refreshed explicitly by the store's single write path. */
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+
+    /**
+     * The conversation a fresh seeded agent REPLACED, when one was replaced
+     * (mt#4093). Null for the overwhelmingly common case: a thread whose agent
+     * has always been the same conversation.
+     *
+     * This has to live here rather than on `driven_sessions`, which is where
+     * the conversation id otherwise lives, because a fresh spawn UPSERTS that
+     * row on `local_id` — overwriting `harness_session_id` with the NEW
+     * conversation. The outgoing id is destroyed by the very spawn that makes
+     * it worth recording, so it is captured on the thread instead, which the
+     * spawn does not touch.
+     *
+     * Durable rather than derived because the fact it records is a permanent
+     * property of the RENDERED HISTORY: every turn above the swap point belongs
+     * to a conversation the current agent cannot see. An in-memory flag would
+     * cover the moment of the swap and then vanish on the next daemon restart,
+     * leaving later readers with exactly the unbroken-continuity illusion this
+     * column exists to break.
+     */
+    replacedConversationId: text("replaced_conversation_id"),
+    /** When {@link replacedConversationId} was replaced. Null iff that is null. */
+    replacedAt: timestamp("replaced_at", { withTimezone: true }),
   },
   (table) => ({
     /**

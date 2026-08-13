@@ -568,7 +568,19 @@ export async function loadPersistedDrivenSessions(
 export type DrivenSessionResumeOutcome =
   | { outcome: "resumed"; record: DrivenSessionRecord }
   | { outcome: "locked" }
-  | { outcome: "unrecoverable"; reason: string }
+  | {
+      outcome: "unrecoverable";
+      reason: string;
+      /**
+       * The conversation that cannot be resumed, when the row names one
+       * (mt#4093). Absent for the spawn-died-before-init case, where the row
+       * never linked a conversation at all — the distinction matters to a
+       * caller that has to tell the operator WHICH conversation it is about to
+       * replace, because there is nothing to name in that case and a fresh
+       * spawn replaces nothing the operator ever saw.
+       */
+      harnessSessionId?: string;
+    }
   | { outcome: "not-found" };
 
 /** Test seam for {@link orchestrateDrivenSessionResume}. */
@@ -635,7 +647,11 @@ export async function orchestrateDrivenSessionResume(
     };
   }
   if (row.status === "unrecoverable") {
-    return { outcome: "unrecoverable", reason: row.unrecoverableReason ?? "unrecoverable" };
+    return {
+      outcome: "unrecoverable",
+      reason: row.unrecoverableReason ?? "unrecoverable",
+      harnessSessionId: row.harnessSessionId,
+    };
   }
   // mt#3397 — the workspace this conversation ran in is gone, so there is
   // nothing to resume INTO. Checked here, before the resume lock and the
@@ -649,7 +665,7 @@ export async function orchestrateDrivenSessionResume(
     await persistUnrecoverableVerdict(db, row, reason, {
       persistTerminalVerdict: deps.persistTerminalVerdict,
     });
-    return { outcome: "unrecoverable", reason };
+    return { outcome: "unrecoverable", reason, harnessSessionId: row.harnessSessionId };
   }
 
   const withResumeLock =

@@ -680,6 +680,13 @@
       "when": 1786553414519,
       "tag": "0096_good_amphibian",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1786637118353,
+      "tag": "0097_hot_blackheart",
+      "breakpoints": true
     }
   ]
 }
