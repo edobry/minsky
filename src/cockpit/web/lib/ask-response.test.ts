@@ -31,15 +31,17 @@ function makeAsk(overrides: Partial<AskItem> = {}): AskItem {
 }
 
 /**
- * An option as it exists in the STORE for asks predating `askOptionSchema`'s
+ * An option shaped like the ONE stored ask that predates `askOptionSchema`'s
  * value normalization: no `value` at all.
  *
- * The declared `AskOption` type requires `value`, so this shape is not
- * expressible without a cast — but the shape is real, which is exactly why
- * `composeResolvePayload` carries an mt#3181 branch for it and why
- * `resolveChosenOption` falls back to matching on the label. The type is
- * optimistic relative to the rows actually in the store; the cast is the honest
- * way to write a fixture for them rather than a way around a type error.
+ * The cast is deliberate and is not a way around a type error. `AskOption.value`
+ * is REQUIRED on purpose — it constrains what new code may CONSTRUCT, and does
+ * not claim every stored row satisfies it (see the field's comment in
+ * `../widgets/AskDetail.tsx`). Measured 2026-08-13: exactly one ask carries this
+ * shape — ask#5769, closed, the ask mt#3181 was filed about, 1 of 183 asks with
+ * options. So the fixture must step outside the type to model it, and these
+ * tests are what keep the two branches that render it from being deleted as
+ * unreachable.
  */
 function legacyOption(label: string): AskOption {
   return { label } as unknown as AskOption;

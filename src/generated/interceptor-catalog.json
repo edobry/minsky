@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 95,
+  "population": 96,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -2351,6 +2351,35 @@
       "role": "judge",
       "coordinateGaps": [],
       "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "truncated-outcome-read",
+      "description": "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/truncated-outcome-read-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false
     },

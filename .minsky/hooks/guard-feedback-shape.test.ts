@@ -278,6 +278,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "calibration-review-cadence-detector",
         "causal-premise-detector",
         "chained-verification-commands",
+        "truncated-outcome-read",
         "check-guessed-session-path",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
@@ -388,6 +389,9 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // longer (denial) directive branch (mt#3658).
   "flakiness-control-detector": WORST_CASE_CANARY,
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
+  // mt#4096: two interpolations, both bounded — the command is the pipeline stage
+  // (itself bounded by the shell) and the filter is one of two literal tokens.
+  "truncated-outcome-read": "capped",
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
