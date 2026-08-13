@@ -346,9 +346,12 @@ describe("terminal ask retains its body and reads its answer in operator languag
 
   test("AT2a: an option stored without a `value` still resolves by label (mt#3181 path)", async () => {
     const ask = closedAsk({
-      // No `value` — the store shape for asks predating `askOptionSchema`'s
-      // normalization, which the declared AskOption type does not admit but
-      // `composeResolvePayload`'s mt#3181 branch exists to handle.
+      // No `value` — the shape of ask#5769, the ONE stored ask predating
+      // `askOptionSchema`'s normalization (measured 2026-08-13: 1 of 183 asks
+      // carrying options). `AskOption.value` is REQUIRED on purpose, so a
+      // fixture for that row has to step outside the type; the cast is
+      // deliberate, not a workaround. See the field's comment in
+      // `../widgets/AskDetail.tsx`.
       options: [
         { label: "Approve the rotation" },
         { label: CHOSEN_LABEL },
