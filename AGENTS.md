@@ -1387,6 +1387,12 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   scripts — a second copy of any script is near-never intended, and a list would go stale silently.
   First execution-surface member of the duplication-gate family, every other one of which binds to
   a task-graph surface (mem#999). `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
+- **Bulk process-kill** (mt#4081) — `kill` naming 3+ PIDs, or `pkill`/`killall` naming an
+  interactive process class. Denies with the move-vs-recreate alternative: a capability ruled out
+  on ONE probed channel is not a capability that does not exist. Same matcher class as the two
+  above (structured command string, no paraphrase axis), so it ships denying rather than
+  calibration-first. Act-path half of the operator-deferral family, whose detector catches only
+  the deferral-PROSE path (mem#707 R8). `MINSKY_ALLOW_BULK_PROCESS_KILL`.
 - **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
   `Duplicate check:` line (either named candidates + reconciliation, or the literal
   `Duplicate check: no candidates found.`). Presence check on the spec text, NOT a similarity
@@ -1443,7 +1449,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
 - **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
-- **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe. Sibling of ask-routing-deferral (which covers a DECISION). FIVE surfaces: capability prose, `AskUserQuestion` labels, permission prose (mt#3463), denial-anchored (mt#3533), ask-justification (mt#3999). Evaluation stream over all five, fired or not, so the miss RATE is measurable. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`. Detail: `operator-deferral-detector.md`.
+- **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe. Sibling of ask-routing-deferral (which covers a DECISION). SIX surfaces: capability prose, `AskUserQuestion` labels, permission prose (mt#3463), denial-anchored (mt#3533), ask-justification (mt#3999), act-path workaround (mt#4081 — tool-call state, not prose: a destructive action in a turn with no capability search; its blocking sibling is the `block-bulk-process-kill` guard). Evaluation stream over all six, fired or not, so the miss RATE is measurable. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`. Detail: `operator-deferral-detector.md`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead). LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose. LIVE mt#3399. `MINSKY_SKIP_SILENT_STRETCH`.
 - **Chained-verification-commands** (mt#3910) — a `Bash`/`session_exec` command string chaining TWO OR MORE verification commands (`bun test`, `bun run lint|format|typecheck|validate|build`, `bunx eslint|tsc`, `tsgo`) with `;`/`&&`/`||`, which makes a non-zero exit unattributable. Deliberately narrow. Calibration-first. `MINSKY_SKIP_CHAINED_VERIFICATION_SCAN`. Detail: `chained-verification-commands-detector.md`.

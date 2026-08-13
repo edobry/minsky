@@ -81,6 +81,16 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["check-guessed-session-path", "block-concurrent-bulk-mutation"],
   ["block-secret-file-read", "block-concurrent-bulk-mutation"],
   ["chained-verification-commands", "block-concurrent-bulk-mutation"],
+  // Fifth guard on the Bash/session_exec command string (mt#4081), and back to
+  // deciding purely from the text — but about a different property than any
+  // sibling: not what the command TOUCHES (a constructed path, a secret) nor
+  // how many results it CONFLATES (chained verification) nor whether a twin is
+  // already running (concurrent bulk-mutation), but how much live state a
+  // single call DESTROYS. Independent overrides; running all five is the point.
+  ["check-guessed-session-path", "block-bulk-process-kill"],
+  ["block-secret-file-read", "block-bulk-process-kill"],
+  ["chained-verification-commands", "block-bulk-process-kill"],
+  ["block-concurrent-bulk-mutation", "block-bulk-process-kill"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

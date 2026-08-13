@@ -4,7 +4,7 @@ Calibration-first, LOG-ONLY detection surfaces for the **operator-deferral famil
 the agent handing the principal an action it could have performed itself, without first
 running the capability probe `user-preferences.mdc §Probe before deferring` requires.
 
-**There are FIVE surfaces; sections A and B below were the original two.** The full set is
+**There are SIX surfaces; sections A and B below were the original two.** The full set is
 enumerated under "The page says two surfaces above" — read that before assuming this page's
 opening sections are the whole detector.
 
@@ -98,9 +98,9 @@ a **decision** being deferred to the principal in chat prose instead of through 
 substrate. This detector covers an **action** being deferred. A turn can legitimately fire
 both.
 
-## The page says "two surfaces" above; there are now FIVE
+## The page says "two surfaces" above; there are now SIX
 
-Sections A and B predate the three added later. The full set:
+Sections A and B predate the four added later. The full set:
 
 **C. Permission-deferral prose (mt#3463)** — "I can, shall I?" rather than "I can't". It
 EXCLUDES genuinely destructive or principal-reserved actions, because for those the ask is
@@ -128,6 +128,11 @@ synthetic in the test rather than presented as a replay.
 **E. Ask-justification capability-absence (mt#3999)** — an `asks_create` the router sent to
 the **operator**, whose justification asserts a named capability, credential, tool or flag
 does not exist, in a turn that consulted **fewer than two distinct channels**.
+
+**F. Act-path workaround (mt#4081)** — a destructive command in a turn containing NO capability
+search. The only surface here that reads no prose at all: both legs are tool-call state. Its
+own section at the end of this page carries the measured surface-E miss that produced it, and
+its blocking sibling is the `block-bulk-process-kill` guard.
 
 Three things about this surface are easy to get wrong later, so they are recorded here.
 
@@ -222,7 +227,7 @@ record silent for those reasons is not one the tune removed.
 
 ### The evaluation stream
 
-The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL FIVE surfaces,
+The detector writes `.minsky/operator-deferral-evaluations.jsonl` covering ALL SIX surfaces,
 fired or not — the miss RATE is what ADR-024's rung decisions need, and a fire-only log cannot
 give it.
 
@@ -271,3 +276,40 @@ because it shipped — it works only when its fire-log proves it covered its spa
 - mem#804 — the family's bridge memory, whose budget this slice spent
 - mem#582 (R5 incident, replayed as a test fixture) · mem#535 (R2/R4, owned by mt#2303)
 - mem#528 — why the tool-interleaved test fixture is mandatory for any turn-scanning hook
+
+## Surface F — act-path workaround (mt#4081)
+
+**Trigger:** a destructive command (`kill` / `pkill` / `killall`) in a turn that contains no
+capability search (`WebSearch`, `WebFetch`, or a `Skill` load). Both legs are tool-call state;
+**no prose is read**.
+
+### Why it is not a sixth phrase family
+
+Surfaces A–E all key on something the agent SAID. The act path says nothing — the agent concludes
+a capability is unavailable and quietly builds around it. On 2026-08-13 (mem#707 R8) surface E
+evaluated exactly such a turn and scored it `fired: false`:
+
+```
+evaluated: "prose-turn"   fired: false   surfaces: []
+ask_justification: { operatorRoutedAsks: 0, absenceClaimPresent: false, distinctChannels: 1 }
+```
+
+`distinctChannels: 1` was CORRECT — the turn probed one channel. The leg that failed was
+`absenceClaimPresent`: the turn's two absence claims ("a no-op, so that path is out"; "I don't
+know of a scripted path for it") matched no pattern in the corpus.
+
+Widening that corpus is the response ADR-024 §Context names as the anti-pattern ("R1 → R5 — an
+arms race"). So surface F keys on the two facts that need no matching at all: the destruction
+happened, and no search preceded it.
+
+### What it deliberately does not fire on
+
+An agent that searched and then destroyed made an informed choice — the absence of the search is
+what makes the shape reportable, not the destruction. A turn containing any capability-search tool
+call is silent.
+
+### Blocking sibling
+
+`block-bulk-process-kill` (PreToolUse, denies from day one) is the enforcement half; this surface
+is the measurement half, and exists so the family's miss rate on the act path stays observable the
+way surface E's was here. See `docs/architecture/hooks/block-bulk-process-kill.md`.

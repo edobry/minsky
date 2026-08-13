@@ -17,6 +17,9 @@ import {
   runAskSurface,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
+  detectActPathWorkaround,
+  isDestructiveCommand,
+  hasCapabilitySearch,
 } from "./operator-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
@@ -1414,5 +1417,93 @@ describe("mt#3865 — rule-discussion suppression is a REGRESSION PIN, not new (
     // The half a fire-only log cannot give: the scanned text is retained, so a
     // suppression can be re-rated later as a miss if it turns out to be one.
     expect(record["text_tail"]).toContain(RAILWAY_ACCESS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface F — act-path improvised workaround (mt#4081)
+// ---------------------------------------------------------------------------
+
+/**
+ * The 2026-08-13 turn, reduced to its shape: one channel probed, a no-op read as
+ * a capability absence, then a mass kill — and no capability search anywhere in
+ * the turn. Surface E evaluated this turn and scored `fired: false`
+ * (`absenceClaimPresent: false`), which is what this surface exists to catch.
+ */
+function actPathTurn(
+  options: { search?: { name: string }; command?: string } = {}
+): TranscriptLine[] {
+  const { search, command = "kill 544 654 818 88112 966 1106" } = options;
+  const lines: TranscriptLine[] = [
+    correlatedToolUse("toolu_probe", "Bash", {
+      command: "osascript -e 'tell application \"iTerm2\" to move tab 1 of window 1'",
+    }),
+    correlatedToolResult("toolu_probe", "MOVE OK"),
+  ];
+  if (search) {
+    lines.push(correlatedToolUse("toolu_search", search.name, { query: "iterm2 move tab" }));
+    lines.push(correlatedToolResult("toolu_search", "async_set_tabs"));
+  }
+  lines.push(correlatedToolUse("toolu_kill", "Bash", { command }));
+  lines.push(correlatedToolResult("toolu_kill", ""));
+  return lines;
+}
+
+describe("surface F — act-path improvised workaround (mt#4081)", () => {
+  test("AT3: the 2026-08-13 turn fires, without needing an absence-claim phrase", () => {
+    const matches = detectActPathWorkaround(actPathTurn());
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe("act-path-workaround");
+    // The trigger is tool-call state — nothing in this turn's prose was read.
+    expect(matches[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("AT4: the same turn with a WebSearch in it does not fire", () => {
+    expect(detectActPathWorkaround(actPathTurn({ search: { name: "WebSearch" } }))).toHaveLength(0);
+  });
+
+  test("a Skill load counts as a capability search", () => {
+    expect(detectActPathWorkaround(actPathTurn({ search: { name: "Skill" } }))).toHaveLength(0);
+  });
+
+  test("a turn with no destructive action does not fire", () => {
+    const lines = [
+      correlatedToolUse("toolu_ls", "Bash", { command: "ls -la" }),
+      correlatedToolResult("toolu_ls", ""),
+    ];
+    expect(detectActPathWorkaround(lines)).toHaveLength(0);
+  });
+
+  test("the diversity axis is the verb, not the PID list", () => {
+    const a = detectActPathWorkaround(actPathTurn({ command: "kill 1 2 3" }));
+    const b = detectActPathWorkaround(actPathTurn({ command: "kill 9 8 7" }));
+    expect(a[0]?.matchedPhrase).toBe("kill");
+    expect(b[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("hasCapabilitySearch is true for WebFetch", () => {
+    expect(
+      hasCapabilitySearch([correlatedToolUse("toolu_wf", "WebFetch", { url: "https://x" })])
+    ).toBe(true);
+  });
+});
+
+describe("surface F — parse robustness (PR #2954 R1)", () => {
+  test("a kill verb quoted inside a commit message is not a destructive action", () => {
+    const lines = [
+      correlatedToolUse("toolu_c", "Bash", {
+        command: "git commit -m 'fix: kill the retry loop'",
+      }),
+      correlatedToolResult("toolu_c", ""),
+    ];
+    expect(detectActPathWorkaround(lines)).toHaveLength(0);
+    expect(isDestructiveCommand("git commit -m 'fix: kill the retry loop'")).toBe(false);
+  });
+
+  test("a real kill still reads as destructive, path-qualified or not", () => {
+    expect(isDestructiveCommand("kill 111 222 333")).toBe(true);
+    expect(isDestructiveCommand("/bin/kill 111")).toBe(true);
+    expect(isDestructiveCommand("echo done && killall node")).toBe(true);
   });
 });
