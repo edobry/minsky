@@ -1205,6 +1205,17 @@ export class MinskyStdioProxy {
   get shuttingDown(): boolean {
     return this.isShuttingDown;
   }
+
+  /**
+   * For testing: crash-loop failures counted in the current window (mt#4112).
+   *
+   * Exposed because "a memory restart is not a crash" is a claim about this
+   * counter specifically, and there is no other way to observe it. It is the
+   * value compared against `MAX_CONSECUTIVE_FAILURES`.
+   */
+  get recentFailureCount(): number {
+    return this.recentFailures.length;
+  }
 }
 
 /**
