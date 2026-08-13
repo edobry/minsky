@@ -12,13 +12,17 @@ import {
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
   SUPPRESSION_RESERVED_CATEGORY_HALT,
   SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+  SUPPRESSION_DESTRUCTIVE_ACTION_HALT,
+  SUPPRESSION_HARNESS_COMMAND_HALT,
+  SUPPRESSION_FILED_BY_DESIGN_HALT,
+  SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
   detectArmedWatcherEvidence,
   CONDITIONAL_WAIT_TOOL,
   ARMED_WAIT_TOOLS,
 } from "./turn-end-untaken-action-scan";
 import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import { GUARD_REGISTRY, type DispatchContext } from "./registry";
+import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
 import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
 
 // Verbatim tails from the mt#3179 incidents. These are the regression anchors:
@@ -947,6 +951,129 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
         storeDir
       );
       expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4116 / mt#4113 — the four corpus-mandated halts the suppression missed
+// ---------------------------------------------------------------------------
+
+describe("corpus-mandated halt suppressions (mt#4116, absorbing mt#4113)", () => {
+  function userPrompt2(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+
+  function toolUse2(name: string): TranscriptLine {
+    return {
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "tool_use", id: "t", name, input: {} }] },
+    } as unknown as TranscriptLine;
+  }
+
+  function ctx2(...lines: TranscriptLine[]): DispatchContext {
+    return { transcriptLines: [userPrompt2("go"), ...lines] } as unknown as DispatchContext;
+  }
+
+  function runOn(msg: string, c: DispatchContext, store: string): GuardOutcome | null {
+    return run(
+      { session_id: `s-${Math.abs(hashOf(msg))}`, last_assistant_message: msg } as never,
+      c,
+      store
+    );
+  }
+  // Distinct session per message so the dedup store never masks a result.
+  function hashOf(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return h;
+  }
+
+  describe("destructive action (shape 1)", () => {
+    test("the 2026-08-13T15:24 fixture goes quiet", () => {
+      const msg = "Say the word and I'll SIGKILL both.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_DESTRUCTIVE_ACTION_HALT]);
+      expect(out?.additionalContext).toBeUndefined();
+    });
+
+    test("keys on the VERB, not on a claim of destructiveness", () => {
+      // The manufacturable form: asserts the category, names no destructive act.
+      const msg = "This next step is destructive, so say the word and I'll do it.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons ?? []).not.toContain(
+        SUPPRESSION_DESTRUCTIVE_ACTION_HALT
+      );
+    });
+  });
+
+  describe("harness command (shape 3)", () => {
+    test("the 2026-08-12T22:16 fixture goes quiet", () => {
+      const msg = "What's needed: run /mcp to reconnect, then I'll merge the PR.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_HARNESS_COMMAND_HALT]);
+    });
+
+    test("a general participation excuse still fires — deliberately out of scope", () => {
+      const msg = "I need you to reproduce the hang, then I'll merge the fix.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+  });
+
+  describe("filed-for-later-by-design (shape 2)", () => {
+    test("suppressed only when the turn ACTUALLY minted a task", () => {
+      const msg =
+        "That's the background/tracking task case, filed for later by design. " +
+        "Say the word and I'll start it.";
+      const withCreate = runOn(msg, ctx2(toolUse2("mcp__minsky__tasks_create")), storeDir);
+      expect(withCreate?.calibration?.suppressionReasons).toEqual([
+        SUPPRESSION_FILED_BY_DESIGN_HALT,
+      ]);
+    });
+
+    test("the same prose with NO task created still fires", () => {
+      // The confabulated-halt shape: says the words, filed nothing. This must not
+      // become a way to talk past the sibling unwalked-task guard.
+      const msg =
+        "That's the background/tracking task case, filed for later by design. " +
+        "Say the word and I'll start it.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+  });
+
+  describe("principal instruction (shape 4, from mt#4113)", () => {
+    test("suppressed when the opening prompt actually bounded the scope", () => {
+      const msg =
+        "Filed only, not planned — you said file. Say the word and I'll take it to READY.";
+      const c = { transcriptLines: [userPrompt2("just file it")] } as unknown as DispatchContext;
+      const out = runOn(msg, c, storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([
+        SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
+      ]);
+    });
+
+    test("the SAME citation with no such instruction still fires (mt#4113 SC3)", () => {
+      const msg =
+        "Filed only, not planned — you said file. Say the word and I'll take it to READY.";
+      const c = {
+        transcriptLines: [userPrompt2("take mt#1 all the way through and merge it")],
+      } as unknown as DispatchContext;
+      const out = runOn(msg, c, storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+
+    test("the retired prose-only pattern no longer suppresses on its own", () => {
+      // `you asked me to stop` was a SUPPRESSION_PATTERNS entry until mt#4113.
+      // With no corroborating prompt it must fire.
+      const msg = "you asked me not to — say the word and I'll merge it.";
+      const c = { transcriptLines: [userPrompt2("keep going")] } as unknown as DispatchContext;
+      const out = runOn(msg, c, storeDir);
+      expect(out?.additionalContext).toBeDefined();
     });
   });
 });
