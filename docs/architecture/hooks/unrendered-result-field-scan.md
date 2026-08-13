@@ -78,6 +78,22 @@ evaluation is recorded, fired or not, so the MISS rate is measurable rather than
 — a fire-only log cannot support a rung decision. Fail-open: a missed unrendered field is cheaper
 than a blocked `session_pr_create`.
 
+### The false-positive rate is UNMEASURED, and that is why no blocking tier is proposed
+
+Read this before citing the guard's precision or proposing to graduate it.
+
+Its sibling `stale-signal-sweep` shipped with a measured 60-day backtest — 400 commits, 4 fires, 1
+of 4 a true positive — and that measurement changed its mechanism twice before merge. **This guard
+has no equivalent number.** The reason is structural rather than an oversight:
+`scripts/backtest-stale-signal-sweep.ts` is welded to its own guard (it calls
+`extractChangedOutputLabels` and runs label-token corpus queries), so a DIFF-SHAPED detector — one
+whose trigger is the shape of a diff rather than a token to grep for — has nothing to reuse.
+
+**mt#4134** owns the reusable replay harness and will record the measurement back onto mt#3913.
+Until then the honest status is: fire rate unknown, precision unknown, log-only for exactly that
+reason. Do not read the calibration log's fire count as a precision figure — nothing has classified
+those fires.
+
 ## Wiring
 
 Registered on `session_pr_create`, which became a dispatcher-spawning tool in mt#3959. The
