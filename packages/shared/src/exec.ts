@@ -432,39 +432,70 @@ function runWithEnforcedTimeout(
 }
 
 /**
- * The options {@link executeCommand} understands, as documentation (PR #2957 R1).
+ * The options {@link executeCommand} accepts: Node's `ExecOptions`, minus `env`,
+ * plus this helper's own (mt#4090).
  *
- * `killGraceMs` previously existed only in a private function's signature, so
- * the only way to learn the option was to read the implementation. Everything
- * else here is passed through to Node's `exec` unchanged.
+ * ## Why `env` is re-declared instead of inherited
  *
- * **Why the parameter is still `Record<string, unknown>` and not this type.**
- * Applying it was tried and reverted in the same round. `extends ExecOptions`
- * constrains `env` to `ProcessEnv`, and under `src/cockpit/web/tsconfig.json`
- * Vite's `ImportMetaEnv` (`DEV`/`PROD`/`SSR`: boolean) is visible on
- * `process.env`, so `execGitWithTimeout`'s `env: { ...process.env, … }` stops
- * compiling — a pre-existing type artifact in that project's view, with no
- * runtime component, that has nothing to do with timeout enforcement. Doing it
- * here would have meant touching a shared git helper from a PR about killing
- * subprocesses.
+ * `ExecOptions` types `env` as `NodeJS.ProcessEnv`, and in one of this repo's
+ * two typecheck projects that type cannot be satisfied by any object literal
+ * built from `process.env`. The cause is an upstream declaration merge, read at
+ * source rather than inferred:
  *
- * Tracked at **mt#4090**, which owns applying this type for real. Delete this
- * paragraph when it lands — a comment describing a constraint that no longer
- * holds is the residual mt#3410 was filed for.
+ * - `bun-types/globals.d.ts` declares a global `interface ImportMetaEnv` with an
+ *   all-string index signature — harmless alone.
+ * - `bun-types/overrides.d.ts` declares `NodeJS.ProcessEnv extends Bun.Env, ImportMetaEnv`,
+ *   so `process.env` inherits whatever `ImportMetaEnv` turns out to be.
+ * - `vite/types/importMeta.d.ts` declares a global `interface ImportMetaEnv` TOO,
+ *   carrying `DEV`/`PROD`/`SSR: boolean`. Same name, same global scope, so
+ *   TypeScript MERGES the two.
+ * - `@types/node` supplies `ProcessEnv extends Dict<string>` — index signature
+ *   `string | undefined`.
+ *
+ * Where both halves load, `ProcessEnv` therefore carries boolean members that
+ * contradict its own string index signature. Only `src/cockpit/web` loads vite's
+ * half (via `vite-env.d.ts`'s `/// <reference types="vite/client" />`), which is
+ * why `typecheck:root` is clean and `typecheck:cockpit-web` is not. TypeScript
+ * tolerates the declaration and rejects assignment, so in that project NO spread
+ * of `process.env` is assignable to `ProcessEnv` —
+ * `packages/domain/src/utils/git-exec.ts`'s `env: { ...process.env, … }` is the
+ * caller that happens to do it, not a special case.
+ *
+ * `Record<string, string | undefined>` is what the runtime actually produces and
+ * what `ProcessEnv` was meant to mean, so declining the vendor type costs
+ * nothing and sidesteps the collision. Both packages are behaving as designed —
+ * bun merges `ImportMetaEnv` so `process.env.DEV` works in Bun+Vite code — so
+ * there is nothing here to fix upstream from this repo.
+ *
+ * The index signature preserves the permissiveness of the `Record<string, unknown>`
+ * this replaced: a caller passing an `ExecOptions` key not enumerated here is not
+ * rejected.
  */
-export interface ExecuteCommandOptions {
+export interface ExecuteCommandOptions extends Omit<ExecOptions, "env"> {
   /**
    * How long the child gets to service `killSignal` before SIGKILL, in ms.
    * Defaults to {@link EXEC_KILL_GRACE_MS}. Stripped before the options reach
    * Node, which has no such option.
    */
   killGraceMs?: number;
-  /** Wall-clock budget in ms. Enforced — see {@link runWithEnforcedTimeout}. */
-  timeout?: number;
-  /** Max captured output in bytes. Defaults to 10MB; a caller's value wins. */
-  maxBuffer?: number;
-  /** Working directory for the child. */
-  cwd?: string;
+  /**
+   * Environment for the child.
+   *
+   * `unknown` values, not `string | undefined`, and NOT `NodeJS.ProcessEnv` —
+   * both stricter options were tried against the real projects and both fail.
+   * Per the note above, in the cockpit-web program `process.env` itself is typed
+   * with boolean members, so the object literal `{ ...process.env, … }` is
+   * assignable to NEITHER `ProcessEnv` NOR `Record<string, string | undefined>`.
+   * The defect is in the SOURCE type, so no choice of target type can accept it:
+   * this parameter is as strict as the upstream collision permits, not as strict
+   * as it should be.
+   *
+   * Every other `ExecOptions` key IS checked, which is the point of this type;
+   * `env` is the one hole, and it is a hole with a reason rather than an
+   * oversight. Narrow it to `Record<string, string | undefined>` if the upstream
+   * merge is ever resolved — the compiler will confirm in one run.
+   */
+  env?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -477,7 +508,7 @@ export interface ExecuteCommandOptions {
  */
 export async function executeCommand(
   command: string,
-  options: Record<string, unknown> = {}
+  options: ExecuteCommandOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
   // Add explicit cleanup options to prevent hanging.
   // Defaults come BEFORE the options spread so callers can override them
