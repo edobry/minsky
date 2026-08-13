@@ -226,11 +226,22 @@ export async function fetchFireLogOverrides(
 // Join shapes — structural types for the sections other modules own.
 // ---------------------------------------------------------------------------
 
-/** Structural mirror of `guard-canary-history.ts`'s GuardCanaryStatus. */
+/**
+ * Structural mirror of `guard-canary-history.ts`'s GuardCanaryStatus.
+ *
+ * The optional fields carry that type's ACTUAL names (mt#4057). They were
+ * `brokenSince` / `lastRunAt` until then — names the real status object never
+ * had, so reading either always yielded `undefined`; the index signature made
+ * that type-check and nothing read them, so the divergence was invisible.
+ */
 export interface CanaryStatusJoin {
   state: string;
-  brokenSince?: string | null;
-  lastRunAt?: string | null;
+  /** Present on `broken`. */
+  brokenSinceAt?: string | null;
+  /** Present on `broken` — the run that observed it still failing. */
+  lastCheckedAt?: string | null;
+  /** Present on `passing`. */
+  lastVerifiedAt?: string | null;
   [key: string]: unknown;
 }
 
@@ -306,6 +317,24 @@ export interface InterceptorAggregatesSnapshot {
   population: number;
   rows: InterceptorAggregateRow[];
   /**
+   * Rows for names the registry catalog DECLARES but the fire log has never
+   * recorded (mt#4057).
+   *
+   * Kept separate from `rows` rather than merged into it, because `population`
+   * above is contractually the fire-log-derived count and folding these in
+   * would silently redefine it. They exist because the health column needs
+   * them: `rows` is built from the fire-log lifetime query, so a declared
+   * interceptor that has NEVER fired appears in no row at all — and that is
+   * exactly the guard mt#3754 AT2 is about (zero fires, passing canary, must
+   * render dormant rather than broken or healthy-by-default). Without this
+   * section the dormant state is unreachable by construction.
+   *
+   * Their fire-log figures are genuinely zero (a measured absence, not a
+   * fabricated one); their canary/health/calibration sections are joined the
+   * same way every other row's are.
+   */
+  declaredOnlyRows: InterceptorAggregateRow[];
+  /**
    * Snapshot-level review-due list (calibration logs, whether or not their
    * mapped guard appears in the fire-log population) — the above-the-fold
    * attention count reads this, so an unmapped log is never silently dropped.
@@ -350,6 +379,14 @@ export interface AssembleInput {
   calibrationByGuard: ReadonlyMap<string, CalibrationLogJoin[]> | null;
   registryByGuard: ReadonlyMap<string, RegistryJoin> | null;
   calibrationReviewDue: InterceptorAggregatesSnapshot["calibrationReviewDue"] | null;
+  /**
+   * Every name the registry catalog declares (mt#4057). Those absent from
+   * `lifetime` become `declaredOnlyRows`. Omit (or pass empty) to keep the
+   * snapshot fire-log-only — a caller that cannot read the catalog artifact
+   * should omit rather than guess, since `registryByGuard: null` already
+   * records that failure.
+   */
+  declaredNames?: readonly string[];
 }
 
 function bucketDecision(decision: string | null): "allow" | "warn" | "deny" | "other" {
@@ -433,6 +470,13 @@ export function assembleInterceptorAggregates(input: AssembleInput): Interceptor
   if (input.calibrationByGuard === null) sourceFailures.push("calibration");
   if (input.registryByGuard === null) sourceFailures.push("registry");
 
+  const joinsFor = (guardName: string) => ({
+    canary: input.canaryByGuard?.get(guardName) ?? null,
+    health: input.healthByGuard?.get(guardName) ?? null,
+    calibration: input.calibrationByGuard?.get(guardName) ?? null,
+    registry: input.registryByGuard?.get(guardName) ?? null,
+  });
+
   const rows: InterceptorAggregateRow[] = [...input.lifetime]
     .sort((a, b) => a.guardName.localeCompare(b.guardName))
     .map((lifetime) => ({
@@ -445,10 +489,22 @@ export function assembleInterceptorAggregates(input: AssembleInput): Interceptor
           lastFireAt: lifetime.lastFireAt,
         },
       },
-      canary: input.canaryByGuard?.get(lifetime.guardName) ?? null,
-      health: input.healthByGuard?.get(lifetime.guardName) ?? null,
-      calibration: input.calibrationByGuard?.get(lifetime.guardName) ?? null,
-      registry: input.registryByGuard?.get(lifetime.guardName) ?? null,
+      ...joinsFor(lifetime.guardName),
+    }));
+
+  const inFireLog = new Set(rows.map((r) => r.guardName));
+  const declaredOnlyRows: InterceptorAggregateRow[] = [...new Set(input.declaredNames ?? [])]
+    .filter((name) => !inFireLog.has(name))
+    .sort((a, b) => a.localeCompare(b))
+    .map((guardName) => ({
+      guardName,
+      fireLog: {
+        // Zero here is MEASURED, not defaulted: the name is declared and the
+        // lifetime query — an all-time scan — returned no row for it.
+        window: windowSection(guardName),
+        lifetime: { totalFires: 0, firstFireAt: null, lastFireAt: null },
+      },
+      ...joinsFor(guardName),
     }));
 
   return {
@@ -456,6 +512,7 @@ export function assembleInterceptorAggregates(input: AssembleInput): Interceptor
     windowDays: input.windowDays,
     population: rows.length,
     rows,
+    declaredOnlyRows,
     calibrationReviewDue: input.calibrationReviewDue ?? [],
     sources: SNAPSHOT_SOURCES,
     sourceFailures,
