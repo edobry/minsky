@@ -130,6 +130,62 @@ discussing this guard must not silence it.
 Because a suppression emits no text, the guard's 450-char ceiling is untouched — the offer branch
 remains the worst case.
 
+## Armed-watcher suppression, and why it stopped being a phrase (mt#4063)
+
+`work-completion.mdc §External self-resolving waits` tells an agent blocked on an external,
+self-resolving condition to **arm a watcher and keep going**, and its canonical correct shape is a
+closing sentence naming what happens when the watcher fires. That sentence names a next action and
+does not take it, so this guard fires on the behavior the corpus prescribes.
+
+The first two answers were phrase patterns. mt#3917 added an armed-watcher pattern; mt#3948 unbound
+it from one word order after two attested messages escaped it. Both are still in the file, and both
+were widenings along the same axis.
+
+The 2026-08-12 calibration window produced **three more** phrasings that escape both:
+
+| Phrasing                                | Why it escapes                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `That watch is armed in the background` | `watch` is not in the noun set (`watcher`/`wait`/`poll`/`retry`/`wakeup`)             |
+| `the watcher for it is armed`           | `for it` sits between the noun and its copula; the pattern allows whitespace only     |
+| `A background watcher is polling`       | carries no `armed` token at all — unreachable by any widening of the `armed` patterns |
+
+The third one is the important one: it is not a gap in the pattern, it is evidence the pattern is
+matching the wrong thing.
+
+**What the patterns' own ADR-024 note had already committed to.** The comment above them reads: _"If
+a THIRD distinct armed-watcher phrasing is filed against this set, that is the measured
+insufficiency of Rung 1 for this family and the next pass raises the rung rather than the pattern
+count."_ Three arrived at once, so the clause fired.
+
+**The rung it raised to is not Rung 2.** Whether a watcher was armed is not a language question —
+it is a fact about the turn's tool calls. `detectArmedWatcherEvidence` reads them directly, which
+**removes** the paraphrase axis instead of buying better recall along it; climbing to embeddings
+would have spent more to answer a question that never needed paraphrase matching. Ranking a cheaper
+deterministic signal above a costlier probabilistic one is what ADR-024's ladder exists to produce,
+so this is a deviation toward its intent rather than away from it.
+
+**What counts as evidence** — `ScheduleWakeup`, `Monitor`, a `Bash` call with
+`run_in_background: true`, the blocking MCP waits (`session_pr_wait-for-review`,
+`deployment_wait-for-latest`, `asks_wait-for-response`, `pr_watch_run`, `reviewer_watch_run`), and
+`session_pr_checks` **only when `wait: true`** — without it the call is a one-shot snapshot and
+nothing survives it.
+
+**What it deliberately does not buy.** Naming a blocker is still not evidence: "I'll merge when the
+review lands" with no wait armed still fires, the same line PR #2784 R1 drew when it rejected a
+broader `blocked only on ci` pattern. Because the signal is a tool call, prose cannot manufacture
+it — which is what the paired tests assert, running each window phrasing twice against identical
+text and opposite tool state.
+
+**The accepted cost.** A turn that arms a watcher AND names an unrelated untaken action is
+suppressed. That is a real true-positive loss, pinned by its own test rather than left to be
+discovered: the suppression is per-TURN, not per-match, because the evidence is a property of the
+turn. If the calibration record shows this firing on unrelated actions, the next pass should scope
+the suppression to matches whose phrasing references the wait.
+
+Suppressed fires are RECORDED (`suppressionReasons: ["armed-watcher-evidence"]` plus
+`armedWatcherEvidence`), per the mt#3207 contract — a suppression that returns null cannot be
+measured, and the failure worth catching here is this predicate swallowing a true positive.
+
 ## Overrides
 
 `MINSKY_ACK_UNTAKEN_ACTION` (registered in `HOOK_ONLY_ENV_VARS`).

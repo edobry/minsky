@@ -11,7 +11,11 @@ import {
   OVERRIDE_ENV_VAR,
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
   SUPPRESSION_RESERVED_CATEGORY_HALT,
+  SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+  detectArmedWatcherEvidence,
+  CONDITIONAL_WAIT_TOOL,
 } from "./turn-end-untaken-action-scan";
+import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import { GUARD_REGISTRY, type DispatchContext } from "./registry";
 import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
@@ -725,6 +729,142 @@ describe("mt#3917 precision fixes", () => {
       const families = detectUntakenAction(mixed).map((m) => m.family);
       expect(families).toContain("ill-action");
       expect(families).not.toContain("next-up");
+    });
+  });
+});
+
+describe("armed-watcher evidence suppression (mt#4063)", () => {
+  function userPrompt(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+
+  function toolUse(id: string, name: string, input: Record<string, unknown>): TranscriptLine {
+    return {
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+    } as unknown as TranscriptLine;
+  }
+
+  function ctxWith(...lines: TranscriptLine[]): DispatchContext {
+    return {
+      transcriptLines: [userPrompt("go"), ...lines],
+    } as unknown as DispatchContext;
+  }
+
+  // The three phrasings from the 2026-08-12 window that escape BOTH of the
+  // phrase patterns mt#3917/mt#3948 shipped. Each names an action gated on a
+  // wait, which is what `work-completion.mdc §External self-resolving waits`
+  // asks for — so each must go quiet when a wait was actually armed.
+  const WINDOW_PHRASINGS = [
+    "That watch is armed in the background — I'll merge when it concludes.",
+    "The watcher for it is armed — I'll merge when it lands.",
+    // Faithful to the record rather than trimmed to the watcher clause: the
+    // real 2026-08-12 fire on this message was `say-the-word`, from the
+    // sentence AFTER the watcher clause. A trimmed version matches no family
+    // at all, so it would have tested nothing in either direction.
+    "A background watcher is polling PR #2929; when it merges I'll rebase, commit, and open the " +
+      "PR without needing you. If you'd rather not wait, say the word and I'll set the override.",
+  ];
+
+  describe("detectArmedWatcherEvidence", () => {
+    test("finds an explicitly armed wake", () => {
+      const lines = [toolUse("t1", "ScheduleWakeup", { delaySeconds: 600 })];
+      expect(detectArmedWatcherEvidence(lines)).toContain("ScheduleWakeup");
+    });
+
+    test("finds a blocking reviewer wait", () => {
+      const lines = [toolUse("t1", "mcp__minsky__session_pr_wait-for-review", { task: "mt#1" })];
+      expect(detectArmedWatcherEvidence(lines)).toContain(
+        "mcp__minsky__session_pr_wait-for-review"
+      );
+    });
+
+    test("finds a backgrounded Bash task", () => {
+      const lines = [toolUse("t1", "Bash", { command: "sleep 60", run_in_background: true })];
+      expect(detectArmedWatcherEvidence(lines)).toContain("Bash(run_in_background)");
+    });
+
+    test("a FOREGROUND Bash call is not a watcher", () => {
+      const lines = [toolUse("t1", "Bash", { command: "ls" })];
+      expect(detectArmedWatcherEvidence(lines)).toEqual([]);
+    });
+
+    test("session_pr_checks counts only when it was asked to wait", () => {
+      const waiting = [toolUse("t1", CONDITIONAL_WAIT_TOOL, { wait: true })];
+      const snapshot = [toolUse("t1", CONDITIONAL_WAIT_TOOL, { task: "mt#1" })];
+      expect(detectArmedWatcherEvidence(waiting)).toContain(CONDITIONAL_WAIT_TOOL);
+      // Without `wait`, the call returns once and leaves nothing running — the
+      // distinction between arming a watcher and looking at the state one time.
+      expect(detectArmedWatcherEvidence(snapshot)).toEqual([]);
+    });
+
+    test("a turn that armed nothing yields no evidence", () => {
+      const lines = [toolUse("t1", "Read", { file_path: "/tmp/x" })];
+      expect(detectArmedWatcherEvidence(lines)).toEqual([]);
+    });
+  });
+
+  describe("run() — evidence decides, not prose", () => {
+    for (const [i, message] of WINDOW_PHRASINGS.entries()) {
+      test(`window phrasing ${i + 1} is suppressed when a wait WAS armed`, () => {
+        const outcome = run(
+          { session_id: `armed-${i}`, last_assistant_message: message } as StopHookInput,
+          ctxWith(toolUse("t1", CONDITIONAL_WAIT_TOOL, { wait: true })),
+          storeDir
+        );
+        expect(outcome?.additionalContext ?? "").not.toContain(FIRED_HEADER);
+        expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
+          SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+        ]);
+      });
+
+      // The discriminator. Identical prose, no armed wait — the guard must
+      // still speak, or the suppression is keying on language after all and
+      // has reproduced the defect it replaces.
+      test(`window phrasing ${i + 1} still FIRES when nothing was armed`, () => {
+        const outcome = run(
+          { session_id: `bare-${i}`, last_assistant_message: message } as StopHookInput,
+          ctxWith(toolUse("t1", "Read", { file_path: "/tmp/x" })),
+          storeDir
+        );
+        expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
+      });
+    }
+
+    test("the suppression records what it found, so it stays measurable", () => {
+      const outcome = run(
+        { session_id: "records", last_assistant_message: WINDOW_PHRASINGS[0] } as StopHookInput,
+        ctxWith(toolUse("t1", "ScheduleWakeup", { delaySeconds: 600 })),
+        storeDir
+      );
+      expect(outcome?.calibration?.["armedWatcherEvidence"]).toEqual(["ScheduleWakeup"]);
+    });
+
+    test("a genuine untaken action is untouched by an unrelated armed wait", () => {
+      // The turn armed a watcher AND named an action that has nothing to do
+      // with it. This is the true positive most at risk from the suppression;
+      // it is knowingly accepted, and recorded here so the trade is visible
+      // rather than discovered later.
+      const outcome = run(
+        { session_id: "collateral", last_assistant_message: R3_FINAL_MESSAGE } as StopHookInput,
+        ctxWith(toolUse("t1", "ScheduleWakeup", { delaySeconds: 600 })),
+        storeDir
+      );
+      expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
+        SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+      ]);
+    });
+
+    test("with no transcript in context the guard behaves exactly as before", () => {
+      const outcome = run(
+        { session_id: "no-transcript", last_assistant_message: R3_FINAL_MESSAGE } as StopHookInput,
+        ctx,
+        storeDir
+      );
+      expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
     });
   });
 });

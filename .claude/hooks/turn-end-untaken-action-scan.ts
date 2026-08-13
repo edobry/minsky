@@ -45,6 +45,7 @@ import { createHash } from "node:crypto";
 import { cappedEvidenceLines } from "./guard-feedback-format";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { detectDeferralPhrases } from "./ask-routing-deferral-detector";
+import { extractFinalTurn, extractToolUseNames, findToolUseInputs } from "./transcript";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNTAKEN_ACTION";
 
@@ -340,6 +341,88 @@ export function detectReservedCategoryHalt(finalMessage: string): string[] {
     named.push(`${preference} / ${durable}`);
   }
   return named;
+}
+
+export const SUPPRESSION_ARMED_WATCHER_EVIDENCE = "armed-watcher-evidence";
+
+/**
+ * Tool calls that ARE an armed wait, rather than prose claiming one (mt#4063).
+ *
+ * ## Why this is not another phrase pattern
+ *
+ * This guard's armed-watcher suppression has now been widened twice on the
+ * language axis — mt#3917 added it, mt#3948 unbound it from one word order —
+ * and the 2026-08-12 calibration window produced three MORE phrasings that
+ * escape both patterns: `watch` where the noun set has `watcher`/`wait`, an
+ * intervening `for it` between the noun and its copula, and `is polling`, which
+ * carries no `armed` token at all and so is unreachable by any widening of the
+ * `armed` patterns.
+ *
+ * That is the precondition the patterns' own ADR-024 placement note set: "If a
+ * THIRD distinct armed-watcher phrasing is filed against this set, that is the
+ * measured insufficiency of Rung 1 for this family and the next pass raises the
+ * rung rather than the pattern count." Three arrived at once.
+ *
+ * The rung this raises to is not Rung 2 (embedding). Whether a watcher was
+ * armed is not a language question at all — it is a fact about the turn's tool
+ * calls, and reading it directly REMOVES the paraphrase axis instead of buying
+ * better recall along it. A cheaper deterministic signal outranking a costlier
+ * probabilistic one is the outcome ADR-024's ladder exists to produce.
+ *
+ * ## What counts
+ *
+ * Only calls that actually leave something running. `session_pr_checks` is
+ * listed but gated on `wait: true` below, because without it the call is a
+ * one-shot snapshot read and no watcher survives it — the same distinction
+ * `work-completion.mdc §External self-resolving waits` draws between arming a
+ * watcher and merely looking once.
+ *
+ * Deliberately NOT bought: naming a blocker. "I'll merge when the review lands"
+ * with no wait armed still fires, exactly as the phrase patterns intended — the
+ * evidence here is the tool call, so prose cannot manufacture it.
+ */
+const ARMED_WAIT_TOOLS = new Set([
+  "ScheduleWakeup",
+  "Monitor",
+  "mcp__minsky__session_pr_wait-for-review",
+  "mcp__minsky__deployment_wait-for-latest",
+  "mcp__minsky__asks_wait-for-response",
+  "mcp__minsky__pr_watch_run",
+  "mcp__minsky__reviewer_watch_run",
+]);
+
+/** `session_pr_checks` is a watcher only when it was asked to wait. */
+export const CONDITIONAL_WAIT_TOOL = "mcp__minsky__session_pr_checks";
+
+/**
+ * Tool-call evidence that a wait is running past the end of this turn.
+ * Returns the evidence found, most useful for the calibration record; an empty
+ * array means the turn armed nothing.
+ */
+export function detectArmedWatcherEvidence(
+  turnLines: Parameters<typeof findToolUseInputs>[0]
+): string[] {
+  const evidence = new Set<string>();
+
+  for (const name of extractToolUseNames(turnLines)) {
+    if (ARMED_WAIT_TOOLS.has(name)) evidence.add(name);
+  }
+
+  for (const input of findToolUseInputs(turnLines, CONDITIONAL_WAIT_TOOL)) {
+    if (input["wait"] === true) {
+      evidence.add(CONDITIONAL_WAIT_TOOL);
+      break;
+    }
+  }
+
+  for (const input of findToolUseInputs(turnLines, "Bash")) {
+    if (input["run_in_background"] === true) {
+      evidence.add("Bash(run_in_background)");
+      break;
+    }
+  }
+
+  return [...evidence];
 }
 
 export interface UntakenActionMatch {
@@ -660,7 +743,7 @@ function turnKeyForMessage(finalMessage: string): string {
  */
 export function run(
   input: StopHookInput,
-  _ctx: DispatchContext,
+  ctx: DispatchContext,
   storeDir?: string
 ): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
@@ -734,6 +817,35 @@ export function run(
         deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
         suppressionReasons: [SUPPRESSION_RESERVED_CATEGORY_HALT],
         reservedCategoryPhrases: reservedCategory,
+      },
+    };
+  }
+
+  // mt#4063: the turn ARMED a wait that outlives it, so a closing sentence
+  // naming what happens when that wait fires is the behavior
+  // `work-completion.mdc §External self-resolving waits` prescribes, not the
+  // defect this guard exists to catch. Keyed on the turn's tool calls rather
+  // than its prose — see `detectArmedWatcherEvidence` for why this replaces
+  // widening the phrase patterns a third time.
+  //
+  // Recorded, not silent, per the same mt#3207 contract as the suppression
+  // above: the failure worth catching is this predicate swallowing a TRUE
+  // positive, and a suppression that returns null cannot be measured.
+  const { turnLines } = extractFinalTurn(ctx.transcriptLines ?? []);
+  const armedWatcher = turnLines.length > 0 ? detectArmedWatcherEvidence(turnLines) : [];
+  if (armedWatcher.length > 0) {
+    return {
+      calibration: {
+        source: "live",
+        channel: "stop",
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        stop_hook_active: input.stop_hook_active === true,
+        matches: newMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+        final_message_tail: finalMessage.slice(-TAIL_WINDOW_CHARS),
+        deferralOverlap: detectDeferralPhrases(finalMessage).length > 0,
+        suppressionReasons: [SUPPRESSION_ARMED_WATCHER_EVIDENCE],
+        armedWatcherEvidence: armedWatcher,
       },
     };
   }
