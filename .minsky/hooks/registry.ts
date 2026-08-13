@@ -2533,10 +2533,24 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     calibrationLog: "untaken-action",
     denyCapable: false,
-    // False by design (PR #2293 R1): detection reads last_assistant_message, and
-    // the dedup key is derived from that message — NOT from the transcript,
-    // whose absent-case default would suppress the phrase session-wide.
-    needsTranscript: false,
+    // True since mt#4063, for the SUPPRESSION signal only. PR #2293 R1's
+    // reasoning for setting this false still holds and is unchanged: detection
+    // reads `last_assistant_message`, and the dedup key is derived from that
+    // message — NOT from the transcript, whose absent-case default would
+    // suppress the phrase session-wide. Both remain message-derived.
+    //
+    // What the transcript is read for is the armed-watcher suppression, whose
+    // absent-case default runs the OTHER way: no transcript means no
+    // tool-call evidence, which means no suppression, which means the guard
+    // fires exactly as it did before. That asymmetry is what makes the read
+    // safe here and is pinned by a test ("with no transcript in context the
+    // guard behaves exactly as before"), so the canary below — which carries
+    // no `transcriptLines` and expects `warn` — stays valid unchanged.
+    //
+    // Marginal cost is ~zero: `resolveDispatchContext` resolves the transcript
+    // once per dispatch, and the sibling `turn-end-unwalked-task-scan` already
+    // requests it on this same Stop event.
+    needsTranscript: true,
     attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {
