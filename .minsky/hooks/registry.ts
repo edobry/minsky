@@ -1810,29 +1810,13 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // not a proved ceiling — capping it is this guard's own follow-up.
     attentionCost: { denialMessageSizeChars: 1550, optionCount: 2 },
     canary: {
-      // `session_id` is a canary-only literal (the mt#2708 convention on
-      // knowledge-acquisition-detector below), and as of mt#3743 it is also the
-      // marker that keeps a canary row out of a denominator: this guard now
-      // writes an evaluation record on every turn it reaches a verdict on.
-      //
-      // Defense-in-depth, not the primary containment. `run-guard-canaries.ts`
-      // points `CLAUDE_PROJECT_DIR` at a fresh temp dir (`:94-95`), and this
-      // guard's stream resolves through `evaluationLogPath`, which honors it —
-      // verified 2026-08-13 by running the canary and observing that the real
-      // `.minsky/causal-premise-evaluations.jsonl` was not created.
-      //
-      // The literal earns its keep because that containment is not universal:
-      // the shipped evaluation streams DO carry canary rows (operator-deferral
-      // 31, negative-existence-claim 15 of 109, silent-stretch 5, measured
-      // 2026-08-13). Which path wrote them is not established here — a
-      // hand-rolled writer that roots on `input.cwd` instead of the shared
-      // helper would bypass the isolation, and so would any caller that invokes
-      // `run()` with the default writer, which is why this detector's unit tests
-      // inject a collector instead.
-      input: {
-        session_id: "mt2889-canary-session",
-        transcript_path: "mt2889-canary-transcript",
-      },
+      // No `session_id` here on purpose: `baseCanaryInput` already stamps
+      // `mt2889-canary-session` on EVERY canary (`canary-runner.ts:175`), and
+      // that literal is what lets a canary-written row be filtered out of a
+      // denominator — relevant since mt#3743, because this guard now writes an
+      // evaluation record on every turn it reaches a verdict on. Setting it
+      // again here would be a redundant restatement of the shared default.
+      input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
         { type: "user", message: { role: "user", content: "first turn" } },
         {
