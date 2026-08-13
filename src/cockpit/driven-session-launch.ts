@@ -53,10 +53,12 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "./driven-session-host";
+import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import {
   getServerSessionProvider,
   getServerTaskService,
   getContextInspectorDb,
+  createCachedSqlDbGetter,
   describeServerPersistenceUnavailability,
 } from "./db-providers";
 
@@ -393,6 +395,26 @@ export interface LoadPersistedDrivenSessionsDeps {
    * defaults to the store's `upsertDrivenSessionRecord`.
    */
   persistTerminalVerdict?: typeof import("@minsky/domain/transcripts/driven-session-registry-store").upsertDrivenSessionRecord;
+  /**
+   * Probe whether a row's workspace still exists. Test seam (mt#4103);
+   * defaults to `probeSpawnCwdAsync`. Exists so the "wedged filesystem path"
+   * branch is exercisable with a never-resolving promise instead of an actual
+   * hung mount.
+   */
+  probeCwd?: typeof probeSpawnCwdAsync;
+  /** Override the whole-run stage bound (mt#4103). Tests pass a small value. */
+  stageTimeoutMs?: number;
+  /** Override the per-row bound (mt#4103). Tests pass a small value. */
+  rowTimeoutMs?: number;
+  /**
+   * Injected timeout signal (mt#4103) — `raceAgainstTimeout`'s own seam.
+   *
+   * Lets a test drive the "timed out" branch deterministically in well under a
+   * millisecond, with no real wall-clock wait and no fake clock: pair a signal
+   * that resolves immediately with an operation that never resolves. Without
+   * it, asserting a 15s bound would cost 15s.
+   */
+  timeoutSignal?: (ms: number) => Promise<{ timedOut: true }>;
 }
 
 /**
@@ -459,6 +481,126 @@ async function persistUnrecoverableVerdict(
 }
 
 /**
+ * The stage of boot reconciliation a wall-clock bound applies to (mt#4103).
+ *
+ * Named per stage rather than bounding the whole function once, because the
+ * stages fail for different reasons and the operator's next move differs: a
+ * stalled `resolve-db` points at the pool, a stalled `cwd-probe` at a wedged
+ * filesystem path. A single "reconciliation timed out" line would say neither.
+ */
+export type ReconcileStage = "resolve-db" | "list-rows" | "cwd-probe" | "persist-verdict";
+
+/**
+ * What one boot reconciliation actually did (mt#4103).
+ *
+ * A VALUE rather than a set of log statements scattered through the function,
+ * so the "what do we say about this?" decision is a pure function of it — see
+ * {@link describeReconciliationOutcome} — and is testable without a database,
+ * a clock, or a captured logger.
+ */
+export type ReconciliationOutcome =
+  | { kind: "loaded"; count: number; degraded: ReconcileStage[] }
+  | { kind: "empty" }
+  | { kind: "no-persistence" }
+  | { kind: "timed-out"; stage: ReconcileStage; timeoutMs: number }
+  | { kind: "failed"; message: string };
+
+/**
+ * The single line one boot reconciliation emits, and at what level (mt#4103).
+ *
+ * EXACTLY one line per boot, on EVERY path — including the zero-rows path,
+ * which previously logged nothing at all. That silence is the defect this
+ * exists to end: an empty registry because there was nothing to load and an
+ * empty registry because the reconciliation never finished rendered
+ * identically in the log, so the 2026-08-12 incident could only be diagnosed
+ * by noticing an ABSENCE across ten boots. An absence is not a signal.
+ *
+ * Pure, and deliberately so: it is the one part of this subsystem whose
+ * correctness is "does the operator learn the right thing?", which no
+ * integration test answers better than a direct assertion on the string.
+ */
+export function describeReconciliationOutcome(outcome: ReconciliationOutcome): {
+  level: "info" | "warn";
+  message: string;
+} {
+  const prefix = "[driven-session] boot reconciliation:";
+  switch (outcome.kind) {
+    case "loaded": {
+      const base = `${prefix} loaded ${outcome.count} persisted session(s) (reconnecting/unrecoverable)`;
+      if (outcome.degraded.length === 0) return { level: "info", message: base };
+      // Loaded, but not cleanly — some rows hit a per-row bound. Reported at
+      // WARN because the registry is INCOMPLETE in a way the count alone hides.
+      return {
+        level: "warn",
+        message: `${base} — ${outcome.degraded.length} row(s) degraded (${[...new Set(outcome.degraded)].join(", ")})`,
+      };
+    }
+    case "empty":
+      return {
+        level: "info",
+        message: `${prefix} no non-terminal sessions to load — registry starts empty`,
+      };
+    case "no-persistence":
+      return {
+        level: "warn",
+        message: `${prefix} no SQL persistence available at boot — skipped, registry starts empty`,
+      };
+    case "timed-out":
+      return {
+        level: "warn",
+        message: `${prefix} timed out after ${outcome.timeoutMs}ms at stage "${outcome.stage}" — registry starts empty`,
+      };
+    case "failed":
+      return { level: "warn", message: `${prefix} failed: ${outcome.message}` };
+  }
+}
+
+/**
+ * Wall-clock bound for the two whole-run stages — resolving the handle and
+ * reading the rows (mt#4103).
+ *
+ * Grounded in the observed cadence rather than a round number: a healthy
+ * reconciliation completed 0.6s after `PersistenceService initialized` on the
+ * boots that logged one (measured across 2026-08-12's ten boots). 15s is ~25x
+ * that, so it cannot fire on a merely-slow-but-working database, while still
+ * bounding a stall to well inside the window in which an operator posts a
+ * message and gets a fresh agent instead of their conversation.
+ */
+const RECONCILE_STAGE_TIMEOUT_MS = 15_000;
+
+/**
+ * Wall-clock bound for the PER-ROW stages (mt#4103).
+ *
+ * Much tighter, and it has to be: these run once per row, so a shared budget
+ * would let twenty slow rows consume the whole run. A `stat` on a local path
+ * answers in single-digit milliseconds; 2s is generous for that and short
+ * enough that even every row timing out keeps the run bounded.
+ */
+const RECONCILE_ROW_TIMEOUT_MS = 2_000;
+
+/**
+ * Boot reconciliation's own database handle (mt#4103).
+ *
+ * `cacheNegative: false`, unlike the shared `getContextInspectorDb` this used
+ * to borrow. That getter LATCHES a null probe for the process lifetime, so a
+ * database blip at boot — exactly the condition present during the 2026-08-12
+ * incident — disables reconciliation for as long as the daemon runs, with no
+ * later call able to recover it.
+ *
+ * A CALLER-SCOPED getter rather than flipping the shared one: that singleton
+ * has ~25 call sites across cockpit routes and widgets, and at least one of
+ * them documents the latching as a deliberate contrast
+ * (`routes/conversation-run-state.ts`). Changing it here would change all of
+ * them as a side effect. `getEntityThreadDb` (`routes/entity-threads.ts`) is
+ * the established precedent for exactly this move, with the same reasoning.
+ *
+ * Cheap: `createCachedSqlDbGetter` resolves through the shared
+ * `getCachedPersistenceProvider`, so this is a second CACHE over one pool, not
+ * a second pool.
+ */
+export const getBootReconciliationDb = createCachedSqlDbGetter({ cacheNegative: false });
+
+/**
  * Boot-time reconciliation (RFC minimal-first-slice step 2): load every
  * non-terminal persisted `driven_sessions` row and register it in the
  * in-memory registry as `"reconnecting"` (or `"unrecoverable"` for a row that
@@ -469,22 +611,83 @@ async function persistUnrecoverableVerdict(
  * persistence is confirmed ready. Never throws; a failure here means the
  * daemon boots with an empty registry (the pre-mt#3038 behavior), not a
  * crashed boot.
+ *
+ * ## Every await is bounded, and every boot says what happened (mt#4103)
+ *
+ * This is fire-and-forget from `start-command.ts` — nothing awaits it, and
+ * nothing times it out. So an await that never settles here does not fail; it
+ * simply never finishes, leaving the registry empty for the daemon's whole
+ * life while every one of this function's log lines stays unwritten. That is
+ * not hypothetical: on 2026-08-12 two of ten boots produced NONE of the four
+ * outcomes this function could emit, and the resulting empty registry is what
+ * let an entity thread silently swap its agent (mt#4093).
+ *
+ * There were four unbounded awaits, two of them per-row — the handle, the
+ * SELECT, a bare `stat` per row, and a verdict write per row. Each is now
+ * raced against a bound via `raceAgainstTimeout`, and the per-row ones degrade
+ * that ROW rather than the run, so one wedged workspace path cannot cost the
+ * registry.
  */
 export async function loadPersistedDrivenSessions(
   deps: LoadPersistedDrivenSessionsDeps = {}
 ): Promise<number> {
+  const outcome = await reconcilePersistedDrivenSessions(deps);
+  const { level, message } = describeReconciliationOutcome(outcome);
+  // The one line, on every path. `log[level]` rather than a branch so a future
+  // outcome kind cannot be added with no line at all — the describer owns the
+  // level, and this call site owns nothing it could forget.
+  log[level](message);
+  return outcome.kind === "loaded" ? outcome.count : 0;
+}
+
+/**
+ * The IO half of {@link loadPersistedDrivenSessions}; returns what happened
+ * rather than logging it.
+ *
+ * Exported for tests, and the split is what makes them possible: every outcome
+ * this subsystem can reach is now a RETURN VALUE, so the stall branches are
+ * assertable without capturing the logger or waiting out a real 15s bound.
+ */
+export async function reconcilePersistedDrivenSessions(
+  deps: LoadPersistedDrivenSessionsDeps
+): Promise<ReconciliationOutcome> {
   try {
-    const db = await (deps.getDb ?? getContextInspectorDb)();
+    const dbResult = await raceAgainstTimeout(
+      (deps.getDb ?? getBootReconciliationDb)(),
+      deps.stageTimeoutMs ?? RECONCILE_STAGE_TIMEOUT_MS,
+      deps.timeoutSignal
+    );
+    if (dbResult.timedOut) {
+      return {
+        kind: "timed-out",
+        stage: "resolve-db",
+        timeoutMs: deps.stageTimeoutMs ?? RECONCILE_STAGE_TIMEOUT_MS,
+      };
+    }
+    const db = dbResult.value;
     if (!db) {
-      log.warn("[driven-session] no SQL persistence available at boot — skipping reconciliation");
-      return 0;
+      return { kind: "no-persistence" };
     }
     const listNonTerminal =
       deps.listNonTerminal ??
       (await import("@minsky/domain/transcripts/driven-session-registry-store"))
         .listNonTerminalDrivenSessions;
-    const rows = await listNonTerminal(db);
+    const stageTimeoutMs = deps.stageTimeoutMs ?? RECONCILE_STAGE_TIMEOUT_MS;
+    const rowTimeoutMs = deps.rowTimeoutMs ?? RECONCILE_ROW_TIMEOUT_MS;
+    const rowsResult = await raceAgainstTimeout(
+      listNonTerminal(db),
+      stageTimeoutMs,
+      deps.timeoutSignal
+    );
+    if (rowsResult.timedOut) {
+      return { kind: "timed-out", stage: "list-rows", timeoutMs: stageTimeoutMs };
+    }
+    const rows = rowsResult.value;
     const registry = deps.registry ?? drivenSessionRegistry;
+    // Which per-row stages degraded, if any. Collected rather than logged
+    // per-row: twenty wedged rows should produce one honest summary line, not
+    // twenty lines an operator scrolls past.
+    const degraded: ReconcileStage[] = [];
 
     for (const row of rows) {
       // Two independent reasons a persisted row can never be resumed. The
@@ -496,7 +699,21 @@ export async function loadPersistedDrivenSessions(
       // Async probe (PR #2452 R1): this loop runs over every non-terminal row at
       // daemon boot, so a synchronous stat here would hold the event loop for as
       // long as the slowest workspace path takes to answer.
-      const cwdGone = (await probeSpawnCwdAsync(row.cwd)) === "missing";
+      // Bounded (mt#4103). This is a bare `await stat(cwd)`; its own error
+      // classifier anticipates "a hung mount's ETIMEDOUT", so a stalling
+      // filesystem was a known case — but nothing bounded the WAIT, only the
+      // error, and a `stat` on a wedged mount can block without ever erroring.
+      // A timeout degrades to the SAME verdict a permission/IO error already
+      // produces: not-missing, so the row stays `reconnecting` rather than
+      // being retired on a transient fault. Failing open is the established
+      // direction here, and a timeout is exactly the "cannot tell" case.
+      const cwdProbe = await raceAgainstTimeout(
+        (deps.probeCwd ?? probeSpawnCwdAsync)(row.cwd),
+        rowTimeoutMs,
+        deps.timeoutSignal
+      );
+      if (cwdProbe.timedOut) degraded.push("cwd-probe");
+      const cwdGone = !cwdProbe.timedOut && cwdProbe.value === "missing";
       const unrecoverableReason = noTranscript
         ? "spawn-died-before-init — no harness session id was ever linked; there is no transcript to resume"
         : cwdGone
@@ -542,25 +759,26 @@ export async function loadPersistedDrivenSessions(
       // error reads as "unknown" and leaves the row `reconnecting` rather than
       // retiring a conversation over a transient fault.
       if (!resumable) {
-        await persistUnrecoverableVerdict(
-          db,
-          row,
-          record.unrecoverableReason ?? "unrecoverable",
-          deps
+        // Bounded (mt#4103), and AFTER `registry.register` above deliberately:
+        // the row is already in the registry, so a stalled write costs the
+        // durable verdict — which the next boot simply re-derives — and not
+        // the registration, which is what the whole reconciliation is for.
+        const verdict = await raceAgainstTimeout(
+          persistUnrecoverableVerdict(db, row, record.unrecoverableReason ?? "unrecoverable", deps),
+          rowTimeoutMs,
+          deps.timeoutSignal
         );
+        if (verdict.timedOut) degraded.push("persist-verdict");
       }
     }
 
-    if (rows.length > 0) {
-      log.info(
-        `[driven-session] boot reconciliation: loaded ${rows.length} persisted session(s) (reconnecting/unrecoverable)`
-      );
-    }
-    return rows.length;
+    // `empty` is a DISTINCT outcome, not a zero-count `loaded` (mt#4103). It
+    // used to log nothing at all, which made "nothing to load" and "never
+    // finished" the same observation.
+    if (rows.length === 0) return { kind: "empty" };
+    return { kind: "loaded", count: rows.length, degraded };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(`[driven-session] boot reconciliation failed: ${message}`);
-    return 0;
+    return { kind: "failed", message: err instanceof Error ? err.message : String(err) };
   }
 }
 
