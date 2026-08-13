@@ -103,21 +103,29 @@ function extractAgentSessionShortIds(data: WidgetData | undefined): ShortIdAlias
     .map((a) => ({ shortId: a.shortId as string, id: a.sessionId }));
 }
 
-function extractAskIds(data: WidgetData | undefined): string[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { cohort?: { id: string }[] };
-  if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort.map((a) => a.id);
-}
-
-/** `ask#N` → uuid aliases from the same attention payload (mt#3259). */
-function extractAskShortIds(data: WidgetData | undefined): ShortIdAlias[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as { cohort?: { id: string; shortId?: string | null }[] };
-  if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort
-    .filter((a) => Boolean(a.shortId))
-    .map((a) => ({ shortId: a.shortId as string, id: a.id }));
+/**
+ * `ask#N` → uuid aliases (mt#3259, re-sourced mt#4095).
+ *
+ * Fetched from the uncapped, state-agnostic `/api/asks/ids` rather than read
+ * out of the attention widget's payload. That payload is the RADIATOR feed —
+ * pending operator asks in the active service window — so an `ask#N` written in
+ * a memory, a task spec or a transcript linkified while its ask was open and
+ * silently stopped resolving the moment it closed. Nothing errored; the ref
+ * just quietly became plain text, which is why it went unnoticed.
+ *
+ * Fails open to `[]`, matching every other channel here: an asks-endpoint
+ * hiccup must not break linkification for the other entity types.
+ */
+async function fetchAskShortIds(): Promise<ShortIdAlias[]> {
+  try {
+    const res = await fetch("/api/asks/ids");
+    if (!res.ok) return [];
+    const data = (await res.json()) as { ids?: { shortId: string; id: string }[] };
+    if (!Array.isArray(data?.ids)) return [];
+    return data.ids.filter((r) => Boolean(r?.shortId) && Boolean(r?.id));
+  } catch {
+    return [];
+  }
 }
 
 function extractMemoryIds(data: WidgetData | undefined): string[] {
@@ -411,68 +419,85 @@ export function useResolvedEntityLabel(
  * Returns an always-present EntityIndex (may be empty on load or error).
  */
 export function useEntityIndex(): EntityIndex {
-  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ] = useQueries({
-    queries: [
-      {
-        // Distinct key from CommandPalette's "command-palette-tasks" — different shape
-        // (string[] here via /api/tasks/ids vs PaletteTask[] there; sharing would
-        // poison the cache). Uses the uncapped ids-only endpoint (mt#2518 R5) so the
-        // id-set is comprehensive — no 500-task cap.
-        queryKey: ["entity-index", "tasks"],
-        queryFn: fetchAllTaskIds,
-        staleTime: 30_000,
-        refetchInterval: ENTITY_INDEX_REFETCH_MS,
-      },
-      {
-        queryKey: ["agents"],
-        queryFn: () => fetchWidgetData("agents"),
-        staleTime: 30_000,
-        refetchInterval: ENTITY_INDEX_REFETCH_MS,
-      },
-      {
-        queryKey: ["attention"],
-        queryFn: () => fetchWidgetData("attention"),
-        staleTime: 30_000,
-        refetchInterval: ENTITY_INDEX_REFETCH_MS,
-      },
-      {
-        queryKey: ["widget", "memories-list", "", "", true],
-        queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
-        staleTime: 30_000,
-        refetchInterval: ENTITY_INDEX_REFETCH_MS,
-      },
-      {
-        // Distinct key from ChangesetsPage's ["changesets"] — different shape
-        // (entries with {id,title,state} here vs ChangesetsListResponse there;
-        // sharing the key would corrupt the cache). Fail-open (returns [] on
-        // error). Widened from ids-only to {id,title,state} entries (mt#3174)
-        // so this same query also backs `useEntityLabels`'s changeset labels —
-        // no new request, same cache entry (see `fetchChangesetEntries`).
-        queryKey: ["entity-index", "changesets"],
-        queryFn: fetchChangesetEntries,
-        staleTime: 30_000,
-        refetchInterval: ENTITY_INDEX_REFETCH_MS,
-      },
-      {
-        // Shared key with ConversationPage's ["context-inspector", "sessions"]
-        // (the retired ConversationsPage list used the same key pre-mt#2767) —
-        // both fetch the raw WidgetData wrapper and extract different projections
-        // of it (rows vs ids here), the same compatible-shape sharing pattern the
-        // module header documents for agents/attention/memories (mt#2769).
-        queryKey: ["context-inspector", "sessions"],
-        queryFn: () => fetchWidgetData("context-inspector"),
-        staleTime: 30_000,
-        refetchInterval: ENTITY_INDEX_REFETCH_MS,
-      },
-    ],
-  });
+  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ, askIdsQ] = useQueries(
+    {
+      queries: [
+        {
+          // Distinct key from CommandPalette's "command-palette-tasks" — different shape
+          // (string[] here via /api/tasks/ids vs PaletteTask[] there; sharing would
+          // poison the cache). Uses the uncapped ids-only endpoint (mt#2518 R5) so the
+          // id-set is comprehensive — no 500-task cap.
+          queryKey: ["entity-index", "tasks"],
+          queryFn: fetchAllTaskIds,
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+        {
+          queryKey: ["agents"],
+          queryFn: () => fetchWidgetData("agents"),
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+        {
+          queryKey: ["attention"],
+          queryFn: () => fetchWidgetData("attention"),
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+        {
+          queryKey: ["widget", "memories-list", "", "", true],
+          queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+        {
+          // Distinct key from ChangesetsPage's ["changesets"] — different shape
+          // (entries with {id,title,state} here vs ChangesetsListResponse there;
+          // sharing the key would corrupt the cache). Fail-open (returns [] on
+          // error). Widened from ids-only to {id,title,state} entries (mt#3174)
+          // so this same query also backs `useEntityLabels`'s changeset labels —
+          // no new request, same cache entry (see `fetchChangesetEntries`).
+          queryKey: ["entity-index", "changesets"],
+          queryFn: fetchChangesetEntries,
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+        {
+          // Shared key with ConversationPage's ["context-inspector", "sessions"]
+          // (the retired ConversationsPage list used the same key pre-mt#2767) —
+          // both fetch the raw WidgetData wrapper and extract different projections
+          // of it (rows vs ids here), the same compatible-shape sharing pattern the
+          // module header documents for agents/attention/memories (mt#2769).
+          queryKey: ["context-inspector", "sessions"],
+          queryFn: () => fetchWidgetData("context-inspector"),
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+        {
+          // The ask id channel (mt#4095). Distinct key from ["attention"] — that
+          // one is the radiator widget's payload and carries pending asks only.
+          queryKey: ["entity-index", "ask-ids"],
+          queryFn: fetchAskShortIds,
+          staleTime: 30_000,
+          refetchInterval: ENTITY_INDEX_REFETCH_MS,
+        },
+      ],
+    }
+  );
+
+  // One fetch answers BOTH ask channels (mt#4095). `askIds` gates a bare uuid
+  // in prose and `askShortIds` gates an `ask#N`; both were read out of the
+  // pending-only attention cohort, so both stopped resolving when an ask
+  // closed. Fixing only the short-id half would have left the same defect
+  // behind under a different ref shape.
+  const askAliases = (askIdsQ.data as ShortIdAlias[] | undefined) ?? [];
 
   return useMemo(
     () =>
       buildEntityIndex({
         taskIds: (tasksQ.data as string[] | undefined) ?? [],
         sessionIds: extractAgentSessionIds(agentsQ.data as WidgetData | undefined),
-        askIds: extractAskIds(attentionQ.data as WidgetData | undefined),
+        askIds: askAliases.map((a) => a.id),
         memoryIds: extractMemoryIds(memoriesQ.data as WidgetData | undefined),
         changesetIds: (
           (changesetsQ.data as { id: string; title: string | null; state: string }[] | undefined) ??
@@ -480,7 +505,7 @@ export function useEntityIndex(): EntityIndex {
         ).map((c) => c.id),
         conversationIds: extractConversationIds(conversationsQ.data as WidgetData | undefined),
         memoryShortIds: extractMemoryShortIds(memoriesQ.data as WidgetData | undefined),
-        askShortIds: extractAskShortIds(attentionQ.data as WidgetData | undefined),
+        askShortIds: askAliases,
         sessionShortIds: extractAgentSessionShortIds(agentsQ.data as WidgetData | undefined),
       }),
     [

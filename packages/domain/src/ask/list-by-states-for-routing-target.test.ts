@@ -52,6 +52,10 @@ async function seed(repo: FakeAskRepository, s: Seed): Promise<Ask> {
 
 const TERMINAL: AskState[] = ["closed", "cancelled", "expired"];
 
+/** Two project uuids, so a scoped read has something to exclude. */
+const PROJECT_A = "11111111-1111-1111-1111-111111111111";
+const PROJECT_B = "22222222-2222-2222-2222-222222222222";
+
 describe("listByStatesForRoutingTarget (mt#4092)", () => {
   test("returns only the requested states", async () => {
     const repo = new FakeAskRepository();
@@ -173,23 +177,24 @@ describe("listByStatesForRoutingTarget (mt#4092)", () => {
   });
 
   test("a uuid project scope restricts the read; ALL_PROJECTS does not", async () => {
+    // (see the sibling scope test below for listShortIdsForRoutingTarget)
     const repo = new FakeAskRepository();
     const scoped = await seed(repo, {
       title: "in project A",
       state: "closed",
-      projectId: "11111111-1111-1111-1111-111111111111",
+      projectId: PROJECT_A,
     });
     const other = await seed(repo, {
       title: "in project B",
       state: "closed",
-      projectId: "22222222-2222-2222-2222-222222222222",
+      projectId: PROJECT_B,
     });
 
     const restricted = await repo.listByStatesForRoutingTarget({
       states: TERMINAL,
       routingTarget: "operator",
       limit: 50,
-      projectScope: "11111111-1111-1111-1111-111111111111",
+      projectScope: PROJECT_A,
     });
     expect(restricted.asks.map((a) => a.id)).toEqual([scoped.id]);
     expect(restricted.total).toBe(1);
@@ -210,5 +215,132 @@ describe("listByStatesForRoutingTarget (mt#4092)", () => {
     });
     expect(new Set(all.asks.map((a) => a.id))).toEqual(new Set([scoped.id, other.id]));
     expect(all.asks.map((a) => a.id)).toEqual(omitted.asks.map((a) => a.id));
+  });
+});
+
+/**
+ * The linkifier's id-set source (mt#4095). Deliberately state-agnostic: the
+ * defect it fixes is that an `ask#N` in a memory, spec or transcript stopped
+ * resolving the moment its ask closed.
+ */
+describe("listShortIdsForRoutingTarget (mt#4095)", () => {
+  async function seedWithShortId(
+    repo: FakeAskRepository,
+    s: Seed & { shortId?: string }
+  ): Promise<Ask> {
+    const ask = await seed(repo, s);
+    repo._seedAtState({ ...ask, shortId: s.shortId });
+    const reread = await repo.getById(ask.id);
+    if (!reread) throw new Error("fixture re-read failed");
+    return reread;
+  }
+
+  test("covers every state, not just the pending ones", async () => {
+    const repo = new FakeAskRepository();
+    await seedWithShortId(repo, { title: "pending", state: "suspended", shortId: "ask#1" });
+    await seedWithShortId(repo, { title: "closed", state: "closed", shortId: "ask#2" });
+    await seedWithShortId(repo, { title: "cancelled", state: "cancelled", shortId: "ask#3" });
+    await seedWithShortId(repo, { title: "expired", state: "expired", shortId: "ask#4" });
+
+    const pairs = await repo.listShortIdsForRoutingTarget({ routingTarget: "operator" });
+
+    expect(new Set(pairs.map((p) => p.shortId))).toEqual(
+      new Set(["ask#1", "ask#2", "ask#3", "ask#4"])
+    );
+  });
+
+  test("pairs the short id with the UUID, which is the deeplink target", async () => {
+    const repo = new FakeAskRepository();
+    const closed = await seedWithShortId(repo, {
+      title: "closed",
+      state: "closed",
+      shortId: "ask#7754",
+    });
+
+    const pairs = await repo.listShortIdsForRoutingTarget({ routingTarget: "operator" });
+
+    // ADR-029: the uuid is the SOLE minsky:// deeplink target; a pair that
+    // echoed the short id back would be useless to the linkifier.
+    expect(pairs).toEqual([{ shortId: "ask#7754", id: closed.id }]);
+  });
+
+  test("omits rows with no short id, and other routing targets", async () => {
+    const repo = new FakeAskRepository();
+    await seedWithShortId(repo, { title: "mine", state: "closed", shortId: "ask#10" });
+    await seedWithShortId(repo, { title: "legacy", state: "closed" });
+    await seedWithShortId(repo, {
+      title: "reviewer's",
+      state: "closed",
+      routingTarget: "reviewer",
+      shortId: "ask#11",
+    });
+
+    const pairs = await repo.listShortIdsForRoutingTarget({ routingTarget: "operator" });
+
+    expect(pairs.map((p) => p.shortId)).toEqual(["ask#10"]);
+  });
+
+  test("honors a uuid project scope", async () => {
+    const repo = new FakeAskRepository();
+    await seedWithShortId(repo, {
+      title: "project A",
+      state: "closed",
+      shortId: "ask#20",
+      projectId: PROJECT_A,
+    });
+    await seedWithShortId(repo, {
+      title: "project B",
+      state: "closed",
+      shortId: "ask#21",
+      projectId: PROJECT_B,
+    });
+
+    const scoped = await repo.listShortIdsForRoutingTarget({
+      routingTarget: "operator",
+      projectScope: PROJECT_A,
+    });
+    const all = await repo.listShortIdsForRoutingTarget({
+      routingTarget: "operator",
+      projectScope: ALL_PROJECTS,
+    });
+
+    expect(scoped.map((p) => p.shortId)).toEqual(["ask#20"]);
+    expect(new Set(all.map((p) => p.shortId))).toEqual(new Set(["ask#20", "ask#21"]));
+  });
+});
+
+/**
+ * The fake's `getById` must resolve the same id FORMS the Drizzle backend does
+ * (mt#4095). Without this the double, not the behavior, becomes the assertion
+ * target: a short-id lookup test would pass or fail on the fake's own
+ * limitations rather than on what production does (ADR-036).
+ */
+describe("FakeAskRepository.getById id-form parity (mt#4095)", () => {
+  test("resolves an ask#N short id", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seed(repo, { title: "closed", state: "closed" });
+    repo._seedAtState({ ...ask, shortId: "ask#7754" });
+
+    const found = await repo.getById("ask#7754");
+
+    expect(found?.id).toBe(ask.id);
+  });
+
+  test("resolves an unambiguous uuid prefix, and refuses an ambiguous one", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seed(repo, { title: "closed", state: "closed" });
+
+    expect((await repo.getById(ask.id.slice(0, 8)))?.id).toBe(ask.id);
+    // Too short to be a prefix lookup at all — must not match by accident.
+    expect(await repo.getById(ask.id.slice(0, 3))).toBeNull();
+  });
+
+  test("still resolves a full uuid, and still misses an unknown id", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seed(repo, { title: "closed", state: "closed" });
+
+    expect((await repo.getById(ask.id))?.id).toBe(ask.id);
+    expect(await repo.getById("ask#999999")).toBeNull();
+    expect(await repo.getById("not-an-id")).toBeNull();
   });
 });

@@ -304,6 +304,28 @@ export interface AskRepository {
   }): Promise<{ asks: Ask[]; total: number }>;
 
   /**
+   * Every `(shortId, id)` pair for a routing target, in ANY state (mt#4095).
+   *
+   * Feeds the cockpit linkifier's id-set, which decides SYNCHRONOUSLY at render
+   * whether an `ask#N` in prose becomes a link — so the set has to be complete
+   * before the first render, and an async per-id lookup cannot serve it. That
+   * is why this is a comprehensive, uncapped, two-column projection rather than
+   * a page of full rows: the same shape, and the same reason, as the task
+   * surface's `/api/tasks/ids`.
+   *
+   * State-agnostic on purpose. The defect this exists to fix is that a closed
+   * ask's `ask#N` silently stopped resolving in every memory, spec and
+   * transcript that mentioned it.
+   *
+   * Rows with no `shortId` (legacy, pre-backfill) are omitted — there is no
+   * short id to alias.
+   */
+  listShortIdsForRoutingTarget(params: {
+    routingTarget: string;
+    projectScope?: ProjectScope;
+  }): Promise<{ shortId: string; id: string }[]>;
+
+  /**
    * Batch-list open Asks for any task in `taskIds`.
    *
    * "Open" means state is not one of the terminal states (closed / cancelled
@@ -874,6 +896,31 @@ export class DrizzleAskRepository implements AskRepository {
     return { asks: rows.map(toAsk), total: Number(counted[0]?.n ?? 0) };
   }
 
+  async listShortIdsForRoutingTarget(params: {
+    routingTarget: string;
+    projectScope?: ProjectScope;
+  }): Promise<{ shortId: string; id: string }[]> {
+    const { routingTarget, projectScope } = params;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [
+      eq(asksTable.routingTarget, routingTarget),
+      isNotNull(asksTable.shortId),
+    ];
+    if (projectScope && !isAllProjects(projectScope)) {
+      conditions.push(eq(asksTable.projectId, projectScope));
+    }
+
+    const rows = await this.db
+      .select({ shortId: asksTable.shortId, id: asksTable.id })
+      .from(asksTable)
+      .where(and(...conditions));
+
+    // `isNotNull` already excludes them at the DB, but the column's type stays
+    // nullable, so this narrows rather than re-filters.
+    return rows.flatMap((r) => (r.shortId ? [{ shortId: r.shortId, id: r.id }] : []));
+  }
+
   async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
     if (taskIds.length === 0) return [];
     // Explicit isNotNull on parentTaskId is redundant with `IN (...)` in
@@ -1299,8 +1346,22 @@ export class FakeAskRepository implements AskRepository {
   }
 
   async getById(id: string): Promise<Ask | null> {
-    const ask = this.store.get(id);
-    return ask ? { ...ask } : null;
+    const direct = this.store.get(id);
+    if (direct) return { ...direct };
+    // Parity with the Drizzle backend, which resolves an `ask#N` short id (and
+    // a uuid prefix) through `askIdWhere` (mt#4095). A fake that only matched
+    // the uuid would let a short-id lookup test pass against behavior the fake
+    // never had, or fail one the real backend handles — the double becoming the
+    // assertion target instead of the behavior (ADR-036).
+    const byShortId = this.all.find((a) => a.shortId === id);
+    if (byShortId) return { ...byShortId };
+    if (id.length >= 8) {
+      const byPrefix = this.all.filter((a) => a.id.startsWith(id));
+      // A uuid prefix is only an id when it is UNAMBIGUOUS, matching the
+      // real backend's single-row semantics.
+      if (byPrefix.length === 1 && byPrefix[0]) return { ...byPrefix[0] };
+    }
+    return null;
   }
 
   async claimPrincipalPage(id: string, at: Date): Promise<{ claimed: boolean; ask: Ask }> {
@@ -1370,6 +1431,22 @@ export class FakeAskRepository implements AskRepository {
     matched.sort((a, b) => concludedAt(b).localeCompare(concludedAt(a)));
 
     return { asks: matched.slice(0, limit).map((a) => ({ ...a })), total: matched.length };
+  }
+
+  async listShortIdsForRoutingTarget(params: {
+    routingTarget: string;
+    projectScope?: ProjectScope;
+  }): Promise<{ shortId: string; id: string }[]> {
+    const { routingTarget, projectScope } = params;
+    const scoped = projectScope !== undefined && !isAllProjects(projectScope);
+    return this.all
+      .filter(
+        (a) =>
+          a.routingTarget === routingTarget &&
+          Boolean(a.shortId) &&
+          (!scoped || a.projectId === projectScope)
+      )
+      .map((a) => ({ shortId: a.shortId as string, id: a.id }));
   }
 
   async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
