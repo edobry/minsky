@@ -404,6 +404,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "unrendered-result-field-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Diff-only, no corpus and no DB. Positional rather than pattern-based: a field counts as rendered when its name appears in a literal OUTSIDE a logger call, which is the distinction the originating incident turned on.",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       interventions: [injectAgent],
