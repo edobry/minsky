@@ -46,6 +46,7 @@ function snapshotFixture(): InterceptorAggregatesSnapshot {
         registry: { registered: true, stratum: "registry" },
       },
     ],
+    declaredOnlyRows: [],
     calibrationReviewDue: [],
     sources: SNAPSHOT_SOURCES,
     sourceFailures: [],
