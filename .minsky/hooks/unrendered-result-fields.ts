@@ -36,7 +36,19 @@
 // distinction: the incident IS "it was logged somewhere nobody was reading, and
 // the command printed success."
 
-import { literalSpans } from "./output-label-tokens";
+import { literalSpanList, stripLiterals, isExcludedPath } from "./output-label-tokens";
+
+/**
+ * Does `text` mention `name` as a whole identifier?
+ *
+ * Boundary-aware so `orphansDeleted` does not match inside
+ * `orphansDeletedCount` (PR #2982 R1). The name comes from a parsed field
+ * declaration and is `\w`-only by construction, so it needs no escaping — the
+ * character class in `COUNTER_FIELD` is what guarantees that.
+ */
+function mentionsIdentifier(text: string, name: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9_])${name}(?![A-Za-z0-9_])`).test(text);
+}
 
 /** A counter or flag added to a `*Result` type with nothing rendering it. */
 export interface UnrenderedField {
@@ -75,10 +87,22 @@ function sourceOf(line: string): string {
  *
  * Multi-line by necessity: in the fixture the call opens on one line and the
  * field appears on two more, so a per-line test cannot see it. Paren depth is
- * tracked from the opening line until it balances — parens inside string
- * literals are not discounted, which can only ever END the span late (more
- * lines counted as logger-internal), never early. That direction is the safe
- * one for a detector whose job is to avoid crediting a log as a render.
+ * tracked from the opening line until it balances, counted over the line with
+ * literal INTERIORS blanked out.
+ *
+ * That blanking is load-bearing (PR #2982 R1). An earlier cut counted every
+ * paren, with a comment claiming the error "can only ever END the span late …
+ * never early." That claim is false, and the counter-example is one line long:
+ *
+ *   logger.warn(
+ *     `something )`,
+ *     { x }
+ *   );
+ *
+ * The `)` inside the template drops depth to 0 on the opening line, so the span
+ * ends immediately and the following lines read as ordinary code — which is the
+ * DANGEROUS direction, because a logger-only reference then counts as a render
+ * and a true finding is suppressed. Verified by running the count before fixing.
  */
 export function loggerCallLines(lines: string[]): Set<number> {
   const inLogger = new Set<number>();
@@ -91,7 +115,7 @@ export function loggerCallLines(lines: string[]): Set<number> {
       // The opening line itself: count from the logger call onward, so a
       // preceding `)` on the same line does not close a span not yet open.
       const start = src.search(LOGGER_CALL);
-      const tail = src.slice(start);
+      const tail = stripLiterals(src.slice(start));
       inLogger.add(i);
       depth = countParens(tail);
       if (depth <= 0) depth = 0;
@@ -99,7 +123,7 @@ export function loggerCallLines(lines: string[]): Set<number> {
     }
 
     inLogger.add(i);
-    depth += countParens(src);
+    depth += countParens(stripLiterals(src));
     if (depth <= 0) depth = 0;
   }
   return inLogger;
@@ -192,19 +216,46 @@ export function findUnrenderedResultFields(diff: string): UnrenderedField[] {
   // Pass 2 — does anything RENDER each field? A literal reference outside a
   // logger call counts; a reference inside one does not, which is the whole
   // discrimination (see the module header).
+  //
+  // File scoping is applied here too (PR #2982 R1). Without it this very PR
+  // would suppress its own finding: its own `docs/architecture/hooks` page mentions
+  // `orphansDeleted` in backticks, and a backticked word in Markdown is a
+  // literal span exactly like one in code. A prose mention is not a render.
   const rendered = new Set<string>();
+  let scanFile = "";
   for (let i = 0; i < lines.length; i++) {
-    if (loggerLines.has(i)) continue;
     const line = lines[i] ?? "";
+    if (line.startsWith("+++ ")) {
+      const raw = line.slice(4).trim();
+      scanFile = raw === "/dev/null" ? "" : raw.replace(/^b\//, "");
+      continue;
+    }
+    if (loggerLines.has(i)) continue;
     if (line.startsWith("-")) continue;
-    const spans = literalSpans(sourceOf(line));
-    if (!spans) continue;
-    for (const f of added) {
-      if (spans.includes(f.name)) rendered.add(f.name);
+    if (!scanFile || isExcludedPath(scanFile)) continue;
+    // Per-span, with identifier boundaries: `spans.join()` then `includes()`
+    // matched `orphansDeleted` inside `orphansDeletedCount`, and could match
+    // across two spans that were never adjacent in the source.
+    for (const span of literalSpanList(sourceOf(line))) {
+      for (const f of added) {
+        if (mentionsIdentifier(span, f.name)) rendered.add(f.name);
+      }
     }
   }
 
-  const out = added.filter((f) => !rendered.has(f.name));
+  // A name added to MORE THAN ONE `*Result` type in the same diff cannot be
+  // resolved from the render side, because a render site names the field and
+  // never its owner. Rather than let one rendered occurrence silently mask an
+  // unrendered sibling, report every field carrying an ambiguous name — a
+  // log-only advisory should fail toward surfacing, and the alternative is the
+  // false NEGATIVE this detector exists to prevent.
+  const nameCounts = new Map<string, number>();
+  for (const f of added) nameCounts.set(f.name, (nameCounts.get(f.name) ?? 0) + 1);
+
+  const out = added.filter((f) => {
+    const ambiguous = (nameCounts.get(f.name) ?? 0) > 1;
+    return ambiguous || !rendered.has(f.name);
+  });
   // Stable order so the warning text and the calibration record are
   // reproducible across runs on the same diff.
   out.sort((a, b) => a.name.localeCompare(b.name));

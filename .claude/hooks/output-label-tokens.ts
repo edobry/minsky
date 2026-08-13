@@ -98,12 +98,39 @@ const LABEL_EMIT = /(?:^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{2,})=(?!=)/g;
  * `Session ${id}: extracted=${n}`, which still matches.
  */
 export function literalSpans(line: string): string {
+  return literalSpanList(line).join("\n");
+}
+
+/** Matches a quoted or backticked span, honouring backslash escapes. */
+const LITERAL_SPAN = /(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
+
+/**
+ * Each literal's interior, as separate entries.
+ *
+ * The array form matters for callers that test IDENTITY rather than presence:
+ * concatenating first lets a match straddle two spans that were never adjacent
+ * in the source (PR #2982 R1).
+ */
+export function literalSpanList(line: string): string[] {
   const spans: string[] = [];
-  const re = /(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
-  for (const m of line.matchAll(re)) {
+  for (const m of line.matchAll(LITERAL_SPAN)) {
     if (m[2]) spans.push(m[2]);
   }
-  return spans.join("\n");
+  return spans;
+}
+
+/**
+ * The line with every literal's INTERIOR blanked out, quotes retained.
+ *
+ * The dual of {@link literalSpanList}, for callers that need to reason about
+ * code STRUCTURE — brackets, parens — without a character inside a string being
+ * mistaken for syntax. Retaining the quotes keeps offsets stable so a caller
+ * can still tell that a literal was present.
+ */
+export function stripLiterals(line: string): string {
+  return line.replace(LITERAL_SPAN, (_m, quote: string, body: string) =>
+    body ? `${quote}${" ".repeat(body.length)}${quote}` : `${quote}${quote}`
+  );
 }
 
 /**
@@ -136,7 +163,7 @@ function isCommentLine(line: string): boolean {
  * Test files never carry operator-facing output — they ASSERT on it, so a
  * removed label there is a changed expectation, not a changed signal.
  */
-function isExcludedPath(path: string): boolean {
+export function isExcludedPath(path: string): boolean {
   return (
     path.includes(".test.") ||
     path.includes(".spec.") ||

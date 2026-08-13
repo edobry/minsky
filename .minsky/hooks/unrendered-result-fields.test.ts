@@ -140,6 +140,81 @@ describe("findUnrenderedResultFields — the render side (SC2)", () => {
   });
 });
 
+describe("findUnrenderedResultFields — R1 review findings (PR #2982)", () => {
+  test("a Markdown/doc mention does NOT count as a render site", () => {
+    // This PR would otherwise have suppressed its own finding: its doc page
+    // mentions `orphansDeleted` in backticks, and a backticked word in Markdown
+    // is a literal span exactly like one in code.
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,2 +1,3 @@ export interface SweepResult {
+   written: number;
++  rowsPurged: number;
+ }
+diff --git a/docs/architecture/hooks/thing.md b/docs/architecture/hooks/thing.md
+--- a/docs/architecture/hooks/thing.md
++++ b/docs/architecture/hooks/thing.md
+@@ -1,1 +1,2 @@
++The counter \`rowsPurged\` reports how many rows were removed.
+`;
+    expect(findUnrenderedResultFields(diff).map((f) => f.name)).toContain("rowsPurged");
+  });
+
+  test("a longer identifier containing the name does NOT count as a render", () => {
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,2 +1,4 @@ export interface SweepResult {
+   written: number;
++  rowsPurged: number;
+ }
++render(\`rowsPurgedCount=\${n}\`);
+`;
+    expect(findUnrenderedResultFields(diff).map((f) => f.name)).toContain("rowsPurged");
+  });
+
+  test("the same name on two *Result owners is reported for both when ambiguous", () => {
+    // A render site names the field and never its owner, so one rendered
+    // occurrence must not silently mask an unrendered sibling.
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,2 +1,3 @@ export interface AResult {
+   written: number;
++  count: number;
+ }
+@@ -9,2 +10,3 @@ export interface BResult {
+   other: number;
++  count: number;
+ }
++render(\`count=\${n}\`);
+`;
+    const owners = findUnrenderedResultFields(diff).map((f) => f.owner);
+    expect(owners).toContain("AResult");
+    expect(owners).toContain("BResult");
+  });
+
+  test("a stray `)` inside a literal does not close the logger span early", () => {
+    // The counter-example that falsified the original "can only end late"
+    // claim: the `)` in the template dropped depth to 0 on the opening line,
+    // so the render-looking line after it was read as outside the logger call.
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,2 +1,7 @@ export interface SweepResult {
+   written: number;
++  rowsPurged: number;
+ }
++logger.warn(
++  \`something ) odd\`,
++  { rowsPurged }
++);
+`;
+    expect(findUnrenderedResultFields(diff).map((f) => f.name)).toContain("rowsPurged");
+  });
+});
+
 describe("loggerCallLines", () => {
   test("spans a multi-line logger call until its parens balance", () => {
     const lines = [
