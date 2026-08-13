@@ -722,6 +722,33 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
           );
         }
         await runStaleSuspendedAskCloseSweep(repo, { taskStatusById });
+
+        // Credential-request resolution (mt#4030) rides this tick rather than
+        // its own timer: same repository, same cadence, and the same job —
+        // reconciling pending asks against what is actually true now. Its own
+        // try/catch so a failure here cannot mask the sweep above, or vice
+        // versa.
+        //
+        // This is the resolver's production invocation path. Presence is the
+        // resolution signal, so this pass is what makes a credential entered in
+        // a terminal (`config credentials add`) close the request the same as
+        // one entered in the cockpit — with no second place to confirm it.
+        try {
+          const { createCredentialRequestResolverDeps, resolveSatisfiedCredentialRequests } =
+            await import("@minsky/domain/credentials/request-resolver");
+          const outcome = await resolveSatisfiedCredentialRequests(
+            createCredentialRequestResolverDeps(repo)
+          );
+          if (outcome.satisfied.length > 0 || outcome.raced.length > 0) {
+            log.info("cockpit: credential requests resolved", {
+              satisfied: outcome.satisfied.length,
+              raced: outcome.raced.length,
+            });
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.warn("cockpit: credential-request resolution failed", { message });
+        }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: stale-ask close sweep failed", { message });
