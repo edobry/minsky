@@ -332,9 +332,18 @@ export function createStartCommand(): Command {
       // mirrors startSseBrokerWarmup()'s posture below; a client connecting
       // before this resolves just sees a brief "not found yet" that a retry
       // clears once reconciliation completes.
+      // The handler below no longer catches reconciliation FAILURES (mt#4103).
+      // `loadPersistedDrivenSessions` now reports every outcome it can reach —
+      // including a stall, an unavailable database, and a thrown error — as its
+      // own single log line, so nothing it handles arrives here. What is left
+      // is a genuine backstop: a throw from OUTSIDE its own error handling
+      // would otherwise become an unhandled rejection on a fire-and-forget
+      // call. Kept for that, and reworded so it can no longer be read as the
+      // failure path — a second "reconciliation failed" line would now
+      // contradict the one the function itself emits.
       void loadPersistedDrivenSessions().catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`Warning: driven-session boot reconciliation failed: ${message}`);
+        console.warn(`Warning: driven-session boot reconciliation threw unexpectedly: ${message}`);
       });
 
       try {
