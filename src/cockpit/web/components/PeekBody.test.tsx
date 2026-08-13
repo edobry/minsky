@@ -19,6 +19,7 @@ import { MemoryRouter } from "react-router-dom";
 import { PeekBody } from "./PeekBody";
 import { ROUTABLE_ENTITY_TYPES } from "../lib/entity-codec";
 import type { InterceptorEntry } from "../hooks/useInterceptors";
+import type { WorkspaceDetailPayload } from "../widgets/RunDetail";
 
 const originalFetch = globalThis.fetch;
 
@@ -63,6 +64,10 @@ afterEach(() => {
 
 beforeEach(() => {
   localStorage.clear();
+  // Belt-and-braces with the afterEach restore (PR #2983 R1): a test that dies
+  // hard enough to skip teardown would otherwise leak the mock into whatever
+  // file runs next, and cross-file fetch state is invisible where it lands.
+  globalThis.fetch = originalFetch;
 });
 
 /**
@@ -101,6 +106,45 @@ const INTERCEPTOR_ENTRY: InterceptorEntry = {
   families: ["guard"],
   familyState: "classified",
   deliberatelyUnauthored: false,
+};
+
+/**
+ * Typed for the same reason as `INTERCEPTOR_ENTRY` above (PR #2983 R1).
+ *
+ * The first version of the session test stubbed `/api/workspace`, which
+ * `fetchWorkspaceDetail` never requests — it calls `/api/agents/:id`
+ * (`RunDetail.tsx:200`). `stubRoutes` matches by substring, so the request fell
+ * through to the mock's 500 branch and the body rendered `ErrorState`. The test
+ * passed anyway, because its only assertion was that the RETIRED placeholder
+ * copy was absent — and absent it was, from an error pane.
+ *
+ * That is the same defect class as the blank interceptor pane: an assertion
+ * that cannot distinguish "the real body rendered" from "nothing useful
+ * rendered". Every case in this file now asserts positively on content only the
+ * real body emits.
+ */
+const WORKSPACE_DETAIL: WorkspaceDetailPayload = {
+  session: {
+    sessionId: "2154425b-0000-0000-0000-000000000000",
+    shortId: "ws#12",
+    taskId: "mt#4069",
+    taskTitle: "A run",
+    status: "IN-PROGRESS",
+    liveness: "healthy",
+    agentId: null,
+    branch: "task/mt-4069",
+    repoName: "edobry/minsky",
+    repoUrl: null,
+    createdAt: "2026-08-12T10:00:00.000Z",
+    lastActivityAt: "2026-08-12T11:00:00.000Z",
+    lastCommitHash: null,
+    lastCommitMessage: null,
+    commitCount: 0,
+  },
+  commits: [],
+  pr: null,
+  conversation: null,
+  conversations: [],
 };
 
 describe("AT1 — each type mt#4069 added renders its real body", () => {
@@ -167,23 +211,16 @@ describe("AT1 — each type mt#4069 added renders its real body", () => {
   });
 
   test("session renders the workspace overview body", async () => {
-    stubRoutes([
-      [
-        "/api/workspace",
-        {
-          session: { shortId: "ws#12", taskTitle: "A run" },
-          conversations: [],
-        },
-      ],
-    ]);
+    // `fetchWorkspaceDetail` requests `/api/agents/:id` — NOT `/api/workspace`.
+    stubRoutes([["/api/agents/", WORKSPACE_DETAIL]]);
 
     renderPeek("session", "2154425b-0000-0000-0000-000000000000");
 
-    // Whatever the overview body renders, it must not be the retired
-    // open-as-page placeholder, and it must resolve past the loading state.
-    await waitFor(() => {
-      expect(screen.queryByText(/does not have a peek body yet/)).toBeNull();
-    });
+    // "Liveness" is a `WorkspaceOverviewBody` field label: neither the loading
+    // state, the error state, nor the retired placeholder produces it.
+    await waitFor(() => expect(screen.getByText("Liveness")).toBeDefined());
+    expect(screen.getByText("task/mt-4069")).toBeDefined();
+    expect(screen.queryByText(/does not have a peek body yet/)).toBeNull();
   });
 
   test("conversation renders the conversation overview body", async () => {
