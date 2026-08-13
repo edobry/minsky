@@ -226,6 +226,12 @@ jobs:
           done
 
           echo "/health did not respond 200 within 60s"
+          # Pre-declared so the fallback's `$SMOKE_STATE` is unambiguously bound
+          # under `set -u`. Bash does assign the variable from a FAILED command
+          # substitution before `||` runs, so this is belt-and-braces rather than
+          # a bug fix — but the two-step form states that intent instead of
+          # asking every reader to know it.
+          SMOKE_STATE=""
           SMOKE_STATE="$(docker inspect -f '{{.State.Status}} (exit {{.State.ExitCode}})' reviewer-smoke 2>&1)" \
             || SMOKE_STATE="inspect failed: $SMOKE_STATE"
           echo "Container state: $SMOKE_STATE"
