@@ -86,6 +86,25 @@ const PHYS_FOOTPRINT_BYTES = /^\s*phys_footprint:\s*(\d+)\s*B\s*$/im;
 /** `VmRSS:  123456 kB` / `VmSwap:  789 kB` — proc(5) reports these in kB. */
 const BYTES_PER_KB = 1024;
 
+/**
+ * Known causes of a `null` here, i.e. of a persistent `ok: false` upstream —
+ * worth enumerating because the operator-facing symptom is an admission
+ * decision marked `measured: false`, which says nothing about why:
+ *
+ * - The pid is gone (`footprint(1)` exits 66).
+ * - The process is owned by ANOTHER user — `man 1 footprint`: "must be run as
+ *   root when inspecting processes that are not owned by the current user." A
+ *   supervisor's own children never are, but a mis-targeted pid could be.
+ * - `footprint(1)` is absent, or blocked by a sandbox/TCC policy on a hardened
+ *   machine. The spawn throws rather than exiting non-zero.
+ *
+ * PR #2968 R1 suggested threading the exit status into the failure `reason`.
+ * Deliberately not done: no consumer reads `reason` today — every caller goes
+ * through `getCurrentProcessMemoryBytes`, which collapses the union to
+ * `number | null` — so it would add detail to a field nothing surfaces. If a
+ * consumer ever displays the reason, thread it then, and change the injection
+ * seam's return shape once rather than speculatively.
+ */
 function defaultRunFootprint(pid: number): string | null {
   try {
     const probe = Bun.spawnSync(["footprint", "-f", "bytes", "-p", String(pid)], {

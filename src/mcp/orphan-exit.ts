@@ -479,7 +479,18 @@ export function shouldArmMemoryCeilingWatcher(decision: MemoryCeilingArmDecision
 
 export interface WireMemoryCeilingWatcherOptions {
   initialPpid: number;
-  getResidentBytes?: () => number;
+  /**
+   * Override the memory reader. `null` means "could not measure" and is
+   * propagated to the watcher, which skips that tick (mt#4104).
+   *
+   * PR #2968 R1: this stayed `() => number` while the watcher it feeds moved to
+   * `() => number | null`. It typechecked — the default `getCurrentProcessMemoryBytes`
+   * widens the union at the call site — so nothing failed; the cost was that a
+   * caller could not inject a null-returning reader through this seam at all,
+   * which is exactly the new behavior. A type that compiles and still forbids
+   * the intended use is the shape this note exists to prevent recurring.
+   */
+  getResidentBytes?: () => number | null;
   /**
    * Names the process class in the breach record — `"mcp start"` or
    * `"mcp proxy"`. The panic stackshot that motivated this carried no
