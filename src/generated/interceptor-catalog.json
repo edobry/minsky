@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 96,
+  "population": 97,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -2237,6 +2237,32 @@
       "role": "judge",
       "coordinateGaps": [],
       "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "stale-signal-sweep",
+      "description": "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      "failureClasses": ["stale-context", "unfounded-claim"],
+      "provenance": [".minsky/hooks/stale-signal-sweep.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false
     },
