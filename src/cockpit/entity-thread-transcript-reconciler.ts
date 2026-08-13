@@ -188,6 +188,8 @@ export interface ThreadReconcileStore {
     conversationId: string
   ): Promise<TranscriptAssistantTurn[]>;
   listTurns(db: PostgresJsDatabase, localId: string): Promise<EntityThreadTurn[]>;
+  /** When the thread row itself was created — the window's fallback anchor. */
+  readThreadStartedAtMs(db: PostgresJsDatabase, localId: string): Promise<number | undefined>;
   appendTurn(
     db: PostgresJsDatabase,
     input: {
@@ -200,10 +202,37 @@ export interface ThreadReconcileStore {
   ): Promise<EntityThreadTurn>;
 }
 
+/**
+ * When the thread row was created (PR #2971 R1).
+ *
+ * The window's fallback anchor has to come from the THREAD, not from its first
+ * turn. Anchoring on `turns[0]` leaves a thread with ZERO stored turns with no
+ * anchor at all, so nothing is eligible and the first missing reply can never be
+ * recovered — which is precisely the case where every reply is missing and
+ * recovery matters most. That state is reachable: the operator's own message is
+ * written through the same failing append path as the agent's.
+ */
+async function readThreadStartedAtMs(
+  db: PostgresJsDatabase,
+  localId: string
+): Promise<number | undefined> {
+  const result = await db.execute(sql`
+    SELECT created_at FROM entity_threads WHERE local_id = ${localId}
+  `);
+  for (const row of Array.from(result as Iterable<{ created_at?: Date | string | null }>)) {
+    const createdAt = row.created_at;
+    if (!createdAt) continue;
+    const ms = (createdAt instanceof Date ? createdAt : new Date(createdAt)).getTime();
+    if (!Number.isNaN(ms)) return ms;
+  }
+  return undefined;
+}
+
 const PRODUCTION_STORE: ThreadReconcileStore = {
   resolveConversationIds: resolveThreadConversationIds,
   readTranscriptTurns: readTranscriptAssistantTurns,
   listTurns: listEntityThreadTurns,
+  readThreadStartedAtMs,
   appendTurn: appendEntityThreadTurn,
 };
 
@@ -226,7 +255,12 @@ export async function reconcileThreadFromTranscript(
 
     const storedTurns = await store.listTurns(db, localId);
     const storedAgentTurns = agentTurnsOf(storedTurns);
-    const threadStartedAtMs = storedTurns[0]?.createdAt.getTime();
+    // The THREAD's creation instant, not its first turn's — a thread with zero
+    // turns still has a start, and that is the case where every reply is missing
+    // (PR #2971 R1). Falls back to the first turn only if the thread row cannot
+    // be read, which keeps a partial answer rather than none.
+    const threadStartedAtMs =
+      (await store.readThreadStartedAtMs(db, localId)) ?? storedTurns[0]?.createdAt.getTime();
 
     const transcriptTurns: TranscriptAssistantTurn[] = [];
     for (const conversationId of conversationIds) {

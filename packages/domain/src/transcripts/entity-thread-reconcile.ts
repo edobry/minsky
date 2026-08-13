@@ -149,9 +149,17 @@ export function isTranscriptTurnStored(
  *
  * 2. **Containment** — see {@link isTranscriptTurnStored}.
  *
- * Ordering is by the transcript's own `(conversationId, turnIndex)`, so replies
- * are appended in the order the agent produced them rather than in whatever
- * order the rows arrived.
+ * Ordering is by `endedAtMs`, so replies are appended in the order the agent
+ * actually produced them.
+ *
+ * **Not by `(conversationId, turnIndex)`** — that was the first cut and it is
+ * wrong across a conversation swap (PR #2971 R1). Conversation ids are UUIDs, so
+ * comparing them orders by an arbitrary string: the REPLACED conversation holds
+ * the chronologically EARLIER replies, and whether they sort before or after the
+ * current conversation's depends on how two random UUIDs happen to compare.
+ * `turnIndex` is only meaningful WITHIN one conversation and cannot order across
+ * two. Time is the only key that is comparable across both, which is exactly the
+ * multi-conversation case the swap column exists to support.
  */
 export function selectRecoverableTurns(
   input: SelectRecoverableTurnsInput
@@ -170,10 +178,13 @@ export function selectRecoverableTurns(
   return eligible
     .filter((turn) => !isTranscriptTurnStored(turn.text, input.storedAgentTurns))
     .sort((a, b) =>
-      a.conversationId === b.conversationId
-        ? a.turnIndex - b.turnIndex
-        : a.conversationId < b.conversationId
-          ? -1
-          : 1
+      // `turnIndex` breaks ties only within one conversation, where it is the
+      // authoritative order; across conversations it is meaningless, so it is
+      // reached only when two turns share an instant.
+      a.endedAtMs === b.endedAtMs
+        ? a.conversationId === b.conversationId
+          ? a.turnIndex - b.turnIndex
+          : 0
+        : a.endedAtMs - b.endedAtMs
     );
 }

@@ -175,36 +175,48 @@ describe("selectRecoverableTurns", () => {
     expect(result.map((t) => t.text)).toEqual(["arrived within the skew window"]);
   });
 
-  /** Acceptance test 5's ordering half — replies land in the order produced. */
-  test("orders recovered turns by conversation then turn index", () => {
+  /**
+   * Acceptance test 5's ordering half — replies land in the order produced.
+   *
+   * Regression for PR #2971 R1: the first cut sorted by `(conversationId,
+   * turnIndex)`, which across a swap orders by an arbitrary UUID comparison.
+   * The ids here are chosen so lexicographic order CONTRADICTS time order — the
+   * replaced conversation (`f...`) holds the EARLIER replies but sorts last as a
+   * string. The original test used `conv-a`/`conv-b`, where the two orderings
+   * agreed, so it passed against the broken sort.
+   */
+  test("orders recovered turns by time, across a conversation swap", () => {
+    const replacedConversation = "ffffffff-0000-4000-8000-000000000000";
+    const currentConversation = "00000000-0000-4000-8000-000000000000";
+
     const result = selectRecoverableTurns({
       storedAgentTurns: [{ content: "anchor", createdAtMs: T0 }],
       transcriptTurns: [
         transcriptTurn({
-          conversationId: "conv-b",
+          conversationId: currentConversation,
           turnIndex: 2,
-          text: "second of b",
+          text: "said after the swap, second",
           endedAtMs: T0 + minutes(4),
         }),
         transcriptTurn({
-          conversationId: "conv-a",
+          conversationId: replacedConversation,
           turnIndex: 9,
-          text: "from the replaced conversation",
+          text: "said BEFORE the swap",
           endedAtMs: T0 + minutes(1),
         }),
         transcriptTurn({
-          conversationId: "conv-b",
+          conversationId: currentConversation,
           turnIndex: 1,
-          text: "first of b",
+          text: "said after the swap, first",
           endedAtMs: T0 + minutes(3),
         }),
       ],
     });
 
     expect(result.map((t) => t.text)).toEqual([
-      "from the replaced conversation",
-      "first of b",
-      "second of b",
+      "said BEFORE the swap",
+      "said after the swap, first",
+      "said after the swap, second",
     ]);
   });
 });

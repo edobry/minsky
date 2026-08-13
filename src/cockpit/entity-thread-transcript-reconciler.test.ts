@@ -41,6 +41,7 @@ interface FakeStoreState {
   conversationIds: string[];
   transcript: Record<string, TranscriptAssistantTurn[]>;
   turns: EntityThreadTurn[];
+  threadStartedAtMs?: number;
   appended: Array<{
     content: string;
     recoveredFromConversationId?: string;
@@ -56,6 +57,7 @@ function fakeStore(init: Partial<FakeStoreState> = {}): {
     conversationIds: init.conversationIds ?? [CONVERSATION],
     transcript: init.transcript ?? {},
     turns: init.turns ?? [storedTurn()],
+    ...(init.threadStartedAtMs === undefined ? {} : { threadStartedAtMs: init.threadStartedAtMs }),
     appended: [],
   };
 
@@ -63,6 +65,7 @@ function fakeStore(init: Partial<FakeStoreState> = {}): {
     resolveConversationIds: async () => state.conversationIds,
     readTranscriptTurns: async (_db, conversationId) => state.transcript[conversationId] ?? [],
     listTurns: async () => state.turns,
+    readThreadStartedAtMs: async () => state.threadStartedAtMs,
     appendTurn: async (_db, input) => {
       state.appended.push({
         content: input.content,
@@ -166,6 +169,46 @@ describe("reconcileThreadFromTranscript", () => {
     expect(outcome.recovered).toBe(1);
     expect(outcome.conversationsConsidered).toBe(2);
     expect(state.appended[0]?.recoveredFromConversationId).toBe(REPLACED_CONVERSATION);
+  });
+
+  /**
+   * Regression for PR #2971 R1.
+   *
+   * A thread with ZERO stored turns is exactly the case where every reply is
+   * missing — reachable because the operator's own message goes through the same
+   * failing append path as the agent's. Anchoring the window on `turns[0]` left
+   * that thread with no anchor, so nothing was ever eligible and the first
+   * missing reply could never be recovered.
+   */
+  test("recovers into an empty thread, anchored on the thread's own start", async () => {
+    const threadStartedAtMs = T0;
+    const { store, state } = fakeStore({
+      turns: [],
+      threadStartedAtMs,
+      transcript: {
+        [CONVERSATION]: [
+          {
+            conversationId: CONVERSATION,
+            turnIndex: 3,
+            text: "the only reply, and it never persisted",
+            endedAtMs: threadStartedAtMs + 60_000,
+          },
+          {
+            conversationId: CONVERSATION,
+            turnIndex: 1,
+            text: "from before this thread existed",
+            endedAtMs: threadStartedAtMs - 60 * 60_000,
+          },
+        ],
+      },
+    });
+
+    const outcome = await reconcileThreadFromTranscript(DB, LOCAL_ID, store);
+
+    expect(outcome.recovered).toBe(1);
+    expect(state.appended.map((a) => a.content)).toEqual([
+      "the only reply, and it never persisted",
+    ]);
   });
 
   test("reports a thread with no conversation as unresolvable rather than clean", async () => {

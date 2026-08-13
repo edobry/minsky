@@ -308,7 +308,17 @@ export function mountEntityThreadRoutes(
         // landed is gone from memory, but not from the harness transcript the
         // watcher ingests, so this is where it comes back. Boot is the pass
         // immediately following the restart that lost it.
-        await reconcileAllThreadsFromTranscript(db);
+        //
+        // Deferred off the mount path rather than awaited in it (PR #2971 R1).
+        // It walks every thread and queries the transcript per conversation, so
+        // running it inline puts an unbounded read between the daemon starting
+        // and its routes being useful, and couples startup to the store's health
+        // for no benefit — nothing about the recovery is more correct for having
+        // happened a second earlier. `unref` so a pending timer cannot hold the
+        // process open at shutdown, matching `schedulePendingDrain`'s own timer.
+        setTimeout(() => {
+          void reconcileAllThreadsFromTranscript(db);
+        }, 0).unref?.();
       }
     } catch (err) {
       // Swallowed on purpose, and narrowly: this runs at MOUNT time, so an
