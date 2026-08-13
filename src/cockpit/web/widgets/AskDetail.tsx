@@ -113,7 +113,10 @@ export interface AskItem {
   windowMissedCount: number;
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
   metadata: Record<string, unknown>;
-  /** Present on the per-id endpoint for terminal asks (mt#2669). */
+  /**
+   * Present for terminal asks — on the per-id endpoint (mt#2669) and, since
+   * mt#4092, on a state-filtered list too.
+   */
   response?: AskResponse | null;
   respondedAt?: string;
   closedAt?: string;
@@ -121,7 +124,15 @@ export interface AskItem {
 
 export interface AsksListResponse {
   asks: AskItem[];
+  /**
+   * On the default (pending) list this is the number of rows returned. On a
+   * state-filtered list it is the TRUE match count before the cap — read
+   * `returned` for the array length and `truncated` for whether rows were cut
+   * (mt#4092; same convention as the `asks_list` MCP command).
+   */
   total: number;
+  returned?: number;
+  truncated?: boolean;
 }
 
 /** Thrown by fetchAskById on a 404 — the id does not exist at all (mt#2669). */
@@ -136,8 +147,33 @@ export class AskNotFoundError extends Error {
 // API helpers
 // ---------------------------------------------------------------------------
 
+/** The pending operator decision queue — `GET /api/asks` with no filter. */
 export async function fetchAsks(): Promise<AsksListResponse> {
-  const res = await fetch("/api/asks");
+  return getAsksList("/api/asks");
+}
+
+/**
+ * Terminal asks — closed, cancelled, or expired (mt#4092).
+ *
+ * A SEPARATE function rather than an optional parameter on `fetchAsks`, because
+ * `fetchAsks` is passed directly as a TanStack `queryFn` in three widgets
+ * (TriageBand, Agents, Workstreams) and a query function is invoked with a
+ * `QueryFunctionContext`. An optional params object would put that context in
+ * the parameter position at every one of those call sites — harmless today only
+ * because the context happens to carry no matching keys. Two named functions
+ * make the misuse unrepresentable instead of merely unlikely.
+ *
+ * The endpoint expands `terminal` to every terminal state: an operator looking
+ * for an ask they resolved does not know which of the three it landed in.
+ */
+export async function fetchTerminalAsks(limit?: number): Promise<AsksListResponse> {
+  const query = new URLSearchParams({ state: "terminal" });
+  if (limit !== undefined) query.set("limit", String(limit));
+  return getAsksList(`/api/asks?${query.toString()}`);
+}
+
+async function getAsksList(url: string): Promise<AsksListResponse> {
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch asks (${res.status})`);
   return res.json() as Promise<AsksListResponse>;
 }

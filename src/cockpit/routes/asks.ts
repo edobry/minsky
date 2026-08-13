@@ -7,6 +7,7 @@
  *   POST /api/asks/:id/resolve   — mark an Ask as resolved
  */
 import type express from "express";
+import type { Ask } from "@minsky/domain/ask/types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import { getServerAskRepository, describeServerPersistenceUnavailability } from "../db-providers";
@@ -15,6 +16,122 @@ import { getServerAskRepository, describeServerPersistenceUnavailability } from 
 export interface AskRoutesOptions {
   /** Override the AskRepository used by every endpoint (used in tests). */
   askRepoOverride: AskRepository | null;
+}
+
+/**
+ * The `state` value that expands to every terminal state (mt#4092).
+ *
+ * An operator looking for an ask they resolved does not know whether it landed
+ * in `closed`, `cancelled`, or `expired` — asking them to pick is asking them
+ * for the thing they came to find out. `terminal` is the value the cockpit's
+ * resolved view sends.
+ */
+export const TERMINAL_STATE_ALIAS = "terminal";
+
+/** Default cap on a state-filtered list, and the ceiling `?limit=` may raise it to. */
+export const DEFAULT_FILTERED_LIMIT = 100;
+export const MAX_FILTERED_LIMIT = 500;
+
+export type AskStateFilterResult =
+  | { ok: true; states: string[] | null }
+  | { ok: false; invalid: string[] };
+
+/**
+ * Parse `GET /api/asks?state=` into the set of states to gather (mt#4092).
+ *
+ * `states: null` means NO filter was supplied and the caller gets the
+ * historical default (pending operator asks) — the distinction that keeps
+ * every existing caller on exactly its current result set.
+ *
+ * Accepts a repeated param (`?state=closed&state=expired`, which Express hands
+ * over as an array), a comma-separated list, or the `terminal` alias. Unknown
+ * tokens are collected and reported rather than silently dropped: a filter that
+ * quietly returns an empty list for a typo is indistinguishable from "there is
+ * nothing there", which is the failure this endpoint already had.
+ *
+ * Takes the valid-state lists as arguments rather than importing them, so the
+ * route can keep loading domain code lazily inside the handler and this stays a
+ * pure function.
+ */
+export function parseAskStateFilter(
+  raw: unknown,
+  known: { all: readonly string[]; terminal: readonly string[] }
+): AskStateFilterResult {
+  const tokens = (Array.isArray(raw) ? raw : [raw])
+    .filter((v): v is string => typeof v === "string")
+    .flatMap((v) => v.split(","))
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+
+  if (tokens.length === 0) return { ok: true, states: null };
+
+  const states: string[] = [];
+  const invalid: string[] = [];
+  for (const token of tokens) {
+    if (token === TERMINAL_STATE_ALIAS) {
+      states.push(...known.terminal);
+    } else if (known.all.includes(token)) {
+      states.push(token);
+    } else {
+      invalid.push(token);
+    }
+  }
+
+  if (invalid.length > 0) return { ok: false, invalid };
+  return { ok: true, states: [...new Set(states)] };
+}
+
+/** Parse `?limit=`, clamped to {@link MAX_FILTERED_LIMIT}. Anything unparseable uses the default. */
+export function parseFilteredLimit(raw: unknown): number {
+  const value = Number.parseInt(typeof raw === "string" ? raw : "", 10);
+  if (!Number.isFinite(value) || value <= 0) return DEFAULT_FILTERED_LIMIT;
+  return Math.min(value, MAX_FILTERED_LIMIT);
+}
+
+/**
+ * The routing target this endpoint serves, on both paths.
+ *
+ * `/api/asks` is the OPERATOR's surface. Terminal asks are dominated by
+ * reviewer- and policy-routed rows that were never the operator's decisions, so
+ * dropping this predicate on the filtered path would bury the ones they made.
+ */
+const OPERATOR_ROUTING_TARGET = "operator";
+
+/**
+ * The list projection, shared by both branches of `GET /api/asks` (mt#4092).
+ *
+ * The three conclusion fields (`respondedAt`, `closedAt`, `response`) are what
+ * the resolved view renders — what was decided and when. They are undefined on
+ * a pending ask, and `JSON.stringify` drops undefined properties, so the
+ * default branch's body is unchanged by their presence.
+ */
+function toAskListRow(a: Ask) {
+  return {
+    id: a.id,
+    // ask#N short id (mt#2965) — undefined for legacy rows pre-backfill;
+    // the frontend falls back to `id` (uuid) for display purposes.
+    shortId: a.shortId,
+    kind: a.kind,
+    state: a.state,
+    title: a.title,
+    question: a.question,
+    requestor: a.requestor,
+    routingTarget: a.routingTarget,
+    parentTaskId: a.parentTaskId,
+    parentSessionId: a.parentSessionId,
+    options: a.options,
+    contextRefs: a.contextRefs,
+    deadline: a.deadline,
+    createdAt: a.createdAt,
+    suspendedAt: a.suspendedAt,
+    windowKey: a.windowKey,
+    windowMissedCount: a.windowMissedCount ?? 0,
+    serviceStrategy: a.serviceStrategy,
+    metadata: a.metadata,
+    respondedAt: a.respondedAt,
+    closedAt: a.closedAt,
+    response: a.response,
+  };
 }
 
 /**
@@ -106,19 +223,43 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
   const { askRepoOverride } = opts;
 
   /**
-   * GET /api/asks — list all pending operator-routed asks (mt#1916)
+   * GET /api/asks — list operator-routed asks (mt#1916; state filter mt#4092)
    *
-   * Returns: { asks: Ask[], total: number }
+   * With NO query params: all `suspended` asks routed to "operator", sorted by
+   * priority — the pending decision queue, unchanged since mt#1916. Returns
+   * `{ asks, total }`.
    *
-   * Lists all suspended asks routed to "operator", sorted by priority.
-   * Used by the /asks management page for the full list view.
+   * With `?state=`: the same operator-routed scoping, but over the requested
+   * states instead of `suspended`, ordered most-recently-concluded first and
+   * capped (`?limit=`, default DEFAULT_FILTERED_LIMIT). Returns
+   * `{ asks, total, returned, truncated }`, where `total` is the TRUE match
+   * count before the cap — the same shape the `asks_list` MCP command already
+   * uses, so there is one convention for a capped ask list rather than two.
+   * `?state=terminal` expands to every terminal state.
+   *
+   * ## Why the default had to stay exactly as it was (mt#4092)
+   *
+   * Until this endpoint took a filter there was no way to reach a resolved ask
+   * from the cockpit at all: the per-id route resolves any state (mt#2669), so
+   * a closed ask was reachable if — and only if — you already held its
+   * deeplink. But `/asks` is an ATTENTION surface, and its value comes from
+   * showing only what still needs the principal. So the filter is opt-in and
+   * the resolved view is a drill-down: a caller that passes nothing sees the
+   * pending queue and nothing else, which is what the home triage band and
+   * every existing consumer depend on.
+   *
+   * The `routingTarget === "operator"` predicate is applied on BOTH paths, not
+   * just the default. It is load-bearing on the filtered path: terminal asks
+   * are dominated by reviewer- and policy-routed rows that were never the
+   * operator's decisions, and dropping the predicate would bury the handful
+   * they actually made.
    *
    * Architecture note: the cockpit server is a direct domain-layer consumer
    * (same as the mt#1147 resolve endpoint). MCP tools (asks_respond,
    * asks_reconcile) are the agent-facing interface to the same domain
    * operations — the cockpit backend does not route through MCP to itself.
    */
-  app.get("/api/asks", async (_req, res) => {
+  app.get("/api/asks", async (req, res) => {
     try {
       const repo = askRepoOverride ?? (await getServerAskRepository());
       if (!repo) {
@@ -128,40 +269,51 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         return;
       }
 
-      const { isTerminal } = await import("@minsky/domain/ask/state-machine");
+      const { isTerminal, ALL_ASK_STATES, TERMINAL_ASK_STATES } = await import(
+        "@minsky/domain/ask/state-machine"
+      );
       const { compareAskPriority } = await import("@minsky/domain/ask/pending-asks-for-window");
 
-      const suspended = await repo.listByState("suspended");
-      const operatorAsks = suspended.filter(
-        (a) => a.routingTarget === "operator" && !isTerminal(a.state)
-      );
-      operatorAsks.sort(compareAskPriority);
+      const filter = parseAskStateFilter(req.query.state, {
+        all: ALL_ASK_STATES,
+        terminal: TERMINAL_ASK_STATES,
+      });
+      if (!filter.ok) {
+        res.status(400).json({
+          error:
+            `Unknown ask state(s): ${filter.invalid.join(", ")}. ` +
+            `Valid: ${[...ALL_ASK_STATES, TERMINAL_STATE_ALIAS].join(", ")}`,
+        });
+        return;
+      }
 
-      const asks = operatorAsks.map((a) => ({
-        id: a.id,
-        // ask#N short id (mt#2965) — undefined for legacy rows pre-backfill;
-        // the frontend falls back to `id` (uuid) for display purposes.
-        shortId: a.shortId,
-        kind: a.kind,
-        state: a.state,
-        title: a.title,
-        question: a.question,
-        requestor: a.requestor,
-        routingTarget: a.routingTarget,
-        parentTaskId: a.parentTaskId,
-        parentSessionId: a.parentSessionId,
-        options: a.options,
-        contextRefs: a.contextRefs,
-        deadline: a.deadline,
-        createdAt: a.createdAt,
-        suspendedAt: a.suspendedAt,
-        windowKey: a.windowKey,
-        windowMissedCount: a.windowMissedCount ?? 0,
-        serviceStrategy: a.serviceStrategy,
-        metadata: a.metadata,
-      }));
+      if (filter.states === null) {
+        const suspended = await repo.listByState("suspended");
+        const operatorAsks = suspended.filter(
+          (a) => a.routingTarget === OPERATOR_ROUTING_TARGET && !isTerminal(a.state)
+        );
+        operatorAsks.sort(compareAskPriority);
+        const asks = operatorAsks.map(toAskListRow);
+        res.json({ asks, total: asks.length });
+        return;
+      }
 
-      res.json({ asks, total: asks.length });
+      // One query, filtered/ordered/limited in SQL — see the repository method's
+      // docblock for why the obvious `listByState`-per-state composition is not
+      // usable at this set size.
+      const limit = parseFilteredLimit(req.query.limit);
+      const { asks: page, total } = await repo.listByStatesForRoutingTarget({
+        states: filter.states as Ask["state"][],
+        routingTarget: OPERATOR_ROUTING_TARGET,
+        limit,
+      });
+
+      res.json({
+        asks: page.map(toAskListRow),
+        total,
+        returned: page.length,
+        truncated: total > page.length,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
