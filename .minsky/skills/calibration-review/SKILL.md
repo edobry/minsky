@@ -24,6 +24,47 @@ packaging an enforcement-posture change as an Ask (Step 4's split, mt#3769).
 
 ## Step 1 — Run the sweep (read-only)
 
+### Probe first — another pass may already be running (mt#4119)
+
+Calibration logs are a SHARED resource across concurrent sessions, and a second
+pass over the same log is pure waste: both agents classify the same records, and
+only one ack can survive. **Run this probe BEFORE the sweep** — every step below
+is work you cannot get back if a pass is already in flight.
+
+Two checks, both cheap:
+
+1. **Search for a tune task or disposition ask already filed against the
+   detectors you are about to review** — `mcp__minsky__tasks_search` on the
+   detector name, and `mcp__minsky__asks_list` with `kind: "direction.decide"`
+   for the ask side. One created in the last few minutes, naming one of your
+   logs, is the visible signature of a pass in flight. That is exactly how R2
+   below was caught.
+2. **Re-read the watermark before you classify.** If a log's `watermarkCount`
+   moved between your read-only sweep and the moment you start classifying it,
+   another pass acked it underneath you and those records are no longer yours to
+   review.
+
+**If the probe HITS: stand down on that log.** Do not classify it in parallel
+and reconcile afterwards — the other pass owns it. Read what they filed, and if
+your reading genuinely adds something (a resolved uncertainty, a differing
+verdict), **fold it into their artifact** rather than filing a near-duplicate.
+Do NOT ack: their token reflects the records they actually read, and yours does
+not.
+
+This is the PREVENTION half. Step 5a's `driftedPaths` is the DETECTION half, and
+it necessarily fires after the work is already done — the two are not
+substitutes for each other.
+
+**Recurrences.** R1 (2026-08-10): two agents classified the same 42
+`bare-entity-ref` fires within four minutes and filed overlapping findings;
+neither probed. R2 (2026-08-13): two agents classified the same 10
+`untaken-action` fires; the second found the collision only by reading ahead to
+Step 5a, and by then had a finished classification to throw away. R1's fix was
+to WRITE this guidance — into Step 5a, where it is reached only after the work it
+exists to prevent. **If a THIRD collision occurs after this relocation, the fix
+is mechanical rather than textual** — a sweep-time claim on the log, the way
+`tasks_claims_list` works for tasks — per mt#4119's planning audit.
+
 Call the command read-only (do NOT pass `--ack` yet). **Keep the `reviewToken`
 it returns** — Step 5's ack is refused without it, and the token from THIS call
 is the one that binds the records you are about to classify (mt#3906):
@@ -639,13 +680,14 @@ path.** Treat it as a real finding, not noise:
 when EVERY target of that operation drifted, so a pass that accomplished nothing
 no longer reports success.
 
-**Prevention is cheap and worth doing.** This is a shared resource across
-concurrent sessions, so before starting a pass, run the presence probe from
-`user-preferences.mdc §Probe before claiming a shared resource` over the
-calibration surface — a recent task or ask filed against a log you are about to
-review is the visible signature of a pass in flight. The originating incident
-(2026-08-10) had two agents classify the same 42 fires on `bare-entity-ref`
-inside four minutes and file overlapping findings; neither probed.
+**Prevention lives in Step 1, not here (mt#4119).** `driftedPaths` is the
+DETECTION half of this problem, and it can only fire after a pass has already
+done its classification. The PREVENTION half — probe for a pass already in
+flight, before you sweep — is stated at the top of **Step 1**, because that is
+the only place it can be read in time to act on. It is deliberately NOT restated
+here: this paragraph exists to point at it. (This relocation IS mt#4119; the
+guidance previously sat in this section, where an agent following the skill in
+order reached it only after the duplicated work was complete.)
 
 ## Cross-references
 
