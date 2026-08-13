@@ -444,9 +444,13 @@ function runWithEnforcedTimeout(
  * Vite's `ImportMetaEnv` (`DEV`/`PROD`/`SSR`: boolean) is visible on
  * `process.env`, so `execGitWithTimeout`'s `env: { ...process.env, … }` stops
  * compiling — a pre-existing type artifact in that project's view, with no
- * runtime component, that has nothing to do with timeout enforcement. Tightening
- * the signature is worth doing on its own; doing it here would have meant
- * touching a shared git helper from a PR about killing subprocesses.
+ * runtime component, that has nothing to do with timeout enforcement. Doing it
+ * here would have meant touching a shared git helper from a PR about killing
+ * subprocesses.
+ *
+ * Tracked at **mt#4090**, which owns applying this type for real. Delete this
+ * paragraph when it lands — a comment describing a constraint that no longer
+ * holds is the residual mt#3410 was filed for.
  */
 export interface ExecuteCommandOptions {
   /**
