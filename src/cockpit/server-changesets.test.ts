@@ -14,6 +14,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
+import { getLoggedErrors } from "../utils/test-utils/mock-logger";
 
 const TEST_TOKEN = "test-server-changesets-token";
 
@@ -72,6 +73,21 @@ describe("GET /api/changesets?project=<slug> (mt#2418)", () => {
       fetch(`${url}/api/changesets?project=all`),
       fetch(`${url}/api/changesets`),
     ]);
+
+    // The route answers 503 (no session provider) or 200, and turns any
+    // unexpected throw into an opaque 500 whose body says only "An internal
+    // error occurred" — so a bare status-equality assertion reports THAT the
+    // statuses diverged and never why. The real cause is logged at
+    // routes/changesets.ts's catch, into the globally-mocked logger, where the
+    // run output cannot see it. Surfacing it here is what makes a failure
+    // diagnosable from CI output alone (mt#4086).
+    if (allRes.status !== noParamRes.status) {
+      const changesetErrors = getLoggedErrors().filter((m) => m.includes("changesets"));
+      throw new Error(
+        `status mismatch: ?project=all -> ${allRes.status}, no param -> ${noParamRes.status}. ` +
+          `Logged route errors: ${JSON.stringify(changesetErrors)}`
+      );
+    }
     expect(allRes.status).toBe(noParamRes.status);
   });
 });
