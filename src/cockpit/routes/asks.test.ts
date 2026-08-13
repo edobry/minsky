@@ -342,6 +342,132 @@ describe("GET /api/asks state filter (mt#4092)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The palette + linkifier ask sources (mt#4095)
+//
+// Both surfaces used to read the attention widget's cohort — pending operator
+// asks only — so the palette could not find a resolved ask and an `ask#N` in
+// prose stopped linkifying the moment its ask closed.
+// ---------------------------------------------------------------------------
+
+describe("GET /api/asks/ids (mt#4095)", () => {
+  test("returns pairs for terminal asks, not just pending ones", async () => {
+    const repo = new FakeAskRepository();
+    const pending = await seedSuspendedOperatorAsk(repo);
+    const closed = await seedTerminalAsk(repo, { state: "closed", title: "resolved" });
+    const cancelled = await seedTerminalAsk(repo, { state: "cancelled", title: "withdrawn" });
+    const expired = await seedTerminalAsk(repo, { state: "expired", title: "timed out" });
+    for (const [i, a] of [pending, closed, cancelled, expired].entries()) {
+      repo._seedAtState({ ...a, shortId: `ask#${100 + i}` });
+    }
+    const { url } = await makeHarness(repo);
+
+    const res = await fetch(`${url}/api/asks/ids`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ids: { shortId: string; id: string }[] };
+
+    expect(new Set(body.ids.map((r) => r.shortId))).toEqual(
+      new Set(["ask#100", "ask#101", "ask#102", "ask#103"])
+    );
+    // The uuid is what a deeplink targets (ADR-029) — the pair must carry it.
+    const closedPair = body.ids.find((r) => r.shortId === "ask#101");
+    expect(closedPair?.id).toBe(closed.id);
+  });
+
+  test("is not swallowed by the /api/asks/:id route", async () => {
+    // Express matches first-registered-wins, so `/api/asks/ids` must be
+    // declared before `/api/asks/:id` or "ids" is read as an ask id and this
+    // returns 404 for a route that exists.
+    const repo = new FakeAskRepository();
+    const { url } = await makeHarness(repo);
+
+    const res = await fetch(`${url}/api/asks/ids`);
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { ids: unknown[] }).toEqual({ ids: [] });
+  });
+
+  test("omits legacy rows that have no short id", async () => {
+    const repo = new FakeAskRepository();
+    const withShortId = await seedTerminalAsk(repo, { state: "closed", title: "modern" });
+    repo._seedAtState({ ...withShortId, shortId: "ask#200" });
+    const legacy = await seedTerminalAsk(repo, { state: "closed", title: "legacy" });
+    repo._seedAtState({ ...legacy, shortId: undefined });
+    const { url } = await makeHarness(repo);
+
+    const body = (await (await fetch(`${url}/api/asks/ids`)).json()) as {
+      ids: { shortId: string; id: string }[];
+    };
+
+    expect(body.ids.map((r) => r.id)).toEqual([withShortId.id]);
+  });
+
+  test("excludes asks routed somewhere other than the operator", async () => {
+    const repo = new FakeAskRepository();
+    const mine = await seedTerminalAsk(repo, { state: "closed", title: "mine" });
+    repo._seedAtState({ ...mine, shortId: "ask#300" });
+    const reviewers = await seedTerminalAsk(repo, {
+      state: "closed",
+      title: "reviewer's",
+      routingTarget: "reviewer",
+    });
+    repo._seedAtState({ ...reviewers, shortId: "ask#301", routingTarget: "reviewer" });
+    const { url } = await makeHarness(repo);
+
+    const body = (await (await fetch(`${url}/api/asks/ids`)).json()) as {
+      ids: { shortId: string }[];
+    };
+
+    expect(body.ids.map((r) => r.shortId)).toEqual(["ask#300"]);
+  });
+});
+
+describe("GET /api/asks?summary=true (mt#4095)", () => {
+  test("drops the body and keeps what a search result needs", async () => {
+    const repo = new FakeAskRepository();
+    const closed = await seedTerminalAsk(repo, { state: "closed", title: "already decided" });
+    repo._seedAtState({ ...closed, shortId: "ask#400" });
+    const { url } = await makeHarness(repo);
+
+    const res = await fetch(`${url}/api/asks?state=terminal&summary=true`);
+    const body = (await res.json()) as { asks: Record<string, unknown>[] };
+    const row = body.asks[0] as Record<string, unknown>;
+
+    expect(row.shortId).toBe("ask#400");
+    expect(row.title).toBe("already decided");
+    expect(row.state).toBe("closed");
+    // The body — the ~3.3 KB this projection exists to drop.
+    expect("question" in row).toBe(false);
+    expect("options" in row).toBe(false);
+    expect("metadata" in row).toBe(false);
+    expect("response" in row).toBe(false);
+  });
+
+  test("without summary, the full row still carries the body", async () => {
+    const repo = new FakeAskRepository();
+    await seedTerminalAsk(repo, { state: "closed", title: "already decided" });
+    const { url } = await makeHarness(repo);
+
+    const body = (await (await fetch(`${url}/api/asks?state=terminal`)).json()) as {
+      asks: Record<string, unknown>[];
+    };
+
+    expect("question" in (body.asks[0] as Record<string, unknown>)).toBe(true);
+  });
+
+  test("the palette's own query reaches pending AND terminal asks in one request", async () => {
+    const repo = new FakeAskRepository();
+    const pending = await seedSuspendedOperatorAsk(repo);
+    const closed = await seedTerminalAsk(repo, { state: "closed", title: "resolved one" });
+    const { url } = await makeHarness(repo);
+
+    const body = (await (
+      await fetch(`${url}/api/asks?state=suspended,terminal&summary=true&limit=2000`)
+    ).json()) as { asks: { id: string }[] };
+
+    expect(new Set(body.asks.map((a) => a.id))).toEqual(new Set([pending.id, closed.id]));
+  });
+});
+
 describe("parseAskStateFilter (mt#4092)", () => {
   const known = {
     all: ["suspended", "closed", "cancelled", "expired"],

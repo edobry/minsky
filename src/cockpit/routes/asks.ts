@@ -82,11 +82,31 @@ export function parseAskStateFilter(
   return { ok: true, states: [...new Set(states)] };
 }
 
-/** Parse `?limit=`, clamped to {@link MAX_FILTERED_LIMIT}. Anything unparseable uses the default. */
-export function parseFilteredLimit(raw: unknown): number {
+/**
+ * Ceiling for `?summary=true` (mt#4095).
+ *
+ * Higher than {@link MAX_FILTERED_LIMIT} because the two ceilings bound
+ * different things: a full row carries its question body, its options and its
+ * metadata (~3.3 KB measured), while a summary row is a handful of scalars. The
+ * command palette needs the whole operator ask set to filter over, the way it
+ * already preloads the whole task list.
+ */
+export const MAX_SUMMARY_LIMIT = 3000;
+
+/**
+ * Parse `?limit=`, clamped to the ceiling for the requested projection.
+ * Anything unparseable uses the default.
+ */
+export function parseFilteredLimit(raw: unknown, summary = false): number {
+  const ceiling = summary ? MAX_SUMMARY_LIMIT : MAX_FILTERED_LIMIT;
   const value = Number.parseInt(typeof raw === "string" ? raw : "", 10);
   if (!Number.isFinite(value) || value <= 0) return DEFAULT_FILTERED_LIMIT;
-  return Math.min(value, MAX_FILTERED_LIMIT);
+  return Math.min(value, ceiling);
+}
+
+/** True when the caller asked for the compact projection. */
+export function wantsSummary(raw: unknown): boolean {
+  return raw === "true" || raw === "1";
 }
 
 /**
@@ -97,6 +117,29 @@ export function parseFilteredLimit(raw: unknown): number {
  * dropping this predicate on the filtered path would bury the ones they made.
  */
 const OPERATOR_ROUTING_TARGET = "operator";
+
+/**
+ * The compact projection for `?summary=true` (mt#4095).
+ *
+ * Drops the body — question, options, contextRefs, metadata, response — which
+ * is ~3.3 KB of the ~3.5 KB a full row costs. What remains is what a search
+ * result needs to rank and label itself. Mirrors the `asks_list` MCP command's
+ * `summary: true` field set rather than inventing a second compact shape,
+ * plus `closedAt` so a result can say when it concluded.
+ */
+function toAskSummaryRow(a: Ask) {
+  return {
+    id: a.id,
+    shortId: a.shortId,
+    kind: a.kind,
+    state: a.state,
+    title: a.title,
+    routingTarget: a.routingTarget,
+    parentTaskId: a.parentTaskId,
+    createdAt: a.createdAt,
+    closedAt: a.closedAt,
+  };
+}
 
 /**
  * The list projection, shared by both branches of `GET /api/asks` (mt#4092).
@@ -314,7 +357,8 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       // One query, filtered/ordered/limited in SQL — see the repository method's
       // docblock for why the obvious `listByState`-per-state composition is not
       // usable at this set size.
-      const limit = parseFilteredLimit(req.query.limit);
+      const summary = wantsSummary(req.query.summary);
+      const limit = parseFilteredLimit(req.query.limit, summary);
       const { asks: page, total } = await repo.listByStatesForRoutingTarget({
         states: filter.states as Ask["state"][],
         routingTarget: OPERATOR_ROUTING_TARGET,
@@ -323,11 +367,53 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       });
 
       res.json({
-        asks: page.map(toAskListRow),
+        asks: page.map(summary ? toAskSummaryRow : toAskListRow),
         total,
         returned: page.length,
         truncated: total > page.length,
       });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/asks/ids — every `(shortId, id)` pair, any state (mt#4095)
+   *
+   * Returns: `{ ids: { shortId, id }[] }`
+   *
+   * The linkifier's id-set. `use-entity-index.ts` decides SYNCHRONOUSLY at
+   * render whether an `ask#N` in prose becomes a link, so the set must be
+   * complete before the first render — an async per-id resolve cannot serve it.
+   * Uncapped and state-agnostic for the same reason `/api/tasks/ids` is: the
+   * property that makes it useful is comprehensiveness. Two columns, so being
+   * uncapped is affordable.
+   *
+   * Before this endpoint, that alias map was built from the attention widget's
+   * cohort — pending asks only — so an `ask#N` linkified while its ask was open
+   * and silently stopped resolving the moment it closed.
+   *
+   * IMPORTANT: registered BEFORE `/api/asks/:id`, or Express's first-match-wins
+   * routing captures the literal "ids" segment as an ask id (the same ordering
+   * constraint `/api/tasks/ids` documents).
+   */
+  app.get("/api/asks/ids", async (req, res) => {
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({
+          error: `Ask repository unavailable — ${await describeServerPersistenceUnavailability()}`,
+        });
+        return;
+      }
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam);
+      const ids = await repo.listShortIdsForRoutingTarget({
+        routingTarget: OPERATOR_ROUTING_TARGET,
+        projectScope,
+      });
+      res.json({ ids });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
