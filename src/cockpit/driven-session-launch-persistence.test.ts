@@ -351,6 +351,12 @@ describe("orchestrateDrivenSessionResume", () => {
       getPersisted: async () => ({ ...BASE_ROW, harnessSessionId: null }),
     });
     expect(outcome.outcome).toBe("unrecoverable");
+    // mt#4093: nothing to name. A caller that has to tell the operator WHICH
+    // conversation it is replacing must be able to tell this case apart from
+    // the one below — here there is no earlier exchange to have lost.
+    if (outcome.outcome === "unrecoverable") {
+      expect(outcome.harnessSessionId).toBeUndefined();
+    }
   });
 
   test("returns unrecoverable when the row is already marked unrecoverable", async () => {
@@ -362,7 +368,15 @@ describe("orchestrateDrivenSessionResume", () => {
         unrecoverableReason: "deleted cwd",
       }),
     });
-    expect(outcome).toEqual({ outcome: "unrecoverable", reason: "deleted cwd" });
+    // mt#4093 added `harnessSessionId` — the conversation that cannot be
+    // resumed. It is carried HERE because this is the last layer that can see
+    // it: the caller's fresh spawn upserts `driven_sessions` on this localId
+    // and overwrites the column.
+    expect(outcome).toEqual({
+      outcome: "unrecoverable",
+      reason: "deleted cwd",
+      harnessSessionId: "harness-1",
+    });
   });
 
   test("returns locked when another process already holds the resume lock", async () => {

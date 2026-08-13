@@ -61,8 +61,10 @@ import {
   findEntityThread,
   getOrCreateEntityThread,
   listEntityThreadBlocks,
+  recordEntityThreadConversationSwap,
   type EntityThreadEntityType,
 } from "@minsky/domain/transcripts/entity-thread-store";
+import { getDrivenSessionRecord } from "@minsky/domain/transcripts/driven-session-registry-store";
 import {
   askToEntitySeed,
   createEntityThreadReplyRecorder,
@@ -80,6 +82,7 @@ import {
   drivenSessionRegistry,
   hasLiveActuator,
   sendDrivenSessionInput,
+  type DrivenSessionRegistry,
 } from "../driven-session-host";
 
 /**
@@ -129,6 +132,49 @@ export function deriveAgentStopReason(
   if (record.status === "reconnecting") return "cockpit-restart";
   if (record.status === "unrecoverable") return "unrecoverable";
   return undefined;
+}
+
+/**
+ * {@link deriveAgentStopReason}, falling back to the PERSISTED row when the
+ * registry holds no record at all (mt#4093).
+ *
+ * The registry-only form above says nothing in exactly the case mt#4093 is
+ * about: an ABSENT record. Boot reconciliation loads only rows whose status is
+ * non-terminal, and it may not have run at all, so "no record" is routine after
+ * a restart — and it renders identically to a thread that never had an agent.
+ * The operator then sees a dead thread with no explanation, which is the same
+ * silence in a different surface.
+ *
+ * The persisted row settles it, and reading it is honest rather than a guess: a
+ * row that exists and names a conversation IS resumable (the next message
+ * resumes it — see `startEntityThreadSession`), which is precisely what
+ * `cockpit-restart` already means to the panel. A row already marked
+ * `unrecoverable` reports that instead.
+ *
+ * Degrades to the registry answer on any read failure. A thread that renders
+ * without the reason is strictly better than a poll that 500s.
+ */
+export async function deriveAgentStopReasonWithPersisted(
+  localId: string,
+  db: PostgresJsDatabase,
+  deps: {
+    registry?: DrivenSessionRegistry;
+    getPersisted?: typeof getDrivenSessionRecord;
+  } = {}
+): Promise<"cockpit-restart" | "unrecoverable" | undefined> {
+  const registry = deps.registry ?? drivenSessionRegistry;
+  const fromRegistry = deriveAgentStopReason(localId, registry);
+  if (fromRegistry) return fromRegistry;
+  // Only the ABSENT case falls through to the store. A record that exists and
+  // reports a live actuator, or a terminal state this function deliberately
+  // does not name, has already been answered by the registry — re-deriving it
+  // from a row the registry's own record was built from could only disagree.
+  if (registry.get(localId)) return undefined;
+
+  const row = await (deps.getPersisted ?? getDrivenSessionRecord)(db, localId);
+  if (!row) return undefined;
+  if (row.status === "unrecoverable") return "unrecoverable";
+  return row.harnessSessionId ? "cockpit-restart" : undefined;
 }
 
 /**
@@ -321,6 +367,10 @@ export function mountEntityThreadRoutes(
       // armed or the buffer is empty, so the steady-state cost is a map walk,
       // and a thread being polled is precisely when someone is waiting.
       if (pendingReport.pending > 0) schedulePendingDrain(db);
+      // Awaited before the body is assembled (mt#4093) — the persisted-row
+      // fallback is async, and an inline IIFE in the object literal would
+      // have serialized a Promise into the response.
+      const stopReason = await deriveAgentStopReasonWithPersisted(localId, db);
       res.json({
         localId,
         entityType,
@@ -330,11 +380,25 @@ export function mountEntityThreadRoutes(
         live: isThreadAgentLive(localId),
         // mt#4037: WHY it is not live, when that is knowable from state the
         // restart could not erase. Omitted when unknown — see
-        // `deriveAgentStopReason`.
-        ...(() => {
-          const stopReason = deriveAgentStopReason(localId);
-          return stopReason ? { agentStopReason: stopReason } : {};
-        })(),
+        // `deriveAgentStopReason`. mt#4093 extends it to the ABSENT-record
+        // case, where the registry alone could only say nothing.
+        ...(stopReason ? { agentStopReason: stopReason } : {}),
+        // mt#4093: the conversation a fresh seeded agent replaced, when one
+        // was. Every block above the swap belongs to it and the agent now
+        // answering has never seen any of them — unsaid, the panel renders
+        // continuity that does not exist, which is the whole defect. Omitted
+        // when nothing was replaced, following `originSeeded`'s discipline
+        // directly below: absent means "no swap on record", and a daemon
+        // predating this column says nothing rather than reporting a
+        // reassuring absence it never actually checked.
+        ...(existing?.replacedConversationId
+          ? {
+              conversationSwap: {
+                replacedConversationId: existing.replacedConversationId,
+                ...(existing.replacedAt ? { replacedAt: existing.replacedAt.toISOString() } : {}),
+              },
+            }
+          : {}),
         // mt#3367: whether the agent can reach the conversation that filed this
         // entity. Surfaced so the principal knows which grounding an answer has
         // — reachability is only ~46%, so "seeded" is not the safe assumption.
@@ -445,8 +509,34 @@ export function mountEntityThreadRoutes(
         session.record.subscribers.add(createEntityThreadReplyRecorder(db, thread.localId));
       }
 
+      // mt#4093: persisted BEFORE the response, because this is the only moment
+      // the outgoing conversation id exists anywhere Minsky can read — the
+      // spawn that just happened upserted `driven_sessions` on this same
+      // `localId`, overwriting `harness_session_id` with the new conversation.
+      // Awaited rather than fire-and-forget so the very next poll, which the
+      // panel issues immediately, already sees the swap; the writer swallows
+      // its own failures, so this cannot fail the message.
+      if (session.replacedConversationId) {
+        await recordEntityThreadConversationSwap(db, {
+          localId: thread.localId,
+          replacedConversationId: session.replacedConversationId,
+        });
+      }
+
       const delivered = sendDrivenSessionInput(session.record, parsed.text);
-      res.json({ turn, localId: thread.localId, seeded: session.seeded, delivered });
+      res.json({
+        turn,
+        localId: thread.localId,
+        seeded: session.seeded,
+        delivered,
+        // Reported on the POST as well as the GET: this is the request the
+        // operator is watching when the swap happens, and a panel that only
+        // learned about it on the next poll would render one exchange under
+        // the old, false continuity.
+        ...(session.replacedConversationId
+          ? { conversationSwap: { replacedConversationId: session.replacedConversationId } }
+          : {}),
+      });
     } catch (err) {
       log.error(`POST entity-thread message failed for ${entityType}/${entityId}`, {
         error: getLoggableErrorSummary(err),
