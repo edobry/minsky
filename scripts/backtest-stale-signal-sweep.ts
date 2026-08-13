@@ -35,15 +35,17 @@ interface Args {
   days: number;
   limit: number;
   json: boolean;
+  includeTerminal: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
-  const out: Args = { days: 60, limit: 400, json: false };
+  const out: Args = { days: 60, limit: 400, json: false, includeTerminal: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--days") out.days = Number.parseInt(argv[++i] ?? "60", 10);
     else if (a === "--limit") out.limit = Number.parseInt(argv[++i] ?? "400", 10);
     else if (a === "--json") out.json = true;
+    else if (a === "--include-terminal") out.includeTerminal = true;
   }
   return out;
 }
@@ -112,6 +114,8 @@ async function main(): Promise<void> {
     execute: (q: unknown) => Promise<unknown>;
   };
   const { sql } = await import("drizzle-orm");
+  const { TERMINAL_TASK_STATUSES } = await import("../.minsky/hooks/task-statuses");
+  const terminal = [...TERMINAL_TASK_STATUSES];
 
   const fires: Fire[] = [];
   let evaluated = 0;
@@ -127,14 +131,31 @@ async function main(): Promise<void> {
     const quotedBy: string[] = [];
     for (const label of [...new Set(labels.map((l) => l.text))]) {
       const pattern = `%${label.replace(/([\\%_])/g, "\\$1")}%`;
+      // ACTIVE tasks only — the same scope the guard applies (PR #2974 R1).
+      // Scanning every spec including terminal ones measures a different
+      // surface than the mechanism being calibrated, so the resulting fire rate
+      // would not be the guard's fire rate. Terminal set imported from the same
+      // domain registry the guard reads, rather than hardcoded here.
+      //
+      // `--include-terminal` relaxes it for ONE purpose: replaying a historical
+      // case whose artifacts have since been closed. mt#3911's PR would have
+      // surfaced mt#3902 — active on 2026-08-10, DONE now — so an active-only
+      // replay today cannot reproduce that fire. The flag makes the historical
+      // view reachable without pretending it is the guard's live scope.
+      const statusClause = args.includeTerminal
+        ? sql``
+        : sql`and t.status::text not in ${terminal}`;
       const rows = await db.execute(sql`
         select t.id as id from tasks t
         join task_specs s on s.task_id = t.id
         where s.content like ${pattern} escape '\\'
+        ${statusClause}
         limit 6
       `);
       for (const r of Array.isArray(rows) ? rows : []) {
         const id = (r as Record<string, unknown>)["id"];
+        // Self-matches are KEPT — see the sweep module's note. mt#3911's own
+        // spec carried the originating mystery, and SC3 names it explicitly.
         if (typeof id === "string") quotedBy.push(`${label} -> ${id}`);
       }
     }

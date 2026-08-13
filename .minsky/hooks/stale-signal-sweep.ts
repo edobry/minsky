@@ -242,9 +242,18 @@ async function runSweep(labels: ChangedOutputLabel[], repoRoot: string): Promise
       for (const row of taskList) {
         const r = row as Record<string, unknown>;
         const content = typeof r["content"] === "string" ? r["content"] : "";
+        const ref = String(r["id"] ?? "unknown");
+        // NO self-match exclusion, deliberately — it was added in R1 and removed
+        // the same round. The rule sounded like a correctness rule ("a task's own
+        // spec is discussing its subject, not misreading it") and is FALSE for
+        // exactly the case this guard exists for: mt#3911's own spec carried the
+        // originating mystery, `extracted=104` read as 104 turns extracted. SC3
+        // requires that spec to be surfaced by name. A task fixing a mislabelled
+        // signal is MORE likely than average to have drawn a bad conclusion from
+        // it, so its own spec is a prime suspect rather than an exempt one.
         matches.push({
           kind: "task",
-          ref: String(r["id"] ?? "unknown"),
+          ref,
           status: typeof r["status"] === "string" ? r["status"] : null,
           label: label.text,
           excerpt: excerptAround(content, label.text),
@@ -417,6 +426,8 @@ export async function run(
     return { calibration: { ...base, labelsTried: [], outcome: "clean" } };
   }
 
+  // `session_pr_create` carries the bound task, which is what lets the sweep
+  // drop the self-match below.
   const result = await sweepForStaleSignals(labels, repoRoot);
   const recordBase = {
     ...base,

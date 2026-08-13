@@ -55,13 +55,27 @@ export const MIN_LABEL_LENGTH = 4;
 export const MAX_LABELS = 8;
 
 /**
- * `<label>=` immediately followed by an interpolation or a value position.
+ * `<label>=` inside a rendered literal.
  *
- * Anchored on `${`, a quote, or end-of-string so that a bare `foo=bar`
- * assignment in code does not match — the label has to be RENDERING something.
- * The leading boundary keeps `sExtracted=` from matching as `extracted=`.
+ * The leading boundary keeps `sExtracted=` from matching as `extracted=`. The
+ * trailing `(?!=)` rejects `==` / `===`, which is a comparison rather than a
+ * rendering.
+ *
+ * **No value-position lookahead**, and that is a correction (PR #2974 R1). The
+ * first cut required `${`, a quote, or end-of-string after the `=`, on the
+ * theory that this distinguished a rendering site from an assignment. Two
+ * things were wrong with it. The quote branch became unreachable the moment
+ * {@link literalSpans} started stripping quotes before matching — the regex
+ * only ever sees a span's interior. And the remaining branches rejected
+ * `extracted=0` and `status=ok`: a LITERAL value is the commonest output shape
+ * there is, and it is exactly the form the originating incident's artifacts
+ * quote (`extracted=0`, `extracted=104`).
+ *
+ * The assignment-vs-rendering job the lookahead was doing is already done, and
+ * done better, by the literal-span constraint: an assignment in code is not
+ * inside a string.
  */
-const LABEL_EMIT = /(?:^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{2,})=(?=\$\{|["'`]|\s*$)/g;
+const LABEL_EMIT = /(?:^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{2,})=(?!=)/g;
 
 /**
  * The contents of every quoted / backticked span on the line, concatenated.

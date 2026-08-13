@@ -108,6 +108,35 @@ describe("extractChangedOutputLabels — discrimination", () => {
     expect(extractChangedOutputLabels(diff).map((l) => l.text)).toContain("count=");
   });
 
+  test("a LITERAL value after the `=` is detected, not just an interpolation", () => {
+    // PR #2974 R1. The first cut required `${`, a quote, or end-of-string after
+    // the `=`, which rejected `extracted=0` and `status=ok` — the commonest
+    // output shape there is, and the exact form the originating incident's
+    // artifacts quote (`extracted=0`, `extracted=104`).
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,2 +1,2 @@
+-  log(\`extracted=0\`);
+-  log("status=ok");
++  log(render(r));
+`;
+    const texts = extractChangedOutputLabels(diff).map((l) => l.text);
+    expect(texts).toContain("extracted=");
+    expect(texts).toContain("status=");
+  });
+
+  test("a comparison inside a literal is not a rendering", () => {
+    const diff = `diff --git a/src/a.ts b/src/a.ts
+--- a/src/a.ts
++++ b/src/a.ts
+@@ -1,1 +1,1 @@
+-  log(\`assert count==expected\`);
++  log(\`ok\`);
+`;
+    expect(extractChangedOutputLabels(diff).map((l) => l.text)).not.toContain("count=");
+  });
+
   test("JSX attributes do not fire (measured FP class, SC4 backtest)", () => {
     // The 60-day backtest's dominant false positive before the literal-span
     // discriminator shipped: `className=`/`testid=`/`type=`/`target=` fired on
