@@ -39,6 +39,7 @@ import { Rail } from "./Rail";
 import { TabBar } from "./TabBar";
 import { CommandPalette } from "./CommandPalette";
 import { TabKeyboardNav } from "./TabKeyboardNav";
+import { PeekHost } from "./PeekHost";
 import { TabCloseBridge } from "./TabCloseBridge";
 import { TabsProvider } from "../lib/tabs";
 import { NewConversationProvider } from "../hooks/useNewConversation";
@@ -65,6 +66,17 @@ export function Layout({ children }: Props) {
           <CommandPalette />
           <TabKeyboardNav />
           <TabCloseBridge />
+          {/* PeekHost (mt#3694) renders the entity side peek over this shell.
+              It sits here, a sibling of <main> rather than inside it, so the
+              underlying page keeps its scroll position and its mounted state
+              while a pane is open — the peek's whole point. It renders null
+              when no pane is open, so every un-peeked route pays nothing.
+
+              Independent of TabCloseBridge (mt#4059) above, which landed while
+              this was in flight: that installs the ⌘W close-active-TAB seam, and
+              a peek deliberately opens no tab, so the two never contend for the
+              same state. Both are null-rendering/overlay siblings here. */}
+          <PeekHost />
         </div>
       </NewConversationProvider>
     </TabsProvider>

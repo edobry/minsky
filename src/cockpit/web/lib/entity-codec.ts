@@ -39,15 +39,29 @@
  * @see mt#2769 — added "conversation" (web-route only)
  */
 
+/**
+ * Entity types that have a routable cockpit detail page.
+ *
+ * This ARRAY is the single runtime source of truth and `RoutableEntityType` is
+ * derived from it, rather than the two being maintained side by side (mt#3694).
+ * Two consumers need to ENUMERATE the set at runtime, not just narrow against
+ * it: `parseMinskyUri`'s validation below, which previously kept its own
+ * hand-written copy that could drift, and the peek layer's coverage test, which
+ * asserts every routable type renders a body — so adding a type here is a
+ * failing test until that type has one, instead of a silent gap.
+ */
+export const ROUTABLE_ENTITY_TYPES = [
+  "task",
+  "ask",
+  "session",
+  "memory",
+  "changeset",
+  "conversation",
+  "interceptor",
+] as const;
+
 /** Entity types that have a routable cockpit detail page. */
-export type RoutableEntityType =
-  | "task"
-  | "ask"
-  | "session"
-  | "memory"
-  | "changeset"
-  | "conversation"
-  | "interceptor";
+export type RoutableEntityType = (typeof ROUTABLE_ENTITY_TYPES)[number];
 
 /**
  * Convert a `(type, id)` pair to the cockpit SPA path.
@@ -134,17 +148,10 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   // Pass 1 of 2: strip the punctuation a terminal captured verbatim.
   const rawId = withoutScheme.slice(slashIdx + 1).replace(TRAILING_PROSE_PUNCTUATION, "");
 
-  // Validate type
-  const validTypes: RoutableEntityType[] = [
-    "task",
-    "ask",
-    "session",
-    "memory",
-    "changeset",
-    "conversation",
-    "interceptor",
-  ];
-  if (!(validTypes as string[]).includes(rawType)) return null;
+  // Validate type against the shared runtime list (mt#3694) rather than a
+  // second hand-written copy, which is how this check could silently fall
+  // behind the type union it is meant to enforce.
+  if (!(ROUTABLE_ENTITY_TYPES as readonly string[]).includes(rawType)) return null;
 
   // Id must not be empty
   if (!rawId) return null;

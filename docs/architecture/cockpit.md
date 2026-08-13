@@ -26,6 +26,39 @@ details (a task at `/tasks/:id`, a conversation at `/conversation/:id`, a worksp
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
+### Side peek (mt#3694)
+
+Over that shell sits a **side peek**: clicking an `EntityRef` opens the entity in a pane
+above the current page rather than navigating to it (`PeekHost`, mounted in `Layout` as a
+sibling of `<main>` so the page behind stays mounted). Operator-facing behavior and gestures:
+`docs/cockpit-ui.md` §The side peek.
+
+Three properties are load-bearing and easy to break:
+
+- **The pathname never changes.** Pane state lives entirely in a `?peek=` query parameter,
+  derived on every render with no second copy (`lib/peek.ts`). That is simultaneously why the
+  peek is URL-addressable, why Back closes it, why it is ephemeral with nothing persisted —
+  and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
+  `matchEntityRoute(pathname)` and a search-only change cannot reach it. **A peek therefore
+  cannot be implemented as a route change**; that is the constraint the whole design turns on.
+- **The panes are non-modal, and do not dismiss on outside interaction.** Coexisting with a
+  live page is the feature. Radix's default treats any outside click as a dismissal, which
+  silently breaks the hold gesture — a shift-click lands outside the open pane, so the pane
+  closes at the same moment the hold opens the next one. `PeekHost` prevents all three
+  outside-interaction events. Non-modal also means panes do NOT trap focus (verified in
+  `@radix-ui/react-dialog@1.1.15`: `DialogContentNonModal` sets `trapFocus: false`), which is
+  unavoidable — a focus trap needs exactly one region to trap into, and the hold gesture
+  allows two live panes.
+- **One renderer per entity.** A peeked entity renders the SAME component its full page
+  renders (`PeekBody`), never a compact second implementation that would drift. Types without
+  a shareable body render an open-as-page affordance carrying no entity fields rather than a
+  miniature stand-in; `PEEKABLE_WITH_BODY` pins the split and a test asserts the exact list
+  (mt#4069 completes it).
+
+The pane-list algebra and wire format are pure and separately tested (`lib/peek-codec.ts`) —
+an ordinary open replaces the last pane, a held pane survives so the next lands beside it, and
+growth costs a gesture per pane, so there is no cap or eviction policy.
+
 ### Keyboard shortcuts
 
 | Chord            | Action                                                                                              |
