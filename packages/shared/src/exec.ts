@@ -325,7 +325,7 @@ function attachOutput(error: unknown, stdout: string | Buffer, stderr: string | 
 
 function runWithEnforcedTimeout(
   command: string,
-  execOptions: ExecOptions & { killSignal: NodeJS.Signals; killGraceMs?: number }
+  execOptions: ExecuteCommandOptions & { killSignal: NodeJS.Signals }
 ): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
   const timeoutMs =
     typeof execOptions.timeout === "number" && execOptions.timeout > 0
@@ -432,40 +432,41 @@ function runWithEnforcedTimeout(
 }
 
 /**
- * The options {@link executeCommand} understands, as documentation (PR #2957 R1).
+ * The options {@link executeCommand} accepts: Node's `ExecOptions`, minus `env`,
+ * plus this helper's own (mt#4090).
  *
- * `killGraceMs` previously existed only in a private function's signature, so
- * the only way to learn the option was to read the implementation. Everything
- * else here is passed through to Node's `exec` unchanged.
+ * `env` is re-declared rather than inherited because `ExecOptions` types it as
+ * `NodeJS.ProcessEnv`, which under `src/cockpit/web/tsconfig.json` carries
+ * boolean members contradicting its own string index signature — `bun-types`
+ * declares `ProcessEnv extends ImportMetaEnv`, and `vite/client` merges
+ * `DEV`/`PROD`/`SSR: boolean` into that same global interface. There, no spread
+ * of `process.env` is assignable to `ProcessEnv` at all. Full chain, the fixes
+ * that were tried and failed, and the alternatives rejected: mt#4090's spec.
  *
- * **Why the parameter is still `Record<string, unknown>` and not this type.**
- * Applying it was tried and reverted in the same round. `extends ExecOptions`
- * constrains `env` to `ProcessEnv`, and under `src/cockpit/web/tsconfig.json`
- * Vite's `ImportMetaEnv` (`DEV`/`PROD`/`SSR`: boolean) is visible on
- * `process.env`, so `execGitWithTimeout`'s `env: { ...process.env, … }` stops
- * compiling — a pre-existing type artifact in that project's view, with no
- * runtime component, that has nothing to do with timeout enforcement. Doing it
- * here would have meant touching a shared git helper from a PR about killing
- * subprocesses.
- *
- * Tracked at **mt#4090**, which owns applying this type for real. Delete this
- * paragraph when it lands — a comment describing a constraint that no longer
- * holds is the residual mt#3410 was filed for.
+ * No index signature: dropping the one this type carried initially was checked
+ * against both typecheck projects and broke none of the ~86 call sites, so an
+ * unknown or misspelled key is now an error rather than silently ignored
+ * (PR #2959 R1).
  */
-export interface ExecuteCommandOptions {
+export interface ExecuteCommandOptions extends Omit<ExecOptions, "env"> {
   /**
    * How long the child gets to service `killSignal` before SIGKILL, in ms.
    * Defaults to {@link EXEC_KILL_GRACE_MS}. Stripped before the options reach
    * Node, which has no such option.
    */
   killGraceMs?: number;
-  /** Wall-clock budget in ms. Enforced — see {@link runWithEnforcedTimeout}. */
-  timeout?: number;
-  /** Max captured output in bytes. Defaults to 10MB; a caller's value wins. */
-  maxBuffer?: number;
-  /** Working directory for the child. */
-  cwd?: string;
-  [key: string]: unknown;
+  /**
+   * Environment for the child.
+   *
+   * `unknown` values, not `string | undefined`: both stricter typings were
+   * applied and observed failing (see the note above). Because the defect is in
+   * the SOURCE type, no target type can accept `{ ...process.env, … }` — so this
+   * is as strict as the upstream collision permits, not as strict as it should
+   * be. It is the one unchecked key on this type. Narrow it to
+   * `Record<string, string | undefined>` if the merge is ever resolved; the
+   * compiler confirms in one run.
+   */
+  env?: Record<string, unknown>;
 }
 
 /**
@@ -477,7 +478,7 @@ export interface ExecuteCommandOptions {
  */
 export async function executeCommand(
   command: string,
-  options: Record<string, unknown> = {}
+  options: ExecuteCommandOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
   // Add explicit cleanup options to prevent hanging.
   // Defaults come BEFORE the options spread so callers can override them
@@ -489,7 +490,10 @@ export async function executeCommand(
     // Default maximum buffer size to prevent memory issues; callers with
     // known-large outputs (e.g. full-repo eslint --format json) may override.
     maxBuffer: 1024 * 1024 * 10, // 10MB
-    ...(options as ExecOptions),
+    // No cast (PR #2959 R1). This used to spread `options as ExecOptions`, which
+    // was load-bearing only while `options` was `Record<string, unknown>` — and
+    // it re-introduced the very `env: ProcessEnv` this type exists to avoid.
+    ...options,
     // Kill child process if parent exits
     killSignal: "SIGTERM" as const,
   };
