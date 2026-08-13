@@ -684,10 +684,12 @@ export class PreCommitHook {
           // ./pre-commit-subprocess-failure so the timeout message names the
           // same number this enforces — mt#3406.)
           timeout: ESLINT_TIMEOUT_MS,
-          // The full-repo --format json payload was ~850KB; a staged-file run
-          // is far smaller, but keep real headroom — a big staged set with many
-          // findings is still sizable, and the 1MB exec default
-          // truncate-KILLS the process at the boundary rather than truncating.
+          // The full-repo --format json payload measured 1,565,238 bytes on
+          // 2026-07-30 (mt#3410) — the "~850KB" this comment used to cite was
+          // already stale by 1.8x. A staged-file run is far smaller, but keep
+          // real headroom: a big staged set with many findings is still
+          // sizable, and the 1MB exec default truncate-KILLS the process at the
+          // boundary rather than truncating.
           maxBuffer: 16 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
