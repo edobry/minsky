@@ -111,7 +111,7 @@ const INTERCEPTOR_ENTRY: InterceptorEntry = {
 /**
  * Typed for the same reason as `INTERCEPTOR_ENTRY` above (PR #2983 R1).
  *
- * The first version of the session test stubbed `/api/workspace`, which
+ * The first version of the session test stubbed a URL fragment that
  * `fetchWorkspaceDetail` never requests — it calls `/api/agents/:id`
  * (`RunDetail.tsx:200`). `stubRoutes` matches by substring, so the request fell
  * through to the mock's 500 branch and the body rendered `ErrorState`. The test
@@ -211,7 +211,7 @@ describe("AT1 — each type mt#4069 added renders its real body", () => {
   });
 
   test("session renders the workspace overview body", async () => {
-    // `fetchWorkspaceDetail` requests `/api/agents/:id` — NOT `/api/workspace`.
+    // Must match what `fetchWorkspaceDetail` actually requests: `/api/agents/:id`.
     stubRoutes([["/api/agents/", WORKSPACE_DETAIL]]);
 
     renderPeek("session", "2154425b-0000-0000-0000-000000000000");
