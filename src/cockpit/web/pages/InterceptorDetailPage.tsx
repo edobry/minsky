@@ -68,25 +68,25 @@ function ProvenanceField({ entry }: { entry: InterceptorEntry }) {
   );
 }
 
-export function InterceptorDetailPage() {
-  const { name } = useParams<{ name: string }>();
+/**
+ * The interceptor detail body, without page chrome (mt#4069).
+ *
+ * Split out of `InterceptorDetailPage` so a peek renders the SAME body the page
+ * renders rather than a compact restatement of it. Self-fetching — it takes a
+ * `guardName` and calls `useInterceptors()` itself, matching `TaskDetail`'s
+ * shape rather than the payload-taking shape, because the catalog is one cached
+ * query the whole surface already shares.
+ *
+ * The page keeps the breadcrumb and the width constraint; everything a reader
+ * came for lives here.
+ */
+export function InterceptorDetail({ name }: { name: string }) {
   const { data, isLoading, isError } = useInterceptors();
 
   const entry = data?.entries.find((e) => e.guardName === name);
 
   return (
-    <div className="p-4 w-full max-w-3xl mx-auto" data-testid="interceptor-detail-page">
-      <nav
-        className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3"
-        aria-label="Breadcrumb"
-      >
-        <Link to="/interceptors" className="hover:text-foreground transition-colors">
-          Interceptors
-        </Link>
-        <span aria-hidden="true">/</span>
-        <span className="text-foreground font-mono">{name}</span>
-      </nav>
-
+    <>
       {isLoading && (
         <p className="text-sm text-muted-foreground" data-testid="interceptor-detail-loading">
           Loading…
@@ -271,6 +271,27 @@ export function InterceptorDetailPage() {
           </p>
         </>
       )}
+    </>
+  );
+}
+
+export function InterceptorDetailPage() {
+  const { name } = useParams<{ name: string }>();
+
+  return (
+    <div className="p-4 w-full max-w-3xl mx-auto" data-testid="interceptor-detail-page">
+      <nav
+        className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3"
+        aria-label="Breadcrumb"
+      >
+        <Link to="/interceptors" className="hover:text-foreground transition-colors">
+          Interceptors
+        </Link>
+        <span aria-hidden="true">/</span>
+        <span className="text-foreground font-mono">{name}</span>
+      </nav>
+
+      <InterceptorDetail name={name ?? ""} />
     </div>
   );
 }

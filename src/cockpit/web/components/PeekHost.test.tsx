@@ -263,7 +263,27 @@ describe("AT6 — every routable type is accounted for", () => {
     // This is the coverage ratchet the spec asks for. It fails when a routable
     // type is ADDED (the total moves) or when an adapter lands without being
     // declared — either way, the gap surfaces here rather than as a blank pane.
-    expect([...PEEKABLE_WITH_BODY].sort()).toEqual(["changeset", "memory", "task"]);
+    //
+    // mt#4069 closed the split: every routable type now has a body, so the two
+    // lists are equal. The ratchet still bites — adding an eighth routable type
+    // without an adapter fails BOTH assertions below.
+    expect([...PEEKABLE_WITH_BODY].sort()).toEqual([
+      "ask",
+      "changeset",
+      "conversation",
+      "interceptor",
+      "memory",
+      "session",
+      "task",
+    ]);
     expect(ROUTABLE_ENTITY_TYPES).toHaveLength(7);
+  });
+
+  test("every routable type has a body — the open-as-page placeholder is gone (mt#4069)", () => {
+    // The complement of the ratchet above, stated as the property the task
+    // actually delivers: no routable type falls through to a placeholder.
+    for (const type of ROUTABLE_ENTITY_TYPES) {
+      expect(PEEKABLE_WITH_BODY).toContain(type);
+    }
   });
 });

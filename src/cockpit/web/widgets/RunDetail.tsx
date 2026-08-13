@@ -418,7 +418,21 @@ function ConversationMetaBody({ meta }: { meta: ConversationOverviewPayload["con
 // Overview tab — branches on keySpace
 // ---------------------------------------------------------------------------
 
-function OverviewTab({
+/**
+ * The Overview tab's body, for both keyspaces.
+ *
+ * Exported (mt#4069) so a peek renders THIS rather than a compact restatement
+ * of it. A peek shows the overview and stops there: `mem#742` assigns transcript
+ * replay to deep investigation, which is not what a lateral-reference pane is
+ * for — so the peek reuses this body while the tabbed `RunDetail` shell around
+ * it, and the transcript it hosts, stay on the page.
+ *
+ * Takes already-fetched data plus each query's state rather than fetching, which
+ * is what lets both hosts share it: `RunDetail` passes its own queries, and
+ * `PeekBody`'s adapter runs the same queries under the same keys (TanStack
+ * dedupes them, so peeking a run already on screen costs no second request).
+ */
+export function OverviewTab({
   keySpace,
   id,
   workspaceData,
