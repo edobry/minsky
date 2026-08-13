@@ -537,7 +537,13 @@ export function AskDetail(props: AskDetailProps) {
                           />
                         </span>
                         {isChosen && (
-                          <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-accent text-accent-foreground align-middle">
+                          // Carries a testid so a test can assert THIS badge on
+                          // THIS option, rather than the bare word "chosen"
+                          // appearing somewhere on the page (PR #2961 R1).
+                          <span
+                            data-testid="ask-option-chosen"
+                            className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-accent text-accent-foreground align-middle"
+                          >
                             chosen
                           </span>
                         )}

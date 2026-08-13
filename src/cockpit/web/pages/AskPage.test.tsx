@@ -237,14 +237,27 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
  * Fixtures mirror the live shape of ask#7754.
  */
 describe("terminal ask retains its body and reads its answer in operator language (mt#4091)", () => {
+  /** The option ask#7754 was actually answered with. */
+  const CHOSEN_LABEL = "Hold off on production storage";
   const OPTIONS = [
     { label: "Here's the key — go ahead", value: "approve", description: "You supply the key." },
-    {
-      label: "Hold off on production storage",
-      value: "hold",
-      description: "Nothing is created.",
-    },
+    { label: CHOSEN_LABEL, value: "hold", description: "Nothing is created." },
   ];
+
+  /**
+   * Assert the chosen-marker badge sits on the option it names.
+   *
+   * A page-wide `getByText("chosen")` cannot distinguish the marker from a
+   * payload key of the same name — which is precisely what this change removes,
+   * so a test that could confuse the two is unable to witness a regression
+   * (PR #2961 R1). Anchoring on the badge's own testid and then reading its
+   * row's text ties the marker to the label instead.
+   */
+  function expectChosenBadgeOn(label: string): void {
+    const badges = screen.getAllByTestId("ask-option-chosen");
+    expect(badges.length).toBe(1);
+    expect(badges[0]?.parentElement?.textContent).toContain(label);
+  }
   const CONTEXT_REFS = [
     { kind: "task", ref: "mt#2680", description: "the blocked task" },
     { kind: "file", ref: "packages/domain/src/transcripts/store.ts" },
@@ -324,9 +337,9 @@ describe("terminal ask retains its body and reads its answer in operator languag
     renderAskPage(ask.id);
 
     await waitFor(() => {
-      expect(screen.getAllByText("Hold off on production storage").length).toBeGreaterThan(0);
+      expect(screen.getAllByText(CHOSEN_LABEL).length).toBeGreaterThan(0);
     });
-    expect(screen.getByText("chosen")).toBeDefined();
+    expectChosenBadgeOn(CHOSEN_LABEL);
     expect(screen.queryByText(/Raw response record/)).toBeNull();
     expect(screen.queryByText(/"chosen":/)).toBeNull();
   });
@@ -338,20 +351,18 @@ describe("terminal ask retains its body and reads its answer in operator languag
       // `composeResolvePayload`'s mt#3181 branch exists to handle.
       options: [
         { label: "Approve the rotation" },
-        { label: "Hold off on production storage" },
+        { label: CHOSEN_LABEL },
       ] as unknown as AskItem["options"],
       response: {
         responder: "operator",
-        payload: {
-          chosen: "Hold off on production storage",
-          option: "Hold off on production storage",
-        },
+        payload: { chosen: CHOSEN_LABEL, option: CHOSEN_LABEL },
       },
     });
     stub(ask);
     renderAskPage(ask.id);
 
-    await waitFor(() => expect(screen.getByText("chosen")).toBeDefined());
+    await waitFor(() => expect(screen.getAllByTestId("ask-option-chosen").length).toBe(1));
+    expectChosenBadgeOn(CHOSEN_LABEL);
     expect(screen.queryByText(/Raw response record/)).toBeNull();
   });
 

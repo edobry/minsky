@@ -134,14 +134,16 @@ function toDetail(record: Record<string, unknown>): AnswerDetail[] {
 /**
  * Classify a terminal ask's recorded response.
  *
- * Rung order is load-bearing in one place: the `policy` and `systemClosure`
- * rungs are keyed on the RESPONDER, and the operator-answer rungs above them on
- * the PAYLOAD, so a `stale-sweep-mt2747` closure carrying `{message}` lands on
- * `message` (rendered with its responder attributed) rather than being dressed
- * up as a system closure. That is deliberate: `isAutomatedClosureResponder`
- * matches `system:*` and `timeout` only, and widening it here to catch that
- * sweep would diverge from the predicate mt#3215 made the single source of
- * truth. The responder-naming gap is real and is tracked outside this task.
+ * Rung order is load-bearing. `systemClosure` is keyed on the RESPONDER and
+ * checked FIRST, so no payload-keyed operator-answer rung can preempt an
+ * automated closure. Everything below it is keyed on the PAYLOAD.
+ *
+ * One consequence is intended rather than incidental: a `stale-sweep-mt2747`
+ * closure carrying `{message}` lands on `message` (rendered with its responder
+ * attributed), not on `systemClosure`, because `isAutomatedClosureResponder`
+ * matches `system:*` and `timeout` only. Widening the predicate here to catch
+ * that sweep would diverge from the single source of truth mt#3215 established;
+ * the responder-naming gap is real and tracked outside this task.
  */
 export function describeRecordedAnswer(ask: AskItem): RecordedAnswer {
   const response = ask.response;
@@ -150,6 +152,23 @@ export function describeRecordedAnswer(ask: AskItem): RecordedAnswer {
   const record = asRecord(response.payload);
   if (!record) {
     return { kind: "raw", json: JSON.stringify(response.payload, null, 2) };
+  }
+
+  // Checked FIRST (PR #2961 R1): an automated closure is never an operator's
+  // option choice or approval, so no operator-answer rung below can preempt it
+  // whatever its payload happens to contain. The review raised this as
+  // `{approved}` firing regardless of `ask.kind`; gating on the KIND would have
+  // been the wrong fix — `composeResolvePayload` writes `{approved}` for ANY
+  // optionless ask, and `AskDetail` offers those buttons for `quality.review`
+  // as well as `authorization.approve`, so a kind check would have started
+  // rendering real `quality.review` approvals as an unrecognized payload.
+  // Gating on the RESPONDER is what the concern actually calls for.
+  if (isAutomatedClosureResponder(response.responder)) {
+    return {
+      kind: "systemClosure",
+      signal: describeClosureSignal(response.responder),
+      detail: toDetail(record),
+    };
   }
 
   const chosen = resolveChosenOption(ask);
@@ -170,14 +189,6 @@ export function describeRecordedAnswer(ask: AskItem): RecordedAnswer {
 
   const citation = readString(record, "citation");
   if (citation !== null) return { kind: "policy", citation };
-
-  if (isAutomatedClosureResponder(response.responder)) {
-    return {
-      kind: "systemClosure",
-      signal: describeClosureSignal(response.responder),
-      detail: toDetail(record),
-    };
-  }
 
   return { kind: "raw", json: JSON.stringify(response.payload, null, 2) };
 }

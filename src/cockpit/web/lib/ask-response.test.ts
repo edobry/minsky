@@ -175,6 +175,27 @@ describe("describeRecordedAnswer ladder (mt#4091)", () => {
     });
   });
 
+  test("an automated closure is not preempted by an operator-answer payload shape", () => {
+    // The rung is keyed on the RESPONDER and checked first, so a system closure
+    // that happens to carry `{approved}` or `{chosen}` still reads as "nobody
+    // answered this" rather than being phrased as an operator decision
+    // (PR #2961 R1).
+    const withApproved = describeRecordedAnswer(
+      makeAsk({
+        response: { responder: "system:pr-merged", payload: { approved: true, prNumber: 2961 } },
+      })
+    );
+    expect(withApproved).toMatchObject({ kind: "systemClosure" });
+
+    const withChosen = describeRecordedAnswer(
+      makeAsk({
+        options: VALUED_OPTIONS,
+        response: { responder: "system:commit-landed", payload: { chosen: "hold" } },
+      })
+    );
+    expect(withChosen).toMatchObject({ kind: "systemClosure" });
+  });
+
   test("an unrecognized system responder falls back to its own string as the signal", () => {
     const answer = describeRecordedAnswer(
       makeAsk({ response: { responder: "system:invented-later", payload: { thing: "x" } } })

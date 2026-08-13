@@ -114,6 +114,13 @@ export function TerminalAskNotice({ ask }: { ask: AskItem }) {
   // responded to" — it had actually been auto-closed, unanswered, when its
   // parent task went terminal.
   const autoClosed = ask.response ? isAutomatedClosureResponder(ask.response.responder) : false;
+  // `toLocaleString` is deliberate and carried over verbatim from the branch
+  // this replaced. The reader is one operator looking at their own machine, and
+  // "when did I answer this?" is a wall-clock question best answered in their
+  // own locale and zone; an ISO string would be worse for that reader to serve
+  // a determinism nothing needs. Flagged as test-flaky in PR #2961 R1 — no test
+  // asserts on this timestamp, and none should: `respondedAt` is data, and its
+  // FORMATTING is a presentation choice with no invariant to pin.
   const respondedAt = ask.respondedAt ? new Date(ask.respondedAt).toLocaleString() : null;
 
   return (

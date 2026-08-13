@@ -279,6 +279,12 @@ async function teardownAll(): Promise<void> {
 
 let ws: WebSocket;
 try {
+  // PUT, not GET. Chrome requires PUT on `/json/new` (a DNS-rebinding
+  // hardening); GET is answered 405. Measured against this repo's dev canary
+  // on 2026-08-13: `GET /json/new?about:blank` -> 405, `PUT` -> 200. Flagged as
+  // "CDP expects GET" in PR #2961 R1 — following that would have broken the
+  // script. Same call shape as `scripts/verify-interceptors-axes-render.ts`
+  // and `scripts/verify-cockpit-shell-scroll.ts`.
   const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(ROUTE)}`, { method: "PUT" });
   const target = (await newRes.json()) as { id: string; webSocketDebuggerUrl: string };
   teardown.push(() => fetch(`${CDP}/json/close/${target.id}`));
