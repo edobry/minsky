@@ -25,6 +25,7 @@ import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
 import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
+import { STALE_SIGNAL_SWEEP_GUARD } from "./registry-stale-signal-sweep";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -933,6 +934,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // mt#3959's entry is spread in from its own module because this file is AT
+  // the 1500-line max-lines ceiling — see that module's header for why, and for
+  // the follow-up that splits this array properly.
+  STALE_SIGNAL_SWEEP_GUARD,
   // -------------------------------------------------------------------------
   // mt#4004 — the duplicate-check record claims a search that never ran.
   //
