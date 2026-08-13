@@ -565,10 +565,17 @@ export async function mergeSessionPr(
     const dsMetaNum = (k: string): number | undefined =>
       typeof dsMeta[k] === "number" ? (dsMeta[k] as number) : undefined;
 
-    const dsOwner = dsMetaStr("owner") ?? config.github?.owner;
-    const dsRepo = dsMetaStr("repo") ?? config.github?.repo;
-    const dsPrNum = dsMetaNum("pr_number") ?? sessionRecord.pullRequest?.number;
     const dsCfg = getConfiguration();
+    // Three sources, widest-to-narrowest confidence (R1): the merge result, then the
+    // ambient `config` object this function already holds, then `getConfiguration()`.
+    // The last two spell the same concept differently — `github.owner`/`.repo` here
+    // vs `github.organization`/`.repository` on the resolved-config type — and either
+    // can be unset depending on where the merge runs. Chaining all three is what keeps
+    // a missing field from silently costing the record, which is the exact failure
+    // class this task exists to remove.
+    const dsOwner = dsMetaStr("owner") ?? config.github?.owner ?? dsCfg.github?.organization;
+    const dsRepo = dsMetaStr("repo") ?? config.github?.repo ?? dsCfg.github?.repository;
+    const dsPrNum = dsMetaNum("pr_number") ?? sessionRecord.pullRequest?.number;
     const dsTokenProvider = createTokenProvider(dsCfg.github ?? {}, dsCfg.github?.token ?? "");
     let dsToken = "";
     try {

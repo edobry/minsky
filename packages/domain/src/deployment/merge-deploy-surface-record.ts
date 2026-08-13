@@ -247,20 +247,33 @@ export function classifyAndRecordMergeDeploySurface(
     // EITHER its current or its previous path is a surface (so a rename INTO or
     // OUT OF a deploy surface is caught), across both the deployed-service and
     // the local-app pattern sets, de-duplicated.
-    const surfaceFiles = [
-      ...new Set(
-        files
-          .filter(
-            (f) =>
-              isDeploySurfaceFile(f.filename) ||
-              isDeploySurfaceFile(f.previous_filename) ||
-              isLocalAppDeploySurfaceFile(f.filename) ||
-              isLocalAppDeploySurfaceFile(f.previous_filename)
-          )
-          .map((f) => f.filename)
-          .filter((n): n is string => typeof n === "string" && n.length > 0)
-      ),
-    ];
+    const matched: string[] = [];
+    for (const f of files) {
+      const currentMatches =
+        isDeploySurfaceFile(f.filename) || isLocalAppDeploySurfaceFile(f.filename);
+      const previousMatches =
+        isDeploySurfaceFile(f.previous_filename) ||
+        isLocalAppDeploySurfaceFile(f.previous_filename);
+      if (!currentMatches && !previousMatches) continue;
+      // PR #2958 R1: report the path that ACTUALLY matched, not always `filename`.
+      // A rename OUT of a surface matches on `previous_filename` while `filename` is
+      // some non-surface path — and this list is what the detector puts in its
+      // reminder text, so emitting the new path there names a file that is not a
+      // deploy surface and reads as a false positive. The pre-mt#4089 hook helpers
+      // always mapped to `filename`, so this is a deliberate correction rather than
+      // a parity break; a rename WITHIN the surface still contributes both ends.
+      if (currentMatches && typeof f.filename === "string" && f.filename.length > 0) {
+        matched.push(f.filename);
+      }
+      if (
+        previousMatches &&
+        typeof f.previous_filename === "string" &&
+        f.previous_filename.length > 0
+      ) {
+        matched.push(f.previous_filename);
+      }
+    }
+    const surfaceFiles = [...new Set(matched)];
     const record: MergeDeploySurfaceRecord = {
       hadDeploySurface: surfaceFiles.length > 0,
       deploySurfaceFiles: surfaceFiles,
