@@ -125,6 +125,167 @@ function askWithLongOptions(): AskItem {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Resolved view (mt#4092)
+//
+// The originating incident: the principal resolved an ask by accident and had
+// no way back to it. `/api/asks` only ever returned pending operator asks, so a
+// closed ask was reachable if — and only if — a deeplink to it happened to
+// survive somewhere. These tests exercise the path that replaces "happened to
+// survive": the pending/resolved control on this page.
+// ---------------------------------------------------------------------------
+
+function terminalAsk(overrides: Partial<AskItem> & Pick<AskItem, "id" | "title">): AskItem {
+  return {
+    kind: "direction.decide",
+    state: "closed",
+    question: "Which way?",
+    requestor: "test-agent",
+    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    closedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+    windowMissedCount: 0,
+    metadata: {},
+    ...overrides,
+  };
+}
+
+/** Serve the pending queue and the terminal list from two different URLs. */
+function renderAsksPageWithViews(pending: AskItem[], terminal: AskItem[]) {
+  const askUrls: string[] = [];
+  let queryClient: QueryClient;
+  global.fetch = mock(async (url: string) => {
+    if (url.startsWith("/api/asks")) {
+      askUrls.push(url);
+      return url.includes("state=terminal")
+        ? jsonResponse({
+            asks: terminal,
+            total: terminal.length,
+            returned: terminal.length,
+            truncated: false,
+          })
+        : jsonResponse({ asks: pending, total: pending.length });
+    }
+    return fallback();
+  }) as unknown as typeof fetch;
+  queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const result = render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <AsksPage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  return { ...result, askUrls, queryClient };
+}
+
+/** Drive the pending/resolved control the way Radix expects under happy-dom. */
+function switchTo(label: "Pending" | "Resolved") {
+  const viewSelect = screen.getByLabelText("View");
+  fireEvent.keyDown(viewSelect, { key: "Enter" });
+  fireEvent.click(screen.getByRole("option", { name: label }));
+}
+
+describe("AsksPage resolved view (mt#4092)", () => {
+  test("a resolved ask is reachable from the page — no deeplink required", async () => {
+    const closed = terminalAsk({ id: "closed-1", title: "the accidentally resolved one" });
+    renderAsksPageWithViews([], [closed]);
+
+    await waitFor(() => expect(screen.getByText("No pending asks")).toBeDefined());
+    expect(screen.queryByText("the accidentally resolved one")).toBeNull();
+
+    switchTo("Resolved");
+
+    await waitFor(() => expect(screen.getByText("the accidentally resolved one")).toBeDefined());
+  });
+
+  test("an ask in EACH terminal state is reachable by that same path", async () => {
+    renderAsksPageWithViews(
+      [],
+      [
+        terminalAsk({ id: "c", title: "closed ask", state: "closed" }),
+        terminalAsk({ id: "x", title: "cancelled ask", state: "cancelled" }),
+        terminalAsk({ id: "e", title: "expired ask", state: "expired" }),
+      ]
+    );
+
+    await waitFor(() => expect(screen.getByText("No pending asks")).toBeDefined());
+    switchTo("Resolved");
+
+    await waitFor(() => expect(screen.getByText("closed ask")).toBeDefined());
+    expect(screen.getByText("cancelled ask")).toBeDefined();
+    expect(screen.getByText("expired ask")).toBeDefined();
+  });
+
+  test("the default view asks for no state filter, and shows no terminal ask", async () => {
+    const pending = askWithLongOptions();
+    const { askUrls } = renderAsksPageWithViews(
+      [pending],
+      [terminalAsk({ id: "closed-1", title: "should not appear by default" })]
+    );
+
+    await waitFor(() => expect(screen.getByText(pending.title)).toBeDefined());
+
+    expect(screen.queryByText("should not appear by default")).toBeNull();
+    // Not merely "no terminal row rendered" — the request itself carries no
+    // filter, which is what keeps every other consumer of this endpoint on its
+    // current result set.
+    expect(askUrls.every((u) => !u.includes("state="))).toBe(true);
+  });
+
+  test("a resolved row offers no actions — there is nothing left to decide", async () => {
+    renderAsksPageWithViews(
+      [],
+      [
+        terminalAsk({
+          id: "closed-1",
+          title: "already decided",
+          options: [
+            { label: "Ship it", value: "a" },
+            { label: "Hold", value: "b" },
+          ],
+        }),
+      ]
+    );
+
+    await waitFor(() => expect(screen.getByText("No pending asks")).toBeDefined());
+    switchTo("Resolved");
+
+    await waitFor(() => expect(screen.getByText("already decided")).toBeDefined());
+    expect(screen.queryByRole("button", { name: "Defer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ship it" })).toBeNull();
+  });
+
+  test("the resolved view does not poison the shared cache the home band reads", async () => {
+    const pending = askWithLongOptions();
+    const { queryClient } = renderAsksPageWithViews(
+      [pending],
+      [terminalAsk({ id: "closed-1", title: "already decided" })]
+    );
+
+    await waitFor(() => expect(screen.getByText(pending.title)).toBeDefined());
+    switchTo("Resolved");
+    await waitFor(() => expect(screen.getByText("already decided")).toBeDefined());
+
+    // ["asks"] is shared with the home TriageBand. If the resolved view wrote
+    // through it, the home page would start showing closed asks as things that
+    // need the principal — the exact signal degradation this task must not
+    // cause, and one no assertion about THIS page would catch.
+    const shared = queryClient.getQueryData(["asks"]) as { asks: AskItem[] } | undefined;
+    expect(shared?.asks.map((a) => a.id)).toEqual([pending.id]);
+  });
+
+  test("a terminal state that is NOT a plain close is named on the row", async () => {
+    renderAsksPageWithViews([], [terminalAsk({ id: "e", title: "timed out", state: "expired" })]);
+
+    await waitFor(() => expect(screen.getByText("No pending asks")).toBeDefined());
+    switchTo("Resolved");
+
+    // "expired" means the ask went away WITHOUT the operator answering — the
+    // discriminator someone hunting a lost decision actually needs.
+    await waitFor(() => expect(screen.getByText("expired")).toBeDefined());
+  });
+});
+
 function renderAsksPage(asks: AskItem[]) {
   global.fetch = mock(async (url: string) => {
     if (url.startsWith("/api/asks")) return jsonResponse({ asks, total: asks.length });
