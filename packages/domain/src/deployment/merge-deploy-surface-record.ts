@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 // Producer/consumer record of "did the PR merged for <task> touch a deploy/build
 // surface?" (mt#3819).
 //
@@ -38,6 +37,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import * as os from "node:os";
+import { isDeploySurfaceFile, isLocalAppDeploySurfaceFile } from "./deploy-surface";
 
 /** Filename under the Minsky state dir. */
 const RECORD_FILENAME = "merge-deploy-surface.json";
@@ -152,7 +152,13 @@ export interface RecordFs {
 
 export const REAL_FS: RecordFs = {
   exists: (p) => existsSync(p),
-  readFile: (p) => readFileSync(p, { encoding: "utf-8" }),
+  // `as string` is load-bearing after the mt#4089 move out of `.minsky/hooks/`:
+  // `tsconfig.hooks.json` declares `types: ["bun", "node"]` while the ROOT project
+  // this file now belongs to declares `types: ["bun"]`, under which `readFileSync`
+  // is typed `string | Buffer` even with an explicit encoding. Same mechanism as the
+  // mt#3755 tsconfig-project trap; the encoding argument already guarantees a string
+  // at runtime.
+  readFile: (p) => readFileSync(p, { encoding: "utf-8" }) as string,
   writeFile: (p, c) => writeFileSync(p, c, "utf-8"),
   mkdirp: (p) => {
     mkdirSync(p, { recursive: true });
@@ -195,6 +201,78 @@ export function recordMergeDeploySurface(
     return true;
   } catch {
     return false;
+  }
+}
+
+/** The shape both writers see for a PR's changed file (octokit's `pulls.listFiles`). */
+export interface MergeDeploySurfacePrFile {
+  filename?: string | null;
+  previous_filename?: string | null;
+}
+
+/**
+ * Classify a merged PR's changed files and record the verdict under every key
+ * (mt#4089). This is the SHARED derivation: `require-deploy-verification-before-merge`
+ * (the PreToolUse hook) and `mergeSessionPr` (the domain merge path) both call it,
+ * so the two writers cannot compute different verdicts for the same merge and
+ * silently last-write-wins over each other.
+ *
+ * Why two writers at all. The hook is the only writer that existed until mt#4089,
+ * which meant the record was populated ONLY for merges made through the MCP
+ * `session_pr_merge` tool on a hook-enabled harness — a CLI merge, a `gh` merge, a
+ * web-UI merge, or any harness without Claude Code hooks wrote nothing, and
+ * `build-claim-injection-detector` then fell back to the pre-mt#3819 proxy that
+ * mt#3755 measured as near-unsatisfiable. The domain writer closes every path the
+ * hook cannot reach. The hook's own write is RETAINED rather than removed: the
+ * thin-hooks RFC (Accepted 2026-08-11, mem#960) does move this logic hook→daemon,
+ * but that removal belongs to the phase that stands up the daemon path, and both
+ * remaining sub-decisions there are open asks. Two writes of the same verdict under
+ * the same key are an idempotent overwrite, not a duplicate entry — the store is a
+ * key→verdict map.
+ *
+ * Never throws. The hook path is a merge GATE and the domain path is the merge
+ * ITSELF; a bookkeeping failure must not change whether a merge is allowed, nor
+ * fail one that already happened.
+ *
+ * @returns the recorded verdict, or null if nothing was written.
+ */
+export function classifyAndRecordMergeDeploySurface(
+  files: readonly MergeDeploySurfacePrFile[],
+  keys: Iterable<string>,
+  path: string = getMergeDeploySurfaceRecordPath(),
+  fs: RecordFs = REAL_FS
+): MergeDeploySurfaceRecord | null {
+  try {
+    // Matches the hook's original inline derivation exactly: a file counts when
+    // EITHER its current or its previous path is a surface (so a rename INTO or
+    // OUT OF a deploy surface is caught), across both the deployed-service and
+    // the local-app pattern sets, de-duplicated.
+    const surfaceFiles = [
+      ...new Set(
+        files
+          .filter(
+            (f) =>
+              isDeploySurfaceFile(f.filename) ||
+              isDeploySurfaceFile(f.previous_filename) ||
+              isLocalAppDeploySurfaceFile(f.filename) ||
+              isLocalAppDeploySurfaceFile(f.previous_filename)
+          )
+          .map((f) => f.filename)
+          .filter((n): n is string => typeof n === "string" && n.length > 0)
+      ),
+    ];
+    const record: MergeDeploySurfaceRecord = {
+      hadDeploySurface: surfaceFiles.length > 0,
+      deploySurfaceFiles: surfaceFiles,
+      recordedAt: new Date().toISOString(),
+    };
+    let wrote = false;
+    for (const key of keys) {
+      if (recordMergeDeploySurface(key, record, path, fs)) wrote = true;
+    }
+    return wrote ? record : null;
+  } catch {
+    return null;
   }
 }
 

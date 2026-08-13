@@ -49,6 +49,7 @@ import type { ResolvedConfig } from "../configuration/types";
 import type { AskRepository } from "../ask/repository";
 import { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "../ask/close-as-resolved";
 import { applyPostMergeStateSync } from "./session-merge-status-sync";
+import { classifyAndRecordMergeDeploySurface } from "../deployment/merge-deploy-surface-record";
 import {
   validateSessionApprovedForMerge,
   checkGitHubMergeApprovalBlockers,
@@ -530,6 +531,83 @@ export async function mergeSessionPr(
 
   if (!params.json) {
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
+  }
+
+  // mt#4089: record this merge's deploy/build-surface verdict for
+  // `build-claim-injection-detector`, which cannot afford a forge fetch per turn.
+  //
+  // Why HERE and not only in the merge gate. Until mt#4089 the sole writer was the
+  // `require-deploy-verification-before-merge` PreToolUse hook, so the record existed
+  // only for merges made through the MCP `session_pr_merge` tool on a hook-enabled
+  // harness. A CLI merge, a `gh` merge, a web-UI merge, or an agent on a harness
+  // without Claude Code hooks wrote nothing — and because the consumer reads a
+  // missing record as UNKNOWN and falls back to the pre-mt#3819 proxy, the gap was
+  // invisible: indistinguishable from a merge that predates the producer. This path
+  // runs for every merge that goes through Minsky at all, whatever the harness.
+  //
+  // Strictly best-effort: the merge has ALREADY happened by this line, so nothing
+  // here may throw. Both the fetch and the write are inside the try, and a failure
+  // costs only the record (the consumer degrades to the proxy, as it did before).
+  try {
+    // Source owner/repo/PR from the merge RESULT first, config only as fallback. The
+    // backend that just performed the merge reports the coordinates it actually used,
+    // which is the authoritative answer for THIS merge — and it does not depend on
+    // github owner/repo being populated in the ambient config, which is not guaranteed
+    // in a session workspace. (Observed: the separate `getConfiguration()` view returns
+    // neither field in a session clone. Whether THIS `config` object is likewise empty
+    // at runtime was not measured — metadata-first makes it moot rather than relying
+    // on the answer.)
+    const dsMeta = (mergeInfo.metadata ?? {}) as Record<string, unknown>;
+    const dsMetaStr = (k: string): string | undefined =>
+      typeof dsMeta[k] === "string" && (dsMeta[k] as string).length > 0
+        ? (dsMeta[k] as string)
+        : undefined;
+    const dsMetaNum = (k: string): number | undefined =>
+      typeof dsMeta[k] === "number" ? (dsMeta[k] as number) : undefined;
+
+    const dsOwner = dsMetaStr("owner") ?? config.github?.owner;
+    const dsRepo = dsMetaStr("repo") ?? config.github?.repo;
+    const dsPrNum = dsMetaNum("pr_number") ?? sessionRecord.pullRequest?.number;
+    const dsCfg = getConfiguration();
+    const dsTokenProvider = createTokenProvider(dsCfg.github ?? {}, dsCfg.github?.token ?? "");
+    let dsToken = "";
+    try {
+      dsToken = (await dsTokenProvider.getUserToken()) ?? "";
+    } catch {
+      dsToken = "";
+    }
+    if (!dsToken) dsToken = dsCfg.github?.token ?? "";
+    if (dsOwner && dsRepo && dsPrNum && dsToken) {
+      const { createOctokit } = await import("../repository/github-pr-operations");
+      const dsOctokit = createOctokit(dsToken);
+      // Paginate: a PR with >100 changed files would otherwise be classified from a
+      // truncated list, under-recording the surface exactly like the old proxy did.
+      const dsFiles = await dsOctokit.paginate(dsOctokit.rest.pulls.listFiles, {
+        owner: dsOwner,
+        repo: dsRepo,
+        pull_number: dsPrNum,
+        per_page: 100,
+      });
+      // Same key set the hook writes (PR #2734 R1): the resolved task id plus every
+      // raw id this call was made with, so the consumer finds it whichever it saw.
+      const dsKeys = new Set<string>();
+      for (const candidate of [sessionRecord.taskId, params.task, params.session, sessionIdToUse]) {
+        if (typeof candidate === "string" && candidate.length > 0) dsKeys.add(candidate);
+      }
+      classifyAndRecordMergeDeploySurface(dsFiles, dsKeys);
+    } else {
+      log.debug("merge-deploy-surface: skipping record (missing owner/repo/PR-number/token)", {
+        hasOwner: !!dsOwner,
+        hasRepo: !!dsRepo,
+        prNum: dsPrNum,
+        hasToken: !!dsToken,
+      });
+    }
+  } catch (err) {
+    // Never rethrow: the merge is done and this is bookkeeping.
+    log.debug("merge-deploy-surface: record failed", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   // Update authorship label at merge time if tier is known
