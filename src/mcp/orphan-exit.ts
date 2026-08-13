@@ -57,6 +57,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { readProcessMemory } from "@minsky/shared/process-memory";
 
 /** Default poll interval (ms) for the parent-death watcher. */
 export const DEFAULT_PARENT_DEATH_POLL_INTERVAL_MS = 5_000;
@@ -318,29 +319,27 @@ export const DEFAULT_MEMORY_CEILING_POLL_INTERVAL_MS = 30_000;
 const BYTES_PER_MB = 1024 * 1024;
 
 /**
- * Read the current process's resident set size in bytes.
+ * Read the current process's swap-inclusive memory in bytes, or `null` when it
+ * could not be measured.
  *
- * `process.memoryUsage.rss()` is the cheap variant — it reads only RSS
- * rather than computing the whole heap breakdown, which matters because
- * this runs on an interval for the life of the process. It is present in
- * both Node and Bun, but the repo's ambient `process` shim
- * (`src/types/node.d.ts`) does not describe the callable property, hence
- * the cast — the same shim gap `getCurrentProcessPpid` above works
- * around. Falls back to the object form if the fast path is absent.
+ * Was `getCurrentProcessMemoryBytes`, reading `process.memoryUsage.rss()`
+ * (mt#4104). RSS was the wrong quantity in the most consequential direction: it
+ * FALLS as the OS swaps a process out, so the 2026-08-13 specimen read ~900 MB
+ * while holding 48.2 GB and never tripped a 2048 MB ceiling. Measured on the
+ * live fleet the same day, 2 of 11 MCP processes read 44-56 MB RSS against
+ * 215-384 MB footprints — the same inversion, already happening, just not yet
+ * at a dangerous scale.
+ *
+ * `null` rather than a fallback number: see `readProcessMemory`'s union.
  */
-export function getCurrentProcessResidentBytes(): number {
-  const proc = process as typeof process & {
-    memoryUsage: (() => { rss: number }) & { rss?: () => number };
-  };
-  if (typeof proc.memoryUsage.rss === "function") {
-    return proc.memoryUsage.rss();
-  }
-  return proc.memoryUsage().rss;
+export function getCurrentProcessMemoryBytes(): number | null {
+  const result = readProcessMemory(process.pid);
+  return result.ok ? result.bytes : null;
 }
 
 /**
  * Seconds this process has been running. Same ambient-shim gap as
- * `getCurrentProcessPpid` and `getCurrentProcessResidentBytes` — hoisted
+ * `getCurrentProcessPpid` and `getCurrentProcessMemoryBytes` — hoisted
  * here rather than cast at each call site, since both `start-command.ts`
  * and the proxy CLI need it for the breach record.
  */
@@ -356,8 +355,15 @@ export interface MemoryCeilingBreach {
 
 export interface ResidentMemoryCeilingWatcherOptions {
   ceilingBytes: number;
-  /** Returns the CURRENT resident bytes. Injected so tests don't depend on the real `process`. */
-  getResidentBytes: () => number;
+  /**
+   * Returns the process's swap-inclusive memory, or `null` when it could not be
+   * measured (mt#4104). Injected so tests don't depend on the real `process`.
+   *
+   * `null` is not zero and not "fine": an unmeasurable tick is skipped, because
+   * the alternative — substituting a number — is what let an RSS reading that
+   * collapses under swap pass for a healthy process while it held 48 GB.
+   */
+  getResidentBytes: () => number | null;
   pollIntervalMs?: number;
   /** Injectable so tests can assert without real timers. Defaults to `setInterval`/`clearInterval`. */
   setIntervalFn?: typeof setInterval;
@@ -382,6 +388,9 @@ export function startResidentMemoryCeilingWatcher(
   const timer = setIntervalFn(() => {
     if (stopped) return;
     const residentBytes = options.getResidentBytes();
+    // Skip, do not substitute (mt#4104). An unmeasurable tick tells us nothing;
+    // treating it as 0 would silently disarm the ceiling for the whole run.
+    if (residentBytes === null) return;
     if (residentBytes >= options.ceilingBytes) {
       stopped = true;
       clearIntervalFn(timer);
@@ -494,7 +503,7 @@ export function wireMemoryCeilingWatcher(
 
   return startResidentMemoryCeilingWatcher({
     ceilingBytes,
-    getResidentBytes: options.getResidentBytes ?? getCurrentProcessResidentBytes,
+    getResidentBytes: options.getResidentBytes ?? getCurrentProcessMemoryBytes,
     pollIntervalMs: parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_POLL_MS),
     setIntervalFn: options.setIntervalFn,
     clearIntervalFn: options.clearIntervalFn,

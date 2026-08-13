@@ -11,7 +11,7 @@ import {
   startResidentMemoryCeilingWatcher,
   shouldArmMemoryCeilingWatcher,
   wireMemoryCeilingWatcher,
-  getCurrentProcessResidentBytes,
+  getCurrentProcessMemoryBytes,
   DEFAULT_MEMORY_CEILING_MB,
 } from "./orphan-exit";
 
@@ -347,6 +347,51 @@ describe("resident-memory ceiling (mt#3886)", () => {
       expect(timers.isCleared()).toBe(true);
     });
 
+    test("skips an unmeasurable tick instead of treating it as a low reading (mt#4104)", () => {
+      const timers = createFakeIntervalController();
+      let fired = 0;
+
+      const watcher = startResidentMemoryCeilingWatcher({
+        ceilingBytes: 2048 * MB,
+        getResidentBytes: () => null,
+        setIntervalFn: timers.setIntervalFn,
+        clearIntervalFn: timers.clearIntervalFn,
+        onCeilingExceeded: () => fired++,
+      });
+
+      timers.tick();
+      timers.tick();
+
+      // Not fired, AND not stopped: the watcher must keep polling, because a
+      // reading can fail transiently and the next tick may well succeed. The
+      // failure mode this guards is the other one — substituting 0 for null,
+      // which reads as a healthy process forever.
+      expect(fired).toBe(0);
+      expect(timers.isCleared()).toBe(false);
+      watcher.stop();
+    });
+
+    test("fires on a later tick once measurement recovers", () => {
+      const timers = createFakeIntervalController();
+      const breaches: Array<{ residentBytes: number; ceilingBytes: number }> = [];
+      const readings: Array<number | null> = [null, null, 3000 * MB];
+      let index = 0;
+
+      startResidentMemoryCeilingWatcher({
+        ceilingBytes: 2048 * MB,
+        getResidentBytes: () => readings[index++] ?? null,
+        setIntervalFn: timers.setIntervalFn,
+        clearIntervalFn: timers.clearIntervalFn,
+        onCeilingExceeded: (breach) => breaches.push(breach),
+      });
+
+      timers.tick();
+      timers.tick();
+      expect(breaches).toHaveLength(0);
+      timers.tick();
+      expect(breaches).toHaveLength(1);
+    });
+
     test("does not fire for a process in the observed normal band", () => {
       const timers = createFakeIntervalController();
       let fired = 0;
@@ -572,9 +617,9 @@ describe("resident-memory ceiling (mt#3886)", () => {
     });
   });
 
-  describe("getCurrentProcessResidentBytes", () => {
+  describe("getCurrentProcessMemoryBytes", () => {
     test("reads a plausible positive resident size for this process", () => {
-      const rss = getCurrentProcessResidentBytes();
+      const rss = getCurrentProcessMemoryBytes();
       expect(rss).toBeGreaterThan(0);
       // Sanity bound: the test runner itself is nowhere near the ceiling
       // this feature defends, so a value above it would mean the reader

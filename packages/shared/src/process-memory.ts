@@ -105,7 +105,7 @@ function defaultReadProcStatus(pid: number): string | null {
   try {
     // Synchronous by design: every caller is a poll tick that must not interleave
     // with its own next tick, and the file is a few hundred bytes.
-    return readFileSync(`/proc/${pid}/status`, "utf-8");
+    return String(readFileSync(`/proc/${pid}/status`, { encoding: "utf-8" }));
   } catch {
     return null;
   }

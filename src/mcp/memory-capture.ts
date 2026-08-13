@@ -221,7 +221,7 @@ export function decideCaptureArm(decision: CaptureArmDecision): CaptureArmVerdic
 
 export interface ResidentMemoryCaptureWatcherOptions {
   watermarkBytes: number;
-  getResidentBytes: () => number;
+  getResidentBytes: () => number | null;
   pollIntervalMs?: number;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
@@ -246,6 +246,9 @@ export function startResidentMemoryCaptureWatcher(
   const timer = setIntervalFn(() => {
     if (stopped) return;
     const residentBytes = options.getResidentBytes();
+    // Skip, do not substitute (mt#4104) — same rule as the ceiling watcher: an
+    // unmeasurable tick is not a low reading.
+    if (residentBytes === null) return;
     if (residentBytes >= options.watermarkBytes) {
       stopped = true;
       clearIntervalFn(timer);
@@ -324,7 +327,7 @@ export interface WireMemoryCaptureWatcherOptions {
    * every cockpit start or sit uselessly far above the MCP band.
    */
   defaultWatermarkMb?: number;
-  getResidentBytes: () => number;
+  getResidentBytes: () => number | null;
   getUptimeSeconds: () => number;
   /** In-flight MCP tool calls at capture time. Absent for classes that serve no tools. */
   getInFlightToolCalls?: () => InFlightToolCall[];
