@@ -310,6 +310,31 @@ export function wireOrphanExitWatchers(options: WireOrphanExitWatchersOptions): 
  * ~7x below the SMALLEST of the three processes that took the machine
  * down. Capping the 2026-08-08 giants here would have held them to ~6 GB
  * combined instead of ~130 GB.
+ *
+ * ## Restated for the unit change (mt#4104)
+ *
+ * Every figure above is in RSS. The reading is now `phys_footprint` (macOS) /
+ * `VmRSS + VmSwap` (Linux), and the two are NOT interconvertible — RSS counts
+ * clean file-backed pages the kernel does not charge the task, and misses
+ * swapped-out pages it does.
+ *
+ * Re-measured 2026-08-13 across 11 live `mcp start` processes plus the cockpit
+ * daemon: the idle band is **210-413 MB** in footprint units, against mt#3973's
+ * RSS-measured 427-644 MB. The band is both LOWER and tighter — the same two
+ * processes read 44-56 MB RSS against 215-384 MB footprints, so RSS was
+ * scattering the band in both directions rather than tracking it.
+ *
+ * **2048 MB is deliberately KEPT.** It now sits ~5x above the band top rather
+ * than the ~4.5x computed above, so the unit change GAINS headroom rather than
+ * losing it, and the ceiling's job is to bound a runaway well short of machine
+ * exhaustion — not to sit tight against the idle band, where the only thing a
+ * lower number buys is false positives. The bound that mattered is unchanged:
+ * still below mt#3764's 4083 MB orphan, still far below the pathological tail.
+ *
+ * **Not made per-platform, and here is the limit of that claim:** only macOS
+ * was measurable from where this was derived. The hosted Railway surface is
+ * Linux and its band is UNMEASURED; mt#3888 owns whether to arm the ceiling
+ * there and at what limit, and this band is not evidence about it.
  */
 export const DEFAULT_MEMORY_CEILING_MB = 2048;
 

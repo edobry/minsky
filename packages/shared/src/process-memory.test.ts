@@ -37,14 +37,31 @@ describe("readProcessMemory — macOS phys_footprint", () => {
     expect(result).toEqual({ ok: true, bytes: 15_517_760, source: "phys_footprint" });
   });
 
-  test("reads phys_footprint, NOT phys_footprint_peak", () => {
-    // The two lines differ by one underscore-suffixed word and sit adjacent; a
-    // loose pattern matches the peak and silently over-reports on every call.
+  test("reads phys_footprint, NOT phys_footprint_peak — even when peak comes FIRST", () => {
+    // The two lines differ by one underscore-suffixed word and sit adjacent, so
+    // a pattern missing its anchors matches the peak and over-reports on every
+    // call. Ordering must not be what saves us: against the real `footprint(1)`
+    // layout (phys_footprint first) a loosened pattern still matches the right
+    // line by accident, so this fixture puts the PEAK first. Verified by
+    // mutation — with the anchors removed, this case fails and the natural-order
+    // one does not.
+    const peakFirst = `
+    phys_footprint_peak: 15616064 B
+    phys_footprint: 15517760 B
+`;
+    const result = readProcessMemory(123, {
+      platform: "darwin",
+      runFootprint: () => peakFirst,
+    });
+    expect(result).toEqual({ ok: true, bytes: 15_517_760, source: "phys_footprint" });
+  });
+
+  test("reads phys_footprint in the natural footprint(1) ordering too", () => {
     const result = readProcessMemory(123, {
       platform: "darwin",
       runFootprint: () => FOOTPRINT_OUTPUT,
     });
-    expect(result.ok && result.bytes).not.toBe(15_616_064);
+    expect(result.ok && result.bytes).toBe(15_517_760);
   });
 
   test("reports failure — not a number — when footprint(1) is unavailable", () => {
