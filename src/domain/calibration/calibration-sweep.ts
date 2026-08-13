@@ -152,6 +152,12 @@ export interface CalibrationLogEntry {
    *   "chained-verification-commands" → {timestamp, session_id, outcome}
    *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
    *     path) — an outcome-status record, no `matches` array.
+   *   "truncated-outcome-read"        → {timestamp, session_id, outcome,
+   *     mutatingCommand?, filter?} (mt#4096
+   *     `truncated-outcome-read-detector.ts`, same D4 write path) — an
+   *     outcome-status record, no `matches` array. The two extra fields carry
+   *     the violation SHAPE (which command, which truncator), which is the
+   *     sweep's diversity axis for this kind.
    *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
    *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
    *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
@@ -199,6 +205,7 @@ export interface CalibrationLogEntry {
     | "operator-instruction-trigger"
     | "agent-dispatch-record"
     | "chained-verification-commands"
+    | "truncated-outcome-read"
     | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
     | "generic-matches";
@@ -1871,6 +1878,7 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "operator-instruction-trigger": true,
   "agent-dispatch-record": true,
   "chained-verification-commands": true,
+  "truncated-outcome-read": true,
   "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
   "generic-matches": true,

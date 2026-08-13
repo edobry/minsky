@@ -95,10 +95,10 @@
             "statusMessage": "Checking for git/gh CLI..."
           },
           {
-            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry on this matcher (check-guessed-session-path, chained-verification-commands, block-secret-file-read, block-concurrent-bulk-mutation, block-bulk-process-kill). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block; it moved 20 -> 25 when mt#4055 added the fourth guard to this matcher, and 25 -> 27 when mt#4081 added the fifth (a 2s pure-string decision, no subprocess).",
+            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry on this matcher (check-guessed-session-path, chained-verification-commands, block-secret-file-read, block-concurrent-bulk-mutation, block-bulk-process-kill). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block; it moved 20 -> 25 when mt#4055 added the fourth guard to this matcher, and 25 -> 27 when mt#4081 added the fifth (a 2s pure-string decision, no subprocess), and 27 -> 32 when mt#4096 added truncated-outcome-read (a 5s pure-string decision).",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 27,
+            "timeout": 32,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           },
           {

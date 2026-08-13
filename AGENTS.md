@@ -795,6 +795,16 @@ still applies to the operation as a whole. Mechanics:
   keep commands simple.
 - **One verification command per call, output visible.** Never `>/dev/null` a result you must
   read; never chain checks with `&&`/`;` — you lose which one failed.
+- **Truncating is suppressing, and it hides better (mt#4096).** `| tail -N` / `| head -N` on a
+  command whose OUTCOME FIELDS you are about to rely on discards them by position, and unlike
+  `>/dev/null` it leaves plausible-looking output — so their absence produces no error to notice.
+  Highest-cost case: `session commit` / `session update` / `session pr create|merge` / `git push`,
+  whose `pushed` / `pushUnconfirmed` / `pushConfirmedVia` are exactly what a `tail -6` cuts
+  (`CLAUDE.md §Sequence Dependent Tool Calls` requires reading them). Use `--json` plus a field
+  read (`| jq -r '.pushed, .pushUnconfirmed'`); a TARGETED read (`jq`, `grep <field>`) is fine —
+  positional truncation is not. **When you switch to `| tail` to diagnose a failure, the re-run
+  after the fix is a verification again — switch back.** Observer:
+  `truncated-outcome-read` (`hook-observers.mdc`).
 - **Bulk/loop commands:** never suppress a per-item result (tally+log, not `>/dev/null`
   per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
   loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
@@ -1453,6 +1463,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead). LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose. LIVE mt#3399. `MINSKY_SKIP_SILENT_STRETCH`.
 - **Chained-verification-commands** (mt#3910) — a `Bash`/`session_exec` command string chaining TWO OR MORE verification commands (`bun test`, `bun run lint|format|typecheck|validate|build`, `bunx eslint|tsc`, `tsgo`) with `;`/`&&`/`||`, which makes a non-zero exit unattributable. Deliberately narrow. Calibration-first. `MINSKY_SKIP_CHAINED_VERIFICATION_SCAN`. Detail: `chained-verification-commands-detector.md`.
+- **Truncated-outcome-read** (mt#4096) — an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) piped into `tail`/`head`, which discards `pushed`/`pushUnconfirmed` by position. `grep`/`jq` never fire — a targeted field read is the remedy. Calibration-first. `MINSKY_SKIP_TRUNCATED_OUTCOME_READ`. Detail: `truncated-outcome-read-detector.md`.
 - **Constructed-identifier batch** — TWO passes: mint-and-consume in one parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Consume surfaces include file writes — a constructed id in source code ships. mt#3991 added an existence discriminator to the second pass. Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`. Detail: `constructed-identifier-batch-detector.md`.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP); still recorded. Calibration-first (mt#3162). `MINSKY_ACK_BARE_PROHIBITION`. Detail: `bare-prohibition-dispatch-detector.md`.
 - **Duplicate-check search provenance** (mt#4004) — a duplicate-check record CLAIMING a past-tense search, in a session with no `tasks_search`/`tasks_similar`/`refs_status` call. Third tier on that record: the deny sibling checks it is PRESENT, the signature scan that its VERDICTS are true, this one that the search RAN. Calibration-first. `MINSKY_SKIP_SEARCH_PROVENANCE`.
