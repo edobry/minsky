@@ -14,6 +14,7 @@ import {
   lookupMergeDeploySurface,
   parseStore,
   readStore,
+  classifyAndRecordMergeDeploySurface,
   recordMergeDeploySurface,
   trimStore,
   type MergeDeploySurfaceRecord,
@@ -22,6 +23,8 @@ import {
 } from "./merge-deploy-surface-record";
 
 const RECORD_PATH = "/state/minsky/merge-deploy-surface.json";
+/** A path the deploy-surface classifier treats as a surface (mt#4013 root-src rule). */
+const SURFACE_FILE = "src/mcp/tools/example.ts";
 
 /** In-memory {@link RecordFs}; `failWrites` reproduces an unwritable target. */
 function makeFs(
@@ -219,5 +222,91 @@ describe("trimStore tie-breaking (PR #2734 R1)", () => {
       bad: record({ recordedAt: "not-a-date" }),
     };
     expect(Object.keys(trimStore(store, 1))).toEqual(["good"]);
+  });
+});
+
+describe("classifyAndRecordMergeDeploySurface (mt#4089)", () => {
+  test("classifies a deploy-surface PR and writes one entry per key", () => {
+    const fs = makeFs();
+    const record = classifyAndRecordMergeDeploySurface(
+      [{ filename: SURFACE_FILE }, { filename: "README.md" }],
+      ["mt#123", "sess-uuid"],
+      RECORD_PATH,
+      fs
+    );
+
+    expect(record?.hadDeploySurface).toBe(true);
+    expect(record?.deploySurfaceFiles).toEqual([SURFACE_FILE]);
+
+    // The same verdict under every key, so the consumer finds it whichever id it saw.
+    const store = parseStore(fs.files[RECORD_PATH] ?? "");
+    expect(Object.keys(store).sort()).toEqual(["mt#123", "sess-uuid"]);
+    expect(store["mt#123"]).toEqual(store["sess-uuid"] as MergeDeploySurfaceRecord);
+  });
+
+  test("records a NEGATIVE verdict rather than writing nothing", () => {
+    // The absent-record case means UNKNOWN to the consumer and degrades it to the
+    // pre-mt#3819 proxy. A docs-only merge must therefore still write, as `false`.
+    const fs = makeFs();
+    const record = classifyAndRecordMergeDeploySurface(
+      [{ filename: "docs/architecture/hooks/some-hook.md" }],
+      ["mt#456"],
+      RECORD_PATH,
+      fs
+    );
+
+    expect(record?.hadDeploySurface).toBe(false);
+    expect(record?.deploySurfaceFiles).toEqual([]);
+    expect(parseStore(fs.files[RECORD_PATH] ?? "")["mt#456"]?.hadDeploySurface).toBe(false);
+  });
+
+  test("counts a file renamed OUT of a deploy surface, and names the path that MATCHED", () => {
+    // PR #2958 R1: `filename` here is NOT a deploy surface — only the previous path
+    // is. Reporting `scripts/moved.ts` would put a non-surface path into the
+    // detector's reminder text, which reads as a false positive to whoever sees it.
+    const fs = makeFs();
+    const record = classifyAndRecordMergeDeploySurface(
+      [{ filename: "scripts/moved.ts", previous_filename: "src/moved.ts" }],
+      ["mt#789"],
+      RECORD_PATH,
+      fs
+    );
+
+    expect(record?.hadDeploySurface).toBe(true);
+    expect(record?.deploySurfaceFiles).toEqual(["src/moved.ts"]);
+  });
+
+  test("a rename WITHIN the surface contributes both ends", () => {
+    const fs = makeFs();
+    const record = classifyAndRecordMergeDeploySurface(
+      [{ filename: "src/b.ts", previous_filename: "src/a.ts" }],
+      ["mt#790"],
+      RECORD_PATH,
+      fs
+    );
+
+    expect(record?.deploySurfaceFiles).toEqual(["src/b.ts", "src/a.ts"]);
+  });
+
+  test("never throws when the store is unwritable — the merge already happened", () => {
+    const fs = makeFs({}, { failWrites: true });
+    let result: unknown = "not-set";
+    expect(() => {
+      result = classifyAndRecordMergeDeploySurface(
+        [{ filename: SURFACE_FILE }],
+        ["mt#123"],
+        RECORD_PATH,
+        fs
+      );
+    }).not.toThrow();
+    expect(result).toBeNull();
+  });
+
+  test("an empty key set writes nothing and reports it", () => {
+    const fs = makeFs();
+    expect(
+      classifyAndRecordMergeDeploySurface([{ filename: "src/a.ts" }], [], RECORD_PATH, fs)
+    ).toBeNull();
+    expect(fs.files[RECORD_PATH]).toBeUndefined();
   });
 });
