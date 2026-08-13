@@ -67,9 +67,29 @@ export const MAX_LABELS = 8;
  */
 const LABEL_EMIT = /(?:^|[^A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]{2,})=(?=\$\{|["'`]|\s*$)/g;
 
-/** A source line that is inside a string or template literal at all. */
-function looksLikeRendering(line: string): boolean {
-  return line.includes('"') || line.includes("'") || line.includes("`");
+/**
+ * The contents of every quoted / backticked span on the line, concatenated.
+ *
+ * A label only counts when it is emitted INSIDE a literal. This is the
+ * discriminator that separates a rendering site from an attribute or an
+ * assignment, and it was added after the SC4 backtest measured what the
+ * cheaper "line contains a quote somewhere" test actually matches: JSX
+ * attributes. `className=`, `testid=`, `type=` and `target=` fired on every
+ * React commit in the 60-day window — the attribute NAME sits outside the
+ * quotes, so `className="flex"` looked identical to `` `count=${n}` `` to a
+ * test that only asked whether a quote appeared anywhere on the line.
+ *
+ * Inside the span, `className="flex items-center"` contributes `flex
+ * items-center` — no `=`, no match. A real rendering site contributes
+ * `Session ${id}: extracted=${n}`, which still matches.
+ */
+function literalSpans(line: string): string {
+  const spans: string[] = [];
+  const re = /(["'`])((?:\\.|(?!\1)[^\\])*)\1/g;
+  for (const m of line.matchAll(re)) {
+    if (m[2]) spans.push(m[2]);
+  }
+  return spans.join("\n");
 }
 
 /**
@@ -113,9 +133,11 @@ function isExcludedPath(path: string): boolean {
 
 /** Labels emitted by one line, deduped. */
 function labelsOnLine(line: string): string[] {
-  if (isCommentLine(line) || !looksLikeRendering(line)) return [];
+  if (isCommentLine(line)) return [];
+  const rendered = literalSpans(line);
+  if (!rendered) return [];
   const out = new Set<string>();
-  for (const m of line.matchAll(LABEL_EMIT)) {
+  for (const m of rendered.matchAll(LABEL_EMIT)) {
     const label = m[1];
     if (label && label.length >= MIN_LABEL_LENGTH) out.add(`${label}=`);
   }

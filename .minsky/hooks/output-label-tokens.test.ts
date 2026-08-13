@@ -108,6 +108,35 @@ describe("extractChangedOutputLabels — discrimination", () => {
     expect(extractChangedOutputLabels(diff).map((l) => l.text)).toContain("count=");
   });
 
+  test("JSX attributes do not fire (measured FP class, SC4 backtest)", () => {
+    // The 60-day backtest's dominant false positive before the literal-span
+    // discriminator shipped: `className=`/`testid=`/`type=`/`target=` fired on
+    // every React commit in the window, because the attribute NAME sits
+    // OUTSIDE the quotes and the old test only asked whether the line
+    // contained a quote at all.
+    const diff = `diff --git a/src/cockpit/web/components/Thing.tsx b/src/cockpit/web/components/Thing.tsx
+--- a/src/cockpit/web/components/Thing.tsx
++++ b/src/cockpit/web/components/Thing.tsx
+@@ -1,3 +1,3 @@
+-  <div className="flex items-center" data-testid="row" title="Open">
++  <div className="flex gap-2" data-testid="row-v2" title="Open pane">
+`;
+    expect(extractChangedOutputLabels(diff)).toEqual([]);
+  });
+
+  test("a label inside a template literal still fires alongside JSX on the same line", () => {
+    const diff = `diff --git a/src/a.tsx b/src/a.tsx
+--- a/src/a.tsx
++++ b/src/a.tsx
+@@ -1,1 +1,1 @@
+-  <span className="tag">{\`extracted=\${n}\`}</span>
++  <span className="tag">{render(r)}</span>
+`;
+    const texts = extractChangedOutputLabels(diff).map((l) => l.text);
+    expect(texts).toContain("extracted=");
+    expect(texts).not.toContain("className=");
+  });
+
   test("test files are excluded — a changed expectation is not a changed signal", () => {
     const diff = `diff --git a/src/a.test.ts b/src/a.test.ts
 --- a/src/a.test.ts
