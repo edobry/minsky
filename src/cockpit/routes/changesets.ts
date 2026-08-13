@@ -14,6 +14,7 @@ import {
   describeServerPersistenceUnavailability,
 } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
+import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
 import type { Changeset } from "@minsky/domain/changeset/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
 import type {
@@ -307,7 +308,29 @@ export function mountChangesetRoutes(app: express.Express): void {
       res.json({ changesets });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log.error(`[changesets] GET /api/changesets — internal error: ${message}`);
+      // A database outage is not an application bug, and this route already has
+      // a posture for it: the provider-unavailable branch above answers 503.
+      // Reaching the catch with a live provider whose QUERY failed is the same
+      // condition one step later, so it gets the same status (mt#4086).
+      //
+      // `isDatabaseUnavailableError` is the right predicate here rather than
+      // `isPgRetryableConnectionError`: drizzle wraps the driver error, and the
+      // wrapper carries the QUERY TEXT as its own message, so only the
+      // cause-walking predicate sees the pool exhaustion underneath. That
+      // predicate's own docblock names this exact trap.
+      if (isDatabaseUnavailableError(err)) {
+        log.warn(`[changesets] GET /api/changesets — database unavailable: ${message}`);
+        res.status(503).json({
+          error: `Session service unavailable — ${await describeServerPersistenceUnavailability()}`,
+        });
+        return;
+      }
+      // Log the cause, not just the message: a drizzle failure's own message IS
+      // the query text, so a message-only log names the statement and never the
+      // reason it failed — which is what made mt#4086 cost a live capture.
+      const cause = err instanceof Error ? err.cause : undefined;
+      const causeText = cause instanceof Error ? ` — cause: ${cause.name}: ${cause.message}` : "";
+      log.error(`[changesets] GET /api/changesets — internal error: ${message}${causeText}`);
       res.status(500).json({ error: "An internal error occurred while fetching changesets." });
     }
   });
