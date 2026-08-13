@@ -137,7 +137,9 @@ export async function fetchFireLogDecisionCounts(
 export async function fetchFireLogDurations(
   db: PostgresJsDatabase,
   since: Date,
-  guardName?: string
+  guardName?: string,
+  /** Optional inclusive upper bound — mirrors the decision-count fetcher, so the verify script can bound a window behind ingest lag (mt#4057 AT4). */
+  until?: Date
 ): Promise<FireLogDurationRow[]> {
   const rows = await db
     .select({
@@ -149,7 +151,7 @@ export async function fetchFireLogDurations(
       measuredFires: sql<number>`count(${guardEventsTable.durationMs})::int`,
     })
     .from(guardEventsTable)
-    .where(and(fireLogWhere(since, guardName), isNotNull(guardEventsTable.durationMs)))
+    .where(and(fireLogWhere(since, guardName, until), isNotNull(guardEventsTable.durationMs)))
     .groupBy(guardEventsTable.guardName);
   return rows.map((r) => ({
     guardName: r.guardName as string,
