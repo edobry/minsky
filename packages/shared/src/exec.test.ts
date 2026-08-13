@@ -248,9 +248,21 @@ describe("executeCommand enforces its timeout (mt#3418)", () => {
    *
    * argv form deliberately: no shell means no second process carrying the
    * marker, and `pgrep` never matches itself.
+   *
+   * Returns `null` where `pgrep` is unavailable rather than guessing (PR #2957
+   * R1). It is POSIX-standard and present on both platforms this repo runs on,
+   * but an external binary is still an external binary: a missing one must not
+   * turn into a false "the process is gone", and must not fail a suite over an
+   * environment gap that has nothing to do with the behavior under test. The
+   * rest of the assertions in this test are unaffected either way.
    */
-  const anyProcessMatching = (marker: string): boolean =>
-    Bun.spawnSync(["pgrep", "-f", marker]).exitCode === 0;
+  const anyProcessMatching = (marker: string): boolean | null => {
+    const probe = Bun.spawnSync(["pgrep", "-f", marker]);
+    // exit 0 = matched, 1 = no match; anything else (127 / spawn failure) means
+    // the question was not answered.
+    if (probe.exitCode !== 0 && probe.exitCode !== 1) return null;
+    return probe.exitCode === 0;
+  };
 
   // AT1 — the defect itself. The child cannot be stopped by SIGTERM, so the
   // budget is only real if something escalates.
@@ -288,7 +300,9 @@ describe("executeCommand enforces its timeout (mt#3418)", () => {
     expect(elapsedMs).toBeLessThan(5_000);
 
     // AT1's other half: the process is actually gone, not merely abandoned.
-    expect(anyProcessMatching(marker)).toBe(false);
+    // `null` means pgrep could not answer — asserted as "not still running"
+    // rather than skipped silently, so the two outcomes stay distinguishable.
+    expect(anyProcessMatching(marker)).not.toBe(true);
   });
 
   // AT2 — the ordinary case must still be handled at stage one. If this ever

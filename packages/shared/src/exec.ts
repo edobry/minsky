@@ -432,8 +432,44 @@ function runWithEnforcedTimeout(
 }
 
 /**
+ * The options {@link executeCommand} understands, as documentation (PR #2957 R1).
+ *
+ * `killGraceMs` previously existed only in a private function's signature, so
+ * the only way to learn the option was to read the implementation. Everything
+ * else here is passed through to Node's `exec` unchanged.
+ *
+ * **Why the parameter is still `Record<string, unknown>` and not this type.**
+ * Applying it was tried and reverted in the same round. `extends ExecOptions`
+ * constrains `env` to `ProcessEnv`, and under `src/cockpit/web/tsconfig.json`
+ * Vite's `ImportMetaEnv` (`DEV`/`PROD`/`SSR`: boolean) is visible on
+ * `process.env`, so `execGitWithTimeout`'s `env: { ...process.env, … }` stops
+ * compiling — a pre-existing type artifact in that project's view, with no
+ * runtime component, that has nothing to do with timeout enforcement. Tightening
+ * the signature is worth doing on its own; doing it here would have meant
+ * touching a shared git helper from a PR about killing subprocesses.
+ */
+export interface ExecuteCommandOptions {
+  /**
+   * How long the child gets to service `killSignal` before SIGKILL, in ms.
+   * Defaults to {@link EXEC_KILL_GRACE_MS}. Stripped before the options reach
+   * Node, which has no such option.
+   */
+  killGraceMs?: number;
+  /** Wall-clock budget in ms. Enforced — see {@link runWithEnforcedTimeout}. */
+  timeout?: number;
+  /** Max captured output in bytes. Defaults to 10MB; a caller's value wins. */
+  maxBuffer?: number;
+  /** Working directory for the child. */
+  cwd?: string;
+  [key: string]: unknown;
+}
+
+/**
  * Execute a command with proper cleanup to prevent hanging
  * Ensures child processes and their stdio streams are properly closed
+ *
+ * @param options see {@link ExecuteCommandOptions} for the keys this helper
+ * adds on top of Node's `ExecOptions`.
  */
 export async function executeCommand(
   command: string,
@@ -456,7 +492,15 @@ export async function executeCommand(
 
   // Read before the spawn so the elapsed time can only ever over-report, which
   // is the direction that fails to claim a timeout rather than inventing one.
-  const startedAt = Date.now();
+  //
+  // MONOTONIC (PR #2957 R1). `Date.now()` can step backwards or forwards — an
+  // NTP correction, a manual clock change — and this reading decides whether a
+  // kill gets labelled a timeout. A backward step makes elapsed look shorter
+  // than the budget and the timeout is reported as a bare `killed`; a forward
+  // step invents a timeout for a kill that had another reason, which is exactly
+  // the guess mt#3923 removed. `performance.now()` cannot jump, and
+  // `scripts/spawn-with-watchdog.ts` already chose it for the same reason.
+  const startedAt = performance.now();
 
   try {
     const result = await runWithEnforcedTimeout(command, execOptions);
@@ -472,7 +516,7 @@ export async function executeCommand(
     const attributable = isTimeoutAttributableKill({
       killed: (error as { killed?: boolean } | null)?.killed === true,
       timeoutMs: typeof execOptions.timeout === "number" ? execOptions.timeout : undefined,
-      elapsedMs: Date.now() - startedAt,
+      elapsedMs: performance.now() - startedAt,
       aborted: abortSignal?.aborted === true,
     });
     if (attributable) {
