@@ -38,7 +38,7 @@
  * slow host. Deliberately absent, not overlooked.
  *
  * That decision has now been reached twice independently, so it is recorded
- * here rather than only in the two task specs (mt#3418 R1). mt#3410 asked for
+ * here rather than only in the two task specs (mt#3410 R1). mt#3410 asked for
  * the same override on the ESLint step in particular, on the grounds that a
  * verified-clean workspace had no path to commit while the machine was loaded —
  * true when it was written against a 169s FULL-REPO run under a 120s budget,
