@@ -68,11 +68,24 @@ let captured: string[] = [];
 /** Marks our wrapper so re-entrant installs don't nest it. */
 const WRAPPED = Symbol.for("minsky.reactRenderErrorCapture");
 
+/** Anything carrying a string `message`, whatever realm it was constructed in. */
+function isErrorLike(value: unknown): value is { name?: string; message: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { message?: unknown }).message === "string"
+  );
+}
+
 function formatArgs(args: unknown[]): string {
   return args
     .map((a) => {
       if (typeof a === "string") return a;
-      if (a instanceof Error) return `${a.name}: ${a.message}`;
+      // Duck-typed rather than `instanceof Error` (PR #2987 R1): an error thrown
+      // across a realm boundary, or a non-Error thrown value carrying a message,
+      // fails the instanceof check and would degrade to "[object Object]" —
+      // dropping exactly the text this mechanism exists to surface.
+      if (isErrorLike(a)) return `${a.name ?? "Error"}: ${a.message}`;
       try {
         return JSON.stringify(a);
       } catch {
@@ -93,11 +106,17 @@ function formatArgs(args: unknown[]): string {
  * the harness needs one.
  */
 export function takeCapturedReactRenderErrors(): string[] {
-  const found = captured.filter(
-    (line) =>
-      line.includes(REACT_UNCAUGHT_RENDER_MARKER) &&
-      !line.includes(REACT_HANDLED_BY_BOUNDARY_MARKER)
-  );
+  const found: string[] = [];
+  for (const [i, line] of captured.entries()) {
+    if (!line.includes(REACT_UNCAUGHT_RENDER_MARKER)) continue;
+    if (line.includes(REACT_HANDLED_BY_BOUNDARY_MARKER)) continue;
+    // React logs the raw error and this report as SEPARATE console.error calls —
+    // hence "The ABOVE error occurred". Keeping only the report names the
+    // component but not the failure, which is half the diagnostic and the half a
+    // reader needs first. Pair each report with the line it refers to.
+    const precedingError = i > 0 ? captured[i - 1] : undefined;
+    found.push(precedingError ? `${precedingError}\n${line}` : line);
+  }
   captured = [];
   return found;
 }

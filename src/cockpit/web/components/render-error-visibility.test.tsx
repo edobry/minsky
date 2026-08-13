@@ -32,13 +32,20 @@
  *
  * Run via `bun run test:components`.
  */
-import { describe, test, expect, afterEach, mock } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach, mock } from "bun:test";
 import { render, cleanup, waitFor, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { takeCapturedReactRenderErrors } from "../../../../tests/react-render-error-capture";
 import { ErrorBoundary } from "./ErrorBoundary";
 
 const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  // Paired with the afterEach restore (PR #2987 R1): a test that dies before
+  // teardown would otherwise leak this file's stub into whatever runs next, and
+  // a leaked fetch is invisible where it lands rather than where it came from.
+  globalThis.fetch = originalFetch;
+});
 
 afterEach(() => {
   cleanup();
@@ -108,9 +115,16 @@ describe("AT1 — a query-driven React render throw is visible, not silent", () 
 
     const errors = takeCapturedReactRenderErrors();
     expect(errors.length).toBeGreaterThan(0);
+
+    const message = errors.join("\n");
+    // BOTH halves of Success Criterion 1, asserted separately because they come
+    // from separate console.error calls and an earlier revision kept only the
+    // second — naming the component while dropping the failure itself.
+    expect(message).toContain("TypeError");
+    expect(message).toContain("families");
     // React's report names the component that threw; without it a reader knows
-    // something threw but not where, which is most of the diagnostic value.
-    expect(errors.join("\n")).toContain("FamilyChipsLookalike");
+    // something threw but not where.
+    expect(message).toContain("FamilyChipsLookalike");
   });
 
   test("the container really is empty — the symptom the message explains", async () => {
