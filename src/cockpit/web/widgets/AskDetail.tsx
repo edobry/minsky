@@ -400,7 +400,16 @@ export const KIND_PRIORITY: Record<AskKind, number> = {
 
 interface AskDetailBaseProps {
   ask: AskItem;
-  onClose: () => void;
+  /**
+   * Renders the "Back" affordance when supplied; omitted entirely when not
+   * (mt#4069).
+   *
+   * Optional because a peek pane brings its own close control — Esc, the pane's
+   * button, browser Back. A "Back" inside it would either do nothing (the inert
+   * control mt#4069's criteria forbid) or duplicate a control the operator
+   * already has. The page supplies it; the peek does not.
+   */
+  onClose?: () => void;
 }
 
 /** Actionable presentation — the ask is still open and the operator can settle it. */
@@ -476,9 +485,11 @@ export function AskDetail(props: AskDetailProps) {
             </div>
             <h3 className="text-sm font-semibold text-foreground">{ask.title}</h3>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose} className="flex-shrink-0">
-            Back
-          </Button>
+          {onClose && (
+            <Button variant="ghost" size="sm" onClick={onClose} className="flex-shrink-0">
+              Back
+            </Button>
+          )}
         </div>
 
         {/* Question */}

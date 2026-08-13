@@ -14,7 +14,9 @@ set -euo pipefail
 
 STATE_DIR="${TAB_WATCHER_STATE_DIR:-$HOME/.claude/tab-state}"
 SNAPSHOT="$STATE_DIR/snapshot.json"
-HISTORY_KEEP="${TAB_WATCHER_HISTORY_KEEP:-10}"
+# At the 30s cadence this is ~1h of rolling history (~35KB/file). The old
+# default of 10 was five minutes, which could not survive a reboot.
+HISTORY_KEEP="${TAB_WATCHER_HISTORY_KEEP:-120}"
 CLAUDE_BIN_PATTERN="${CLAUDE_BIN_PATTERN:-/\\.local/share/claude/versions/}"
 
 mkdir -p "$STATE_DIR"
@@ -205,8 +207,48 @@ print(json.dumps({"timestamp": timestamp, "sessions": sessions}, indent=2))
 PY
 }
 
+# Preserve the last snapshot taken before the current boot. Rolling retention
+# alone is a self-defeating design for a crash-recovery tool: at a 30s cadence
+# HISTORY_KEEP=10 is five minutes of history, so the watcher restarting after an
+# unclean reboot deletes the pre-crash inventory — the only thing anyone wants —
+# before a human can get to it. Observed 2026-08-05: every pre-crash snapshot
+# was gone ~18 min after reboot. The archive is written once per boot and is
+# never a pruning candidate.
+archive_pre_boot_snapshot() {
+  local boot_epoch marker newest newest_epoch
+  # Anchor the match. `.*sec = ` is greedy and binds to the `usec = ` field,
+  # yielding the microseconds (6 digits) instead of the epoch — which makes
+  # `newest_epoch -lt boot_epoch` permanently false, so nothing is ever
+  # archived, while the marker below is still written so it never retries.
+  # Observed 2026-08-05 after the 14:19 panic: marker `.preboot-archived-478607`
+  # (a usec value), no preboot-*.json, pre-crash inventory saved only by the
+  # raised HISTORY_KEEP.
+  boot_epoch=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/^{ *sec = \([0-9]*\).*/\1/p')
+  [ -n "$boot_epoch" ] || return 0
+  marker="$STATE_DIR/.preboot-archived-$boot_epoch"
+  [ -e "$marker" ] && return 0
+
+  # `|| true` is load-bearing under `set -o pipefail`: with no snapshot-*.json yet,
+  # `ls` exits 1, the pipeline inherits it, and `set -e` kills the whole run BEFORE
+  # any snapshot is written. That is invisible on a populated state dir — which is
+  # every run of an already-installed watcher — and fires on exactly one case: the
+  # FIRST run after install, or after the state dir is cleared. Found by running the
+  # merged script against an empty TAB_WATCHER_STATE_DIR (mt#3873).
+  newest=$(ls -1t "$STATE_DIR"/snapshot-*.json 2>/dev/null | head -1 || true)
+  if [ -n "$newest" ]; then
+    newest_epoch=$(stat -f %m "$newest" 2>/dev/null || echo 0)
+    if [ "$newest_epoch" -lt "$boot_epoch" ]; then
+      cp "$newest" "$STATE_DIR/preboot-$(date -u -r "$boot_epoch" +"%Y%m%dT%H%M%SZ").json"
+      echo "archived pre-boot snapshot: $newest" >&2
+    fi
+  fi
+  : > "$marker"
+}
+
 main() {
   local tmp hist
+  archive_pre_boot_snapshot
+
   tmp="$SNAPSHOT.tmp"
   build_snapshot > "$tmp"
   mv "$tmp" "$SNAPSHOT"
@@ -217,9 +259,16 @@ main() {
   prune_history
 }
 
-# Prune historical snapshots beyond HISTORY_KEEP. Uses a shell glob into an
-# array rather than a pipeline so a zero-match case can't trip `set -o
-# pipefail`; ordering is by mtime via `stat -f`.
+# Prune historical snapshots beyond HISTORY_KEEP. Anchored to the rolling
+# snapshot-*.json series, so preboot-*.json is never a pruning candidate (one
+# small file per boot, retained indefinitely).
+#
+# Uses a shell glob into an array rather than a pipeline so a zero-match case
+# can't trip `set -o pipefail`. The live copy had drifted to an
+# `ls | tail | xargs` pipeline guarded by a trailing `|| true`; that does work,
+# but it is the same pipefail hazard class archive_pre_boot_snapshot above was
+# just fixed for, so the repo's pipefail-immune form is kept rather than
+# overwritten during the reconciliation (mt#3873).
 prune_history() {
   local files=("$STATE_DIR"/snapshot-*.json)
   # If the glob didn't match anything, bash leaves the literal pattern as the

@@ -28,6 +28,61 @@ import {
   isReadyProbeResponse,
 } from "./tools";
 
+describe("memory-breach restart is not a crash (mt#4112)", () => {
+  /**
+   * A child that answers the readiness probe immediately, so each spawn costs
+   * milliseconds instead of the 2s probe timeout, and stays alive otherwise.
+   */
+  const RESPONDER = [
+    "-e",
+    'process.stdin.on("data",(d)=>{for(const l of String(d).split("\\n")){' +
+      "if(!l.trim())continue;try{const m=JSON.parse(l);if(m.id!==undefined)" +
+      'process.stdout.write(JSON.stringify({jsonrpc:"2.0",id:m.id,result:{}})+"\\n")}' +
+      "catch{}}});process.stdin.resume()",
+  ];
+
+  test("the memory restart replaces the child without incrementing the crash counter", async () => {
+    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: RESPONDER });
+    // Drive spawn/restart directly rather than through `start()`, which would
+    // also install real signal handlers on the test process.
+    const internals = proxy as unknown as {
+      spawnChild: () => Promise<void>;
+      restartChildForMemoryBreach: (breach: {
+        residentBytes: number;
+        ceilingBytes: number;
+      }) => Promise<void>;
+    };
+
+    try {
+      await internals.spawnChild();
+      const firstChild = proxy.currentChild;
+      expect(firstChild).not.toBeNull();
+      // Positive control for the assertion below: while the child is under
+      // ordinary supervision its close handler IS attached, so a real exit
+      // would reach `onChildClose` and be counted.
+      expect(firstChild?.listenerCount("close")).toBe(1);
+      expect(proxy.recentFailureCount).toBe(0);
+
+      await internals.restartChildForMemoryBreach({
+        residentBytes: 3000 * 1024 * 1024,
+        ceilingBytes: 2048 * 1024 * 1024,
+      });
+
+      // The mechanism: the handler is gone, so `onChildClose` — the only
+      // writer of the crash counter — never ran for this exit.
+      expect(firstChild?.listenerCount("close")).toBe(0);
+      expect(proxy.recentFailureCount).toBe(0);
+
+      // And it is a restart, not a kill: a different child is now serving.
+      expect(proxy.currentChild).not.toBeNull();
+      expect(proxy.currentChild?.pid).not.toBe(firstChild?.pid);
+    } finally {
+      const survivor = proxy.currentChild;
+      if (survivor) await proxy.killChild(survivor);
+    }
+  }, 30_000);
+});
+
 describe("readiness-probe helpers (tools.ts)", () => {
   test("buildReadyProbeRequest returns a JSON-RPC ping with the supplied id", () => {
     const req = buildReadyProbeRequest("__proxy_ready_probe_42");
