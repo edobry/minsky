@@ -103,6 +103,14 @@ if [[ -z "${tabs_tsv// /}" ]]; then
 fi
 
 # 2. Index recent session jsonls (top-level only; depth 2).
+#
+# `-newermt` is NOT GNU-only, despite reading that way. BSD find implements the
+# whole `-newerXY` family, and `Y=t` means "interpret the argument as a direct
+# date specification" — see find(1) on macOS. Verified behaviorally on Darwin
+# 24.5.0 (mt#3873, PR #2980 R1, flagged BLOCKING there): this exact invocation
+# returned 76 matches and exit 0. Do not "port" it to a stat/awk loop on the
+# theory that it is a portability defect; it is not one, and the redirect below
+# would hide a real breakage, which is what makes the claim plausible on sight.
 session_files=()
 while IFS= read -r path; do
   [[ -n "$path" ]] && session_files+=("$path")

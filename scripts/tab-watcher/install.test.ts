@@ -6,6 +6,13 @@
  * on a missing file, not merely on the happy path. Each test installs into a scratch directory
  * (`TAB_WATCHER_INSTALL_DIR`) and skips launchctl (`TAB_WATCHER_SKIP_LAUNCHCTL`), so nothing
  * here touches the operator's real daemon.
+ *
+ * Deliberately NOT guarded to Darwin, though the tooling it installs is macOS-only. `install.sh`
+ * reaches for exactly one Darwin-specific command — `launchctl` — and this suite gates it off via
+ * `TAB_WATCHER_SKIP_LAUNCHCTL`; everything the tests actually exercise (`cp`, `chmod`, `sed`,
+ * `diff`, `mkdir`, `id -u`) is portable, so they run and pass on CI's Linux runners as-is.
+ * A platform skip here would trade real cross-platform coverage of the install/drift logic for
+ * protection against a failure that does not occur (raised NON-BLOCKING in PR #2980 R1).
  */
 
 /* eslint-disable custom/no-real-fs-in-tests --

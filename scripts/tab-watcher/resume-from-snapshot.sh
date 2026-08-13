@@ -190,10 +190,9 @@ wait_for_memory() {
 # The form used below -- create the tab bare, then a separate `tell current
 # session` that writes the command -- is kept regardless: it is what
 # restore-sessions.sh has used since 2026-04, and writing the command as text
-# means the shell interprets it, so `cd x && y` needs no wrapper. That is the same incantation
-# restore-sessions.sh has used since 2026-04, so prefer it over anything
-# clever. Both helpers target `current window`, which is the window most
-# recently created -- so don't click into another iTerm window mid-run.
+# means the shell interprets it, so `cd x && y` needs no wrapper. Prefer it over
+# anything clever. Both helpers target `current window`, which is the window
+# most recently created -- so don't click into another iTerm window mid-run.
 open_window() {  # $1=cmd $2=title
   /usr/bin/osascript <<EOF
 tell application "iTerm"
