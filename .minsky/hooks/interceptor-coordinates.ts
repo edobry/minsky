@@ -168,6 +168,20 @@ export interface InterceptorCoordinates {
    * `resolveCoordinates` would otherwise report `undeclared`.
    */
   readonly point?: InterceptionPoint;
+  /**
+   * Entity-strata DIMENSION 1 (ontology §5) — authored ONLY where it is not
+   * derivable. Every other stratum derives: a harness-event point is the agent
+   * conversation, `pre-commit` is repo/VCS, `subject: "system"` is the
+   * interception system itself. The one underivable case is `"delivery"`: the
+   * merge gates' SUBJECT is the delivery trajectory while their declared point
+   * stays `PreToolUse` (mechanism truth — mechanism decides who is bound), so
+   * nothing in a declared source separates them from the other PreToolUse
+   * denials. mt#4011's lifecycle spine places them at the merge station from
+   * this field; the `point` field is deliberately NOT re-authored to
+   * `merge-time` for them, which would overwrite mechanism truth with subject
+   * truth.
+   */
+  readonly trajectory?: "delivery";
   /** Anything a catalog reader needs that the coordinates cannot carry. */
   readonly note?: string;
 }
@@ -267,6 +281,16 @@ const structuralGate: InterceptorCoordinates = {
   interventions: [deny],
   mechanism: "structural",
   role: "judge",
+};
+
+/**
+ * A structural deny gate whose SUBJECT is the delivery trajectory — the merge
+ * gates. Same shape as `structuralGate` plus the one authored stratum marker;
+ * see the `trajectory` field doc for why the point is not re-authored instead.
+ */
+const deliveryGate: InterceptorCoordinates = {
+  ...structuralGate,
+  trajectory: "delivery",
 };
 
 /** A pre-commit step that regenerates an artifact and re-stages it. */
@@ -483,11 +507,12 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [deny],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Reads the PR body for a documented coupled step. Its `elideMarkdownNonProse` quotation-aware pass is the shipped pattern ADR-024 rung 1 generalizes from.",
     },
   ],
-  ["block-subagent-bypass-merge", structuralGate],
-  ["block-subagent-merge-without-grant", structuralGate],
+  ["block-subagent-bypass-merge", deliveryGate],
+  ["block-subagent-merge-without-grant", deliveryGate],
   ["check-branch-fresh", structuralGate],
   [
     "check-generated-file-edit",
@@ -509,13 +534,14 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Ontology amendment (a)'s worked example: it selects deny, warn, or allow PER FIRE at runtime, so its declaration names a repertoire rather than an outcome. Decides on a covered-tool set plus path predicates, not on prose.",
     },
   ],
-  ["require-checks-on-bypass-merge", structuralGate],
+  ["require-checks-on-bypass-merge", deliveryGate],
   [
     "require-deploy-verification-before-merge",
     {
       interventions: [deny],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Scans the PR body for a `Deploy verification:` commitment.",
     },
   ],
@@ -525,11 +551,12 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [deny, recordReview],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Blocks on a missing `Execution evidence:` marker and writes two calibration streams of its own (per-AT coverage, test-first evidence) — the many-to-many case the registry's list-valued `calibrationLog` exists for.",
     },
   ],
-  ["require-growth-justification-before-merge", structuralGate],
-  ["require-review-before-merge", structuralGate],
+  ["require-growth-justification-before-merge", deliveryGate],
+  ["require-review-before-merge", deliveryGate],
   ["require-session-for-main-workspace-edits", structuralGate],
   [
     "standalone-duplicate-matcher",
@@ -641,6 +668,11 @@ export interface ResolvedCoordinates {
   readonly role: Role | null;
   /** How `point` was established, so a reader can tell derived from authored. */
   readonly pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker; null for every entity whose stratum
+   * derives from its point or subject. See `InterceptorCoordinates.trajectory`.
+   */
+  readonly trajectory: "delivery" | null;
   readonly note?: string | undefined;
   /**
    * ALWAYS enumerated, never defaulted (SC5). A name with no authored entry
@@ -707,6 +739,7 @@ export function resolveCoordinates(
     mechanism: authored?.mechanism ?? null,
     role: authored?.role ?? null,
     pointSource: source,
+    trajectory: authored?.trajectory ?? null,
     note: authored?.note,
     gaps,
   };

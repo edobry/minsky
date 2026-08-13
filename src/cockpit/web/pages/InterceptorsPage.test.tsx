@@ -45,6 +45,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     // Axis coordinates (mt#4056) — a fully-resolved `classified` default.
     point: "PreToolUse",
     pointSource: "registry",
+    trajectory: null,
     interventions: [{ type: "deny" }],
     mechanism: "structural",
     role: "judge",
@@ -160,6 +161,20 @@ describe("InterceptorsPage — population completeness", () => {
     // Derived from the payload, not a hard-coded number: the assertion has to
     // survive the corpus growing.
     expect(screen.getByTestId("interceptors-summary").textContent).toContain(String(entries.length));
+  });
+
+  test("mounts the lifecycle spine over the same entries, with a merge gate at the merge station (mt#4011)", async () => {
+    const entries = [
+      entry({ guardName: "alpha-guard" }),
+      entry({ guardName: "merge-gate", trajectory: "delivery" }),
+    ];
+    renderPage(payload({ population: entries.length, entries }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("lifecycle-spine")).toBeTruthy();
+    });
+    const merge = screen.getByTestId("spine-station-merge-time");
+    expect(merge.querySelector('[data-guard="merge-gate"]')).toBeTruthy();
   });
 
   test("groups by stratum, and a stratum with no entries renders no heading", async () => {
