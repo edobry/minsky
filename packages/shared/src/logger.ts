@@ -78,6 +78,163 @@ function isTestHarnessConsoleSilent(): boolean {
 }
 
 /**
+ * Where a domain-channel log call (`log.debug` / `log.info` / `log.warn`) should go.
+ *
+ * - `agent`   — the structured JSON logger on **stdout**. STRUCTURED mode, or HUMAN mode with
+ *               `ENABLE_AGENT_LOGS=true`.
+ * - `stderr`  — plain text on **stderr**. HUMAN mode when stderr is being captured.
+ * - `discard` — dropped. HUMAN mode when stderr is a terminal a person is reading.
+ */
+export type DiagnosticSink = "agent" | "stderr" | "discard";
+
+/**
+ * Resolve where domain-channel diagnostics go (mt#2464).
+ *
+ * Pure, so the whole behavioral rule is testable without a TTY, a transport, or a spy.
+ *
+ * Until mt#2464 the HUMAN-mode branch was a bare `return` — `log.info`/`log.warn`/`log.debug`
+ * reached no transport at all. That is invisible at a terminal (where silence is the point) and a
+ * defect everywhere else: in a deployed container it meant boot diagnostics were never written to
+ * any stream, so nothing could ingest them. The reported symptom was "domain-logger lines are
+ * missing from Railway's deploy log"; the actual mechanism was that they were never emitted.
+ * `log.error` always had the stderr fallback below, which is why an error and the warn beside it
+ * behaved differently in the same boot (mt#2463).
+ *
+ * **`stderr`, not stdout, and this is load-bearing.** Routing to the structured stdout logger
+ * would corrupt two channels that own stdout: a piped CLI payload (`... --json | jq`), and the MCP
+ * **stdio** transport, whose JSON-RPC protocol stream IS stdout and is never a TTY. stderr collides
+ * with neither and is ingested by the deploy-log surface just the same — the one line that DID
+ * survive the mt#2463 boot was a stderr write.
+ *
+ * **The test is on STDERR's terminal-ness, not stdout's**, and the difference is the entire CLI
+ * blast radius. The question this answers is "would a person have to read these lines, or is
+ * something capturing them?" — so it must be asked of the stream they would be written to. Under
+ * `minsky ... | jq`, stdout is a pipe but stderr is still the operator's terminal; keying on stdout
+ * would start printing boot chatter at them for a command that is quiet today (measured on mt#2464:
+ * 3 new lines on a plain `tasks list`). Keying on stderr keeps every interactive shape exactly as
+ * quiet as it is now, and still fires for the cases that motivated this — a container, CI, a
+ * supervised daemon, an MCP stdio child — where stderr is a pipe or a file and discarding is pure
+ * loss.
+ */
+export function resolveDiagnosticSink(params: {
+  mode: LogMode;
+  enableAgentLogs: boolean;
+  stderrIsTerminal: boolean;
+  /**
+   * True for a CLI invocation that runs one command and exits. Such a process's streams belong to
+   * the command: `minsky security check-credentials --quiet` documents that it prints NOTHING on
+   * any path, and bootstrap chatter appearing on its stderr breaks that contract no matter which
+   * subsystem emitted it. Long-running services are the opposite case — their diagnostics are the
+   * only record anyone gets.
+   *
+   * Defaults to false, so the emitting behavior is what a process gets by DEFAULT and silence is
+   * what must be asked for. A new service that declares nothing is visible; only the CLI, which
+   * declares it once at its entry point, is quiet.
+   */
+  oneShotCommand?: boolean;
+}): DiagnosticSink {
+  if (params.mode === LogMode.STRUCTURED || params.enableAgentLogs) {
+    return "agent";
+  }
+  if (params.oneShotCommand) {
+    return "discard";
+  }
+  return params.stderrIsTerminal ? "discard" : "stderr";
+}
+
+/**
+ * What kind of process this is, for the purpose of the rule above.
+ *
+ * `long-running-service` is the default precisely because forgetting to declare a role should leave
+ * a process VISIBLE rather than silent — silence is the failure mode mt#2464 exists to remove. The
+ * CLI declares `one-shot-command` at its entry point; the `start` subcommands that are themselves
+ * long-running servers declare their way back.
+ */
+export type ProcessRole = "one-shot-command" | "long-running-service";
+
+let processRole: ProcessRole = "long-running-service";
+
+/**
+ * Declare this process's role. Rebuilds the shared logger so the change applies to the next
+ * `log.*` call, including on a singleton some earlier import already initialized.
+ */
+export function setProcessRole(role: ProcessRole): void {
+  processRole = role;
+  defaultLogger = null;
+}
+
+/** The role currently declared. Exported for tests and diagnostics. */
+export function getProcessRole(): ProcessRole {
+  return processRole;
+}
+
+/**
+ * Whether this process's stderr is a terminal — i.e. whether a person is positioned to read what
+ * the diagnostic sink writes. See `resolveDiagnosticSink` for why this asks about stderr.
+ *
+ * Read at logger-construction time, alongside mode and level, so all three are captured together.
+ */
+function stderrIsTerminal(): boolean {
+  return Boolean(process.stderr.isTTY);
+}
+
+/** Keys the diagnostic renderer prints positionally rather than as trailing context. */
+const DIAGNOSTIC_RESERVED_KEYS = ["level", "message", "timestamp", "stack"];
+
+function safeStringify(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value);
+  } catch (error) {
+    // intentional-swallow: a value that will not serialize must not take down the log call that
+    // was trying to report something else. Callers fall back to a non-JSON rendering.
+    return undefined;
+  }
+}
+
+/**
+ * Render one diagnostic line as `<level>: <message>`, with any context appended as compact JSON.
+ *
+ * The level prefix is not decoration. A platform log surface derives severity from the STREAM, so
+ * everything routed here arrives under a single severity: Railway's docs state that it captures
+ * stdout and stderr, and that "logs emitted to stderr will be converted to level.error and coloured
+ * red" (https://docs.railway.com/observability/logs). Once a line lands there, this prefix is the
+ * only thing distinguishing a warn from an info.
+ *
+ * Plain text rather than single-line JSON is a deliberate trade. Railway WOULD parse a JSON line's
+ * `level` field and file it at the right severity, but this sink also serves CI logs, redirected
+ * files, and the stderr of an MCP stdio child that a developer reads directly — all of which are
+ * worse as JSON. `MINSKY_LOG_MODE=STRUCTURED` remains the way to ask for machine-readable output,
+ * and it already routes to the JSON logger instead of here.
+ */
+function renderDiagnosticLine(info: Record<string, unknown>): string {
+  const level = typeof info.level === "string" ? info.level : "info";
+  const message =
+    typeof info.message === "string"
+      ? info.message
+      : (safeStringify(info.message) ?? String(info.message));
+
+  let line = `${level}: ${message}`;
+  if (typeof info.stack === "string") {
+    line += `\n${info.stack}`;
+  }
+
+  const metadata: Record<string, unknown> = {};
+  for (const key of Object.keys(info)) {
+    if (DIAGNOSTIC_RESERVED_KEYS.includes(key)) {
+      continue;
+    }
+    metadata[key] = info[key];
+  }
+  if (Object.keys(metadata).length > 0) {
+    const rendered = safeStringify(metadata);
+    if (rendered !== undefined) {
+      line += ` ${rendered}`;
+    }
+  }
+  return line;
+}
+
+/**
  * Determine the current logging mode based on configuration
  *
  * Default behavior:
@@ -116,6 +273,13 @@ export function createLogger(configOverride?: LoggerConfig) {
   // mt#2975: silence winston Console output under the test harness (see
   // isTestHarnessConsoleSilent). File transports and the log.* API stay live.
   const silentConsole = isTestHarnessConsoleSilent();
+  // mt#2464: where log.debug/info/warn go. See resolveDiagnosticSink.
+  const diagnosticSink = resolveDiagnosticSink({
+    mode: currentLogMode,
+    enableAgentLogs,
+    stderrIsTerminal: stderrIsTerminal(),
+    oneShotCommand: processRole === "one-shot-command",
+  });
 
   // Common format for agent logs (JSON)
   const agentLogFormat = format.combine(
@@ -202,10 +366,57 @@ export function createLogger(configOverride?: LoggerConfig) {
     new transports.Console({ format: programLogFormat, silent: silentConsole })
   );
 
+  // Diagnostic logger (mt#2464): plain text, EVERY level on stderr.
+  //
+  // This cannot reuse programLogger. That transport deliberately keeps `info` on STDOUT — that is
+  // the `log.cli` user-output channel — and stdout is precisely the stream this sink must not
+  // touch, since a piped CLI payload and the MCP stdio protocol both own it. Listing every level
+  // in `stderrLevels` is what makes the stream guarantee unconditional rather than level-dependent.
+  //
+  // No `colorize()`: the consumer here is a container log surface or a redirected file, never a
+  // terminal, so ANSI escapes would be noise in the artifact an operator reads.
+  const diagnosticLogger = winston.createLogger({
+    level: logLevel,
+    format: format.combine(
+      format.errors({ stack: true }),
+      format.printf((info: Record<string, unknown>) => renderDiagnosticLine(info))
+    ),
+    transports: [
+      new transports.Console({
+        stderrLevels: ["error", "warn", "info", "debug", "http", "verbose", "silly"],
+        silent: silentConsole,
+      }),
+    ],
+    exitOnError: false,
+  });
+
   // Check if we're in structured mode
   const isStructuredMode = () => currentLogMode === LogMode.STRUCTURED;
   // Check if we're in human mode
   const isHumanMode = () => currentLogMode === LogMode.HUMAN;
+
+  /**
+   * Emit one domain-channel line to whichever sink `resolveDiagnosticSink` chose (mt#2464).
+   *
+   * Level filtering still applies at the chosen logger, so `debug` stays silent at the default
+   * `info` level on either sink. This routes where a line goes; it does not change how much is
+   * logged.
+   */
+  function emitDiagnostic(
+    level: "debug" | "info" | "warn",
+    message: string,
+    context?: LogContext
+  ): void {
+    if (diagnosticSink === "discard") {
+      return;
+    }
+    const target = diagnosticSink === "agent" ? agentLogger : diagnosticLogger;
+    if (context) {
+      target[level](message, context);
+    } else {
+      target[level](message);
+    }
+  }
 
   // Convenience wrapper
   const loggerInstance = {
@@ -218,39 +429,13 @@ export function createLogger(configOverride?: LoggerConfig) {
       agentLogger.info(message as string);
     },
     debug: (message: string, context?: LogContext) => {
-      // In HUMAN mode (for CLI), suppress debug logs unless explicitly enabled
-      if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
-        // No-op in HUMAN mode to prevent "no transports" warning
-        return;
-      }
-      // Otherwise, use agentLogger as normal
-      if (context) {
-        agentLogger.debug(message, context);
-      } else {
-        agentLogger.debug(message);
-      }
+      emitDiagnostic("debug", message, context);
     },
     info: (message: string, context?: LogContext) => {
-      // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
-      if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
-        return;
-      }
-      if (context) {
-        agentLogger.info(message, context);
-      } else {
-        agentLogger.info(message);
-      }
+      emitDiagnostic("info", message, context);
     },
     warn: (message: string, context?: LogContext) => {
-      // Only log to agentLogger if we're in STRUCTURED mode or agent logs are explicitly enabled
-      if (currentLogMode === LogMode.HUMAN && !enableAgentLogs) {
-        return;
-      }
-      if (context) {
-        agentLogger.warn(message, context);
-      } else {
-        agentLogger.warn(message);
-      }
+      emitDiagnostic("warn", message, context);
     },
     error: (
       message: string,
@@ -325,6 +510,10 @@ export function createLogger(configOverride?: LoggerConfig) {
 
     // Expose log mode information
     mode: currentLogMode,
+    // Where log.debug/info/warn were wired to go (mt#2464). Exposed so a test can check that
+    // createLogger actually CONSUMED resolveDiagnosticSink, rather than only that the pure
+    // function returns the right answer on its own.
+    diagnosticSink,
     isStructuredMode,
     isHumanMode,
     // Expose configuration for testing
@@ -419,6 +608,9 @@ export const log: DefaultLogger = {
   isHumanMode: () => getDefaultLogger().isHumanMode(),
   get mode() {
     return getDefaultLogger().mode;
+  },
+  get diagnosticSink() {
+    return getDefaultLogger().diagnosticSink;
   },
   get config() {
     return getDefaultLogger().config;
