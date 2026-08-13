@@ -11,6 +11,7 @@ import type { Ask } from "@minsky/domain/ask/types";
 import type { AskRepository } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import { getServerAskRepository, describeServerPersistenceUnavailability } from "../db-providers";
+import { resolveCockpitProjectScope } from "../project-scope";
 
 /** Options accepted by {@link mountAskRoutes}. */
 export interface AskRoutesOptions {
@@ -237,6 +238,9 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
    * uses, so there is one convention for a capped ask list rather than two.
    * `?state=terminal` expands to every terminal state.
    *
+   * `?project=<slug>` scopes either path to one project (mt#2418); omitted or
+   * `"all"` means ALL_PROJECTS, the behavior this endpoint has always had.
+   *
    * ## Why the default had to stay exactly as it was (mt#4092)
    *
    * Until this endpoint took a filter there was no way to reach a resolved ask
@@ -287,8 +291,17 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         return;
       }
 
+      // `?project=` (mt#2418), on BOTH paths. Absent or `"all"` resolves to
+      // ALL_PROJECTS, which the repository treats identically to passing
+      // nothing — so the no-param response is unchanged, while the two views
+      // can never end up scoped differently from each other. The resolver owns
+      // its own db-fetch and never throws (fail-open to ALL_PROJECTS), so a
+      // scoping failure cannot take this route down.
+      const projectParam = typeof req.query.project === "string" ? req.query.project : undefined;
+      const projectScope = await resolveCockpitProjectScope(projectParam);
+
       if (filter.states === null) {
-        const suspended = await repo.listByState("suspended");
+        const suspended = await repo.listByState("suspended", projectScope);
         const operatorAsks = suspended.filter(
           (a) => a.routingTarget === OPERATOR_ROUTING_TARGET && !isTerminal(a.state)
         );
@@ -306,6 +319,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         states: filter.states as Ask["state"][],
         routingTarget: OPERATOR_ROUTING_TARGET,
         limit,
+        projectScope,
       });
 
       res.json({
