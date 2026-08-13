@@ -1810,6 +1810,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // not a proved ceiling — capping it is this guard's own follow-up.
     attentionCost: { denialMessageSizeChars: 1550, optionCount: 2 },
     canary: {
+      // No `session_id` here on purpose: `baseCanaryInput` already stamps
+      // `mt2889-canary-session` on EVERY canary (`canary-runner.ts:175`), and
+      // that literal is what lets a canary-written row be filtered out of a
+      // denominator — relevant since mt#3743, because this guard now writes an
+      // evaluation record on every turn it reaches a verdict on. Setting it
+      // again here would be a redundant restatement of the shared default.
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
         { type: "user", message: { role: "user", content: "first turn" } },
