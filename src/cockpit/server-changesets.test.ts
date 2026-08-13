@@ -18,6 +18,27 @@ import { safeTruncate } from "../utils/safe-truncate";
 
 const TEST_TOKEN = "test-server-changesets-token";
 
+type ChangesetsBody = { changesets: { pr: { number: number; state: string } }[] };
+
+/**
+ * The identity of a changeset set, for comparing two `/api/changesets`
+ * responses (mt#4086, PR #2979 R1).
+ *
+ * Identifiers rather than a count: equal LENGTHS pass even when the responses
+ * carry different PRs or duplicates.
+ *
+ * Order-insensitive, deliberately. The route sorts by a recency proxy
+ * (`lastActivityAt ?? createdAt`), and the two requests being compared are
+ * concurrent — a session touched between the two reads reorders one and not the
+ * other. Asserting positional equality would reintroduce the transient-state
+ * dependence mt#4086 exists to remove. The claim under test is set membership
+ * ("the param does not change WHICH changesets come back"); the sort belongs to
+ * `compareChangesetsByRecency` and its own tests.
+ */
+function changesetIdentifiers(body: ChangesetsBody): string[] {
+  return body.changesets.map((c) => `${c.pr.number}:${c.pr.state}`).sort();
+}
+
 async function startTestServer(): Promise<{
   url: string;
   close: () => Promise<void>;
@@ -107,12 +128,41 @@ describe("GET /api/changesets?project=<slug> (mt#2418)", () => {
     if (allRes.status === 503 || noParamRes.status === 503) return;
 
     // Both reached the store, so the actual claim — the param does not change
-    // the result — is checkable on the payload rather than on the status alone.
-    const allBody = (await allRes.json()) as { changesets: unknown[] };
-    const noParamBody = (await noParamRes.json()) as { changesets: unknown[] };
+    // WHICH changesets come back — is checkable on the payload.
+    const allBody = (await allRes.json()) as ChangesetsBody;
+    const noParamBody = (await noParamRes.json()) as ChangesetsBody;
     expect(Array.isArray(allBody.changesets)).toBe(true);
     expect(Array.isArray(noParamBody.changesets)).toBe(true);
-    expect(allBody.changesets.length).toBe(noParamBody.changesets.length);
+    expect(changesetIdentifiers(allBody)).toEqual(changesetIdentifiers(noParamBody));
+  });
+
+  // `changesetIdentifiers` is compared above only when BOTH requests reach the
+  // store, and this harness configures no live provider — so under bun test that
+  // branch does not execute (measured: a deliberately-failing assertion planted
+  // there passed 1798/1798 in `src/cockpit`, i.e. it was never reached). An
+  // assertion that never runs cannot be trusted to discriminate, so the
+  // comparison is exercised directly here on the payload shape the route
+  // actually returns (PR #2979 R1).
+  test("changesetIdentifiers discriminates equal-length payloads with different PRs", () => {
+    const one: ChangesetsBody = { changesets: [{ pr: { number: 2975, state: "open" } }] };
+    const alsoOne: ChangesetsBody = { changesets: [{ pr: { number: 2975, state: "open" } }] };
+    const differentPr: ChangesetsBody = { changesets: [{ pr: { number: 2976, state: "open" } }] };
+    const differentState: ChangesetsBody = {
+      changesets: [{ pr: { number: 2975, state: "draft" } }],
+    };
+
+    expect(changesetIdentifiers(one)).toEqual(changesetIdentifiers(alsoOne));
+    // Same LENGTH, different content — the case a count comparison passes.
+    expect(changesetIdentifiers(one)).not.toEqual(changesetIdentifiers(differentPr));
+    expect(changesetIdentifiers(one)).not.toEqual(changesetIdentifiers(differentState));
+    // Order-insensitive: see the note on `changesetIdentifiers`.
+    const ab: ChangesetsBody = {
+      changesets: [{ pr: { number: 1, state: "open" } }, { pr: { number: 2, state: "open" } }],
+    };
+    const ba: ChangesetsBody = {
+      changesets: [{ pr: { number: 2, state: "open" } }, { pr: { number: 1, state: "open" } }],
+    };
+    expect(changesetIdentifiers(ab)).toEqual(changesetIdentifiers(ba));
   });
 });
 
