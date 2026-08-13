@@ -46,6 +46,23 @@ export type AskState =
 
 export interface AskOption {
   label: string;
+  /**
+   * Machine-readable value recorded in the response payload when an operator
+   * picks this option.
+   *
+   * REQUIRED deliberately, and this is a constraint on CONSTRUCTION rather than
+   * a description of every stored row — see `packages/domain/src/ask/types.ts`
+   * for the full reasoning. `askOptionSchema` (mt#3181) defaults an omitted
+   * `value` to `label` at the CLI/MCP boundary, so every ask created through a
+   * command has one; a TypeScript caller building an `AskOption` directly does
+   * not go through that boundary and must supply it.
+   *
+   * Exactly ONE stored ask predates the normalization and has options without a
+   * `value` — ask#5769, closed, the ask mt#3181 was filed about (measured
+   * 2026-08-13: 1 of 183 asks carrying options). Do NOT widen this field to
+   * accommodate it; the two `value === undefined` branches below already render
+   * it correctly, and widening would reverse a documented decision.
+   */
   value: unknown;
   description?: string;
 }
@@ -213,6 +230,10 @@ export function composeResolvePayload(
     // with no record of WHICH option the operator picked. `askOptionSchema`
     // now normalizes this at create time; the fallback covers Asks created
     // before that fix, which are still in the store.
+    // NOT dead code, though the required `value` type makes it look that way:
+    // measured 2026-08-13, exactly one stored ask still has the shape —
+    // ask#5769, the one this incident was about. See the `AskOption.value`
+    // comment above before deleting this branch.
     // Strict `=== undefined` check (not `??`): `??` also treats an explicitly
     // provided `null` as nullish, which would silently discard a legitimate
     // falsy-but-present machine value (PR #2266 R1 BLOCKING #2). `option`

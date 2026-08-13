@@ -44,10 +44,15 @@ function readString(record: Record<string, unknown>, key: string): string | null
  *
  * Matches on `value` FIRST and `label` SECOND, because `composeResolvePayload`
  * writes whichever one the option actually had: its mt#3181 fallback stores the
- * LABEL when an option carries no `value` (asks created before `askOptionSchema`
- * started normalizing that are still in the store). A value-only lookup silently
- * misses every one of them — which is why `ask-response.test.ts` covers the two
- * cases separately.
+ * LABEL when an option carries no `value`. A value-only lookup silently misses
+ * those — which is why `ask-response.test.ts` covers the two cases separately.
+ *
+ * The label branch is NOT dead code, though `AskOption.value` being REQUIRED
+ * makes it read that way. Measured 2026-08-13: exactly one stored ask has
+ * options without a `value` — ask#5769, closed, the ask mt#3181 was filed
+ * about, 1 of 183 asks carrying options. The type is a constraint on
+ * construction, not a description of every row; see the `AskOption.value`
+ * comment in `../widgets/AskDetail.tsx` before deleting this branch.
  *
  * Compares after `stripOptionLetterPrefix` for the same reason `AskDetail` renders
  * through it: a producer-supplied "B — " prefix is presentation, not identity.
