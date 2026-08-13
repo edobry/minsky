@@ -44,6 +44,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     undescribed: false,
     point: "PreToolUse",
     pointSource: "registry",
+    trajectory: null,
     interventions: [{ type: "deny" }],
     mechanism: "structural",
     role: "judge",
