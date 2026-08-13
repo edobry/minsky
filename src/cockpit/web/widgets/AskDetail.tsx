@@ -19,6 +19,7 @@ import { formatRequestor } from "../lib/entity-labels";
 import { Link } from "react-router-dom";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { stripOptionLetterPrefix } from "@minsky/shared/ask-option-label";
+import { resolveChosenOption } from "../lib/ask-response";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors of server Ask shape (no server imports on frontend)
@@ -113,7 +114,10 @@ export interface AskItem {
   windowMissedCount: number;
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
   metadata: Record<string, unknown>;
-  /** Present on the per-id endpoint for terminal asks (mt#2669). */
+  /**
+   * Present for terminal asks — on the per-id endpoint (mt#2669) and, since
+   * mt#4092, on a state-filtered list too.
+   */
   response?: AskResponse | null;
   respondedAt?: string;
   closedAt?: string;
@@ -121,7 +125,15 @@ export interface AskItem {
 
 export interface AsksListResponse {
   asks: AskItem[];
+  /**
+   * On the default (pending) list this is the number of rows returned. On a
+   * state-filtered list it is the TRUE match count before the cap — read
+   * `returned` for the array length and `truncated` for whether rows were cut
+   * (mt#4092; same convention as the `asks_list` MCP command).
+   */
   total: number;
+  returned?: number;
+  truncated?: boolean;
 }
 
 /** Thrown by fetchAskById on a 404 — the id does not exist at all (mt#2669). */
@@ -136,8 +148,33 @@ export class AskNotFoundError extends Error {
 // API helpers
 // ---------------------------------------------------------------------------
 
+/** The pending operator decision queue — `GET /api/asks` with no filter. */
 export async function fetchAsks(): Promise<AsksListResponse> {
-  const res = await fetch("/api/asks");
+  return getAsksList("/api/asks");
+}
+
+/**
+ * Terminal asks — closed, cancelled, or expired (mt#4092).
+ *
+ * A SEPARATE function rather than an optional parameter on `fetchAsks`, because
+ * `fetchAsks` is passed directly as a TanStack `queryFn` in three widgets
+ * (TriageBand, Agents, Workstreams) and a query function is invoked with a
+ * `QueryFunctionContext`. An optional params object would put that context in
+ * the parameter position at every one of those call sites — harmless today only
+ * because the context happens to carry no matching keys. Two named functions
+ * make the misuse unrepresentable instead of merely unlikely.
+ *
+ * The endpoint expands `terminal` to every terminal state: an operator looking
+ * for an ask they resolved does not know which of the three it landed in.
+ */
+export async function fetchTerminalAsks(limit?: number): Promise<AsksListResponse> {
+  const query = new URLSearchParams({ state: "terminal" });
+  if (limit !== undefined) query.set("limit", String(limit));
+  return getAsksList(`/api/asks?${query.toString()}`);
+}
+
+async function getAsksList(url: string): Promise<AsksListResponse> {
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch asks (${res.status})`);
   return res.json() as Promise<AsksListResponse>;
 }
@@ -340,27 +377,51 @@ export const KIND_PRIORITY: Record<AskKind, number> = {
 // Ask detail panel
 // ---------------------------------------------------------------------------
 
-export interface AskDetailProps {
+interface AskDetailBaseProps {
   ask: AskItem;
+  onClose: () => void;
+}
+
+/** Actionable presentation — the ask is still open and the operator can settle it. */
+interface AskDetailActionableProps extends AskDetailBaseProps {
+  readOnly?: false;
   onResolve: (ask: AskItem, optionLetter: string) => void;
   onDefer: (ask: AskItem) => void;
   onEscalate: (ask: AskItem) => void;
   resolving: boolean;
-  onClose: () => void;
 }
 
-export function AskDetail({
-  ask,
-  onResolve,
-  onDefer,
-  onEscalate,
-  resolving,
-  onClose,
-}: AskDetailProps) {
+/**
+ * Read-only presentation (mt#4091) — the same body, with the action row absent
+ * rather than disabled, and the answered option marked when there is one.
+ *
+ * This mode exists because `AskPage`'s terminal branch used to REPLACE the body
+ * with a closure notice, so resolving an ask destroyed the operator's ability to
+ * see what it had asked (the question, the options and the `contextRefs` were
+ * all dropped). Suppressing the actions as a MODE rather than forking the
+ * renderer is what keeps that from recurring: there is one component to change
+ * when the ask body changes.
+ *
+ * Discriminated rather than "handlers are optional" so the actionable call site
+ * still cannot forget one — omitting `onResolve` without `readOnly: true` is a
+ * type error, exactly as it was before this mode existed.
+ */
+interface AskDetailReadOnlyProps extends AskDetailBaseProps {
+  readOnly: true;
+}
+
+export type AskDetailProps = AskDetailActionableProps | AskDetailReadOnlyProps;
+
+export function AskDetail(props: AskDetailProps) {
+  const { ask, onClose } = props;
+  /** Non-null exactly when the action row should render; carries its handlers. */
+  const actions = props.readOnly === true ? null : props;
   const ks = kindStyle(ask.kind);
   const deadlineStr = formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
   const entityIndex = useEntityIndex();
+  /** Which option the recorded response names, so the list can mark it. */
+  const chosen = actions === null ? resolveChosenOption(ask) : null;
 
   const hasOptions =
     (ask.options && ask.options.length > 0) ||
@@ -493,9 +554,12 @@ export function AskDetail({
               <div className="space-y-1">
                 {ask.options.map((opt, i) => {
                   const letter = letters[i] ?? "?";
+                  const isChosen = chosen?.index === i;
                   return (
                     <div key={String(opt.value ?? i)} className="flex items-start gap-2 text-sm">
-                      <span className="font-mono text-muted-foreground w-5 flex-shrink-0">
+                      <span
+                        className={`font-mono w-5 flex-shrink-0 ${isChosen ? "text-foreground font-semibold" : "text-muted-foreground"}`}
+                      >
                         {letter})
                       </span>
                       <div>
@@ -508,6 +572,17 @@ export function AskDetail({
                             index={entityIndex}
                           />
                         </span>
+                        {isChosen && (
+                          // Carries a testid so a test can assert THIS badge on
+                          // THIS option, rather than the bare word "chosen"
+                          // appearing somewhere on the page (PR #2961 R1).
+                          <span
+                            data-testid="ask-option-chosen"
+                            className="ml-2 text-xs px-1.5 py-0.5 rounded-full bg-accent text-accent-foreground align-middle"
+                          >
+                            chosen
+                          </span>
+                        )}
                         {opt.description && (
                           <span className="ml-1 text-muted-foreground text-xs">
                             {" "}
@@ -532,52 +607,54 @@ export function AskDetail({
               </div>
             )}
 
-            <div className="flex flex-wrap gap-2 pt-2">
-              {Array.from({ length: optionCount }, (_, i) => {
-                const letter = letters[i] ?? "?";
-                const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
-                const optLabel = stripOptionLetterPrefix(rawLabel);
-                return (
-                  <Button
-                    key={letter}
-                    variant="outline"
-                    size="sm"
-                    disabled={resolving}
-                    onClick={() => onResolve(ask, letter)}
-                  >
-                    {letter}) {optLabel}
-                  </Button>
-                );
-              })}
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={resolving}
-                onClick={() => onDefer(ask)}
-                className="text-muted-foreground"
-              >
-                Defer
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={resolving}
-                onClick={() => onEscalate(ask)}
-                className="text-muted-foreground"
-              >
-                Escalate
-              </Button>
-            </div>
+            {actions && (
+              <div className="flex flex-wrap gap-2 pt-2">
+                {Array.from({ length: optionCount }, (_, i) => {
+                  const letter = letters[i] ?? "?";
+                  const rawLabel = ask.options?.[i]?.label ?? (i === 0 ? "Approve" : "Deny");
+                  const optLabel = stripOptionLetterPrefix(rawLabel);
+                  return (
+                    <Button
+                      key={letter}
+                      variant="outline"
+                      size="sm"
+                      disabled={actions.resolving}
+                      onClick={() => actions.onResolve(ask, letter)}
+                    >
+                      {letter}) {optLabel}
+                    </Button>
+                  );
+                })}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={actions.resolving}
+                  onClick={() => actions.onDefer(ask)}
+                  className="text-muted-foreground"
+                >
+                  Defer
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={actions.resolving}
+                  onClick={() => actions.onEscalate(ask)}
+                  className="text-muted-foreground"
+                >
+                  Escalate
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
-        {!hasOptions && (
+        {!hasOptions && actions && (
           <div className="flex flex-wrap gap-2 pt-2">
             <Button
               variant="outline"
               size="sm"
-              disabled={resolving}
-              onClick={() => onDefer(ask)}
+              disabled={actions.resolving}
+              onClick={() => actions.onDefer(ask)}
               className="text-muted-foreground"
             >
               Defer
@@ -585,8 +662,8 @@ export function AskDetail({
             <Button
               variant="outline"
               size="sm"
-              disabled={resolving}
-              onClick={() => onEscalate(ask)}
+              disabled={actions.resolving}
+              onClick={() => actions.onEscalate(ask)}
               className="text-muted-foreground"
             >
               Escalate
