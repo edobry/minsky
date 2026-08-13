@@ -60,11 +60,16 @@ import {
   entityThreadLocalId,
   findEntityThread,
   getOrCreateEntityThread,
-  listEntityThreadBlocks,
+  listEntityThreadTurns,
+  turnToSnapshotBlock,
   recordEntityThreadConversationSwap,
   type EntityThreadEntityType,
 } from "@minsky/domain/transcripts/entity-thread-store";
 import { getDrivenSessionRecord } from "@minsky/domain/transcripts/driven-session-registry-store";
+import {
+  reconcileThreadFromTranscript,
+  reconcileAllThreadsFromTranscript,
+} from "../entity-thread-transcript-reconciler";
 import {
   askToEntitySeed,
   createEntityThreadReplyRecorder,
@@ -296,7 +301,25 @@ export function mountEntityThreadRoutes(
   void (async () => {
     try {
       const db = await getEntityThreadDb();
-      if (db) schedulePendingDrain(db);
+      if (db) {
+        schedulePendingDrain(db);
+        // The buffer above is empty at boot BY CONSTRUCTION — that is the whole
+        // defect (mt#4073). A reply the previous process buffered and never
+        // landed is gone from memory, but not from the harness transcript the
+        // watcher ingests, so this is where it comes back. Boot is the pass
+        // immediately following the restart that lost it.
+        //
+        // Deferred off the mount path rather than awaited in it (PR #2971 R1).
+        // It walks every thread and queries the transcript per conversation, so
+        // running it inline puts an unbounded read between the daemon starting
+        // and its routes being useful, and couples startup to the store's health
+        // for no benefit — nothing about the recovery is more correct for having
+        // happened a second earlier. `unref` so a pending timer cannot hold the
+        // process open at shutdown, matching `schedulePendingDrain`'s own timer.
+        setTimeout(() => {
+          void reconcileAllThreadsFromTranscript(db);
+        }, 0).unref?.();
+      }
     } catch (err) {
       // Swallowed on purpose, and narrowly: this runs at MOUNT time, so an
       // unhandled rejection here would surface as a boot-time crash (and in
@@ -348,7 +371,12 @@ export function mountEntityThreadRoutes(
       // address to POST against.
       const existing = await findEntityThread(db, entityType, entityId);
       const localId = existing?.localId ?? entityThreadLocalId(entityType, entityId);
-      const blocks = existing ? await listEntityThreadBlocks(db, localId) : [];
+      // Turns rather than blocks (mt#4073): the recovered-turn columns live on
+      // the turn and are erased by the block projection, and the response has to
+      // report them. `listEntityThreadBlocks` is exactly this map, so nothing is
+      // duplicated — only the intermediate value is kept.
+      let turns = existing ? await listEntityThreadTurns(db, localId) : [];
+      let blocks = turns.map(turnToSnapshotBlock);
       // Reconciled against the blocks just read, not reported raw (PR #2913 R1
       // BLOCKING). In the commit-succeeded-but-ack-failed case the reply is
       // ALREADY in `blocks` while still sitting in the queue until the next
@@ -367,6 +395,24 @@ export function mountEntityThreadRoutes(
       // armed or the buffer is empty, so the steady-state cost is a map walk,
       // and a thread being polled is precisely when someone is waiting.
       if (pendingReport.pending > 0) schedulePendingDrain(db);
+      // The buffer gave up on a reply (mt#4066 ages one out after 15 minutes)
+      // without the daemon ever restarting, so the boot pass has not run since
+      // it was lost. The transcript may hold it — this is the one poll where
+      // the cost is warranted, because a `lost` count is positive evidence of a
+      // gap rather than a speculative scan on every poll of every thread.
+      if (pendingReport.lost > 0) {
+        const outcome = await reconcileThreadFromTranscript(db, localId);
+        // Re-read rather than letting the recovery surface on the NEXT poll:
+        // this response is the one the operator is looking at, and reporting a
+        // recovery whose turn is not in `blocks` would render the notice above
+        // an absent reply — the mirror of the PR #2913 R1 defect the pending
+        // report was reconciled to avoid.
+        if (outcome.recovered > 0) {
+          turns = await listEntityThreadTurns(db, localId);
+          blocks = turns.map(turnToSnapshotBlock);
+        }
+      }
+      const recoveredTurns = turns.filter((turn) => turn.recoveredFromConversationId);
       // Awaited before the body is assembled (mt#4093) — the persisted-row
       // fallback is async, and an inline IIFE in the object literal would
       // have serialized a Promise into the response.
@@ -391,6 +437,24 @@ export function mountEntityThreadRoutes(
         // directly below: absent means "no swap on record", and a daemon
         // predating this column says nothing rather than reporting a
         // reassuring absence it never actually checked.
+        // mt#4073: replies restored from the harness transcript after the
+        // in-memory buffer died with a daemon restart. They append at the TAIL
+        // (`seq` is allocated `MAX(seq)+1`) while carrying their ORIGINAL
+        // timestamp, so without this the panel shows a reply sitting out of
+        // order with an old time and no explanation. Omitted when nothing was
+        // recovered, following `conversationSwap` directly below: absent means
+        // "nothing to report", never a reassuring zero.
+        ...(recoveredTurns.length > 0
+          ? {
+              recoveredReplies: {
+                count: recoveredTurns.length,
+                oldestOriginallySentAt: recoveredTurns
+                  .map((turn) => turn.originallySentAt ?? turn.createdAt)
+                  .reduce((oldest, at) => (at < oldest ? at : oldest))
+                  .toISOString(),
+              },
+            }
+          : {}),
         ...(existing?.replacedConversationId
           ? {
               conversationSwap: {
