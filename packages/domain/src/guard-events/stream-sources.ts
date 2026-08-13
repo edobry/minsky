@@ -119,6 +119,7 @@ const CALIBRATION_STREAMS: GuardEventStreamSource[] = [
 // ---------------------------------------------------------------------------
 
 const EVALUATION_STREAMS: GuardEventStreamSource[] = [
+  { stream: "causal-premise-evaluations", guardName: "causal-premise" },
   {
     stream: "negative-existence-claim-evaluations",
     guardName: "negative-existence-claim-detector",
@@ -220,7 +221,7 @@ const ADJACENT_STATE_DIR_STREAMS: GuardEventStreamSource[] = [
 
 /**
  * The complete guard/calibration exhaust stream set — every row from
- * inventory §A–§E (40 streams as of the 2026-08-12 snapshot). This IS the
+ * inventory §A–§E (41 streams as of the 2026-08-13 snapshot). This IS the
  * "data, not code" surface constraint #8 requires: a newly-appeared stream
  * is a new entry here, never a change to `parsing.ts` or `ingest-service.ts`.
  */
