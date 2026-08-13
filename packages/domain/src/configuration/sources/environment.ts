@@ -211,6 +211,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_DEPLOY_VERIFY", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
   "MINSKY_SKIP_SUBAGENT_MODEL_CHECK", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
   "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
+  "MINSKY_SKIP_TRUNCATED_OUTCOME_READ", // .claude/hooks/truncated-outcome-read-detector.ts (mt#4096) — truncated-outcome-read observer override
   "MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK", // .claude/hooks/guard-events-ingest-on-session-end.ts (mt#4035) — SessionEnd guard-events sweep-tick override
   "MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog

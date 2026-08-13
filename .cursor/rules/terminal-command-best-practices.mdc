@@ -12,6 +12,16 @@ tags:
   keep commands simple.
 - **One verification command per call, output visible.** Never `>/dev/null` a result you must
   read; never chain checks with `&&`/`;` — you lose which one failed.
+- **Truncating is suppressing, and it hides better (mt#4096).** `| tail -N` / `| head -N` on a
+  command whose OUTCOME FIELDS you are about to rely on discards them by position, and unlike
+  `>/dev/null` it leaves plausible-looking output — so their absence produces no error to notice.
+  Highest-cost case: `session commit` / `session update` / `session pr create|merge` / `git push`,
+  whose `pushed` / `pushUnconfirmed` / `pushConfirmedVia` are exactly what a `tail -6` cuts
+  (`CLAUDE.md §Sequence Dependent Tool Calls` requires reading them). Use `--json` plus a field
+  read (`| jq -r '.pushed, .pushUnconfirmed'`); a TARGETED read (`jq`, `grep <field>`) is fine —
+  positional truncation is not. **When you switch to `| tail` to diagnose a failure, the re-run
+  after the fix is a verification again — switch back.** Observer:
+  `truncated-outcome-read` (`hook-observers.mdc`).
 - **Bulk/loop commands:** never suppress a per-item result (tally+log, not `>/dev/null`
   per-iteration); zsh does NOT word-split `for x in $VAR` over multiline — use `${(f)VAR}`; a
   loop failing where the standalone succeeds is word-splitting, not sandbox/permissions.
