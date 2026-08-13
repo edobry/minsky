@@ -36,6 +36,7 @@ import {
   SheetCloseButton,
 } from "./ui/sheet";
 import { PeekBody } from "./PeekBody";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 /**
  * Pane title — the resolved entity label, not the raw id.
@@ -157,7 +158,17 @@ export function PeekHost() {
                 </div>
               </SheetHeader>
               <SheetBody>
-                <PeekBody type={pane.type} id={pane.id} />
+                {/*
+                 * Bounded per pane (mt#4069). Every route in `App.tsx` gets a
+                 * boundary; the peek did not, and it renders over whatever page
+                 * the operator is already on — so a body that throws took the
+                 * HOST page down with it and left a blank overlay behind. A
+                 * blank pane is the precise failure this task exists to remove,
+                 * so the pane names its own crash instead of propagating.
+                 */}
+                <ErrorBoundary id={`peek-${pane.type}`}>
+                  <PeekBody type={pane.type} id={pane.id} />
+                </ErrorBoundary>
               </SheetBody>
             </SheetContent>
           </Sheet>
