@@ -33,7 +33,7 @@
  *
  * No database required: `createCockpitServer()` binds and serves the static
  * SPA fallback route without touching persistence — DB-backed API routes
- * degrade gracefully at request time (see `isDbDegradationError` in
+ * degrade gracefully at request time (see `classifyUnhandledRejection` in
  * `src/commands/cockpit/start-command.ts`), which is orthogonal to what this
  * script verifies.
  *
