@@ -119,6 +119,70 @@ describe("AT2 — Esc closes the peek and clears the parameter", () => {
   });
 });
 
+describe("AT2b — focus returns to the link that opened the peek", () => {
+  // Regression test for PR #2942 R2. The PR body claimed focus-return was
+  // inherited from Radix, quoting `context.triggerRef.current?.focus()` in the
+  // non-modal branch. That call is real but unreachable here: `triggerRef` is
+  // populated by a `Dialog.Trigger`, and these panes are CONTROLLED with no
+  // Trigger, so the optional chain no-ops and focus lands on document.body.
+  // Nothing throws and nothing warns, which is why only an assertion catches it.
+  test("Esc restores focus to the originating anchor, not document.body", async () => {
+    renderShell();
+    const opener = taskRef();
+    fireEvent.click(opener, { button: 0 });
+    await screen.findByTestId("peek-pane");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("peek-pane")).toBeNull());
+
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  test("the close button also restores focus to the opener", async () => {
+    renderShell();
+    const opener = taskRef();
+    fireEvent.click(opener, { button: 0 });
+    await screen.findByTestId("peek-pane");
+
+    fireEvent.click(screen.getByLabelText("Close mt#3694"));
+    await waitFor(() => expect(screen.queryByTestId("peek-pane")).toBeNull());
+
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
+  test("a held pair unwinds one pane per Esc, landing focus on the LAST opener", async () => {
+    // Semantics worth stating because they are a choice, not a fallout: each
+    // open overwrites the remembered opener, so unwinding a held assembly
+    // returns focus to the ref clicked MOST RECENTLY, not the one that started
+    // the assembly. That is where the operator's attention last was, and
+    // keeping a stack of openers to walk back through would be a second trail
+    // competing with browser Back.
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    const lastOpener = memoryRef();
+    fireEvent.click(lastOpener, { button: 0, shiftKey: true });
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(2));
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(1));
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("peek-pane")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(lastOpener));
+  });
+
+  // NOT asserted here, deliberately: that focus is not restored EARLY, on the
+  // first of the two Esc presses. happy-dom does not move focus into the pane
+  // on open, so `document.activeElement` remains the clicked anchor for the
+  // whole sequence — an assertion that focus "has not yet returned to the
+  // opener" would pass whether or not the code restored early, which makes it
+  // noise rather than a check (a probe that cannot fail verifies nothing).
+  // The guard itself is the `panes.length === 0 && hadPanes.current` condition
+  // in PeekHost; the two tests above cover that it fires when the assembly
+  // empties, and this one covers that a held pair unwinds one pane at a time.
+});
+
 describe("AT3 — a peeked URL is addressable", () => {
   test("loading a URL that already carries ?peek= opens that pane", async () => {
     renderShell(["/tasks/mt%232370?peek=task%3Amt%25233694"]);

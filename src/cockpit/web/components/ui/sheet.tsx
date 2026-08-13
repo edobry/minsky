@@ -22,9 +22,19 @@
  * spec rather than silently dropped, to: focus MOVES INTO the pane on open,
  * Esc dismisses, and focus RETURNS to the opener on close.
  *
- * The return half also comes from the same non-modal branch, which calls
- * `context.triggerRef.current?.focus()` in `onCloseAutoFocus` — so it is
- * behavior we inherit, not behavior we reimplement.
+ * **Focus RETURN is not inherited — the consumer must do it.** An earlier
+ * version of this comment claimed it was, on the grounds that the same
+ * non-modal branch calls `context.triggerRef.current?.focus()` in
+ * `onCloseAutoFocus`. That call is real, and unreachable for a CONTROLLED
+ * sheet: `triggerRef` is populated by a `Dialog.Trigger`, and a sheet driven by
+ * an `open` prop renders none, so the optional chain no-ops and focus lands on
+ * `document.body`. Nothing throws and nothing warns — reading the source proved
+ * the call EXISTS without proving the ref is POPULATED, which is exactly the
+ * gap that let a wrong claim ship (mt#3694 PR #2942 R2).
+ *
+ * `PeekHost` therefore restores focus itself, via `rememberPeekOpener` /
+ * `restorePeekOpenerFocus` in `lib/peek.ts`. Any future consumer of this
+ * primitive that opens it controlled owes the same.
  *
  * ## 2. No overlay
  *

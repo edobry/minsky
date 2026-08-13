@@ -51,7 +51,7 @@ import type { ReactNode, MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
-import { usePeek, classifyRefClick } from "../lib/peek";
+import { usePeek, classifyRefClick, rememberPeekOpener } from "../lib/peek";
 import { useResolvedEntityLabel, type EntityLabelInfo } from "../lib/use-entity-index";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "./ui/hover-card";
 import { statusStyle } from "../lib/status-colors";
@@ -204,6 +204,10 @@ export function EntityRef({ type, id, children, appendLabel, search, className }
     const intent = classifyRefClick(event);
     if (intent === "navigate") return;
     event.preventDefault();
+    // Remember THIS anchor so closing the peek returns focus here rather than
+    // dropping it on document.body (mt#3694 R2). Captured before the open call,
+    // because `currentTarget` is nulled once React finishes dispatching.
+    rememberPeekOpener(event.currentTarget);
     if (intent === "peek-holding") openPeekHolding({ type, id });
     else openPeek({ type, id });
   };

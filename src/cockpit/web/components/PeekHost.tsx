@@ -23,7 +23,8 @@
  */
 import { PanelRightClose, Pin, SquareArrowOutUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { usePeek } from "../lib/peek";
+import { useEffect, useRef } from "react";
+import { usePeek, restorePeekOpenerFocus } from "../lib/peek";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { useResolvedEntityLabel } from "../lib/use-entity-index";
 import {
@@ -71,6 +72,18 @@ function PaneTitle({ type, id }: { type: RoutableEntityType; id: string }) {
 
 export function PeekHost() {
   const { panes, closePeek, holdPeek } = usePeek();
+
+  // Return focus to the link that opened the peek once the assembly empties
+  // (mt#3694 R2). Keyed on the TRANSITION to zero panes rather than on any one
+  // close handler, because the assembly can empty three different ways — Esc,
+  // the close button, and browser Back — and only this condition is common to
+  // all three. Back in particular reaches no Radix close handler at all: it
+  // rewrites the URL, and the panes simply stop being derived.
+  const hadPanes = useRef(false);
+  useEffect(() => {
+    if (panes.length === 0 && hadPanes.current) restorePeekOpenerFocus();
+    hadPanes.current = panes.length > 0;
+  }, [panes.length]);
 
   if (panes.length === 0) return null;
 

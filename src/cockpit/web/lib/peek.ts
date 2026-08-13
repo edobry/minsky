@@ -44,6 +44,51 @@ export interface PeekTarget {
   id: string;
 }
 
+/**
+ * The element that opened the current peek assembly, so focus can return to it
+ * on close (mt#3694, PR #2942 R2).
+ *
+ * Module-scoped rather than React state, deliberately. There is exactly one
+ * peek assembly per page, and the two components that need this — `EntityRef`,
+ * which knows the opener, and `PeekHost`, which knows when the assembly
+ * empties — are siblings with no shared ancestor short of `Layout`. A ref in
+ * `usePeek` would give each caller its OWN ref and silently never match up; a
+ * context would mean a provider for one nullable element.
+ *
+ * **Why this exists at all.** `sheet.tsx` documents that Radix's non-modal
+ * branch restores focus itself via `context.triggerRef.current?.focus()` in
+ * `onCloseAutoFocus`. That is true only when a `Dialog.Trigger` populated
+ * `triggerRef` — and these panes are CONTROLLED (`open` + `onOpenChange`, state
+ * from the URL), so no Trigger ever renders and `triggerRef.current` is
+ * undefined. The optional chain then makes it a silent no-op: nothing throws,
+ * nothing warns, focus simply lands on `document.body`. Reading the Radix
+ * source proved the call exists; it did not prove the ref is populated, and
+ * that gap shipped a wrong claim in this PR's body until review caught it.
+ */
+let peekOpener: HTMLElement | null = null;
+
+/** Record the element a peek was opened from. Pass `null` to forget it. */
+export function rememberPeekOpener(element: HTMLElement | null): void {
+  peekOpener = element;
+}
+
+/**
+ * Return focus to the remembered opener and forget it.
+ *
+ * Guards on `isConnected`: the opener may have been unmounted while the peek
+ * was open (its page re-rendered, a list re-sorted), and focusing a detached
+ * node silently moves focus to `document.body` — the same failure this whole
+ * mechanism exists to fix. Returns whether focus was actually restored so a
+ * caller (or a test) can tell "restored" from "opener was gone".
+ */
+export function restorePeekOpenerFocus(): boolean {
+  const element = peekOpener;
+  peekOpener = null;
+  if (!element || !element.isConnected) return false;
+  element.focus();
+  return true;
+}
+
 export interface PeekController {
   /** Open panes, outermost first. Empty when no peek is open. */
   panes: PeekPane[];
