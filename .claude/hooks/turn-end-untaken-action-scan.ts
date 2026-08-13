@@ -162,14 +162,31 @@ const SUPPRESSION_PATTERNS: ReadonlyArray<RegExp> = [
   // its Consequences name as plausibly sufficient for the precision axis at ~zero cost. If a
   // THIRD distinct armed-watcher phrasing is filed against this set, that is the measured
   // insufficiency of Rung 1 for this family and the next pass raises the rung rather than the
-  // pattern count — see the task's `## Planning Audit`.
+  // pattern count."
   //
-  // Participle BEFORE the noun: "armed a background wait", "armed the retry watcher".
-  /\barmed\s+(?:a|an|the)?\s*(?:[\w-]+\s+){0,2}?(?:watcher|wait|poll|retry|wakeup)\b/i,
-  // Participle AFTER the noun, with an optional copula: "watcher armed", "wait is armed",
-  // "watcher has been armed". Subsumes the retired `watcher\s+is\s+armed` entry.
-  /\b(?:watcher|wait|poll|retry|wakeup)\s+(?:is\s+|was\s+|has\s+been\s+)?armed\b/i,
-  /\brunning\s+in\s+the\s+background\b/i,
+  // ## The armed-watcher patterns are GONE (mt#4063, PR #2972 R2)
+  //
+  // Three patterns lived here — participle-before-noun, participle-after-noun, and
+  // `running in the background`. All three are retired, not merely supplemented.
+  //
+  // Adding `detectArmedWatcherEvidence` beside them was the first attempt and it was
+  // wrong: with the prose patterns still present, a message SAYING "a retry watcher is
+  // armed" was suppressed whether or not anything had been armed. That is the exact
+  // behavior mt#4063's SC2 rules out — "keys on evidence that a watcher exists, NOT on
+  // the prose claiming one, so 'I'll watch for it' with nothing armed still fires" —
+  // and it is what "raises the rung RATHER THAN the pattern count" was already saying:
+  // a replacement, not an addition. Caught by PR #2972 R2.
+  //
+  // The cost of removing them is real and bounded: a turn that armed a wait through a
+  // tool NOT in `ARMED_WAIT_TOOLS` used to be covered by the prose and now fires. That
+  // surfaces in the calibration log as this guard firing on a correctly-armed turn —
+  // the same signal that produced this change — and the fix is to add the tool, which
+  // the membership pin makes a deliberate edit.
+  //
+  // The patterns below are NOT armed-watcher shapes and stay prose-keyed on purpose:
+  // each names a DIFFERENT legitimate halt (a delegated report, an open wait, an
+  // explicit instruction) whose evidence is not a tool call. The instruction shape in
+  // particular is mt#4113's subject.
   /\bi'?ll\s+report\s+(?:back\s+)?when\b/i,
   /\bwaiting\s+(?:for|on)\s+/i,
   /\bno\s+action\s+needed\s+from\s+you\b/i,

@@ -182,9 +182,35 @@ discovered: the suppression is per-TURN, not per-match, because the evidence is 
 turn. If the calibration record shows this firing on unrelated actions, the next pass should scope
 the suppression to matches whose phrasing references the wait.
 
+**The three prose patterns are RETIRED, not supplemented.** The first attempt added the
+evidence check beside them, which left a message _saying_ "a retry watcher is armed" suppressed
+whether or not anything was — the exact behavior mt#4063's SC2 rules out, and the opposite of
+what "raises the rung RATHER THAN the pattern count" asks for. PR #2972 R2 caught it. What
+removal costs, bounded and visible: a wait armed through a tool not in `ARMED_WAIT_TOOLS` used
+to be covered by the prose and now fires, which shows up in the calibration log as this guard
+firing on a correctly-armed turn — the same signal that produced this change.
+
 Suppressed fires are RECORDED (`suppressionReasons: ["armed-watcher-evidence"]` plus
 `armedWatcherEvidence`), per the mt#3207 contract — a suppression that returns null cannot be
 measured, and the failure worth catching here is this predicate swallowing a true positive.
+
+### What this deliberately does NOT cover — mt#4113
+
+The 2026-08-12 window carried a fourth false positive this mechanism cannot reach:
+
+> "Filed only, not planned — **you said file**. mt#4028 is small … say the word and I'll take
+> it to READY."
+
+The agent was told to file, and filed. Naming the un-taken planning step alongside the
+instruction that bounded it is an accurate report, and the guard reads it as the defect.
+
+It is not covered here because it is not the same kind of fact. Whether a watcher was armed is a
+property of the turn's TOOL CALLS; whether a principal instruction bounded the scope is a
+property of the CONVERSATION. Folding them together would put a language question back inside
+the fix that exists to remove one — so it is filed as **mt#4113** with that record as its
+regression fixture, carried in PR #2972 as `[sc5-deferred: mt#4113]`. Related but distinct:
+mt#3768's reserved-CATEGORY suppression, which covers a standing list rather than something the
+principal said in this conversation.
 
 ## Overrides
 

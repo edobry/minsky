@@ -534,10 +534,19 @@ describe("mt#3917 precision fixes", () => {
       expect(detectUntakenAction("I'll merge it once I get to it.").length).toBeGreaterThan(0);
     });
 
-    describe("mt#3948 — the armed-watcher suppression is not bound to one word order", () => {
-      // The four attested closing messages, verbatim from the 2026-08-10 and 2026-08-11
-      // calibration windows. Each reports a wait the agent armed ITSELF and then keeps going,
-      // which is what `work-completion.mdc §External self-resolving waits` prescribes.
+    describe("mt#3948's phrasings — the contract MOVED in mt#4063, it did not vanish", () => {
+      // These four attested messages (2026-08-10 / 2026-08-11 windows) each report a wait the
+      // agent armed ITSELF, which `work-completion.mdc §External self-resolving waits`
+      // prescribes. mt#3948 kept them quiet by EXCLUDING them at detection, via prose patterns.
+      //
+      // mt#4063 retired those patterns: prose alone suppressing meant a message merely CLAIMING
+      // a watcher went quiet whether or not one existed, which is what SC2 rules out. So these
+      // now MATCH at detection, and go quiet at `run()` only when the turn's tool calls show a
+      // wait was actually armed.
+      //
+      // Asserted here at the detection level, because the evidence-paired assertions need the
+      // transcript fixtures built in the mt#4063 describe block below — see "run() — evidence
+      // decides, not prose", which runs each window phrasing twice against opposite tool state.
       test.each([
         [
           "participle after the noun, with a preposition",
@@ -555,18 +564,19 @@ describe("mt#3917 precision fixes", () => {
           "the noun is `wait`, which the copula pattern bound to `watcher`",
           "A background wait is armed; I'll merge when the timer fires and the build has concluded.",
         ],
-      ])("suppresses: %s", (_label, message) => {
-        expect(detectUntakenAction(message)).toEqual([]);
+      ])("now MATCHES at detection, suppressed later only on evidence: %s", (_label, message) => {
+        expect(detectUntakenAction(message).length).toBeGreaterThan(0);
       });
 
-      test("the pre-existing word order still suppresses", () => {
-        // The two retired patterns' own shapes, so the widening cannot regress them.
-        expect(
-          detectUntakenAction("A retry watcher is armed; I'll re-attempt when it fires.")
-        ).toEqual([]);
+      test("the pre-existing word orders also match now", () => {
+        // The retired patterns' own shapes. Under mt#3948 these were excluded at
+        // detection; under mt#4063 they match, and the tool-call evidence decides.
         expect(
           detectUntakenAction("I armed a background poll; I'll merge the PR when it clears.")
-        ).toEqual([]);
+        ).not.toEqual([]);
+        expect(
+          detectUntakenAction("A retry watcher is armed; I'll merge when it fires.")
+        ).not.toEqual([]);
       });
 
       test("NEGATIVE CONTROL: naming a blocker without a wait still fires", () => {
@@ -880,6 +890,24 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       expect(outcome?.calibration?.[SUPPRESSION_REASONS_KEY]).toEqual([
         SUPPRESSION_ARMED_WATCHER_EVIDENCE,
       ]);
+    });
+
+    // SC2's literal test, and the one PR #2972 R2 caught missing. With the old
+    // prose patterns still in place this passed for the wrong reason — a
+    // message SAYING a watcher was armed was suppressed whether or not one
+    // was. The patterns are gone; this asserts the property directly, using
+    // the exact phrasing the retired pattern used to match.
+    test("prose CLAIMING an armed watcher, with nothing armed, still fires", () => {
+      const outcome = run(
+        {
+          session_id: "prose-only",
+          last_assistant_message:
+            "A retry watcher is armed (~7 min); I'll merge the PR when it fires.",
+        } as StopHookInput,
+        ctxWith(toolUse("t1", "Read", { file_path: "/tmp/x" })),
+        storeDir
+      );
+      expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
     });
 
     // PR #2972 R1 asked whether the new suppression could skip the
