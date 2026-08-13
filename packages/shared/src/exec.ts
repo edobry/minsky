@@ -1,7 +1,4 @@
 import { exec, type ExecOptions } from "child_process";
-import { promisify } from "util";
-
-const promisifiedExec = promisify(exec);
 
 /**
  * POSIX-safe shell quoting for a single argument. Wraps the string in single
@@ -54,6 +51,14 @@ export interface ExecFailure {
   exitCode?: number;
   /** The signal used, when one was involved. */
   signal?: string;
+  /**
+   * True when `killSignal` was not enough and SIGKILL was required (mt#3418).
+   *
+   * Distinguishes "we killed it" from "we tried to kill it and it did not die,"
+   * which have different remedies: the first is a budget to raise, the second a
+   * command that traps or cannot service SIGTERM and needs looking at.
+   */
+  escalated?: boolean;
 }
 
 /**
@@ -90,6 +95,52 @@ export function markKilledByTimeout<T>(error: T): T {
   }
   return error;
 }
+
+/**
+ * Stamped when `killSignal` was insufficient and SIGKILL was required (mt#3418).
+ *
+ * Same `Symbol.for` reasoning as {@link KILLED_BY_TIMEOUT}, and the same
+ * division of labour: Node reports the signal that finally landed, never
+ * whether an earlier, gentler one was ignored first. Only the code that sent
+ * both knows that.
+ */
+export const REQUIRED_SIGKILL = Symbol.for("minsky.exec.requiredSigkill");
+
+/** Record that this error's child had to be SIGKILLed after ignoring `killSignal`. */
+export function markRequiredSigkill<T>(error: T): T {
+  if (error !== null && typeof error === "object") {
+    Object.defineProperty(error, REQUIRED_SIGKILL, {
+      value: true,
+      enumerable: false,
+      configurable: true,
+    });
+  }
+  return error;
+}
+
+/**
+ * How long a child gets to service `killSignal` before SIGKILL (mt#3418).
+ *
+ * Matches `scripts/spawn-with-watchdog.ts`'s `DEFAULT_GRACE_MS` — this repo's
+ * other two-stage kill, and the shape mt#3418's spec says to reuse rather than
+ * invent a second one. Duplicated rather than imported because
+ * `packages/shared` must not depend on `scripts/`; the two are cross-referenced
+ * in both directions so a change to one is visible from the other.
+ *
+ * This is the DEFAULT, overridable per call via the `killGraceMs` option, which
+ * is stripped before the options reach Node. It was very nearly a bare
+ * constant: the delay only elapses for a child that is IGNORING the signal, so
+ * it measures how wedged a process can get — a property of processes, not of
+ * any caller's workload, and none of the ~100 call sites has grounds to hold a
+ * different opinion. What made it an option is that the escalation is otherwise
+ * untestable at reasonable cost: every exercise of the SIGKILL path would spend
+ * 5 seconds, most of it with a busy-looping child, in a suite whose measured
+ * failures are already contention-driven (mt#3704). A knob one caller needs
+ * beats a 5-second CPU burn in the regression suite.
+ *
+ * @see scripts/spawn-with-watchdog.ts — the sibling implementation
+ */
+export const EXEC_KILL_GRACE_MS = 5_000;
 
 /**
  * Is this parent kill attributable to the `timeout` option ELAPSING?
@@ -175,11 +226,15 @@ export function classifyExecFailure(
     killed?: boolean;
     signal?: string | null;
     [KILLED_BY_TIMEOUT]?: boolean;
+    [REQUIRED_SIGKILL]?: boolean;
   } | null;
 
   if (!err || typeof err !== "object") return { kind: "unknown" };
 
   const signal = typeof err.signal === "string" ? err.signal : undefined;
+  // Only ever set, never set to false: absent means "no escalation happened",
+  // which is also what an error from a caller that does not stamp looks like.
+  const escalation = err[REQUIRED_SIGKILL] === true ? { escalated: true } : {};
 
   // A string `code` is a Node error identifier, never a process exit code.
   if (typeof err.code === "string") {
@@ -201,13 +256,179 @@ export function classifyExecFailure(
   if (err.killed === true) {
     const kind =
       (context?.killedDueToTimeout ?? err[KILLED_BY_TIMEOUT]) === true ? "timeout" : "killed";
-    return signal === undefined ? { kind } : { kind, signal };
+    return signal === undefined ? { kind, ...escalation } : { kind, signal, ...escalation };
   }
 
   // Signalled by something outside this process.
   if (signal !== undefined) return { kind: "signal", signal };
 
   return { kind: "unknown" };
+}
+
+/**
+ * Run `exec` with a timeout that actually ENFORCES (mt#3418).
+ *
+ * ## What was wrong with letting Node own the timeout
+ *
+ * Node's `timeout` option sends `killSignal` once and then goes back to waiting
+ * for the child to close. A child that ignores or cannot service that signal
+ * runs to completion, and the call **resolves successfully**. Measured against
+ * a child with a no-op SIGTERM handler under a 2000 ms budget:
+ *
+ * ```
+ * Node's timeout:  elapsed=25015ms  err=NO   killed=undefined  signal=undefined  stdout=""
+ * two-stage kill:  elapsed=3009ms   err=yes  killed=true       signal=SIGKILL    code=null
+ * ```
+ *
+ * Note the first row's `stdout`: not only is the timeout lost, so is the output
+ * the child did produce, because Node tears the pipe down when it fires. The
+ * caller is handed a clean, empty, SUCCESSFUL result for a command that blew
+ * its budget by 12x — which is why the old behavior was silent rather than
+ * merely wrong. Every gate built on `execAsync` could report a pass that way.
+ *
+ * ## Why we own the whole timeout instead of layering on Node's
+ *
+ * Keeping Node's timer and adding an escalation on top would put two
+ * independent killers on one child, in two places, with a race between them.
+ * Owning it gives one path. The well-behaved case is unchanged by construction:
+ * we send the same signal at the same deadline Node would have, and Node builds
+ * its callback error with `killed: child.killed` — true for any successful
+ * `kill()`, whoever called it — so the rejection is shape-identical and
+ * `classifyExecFailure` needs no new branch.
+ *
+ * `promisify(exec)` cannot express this at all: it discards the `ChildProcess`
+ * that the escalation has to signal. Hence the callback form.
+ *
+ * ## Scope limit: grandchildren
+ *
+ * `exec` runs through `/bin/sh`, so SIGKILL reaches the shell. A grandchild the
+ * shell spawned survives it. Reaping the whole tree means killing the process
+ * GROUP, which requires detaching the child at spawn time and so changes signal
+ * delivery for every one of this helper's call sites — out of scope here, and
+ * the same boundary `scripts/spawn-with-watchdog.ts` drew for the same reason.
+ *
+ * @see scripts/spawn-with-watchdog.ts — the sibling two-stage kill (mt#3156)
+ */
+/**
+ * Put the captured output back on a rejection, the way `promisify(exec)` did.
+ *
+ * Node's plain `exec` callback hands stdout/stderr as ARGUMENTS and leaves the
+ * error object bare; the `err.stdout = stdout` assignment lived in Node's
+ * custom promisify hook. Anything that catches from `executeCommand` and reads
+ * `error.stdout` was relying on that hook, so replacing it means reproducing it
+ * — a compatibility obligation, not an improvement.
+ */
+function attachOutput(error: unknown, stdout: string | Buffer, stderr: string | Buffer): void {
+  if (error === null || typeof error !== "object") return;
+  Object.assign(error, { stdout, stderr });
+}
+
+function runWithEnforcedTimeout(
+  command: string,
+  execOptions: ExecOptions & { killSignal: NodeJS.Signals; killGraceMs?: number }
+): Promise<{ stdout: string | Buffer; stderr: string | Buffer }> {
+  const timeoutMs =
+    typeof execOptions.timeout === "number" && execOptions.timeout > 0
+      ? execOptions.timeout
+      : undefined;
+  const graceMs =
+    typeof execOptions.killGraceMs === "number" && execOptions.killGraceMs > 0
+      ? execOptions.killGraceMs
+      : EXEC_KILL_GRACE_MS;
+
+  // Node must not arm a killer of its own — this function is the only one. Both
+  // keys are stripped from what Node receives (`killGraceMs` is not a Node
+  // option at all); the ORIGINAL `execOptions.timeout` is still what the
+  // caller's timeout attribution reads downstream.
+  const { timeout: _ownedHere, killGraceMs: _notANodeOption, ...nodeOptions } = execOptions;
+
+  return new Promise((resolve, reject) => {
+    let timedOut = false;
+    let escalated = false;
+    // A list rather than two named handles: the escalation timer is created
+    // inside the first one's callback, so the exec callback needs to be able to
+    // cancel a timer that may not exist yet without reaching for a binding that
+    // is still in its temporal dead zone.
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+
+    const clearTimers = () => {
+      for (const timer of timers) clearTimeout(timer);
+      timers.length = 0;
+    };
+
+    const arm = (delayMs: number, onFire: () => void) => {
+      const timer = setTimeout(onFire, delayMs);
+      // Never hold the event loop open on this helper's account — the child's
+      // own stdio handles already keep it alive for exactly as long as needed.
+      timer.unref?.();
+      timers.push(timer);
+    };
+
+    const child = exec(command, nodeOptions as ExecOptions, (error, stdout, stderr) => {
+      clearTimers();
+
+      if (error) {
+        // Reattach the captured output to the error, which is NOT something
+        // Node's plain callback does — it was supplied by the custom promisify
+        // hook this function replaced (`err.stdout = stdout` in
+        // `exec[promisify.custom]`). Callers depend on it: the pre-commit
+        // ESLint step recovers violation JSON from a non-zero exit via
+        // `execErr.stdout`, and would see every lint failure as an empty result
+        // without this. Caught by an existing test rather than reasoned out.
+        attachOutput(error, stdout, stderr);
+        // The signal that landed is on the error; whether a gentler one was
+        // ignored first is only known here.
+        if (escalated) markRequiredSigkill(error);
+        reject(error);
+        return;
+      }
+
+      if (timedOut) {
+        // The child outlived even SIGKILL — an uninterruptible-sleep case — and
+        // Node is reporting a clean exit for a command we already gave up on.
+        // Resolving here would reintroduce the exact silent pass this function
+        // exists to remove, so synthesize the rejection Node did not produce.
+        // Shaped like a real kill rejection (`killed: true`, null `code`) so it
+        // classifies identically rather than becoming its own special case.
+        const synthetic = Object.assign(
+          new Error(
+            `Command failed: ${command} — exceeded its ${timeoutMs}ms timeout and survived ` +
+              `${execOptions.killSignal} followed by SIGKILL`
+          ),
+          { killed: true, code: null, signal: "SIGKILL" }
+        );
+        attachOutput(synthetic, stdout, stderr);
+        markRequiredSigkill(synthetic);
+        reject(synthetic);
+        return;
+      }
+
+      resolve({ stdout, stderr });
+    });
+
+    if (timeoutMs === undefined) return;
+
+    arm(timeoutMs, () => {
+      timedOut = true;
+      try {
+        child.kill(execOptions.killSignal);
+      } catch {
+        // Already gone between the timer firing and the signal — nothing to do.
+      }
+      arm(graceMs, () => {
+        // Still neither exited nor signalled: it is ignoring the signal or is
+        // too wedged to service it. SIGKILL cannot be caught.
+        if (child.exitCode === null && child.signalCode === null) {
+          escalated = true;
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // Same race as above.
+          }
+        }
+      });
+    });
+  });
 }
 
 /**
@@ -238,7 +459,7 @@ export async function executeCommand(
   const startedAt = Date.now();
 
   try {
-    const result = await promisifiedExec(command, execOptions as ExecOptions);
+    const result = await runWithEnforcedTimeout(command, execOptions);
     return {
       stdout: typeof result.stdout === "string" ? result.stdout : String(result.stdout),
       stderr: typeof result.stderr === "string" ? result.stderr : String(result.stderr),
