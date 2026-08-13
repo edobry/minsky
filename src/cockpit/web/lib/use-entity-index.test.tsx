@@ -31,7 +31,7 @@ function createTestQueryClient(): QueryClient {
 }
 
 describe("Task label channel — batching (mt#3174 acceptance test)", () => {
-  test("K simultaneously-mounted <EntityRef type=\"task\"> references issue ONE /api/tasks/meta request, not K", async () => {
+  test('K simultaneously-mounted <EntityRef type="task"> references issue ONE /api/tasks/meta request, not K', async () => {
     const metaCalls: string[] = [];
     global.fetch = mock(async (url: string) => {
       if (url.startsWith("/api/tasks/meta")) {
@@ -132,7 +132,10 @@ function IndexProbe({ text }: { text: string }) {
 const ENTITY_INDEX_KEYS: unknown[][] = [
   ["entity-index", "tasks"],
   ["agents"],
-  ["attention"],
+  // ["attention"] was here until mt#4095. The ask id-set and alias map moved
+  // off the radiator cohort onto the state-agnostic /api/asks/ids below, so
+  // this hook no longer reads attention at all and no longer subscribes to it.
+  ["entity-index", "ask-ids"],
   ["widget", "memories-list", "", "", true],
   ["entity-index", "changesets"],
   ["context-inspector", "sessions"],
@@ -244,5 +247,130 @@ describe("useEntityIndex — id-set freshness (mt#3732)", () => {
       expect(container.textContent).toContain("mt#9999");
     });
     expect(container.querySelector('a[href="/tasks/mt%239999"]')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The ask id channel (mt#4095)
+//
+// The alias map used to be built from the attention widget's cohort — pending
+// operator asks in the active window — so an `ask#N` written in a memory, spec
+// or transcript linkified while its ask was open and silently became plain
+// text the moment it closed. Nothing errored, which is why it went unnoticed.
+// ---------------------------------------------------------------------------
+
+const CLOSED_ASK_UUID = "a902cba7-fd37-464a-842f-96fe38fe8bcc";
+
+/**
+ * Mock every channel `useEntityIndex` fetches. `askIds` is what this block
+ * varies; the rest are empty so nothing else can produce the link under test.
+ */
+function mockIndexFetches(askIds: { shortId: string; id: string }[]) {
+  global.fetch = mock(async (url: string) => {
+    if (url.startsWith("/api/asks/ids")) return jsonResponse({ ids: askIds });
+    if (url.startsWith("/api/tasks/ids")) return jsonResponse({ ids: [] });
+    if (url.startsWith("/api/changesets")) return jsonResponse({ changesets: [] });
+    // Widget payloads (agents / attention / memories-list / context-inspector).
+    return jsonResponse({ state: "ok", payload: {} });
+  }) as unknown as typeof fetch;
+}
+
+/** `Prose` takes the built index as a prop, so it needs `IndexProbe`. */
+function renderProse(text: string) {
+  const client = createTestQueryClient();
+  return render(
+    <QueryClientProvider client={client}>
+      <MemoryRouter>
+        <IndexProbe text={text} />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+describe("ask short-id channel (mt#4095)", () => {
+  test("a CLOSED ask's ask#N still resolves — the alias no longer depends on it being pending", async () => {
+    // The attention payload is deliberately EMPTY here: under the old wiring
+    // that alone made this ref unresolvable, so this asserts the new channel
+    // is what carries it.
+    mockIndexFetches([{ shortId: "ask#7754", id: CLOSED_ASK_UUID }]);
+
+    const { container } = renderProse("Decided in ask#7754 last week.");
+
+    await waitFor(() =>
+      expect(container.querySelector(`a[href="/ask/${CLOSED_ASK_UUID}"]`)).not.toBeNull()
+    );
+  });
+
+  test("the emitted target is the uuid, never the short id (ADR-029)", async () => {
+    mockIndexFetches([{ shortId: "ask#7754", id: CLOSED_ASK_UUID }]);
+
+    const { container } = renderProse("See ask#7754.");
+
+    const link = await waitFor(() => {
+      const a = container.querySelector("a[href^='/ask/']");
+      if (!a) throw new Error("no ask link yet");
+      return a;
+    });
+    const href = link.getAttribute("href") ?? "";
+    expect(href).toBe(`/ask/${CLOSED_ASK_UUID}`);
+    expect(href).not.toContain("ask#7754");
+    expect(href).not.toContain("ask%237754");
+    // The visible text keeps the short id the author typed.
+    expect(link.textContent).toBe("ask#7754");
+  });
+
+  test("an ask#N absent from the channel stays plain text", async () => {
+    mockIndexFetches([{ shortId: "ask#7754", id: CLOSED_ASK_UUID }]);
+
+    const { container } = renderProse("See ask#999999.");
+
+    await waitFor(() => expect(container.textContent).toContain("ask#999999"));
+    expect(container.querySelector("a[href^='/ask/']")).toBeNull();
+  });
+
+  test("a refreshed ask id-set recomputes the index (PR #2965 R1)", async () => {
+    // The reviewer's finding: `askAliases` was read inside the `useMemo` but
+    // `askIdsQ.data` was not in its dependency array, so a refetch of
+    // /api/asks/ids could not recompute the index — a newly-created ask's
+    // `ask#N` stayed unlinkified until some UNRELATED query happened to change.
+    // A single-render test cannot see that; this one refreshes the data.
+    mockIndexFetches([]);
+    const client = createTestQueryClient();
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <IndexProbe text="See ask#7754." />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(container.textContent).toContain("ask#7754"));
+    expect(container.querySelector("a[href^='/ask/']")).toBeNull();
+
+    // The ask now exists in the id-set — nothing else changes.
+    act(() => {
+      client.setQueryData(
+        ["entity-index", "ask-ids"],
+        [{ shortId: "ask#7754", id: CLOSED_ASK_UUID }]
+      );
+    });
+
+    await waitFor(() =>
+      expect(container.querySelector(`a[href="/ask/${CLOSED_ASK_UUID}"]`)).not.toBeNull()
+    );
+  });
+
+  test("an asks-endpoint failure degrades to plain text rather than breaking the render", async () => {
+    global.fetch = mock(async (url: string) => {
+      if (url.startsWith("/api/asks/ids")) return jsonResponse({ error: "boom" }, false);
+      if (url.startsWith("/api/tasks/ids")) return jsonResponse({ ids: [] });
+      if (url.startsWith("/api/changesets")) return jsonResponse({ changesets: [] });
+      return jsonResponse({ state: "ok", payload: {} });
+    }) as unknown as typeof fetch;
+
+    const { container } = renderProse("See ask#7754.");
+
+    await waitFor(() => expect(container.textContent).toContain("ask#7754"));
+    expect(container.querySelector("a[href^='/ask/']")).toBeNull();
   });
 });

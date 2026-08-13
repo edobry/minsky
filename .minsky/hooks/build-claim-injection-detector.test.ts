@@ -27,7 +27,7 @@ import { extractLastAssistantTurn, extractAssistantText } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 import type { DispatchContext } from "./registry";
-import type { MergeDeploySurfaceStore } from "./merge-deploy-surface-record";
+import type { MergeDeploySurfaceStore } from "../../packages/domain/src/deployment/merge-deploy-surface-record";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers

@@ -17,6 +17,7 @@
     "./deployment-config": "./src/deployment/config.ts",
     "./logger": "./src/logger.ts",
     "./exec": "./src/exec.ts",
+    "./process-memory": "./src/process-memory.ts",
     "./timeout": "./src/timeout.ts",
     "./paths": "./src/paths.ts",
     "./conversation-pid-map": "./src/conversation-pid-map.ts",

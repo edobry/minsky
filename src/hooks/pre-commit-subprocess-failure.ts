@@ -37,8 +37,23 @@
  * skip the check. Adding a skip here would let a real lint failure through on a
  * slow host. Deliberately absent, not overlooked.
  *
+ * That decision has now been reached twice independently, so it is recorded
+ * here rather than only in the two task specs (mt#3410 R1). mt#3410 asked for
+ * the same override on the ESLint step in particular, on the grounds that a
+ * verified-clean workspace had no path to commit while the machine was loaded —
+ * true when it was written against a 169s FULL-REPO run under a 120s budget,
+ * and weakened by mt#3404 scoping the step to the staged set under 60s. It was
+ * withdrawn rather than built, for the reason above.
+ *
+ * The residual risk is real and bounded, not dismissed: if a STAGED-file run is
+ * observed timing out 2+ times in 24h or 3+ times in 5 days, the premise has
+ * re-formed and the override should be reopened as its own task and decided
+ * there. Do not add one here without that — the argument against it is load
+ * bearing, and a skip added quietly is exactly how a real lint failure ships.
+ *
  * @see ./pre-commit.ts — the three call sites (formatter, ESLint, typecheck)
  * @see mt#3404, mt#3412 — the sibling work that fixed the COST; this fixes the DIAGNOSIS
+ * @see mt#3410 — the second request for this override, and its withdrawal
  */
 
 /**

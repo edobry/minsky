@@ -18,11 +18,11 @@ reinstall, or deploy step has run yet.
 
 All three conditions must hold:
 
-| Condition               | Signal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (a) build-surface merge | an in-session `*session_pr_merge` tool_use call, AND that merge's deploy-surface verdict is positive. Since mt#3819 the verdict is READ from the record `require-deploy-verification-before-merge` writes at merge time from the PR's real changed-file list; only when no record exists for the merge does it fall back to the pre-mt#3819 proxy — a file-edit tool call (Edit/Write/`session_edit_file`/etc.) anywhere in the session touching a path matching `isDeploySurfaceFile` or `isLocalAppDeploySurfaceFile` (`packages/domain/src/deployment/deploy-surface.ts` — the SAME surface detection mt#2545 uses) |
-| (b) usability claim     | the prior assistant turn's text matches one of `USABILITY_CLAIM_PATTERNS` ("you can use it now", "ready to use", "it's live", "go ahead and test", ...)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| (c) no rebuild evidence | NO `deployment_wait-for-latest`/`status`/`logs` tool call, and no Bash/`session_exec` command matching `install-local.sh`, `tauri build`/`dev`, `cargo build`, `(npm\|pnpm\|yarn\|bun) [run] build` (incl. a `build:web`-style scoped script name), `bun run dev`, or `railway up`, anywhere in the session                                                                                                                                                                                                                                                                                                            |
+| Condition               | Signal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| (a) build-surface merge | an in-session `*session_pr_merge` tool_use call, AND that merge's deploy-surface verdict is positive. Since mt#3819 the verdict is READ from the record written at merge time from the PR's real changed-file list — by the `require-deploy-verification-before-merge` hook and, since mt#4089, by the domain merge path as well, so non-MCP merge paths are covered; only when no record exists for the merge does it fall back to the pre-mt#3819 proxy — a file-edit tool call (Edit/Write/`session_edit_file`/etc.) anywhere in the session touching a path matching `isDeploySurfaceFile` or `isLocalAppDeploySurfaceFile` (`packages/domain/src/deployment/deploy-surface.ts` — the SAME surface detection mt#2545 uses) |
+| (b) usability claim     | the prior assistant turn's text matches one of `USABILITY_CLAIM_PATTERNS` ("you can use it now", "ready to use", "it's live", "go ahead and test", ...)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| (c) no rebuild evidence | NO `deployment_wait-for-latest`/`status`/`logs` tool call, and no Bash/`session_exec` command matching `install-local.sh`, `tauri build`/`dev`, `cargo build`, `(npm\|pnpm\|yarn\|bun) [run] build` (incl. a `build:web`-style scoped script name), `bun run dev`, or `railway up`, anywhere in the session                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
 On fire it injects the claim-confidence format reminder (`claim-confidence.mdc` — "[delivery
 state] — [evidential warrant + basis]"), not a block.
@@ -80,9 +80,10 @@ concern phrase-matching recall, which the measurement shows is not what is faili
 
 Both causes the 2026-08-08 pass located have since shipped, from two different tasks:
 
-- **mt#3819** replaced the in-transcript proxy. `require-deploy-verification-before-merge` now
-  RECORDS the deploy-surface verdict from the PR's real changed-file list at merge time
-  (`.minsky/hooks/merge-deploy-surface-record.ts`), and the detector reads that record, falling
+- **mt#3819** replaced the in-transcript proxy. The deploy-surface verdict is now RECORDED from
+  the PR's real changed-file list at merge time
+  (`packages/domain/src/deployment/merge-deploy-surface-record.ts` — moved there from
+  `.minsky/hooks/` by mt#4089), and the detector reads that record, falling
   back to the old proxy only when none exists (`build-claim-injection-detector.ts:414`). The
   producer is confirmed live: `~/.local/state/minsky/merge-deploy-surface.json` held 200 merge
   records accumulated organically 2026-08-09T03:50Z → 2026-08-12T22:17Z, 43 of them
@@ -93,6 +94,21 @@ Both causes the 2026-08-08 pass located have since shipped, from two different t
   deploy-CONFIG files" half named above. Because the fallback proxy calls the same
   `isDeploySurfaceFile`, this widening applies retroactively to sessions the record store never
   saw.
+
+**Which merge paths actually write the record (mt#4089).** Until mt#4089 the sole writer was the
+`require-deploy-verification-before-merge` **PreToolUse hook**, so the record existed only for
+merges made through the MCP `session_pr_merge` tool on a hook-enabled harness — a CLI merge, a `gh`
+merge, a web-UI merge, or an agent on a harness without Claude Code hooks wrote nothing. That gap
+was invisible from the read side, because a missing record is UNKNOWN and degrades to the proxy: it
+looks identical to a merge that predates the producer. There are now **two writers** — the hook, and
+the domain merge path (`mergeSessionPr`) — both calling the same
+`classifyAndRecordMergeDeploySurface` helper, so they cannot compute different verdicts for the same
+merge. The store is a key→verdict map, so the second write is an idempotent overwrite rather than a
+duplicate entry. The hook's write is retained deliberately: the thin-hooks RFC (Accepted
+2026-08-11) moves this logic hook→daemon, but that removal belongs to the phase that stands up the
+daemon path. **The consumer is unchanged** — it still reads a missing record as UNKNOWN and falls
+back to the pre-mt#3819 proxy, which is what keeps a write failure from ever asserting a wrong
+verdict.
 
 Replaying the current detector over the SAME window as the baseline (all transcripts since
 2026-07-23), so the two runs are comparable:
