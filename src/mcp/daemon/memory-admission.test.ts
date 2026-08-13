@@ -90,12 +90,43 @@ describe("createAdmissionGate", () => {
     resident = 1600 * MB;
     expect(gate().admit).toBe(false);
   });
+
+  test("fails OPEN when memory cannot be measured, and says so (mt#4104)", () => {
+    const gate = createAdmissionGate({
+      getResidentBytes: () => null,
+      watermarkBytes: 1536 * MB,
+    });
+
+    const decision = gate();
+    // Open, because refusing every session over a failed READING turns a
+    // measurement gap into a total outage.
+    expect(decision.admit).toBe(true);
+    // But distinguishable from a healthy daemon: without `measured`, this
+    // decision and "comfortably under the watermark" are the same object shape,
+    // which is exactly how a daemon holding 48 GB reads as fine.
+    expect(decision.measured).toBe(false);
+    expect(decision.residentBytes).toBeNull();
+  });
+
+  test("a measured admit is distinguishable from an unmeasured one", () => {
+    const measured = createAdmissionGate({
+      getResidentBytes: () => 100 * MB,
+      watermarkBytes: 1536 * MB,
+    })();
+    const unmeasured = createAdmissionGate({
+      getResidentBytes: () => null,
+      watermarkBytes: 1536 * MB,
+    })();
+
+    expect(measured.admit).toBe(unmeasured.admit);
+    expect(measured.measured).not.toBe(unmeasured.measured);
+  });
 });
 
 describe("formatAdmissionRefusal", () => {
   test("states both figures and that established sessions are unaffected", () => {
     const message = formatAdmissionRefusal(
-      { admit: false, residentBytes: 1600 * MB, watermarkBytes: 1536 * MB },
+      { admit: false, residentBytes: 1600 * MB, watermarkBytes: 1536 * MB, measured: true },
       30
     );
     expect(message).toContain("1600MB");

@@ -555,7 +555,7 @@ export function createStartCommand(): Command {
       // cockpit daemon out from under the tray is a different decision with a
       // different blast radius, and it is not this task's to make.
       const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
-      const { getCurrentProcessResidentBytes, getCurrentProcessUptimeSeconds } = await import(
+      const { getCurrentProcessMemoryBytes, getCurrentProcessUptimeSeconds } = await import(
         "../../mcp/orphan-exit"
       );
       wireMemoryCaptureWatcher({
@@ -566,7 +566,7 @@ export function createStartCommand(): Command {
         // Above the 1.31 GB measured baseline, so this fires on genuine growth
         // rather than on every cockpit start.
         defaultWatermarkMb: 2048,
-        getResidentBytes: getCurrentProcessResidentBytes,
+        getResidentBytes: getCurrentProcessMemoryBytes,
         getUptimeSeconds: getCurrentProcessUptimeSeconds,
       });
 
