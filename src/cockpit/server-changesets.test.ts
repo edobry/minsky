@@ -14,7 +14,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
-import { getLoggedErrors } from "../utils/test-utils/mock-logger";
+import { safeTruncate } from "../utils/safe-truncate";
 
 const TEST_TOKEN = "test-server-changesets-token";
 
@@ -74,21 +74,45 @@ describe("GET /api/changesets?project=<slug> (mt#2418)", () => {
       fetch(`${url}/api/changesets`),
     ]);
 
-    // The route answers 503 (no session provider) or 200, and turns any
-    // unexpected throw into an opaque 500 whose body says only "An internal
-    // error occurred" — so a bare status-equality assertion reports THAT the
-    // statuses diverged and never why. The real cause is logged at
-    // routes/changesets.ts's catch, into the globally-mocked logger, where the
-    // run output cannot see it. Surfacing it here is what makes a failure
-    // diagnosable from CI output alone (mt#4086).
-    if (allRes.status !== noParamRes.status) {
-      const changesetErrors = getLoggedErrors().filter((m) => m.includes("changesets"));
-      throw new Error(
-        `status mismatch: ?project=all -> ${allRes.status}, no param -> ${noParamRes.status}. ` +
-          `Logged route errors: ${JSON.stringify(changesetErrors)}`
-      );
+    // Both responses must land in the route's documented posture: 200, or 503
+    // when the session store is unavailable. Anything else — a 500 in
+    // particular — is a regression, which is what the sibling mt#3096 block
+    // below asserts for the detail route.
+    //
+    // The failure message carries the BODY, not just the status. The body is
+    // what identifies which layer answered, and it is the only channel that
+    // does: the route logs its own cause, but the harness silences winston's
+    // Console transport in-process (packages/shared/src/logger.ts, mt#2975), so
+    // a failing CI run shows the status and nothing else. Diagnosing mt#4086
+    // without this cost several full-suite reproductions.
+    for (const [label, res] of [
+      ["?project=all", allRes],
+      ["no param", noParamRes],
+    ] as const) {
+      if (res.status !== 200 && res.status !== 503) {
+        const body = await res.text();
+        throw new Error(
+          `${label} -> ${res.status}, expected 200 or 503. body: ${safeTruncate(body, 800, "head")}`
+        );
+      }
     }
-    expect(allRes.status).toBe(noParamRes.status);
+
+    // The param-equivalence claim is only EVALUABLE when both requests reached
+    // the store. A 503 means it was unavailable for that request, and two
+    // concurrent requests can legitimately differ there — mt#4086: Supavisor
+    // returned EMAXCONNSESSION ("max clients reached … pool_size: 15") to one
+    // of these two under full-suite load while the other succeeded. Asserting
+    // status equality across that is asserting the database never saturates,
+    // which is not this test's subject and is not true.
+    if (allRes.status === 503 || noParamRes.status === 503) return;
+
+    // Both reached the store, so the actual claim — the param does not change
+    // the result — is checkable on the payload rather than on the status alone.
+    const allBody = (await allRes.json()) as { changesets: unknown[] };
+    const noParamBody = (await noParamRes.json()) as { changesets: unknown[] };
+    expect(Array.isArray(allBody.changesets)).toBe(true);
+    expect(Array.isArray(noParamBody.changesets)).toBe(true);
+    expect(allBody.changesets.length).toBe(noParamBody.changesets.length);
   });
 });
 
