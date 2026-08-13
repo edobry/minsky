@@ -395,6 +395,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["flakiness-control-detector", lexicalDetector],
   [
+    "stale-signal-sweep",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Exact substring over three corpora — active task specs, live memories, accepted ADRs — for a label lifted verbatim from the PR's own diff. No similarity metric: the token is not paraphrasable.",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       interventions: [injectAgent],
