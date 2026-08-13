@@ -231,8 +231,19 @@ export interface UnhandledRejectionEffects {
    * one signature in a rotated log 190 times (mt#3626).
    */
   logSurvived: (reason: unknown) => void;
-  /** Plain stderr line, for the degrade and exit branches. */
-  log: (line: string) => void;
+  /**
+   * Writes ONE operator-facing line to **stderr**, for the degrade and exit
+   * branches.
+   *
+   * The stderr binding is part of the contract, not an implementation detail
+   * of the current wiring (PR #2970 R1). These lines are what an operator
+   * greps `cockpit-daemon.log` for when a daemon degrades or dies, and
+   * `daemon-file-log.ts` captures the stream — routing them to stdout or into
+   * a structured logger that drops the stream would silently retire an
+   * operator-visible signature with nothing failing. The exact text of both
+   * lines is asserted in `start-command.test.ts` for the same reason.
+   */
+  logErrorLine: (line: string) => void;
   markDegraded: () => void;
   /** Starts the retry loop and returns its stop function. */
   startRetryBackoff: () => () => void;
@@ -258,7 +269,7 @@ export function createUnhandledRejectionHandler(
         return;
       case "degrade": {
         const message = reason instanceof Error ? reason.message : String(reason);
-        effects.log(`Cockpit: DB unavailable — degrading gracefully: ${message}`);
+        effects.logErrorLine(`Cockpit: DB unavailable — degrading gracefully: ${message}`);
         effects.markDegraded();
         if (stopDbRetry !== null) stopDbRetry();
         stopDbRetry = effects.startRetryBackoff();
@@ -269,7 +280,7 @@ export function createUnhandledRejectionHandler(
         // mt#3626: the degradation branch above keeps its message-only line
         // (its errors are classified, and their text is the useful part); this
         // fatal branch records the stack, same as `uncaughtException`.
-        effects.log(`Cockpit: unhandled rejection: ${formatErrorForLog(reason)}`);
+        effects.logErrorLine(`Cockpit: unhandled rejection: ${formatErrorForLog(reason)}`);
         effects.exit();
     }
   };
@@ -750,7 +761,8 @@ export function createStartCommand(): Command {
         "unhandledRejection",
         createUnhandledRejectionHandler({
           logSurvived: logSurvivedError,
-          log: (line) => console.error(line),
+          // stderr, per `UnhandledRejectionEffects.logErrorLine`'s contract.
+          logErrorLine: (line) => console.error(line),
           markDegraded: markDbDegraded,
           startRetryBackoff: () => startDbRetryBackoff(),
           cleanup: cleanupSync,

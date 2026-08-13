@@ -61,6 +61,20 @@ describe("classifyUnhandledRejection — server-side SQLSTATE (mt#4100)", () => 
     expect(classifyUnhandledRejection({ code: "53200" })).toBe("degrade");
     expect(classifyUnhandledRejection({ code: "40002" })).toBe("survive");
   });
+
+  // PR #2970 R1 raised carving these two out to "exit", since neither is
+  // transient. Kept deliberately, and pinned here so the choice is visible
+  // rather than incidental: exiting does not undrop a database or fix a
+  // protocol mismatch, and the daemon respawns straight into the same
+  // condition — the crash loop this whole classifier exists to prevent. The
+  // predicate is "is this a defect in THIS process?", not "will this pass?".
+  test("08P01 protocol_violation degrades rather than exiting (deliberate)", () => {
+    expect(classifyUnhandledRejection({ code: "08P01" })).toBe("degrade");
+  });
+
+  test("57P04 database_dropped degrades rather than exiting (deliberate)", () => {
+    expect(classifyUnhandledRejection({ code: "57P04" })).toBe("degrade");
+  });
 });
 
 describe("classifyUnhandledRejection — client-side codes (gh#1761 R1 regression)", () => {
@@ -79,7 +93,7 @@ describe("classifyUnhandledRejection — client-side codes (gh#1761 R1 regressio
 describe("classifyUnhandledRejection — everything else still exits", () => {
   // The guard against criterion 1 becoming "swallow everything".
   test("a programming bug exits", () => {
-    expect(classifyUnhandledRejection(new TypeError("x is not a function"))).toBe("exit");
+    expect(classifyUnhandledRejection(new TypeError(PROGRAMMING_BUG_MESSAGE))).toBe("exit");
   });
 
   test("42601 syntax_error exits — a malformed query is our bug, not the DB's", () => {
@@ -109,6 +123,9 @@ describe("classifyUnhandledRejection — everything else still exits", () => {
   });
 });
 
+/** A programming bug — the canonical "must still exit" reason. */
+const PROGRAMMING_BUG_MESSAGE = "x is not a function";
+
 interface RecordedEffects {
   effects: UnhandledRejectionEffects;
   survived: unknown[];
@@ -132,7 +149,7 @@ function recordingEffects(): RecordedEffects {
   return {
     effects: {
       logSurvived: (reason) => survived.push(reason),
-      log: (line) => logged.push(line),
+      logErrorLine: (line) => logged.push(line),
       markDegraded: () => {
         degradeCount += 1;
       },
@@ -184,12 +201,45 @@ describe("createUnhandledRejectionHandler (mt#4100)", () => {
 
   test("a programming bug cleans up and exits", () => {
     const r = recordingEffects();
-    createUnhandledRejectionHandler(r.effects)(new TypeError("x is not a function"));
+    createUnhandledRejectionHandler(r.effects)(new TypeError(PROGRAMMING_BUG_MESSAGE));
 
     expect(r.exits()).toBe(1);
     expect(r.cleanups()).toBe(1);
     expect(r.degradeCount()).toBe(0);
     expect(r.survived).toEqual([]);
+  });
+
+  // PR #2970 R1: these two lines are the operator-facing signature an operator
+  // greps `cockpit-daemon.log` for. `logErrorLine` is injected, so without an
+  // assertion on the TEXT a refactor could retire or reword either one with
+  // nothing failing — counting calls does not catch that.
+  test("the degrade branch emits its exact operator-facing line", () => {
+    const r = recordingEffects();
+    createUnhandledRejectionHandler(r.effects)(
+      Object.assign(new Error("canceling statement due to statement timeout"), { code: "57P01" })
+    );
+
+    expect(r.logged).toEqual([
+      "Cockpit: DB unavailable — degrading gracefully: canceling statement due to statement timeout",
+    ]);
+  });
+
+  test("the exit branch emits its exact operator-facing line, with the stack", () => {
+    const r = recordingEffects();
+    createUnhandledRejectionHandler(r.effects)(new TypeError(PROGRAMMING_BUG_MESSAGE));
+
+    expect(r.logged).toHaveLength(1);
+    expect(r.logged[0]).toStartWith(
+      `Cockpit: unhandled rejection: TypeError: ${PROGRAMMING_BUG_MESSAGE}`
+    );
+  });
+
+  test("the survive branch emits NO plain error line — only the rate-limited logger", () => {
+    const r = recordingEffects();
+    createUnhandledRejectionHandler(r.effects)({ code: "57014" });
+
+    expect(r.logged).toEqual([]);
+    expect(r.survived).toHaveLength(1);
   });
 
   test("a second degradation stops the first retry loop rather than stacking one", () => {
