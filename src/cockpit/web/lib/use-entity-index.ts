@@ -419,71 +419,68 @@ export function useResolvedEntityLabel(
  * Returns an always-present EntityIndex (may be empty on load or error).
  */
 export function useEntityIndex(): EntityIndex {
-  const [tasksQ, agentsQ, attentionQ, memoriesQ, changesetsQ, conversationsQ, askIdsQ] = useQueries(
-    {
-      queries: [
-        {
-          // Distinct key from CommandPalette's "command-palette-tasks" — different shape
-          // (string[] here via /api/tasks/ids vs PaletteTask[] there; sharing would
-          // poison the cache). Uses the uncapped ids-only endpoint (mt#2518 R5) so the
-          // id-set is comprehensive — no 500-task cap.
-          queryKey: ["entity-index", "tasks"],
-          queryFn: fetchAllTaskIds,
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-        {
-          queryKey: ["agents"],
-          queryFn: () => fetchWidgetData("agents"),
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-        {
-          queryKey: ["attention"],
-          queryFn: () => fetchWidgetData("attention"),
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-        {
-          queryKey: ["widget", "memories-list", "", "", true],
-          queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-        {
-          // Distinct key from ChangesetsPage's ["changesets"] — different shape
-          // (entries with {id,title,state} here vs ChangesetsListResponse there;
-          // sharing the key would corrupt the cache). Fail-open (returns [] on
-          // error). Widened from ids-only to {id,title,state} entries (mt#3174)
-          // so this same query also backs `useEntityLabels`'s changeset labels —
-          // no new request, same cache entry (see `fetchChangesetEntries`).
-          queryKey: ["entity-index", "changesets"],
-          queryFn: fetchChangesetEntries,
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-        {
-          // Shared key with ConversationPage's ["context-inspector", "sessions"]
-          // (the retired ConversationsPage list used the same key pre-mt#2767) —
-          // both fetch the raw WidgetData wrapper and extract different projections
-          // of it (rows vs ids here), the same compatible-shape sharing pattern the
-          // module header documents for agents/attention/memories (mt#2769).
-          queryKey: ["context-inspector", "sessions"],
-          queryFn: () => fetchWidgetData("context-inspector"),
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-        {
-          // The ask id channel (mt#4095). Distinct key from ["attention"] — that
-          // one is the radiator widget's payload and carries pending asks only.
-          queryKey: ["entity-index", "ask-ids"],
-          queryFn: fetchAskShortIds,
-          staleTime: 30_000,
-          refetchInterval: ENTITY_INDEX_REFETCH_MS,
-        },
-      ],
-    }
-  );
+  const [tasksQ, agentsQ, memoriesQ, changesetsQ, conversationsQ, askIdsQ] = useQueries({
+    queries: [
+      {
+        // Distinct key from CommandPalette's "command-palette-tasks" — different shape
+        // (string[] here via /api/tasks/ids vs PaletteTask[] there; sharing would
+        // poison the cache). Uses the uncapped ids-only endpoint (mt#2518 R5) so the
+        // id-set is comprehensive — no 500-task cap.
+        queryKey: ["entity-index", "tasks"],
+        queryFn: fetchAllTaskIds,
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        queryKey: ["agents"],
+        queryFn: () => fetchWidgetData("agents"),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      // The ["attention"] widget query used to live here, feeding the ask
+      // id-set and alias map. Both moved to /api/asks/ids (mt#4095), which is
+      // state-agnostic, so this hook no longer reads the radiator cohort at
+      // all — and subscribing to a query it never reads would only re-render
+      // it every refetch.
+      {
+        queryKey: ["widget", "memories-list", "", "", true],
+        queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        // Distinct key from ChangesetsPage's ["changesets"] — different shape
+        // (entries with {id,title,state} here vs ChangesetsListResponse there;
+        // sharing the key would corrupt the cache). Fail-open (returns [] on
+        // error). Widened from ids-only to {id,title,state} entries (mt#3174)
+        // so this same query also backs `useEntityLabels`'s changeset labels —
+        // no new request, same cache entry (see `fetchChangesetEntries`).
+        queryKey: ["entity-index", "changesets"],
+        queryFn: fetchChangesetEntries,
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        // Shared key with ConversationPage's ["context-inspector", "sessions"]
+        // (the retired ConversationsPage list used the same key pre-mt#2767) —
+        // both fetch the raw WidgetData wrapper and extract different projections
+        // of it (rows vs ids here), the same compatible-shape sharing pattern the
+        // module header documents for agents/attention/memories (mt#2769).
+        queryKey: ["context-inspector", "sessions"],
+        queryFn: () => fetchWidgetData("context-inspector"),
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+      {
+        // The ask id channel (mt#4095). Distinct key from ["attention"] — that
+        // one is the radiator widget's payload and carries pending asks only.
+        queryKey: ["entity-index", "ask-ids"],
+        queryFn: fetchAskShortIds,
+        staleTime: 30_000,
+        refetchInterval: ENTITY_INDEX_REFETCH_MS,
+      },
+    ],
+  });
 
   // One fetch answers BOTH ask channels (mt#4095). `askIds` gates a bare uuid
   // in prose and `askShortIds` gates an `ask#N`; both were read out of the
@@ -508,13 +505,15 @@ export function useEntityIndex(): EntityIndex {
         askShortIds: askAliases,
         sessionShortIds: extractAgentSessionShortIds(agentsQ.data as WidgetData | undefined),
       }),
-    [
-      tasksQ.data,
-      agentsQ.data,
-      attentionQ.data,
-      memoriesQ.data,
-      changesetsQ.data,
-      conversationsQ.data,
-    ]
+    // `askIdsQ.data` is load-bearing (PR #2965 R1): without it the index never
+    // recomputes when /api/asks/ids refreshes, so a newly-created ask's `ask#N`
+    // stays unlinkified until some UNRELATED query happens to change.
+    //
+    // `attentionQ.data` is deliberately NOT here any more — nothing in the memo
+    // body reads it since the ask channels moved off the cohort. Leaving it
+    // would have masked the missing dep above: attention refetches on the same
+    // interval, so the index would recompute anyway and the staleness would
+    // only show up if that query ever went quiet.
+    [tasksQ.data, agentsQ.data, memoriesQ.data, changesetsQ.data, conversationsQ.data, askIdsQ.data]
   );
 }

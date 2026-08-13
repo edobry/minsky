@@ -132,7 +132,10 @@ function IndexProbe({ text }: { text: string }) {
 const ENTITY_INDEX_KEYS: unknown[][] = [
   ["entity-index", "tasks"],
   ["agents"],
-  ["attention"],
+  // ["attention"] was here until mt#4095. The ask id-set and alias map moved
+  // off the radiator cohort onto the state-agnostic /api/asks/ids below, so
+  // this hook no longer reads attention at all and no longer subscribes to it.
+  ["entity-index", "ask-ids"],
   ["widget", "memories-list", "", "", true],
   ["entity-index", "changesets"],
   ["context-inspector", "sessions"],
@@ -323,6 +326,38 @@ describe("ask short-id channel (mt#4095)", () => {
 
     await waitFor(() => expect(container.textContent).toContain("ask#999999"));
     expect(container.querySelector("a[href^='/ask/']")).toBeNull();
+  });
+
+  test("a refreshed ask id-set recomputes the index (PR #2965 R1)", async () => {
+    // The reviewer's finding: `askAliases` was read inside the `useMemo` but
+    // `askIdsQ.data` was not in its dependency array, so a refetch of
+    // /api/asks/ids could not recompute the index — a newly-created ask's
+    // `ask#N` stayed unlinkified until some UNRELATED query happened to change.
+    // A single-render test cannot see that; this one refreshes the data.
+    mockIndexFetches([]);
+    const client = createTestQueryClient();
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <IndexProbe text="See ask#7754." />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(container.textContent).toContain("ask#7754"));
+    expect(container.querySelector("a[href^='/ask/']")).toBeNull();
+
+    // The ask now exists in the id-set — nothing else changes.
+    act(() => {
+      client.setQueryData(
+        ["entity-index", "ask-ids"],
+        [{ shortId: "ask#7754", id: CLOSED_ASK_UUID }]
+      );
+    });
+
+    await waitFor(() =>
+      expect(container.querySelector(`a[href="/ask/${CLOSED_ASK_UUID}"]`)).not.toBeNull()
+    );
   });
 
   test("an asks-endpoint failure degrades to plain text rather than breaking the render", async () => {
