@@ -24,8 +24,8 @@ const PROVIDER: CredentialProvider = {
   configPath: "supabase.serviceRoleKey",
   acquireUrl: "https://supabase.com/dashboard/project/_/settings/api-keys",
   scopeGuidance: "Copy the service_role key, not the anon key.",
-  validate: async () => ({ ok: true }),
-  test: async () => ({ ok: true }),
+  validate: async () => ({ ok: true, detail: "ok" }),
+  test: async () => ({ ok: true, detail: "ok" }),
 };
 
 function makeAsk(partial: Partial<Ask>): Ask {

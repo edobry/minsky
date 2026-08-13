@@ -4846,6 +4846,39 @@
                   ]
                 }
               ]
+            },
+            {
+              "name": "request",
+              "description": "request commands",
+              "subcommands": [
+                {
+                  "name": "credentials.request",
+                  "description": "Ask the principal for a credential you cannot read. Routes to a masked cockpit form; resolves when the credential is present. Never accepts or returns the value.",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    },
+                    {
+                      "flags": ["--reason"],
+                      "description": "Why this credential is needed now, in the principal's terms. Shown on the request.",
+                      "takesValue": true
+                    },
+                    {
+                      "flags": ["--parent-task-id"],
+                      "description": "Task blocked by this request. Set it — the task is what holds the pending state when the requesting conversation ends.",
+                      "takesValue": true
+                    }
+                  ],
+                  "arguments": [
+                    {
+                      "name": "provider",
+                      "required": true,
+                      "description": "Credential provider id (supabase | supabase-service-role | github | anthropic | railway | google | telegram)"
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }
