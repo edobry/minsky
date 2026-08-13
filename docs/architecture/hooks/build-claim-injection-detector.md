@@ -18,11 +18,11 @@ reinstall, or deploy step has run yet.
 
 All three conditions must hold:
 
-| Condition               | Signal                                                                                                                                                                                                                                                                                                                 |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| (a) build-surface merge | an in-session `*session_pr_merge` tool_use call, AND a file-edit tool call (Edit/Write/`session_edit_file`/etc.) anywhere in the session touched a path matching `isDeploySurfaceFile` or `isLocalAppDeploySurfaceFile` (`packages/domain/src/deployment/deploy-surface.ts` — the SAME surface detection mt#2545 uses) |
-| (b) usability claim     | the prior assistant turn's text matches one of `USABILITY_CLAIM_PATTERNS` ("you can use it now", "ready to use", "it's live", "go ahead and test", ...)                                                                                                                                                                |
-| (c) no rebuild evidence | NO `deployment_wait-for-latest`/`status`/`logs` tool call, and no Bash/`session_exec` command matching `install-local.sh`, `tauri build`/`dev`, `cargo build`, `(npm\|pnpm\|yarn\|bun) [run] build` (incl. a `build:web`-style scoped script name), `bun run dev`, or `railway up`, anywhere in the session            |
+| Condition               | Signal                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (a) build-surface merge | an in-session `*session_pr_merge` tool_use call, AND that merge's deploy-surface verdict is positive. Since mt#3819 the verdict is READ from the record `require-deploy-verification-before-merge` writes at merge time from the PR's real changed-file list; only when no record exists for the merge does it fall back to the pre-mt#3819 proxy — a file-edit tool call (Edit/Write/`session_edit_file`/etc.) anywhere in the session touching a path matching `isDeploySurfaceFile` or `isLocalAppDeploySurfaceFile` (`packages/domain/src/deployment/deploy-surface.ts` — the SAME surface detection mt#2545 uses) |
+| (b) usability claim     | the prior assistant turn's text matches one of `USABILITY_CLAIM_PATTERNS` ("you can use it now", "ready to use", "it's live", "go ahead and test", ...)                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| (c) no rebuild evidence | NO `deployment_wait-for-latest`/`status`/`logs` tool call, and no Bash/`session_exec` command matching `install-local.sh`, `tauri build`/`dev`, `cargo build`, `(npm\|pnpm\|yarn\|bun) [run] build` (incl. a `build:web`-style scoped script name), `bun run dev`, or `railway up`, anywhere in the session                                                                                                                                                                                                                                                                                                            |
 
 On fire it injects the claim-confidence format reminder (`claim-confidence.mdc` — "[delivery
 state] — [evidential warrant + basis]"), not a block.
@@ -47,8 +47,10 @@ behavior), or dormancy (the condition is rare). The disposition pass settled it:
   | (b) merge + surface edit, but no usability claim                            | 8        |
   | (c) all three met → suppressed by real rebuild evidence (**true negative**) | 1        |
 
-The corpus grows continuously, so absolute counts drift on a re-run; the funnel SHAPE and the
-zero-fire result are the finding, not the exact integers.
+The corpus grows continuously, so absolute counts drift on a re-run; as of 2026-08-08 the funnel
+SHAPE and the zero-fire result were the finding, not the exact integers. Both have since changed —
+see §Re-measured 2026-08-13 below, which supersedes this paragraph's conclusion without altering
+what was measured on the date above.
 
 - **Dormancy, with a locatable cause.** Exactly one session in 805 reached the last condition and
   was correctly suppressed. Condition (a)'s proxy is the binding constraint, for two independent
@@ -65,12 +67,76 @@ re-open the mt#2707 chat seam, which no other mechanism covers at the CHAT surfa
 mt#2545 gate covers the PR-BODY surface only, and it reads the PR's real changed-file list from
 the forge (12 `deny` + 8 `warn` across 705 evaluations in the same window), which is exactly the
 signal this detector lacks. Keeping costs ~nothing: `INJECTION_ENABLED` is `false`, so it injects
-no context and writes no records. The condition-(a) fix is tracked at **mt#3819**.
+no context and writes no records. The condition-(a) fix is tracked at **mt#3819** (shipped
+2026-08-09; its second, independently-owned half shipped as **mt#4013** on 2026-08-12 — see the
+re-measurement below).
 
 Per ADR-024's coverage-receipt done-gate — _"zero live fires in 7 days retroactively fails the
 gate and is surfaced for review"_ — this section IS that surfacing. Note the fix is a **Rung-1
 correctness fix to a structural precondition**, not a rung escalation: ADR-024's Rung 2/3 gates
 concern phrase-matching recall, which the measurement shows is not what is failing.
+
+## Re-measured 2026-08-13 (mt#4083): the condition-(a) blockage is cleared
+
+Both causes the 2026-08-08 pass located have since shipped, from two different tasks:
+
+- **mt#3819** replaced the in-transcript proxy. `require-deploy-verification-before-merge` now
+  RECORDS the deploy-surface verdict from the PR's real changed-file list at merge time
+  (`.minsky/hooks/merge-deploy-surface-record.ts`), and the detector reads that record, falling
+  back to the old proxy only when none exists (`build-claim-injection-detector.ts:414`). The
+  producer is confirmed live: `~/.local/state/minsky/merge-deploy-surface.json` held 200 merge
+  records accumulated organically 2026-08-09T03:50Z → 2026-08-12T22:17Z, 43 of them
+  `hadDeploySurface: true` carrying real application-source paths. This closes the `UNVERIFIED`
+  end-to-end thread mt#3819 shipped with.
+- **mt#4013** (merged 2026-08-12T06:08Z, commit `0ed27f48`) added `/^src\//` → `["minsky-mcp"]`
+  to `DEPLOY_SURFACE_SERVICE_MAP`, which is the "`DEPLOY_SURFACE_PATTERNS` matches only
+  deploy-CONFIG files" half named above. Because the fallback proxy calls the same
+  `isDeploySurfaceFile`, this widening applies retroactively to sessions the record store never
+  saw.
+
+Replaying the current detector over the SAME window as the baseline (all transcripts since
+2026-07-23), so the two runs are comparable:
+
+| Blocked at                                                                  | 2026-08-08 | 2026-08-13 |
+| --------------------------------------------------------------------------- | ---------- | ---------- |
+| (a) no in-session `*session_pr_merge` tool_use                              | 620        | 735        |
+| (a) merged, but no deploy surface                                           | 176        | 101        |
+| (b) merge + surface, but no usability claim                                 | 8          | 143        |
+| (c) all three met → suppressed by real rebuild evidence (**true negative**) | 1          | 9          |
+| **would fire**                                                              | **0**      | **8**      |
+| sessions / evaluation points                                                | 805/3,048  | 996/3,664  |
+
+The corpus grew ~24% between the runs, so raw totals are not comparable on their own — but two of
+the movements are not explicable by growth. The condition-(a) bucket **fell** from 176 to 101 in
+absolute terms while the corpus grew, which requires sessions that previously blocked there to now
+pass it. And the population reaching the phrase test rose from 8 to 143 — the first time condition
+(b) has had a real denominator. The split between mt#3819's and mt#4013's contributions is
+**unmeasured**: separating them would need a control run against the pre-widening patterns, which
+this pass did not do.
+
+**The live log is still empty, and that is not evidence about the live path.**
+`.minsky/build-claim-injection-calibration.jsonl` does not exist, so the detector has never matched
+in production. `appendCalibrationRecord` has exactly one call site
+(`build-claim-injection-detector.ts:640`), below the `if (!result.matched) process.exit(0)` guard —
+so an absent file means "never matched," not "matched and failed to write." All 8 would-fire
+sessions ENDED on or before 2026-08-10T13:43Z, every one of them under code where at least one of
+the two blockers was still in place. **No session in the corpus that fires under today's code has
+actually RUN under today's code**, and the fully-fixed configuration has ~31h of organic exposure
+as of this measurement. Read the empty log as exposure-limited, not as a dead detector.
+
+**What this changes for the 2026-09-07 window.** The 2026-08-08 pass correctly ruled the rung
+gates out of scope: the funnel died at a structural precondition, upstream of any phrase test.
+That is no longer where it dies. With 143 sessions now reaching condition (b), a further zero-fire
+window becomes a question about `USABILITY_CLAIM_PATTERNS` recall — an ADR-024 **Rung-2** question,
+which that ADR evidence-gates on "a measured recall-miss rate." This section supplies the
+denominator such a measurement would need; it does not nominate the escalation.
+
+Reproduce with:
+
+```
+find ~/.claude/projects -name '*.jsonl' -newermt '2026-07-23' -print0 \
+  | xargs -0 bun scripts/replay-build-claim-injection.ts --json
+```
 
 ## Known v1 limitation
 
