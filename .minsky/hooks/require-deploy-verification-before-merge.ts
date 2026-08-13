@@ -52,7 +52,7 @@ import type { ToolHookInput } from "./types";
 import { deriveRepoFromGit, fetchPrContext, formatContextFailureWarnings } from "./pr-context";
 import type { PrFile } from "./pr-context";
 import { findDeploySurfaceFiles, findLocalAppDeploySurfaceFiles } from "./deploy-surface-detector";
-import { recordMergeDeploySurface } from "./merge-deploy-surface-record";
+import { classifyAndRecordMergeDeploySurface } from "../../packages/domain/src/deployment/merge-deploy-surface-record";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import type { MergeGateFireLogContext } from "./merge-gate-fire-log";
 import { resolveMergeGateTaskId, unresolvedTaskWarning } from "./merge-gate-task-resolution";
@@ -661,15 +661,6 @@ if (import.meta.main) {
   // to skip its own check — cannot make us under-record the local-app surface.
   // Never throws and never affects this gate's decision.
   {
-    const surfaceFiles = [
-      ...new Set([...findDeploySurfaceFiles(prFiles), ...findLocalAppDeploySurfaceFiles(prFiles)]),
-    ];
-    const verdict = {
-      hadDeploySurface: surfaceFiles.length > 0,
-      deploySurfaceFiles: surfaceFiles,
-      recordedAt: new Date().toISOString(),
-    };
-
     // PR #2734 R1: record under BOTH the RESOLVED task id and the RAW ids the
     // caller actually passed. `session_pr_merge` takes either `task` or
     // `sessionId` (mt#3355), and the consumer can only see what is in the
@@ -682,7 +673,10 @@ if (import.meta.main) {
       const value = rawToolInput[field];
       if (typeof value === "string" && value.length > 0) keys.add(value);
     }
-    for (const key of keys) recordMergeDeploySurface(key, verdict);
+    // mt#4089: classification + write moved into the shared domain helper, which
+    // the domain merge path also calls. Deriving the verdict in two places is how
+    // the two writers would drift; there is now one derivation.
+    classifyAndRecordMergeDeploySurface(prFiles, keys);
   }
 
   const allWarnings = [...topLevelWarnings, ...deployResult.warnings, ...usabilityResult.warnings];
