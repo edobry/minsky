@@ -77,6 +77,7 @@ is cheap.
 | Click a reference              | Peek it — **replacing** whatever pane is already open     |
 | `⇧`-click a reference          | **Hold** the current pane; the next click opens beside it |
 | `⌘`/`Ctrl`-click, middle-click | Promote: open as a full page (and therefore as a tab)     |
+| Click anywhere off the peek    | Close **every** open pane at once                         |
 | `Esc`                          | Close the newest pane (repeat to unwind held panes)       |
 | Browser Back                   | Close the newest pane                                     |
 | Header pin control             | Hold this pane, same as `⇧`-click                         |
@@ -88,17 +89,26 @@ When you want to keep something on screen while you look at the next thing, hold
 it — and because every extra pane costs a deliberate gesture, there is no cap and
 nothing is ever evicted or buried behind something else.
 
+**Clicking away closes the whole peek; `Esc` takes it apart one pane at a time.**
+Those are deliberately different, because they answer different intentions: a
+click on the page behind means you are done peeking and want the page back, while
+`Esc` is how you dismantle a held pair a pane at a time. "Away" means away from
+the peek as a whole — clicking one pane never closes the pane beside it, and
+clicking an entity reference opens that entity rather than closing anything, so
+neither reading a held pair nor walking from one entity to the next can dismiss
+the assembly out from under you. Tabbing into the page behind is not a dismissal
+either; only a click is.
+
 **A peek is addressable and disposable.** The open panes live in the URL as a
 `?peek=` parameter, so copying the link, sharing it, or reloading brings the same
 panes back. Nothing is persisted anywhere else: navigate away from the page you
 peeked FROM and the whole assembly is gone.
 
-Four entity types — asks, sessions, conversations and interceptors — do not have a
-peek body yet and show an "open as page" link instead of their details
-(mt#4069). That is deliberate rather than unfinished-looking-by-accident: a peek
-renders the same component the entity's full page renders, never a separate
-compact copy that could quietly drift out of agreement with it, so a type gets a
-pane body only once it has one to share.
+Every routable entity type now renders a real pane body (mt#4069 closed the last
+four — asks, sessions, conversations and interceptors). The convention that got it
+there still holds: a peek renders the same component the entity's full page
+renders, never a separate compact copy that could quietly drift out of agreement
+with it.
 
 ## Plant Board (`/plant`)
 
