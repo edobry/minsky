@@ -88,6 +88,38 @@ PY
   fi
 fi
 
+# mt#4080. Window grouping is the one thing this script cannot infer from the
+# snapshot's own contents: an ungrouped snapshot restores identically whether
+# iTerm genuinely had one window or never answered. The producer now records
+# which it was, so say so — silently rebuilding a flattened layout is how the
+# 2026-08-13 recovery lost a multi-window working set with nothing to notice.
+# A snapshot predating these fields carries neither, and is read as observed.
+grouping_warning=$(python3 - "$SNAPSHOT" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1]) as fh:
+        d = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(0)
+if d.get("iterm_dump", "ok") == "ok":
+    sys.exit(0)
+if d.get("iterm_grouping_source") == "history":
+    print("WARN: iTerm was unresponsive when this snapshot was taken. The window "
+          "grouping below was RECOVERED from an earlier snapshot (%s), not observed — "
+          "sessions started after that point restore into their own windows."
+          % (d.get("iterm_grouping_from") or "timestamp unrecorded"))
+else:
+    print("WARN: iTerm was unresponsive when this snapshot was taken and no earlier "
+          "grouping was available. Window layout will NOT be reconstructed — every "
+          "session restores into its own window. Try an older snapshot: "
+          "ls -t \"$TAB_WATCHER_STATE_DIR\"/snapshot-*.json")
+PY
+)
+if [ -n "$grouping_warning" ]; then
+  echo "$grouping_warning" >&2
+  echo >&2
+fi
+
 # Session ids that already have a live process — resuming these would give two
 # processes appending to one transcript.
 RUNNING_IDS=""
