@@ -52,6 +52,22 @@ interface Args extends CommitSelection {
   readonly includeTerminal: boolean;
 }
 
+/**
+ * A positive integer, or a thrown error naming the flag (PR #3001 R1).
+ *
+ * `Number.parseInt("foo")` is `NaN`, which reaches git as `--max-count=NaN` and
+ * reaches the report as a `NaN`-valued window description. Both are worse than
+ * refusing the input.
+ */
+function parsePositiveInt(flag: string, raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${flag} expects a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
 export function parseArgs(argv: readonly string[]): Args {
   let guard = "";
   let revRange: string | undefined;
@@ -63,8 +79,8 @@ export function parseArgs(argv: readonly string[]): Args {
     const arg = argv[i];
     if (arg === "--guard") guard = argv[++i] ?? "";
     else if (arg === "--rev-range") revRange = argv[++i] ?? undefined;
-    else if (arg === "--days") days = Number.parseInt(argv[++i] ?? `${DEFAULT_DAYS}`, 10);
-    else if (arg === "--limit") limit = Number.parseInt(argv[++i] ?? `${DEFAULT_LIMIT}`, 10);
+    else if (arg === "--days") days = parsePositiveInt("--days", argv[++i], DEFAULT_DAYS);
+    else if (arg === "--limit") limit = parsePositiveInt("--limit", argv[++i], DEFAULT_LIMIT);
     else if (arg === "--json") json = true;
     else if (arg === "--include-terminal") includeTerminal = true;
   }
@@ -72,10 +88,23 @@ export function parseArgs(argv: readonly string[]): Args {
 }
 
 const gitDeps: BacktestDeps = {
+  // Fails loudly on a non-zero exit (PR #3001 R1). Returning stdout regardless
+  // turns a bad `--rev-range`, a missing git, or a repo misconfiguration into an
+  // EMPTY walk, which the harness then reports as "No commits in range" — an
+  // error rendered as a finding about the repo. Every number this tool prints
+  // comes through here, so a swallowed failure is not a local defect.
   runGit: async (args) => {
     const proc = Bun.spawn(["git", ...args], { stdout: "pipe", stderr: "pipe" });
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
+    const [text, errText] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
+    if (exitCode !== 0) {
+      throw new Error(
+        `git ${args.join(" ")} exited ${exitCode}: ${errText.trim() || "(no stderr)"}`
+      );
+    }
     return text;
   },
 };
@@ -139,7 +168,15 @@ function createStaleSignalAdapter(includeTerminal: boolean): DiffGuardAdapter<St
       const hits: StaleSignalHit[] = [];
       for (const label of [...new Set(labels.map((l) => l.text))]) {
         const pattern = `%${escapeLike(label)}%`;
-        const statusClause = includeTerminal ? sql`` : sql`and t.status::text not in ${terminal}`;
+        // Built conditionally on BOTH conditions: `not in ()` is itself a
+        // Postgres syntax error, and the terminal set comes from the domain
+        // registry — a future edit emptying it must not turn every replay into a
+        // failed query. Carried over from the guard module (PR #3001 R1 caught
+        // its loss here); `stale-signal-sweep.ts` states the same reasoning.
+        const statusClause =
+          includeTerminal || terminal.length === 0
+            ? sql``
+            : sql`and t.status::text not in ${terminal}`;
         const rows = await db.execute(sql`
           select t.id as id from tasks t
           join task_specs s on s.task_id = t.id
@@ -206,4 +243,13 @@ async function main(): Promise<void> {
   console.log(args.json ? JSON.stringify(report, null, 2) : formatReport(report));
 }
 
-if (import.meta.main) await main();
+if (import.meta.main) {
+  // A thrown git failure or a rejected flag is an operator-facing error, not a
+  // stack trace: exit 2 with the message, the same code the other refusals use.
+  try {
+    await main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
+}

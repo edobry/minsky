@@ -109,6 +109,22 @@ describe("computeWalkedWindow", () => {
     expect(computeWalkedWindow(walked, PINNED).boundBy).toBe("rev-range");
   });
 
+  test("an unreadable within-days count is 'unknown', not silently 'days'", () => {
+    // PR #3001 R1: coalescing undefined to 0 made this compare 0 > 2 and answer
+    // "days" — asserting a bound with no evidence, which is the same defect
+    // class this module exists to prevent.
+    expect(computeWalkedWindow(walked, RELATIVE, undefined).boundBy).toBe("unknown");
+  });
+
+  test("an unparseable commit date leaves the span undefined rather than 0", () => {
+    // 0 is a legitimate span (all commits same day), so coercing to it would
+    // print a confident wrong figure instead of an absent one.
+    const broken = [commit({ committedAt: "not-a-date" }), commit({ committedAt: "also-not" })];
+    const window = computeWalkedWindow(broken, PINNED);
+    expect(window.spanDays).toBeUndefined();
+    expect(describeWindow(window)).toContain("span unknown");
+  });
+
   test("an empty walk is representable rather than a crash", () => {
     const window = computeWalkedWindow([], RELATIVE, 1148);
     expect(window.boundBy).toBe("empty");
@@ -135,6 +151,12 @@ describe("describeBound", () => {
     const text = describeBound(computeWalkedWindow([commit()], PINNED));
     expect(text).toContain(PINNED_RANGE);
     expect(text).toContain("reproducible");
+  });
+
+  test("an unknown bound says so and warns off the --days figure", () => {
+    const text = describeBound(computeWalkedWindow([commit(), commit()], RELATIVE, undefined));
+    expect(text).toContain("UNKNOWN");
+    expect(text).toContain("Do not describe this sample by --days 60");
   });
 });
 
@@ -222,6 +244,29 @@ describe("runDiffGuardBacktest", () => {
     const report = await runDiffGuardBacktest(capping, RELATIVE, fakeGit({ c1: "x", c2: "x" }));
     expect(report.fires[0]?.lines).toHaveLength(2);
     expect(report.fires[0]?.findings).toEqual(["a", "b", "c", "d", "e"]);
+  });
+
+  test("a git failure propagates instead of becoming an empty walk", async () => {
+    // The harness reports an empty walk as "No commits in range" — a statement
+    // about the repo. A swallowed git error would be rendered as exactly that.
+    const failing = {
+      runGit: async () => {
+        throw new Error("fatal: bad revision 'nope^..nope'");
+      },
+    };
+    await expect(runDiffGuardBacktest(fakeAdapter("BOOM"), PINNED, failing)).rejects.toThrow(
+      "bad revision"
+    );
+  });
+
+  test("an unparseable within-days count reaches the report as 'unknown'", async () => {
+    const report = await runDiffGuardBacktest(
+      fakeAdapter("BOOM"),
+      RELATIVE,
+      fakeGit({ c1: "BOOM", c2: "BOOM" }, "not-a-number\n")
+    );
+    expect(report.window.boundBy).toBe("unknown");
+    expect(formatReport(report)).toContain("UNKNOWN");
   });
 
   test("a pinned range skips the within-days count entirely", async () => {

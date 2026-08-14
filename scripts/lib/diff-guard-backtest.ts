@@ -77,14 +77,27 @@ export interface CommitSelection {
  *
  * `limit` is the one that matters: it means the requested `--days` window was
  * NOT covered, and any figure taken from this run must not be described by it.
+ *
+ * `unknown` exists because the alternative is the bug this module was written to
+ * prevent (PR #3001 R1). Deciding between `limit` and `days` requires the
+ * within-days count; when that count could not be obtained, defaulting either
+ * way states a bound the run has no evidence for — which is the same shape as
+ * printing a requested window over a sample that does not match it.
  */
-export type WindowBound = "rev-range" | "limit" | "days" | "empty";
+export type WindowBound = "rev-range" | "limit" | "days" | "unknown" | "empty";
 
 export interface WalkedWindow {
   readonly commitCount: number;
   readonly oldest?: BacktestCommit;
   readonly newest?: BacktestCommit;
-  readonly spanDays: number;
+  /**
+   * Undefined when a commit timestamp could not be parsed.
+   *
+   * Not zero: `0` is a legitimate span (every commit on the same day), so
+   * coercing an unparseable date to it would print a confident, wrong figure —
+   * the same defect as `unknown` above, one field over.
+   */
+  readonly spanDays?: number;
   readonly boundBy: WindowBound;
   readonly requested: CommitSelection;
   /** First-parent commits inside `--days`, for the `limit`-bound comparison. */
@@ -144,10 +157,10 @@ export function parseCommitLines(stdout: string): BacktestCommit[] {
     .filter((c) => c.hash);
 }
 
-function daysBetween(olderIso: string, newerIso: string): number {
+function daysBetween(olderIso: string, newerIso: string): number | undefined {
   const older = Date.parse(olderIso);
   const newer = Date.parse(newerIso);
-  if (Number.isNaN(older) || Number.isNaN(newer)) return 0;
+  if (Number.isNaN(older) || Number.isNaN(newer)) return undefined;
   return Math.round(((newer - older) / 86_400_000) * 10) / 10;
 }
 
@@ -165,15 +178,17 @@ export function computeWalkedWindow(
   commitsWithinDays?: number
 ): WalkedWindow {
   if (commits.length === 0) {
-    return { commitCount: 0, spanDays: 0, boundBy: "empty", requested: selection };
+    return { commitCount: 0, boundBy: "empty", requested: selection };
   }
   const newest = commits[0] as BacktestCommit;
   const oldest = commits[commits.length - 1] as BacktestCommit;
   const boundBy: WindowBound = selection.revRange
     ? "rev-range"
-    : (commitsWithinDays ?? 0) > commits.length
-      ? "limit"
-      : "days";
+    : commitsWithinDays === undefined
+      ? "unknown"
+      : commitsWithinDays > commits.length
+        ? "limit"
+        : "days";
   return {
     commitCount: commits.length,
     oldest,
@@ -242,7 +257,9 @@ export function describeWindow(window: WalkedWindow): string {
   if (window.boundBy === "empty") return "no commits in range";
   const oldest = (window.oldest as BacktestCommit).committedAt.slice(0, 10);
   const newest = (window.newest as BacktestCommit).committedAt.slice(0, 10);
-  return `${window.commitCount} commits, ${oldest} -> ${newest} (${window.spanDays} days)`;
+  const span =
+    window.spanDays === undefined ? "span unknown — unparseable date" : `${window.spanDays} days`;
+  return `${window.commitCount} commits, ${oldest} -> ${newest} (${span})`;
 }
 
 /**
@@ -263,6 +280,11 @@ export function describeBound(window: WalkedWindow): string {
       );
     case "days":
       return `--days ${window.requested.days} (the --limit ${window.requested.limit} ceiling was not reached)`;
+    case "unknown":
+      return (
+        "UNKNOWN — the within-days commit count could not be read, so which ceiling bound this " +
+        `walk is unverified. Do not describe this sample by --days ${window.requested.days}.`
+      );
     default:
       return "nothing walked";
   }

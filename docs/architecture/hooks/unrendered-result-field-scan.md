@@ -97,15 +97,17 @@ ROLE of the `*Result` type each finding sits on:
   prints the payload keys of any result with no projection (189 of 225 commands reach it), naming no
   field in any literal. `InterceptorDetailResult` is rendered by cockpit web code the diff never
   touched. Both are structural — a diff-scoped literal scan cannot observe either render path.
-- **6 of 24 — plausibly genuine**, of which **1 is confirmed**: the replay flags
+- **6 of 24 — plausibly genuine, of which only 1 is counted**: the replay flags
   `WriteTurnsResult.orphanDeleteFailed` and `orphansDeleted` on `75f9c1301` (mt#3514) — the exact
   originating incident, reproduced against the real historical commit. The other five
   (`WriteTurnsResult.chunkSplits`, `ToolCallProjectionRunResult.orphansDeleted`,
   `TurnStartTagsResult.truncated`, `ReferencedShortIdResult.truncated`,
-  `SpawnsPipelineRunResult.spawnsSkippedNoToolUseId`) were NOT individually checked against a
-  repo-wide render grep — they are unverified, not established.
+  `SpawnsPipelineRunResult.spawnsSkippedNoToolUseId`) are **UNVERIFIED — not counted in precision**:
+  no repo-wide render grep was run against any of them.
 
-So precision is at most 6 of 24 and confirmed at 1 of 24. That is the argument for the log-only
+**Measured precision is 1 of 24 (4%).** The honest range is 1–6 of 24 (4–25%), and it collapses to
+the lower bound until someone verifies the five. Do not quote the 6 as a numerator. That is the
+argument for the log-only
 posture it already ships with, not an argument for tuning against this window — see the sibling
 note in `stale-signal-sweep.md` on why tuning against the window used to measure is overfitting.
 
