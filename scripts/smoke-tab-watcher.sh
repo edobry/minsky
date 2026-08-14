@@ -42,7 +42,23 @@ d = json.load(open(sys.argv[1]))
 assert "timestamp" in d, "missing timestamp"
 assert "sessions" in d, "missing sessions"
 assert isinstance(d["sessions"], list), "sessions is not a list"
-print(f"OK: snapshot parses; timestamp={d['timestamp']} sessions={len(d['sessions'])}")
+
+# mt#4080 AT1. The producer must always say whether it OBSERVED the window layout —
+# a snapshot that omits this is the pre-fix shape, where an unresponsive iTerm was
+# indistinguishable from a genuine single-window state.
+assert "iterm_dump" in d, "missing iterm_dump marker"
+assert d["iterm_dump"] in ("ok", "unavailable"), f"bad iterm_dump: {d['iterm_dump']!r}"
+assert "iterm_grouping_source" in d, "missing iterm_grouping_source"
+assert d["iterm_grouping_source"] in ("live", "history", "none"), \
+    f"bad iterm_grouping_source: {d['iterm_grouping_source']!r}"
+# The two cannot disagree: a live grouping means the dump answered, and vice versa.
+if d["iterm_dump"] == "ok":
+    assert d["iterm_grouping_source"] == "live", "dump ok but grouping not live"
+else:
+    assert d["iterm_grouping_source"] != "live", "dump unavailable but grouping claims live"
+
+print(f"OK: snapshot parses; timestamp={d['timestamp']} sessions={len(d['sessions'])} "
+      f"iterm_dump={d['iterm_dump']} grouping={d['iterm_grouping_source']}")
 PY
 
 N=$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['sessions']))" "$SNAP")
