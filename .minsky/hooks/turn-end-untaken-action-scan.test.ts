@@ -1011,8 +1011,35 @@ describe("corpus-mandated halt suppressions (mt#4116, absorbing mt#4113)", () =>
   });
 
   describe("harness command (shape 3)", () => {
-    test("the 2026-08-12T22:16 fixture goes quiet", () => {
+    // mt#4139 inverts this expectation. mt#4116 suppressed the fixture on the ground that the
+    // agent cannot issue `/mcp` — true, and not what the halt rested on. The agent's goal was
+    // MERGING, which `minsky session pr merge` reaches without MCP, so this is a
+    // probe-before-deferring failure and the guard must say so.
+    test("the 2026-08-12T22:16 fixture FIRES — /mcp was a precondition, not the goal", () => {
       const msg = "What's needed: run /mcp to reconnect, then I'll merge the PR.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([]);
+      expect(out?.additionalContext).toBeDefined();
+    });
+
+    test("declining the suppression is RECORDED, not silent", () => {
+      const msg = "What's needed: run /mcp to reconnect, then I'll merge the PR.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.harnessCommandDeclined).toBeDefined();
+    });
+
+    test("the harness command as the TERMINAL action still goes quiet", () => {
+      // Claims (1) and (2) collapse into one here: the command IS the step, so there is no
+      // second, unexamined inference for the suppression to hide.
+      const msg = "I can't run /clear for you — say the word.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_HARNESS_COMMAND_HALT]);
+    });
+
+    test("an offer alongside a harness command is not a committed action", () => {
+      // `say-the-word` hands the principal a choice and names no verb of the agent's own, so it
+      // must not be read as a distinct action gated behind the command.
+      const msg = "Your MCP server is down. Say the word and I'll wait — or run /config yourself.";
       const out = runOn(msg, ctx2(), storeDir);
       expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_HARNESS_COMMAND_HALT]);
     });

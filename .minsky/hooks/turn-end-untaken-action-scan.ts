@@ -497,6 +497,63 @@ const HARNESS_COMMAND_PATTERNS: ReadonlyArray<RegExp> = [
 ];
 
 /**
+ * Match families that COMMIT to a concrete action, as opposed to offering one (mt#4139).
+ *
+ * The split is the whole mechanism, so it is worth stating precisely. `say-the-word` and
+ * `give-go-ahead` hand the principal a choice and name no action of their own. Every family
+ * below names a verb the agent said IT would perform.
+ */
+const COMMITMENT_FAMILIES: ReadonlySet<string> = new Set([
+  "ill-action",
+  "ill-start",
+  "going-to",
+  "proceed-to",
+  "taking-forward",
+  "moving-on",
+  "next-step",
+  "next-up",
+]);
+
+/**
+ * The actions this message commits to BESIDES the harness command (mt#4139).
+ *
+ * ## Why the harness-command suppression needs this
+ *
+ * A harness-command halt rests on two claims, not one: *I cannot run `/mcp`* (true, decidable,
+ * and all {@link detectHarnessCommandHalt} checks) and *therefore I cannot do the thing I was
+ * doing* (unchecked, and frequently false). mt#4116 suppressed on the first and thereby made the
+ * second unfalsifiable — the guard stopped at the token.
+ *
+ * The discriminator is already in the guard's own match data. When the harness command is the
+ * TERMINAL named action ("I can't run `/clear` for you — say the word"), the two claims collapse
+ * into one and the suppression is sound. When the message ALSO commits to a distinct action gated
+ * behind it ("run `/mcp` to reconnect, then I'll merge the PR"), the second claim is load-bearing
+ * and unexamined — and that is exactly `user-preferences.mdc §Probe before deferring`: an operator
+ * step named as the precondition for something the agent could have done itself. In the
+ * originating fixture the merge was reachable the whole time (`minsky session pr merge`).
+ *
+ * This keeps the fix at ADR-024's Rung 1: the proposition was repairable with a literal check, so
+ * no move up the ladder is warranted (see mt#4139's Planning Audit for the ADR mapping).
+ *
+ * ## Consistency argument
+ *
+ * The guard ALREADY fires on this shape when the precondition is not a harness command —
+ * "I need you to reproduce the hang, then I'll merge the fix" is a shipped mt#4116 test expecting
+ * a fire. Gating on a committed action makes the harness case agree with its own sibling rather
+ * than carving out an exception for three tokens.
+ *
+ * Cost, stated plainly: a turn whose named step GENUINELY required the harness command now gets an
+ * advisory it did not get before. This guard is advisory, so that costs a nudge the agent can
+ * answer in one line; the inverse — a swallowed probe-before-deferring failure — is silent and
+ * costs the principal a round-trip.
+ */
+export function namesActionBeyondHarnessCommand(
+  matches: ReadonlyArray<{ family: string; matchedPhrase: string }>
+): string[] {
+  return matches.filter((m) => COMMITMENT_FAMILIES.has(m.family)).map((m) => m.matchedPhrase);
+}
+
+/**
  * Prose naming the filed-for-later-by-design branch (mt#4116).
  *
  * Corroboration is required — see {@link detectFiledByDesignHalt}. On its own this is prose and
@@ -1076,8 +1133,16 @@ export function run(
   // mt#4116, shape 3: the named step is a HARNESS command the agent cannot issue at all. A closed
   // list; the general participation-required case is deliberately out of scope (see the pattern
   // set's own comment for why it is not lexically decidable).
+  //
+  // mt#4139: the command being un-issuable is only HALF the halt. Suppress when the harness
+  // command is the terminal named action; decline when the message also commits to a distinct
+  // action gated behind it, because that second claim — "therefore I cannot do <goal>" — is the
+  // unexamined one, and it is false whenever the goal has a non-harness path. See
+  // `namesActionBeyondHarnessCommand`.
   const harnessCommand = detectHarnessCommandHalt(finalMessage);
-  if (harnessCommand.length > 0) {
+  const harnessCommandDeclined =
+    harnessCommand.length > 0 ? namesActionBeyondHarnessCommand(newMatches) : [];
+  if (harnessCommand.length > 0 && harnessCommandDeclined.length === 0) {
     return suppressed(SUPPRESSION_HARNESS_COMMAND_HALT, "harnessCommandPhrases", harnessCommand);
   }
 
@@ -1160,6 +1225,11 @@ export function run(
       // always injects when it has new matches, so the list is always empty —
       // empty (not absent) still means "recorded an outcome, did not suppress".
       suppressionReasons: [] as string[],
+      // mt#4139: a harness command WAS named and the suppression was declined
+      // because the message committed to a distinct action behind it. Present
+      // only on that path, so the next calibration pass can measure this
+      // decision separately from an ordinary fire rather than inferring it.
+      ...(harnessCommandDeclined.length > 0 ? { harnessCommandDeclined } : {}),
     },
     // The overlap flag selects the DIRECTIVE, not just the calibration field
     // above (mt#3767) — see `DEFERRAL_DIRECTIVE` for why the winning guard owes
