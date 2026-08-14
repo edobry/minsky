@@ -61,6 +61,9 @@ const READY_BOUND_MS = 60_000;
  */
 const RUNAWAY_ABORT_BYTES = 1_500 * 1024 * 1024;
 
+/** Readiness attempts before giving up, for the port race. Matches mt#2764's. */
+const READY_ATTEMPTS = 3;
+
 const spawned: ChildProcess[] = [];
 const tempDirs: string[] = [];
 
@@ -93,13 +96,6 @@ function isAlive(pid: number): boolean {
 }
 
 /**
- * Start the server with stdout on a pipe we can close, stderr on a file.
- *
- * `stdio: ["pipe", "pipe", fd]` then destroying the stdout stream from this side
- * is what a dead parent does to its child — the same condition the pre-commit
- * watchdog creates when it SIGKILLs a `bun test` runner that spawned servers
- * with three pipes.
- */
 /**
  * An OS-assigned free port, resolved by binding and releasing.
  *
@@ -135,6 +131,25 @@ const HTTP_READY_MARKER = "Ready to receive MCP requests via HTTP";
  * or an absence is a weak observation, because many causes produce it.
  */
 async function startServingServer(): Promise<ChildProcess> {
+  // Retry on a failure to reach readiness, mirroring `spawnHttpMcp`'s handling
+  // of the same window (mt#2764, `start-command.test.ts`). The wait above turns
+  // a lost port race into a loud failure rather than a false pass, which is the
+  // important half — but this test runs in the fail-closed pre-push suite, where
+  // a spurious red blocks every push and costs far more to diagnose than it does
+  // to retry. Only the readiness phase is retried; nothing here retries the
+  // assertion itself.
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= READY_ATTEMPTS; attempt += 1) {
+    try {
+      return await spawnAndAwaitReady();
+    } catch (error) {
+      lastError = error as Error;
+    }
+  }
+  throw lastError ?? new Error("startServingServer: exhausted attempts");
+}
+
+async function spawnAndAwaitReady(): Promise<ChildProcess> {
   const runDir = mkdtempSync(join(tmpdir(), "mt3885-"));
   tempDirs.push(runDir);
 
