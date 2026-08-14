@@ -28,25 +28,63 @@ import { PRECOMMIT_STEP_NAMES } from "../.minsky/hooks/known-guard-names";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 
+/** Every `this.instrumented(` call site, whatever its first argument turns out to be. */
+const CALL_SITE_RE = /this\.instrumented\s*\(/g;
+
+/**
+ * A call site whose first argument is a plain kebab-case string literal.
+ *
+ * Tolerates whitespace and line/block comments before the literal, and accepts
+ * single, double or backtick quotes — the formatting variations that would
+ * otherwise turn a legitimate step into a silent omission.
+ */
+const NAMED_CALL_RE =
+  /this\.instrumented\s*\(\s*(?:(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/)\s*)*(["'`])([a-z0-9-]+)\1/g;
+
 /**
  * Every name passed to `PreCommitValidator.instrumented()` in `source`, sorted
- * and deduped.
+ * and deduped — or null when the parse cannot account for every call site.
  *
  * Split from the file read so the parse — the part with the interesting
  * behavior — is a pure function of a string, testable without a fixture tree
  * on disk.
  *
- * Returns null rather than an empty array when nothing matches. An empty set
- * is the dangerous return: it resolves as "no pre-commit step is known", which
- * reports every legitimate step as unknown at once. A checker that cries wolf
- * gets discounted, and takes its true positives with it (mem#719).
+ * **A PARTIAL parse returns null, not the names it managed to find (PR #3002
+ * R1).** This is the whole point of the module. Returning a truncated set would
+ * hand the catalog a population that silently omits a real enforcement point,
+ * with no divergence reported anywhere — which is precisely the mt#4071 defect,
+ * reintroduced through the fix for it. So the extracted names are counted
+ * against the raw `this.instrumented(` call sites, and any shortfall means some
+ * call site used a shape this parser does not read: the honest answer is then "I
+ * could not derive this", which routes the caller to the snapshot fallback and
+ * makes `audit-fire-log.ts` print `FELL BACK to snapshot`.
+ *
+ * The count check is deliberately structural rather than an enumeration of
+ * syntax variants: it holds for a shape nobody has thought of yet, which an
+ * ever-widened literal matcher does not.
+ *
+ * Null is also the return when nothing matches at all. An empty ARRAY would be
+ * the dangerous value: it resolves as "no pre-commit step is known", reporting
+ * every legitimate step as unknown at once. A checker that cries wolf gets
+ * discounted, and takes its true positives with it (mem#719).
  */
 export function parsePrecommitStepNames(source: string): string[] | null {
+  const callSites = [...source.matchAll(CALL_SITE_RE)].length;
+  if (callSites === 0) return null;
+
   const names = new Set<string>();
-  for (const match of source.matchAll(/this\.instrumented\(\s*"([a-z0-9-]+)"/g)) {
-    const name = match[1];
-    if (name) names.add(name);
+  let named = 0;
+  for (const match of source.matchAll(NAMED_CALL_RE)) {
+    const name = match[2];
+    if (name) {
+      names.add(name);
+      named++;
+    }
   }
+
+  // Compare the MATCH count, not the deduped set size: the same step
+  // instrumented twice is one name across two accounted-for call sites.
+  if (named < callSites) return null;
   return names.size > 0 ? [...names].sort() : null;
 }
 

@@ -45,10 +45,55 @@ describe("parsePrecommitStepNames", () => {
     expect(parsePrecommitStepNames("export class PreCommitValidator {}")).toBeNull();
   });
 
-  test("ignores a call whose name is not a plain lowercase step id", () => {
+  test("returns null when NO call site yields a name", () => {
     expect(
       parsePrecommitStepNames("await this.instrumented(dynamicName, () => this.a());")
     ).toBeNull();
+  });
+
+  test("returns null on a PARTIAL parse rather than the names it did find", () => {
+    // PR #3002 R1. Returning ["readable-check"] here would hand the catalog a
+    // population silently missing a real enforcement point, with no divergence
+    // reported anywhere — the mt#4071 defect, reintroduced through its own fix.
+    const source = `
+      await this.instrumented("readable-check", () => this.a());
+      await this.instrumented(NAME_FROM_A_CONSTANT, () => this.b());
+    `;
+
+    expect(parsePrecommitStepNames(source)).toBeNull();
+  });
+
+  test("accepts single quotes and backticks, not just double quotes", () => {
+    const source = `
+      await this.instrumented('single-check', () => this.a());
+      await this.instrumented(\`backtick-check\`, () => this.b());
+    `;
+
+    expect(parsePrecommitStepNames(source)).toEqual(["backtick-check", "single-check"]);
+  });
+
+  test("accepts a comment between the paren and the name", () => {
+    const source = `
+      await this.instrumented(/* mt#0000 */ "block-comment-check", () => this.a());
+      await this.instrumented(
+        // why this step runs here
+        "line-comment-check",
+        () => this.b()
+      );
+    `;
+
+    expect(parsePrecommitStepNames(source)).toEqual(["block-comment-check", "line-comment-check"]);
+  });
+
+  test("a step instrumented twice accounts for both call sites", () => {
+    // The count check compares MATCHES to call sites, not the deduped set — a
+    // repeated name must not read as an unaccounted-for call site.
+    const source = `
+      await this.instrumented("repeated-check", () => this.a());
+      await this.instrumented("repeated-check", () => this.b());
+    `;
+
+    expect(parsePrecommitStepNames(source)).toEqual(["repeated-check"]);
   });
 });
 
@@ -87,11 +132,32 @@ describe("the real repo", () => {
     expect(derivePrecommitStepNames()).toContain("interceptor-catalog-regen");
   });
 
-  test("the snapshot has not drifted from the derivation", () => {
-    // The snapshot is the documented parse-failure fallback, so it still has
-    // to be correct — it was one entry stale for eight days before mt#4071.
-    // If this fails after you add a pre-commit step, add the step's name to
-    // PRECOMMIT_STEP_NAMES in .minsky/hooks/known-guard-names.ts.
-    expect([...PRECOMMIT_STEP_NAMES]).toEqual(derivePrecommitStepNames() ?? []);
+  // The snapshot is checked in BOTH directions, as two tests rather than one
+  // equality assertion, because the directions fail for different reasons and
+  // have different one-line fixes (PR #3002 R1).
+
+  test("the snapshot carries no name the derivation does not (no stale leftovers)", () => {
+    // A step deleted from pre-commit.ts must stop being "known".
+    // `known-guard-names.ts` is explicit that a union would keep a deleted step
+    // known forever, and that retired names belong in RETIRED_GUARD_NAMES with
+    // their last-seen date — not left sitting in the live snapshot.
+    // FIX: delete the name below from PRECOMMIT_STEP_NAMES, and add it to
+    // RETIRED_GUARD_NAMES if it has fire-log history.
+    const derived = new Set(derivePrecommitStepNames() ?? []);
+    expect([...PRECOMMIT_STEP_NAMES].filter((n) => !derived.has(n))).toEqual([]);
+  });
+
+  test("the snapshot is missing no name the derivation finds (fallback stays complete)", () => {
+    // The snapshot is not decoration: it is what `resolvePrecommitStepNames`
+    // returns when the parse fails — including the PARTIAL-parse case added in
+    // this same round. A snapshot that lags a newly-added step therefore
+    // reproduces mt#4071 exactly on the fallback path: the catalog omits a real
+    // enforcement point and nothing reports it. It was one entry stale for
+    // eight days, which is how mt#4071 happened in the first place.
+    // FIX: add the name below to PRECOMMIT_STEP_NAMES in
+    // .minsky/hooks/known-guard-names.ts — one line, in the same PR that added
+    // the step.
+    const snapshot = new Set(PRECOMMIT_STEP_NAMES);
+    expect((derivePrecommitStepNames() ?? []).filter((n) => !snapshot.has(n))).toEqual([]);
   });
 });

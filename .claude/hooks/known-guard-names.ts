@@ -60,6 +60,24 @@
  * than reported as a gap (mt#4071). The generator now derives; this list is
  * the parse-failure fallback it is documented to be, which is why it still has
  * to be correct.
+ *
+ * MAINTENANCE CONTRACT — stated here rather than left implicit in a test
+ * (PR #3002 R1). Adding or removing a `this.instrumented()` step in
+ * `src/hooks/pre-commit.ts` means editing this list in the SAME change, and
+ * `scripts/precommit-step-names.test.ts` fails in each direction with the
+ * one-line fix named:
+ *
+ *   - a name here that `pre-commit.ts` no longer has is a stale leftover —
+ *     delete it, and record it in `RETIRED_GUARD_NAMES` if it has fire-log
+ *     history, so a rename does not stay "known" forever;
+ *   - a name in `pre-commit.ts` missing from here leaves the FALLBACK
+ *     incomplete. That is not cosmetic: `resolvePrecommitStepNames` returns
+ *     this list whenever the parse fails — including the partial-parse case —
+ *     so a lagging entry reproduces mt#4071 on the fallback path, where the
+ *     catalog omits a real enforcement point and nothing reports it.
+ *
+ * Deriving is what removed the day-to-day dependency on this list; it did not
+ * make the list optional, because it is what the derivation falls back TO.
  */
 export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "adr-numbering-collision-check",
