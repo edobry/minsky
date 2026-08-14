@@ -342,6 +342,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "cli-mcp-substitution",
+    {
+      description:
+        "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("detect-cli-mcp-substitution"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "record-agent-dispatch",
     {
       description:

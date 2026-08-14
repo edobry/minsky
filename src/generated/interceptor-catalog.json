@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 98,
+  "population": 99,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -670,6 +670,36 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "cli-mcp-substitution",
+      "description": "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/detect-cli-mcp-substitution.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
       "deliberatelyUnauthored": false
     },
     {

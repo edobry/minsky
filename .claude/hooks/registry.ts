@@ -29,6 +29,7 @@ import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
 import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
+import { COMMAND_STRING_GUARDS } from "./registry-command-string-guards";
 import { PR_CREATE_GUARDS } from "./registry-pr-create-guards";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1056,49 +1057,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "calibration",
     },
   },
-  // -------------------------------------------------------------------------
-  // mt#4096 — truncated-outcome read. Sibling of the chained-verification scan
-  // above and the same matcher class (a structured command string, no
-  // paraphrase axis). Where that one catches "the exit code is unattributable",
-  // this one catches "the outcome field was discarded before anyone read it".
-  // -------------------------------------------------------------------------
-  {
-    name: "truncated-outcome-read",
-    effects: [recorderEffect()],
-    // `advisory`: which commands count as outcome-bearing is a curated list with
-    // a real false-positive surface, and the calibration log exists to size it
-    // before any enforcement posture is considered.
-    tuningOwnership: "advisory",
-    event: "PreToolUse",
-    matcher: "Bash|mcp__minsky__session_exec",
-    module: () => import("./truncated-outcome-read-detector").then((m) => ({ run: m.run })),
-    renderProbe: () => import("./truncated-outcome-read-detector").then((m) => m.renderWorstCase()),
-    // A pure string parse with no IO — it cannot approach this.
-    timeoutMs: 5000,
-    calibrationLog: "truncated-outcome-read",
-    // NEVER denies. Truncating output is ORDINARY; only the conjunction with an
-    // outcome-bearing command makes it a defect, and that trigger's precision is
-    // unproven until the calibration data says otherwise. Contrast the deny-tier
-    // command-string guards (block-bulk-process-kill and siblings): those match
-    // commands that are categorically wrong to run, which this is not.
-    denyCapable: false,
-    // MEASURED via `renderProbe` (mt#4002), not estimated: 508 chars for a
-    // long `session pr create` invocation. Bounded on the axis that grows — the
-    // echoed command string — with headroom for a longer one.
-    attentionCost: { denialMessageSizeChars: 700, optionCount: 1 },
-    // The scan is pure over its input, so the canary exercises the real decision
-    // path and asserts a genuine MATCH — this is the originating incident's own
-    // command shape (mt#4096).
-    canary: {
-      input: {
-        tool_name: "Bash",
-        tool_input: {
-          command: "minsky session commit --task 'mt#1' 'msg' 2>&1 | tail -6",
-        },
-      },
-      expects: "calibration",
-    },
-  },
+  // The command-string guard family (mt#4096, mt#4144) lives in its own module:
+  // registry.ts is AT the max-lines ceiling and comments cannot buy room, so a
+  // shared-matcher family pays one import and one spread here. See mt#4115.
+  ...COMMAND_STRING_GUARDS,
   {
     name: "record-agent-dispatch",
     effects: [
