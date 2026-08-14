@@ -17,13 +17,19 @@ import {
   SUPPRESSION_FILED_BY_DESIGN_HALT,
   SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
   detectArmedWatcherEvidence,
+  turnKeyForMessage,
   CONDITIONAL_WAIT_TOOL,
   ARMED_WAIT_TOOLS,
 } from "./turn-end-untaken-action-scan";
 import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
 import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
-import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
+import {
+  STOP_INJECTED_OVERLAP_FAMILY,
+  readFlagged,
+  writeFlagged,
+  flagKey,
+} from "./turn-end-scan-store";
 
 // Verbatim tails from the mt#3179 incidents. These are the regression anchors:
 // if the detector stops matching them, the guard has lost the class it exists
@@ -1047,6 +1053,39 @@ describe("corpus-mandated halt suppressions (mt#4116, absorbing mt#4113)", () =>
     test("a general participation excuse still fires — deliberately out of scope", () => {
       const msg = "I need you to reproduce the hang, then I'll merge the fix.";
       const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+
+    // PR #2994 R1. The decision must read the MESSAGE's matches, not the dedup-filtered set.
+    // Seed the store so the commitment (`ill-action`) is already flagged for this exact turn and
+    // only the offer survives deduping: keyed on `newMatches` the guard sees no committed action
+    // and wrongly goes quiet, which is the false-suppression path the review named.
+    test("declines the suppression even when the commitment match is already deduped", () => {
+      // Carries TWO matches: the `ill-action` commitment (seeded as already-flagged below) and a
+      // `say-the-word` offer that survives deduping — so the guard still reaches the suppression
+      // decision with a match list whose commitment is visible only in the UNfiltered set.
+      const msg =
+        "What's needed: run /mcp to reconnect, then I'll merge the PR. Say the word and I'll go.";
+      const sessionId = "mt4139-dedup-leak";
+      const turnKey = turnKeyForMessage(msg);
+      const matches = detectUntakenAction(msg);
+      const commitment = matches.find((m) => m.family === "ill-action");
+      // Guards the seed itself: if the fixture stops producing a commitment match, the seeded
+      // state would be meaningless and the test would pass for the wrong reason.
+      if (!commitment) throw new Error("fixture no longer yields an ill-action match");
+
+      writeFlagged(
+        sessionId,
+        new Set([flagKey(turnKey, commitment.family, commitment.matchedPhrase)]),
+        storeDir
+      );
+
+      const out = run(
+        { session_id: sessionId, last_assistant_message: msg } as never,
+        ctx2(),
+        storeDir
+      );
+      expect(out?.calibration?.suppressionReasons).toEqual([]);
       expect(out?.additionalContext).toBeDefined();
     });
   });

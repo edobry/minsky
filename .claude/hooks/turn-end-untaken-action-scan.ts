@@ -1027,7 +1027,11 @@ function sha1Short(input: string): string {
   return createHash("sha1").update(input).digest("hex").slice(0, 16);
 }
 
-function turnKeyForMessage(finalMessage: string): string {
+/**
+ * Exported as a test seam (PR #2994 R1), alongside `storeDir` below: seeding a PARTIALLY-flagged
+ * dedup state is the only way to pin that a suppression DECISION does not read the dedup filter.
+ */
+export function turnKeyForMessage(finalMessage: string): string {
   return sha1Short(finalMessage);
 }
 
@@ -1142,9 +1146,16 @@ export function run(
   // action gated behind it, because that second claim — "therefore I cannot do <goal>" — is the
   // unexamined one, and it is false whenever the goal has a non-harness path. See
   // `namesActionBeyondHarnessCommand`.
+  //
+  // PR #2994 R1: this reads `matches`, NOT `newMatches`. Whether the message commits to an action
+  // beyond the harness command is a property of the MESSAGE; `newMatches` is the dedup bookkeeping
+  // filter, and a commitment already flagged for this turn would drop out of it and silently flip
+  // the decision to suppress. On a first pass the two sets are equal, so this costs nothing and
+  // removes the coupling. It is also the only DECISION site that reads the match list at all — the
+  // other reads (the two calibration records, `buildReminder`) want the new-only set by design.
   const harnessCommand = detectHarnessCommandHalt(finalMessage);
   const harnessCommandDeclined =
-    harnessCommand.length > 0 ? namesActionBeyondHarnessCommand(newMatches) : [];
+    harnessCommand.length > 0 ? namesActionBeyondHarnessCommand(matches) : [];
   if (harnessCommand.length > 0 && harnessCommandDeclined.length === 0) {
     return suppressed(SUPPRESSION_HARNESS_COMMAND_HALT, "harnessCommandPhrases", harnessCommand);
   }
