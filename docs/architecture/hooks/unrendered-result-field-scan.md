@@ -111,6 +111,35 @@ argument for the log-only
 posture it already ships with, not an argument for tuning against this window — see the sibling
 note in `stale-signal-sweep.md` on why tuning against the window used to measure is overfitting.
 
+### Post-tune (mt#4147, 2026-08-14) — 24 fires → 13 over the same pinned range
+
+`isDecisionModulePath` now excludes `*Result` types DECLARED under `**/hooks/**` or
+`**/detectors/**` from consideration. Re-run over the identical range:
+
+|           | fires / 400 commits | rate | confirmed TP | plausible range |
+| --------- | ------------------- | ---- | ------------ | --------------- |
+| pre-tune  | 24                  | 6%   | 1            | 1–6 (4–25%)     |
+| post-tune | 13                  | 3.3% | 1            | 1–6 (8–46%)     |
+
+The mt#3514 fire (`75f9c1301`) survives — that is the criterion the narrowing had to not break, and
+it is asserted as a test rather than only observed here.
+
+**What still fires, and why it is left alone.** Of the 13: six are the plausible-genuine set
+(unchanged); two are the ADR-039 / rendered-elsewhere class, explicitly out of scope; four are
+internal decision types declared OUTSIDE the two roots — `SweepTickResult` (`src/cockpit/`),
+`EnsureTokenResult` (`src/mcp/daemon/`), `MaximalCollapseResult` (`packages/domain/src/engprod/`),
+`BunTestRunResult` (`scripts/`) — and one is `PrRoundBudgetResult` in a reviewer replay script,
+unclassified. Reaching the four would mean a per-directory predicate each, which is the arms race
+ADR-024 §Context names; they stay as measured residue so the number above is honest rather than
+tuned.
+
+**Why a path predicate at all**, given ADR-034 kept the analogous discriminator shape-based: its
+objection was coverage of an open identifier space, which does not transfer to a closed set of
+module roots, and its reopen condition 2 (a measured FP rate above 10%) is met at 67%. Three
+shape-based alternatives were tried first and falsified against the real fixture — recorded on
+`findUnrenderedResultFields` in the source, so the next author re-derives them from the diff rather
+than from the idea.
+
 ## Wiring
 
 Registered on `session_pr_create`, which became a dispatcher-spawning tool in mt#3959. The
