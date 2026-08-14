@@ -143,9 +143,17 @@ describe("memory reading when vm_stat is unavailable", () => {
    * Portable on purpose: no iTerm, no process table. On Linux vm_stat is genuinely absent, so
    * this exercises the real path there; the shim makes it deterministic on macOS too.
    */
-  function runResumeWithoutVmStat(snapshotPath: string) {
+  /**
+   * `shimBody` is the whole point of the parameter. There are three distinct ways the reading
+   * can be unavailable and they exercise DIFFERENT code: absent (never runs awk), failing
+   * (never runs awk), and succeeding-but-unparseable (runs awk, which exits 1). R1 covered only
+   * the first two, so the third stayed invisible until the reviewer found it on R2 — awk's
+   * non-zero status propagated through `pipefail` into a bare assignment and `set -e` killed
+   * the run. All three must end in the same honest "unknown".
+   */
+  function runResumeWithVmStatShim(snapshotPath: string, shimBody: string) {
     const shimDir = mkdtempSync(join(tmpdir(), "tw-shim-"));
-    writeFileSync(join(shimDir, "vm_stat"), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
+    writeFileSync(join(shimDir, "vm_stat"), shimBody, { mode: 0o755 });
     try {
       const proc = Bun.spawnSync(["bash", RESUME_SH, "--snapshot", snapshotPath, "--dry-run"], {
         env: {
@@ -163,9 +171,12 @@ describe("memory reading when vm_stat is unavailable", () => {
     }
   }
 
+  const FAILING = "#!/bin/sh\nexit 127\n";
+  const UNPARSEABLE = "#!/bin/sh\necho 'garbage output with no page size line'\nexit 0\n";
+
   test("reports the reading as unknown rather than inventing 0.0", () => {
     const snap = writeSnapshot("mem.json", { iterm_dump: "ok", iterm_grouping_source: "live" });
-    const { stdout } = runResumeWithoutVmStat(snap);
+    const { stdout } = runResumeWithVmStatShim(snap, FAILING);
     expect(stdout).toContain("available memory unknown");
     // The pre-fix output. 0.0 is not merely wrong, it is below every floor.
     expect(stdout).not.toContain("0.0GB");
@@ -176,7 +187,20 @@ describe("memory reading when vm_stat is unavailable", () => {
       iterm_dump: "ok",
       iterm_grouping_source: "live",
     });
-    expect(runResumeWithoutVmStat(snap).exitCode).toBe(0);
+    expect(runResumeWithVmStatShim(snap, FAILING).exitCode).toBe(0);
+  });
+
+  test("survives a vm_stat that succeeds but emits unparseable output", () => {
+    // The R2 regression: awk exits 1 here, and before the fix `set -euo pipefail` propagated
+    // that through the bare `mem_now=$(avail_gb)` assignment and killed the run at exit 1,
+    // never printing the summary line at all.
+    const snap = writeSnapshot("mem-garbage.json", {
+      iterm_dump: "ok",
+      iterm_grouping_source: "live",
+    });
+    const { stdout, exitCode } = runResumeWithVmStatShim(snap, UNPARSEABLE);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain("available memory unknown");
   });
 
   test("reports a real reading when vm_stat works", () => {

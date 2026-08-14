@@ -194,13 +194,21 @@ avail_gb() {
   command -v vm_stat >/dev/null 2>&1 || return 0
   out=$(vm_stat 2>/dev/null) || return 0
   [ -n "$out" ] || return 0
+  # `|| return 0` is load-bearing, and was missing in PR #2993 R1. awk exits 1 on
+  # unparseable input; under `set -o pipefail` the pipeline inherits that, and
+  # both callers assign it with a BARE assignment (`avail=$(avail_gb)`), whose
+  # exit status IS the substitution's — so `set -e` killed the whole run. Caught
+  # by the reviewer on R2 and reproduced: a vm_stat that SUCCEEDS but emits
+  # unparseable output exited 1 and never printed the summary line. Note the
+  # shape — every earlier test shimmed vm_stat to FAIL, so awk never ran and the
+  # path stayed invisible.
   printf '%s\n' "$out" | awk '
     /page size of/  { ps = $8 }
     /Pages free/    { gsub(/\./, "", $3); free = $3 }
     /Pages inactive/{ gsub(/\./, "", $3); inact = $3 }
     /Pages specul/  { gsub(/\./, "", $3); spec = $3 }
     END { if (ps == "") exit 1; printf "%.1f", (free + inact + spec) * ps / 1073741824 }
-  '
+  ' || return 0
 }
 
 wait_for_memory() {
