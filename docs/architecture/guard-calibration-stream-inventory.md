@@ -126,6 +126,21 @@ every one of these IS registered for INGEST, in
 `packages/domain/src/guard-events/stream-sources.ts` §B — that list is data, and
 a stream absent from it accumulates on disk and reaches no consumer.
 
+**These streams contain synthetic rows — subtract them before computing a rate
+(mt#4127).** A canary drives the guard's REAL `run()`, so a guard that writes a
+per-turn record writes one for the canary too. Every such row carries
+`session_id: "mt2889-canary-session"` (`CANARY_SESSION_ID`, stamped by
+`baseCanaryInput` in `.minsky/hooks/canary-runner.ts`); filter with the exported
+`isCanaryRecord()` rather than re-typing the literal. **Do not `grep -c canary`**
+— that also matches real turns whose captured text discusses canary runs, which
+measured 31 against a true 25 on `operator-deferral` (2026-08-13).
+
+As of mt#4127 `runGuardCanary` sandboxes its own writes (a temp repo root, set
+on both `CLAUDE_PROJECT_DIR` and `input.cwd`), so no NEW canary rows reach these
+files. The historical ones remain and are what the filter is for: measured
+2026-08-13, `operator-deferral` 25, `negative-existence-claim` 15,
+`retrospective-trigger` 10, `silent-stretch` 5, `stop-at-decision` 0.
+
 Two writer conventions coexist. The older streams hold a hardcoded
 `EVALUATION_LOG` path constant local to the detector file; since mt#3745 the
 convention is a bare `EVALUATION_LOG_NAME` plus the shared

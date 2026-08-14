@@ -40,9 +40,18 @@ discover_candidate_pids() {
 }
 
 # Single osascript call to enumerate iTerm window+tab+tty triples. Fails
-# silently and returns empty if iTerm isn't running or automation perms aren't
-# granted yet.
+# silently and returns empty if iTerm isn't running, if automation perms aren't
+# granted yet, or — the case mt#4080 is about — if iTerm is wedged and never
+# answers the AppleEvent. The caller cannot tell those apart from the return
+# value alone, which is why build_snapshot records the EMPTINESS separately
+# rather than letting it masquerade as an observed layout.
 dump_iterm_tabs() {
+  # Test seam: lets the suite exercise the unresponsive-iTerm path without
+  # wedging a real iTerm. Never set in production; mirrors the
+  # TAB_WATCHER_SKIP_LAUNCHCTL seam install.sh already uses.
+  if [ "${TAB_WATCHER_FORCE_EMPTY_DUMP:-0}" = "1" ]; then
+    return 0
+  fi
   /usr/bin/osascript 2>/dev/null <<'AS' || true
 tell application "System Events"
   if not (exists process "iTerm2") then return ""
@@ -94,6 +103,7 @@ build_snapshot() {
 
   TS="$timestamp" ITERM="$iterm_dump" LSOF="$lsof_out" PS="$ps_out" \
   PIDS_LIST="$pids_list" CLAUDE_BIN_PATTERN="$CLAUDE_BIN_PATTERN" HOME_DIR="$HOME" \
+  SNAP_STATE_DIR="$STATE_DIR" \
   /usr/bin/python3 <<'PY'
 import json, os, re, time
 from datetime import datetime
@@ -116,6 +126,65 @@ for line in iterm_raw.splitlines():
     iterm_by_tty[tty_path] = (win_id, tab_title)
     if tty_path.startswith("/dev/"):
         iterm_by_tty[tty_path[len("/dev/"):]] = (win_id, tab_title)
+
+# mt#4080. An empty dump is an OBSERVATION FAILURE, not an observed absence of
+# windows, and the two used to be written identically: every session got
+# iterm_window_id "" via the .get default below, indistinguishable from a real
+# single-window state. Record the distinction, then try to recover the grouping.
+#
+# Recovery joins on TTY, which is the whole reason it can work: the tty comes
+# from ps/lsof, which do not depend on iTerm answering. So a session that is
+# still running still has the tty it was recorded under, and a grouping from
+# before the wedge re-attaches to exactly the sessions it described. Sessions
+# started since the last good dump simply do not match, and stay ungrouped —
+# the join is self-limiting, which is why it needs no age cutoff.
+iterm_dump_status = "ok" if iterm_by_tty else "unavailable"
+grouping_source = "live" if iterm_by_tty else "none"
+grouping_from = ""
+
+
+def _recover_grouping(state_dir):
+    """Newest OBSERVED grouping from snapshot history, as (map, its timestamp).
+
+    Only snapshots whose own grouping was observed live are eligible: chaining
+    recovery onto a recovered snapshot would keep re-dating a stale layout and
+    make grouping_from meaningless. Legacy snapshots predate these fields, so
+    absence of the marker plus a populated window id counts as live.
+    """
+    try:
+        candidates = [Path(state_dir) / "snapshot.json"]
+        candidates += sorted(
+            Path(state_dir).glob("snapshot-*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}, ""
+
+    for path in candidates:
+        try:
+            with open(path) as fh:
+                prior = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if prior.get("iterm_grouping_source", "live") != "live":
+            continue
+        recovered = {}
+        for sess in prior.get("sessions", []):
+            tty, win = sess.get("tty", ""), sess.get("iterm_window_id", "")
+            if tty and win:
+                recovered[tty] = (win, sess.get("iterm_tab_title", ""))
+        if recovered:
+            return recovered, prior.get("timestamp", "")
+    return {}, ""
+
+
+if not iterm_by_tty:
+    _recovered, _from = _recover_grouping(os.environ["SNAP_STATE_DIR"])
+    if _recovered:
+        iterm_by_tty = _recovered
+        grouping_source = "history"
+        grouping_from = _from
 
 # Parse lsof -Ffpn: each PID has one fcwd record (with its n<path>) and many
 # ftxt records (binary + every loaded library). Capture the first cwd and set
@@ -203,7 +272,16 @@ for pid in pids:
         "uptime_sec": uptime_sec,
     })
 
-print(json.dumps({"timestamp": timestamp, "sessions": sessions}, indent=2))
+# `iterm_dump` and `iterm_grouping_source` are always emitted so a consumer can
+# branch on them without guessing; `iterm_grouping_from` only when it means
+# something. Additive — every snapshot already on disk predates all three, so
+# consumers must treat their ABSENCE as the legacy "assume observed" case.
+snapshot = {"timestamp": timestamp, "iterm_dump": iterm_dump_status,
+            "iterm_grouping_source": grouping_source}
+if grouping_from:
+    snapshot["iterm_grouping_from"] = grouping_from
+snapshot["sessions"] = sessions
+print(json.dumps(snapshot, indent=2))
 PY
 }
 
