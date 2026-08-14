@@ -275,7 +275,113 @@ export function getLogMode(configOverride?: LoggerConfig): LogMode {
  * Create a logger instance with the given configuration
  * This allows for dependency injection and testing
  */
+/**
+ * Is this the error a closed output pipe produces? (mt#3885)
+ *
+ * Pure, and exported for its own test: the discrimination is the whole guard,
+ * and it must not accept a non-EPIPE error — exiting on an unrelated write
+ * failure would turn a recoverable condition into a silent process death.
+ */
+export function isBrokenPipeError(error: unknown): boolean {
+  if (error === null || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  return code === "EPIPE";
+}
+
+/** The process surface the guard needs. Narrowed so a test can supply a fake. */
+export interface BrokenPipeGuardProcess {
+  on(event: "uncaughtException", listener: (error: unknown) => void): unknown;
+  exit(code?: number): unknown;
+  stdout?: { on?(event: "error", listener: (error: unknown) => void): unknown };
+  stderr?: { on?(event: "error", listener: (error: unknown) => void): unknown };
+}
+
+let brokenPipeGuardInstalled = false;
+
+/** Test seam — the guard is process-global and installs at most once per process. */
+export function _resetBrokenPipeGuardForTests(): void {
+  brokenPipeGuardInstalled = false;
+}
+
+/**
+ * Exit instead of reporting, when the stream we would report on is gone (mt#3885).
+ *
+ * ## The failure this prevents
+ *
+ * A write to a closed stdout raises `EPIPE`. With no handler that becomes an
+ * `uncaughtException`, which winston reports — through a Console transport that
+ * writes to the SAME stdout (`console.js` sends every level to stdout unless
+ * `stderrLevels` names it, and `_stringArrayToSet` turns an omitted option into
+ * an empty set). That write raises `EPIPE` too. With `exitOnError: false`, the
+ * cycle never terminates.
+ *
+ * Measured on 2026-08-13 against a `mcp start --http` whose stdout pipe was
+ * closed: **~780 MB/s at 100-192% CPU**, an `Error` plus rendered stack per
+ * iteration. It is a SYNCHRONOUS cycle, so it also blocks the event loop —
+ * which is why mt#3886's memory ceiling, mt#3764's watchers and the process's
+ * own SIGTERM handler were all unreachable, and why the orphans the pre-commit
+ * test watchdog left behind reached 40-60 GB and panicked the machine
+ * (mem#913, five panics in four days).
+ *
+ * ## Why exiting, rather than routing the report elsewhere
+ *
+ * Routing the exception dump to stderr looks like the smaller fix and does not
+ * work: the case that produced the incident is a test runner spawned with
+ * `stdio: ["pipe", "pipe", "pipe"]` being SIGKILLed, which closes BOTH read
+ * ends at once. A handler that reports to stderr then loops on stderr instead.
+ * The only stable answer is to stop trying to report.
+ *
+ * Exiting is also the conventional behavior for the condition. SIGPIPE
+ * terminates a process by default; Node and Bun ignore it and surface `EPIPE`
+ * instead, which leaves the decision to the program. A process whose output
+ * pipe is closed has lost the channel it would explain itself on, so `head`
+ * closing its input ends `minsky` for the same reason it ends `yes`.
+ *
+ * Installed FIRST, before any winston logger exists, so this listener runs
+ * before winston's and `exit()` preempts the reporting cycle rather than
+ * racing it.
+ */
+export function installBrokenPipeGuard(
+  // The runtime methods all exist; this project's ambient `process` type is
+  // narrowed and omits `stdout.on`/`stderr.on`, the same gap `start-command.ts`
+  // and `stdio-proxy/proxy.ts` cast around.
+  // eslint-disable-next-line custom/no-excessive-as-unknown -- narrowed ambient process type, methods exist at runtime
+  proc: BrokenPipeGuardProcess = process as unknown as BrokenPipeGuardProcess
+): void {
+  if (brokenPipeGuardInstalled) return;
+  brokenPipeGuardInstalled = true;
+
+  // Exit 0, not non-zero: a closed reader is a normal way for a pipeline to
+  // end, and the process did nothing wrong. This matches how conventional CLI
+  // tools treat SIGPIPE.
+  const exitOnBrokenPipe = (error: unknown): void => {
+    if (isBrokenPipeError(error)) proc.exit(0);
+  };
+
+  // The stream listeners are what actually fire, and attaching them is what
+  // makes that true: before this guard the write threw synchronously through
+  // bun's `writeFast` and surfaced as an uncaught exception, because nothing
+  // was listening. Measured with the uncaughtException route disabled, the
+  // stream listener alone still ends the process — so this pair is the fix, not
+  // the line below it.
+  proc.stdout?.on?.("error", exitOnBrokenPipe);
+  proc.stderr?.on?.("error", exitOnBrokenPipe);
+
+  // Backstop for a write path that reaches the fd without going through
+  // `process.stdout` (winston writes via `console._stdout`, which is the same
+  // object in the runtimes measured here — but that is an implementation
+  // detail of two dependencies, not a contract). It costs nothing to hold:
+  // winston installs its own `uncaughtException` handler unconditionally a few
+  // lines below, so the process-wide semantics this participates in are
+  // already in force either way.
+  proc.on("uncaughtException", exitOnBrokenPipe);
+}
+
 export function createLogger(configOverride?: LoggerConfig) {
+  // mt#3885: before any winston logger exists, so this handler is registered
+  // ahead of winston's exception handlers. See installBrokenPipeGuard.
+  installBrokenPipeGuard();
+
   const loggerConfig = configOverride || getLoggerConfig();
   const logLevel = loggerConfig.level;
   const currentLogMode = getLogMode(loggerConfig);
