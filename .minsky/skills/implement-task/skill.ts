@@ -75,11 +75,13 @@ Then run both sweeps:
    candidate you would act on, read its actual changed-file list with
    \`mcp__github__pull_request_read\` method \`get_files\` before recording a collision.
 
-   **A file-level collision claim must cite an observed changed-file list (mt#3806).** A task's
-   title, its \`## Scope\` section, or an inference about where that kind of code lives is not
-   evidence about which files a PR touches. \`get_files\` is the cheap default — it returns a
-   filename list, which is the whole question here; reserve \`get_diff\` for when the hunks
-   actually matter.
+   **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
+   evidence is \`get_files\`/\`get_diff\` for an open PR, or \`mcp__minsky__git_log\` with the file
+   path filter (\`git_log --path\`) for work that already merged — both sweeps below, and both
+   are file-level reads. A task's title, its \`## Scope\` section, or an inference about where
+   that kind of code lives is not evidence about which files were touched. \`get_files\` is the
+   cheap default — it returns a filename list, which is the whole question here; reserve
+   \`get_diff\` for when the hunks actually matter.
 
    **When the other work has no PR yet, a file-level claim is UNAVAILABLE.** Do not substitute
    prose for the missing list. Record "task-level adjacency, files unknown" and decide on that
