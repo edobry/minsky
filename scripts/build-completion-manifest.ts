@@ -300,12 +300,26 @@ function findNodeByCommandId(
   const idSegments = commandId.split(".");
   const cat = category?.toLowerCase();
 
-  const candidates: string[][] = [idSegments];
+  // ORDER IS LOAD-BEARING (PR #3004 R1 BLOCKING). Every command mounts UNDER its
+  // category, so the category-aware path is the correct one and must be tried
+  // FIRST. The first draft tried bare `idSegments` first: for `asks.list` under
+  // `TOOLS` that probes `['asks','list']` at the root before the correct
+  // `['tools','asks','list']`, so the day a top-level `asks` command with a
+  // `list` child exists, it stamps the WRONG node — silently, and against this
+  // function's own promise never to.
+  const candidates: string[][] = [];
   if (cat) {
-    if (idSegments[0] === cat) candidates.push(idSegments.slice(1));
-    candidates.push([cat, ...idSegments]);
-    if (idSegments[0] === cat) candidates.push([cat, ...idSegments.slice(1)]);
+    if (idSegments[0] === cat) {
+      // Id already carries the category: `tasks.status.set` -> `tasks status set`.
+      candidates.push(idSegments);
+    } else {
+      // Id does not: `asks.list` under TOOLS -> `tools asks list`.
+      candidates.push([cat, ...idSegments]);
+    }
   }
+  // Bare id last, as a fallback for a command whose category is absent or does
+  // not correspond to a top-level Commander node.
+  candidates.push(idSegments);
 
   // The name-appended variants mirror the handler's `nameMatchesLastIdSegment`
   // fallback. Only tried when the name is not already the last segment, so a
@@ -314,9 +328,23 @@ function findNodeByCommandId(
     for (const base of [...candidates]) candidates.push([...base, leafName]);
   }
 
+  const seen = new Set<string>();
   for (const segments of candidates) {
+    const key = segments.join("\n");
+    if (seen.has(key)) continue;
+    seen.add(key);
     const node = walkPath(root, segments);
     if (node) return node;
+    // NOT gated on leaf-ness, though the review suggested it and it looks right.
+    // `setup` falsifies it: it is a registry command AND a container (`setup db`,
+    // `setup github-app` are their own registry commands). Requiring a leaf drops
+    // it — measured, 227 stamped -> 226 with `setup` unresolved — and the
+    // manifest then reads "no MCP equivalent" for a command that has one
+    // (`mcp__minsky__setup`), which is the exact misread the check was meant to
+    // prevent. `walkPath` already returns undefined unless EVERY segment matched,
+    // so a partial match cannot resolve here; the real mis-stamp hazard was
+    // candidate ORDER, fixed above. A container carrying its own `commandId`
+    // beside children carrying theirs is correct, not a contract violation.
   }
   return undefined;
 }
@@ -334,11 +362,16 @@ async function main() {
     let valuesInjected = 0;
     let valuesAttempted = 0;
     let idsStamped = 0;
-    let idsUnresolved = 0;
+    const unresolvedIds: string[] = [];
     for (const cmd of sharedCommandRegistry.getAllCommands()) {
       const node = findNodeByCommandId(manifest, cmd.id, cmd.category, cmd.name);
       if (!node) {
-        idsUnresolved++;
+        // NAMED, not just counted (PR #3004 R1). An unresolved id and a genuine
+        // non-registry leaf are indistinguishable in the manifest — both simply
+        // lack `commandId`, and the consumer reads absence as "no MCP
+        // equivalent". A silent count cannot tell those apart after the fact, so
+        // the ids are printed for triage.
+        unresolvedIds.push(cmd.id);
         continue; // command not in the visible Commander tree
       }
       node.commandId = cmd.id;
@@ -385,7 +418,9 @@ async function main() {
       `Wrote completion manifest: ${outPath}\n` +
         `  Enum-value injections: ${valuesInjected}/${valuesAttempted} (` +
         `${valuesAttempted - valuesInjected} options not found in Commander tree)\n` +
-        `  Command-id stamps: ${idsStamped} stamped, ${idsUnresolved} unresolved`
+        `  Command-id stamps: ${idsStamped} stamped, ${unresolvedIds.length} unresolved${
+          unresolvedIds.length > 0 ? `\n    unresolved: ${unresolvedIds.join(", ")}` : ""
+        }`
     );
   } finally {
     await container.close();

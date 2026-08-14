@@ -66,7 +66,7 @@ import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { leadingTokenOf, splitPipeline, splitTopLevel } from "./command-shape";
-import { extractToolUseNames } from "./transcript";
+import { extractToolResultText, TOOL_DENIAL_MARKER } from "./transcript";
 
 const OVERRIDE_ENV = "MINSKY_ALLOW_CLI_SUBSTITUTION";
 
@@ -143,11 +143,34 @@ export function minskyArgvOf(segment: string): string[] | null {
  */
 export function resolveCommandId(root: ManifestNode, argv: string[]): string | null {
   let node: ManifestNode = root;
+  let afterFlag = false;
+
   for (const token of argv) {
-    if (token.startsWith("-")) continue;
+    if (token.startsWith("-")) {
+      // `--key=value` carries its own value; bare `--` ends option parsing. Neither can consume a
+      // following token. Anything else MIGHT take a separated value (`--cwd /tmp`).
+      afterFlag = token !== "--" && !token.includes("=");
+      continue;
+    }
+
     const next = node.subcommands?.find((s) => s.name === token);
-    if (!next) break;
-    node = next;
+    if (next) {
+      // A token that names a subcommand is one, even directly after a flag — which is what keeps
+      // BOOLEAN flags working (`minsky --json tasks get`). Skipping unconditionally after any flag
+      // would swallow `tasks` here, trading one false-negative shape for another.
+      node = next;
+      afterFlag = false;
+      continue;
+    }
+
+    if (afterFlag) {
+      // Not a subcommand, directly after a value-taking-shaped flag: it is that flag's value
+      // (`minsky --cwd /tmp tasks get`). Consume it and keep walking.
+      afterFlag = false;
+      continue;
+    }
+
+    break; // a non-flag, non-subcommand token: the leaf's own arguments start here.
   }
   return node.commandId ?? null;
 }
@@ -185,11 +208,62 @@ export function scanCommand(command: string, manifest: ManifestNode): CliSubstit
   return CLEAN;
 }
 
-/** True when the session has already used the MCP surface — the substitution is then deliberate. */
-export function hasUsedMcpSurface(ctx: DispatchContext): boolean {
-  return extractToolUseNames(ctx.transcriptLines ?? []).some((name) =>
-    MCP_TOOL_NAME_PATTERN.test(name)
-  );
+/**
+ * True when the session has an MCP call that actually SUCCEEDED — at which point the substitution
+ * is a deliberate choice and this guard stays silent.
+ *
+ * **Presence of a `tool_use` is NOT sufficient, and the difference is the whole point** (PR #3004
+ * R1 BLOCKING, raised independently by both review chunks). The first implementation suppressed on
+ * any `mcp__minsky__*` tool_use name, which inverts the guard on its PRIMARY scenario: the
+ * stale-daemon case the `UserPromptSubmit` hook describes is exactly an MCP call that is ATTEMPTED
+ * and fails. Under name-presence, that failed attempt would suppress the detector for the rest of
+ * the session — silencing it precisely when the agent then rebuilds the surface out of CLI calls.
+ *
+ * So a call counts only when it has a correlated `tool_result` that is neither a permission denial
+ * nor an error. An UNCORRELATED tool_use — in flight, or its result outside the transcript window —
+ * counts as NOT succeeded, which is the conservative direction: it can cost a false fire on a
+ * log-only observer, where suppressing a true one costs the finding entirely.
+ */
+export function hasSucceededMcpCall(ctx: DispatchContext): boolean {
+  const lines = ctx.transcriptLines ?? [];
+
+  // Pass 1: tool_use_id -> outcome text, from every tool_result block. A tool_result carries only
+  // the correlating id, never the originating tool's name, so this cannot be scoped by name here.
+  const resultById = new Map<string, { text: string; isError: boolean }>();
+  for (const line of lines) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const useId = block["tool_use_id"];
+      if (typeof useId !== "string") continue;
+      const text = extractToolResultText(block["content"]);
+      const prior = resultById.get(useId);
+      resultById.set(useId, {
+        text: (prior?.text ?? "") + text,
+        isError: (prior?.isError ?? false) || block["is_error"] === true,
+      });
+    }
+  }
+
+  // Pass 2: every mcp__minsky__* tool_use, resolved against pass 1.
+  for (const line of lines) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_use") continue;
+      const name = block["name"];
+      const useId = block["id"];
+      if (typeof name !== "string" || !MCP_TOOL_NAME_PATTERN.test(name)) continue;
+      if (typeof useId !== "string") continue;
+      const outcome = resultById.get(useId);
+      if (!outcome) continue; // no correlated result — not evidence of success
+      if (outcome.isError) continue;
+      if (TOOL_DENIAL_MARKER.test(outcome.text)) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 function buildWarning(result: CliSubstitutionScanResult): string {
@@ -241,7 +315,7 @@ export async function run(
 
   // Suppressed, but RECORDED — the miss rate for this suppression stays measurable, per the
   // evaluation-stream convention the operator-deferral surfaces already follow.
-  if (hasUsedMcpSurface(ctx)) {
+  if (hasSucceededMcpCall(ctx)) {
     return { calibration: { ...base, outcome: "suppressed-mcp-in-use" } };
   }
 

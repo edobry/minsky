@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  hasUsedMcpSurface,
+  hasSucceededMcpCall,
   manifestPath,
   mcpToolNameFor,
   minskyArgvOf,
@@ -31,11 +31,44 @@ const manifest = loadedManifest;
 /** The incident's canonical command id — used by both the AT1 table and the AT5 render check. */
 const STATUS_SET_ID = "tasks.status.set";
 
-function ctxWithToolNames(names: string[]): DispatchContext {
-  const lines = names.map((name) => ({
-    type: "assistant",
-    message: { content: [{ type: "tool_use", name, input: {} }] },
-  }));
+/** An arbitrary MCP tool name, used across the AT2 suppression cases. */
+const MCP_TASKS_GET = "mcp__minsky__tasks_get";
+
+type CallSpec = { name: string; outcome: "ok" | "denied" | "error" | "none" };
+
+/**
+ * Build a transcript of tool_use blocks each with its correlated tool_result, so the suppression
+ * leg can be exercised on OUTCOME rather than on name presence.
+ */
+function ctxWithCalls(calls: CallSpec[]): DispatchContext {
+  const lines: unknown[] = [];
+  calls.forEach((call, i) => {
+    const id = `toolu_${i}`;
+    lines.push({
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id, name: call.name, input: {} }] },
+    });
+    if (call.outcome === "none") return;
+    const text =
+      call.outcome === "denied"
+        ? "The user doesn't want to proceed with this tool use. The tool use was rejected"
+        : call.outcome === "error"
+          ? "MCP error -32603: transport closed"
+          : '{"success":true}';
+    lines.push({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            is_error: call.outcome === "error",
+            content: [{ type: "text", text }],
+          },
+        ],
+      },
+    });
+  });
   return { transcriptLines: lines } as unknown as DispatchContext;
 }
 
@@ -82,6 +115,17 @@ describe("resolveCommandId", () => {
     expect(resolveCommandId(root, ["--json", "tasks", "get", "mt#1"])).toBe("tasks.get");
   });
 
+  // PR #3004 R1 BLOCKING: a flag taking a SEPARATED value used to break the walk on the value.
+  test("skips a separated flag value without swallowing a boolean flag s subcommand", () => {
+    const root = {
+      name: "minsky",
+      subcommands: [{ name: "tasks", subcommands: [{ name: "get", commandId: "tasks.get" }] }],
+    };
+    expect(resolveCommandId(root, ["--cwd", "/tmp", "tasks", "get"])).toBe("tasks.get");
+    expect(resolveCommandId(root, ["--json", "--cwd", "/tmp", "tasks", "get"])).toBe("tasks.get");
+    expect(resolveCommandId(root, ["--cwd=/tmp", "tasks", "get"])).toBe("tasks.get");
+  });
+
   test("returns null at a node carrying no commandId", () => {
     const root = { name: "minsky", subcommands: [{ name: "compile" }] };
     expect(resolveCommandId(root, ["compile", "--check"])).toBeNull();
@@ -123,19 +167,52 @@ describe("AT1 — the originating incident's commands fire", () => {
   });
 });
 
-describe("AT2 — negative control: suppressed once the MCP surface is in use", () => {
-  test("a session that already called an mcp__minsky__ tool is not reported", () => {
-    const ctx = ctxWithToolNames(["Read", "mcp__minsky__tasks_get", "Bash"]);
-    expect(hasUsedMcpSurface(ctx)).toBe(true);
+describe("AT2 — suppressed only once an MCP call has SUCCEEDED", () => {
+  test("a succeeded mcp__minsky__ call suppresses", () => {
+    const ctx = ctxWithCalls([
+      { name: "Read", outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "ok" },
+    ]);
+    expect(hasSucceededMcpCall(ctx)).toBe(true);
   });
 
-  test("a session with no mcp__minsky__ call is reportable", () => {
-    const ctx = ctxWithToolNames(["Read", "Bash", "ToolSearch", "mcp__github__list_issues"]);
-    expect(hasUsedMcpSurface(ctx)).toBe(false);
+  test("no mcp__minsky__ call at all is reportable", () => {
+    const ctx = ctxWithCalls([
+      { name: "Bash", outcome: "ok" },
+      { name: "mcp__github__list_issues", outcome: "ok" },
+    ]);
+    expect(hasSucceededMcpCall(ctx)).toBe(false);
   });
 
   test("an empty transcript is reportable rather than silently suppressed", () => {
-    expect(hasUsedMcpSurface({ transcriptLines: [] } as unknown as DispatchContext)).toBe(false);
+    expect(hasSucceededMcpCall({ transcriptLines: [] } as unknown as DispatchContext)).toBe(false);
+  });
+
+  // PR #3004 R1 BLOCKING, raised by both review chunks. These four are the regression: under the
+  // original name-presence implementation every one of them returned true, which suppressed the
+  // detector on exactly the sessions it exists for — an MCP call was ATTEMPTED and did not work,
+  // and the agent then rebuilt the surface out of CLI calls.
+  test("a DENIED mcp call does not suppress", () => {
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "denied" }]);
+    expect(hasSucceededMcpCall(ctx)).toBe(false);
+  });
+
+  test("an ERRORED mcp call does not suppress", () => {
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "error" }]);
+    expect(hasSucceededMcpCall(ctx)).toBe(false);
+  });
+
+  test("an UNCORRELATED mcp call (no result) does not suppress", () => {
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "none" }]);
+    expect(hasSucceededMcpCall(ctx)).toBe(false);
+  });
+
+  test("a failed call followed by a succeeded one DOES suppress", () => {
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "error" },
+      { name: MCP_TASKS_GET, outcome: "ok" },
+    ]);
+    expect(hasSucceededMcpCall(ctx)).toBe(true);
   });
 });
 
