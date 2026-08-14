@@ -86,6 +86,26 @@ a status transition; everything else is investigation and gate-check.
    consecutive tool calls, whichever comes first — see \`user-preferences.mdc §Progress
    heartbeats during tool-only stretches\`. Don't hold a genuine blocking finding for the
    next scheduled heartbeat; report it immediately.
+5. **Search BEFORE you write an ownership claim (mt#3806).** If rescoping this spec is about
+   to put a claim about *who owns something* into it — "unowned", "no task covers this",
+   "nothing handles this", or a file-level collision with named other work — run the search
+   that would falsify it FIRST: \`mcp__minsky__tasks_search\` for the ownership claim,
+   \`get_files\`/\`git_log --path\` for the file claim (gate (g) check 1 spells both out). **A
+   negative ownership claim must cite the search that supports it, or not be written.**
+
+   This step exists because the search is already guaranteed — and was, by this skill, at the
+   wrong time. In the originating incident (\`/plan-task mt#3682\`, 2026-08-08) an agent wrote
+   "unowned — no task covers this today" into a spec's \`## Does NOT cover\`; gate (g) then ran
+   \`tasks_search\` **two minutes later, in the same skill run**, and returned mt#3826, which had
+   covered it for four hours and supplied the cause the spec called undetermined. No amount of
+   diligence fixes an ordering: the skill consulted its own oracle after the artifact was
+   written.
+
+   **Only the search hoists, not the whole gate.** Gate (g)'s path-collision check consumes the
+   spec's \`## Scope\` → \`In scope\` file list, so it cannot run before the spec is read — moving
+   the full gate here would break its own input. What moves is the cheap part that has no such
+   dependency: the ownership search. Gate (g) still runs in full at Step 3; this makes the claim
+   the trigger rather than the step.
 
 ### Step 2.5: Premise audit
 
@@ -266,10 +286,27 @@ Run all three:
    \`## Scope\` → \`In scope\` section:
 
    - Call \`mcp__github__list_pull_requests\` with \`state: "open"\` and inspect titles/branches.
-   - For high-suspicion matches, call \`mcp__github__pull_request_read\` with \`method: "get_diff"\`
-     to confirm the PR actually touches the path.
+     Treat this as a CANDIDATE FILTER only — a title is not evidence about files.
+   - For any candidate you would act on, call \`mcp__github__pull_request_read\` with
+     \`method: "get_files"\` to read the PR's actual changed-file list. \`get_files\` is the cheap
+     default (it returns filenames, which is the whole question); reserve \`get_diff\` for when
+     the hunks themselves matter.
    - Also check recent merges: \`mcp__minsky__git_log\` with the file path filter for the
      last 7 days — a fix that just landed on \`main\` is just as bad as one in flight.
+
+   **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
+   evidence is \`get_files\`/\`get_diff\` for an open PR, or \`git_log --path\` for a merge. A task's
+   title, its \`## Scope\` prose, or an inference about where that kind of code lives is NOT
+   evidence about which files were touched — and a claim grounded in those is how this gate
+   halts real work on a collision that does not exist.
+
+   **When the other work has no PR, a file-level claim is UNAVAILABLE.** Record "task-level
+   adjacency, files unknown" and decide on that basis rather than asserting an overlap. That is
+   a weaker finding than a collision, and should be reported as one.
+
+   Origin (mem#892, 2026-08-05): \`/implement-task\` §0a — this gate's late sibling — halted on a
+   claimed \`SessionFilmStage.tsx\` collision with mt#3792, whose PR never touched that file. The
+   filename came from the task's title plus an inference. One \`get_files\` call falsified it.
 
 2. **Signature search** — for the spec's signature phrases (specific identifier names,
    error message strings, env var names, migration slot numbers):
