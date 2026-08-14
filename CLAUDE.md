@@ -536,7 +536,13 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   DB connection string by design) — invoking one directly, via any interpreter or its own
   shebang, denies the same way a reader+secret-path pair does. Same matcher class as the
   file-read check (structured command string against a fixed list, no paraphrase axis), so no
-  new guard and no calibration-first ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers both checks.
+  new guard and no calibration-first ladder. Extended again mt#3850 with a THIRD check: a
+  process listing that requests the **argv** column (`ps` with no `-o`, or `-o` naming
+  `command`/`args`/`cmd`; `top -c`; `pgrep -a`) — argv is world-readable, so a secret any
+  process passed as an argument lands in the output even though the command names no secret and
+  no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
+  sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
+  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
 - **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
   (`--execute`/`--apply`) while another process is already running that same script. Denies with
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
@@ -953,6 +959,19 @@ SUCCESS body carries it; the error body is safe — that asymmetry is the trap),
 purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
 cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
 
+**A process listing is the third channel (mt#3850).** `ps`/`top`/`pgrep` print other processes'
+**argv**, which is world-readable — so a secret ANY process passed as a command-line argument lands
+in your output. Harder to spot than the two above, because nothing in your command names a secret
+or a path: a `ps` grepping for a stuck `git` process printed a live GitHub token carried by an
+unrelated `docker run -e TOKEN=<value>` row (2026-08-08). Select columns that cannot carry a value
+(`comm` is the executable NAME; `command`/`args`/`cmd` are argv), or keep argv and end the pipeline
+in a counting sink:
+
+```bash
+ps -eo pid,etime,comm                 # safe: no argv column
+ps -eo command | grep -c 'gho_'       # safe: counts, renders no row
+```
+
 **A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
 UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
 a prod DB password on 2026-08-01. Truncation doesn't help. Assert the filter fired, or fail closed.
@@ -975,8 +994,8 @@ check itself did not complete — never conflated with a clean pass). Reuses the
 transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
-File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
-discipline-tier. Recipes + leak-containment runbook:
+File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
+(`hook-files.mdc`); the rest is discipline-tier. Recipes + leak-containment runbook:
 `docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
 
 # Terminology: workspace / conversation / transport session
