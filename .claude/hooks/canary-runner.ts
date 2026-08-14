@@ -382,6 +382,21 @@ export async function runGuardCanary(
       // `.minsky/` beneath the sandbox — the whole point of it existing.
       rmSync(sandbox, { recursive: true, force: true });
     }
+  } catch (err) {
+    // Reached only when something OUTSIDE the inner try throws — in practice
+    // `createCanarySandbox()`, the one call here that touches the filesystem.
+    // Returned as a structured failure rather than rethrown (PR #2995 R3):
+    // `runAllRegistryCanaries` awaits each canary in a bare loop, so an escaping
+    // throw aborts the whole sweep and every LATER guard silently goes
+    // unchecked — one unrunnable canary reported as a failure is strictly
+    // better than N canaries reported as nothing.
+    return {
+      guardName: reg.name,
+      source: "registry",
+      expects: canary.expects,
+      passed: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   } finally {
     // LAST, and outside everything: the next canary may start the moment this
     // resolves, and it must not observe this one's env or sandbox.
