@@ -280,6 +280,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "chained-verification-commands",
         "truncated-outcome-read",
         "check-guessed-session-path",
+        "cli-mcp-substitution",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
         "flakiness-control-detector",
@@ -392,6 +393,10 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // mt#4096: two interpolations, both bounded — the command is the pipeline stage
   // (itself bounded by the shell) and the filter is one of two literal tokens.
   "truncated-outcome-read": "capped",
+  // mt#4144: two interpolations, both a registry command id (a short dotted
+  // string) — the second is a pure transform of the first, so neither grows with
+  // the command being scanned.
+  "cli-mcp-substitution": "capped",
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation

@@ -392,6 +392,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "cli-mcp-substitution",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Third guard on the same quote-aware command-string split, and the first whose decision is not about the command alone: it pairs a lookup against a GENERATED oracle (`commandId` on each CLI leaf of the completion manifest) with a fact about the session (no `mcp__minsky__*` tool use in the transcript). Both legs are structural — no prose, no paraphrase axis — which is why ADR-024's ladder does not govern it. The oracle being generated is what keeps coverage from drifting as commands are added, and what keeps the hook off the domain bootstrap a registry import would owe on every Bash call.",
+    },
+  ],
+  [
     "check-guessed-session-path",
     {
       ...structuralGate,

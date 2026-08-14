@@ -104,6 +104,21 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["chained-verification-commands", "truncated-outcome-read"],
   ["block-concurrent-bulk-mutation", "truncated-outcome-read"],
   ["block-bulk-process-kill", "truncated-outcome-read"],
+  // Sixth question about the same Bash/session_exec command string (mt#4144),
+  // and the first that is not about the command alone: every sibling above asks
+  // a property of WHAT the command does — a constructed path, a secret read, an
+  // unattributable exit, a truncated outcome field, a concurrent bulk mutation,
+  // a mass kill. This one asks what the command SUBSTITUTES FOR: it pairs the
+  // command against a generated CLI->MCP equivalence oracle and against session
+  // state (has any `mcp__minsky__*` call succeeded). Folding it into any sibling
+  // would put that session-state leg, whose false-positive surface is entirely
+  // unrelated to theirs, behind one calibration log and one override.
+  ["check-guessed-session-path", "cli-mcp-substitution"],
+  ["block-secret-file-read", "cli-mcp-substitution"],
+  ["chained-verification-commands", "cli-mcp-substitution"],
+  ["block-concurrent-bulk-mutation", "cli-mcp-substitution"],
+  ["block-bulk-process-kill", "cli-mcp-substitution"],
+  ["truncated-outcome-read", "cli-mcp-substitution"],
   // Two guards on `session_pr_create`, both reading the SAME branch diff and
   // both asking about operator-facing output — but about opposite failures, and
   // neither subsumes the other. `stale-signal-sweep` (mt#3959) fires on a label
