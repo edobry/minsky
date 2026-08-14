@@ -195,6 +195,42 @@ export const SEVERITY_TRANSPORT_CHECK_KINDS: readonly AskKind[] = [
  */
 export const OPTIONS_REQUIRED_CHECK_KINDS: readonly AskKind[] = ["direction.decide"];
 
+/**
+ * Words by which an option label carves an EXCEPTION out of the behavior it
+ * authorizes (mt#4148).
+ *
+ * Every other check in this module asks whether the ask can be READ and
+ * ANSWERED. This one is the first to ask about the option's CONTENT, and it is
+ * deliberately the weakest thing that can be asked mechanically: no matcher can
+ * know whether an exemption set is complete — that needs a model of the system
+ * the option describes. What a matcher CAN see is that an exception was
+ * written, which is the moment worth prompting the author to state the rule it
+ * carves out of.
+ *
+ * Lower-cased at the call site rather than with an `i` flag, so the per-word
+ * test stays free of `lastIndex` state.
+ *
+ * **`only` is deliberately NOT in this set**, though it is the word ask#8509's
+ * option DESCRIPTION used ("exempting only clicks landing on an EntityRef").
+ * A first draft included it and immediately failed an existing test: mt#3477's
+ * repaired-shape replay asserts the label "Alias now, read-only until mt#3325"
+ * is clean, and `\bonly\b` matches inside `read-only` because a hyphen is a
+ * word boundary. That is a true false positive of exactly the kind mem#719
+ * warns about — noise here would train authors to discount the check's correct
+ * fires. The four words that remain are unambiguously carve-out constructions,
+ * and `except` catches the originating incident's LABEL on its own, so nothing
+ * is lost by the narrowing.
+ *
+ * Originating incident: ask#8509 (2026-08-13), whose recommended option read
+ * "Close on outside click, except on an entity ref … exempting ONLY clicks
+ * landing on an EntityRef." It passed all seven checks above, the completeness
+ * checklist, and the form contract. The exemption set was still wrong — it
+ * omitted every sibling peek pane, which would have destroyed the held-pair
+ * comparison view — and the principal caught it on read rather than any
+ * mechanism. See mem#258 R7.
+ */
+export const OPTION_EXCEPTION_WORD_PATTERN = /\b(except|unless|other than|apart from)\b/;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -216,7 +252,8 @@ export type FormLintCheck =
   | "letter-prefixed-option-label"
   | "missing-force-immediate"
   | "missing-decision-options"
-  | "unlinkified-reference";
+  | "unlinkified-reference"
+  | "unscoped-option-exception";
 
 /**
  * Markers that only appear in a question when the tool call's own parameter
@@ -339,6 +376,10 @@ export function countWords(text: string): number {
  *      true -> "operator-only incident without forceImmediate" (mt#3436)
  *   7. `kind` is in `OPTIONS_REQUIRED_CHECK_KINDS` AND `options` is absent or
  *      empty -> "decision-shaped ask with no response options" (mt#3477)
+ *   8. any option label matches `OPTION_EXCEPTION_WORD_PATTERN` -> "state the
+ *      rule the exception carves out of" (mt#4148). The first check here about
+ *      an option's CONTENT rather than its readability, and permanently
+ *      advisory for that reason — see the constant's doc comment.
  *
  * Checks 4 and 5 fire ONCE for the ask, not once per offending option: the fix
  * is the same edit either way, and a four-option ask would otherwise emit four
@@ -450,6 +491,27 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         `(${unlinkified.join("; ")}) — the reader cannot open them from the ask. ` +
         `Supply the full URL. Note this says the reference was not linkified, not ` +
         `that a destination was checked: nothing here probes reachability`,
+    });
+  }
+
+  // mt#4148: an option label that carves an exception, with no statement of the
+  // rule it carves out of. Advisory by construction — it is on
+  // `filterBlockingFormLintMatches`'s exclusion list, because unlike every
+  // other check here it cannot be satisfied mechanically: the author has to
+  // decide whether the exemption set is right, and a hard-reject would just
+  // train them to reword the label rather than re-derive the set.
+  const exceptionLabels = (options ?? []).filter((o) =>
+    OPTION_EXCEPTION_WORD_PATTERN.test(o.label.toLowerCase())
+  ).length;
+  if (exceptionLabels > 0) {
+    matches.push({
+      check: "unscoped-option-exception",
+      message:
+        `${exceptionLabels} option label(s) carve an exception ("except"/"only"/"unless") — ` +
+        `state the RULE the exception carves out of, not just the exception, and say where ` +
+        `the exception set came from: derived from the system's structure, or taken from the ` +
+        `one case that prompted this ask. An exemption written from the case in hand is how ` +
+        `ask#8509 authorized a change that would have broken the feature (mem#258 R7)`,
     });
   }
 
