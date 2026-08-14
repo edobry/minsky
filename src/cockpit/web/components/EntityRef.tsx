@@ -52,6 +52,7 @@ import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { usePeek, classifyRefClick, rememberPeekOpener } from "../lib/peek";
+import { ENTITY_REF_ATTR } from "../lib/peek-dismiss";
 import { useResolvedEntityLabel, type EntityLabelInfo } from "../lib/use-entity-index";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "./ui/hover-card";
 import { statusStyle } from "../lib/status-colors";
@@ -220,6 +221,10 @@ export function EntityRef({ type, id, children, appendLabel, search, className }
           onClick={onClick}
           className={cn(LINK_CLASS, className)}
           aria-label={accessibleName}
+          // Exempts this anchor from the peek's outside-dismiss (mt#4143). Without it, an
+          // ordinary click here would dismiss the assembly on the way to replacing its
+          // contents, and a shift-click would dismiss the very pane it means to hold.
+          {...{ [ENTITY_REF_ATTR]: "true" }}
         >
           {inline}
         </Link>

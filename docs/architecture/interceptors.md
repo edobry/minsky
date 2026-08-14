@@ -250,6 +250,12 @@ regens) and the framework-state writers (`record-turn-anchor`, `record-agent-dis
 `auto-session-title`) — precisely the "feeders and infrastructure" §5 already names as the
 entities that surfaced as falsifiers because they do not judge.
 
+The class has since taken a ninth member: `interceptor-catalog-regen` joined at mt#4071
+(2026-08-13), a pre-commit regeneration step that had been firing since mt#4010 but carried no
+authored coordinates, so it resolved into no family for the mundane reason that nothing had
+classified it. That is the visible diff this pinning exists to produce; the counts above are
+mt#4038's measurement and are left as measured.
+
 This is the corpus reporting a property of the model, not a gap to close by widening a capability
 set until something matches. **A catalog must render these as explicitly outside the family
 filters, never as a blank** — a blank says "we never classified this", which is a different and

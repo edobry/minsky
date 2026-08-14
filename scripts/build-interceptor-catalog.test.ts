@@ -19,6 +19,7 @@ import {
   type CoordinateResolutionInput,
 } from "../.minsky/hooks/interceptor-coordinates";
 import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
+import { derivePrecommitStepNames } from "./precommit-step-names";
 
 /**
  * An EMPTY coordinate input, so a fixture name resolves to all-gaps.
@@ -144,6 +145,24 @@ describe("the real corpus", () => {
     // added, and pinning the count would make this test a chore instead of a
     // check. The spec's measured figure at authoring time was 92.
     expect(real.population).toBeGreaterThanOrEqual(92);
+  });
+
+  test("every pre-commit step the hook actually runs is in the population (mt#4071)", () => {
+    // The oracle resolves pre-commit names by DERIVING them from
+    // `src/hooks/pre-commit.ts`, not by reading the hand-maintained snapshot.
+    // When it read the snapshot, a step added without a matching snapshot edit
+    // was absent from the catalog and reported by nothing: the divergence
+    // lists above compare descriptions against the oracle, and such a name is
+    // in neither, so both stay empty while the catalog is incomplete.
+    const oracle = collectOracleNames();
+    for (const step of derivePrecommitStepNames() ?? []) {
+      expect(oracle.has(step)).toBe(true);
+    }
+
+    // The originating instance, pinned by name — a step this generator's own
+    // pre-commit hook runs, missing from the catalog it builds.
+    expect(oracle.has("interceptor-catalog-regen")).toBe(true);
+    expect(real.entries.some((e) => e.guardName === "interceptor-catalog-regen")).toBe(true);
   });
 
   test("every entry carries a stratum and at least one failure class", () => {

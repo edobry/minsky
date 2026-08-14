@@ -1412,6 +1412,32 @@
       "deliberatelyUnauthored": false
     },
     {
+      "guardName": "interceptor-catalog-regen",
+      "description": "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      "failureClasses": ["broken-main", "blind-enforcement"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/interceptor-catalog-regen.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
       "guardName": "knowledge-acquisition-detector",
       "description": "Records a turn that acquired durable, reusable knowledge without routing it to an artifact that outlives the task. Log-only.",
       "failureClasses": ["unrecorded-learning"],

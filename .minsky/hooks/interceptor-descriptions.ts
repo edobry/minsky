@@ -1062,6 +1062,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "interceptor-catalog-regen",
+    {
+      description:
+        "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      failureClasses: ["broken-main", "blind-enforcement"],
+      provenance: [PRECOMMIT, "src/hooks/interceptor-catalog-regen.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
     "type-check",
     {
       description:

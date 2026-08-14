@@ -619,6 +619,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["fast-related-tests", structuralGate],
   ["hook-permission-check", structuralGate],
   ["immutable-migration-check", structuralGate],
+  ["interceptor-catalog-regen", regenStep],
   ["migration-collision-check", structuralGate],
   ["migration-guard-check", structuralGate],
   ["migration-journal-check", structuralGate],
@@ -859,6 +860,7 @@ export const OUT_OF_MODEL_NAMES: readonly string[] = [
   "completion-manifest-regen",
   "dockerfile-bun-build-regen",
   "dockerfile-workspace-copy-regen",
+  "interceptor-catalog-regen",
   "record-agent-dispatch",
   "record-turn-anchor",
 ];
