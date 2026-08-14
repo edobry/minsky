@@ -180,13 +180,26 @@ applescript_quote() {
 
 # Available memory = free + inactive + speculative. Inactive pages are
 # reclaimable, so counting only free pages would stall the run permanently.
+# Prints the EMPTY STRING when the reading is unavailable — vm_stat missing, or
+# failing, or emitting something awk can't parse — rather than a number.
+#
+# "0.0" would be an unavailable observation rendered as a definite value, which
+# is the exact conflation this task fixes in the producer, and here it is the
+# worst possible value to invent: 0.0 is below every floor, so wait_for_memory
+# below would stall the full MAX_WAIT on any machine that simply has no vm_stat.
+# Verified pre-fix by shimming vm_stat to exit 127: the run reported "available
+# memory now 0.0GB" and exited 0, so nothing surfaced the bad reading.
 avail_gb() {
-  vm_stat | awk '
+  local out
+  command -v vm_stat >/dev/null 2>&1 || return 0
+  out=$(vm_stat 2>/dev/null) || return 0
+  [ -n "$out" ] || return 0
+  printf '%s\n' "$out" | awk '
     /page size of/  { ps = $8 }
     /Pages free/    { gsub(/\./, "", $3); free = $3 }
     /Pages inactive/{ gsub(/\./, "", $3); inact = $3 }
     /Pages specul/  { gsub(/\./, "", $3); spec = $3 }
-    END { printf "%.1f", (free + inact + spec) * ps / 1073741824 }
+    END { if (ps == "") exit 1; printf "%.1f", (free + inact + spec) * ps / 1073741824 }
   '
 }
 
@@ -195,6 +208,13 @@ wait_for_memory() {
   local waited=0 avail
   while :; do
     avail=$(avail_gb)
+    # Unknown is not zero. Pacing on an unreadable number would stall the full
+    # MAX_WAIT on every tab, for a floor that can never be satisfied because the
+    # reading never arrives — so decline to pace rather than invent a value.
+    if [ -z "$avail" ]; then
+      echo "  ...memory unreadable (no usable vm_stat) — pacing disabled for this run" >&2
+      return 0
+    fi
     awk -v a="$avail" -v m="$MIN_FREE_GB" 'BEGIN { exit !(a < m) }' || return 0
     if [ "$waited" -ge "$MAX_WAIT" ]; then
       echo "WARN: available memory ${avail}GB still under ${MIN_FREE_GB}GB after ${waited}s — continuing anyway" >&2
@@ -299,4 +319,9 @@ for row in "${ROWS[@]}"; do
 done
 
 echo
-echo "opened $opened tab(s); available memory now $(avail_gb)GB"
+mem_now=$(avail_gb)
+if [ -n "$mem_now" ]; then
+  echo "opened $opened tab(s); available memory now ${mem_now}GB"
+else
+  echo "opened $opened tab(s); available memory unknown (no usable vm_stat)"
+fi

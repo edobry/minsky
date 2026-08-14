@@ -133,6 +133,62 @@ describe("consumer warning (SC2)", () => {
   });
 });
 
+describe("memory reading when vm_stat is unavailable", () => {
+  /**
+   * Same defect class as the one this task fixes in the producer, found in the consumer while
+   * responding to PR #2993 R1: an unavailable reading rendered as a definite value. `avail_gb`
+   * printed "0.0" when vm_stat was missing, and 0.0 is below every floor — so `wait_for_memory`
+   * would stall the full MAX_WAIT per tab against a reading that never arrives.
+   *
+   * Portable on purpose: no iTerm, no process table. On Linux vm_stat is genuinely absent, so
+   * this exercises the real path there; the shim makes it deterministic on macOS too.
+   */
+  function runResumeWithoutVmStat(snapshotPath: string) {
+    const shimDir = mkdtempSync(join(tmpdir(), "tw-shim-"));
+    writeFileSync(join(shimDir, "vm_stat"), "#!/bin/sh\nexit 127\n", { mode: 0o755 });
+    try {
+      const proc = Bun.spawnSync(["bash", RESUME_SH, "--snapshot", snapshotPath, "--dry-run"], {
+        env: {
+          ...process.env,
+          PATH: `${shimDir}:${process.env.PATH ?? ""}`,
+          TAB_WATCHER_STATE_DIR: stateDir,
+        },
+      });
+      return {
+        exitCode: proc.exitCode ?? -1,
+        stdout: new TextDecoder().decode(proc.stdout),
+      };
+    } finally {
+      rmSync(shimDir, { recursive: true, force: true });
+    }
+  }
+
+  test("reports the reading as unknown rather than inventing 0.0", () => {
+    const snap = writeSnapshot("mem.json", { iterm_dump: "ok", iterm_grouping_source: "live" });
+    const { stdout } = runResumeWithoutVmStat(snap);
+    expect(stdout).toContain("available memory unknown");
+    // The pre-fix output. 0.0 is not merely wrong, it is below every floor.
+    expect(stdout).not.toContain("0.0GB");
+  });
+
+  test("dry-run still exits 0 with no usable vm_stat", () => {
+    const snap = writeSnapshot("mem-exit.json", {
+      iterm_dump: "ok",
+      iterm_grouping_source: "live",
+    });
+    expect(runResumeWithoutVmStat(snap).exitCode).toBe(0);
+  });
+
+  test("reports a real reading when vm_stat works", () => {
+    const snap = writeSnapshot("mem-ok.json", { iterm_dump: "ok", iterm_grouping_source: "live" });
+    const { stdout, exitCode } = runResume(snap);
+    expect(exitCode).toBe(0);
+    // On a machine with a working vm_stat this is a real number; without one (Linux CI) the
+    // honest "unknown" is equally correct. What must never appear is a fabricated 0.0.
+    expect(stdout).toMatch(/available memory (now \d+\.\dGB|unknown)/);
+  });
+});
+
 describe.skipIf(!isDarwin)("producer (SC1, SC3, SC4, SC5)", () => {
   test("marks the dump unavailable and claims no grouping when history is empty", () => {
     const result = runWatcher({ TAB_WATCHER_FORCE_EMPTY_DUMP: "1" });
