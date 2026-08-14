@@ -88,6 +88,41 @@ PY
   fi
 fi
 
+# mt#4080. Window grouping is the one thing this script cannot infer from the
+# snapshot's own contents: an ungrouped snapshot restores identically whether
+# iTerm genuinely had one window or never answered. The producer now records
+# which it was, so say so — silently rebuilding a flattened layout is how the
+# 2026-08-13 recovery lost a multi-window working set with nothing to notice.
+# A snapshot predating these fields carries neither, and is read as observed.
+grouping_warning=$(python3 - "$SNAPSHOT" "$STATE_DIR" <<'PY' 2>/dev/null || true
+import json, sys
+try:
+    with open(sys.argv[1]) as fh:
+        d = json.load(fh)
+except (OSError, ValueError):
+    sys.exit(0)
+# Resolved, not the literal variable name: this hint is the operator's next command in a
+# recovery, so it has to be pasteable as printed.
+state_dir = sys.argv[2]
+if d.get("iterm_dump", "ok") == "ok":
+    sys.exit(0)
+if d.get("iterm_grouping_source") == "history":
+    print("WARN: iTerm was unresponsive when this snapshot was taken. The window "
+          "grouping below was RECOVERED from an earlier snapshot (%s), not observed — "
+          "sessions started after that point restore into their own windows."
+          % (d.get("iterm_grouping_from") or "timestamp unrecorded"))
+else:
+    print("WARN: iTerm was unresponsive when this snapshot was taken and no earlier "
+          "grouping was available. Window layout will NOT be reconstructed — every "
+          "session restores into its own window. Try an older snapshot: "
+          "ls -t %s/snapshot-*.json" % state_dir)
+PY
+)
+if [ -n "$grouping_warning" ]; then
+  echo "$grouping_warning" >&2
+  echo >&2
+fi
+
 # Session ids that already have a live process — resuming these would give two
 # processes appending to one transcript.
 RUNNING_IDS=""
@@ -148,14 +183,35 @@ applescript_quote() {
 
 # Available memory = free + inactive + speculative. Inactive pages are
 # reclaimable, so counting only free pages would stall the run permanently.
+# Prints the EMPTY STRING when the reading is unavailable — vm_stat missing, or
+# failing, or emitting something awk can't parse — rather than a number.
+#
+# "0.0" would be an unavailable observation rendered as a definite value, which
+# is the exact conflation this task fixes in the producer, and here it is the
+# worst possible value to invent: 0.0 is below every floor, so wait_for_memory
+# below would stall the full MAX_WAIT on any machine that simply has no vm_stat.
+# Verified pre-fix by shimming vm_stat to exit 127: the run reported "available
+# memory now 0.0GB" and exited 0, so nothing surfaced the bad reading.
 avail_gb() {
-  vm_stat | awk '
+  local out
+  command -v vm_stat >/dev/null 2>&1 || return 0
+  out=$(vm_stat 2>/dev/null) || return 0
+  [ -n "$out" ] || return 0
+  # `|| return 0` is load-bearing, and was missing in PR #2993 R1. awk exits 1 on
+  # unparseable input; under `set -o pipefail` the pipeline inherits that, and
+  # both callers assign it with a BARE assignment (`avail=$(avail_gb)`), whose
+  # exit status IS the substitution's — so `set -e` killed the whole run. Caught
+  # by the reviewer on R2 and reproduced: a vm_stat that SUCCEEDS but emits
+  # unparseable output exited 1 and never printed the summary line. Note the
+  # shape — every earlier test shimmed vm_stat to FAIL, so awk never ran and the
+  # path stayed invisible.
+  printf '%s\n' "$out" | awk '
     /page size of/  { ps = $8 }
     /Pages free/    { gsub(/\./, "", $3); free = $3 }
     /Pages inactive/{ gsub(/\./, "", $3); inact = $3 }
     /Pages specul/  { gsub(/\./, "", $3); spec = $3 }
-    END { printf "%.1f", (free + inact + spec) * ps / 1073741824 }
-  '
+    END { if (ps == "") exit 1; printf "%.1f", (free + inact + spec) * ps / 1073741824 }
+  ' || return 0
 }
 
 wait_for_memory() {
@@ -163,6 +219,13 @@ wait_for_memory() {
   local waited=0 avail
   while :; do
     avail=$(avail_gb)
+    # Unknown is not zero. Pacing on an unreadable number would stall the full
+    # MAX_WAIT on every tab, for a floor that can never be satisfied because the
+    # reading never arrives — so decline to pace rather than invent a value.
+    if [ -z "$avail" ]; then
+      echo "  ...memory unreadable (no usable vm_stat) — pacing disabled for this run" >&2
+      return 0
+    fi
     awk -v a="$avail" -v m="$MIN_FREE_GB" 'BEGIN { exit !(a < m) }' || return 0
     if [ "$waited" -ge "$MAX_WAIT" ]; then
       echo "WARN: available memory ${avail}GB still under ${MIN_FREE_GB}GB after ${waited}s — continuing anyway" >&2
@@ -267,4 +330,9 @@ for row in "${ROWS[@]}"; do
 done
 
 echo
-echo "opened $opened tab(s); available memory now $(avail_gb)GB"
+mem_now=$(avail_gb)
+if [ -n "$mem_now" ]; then
+  echo "opened $opened tab(s); available memory now ${mem_now}GB"
+else
+  echo "opened $opened tab(s); available memory unknown (no usable vm_stat)"
+fi

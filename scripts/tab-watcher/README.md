@@ -57,6 +57,35 @@ boot** as `preboot-<timestamp>.json`, written once per boot and never a pruning 
 retention alone is self-defeating for a crash-recovery tool; the pre-crash inventory is the only
 thing anyone actually wants after a panic.
 
+## Window grouping, and when it is not real
+
+`resume-from-snapshot.sh` rebuilds windows from each session's `iterm_window_id`, which
+`tab-watcher.sh` gets by asking iTerm over AppleScript. When iTerm is **wedged** — the case a
+crash snapshot exists for — it never answers, and before mt#4080 every session was simply
+recorded with an empty window id: indistinguishable from iTerm genuinely having one window. The
+snapshot looked complete and the layout was silently gone.
+
+Every snapshot now carries two fields, and a third when it applies:
+
+| field                   | values                      | meaning                                       |
+| ----------------------- | --------------------------- | --------------------------------------------- |
+| `iterm_dump`            | `ok` / `unavailable`        | did iTerm answer at all?                      |
+| `iterm_grouping_source` | `live` / `history` / `none` | where the grouping came from                  |
+| `iterm_grouping_from`   | a timestamp                 | which snapshot a recovered grouping came from |
+
+When the dump is unavailable, the watcher reuses the most recent **observed** grouping from
+history, re-joined to the current sessions **by tty**. That works because the tty comes from
+`ps`/`lsof`, which do not need iTerm: a session still running still has the tty it was recorded
+under. Sessions started since the last good dump match nothing and stay ungrouped, so the join
+bounds itself and needs no age cutoff. A snapshot that was itself recovered is never used as a
+source — chaining would keep re-dating a stale layout.
+
+`resume-from-snapshot.sh` prints a warning when it restores from a snapshot whose dump was
+unavailable, naming whether the grouping was recovered (and from when) or is simply gone.
+**Snapshots written before mt#4080 carry none of these fields and are read as observed** — which
+is the right default for them, since they were only ever written when the dump succeeded or
+failed silently.
+
 ## Restoring
 
 ```

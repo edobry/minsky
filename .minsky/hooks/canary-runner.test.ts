@@ -27,15 +27,17 @@
    .minsky/*.jsonl — mirrors dispatcher.test.ts's identical isolation
    pattern (mt#2597/mt#2876 class). */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, appendFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import {
   evaluateCanaryOutcome,
   runGuardCanary,
   runAllRegistryCanaries,
   summarizeCanaryResults,
   formatCanaryResult,
+  CANARY_SESSION_ID,
+  isCanaryRecord,
   type CanaryResult,
 } from "./canary-runner";
 import { GUARD_REGISTRY } from "./registry";
@@ -465,5 +467,184 @@ describe("mt#3004 — the two formerly-canary-less registry guards", () => {
     } finally {
       restoreEnv();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Write isolation (mt#4127)
+// ---------------------------------------------------------------------------
+
+/**
+ * A canary drives the guard's REAL `run()`, and several guards append a
+ * per-turn evaluation record as a side effect. Before mt#4127 those rows landed
+ * in the developer's checkout: this file already isolated `CLAUDE_PROJECT_DIR`
+ * (see `beforeAll`), which covers writers routed through `evaluationLogPath` —
+ * but a HAND-ROLLED writer roots on `input.cwd`, which `baseCanaryInput` set to
+ * `process.cwd()`. Reproduced 2026-08-14: running this one test file appended a
+ * row bearing `CANARY_SESSION_ID` to the real
+ * `.minsky/negative-existence-claim-evaluations.jsonl`.
+ */
+describe("runGuardCanary — write isolation (mt#4127)", () => {
+  /** A registration whose module records what it was handed, and writes where a guard would. */
+  function makeObservingReg(name: string): {
+    reg: GuardRegistration;
+    observed: { cwd?: string; projectDir?: string; wouldWriteTo?: string; wroteTo?: string };
+  } {
+    const observed: {
+      cwd?: string;
+      projectDir?: string;
+      wouldWriteTo?: string;
+      wroteTo?: string;
+    } = {};
+    const reg: GuardRegistration = {
+      name,
+      event: "PreToolUse",
+      module: () =>
+        Promise.resolve<GuardModule>({
+          run: (input) => {
+            observed.cwd = input.cwd;
+            observed.projectDir = process.env[CLAUDE_PROJECT_DIR_VAR];
+            // Mirror a hand-rolled evaluation writer: root on input.cwd.
+            const logPath = join(String(input.cwd), ".minsky", "synthetic-evaluations.jsonl");
+            observed.wouldWriteTo = logPath;
+            // Write ONLY when the runner actually sandboxed us (PR #2995 R1).
+            // The assertions below check `wouldWriteTo`, so a regression is
+            // still caught — but the test that detects files scattering into
+            // the developer's checkout must not scatter them itself on the way
+            // to failing. Guarding here rather than asserting-then-writing
+            // keeps that true even if the assertion order later changes.
+            if (logPath.startsWith(tmpdir())) {
+              mkdirSync(dirname(logPath), { recursive: true });
+              appendFileSync(logPath, `${JSON.stringify({ session_id: CANARY_SESSION_ID })}\n`);
+              observed.wroteTo = logPath;
+            }
+            // A calibration outcome rather than null, so the fixture is a
+            // coherent registration: the guards that write a per-turn record
+            // are exactly the calibration-first ones.
+            return { calibration: { session_id: input.session_id } };
+          },
+        }),
+      timeoutMs: 5000,
+      denyCapable: false,
+      effects: [
+        {
+          effect: "deny",
+          verdictShape: "validator",
+          failurePolicy: { failurePolicy: "closed", degradedPolicy: "closed" },
+        },
+      ],
+      canary: { input: {}, expects: "calibration" },
+    };
+    return { reg, observed };
+  }
+
+  test("the guard is handed a cwd OUTSIDE the developer's checkout", async () => {
+    const { reg, observed } = makeObservingReg("mt4127-cwd-isolation");
+    await runGuardCanary(reg);
+
+    expect(observed.cwd).toBeDefined();
+    // The assertion that would have caught the defect: before the fix this was
+    // exactly `process.cwd()`, so a hand-rolled writer wrote into the repo.
+    expect(observed.cwd).not.toBe(process.cwd());
+    expect(observed.cwd?.startsWith(tmpdir())).toBe(true);
+  });
+
+  test("CLAUDE_PROJECT_DIR points at the same sandbox during the run, and is restored after", async () => {
+    const before = process.env[CLAUDE_PROJECT_DIR_VAR];
+    const { reg, observed } = makeObservingReg("mt4127-projectdir-isolation");
+    await runGuardCanary(reg);
+
+    // Both knobs must agree, or the two writer conventions sandbox differently.
+    expect(String(observed.projectDir)).toBe(String(observed.cwd));
+    // Restored, including the case where it was unset before and must stay so —
+    // hence the sentinel rather than comparing two possibly-undefined values.
+    expect(process.env[CLAUDE_PROJECT_DIR_VAR] ?? "<unset>").toBe(before ?? "<unset>");
+  });
+
+  test("the path a guard would write to is inside the sandbox, and nothing persists", async () => {
+    const { reg, observed } = makeObservingReg("mt4127-write-lands-in-sandbox");
+    await runGuardCanary(reg);
+
+    // The regression check, made on the PATH rather than on a file that had to
+    // be created in the checkout to be observed.
+    expect(observed.wouldWriteTo).toBeDefined();
+    expect(observed.wouldWriteTo?.startsWith(tmpdir())).toBe(true);
+    // The fixture only writes when sandboxed, so this being set is itself
+    // evidence the guard was — and its absence afterward is the teardown.
+    expect(observed.wroteTo).toBeDefined();
+    expect(existsSync(String(observed.wroteTo))).toBe(false);
+  });
+
+  test("a canary that throws still releases its slot (PR #2995 R2)", async () => {
+    // The reviewer's scenario is `createCanarySandbox()` throwing, which cannot
+    // be injected here — but the invariant it threatens is observable: if ANY
+    // path skips `releaseSlot()`, `canaryInvocationChain` stays pending and
+    // every later canary waits on it forever. A rejecting module loader
+    // exercises that invariant through the error path.
+    const { reg: template } = makeObservingReg("mt4127-exploding");
+    const exploding: GuardRegistration = {
+      ...template,
+      module: () => Promise.reject(new Error("canary module boom")),
+    };
+    const failed = await runGuardCanary(exploding);
+    expect(failed.passed).toBe(false);
+
+    // Raced against a timeout ON PURPOSE: a leaked slot makes the next canary
+    // HANG, and a hanging test reports as a suite timeout rather than as this
+    // assertion failing. The race converts the hang into a legible failure.
+    const { reg, observed } = makeObservingReg("mt4127-after-failure");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      runGuardCanary(reg).then(() => "completed" as const),
+      new Promise<"slot-leaked">((resolve) => {
+        timer = setTimeout(() => resolve("slot-leaked"), 2000);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+
+    expect(outcome).toBe("completed");
+    expect(observed.cwd?.startsWith(tmpdir())).toBe(true);
+  });
+
+  test("concurrent invocations do not trample each other's sandbox (PR #2995 R1)", async () => {
+    // `runGuardCanary` hands the sandbox to guards through `process.env`, which
+    // is process-global. Overlapping calls are serialized; without that, one
+    // canary's `finally` restores the pre-canary value while another is still
+    // running, and the second writes to the real repo.
+    const a = makeObservingReg("mt4127-concurrent-a");
+    const b = makeObservingReg("mt4127-concurrent-b");
+
+    await Promise.all([runGuardCanary(a.reg), runGuardCanary(b.reg)]);
+
+    // Each saw a sandbox, and each saw its OWN — a shared or restored-early
+    // value would show up as an equal pair, or as one pointing at the checkout.
+    expect(a.observed.cwd?.startsWith(tmpdir())).toBe(true);
+    expect(b.observed.cwd?.startsWith(tmpdir())).toBe(true);
+    expect(a.observed.cwd).not.toBe(b.observed.cwd);
+    expect(String(a.observed.projectDir)).toBe(String(a.observed.cwd));
+    expect(String(b.observed.projectDir)).toBe(String(b.observed.cwd));
+  });
+});
+
+describe("isCanaryRecord (mt#4127)", () => {
+  test("identifies a canary row by session_id", () => {
+    expect(isCanaryRecord({ session_id: CANARY_SESSION_ID })).toBe(true);
+  });
+
+  test("a real turn is not a canary row", () => {
+    expect(isCanaryRecord({ session_id: "9f3c1a20-real-conversation" })).toBe(false);
+    expect(isCanaryRecord({})).toBe(false);
+  });
+
+  test("a real turn whose CAPTURED TEXT mentions canaries is not a canary row", () => {
+    // The measured false positive this predicate exists to avoid: on
+    // 2026-08-13 `grep -c canary` over operator-deferral's stream returned 31
+    // against a true count of 25, because six real turns discussed canary runs
+    // in their captured text. Keying on the field, not the line, is the fix.
+    const realRowDiscussingCanaries = {
+      session_id: "9f3c1a20-real-conversation",
+      text_tail: "typecheck clean, lint 0/0, canary PASS, and the negative control reproduced",
+    };
+    expect(isCanaryRecord(realRowDiscussingCanaries)).toBe(false);
   });
 });
