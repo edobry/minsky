@@ -82,6 +82,7 @@ import {
   type Role,
 } from "../.minsky/hooks/interceptor-coordinates";
 import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
+import { resolvePrecommitStepNames } from "./precommit-step-names";
 
 const GENERATED_BANNER = "by scripts/build-interceptor-catalog.ts — do not edit directly";
 
@@ -268,10 +269,22 @@ function buildResolveInput(): ResolveCatalogInput {
  * different: it enumerates the corpus, and a retired step or a test fixture is
  * part of that corpus (each carries its own stratum). So both are unioned back
  * in here rather than the oracle's own resolver being changed.
+ *
+ * `precommitNames` is passed EXPLICITLY (mt#4071). Omitting it makes
+ * `resolveKnownGuardNames` fall back to the hand-maintained
+ * `PRECOMMIT_STEP_NAMES` snapshot, and a pre-commit step added without an
+ * accompanying snapshot edit is then absent from the population — not reported
+ * as a divergence, simply not in the catalog, because the divergence lists
+ * compare descriptions against the oracle and the name is in neither. That is
+ * how `interceptor-catalog-regen` — a step this very generator's pre-commit
+ * hook runs — stayed missing from the catalog it builds.
  */
 export function collectOracleNames(): ReadonlySet<string> {
   return new Set([
-    ...resolveKnownGuardNames({ registryNames: GUARD_REGISTRY.map((r) => r.name) }),
+    ...resolveKnownGuardNames({
+      registryNames: GUARD_REGISTRY.map((r) => r.name),
+      precommitNames: resolvePrecommitStepNames(),
+    }),
     ...RETIRED_GUARD_NAMES.keys(),
     ...FIXTURE_GUARD_NAMES.keys(),
   ]);

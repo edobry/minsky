@@ -44,9 +44,18 @@
  * `event: "PreCommit"`.
  *
  * HAND-MAINTAINED FALLBACK ONLY — see the staleness note in the module header.
- * `scripts/audit-fire-log.ts` derives the live set by parsing
- * `src/hooks/pre-commit.ts` and uses this snapshot only when that parse fails.
- * Snapshot taken 2026-08-05 (24 entries).
+ * `scripts/precommit-step-names.ts` derives the live set by parsing
+ * `src/hooks/pre-commit.ts`, and both readers — `scripts/audit-fire-log.ts`
+ * and `scripts/build-interceptor-catalog.ts` — use this snapshot only when
+ * that parse fails.
+ *
+ * Snapshot refreshed 2026-08-13 (25 entries). It was one entry stale for eight
+ * days: `interceptor-catalog-regen` shipped with mt#4010 and never reached
+ * this list, and because the catalog generator read the snapshot rather than
+ * deriving, the step was absent from the interceptor catalog entirely rather
+ * than reported as a gap (mt#4071). The generator now derives; this list is
+ * the parse-failure fallback it is documented to be, which is why it still has
+ * to be correct.
  */
 export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "adr-numbering-collision-check",
@@ -64,6 +73,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "fast-related-tests",
   "hook-permission-check",
   "immutable-migration-check",
+  "interceptor-catalog-regen",
   "migration-collision-check",
   "migration-guard-check",
   "migration-journal-check",
