@@ -78,21 +78,36 @@ evaluation is recorded, fired or not, so the MISS rate is measurable rather than
 — a fire-only log cannot support a rung decision. Fail-open: a missed unrendered field is cheaper
 than a blocked `session_pr_create`.
 
-### The false-positive rate is UNMEASURED, and that is why no blocking tier is proposed
+### The false-positive posture, measured (mt#4134)
 
 Read this before citing the guard's precision or proposing to graduate it.
 
-Its sibling `stale-signal-sweep` shipped with a measured 60-day backtest — 400 commits, 4 fires, 1
-of 4 a true positive — and that measurement changed its mechanism twice before merge. **This guard
-has no equivalent number.** The reason is structural rather than an oversight:
-`scripts/backtest-stale-signal-sweep.ts` is welded to its own guard (it calls
-`extractChangedOutputLabels` and runs label-token corpus queries), so a DIFF-SHAPED detector — one
-whose trigger is the shape of a diff rather than a token to grep for — has nothing to reuse.
+Replayed over a pinned 400-commit range (`1efacf82d^..285927521`, 2026-08-01 → 2026-08-13, run
+2026-08-14) with `bun scripts/backtest-diff-guard.ts --guard unrendered-result-field-scan
+--rev-range 1efacf82d^..285927521`: **24 fires / 400 commits, a 6% fire rate.** Classified by the
+ROLE of the `*Result` type each finding sits on:
 
-**mt#4134** owns the reusable replay harness and will record the measurement back onto mt#3913.
-Until then the honest status is: fire rate unknown, precision unknown, log-only for exactly that
-reason. Do not read the calibration log's fire count as a precision figure — nothing has classified
-those fires.
+- **16 of 24 — an internal decision type.** The `*Result` is the return of a pure function inside a
+  hook, detector, or pipeline, and its fields feed the CALLER'S control flow: `ChainScanResult.chained`,
+  `QuestionAnswerResult.matched`, `RenderPathEvidenceResult.hasArtifact`, `ExecResult.exitCode`.
+  Nothing was ever meant to render these, so "no output site renders it" is true and irrelevant.
+  This is the dominant false-positive class and it is mechanically excludable — tracked at mt#4147.
+- **2 of 24 — rendered by a mechanism this guard cannot see.** `GuardEventsIngestResult`'s counters
+  are a shared-command payload, and per **ADR-039** the CLI is render-by-default: `formatGenericObject`
+  prints the payload keys of any result with no projection (189 of 225 commands reach it), naming no
+  field in any literal. `InterceptorDetailResult` is rendered by cockpit web code the diff never
+  touched. Both are structural — a diff-scoped literal scan cannot observe either render path.
+- **6 of 24 — plausibly genuine**, of which **1 is confirmed**: the replay flags
+  `WriteTurnsResult.orphanDeleteFailed` and `orphansDeleted` on `75f9c1301` (mt#3514) — the exact
+  originating incident, reproduced against the real historical commit. The other five
+  (`WriteTurnsResult.chunkSplits`, `ToolCallProjectionRunResult.orphansDeleted`,
+  `TurnStartTagsResult.truncated`, `ReferencedShortIdResult.truncated`,
+  `SpawnsPipelineRunResult.spawnsSkippedNoToolUseId`) were NOT individually checked against a
+  repo-wide render grep — they are unverified, not established.
+
+So precision is at most 6 of 24 and confirmed at 1 of 24. That is the argument for the log-only
+posture it already ships with, not an argument for tuning against this window — see the sibling
+note in `stale-signal-sweep.md` on why tuning against the window used to measure is overfitting.
 
 ## Wiring
 
