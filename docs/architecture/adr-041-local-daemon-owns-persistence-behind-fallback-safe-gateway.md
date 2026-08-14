@@ -5,6 +5,11 @@
 **Proposed** — 2026-08-14. Decided under mt#2430, whose deliverable was set by ask#8467 ("Short
 ADR, then subtasks") after ask#7665 declined the RFC that would have re-weighed buy-vs-build.
 
+**Proposed is a merge-able state in this corpus** — ADR-037 and ADR-040 are both on main in it,
+ADR-040 as of 2026-08-13. Acceptance is a separate operator step on the merged document, recorded
+in this Status line when it happens (the pattern ADR-038 §Status shows). mt#2430's success criteria
+were amended on 2026-08-14 to say so explicitly.
+
 Two prior operator decisions bind this ADR and are not re-opened here: **ask#7583** — the shared
 local MCP daemon (ADR-038), not the cockpit daemon and not a third process, is the owner;
 **ask#7665** — build it rather than benchmark a localhost connection pooler first.
@@ -80,7 +85,13 @@ included, and can put identity in the request body explicitly. It needs no hands
 and no shim.
 
 So the gateway is an ordinary authenticated POST, not an MCP session. Callers discover the port
-from the discovery file, read the token from its `0600` path, and issue one request.
+from the discovery file, read the token from its `0600` path, and issue one request. Both are
+existing exported helpers, not new surface: `localDaemonDiscoveryPath()` and
+`readDiscoveryRecord()` (`src/mcp/daemon/local-daemon.ts:78,214`) for the former,
+`localDaemonTokenPath()` / `DEFAULT_TOKEN_PATH` (`src/mcp/daemon/local-daemon.ts:88`, re-exported
+from `src/mcp/shim/token.ts`) for the latter, against
+`DEFAULT_LOCAL_DAEMON_PORT = 48765` / `DEFAULT_LOCAL_DAEMON_HOST = "127.0.0.1"`
+(`src/mcp/daemon/local-daemon.ts:53,56`).
 
 **Round-trip budget: p95 under 50ms per gateway call**, against the 3.3–5.5s the same work costs
 today. The budget is deliberately loose relative to what loopback HTTP can do — it is a ceiling
