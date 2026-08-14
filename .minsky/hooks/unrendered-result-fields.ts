@@ -50,6 +50,58 @@ function mentionsIdentifier(text: string, name: string): boolean {
   return new RegExp(`(?<![A-Za-z0-9_])${name}(?![A-Za-z0-9_])`).test(text);
 }
 
+/**
+ * Module roots whose `*Result` types are DECISION types, not operator payloads.
+ *
+ * A guard, hook, or detector's `*Result` is the return of a pure decision
+ * function: `ChainScanResult.chained`, `QuestionAnswerResult.matched`,
+ * `RenderPathEvidenceResult.hasArtifact`. Its fields feed the CALLER'S control
+ * flow, and nothing was ever meant to render them — so "no output site renders
+ * this field" is true of every one of them and says nothing. mt#4134's replay
+ * measured them at **16 of 24 fires** over a pinned 400-commit range: the
+ * dominant false-positive class, and one that grows with the corpus, since this
+ * repo adds a detector most weeks.
+ *
+ * Note this is a DECLARATION-site exclusion, a different question from
+ * `isExcludedPath` in `./output-label-tokens`, which excludes tests and docs
+ * from counting as RENDER sites. A type declared here is not considered at all;
+ * a render found here would still count.
+ *
+ * ## Why a path predicate, against ADR-034's preference
+ *
+ * ADR-034 decided the analogous axis for `code-mechanism-assertion` — "Symbol
+ * identification stays shape-based. The repo-symbol allowlist is REJECTED as a
+ * gate" — so a path list needs its deviation argued rather than assumed.
+ *
+ * Two things separate this case from that one:
+ *
+ *  1. **The objection there was COVERAGE, and it does not transfer.** ADR-034
+ *     rejected the allowlist because "most true-positive claims are about
+ *     identifiers outside any TS symbol index" — the space of identifiers is
+ *     open and unenumerable. Module roots are neither: `**\/hooks/**` and
+ *     `**\/detectors/**` are a closed, stable set that the repo's own layout
+ *     maintains, with no index to build and none to go stale.
+ *  2. **Its reopen condition 2 is met here.** ADR-034 gates a mechanism change
+ *     on "a measured FP rate above 10% on a classified corpus"; this guard's is
+ *     67% at minimum (16 of 24), measured and hand-classified under mt#4134.
+ *
+ * Shape-based alternatives were tried first and FALSIFIED against the real
+ * fixture rather than rejected on taste — see the sibling note on
+ * `findUnrenderedResultFields`.
+ *
+ * ## What this deliberately does not cover
+ *
+ * Four measured false positives are declared OUTSIDE these roots and still fire:
+ * `SweepTickResult` (`src/cockpit/sweepers.ts`), `EnsureTokenResult`
+ * (`src/mcp/daemon/`), `MaximalCollapseResult` (`packages/domain/src/engprod/`),
+ * `BunTestRunResult` (`scripts/`). Widening to reach them would start the arms
+ * race ADR-024 §Context names; they stay as measured residue, and the fire count
+ * this narrowing produces is the honest one rather than a tuned one.
+ */
+export function isDecisionModulePath(path: string): boolean {
+  return path.includes("/hooks/") || path.includes("/detectors/");
+}
+
 /** A counter or flag added to a `*Result` type with nothing rendering it. */
 export interface UnrenderedField {
   /** The field name, e.g. `orphansDeleted`. */
@@ -145,6 +197,26 @@ function countParens(text: string): number {
  * Pure: diff text in, findings out. Never throws on malformed input — a diff it
  * cannot parse yields no findings, which the caller records as a clean
  * evaluation rather than a failure.
+ *
+ * ## A shape-based discriminator was tried first, and the fixture killed it
+ *
+ * Before the path predicate in {@link isDecisionModulePath}, mt#4147 tried the
+ * more principled rule: **suppress when NO field of the owning type is rendered
+ * anywhere in the diff** — the reasoning being that a field nobody renders, on a
+ * type nobody renders, is an internal type, whereas the real defect is a field
+ * nobody renders on a type that IS rendered.
+ *
+ * It is falsified by this detector's own regression fixture. In mt#3514's actual
+ * diff, `WriteTurnsResult`'s only visible sibling is `erroredChunks`, which
+ * nothing in that diff renders either — so the rule suppresses the exact true
+ * positive the guard was built for. Two further shape candidates failed the same
+ * way: "the field is consumed by a conditional" (mt#3514 wraps `orphansDeleted`
+ * in `if (orphansDeleted > 0)`), and field-name vocabulary (`orphanDeleteFailed`
+ * is boolean-verdict-shaped and is a true positive).
+ *
+ * This is the fourth time in this guard family that a defensible-on-inspection
+ * rule failed on the real diff (mem#1035 records the first three). Recorded so
+ * the next author re-derives it from the fixture rather than from the idea.
  */
 export function findUnrenderedResultFields(diff: string): UnrenderedField[] {
   if (!diff) return [];
@@ -190,6 +262,9 @@ export function findUnrenderedResultFields(diff: string): UnrenderedField[] {
       continue;
     }
     if (!file || file.includes(".test.") || file.includes(".spec.")) continue;
+    // A decision type's fields were never meant to be rendered, so "nothing
+    // renders this" carries no information about them (mt#4147).
+    if (isDecisionModulePath(file)) continue;
 
     const src = sourceOf(line);
     const opening = src.match(RESULT_INTERFACE);
