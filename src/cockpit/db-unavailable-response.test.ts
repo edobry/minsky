@@ -88,6 +88,34 @@ describe("respondIfDatabaseUnavailable (mt#4125)", () => {
     expect(calls.body).toBeUndefined();
   });
 
+  test("the log carries the CAUSE CHAIN, not just the wrapper's message", async () => {
+    const { res } = fakeRes();
+    const logged: { message: string; meta: Record<string, unknown> }[] = [];
+
+    await respondIfDatabaseUnavailable(res, poolExhaustionError(), "test", {
+      logWarn: (message, meta) => logged.push({ message, meta }),
+      describeUnavailability: async () => "stub",
+    });
+
+    // The whole point of routing through getLoggableErrorSummary: a drizzle
+    // wrapper's own message is the QUERY TEXT, so a message-only log names the
+    // statement and never the reason (mt#4086 cost a live capture to this).
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0]?.meta["error"])).toContain("EMAXCONNSESSION");
+    expect(String(logged[0]?.meta["error"])).toContain("caused by");
+  });
+
+  test("the 503 body carries the persistence description", async () => {
+    const { res, calls } = fakeRes();
+
+    await respondIfDatabaseUnavailable(res, poolExhaustionError(), "test", {
+      logWarn: () => {},
+      describeUnavailability: async () => "the pooler refused the connection",
+    });
+
+    expect((calls.body as { error: string }).error).toContain("the pooler refused the connection");
+  });
+
   test("reports handled without writing when the response is already committed", async () => {
     const { res, calls } = fakeRes(true);
 
@@ -135,6 +163,21 @@ describe("cockpit HTTP layer adopts the database-unavailable branch (mt#4125)", 
     return blocks;
   }
 
+  /**
+   * The 500s that are NOT in a catch, and therefore have no error object to
+   * classify. This list IS the enumeration mt#4125's Success Criterion 2 asks
+   * for — kept beside the guard rather than in prose, so that adding a new
+   * unclassified 500 has to be a deliberate edit here (PR #2997 R1).
+   */
+  /** The call every classifying site makes; named once so the scans agree. */
+  const HELPER_CALL = "respondIfDatabaseUnavailable";
+
+  const NON_CATCH_500_EXCEPTIONS: Record<string, string> = {
+    "routes/agent-focus.ts":
+      "an unreachable defensive branch — `liveLocal.length > 0` is checked immediately above, " +
+      "and the branch exists only to satisfy control-flow analysis. No `err` is in scope.",
+  };
+
   test("every catch that answers 500 also classifies a database outage", () => {
     const offenders: string[] = [];
 
@@ -146,8 +189,7 @@ describe("cockpit HTTP layer adopts the database-unavailable branch (mt#4125)", 
       for (const block of catchBlocks(source)) {
         if (!block.includes("status(500)")) continue;
         const classifies =
-          block.includes("respondIfDatabaseUnavailable") ||
-          block.includes("isDatabaseUnavailableError");
+          block.includes(HELPER_CALL) || block.includes("isDatabaseUnavailableError");
         if (!classifies) offenders.push(rel);
       }
     }
@@ -157,6 +199,54 @@ describe("cockpit HTTP layer adopts the database-unavailable branch (mt#4125)", 
     // handler genuinely cannot reach persistence — say so in a comment beside
     // the 500 and add the file to the exceptions above with the reason.
     expect(offenders).toEqual([]);
+  });
+
+  test("every 500 OUTSIDE a catch is a declared exception with a reason", () => {
+    // The catch scan above cannot see these — `tasks.ts`'s allSettled rejected
+    // reason was exactly this shape and DID carry a driver error, so "not in a
+    // catch" is not by itself evidence that a site is safe (PR #2997 R1).
+    const undeclared: string[] = [];
+
+    for (const rel of FILES) {
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import note above
+      const source = String(readFileSync(join(ROOT, rel)));
+      const inCatch = new Set(
+        catchBlocks(source)
+          .join("\n")
+          .split("\n")
+          .map((l) => l.trim())
+      );
+      const lines = source.split("\n");
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i] ?? "";
+        if (!line.includes("status(500)")) continue;
+        if (inCatch.has(line.trim())) continue;
+
+        // A non-catch 500 is fine when the enclosing block classified first —
+        // `tasks.ts`'s allSettled branch does exactly that. Otherwise it must be
+        // a declared exception.
+        const preceding = lines.slice(Math.max(0, i - 25), i).join("\n");
+        if (preceding.includes(HELPER_CALL)) continue;
+        if (rel in NON_CATCH_500_EXCEPTIONS) continue;
+        undeclared.push(`${rel}:${i + 1}`);
+      }
+    }
+
+    expect(undeclared).toEqual([]);
+  });
+
+  test("the enumeration does not outlive the sites it explains", () => {
+    // A stale exception is worse than none: it reads as a considered decision
+    // about a site that no longer exists.
+    const stale = Object.keys(NON_CATCH_500_EXCEPTIONS).filter((rel) => {
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- see the import note above
+      const source = String(readFileSync(join(ROOT, rel)));
+      const withinCatch = catchBlocks(source).join("\n").split("status(500)").length - 1;
+      return source.split("status(500)").length - 1 <= withinCatch;
+    });
+
+    expect(stale).toEqual([]);
   });
 
   test("the guard would notice a regression", () => {
@@ -170,6 +260,6 @@ describe("cockpit HTTP layer adopts the database-unavailable branch (mt#4125)", 
     `;
     const blocks = catchBlocks(regressed).filter((b) => b.includes("status(500)"));
     expect(blocks).toHaveLength(1);
-    expect(blocks[0]?.includes("respondIfDatabaseUnavailable")).toBe(false);
+    expect(blocks[0]?.includes(HELPER_CALL)).toBe(false);
   });
 });

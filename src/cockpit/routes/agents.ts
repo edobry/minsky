@@ -19,6 +19,7 @@ import {
 } from "../derived-conversation-link";
 import { ServerTimingRecorder } from "../server-timing";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 
 /**
  * Resolve every `minsky_session_links` candidate for a workspace session
@@ -355,8 +356,7 @@ export function mountAgentRoutes(app: express.Express): void {
       });
     } catch (err) {
       if (await respondIfDatabaseUnavailable(res, err, "agents")) return;
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`[agents] GET /api/agents/:id — internal error: ${message}`);
+      log.error(`[agents] GET /api/agents/:id — internal error: ${getLoggableErrorSummary(err)}`);
       res.status(500).json({ error: "An internal error occurred while fetching the session." });
     }
   });
@@ -504,8 +504,9 @@ export function mountAgentRoutes(app: express.Express): void {
       });
     } catch (err) {
       if (await respondIfDatabaseUnavailable(res, err, "agents")) return;
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`[agents] GET /api/agents/:id/live-tail — internal error: ${message}`);
+      log.error(
+        `[agents] GET /api/agents/:id/live-tail — internal error: ${getLoggableErrorSummary(err)}`
+      );
       if (!res.headersSent) {
         res.status(500).json({ error: "An internal error occurred while starting live tail." });
       }

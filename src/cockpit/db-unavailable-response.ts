@@ -56,20 +56,35 @@ import { describeServerPersistenceUnavailability } from "./db-providers";
  * Respects `headersSent` for streaming handlers (SSE live-tail), where the
  * response may already be committed by the time the error surfaces.
  */
+export interface DbUnavailableDeps {
+  /** Defaults to the shared logger. Injected so the log CONTENT is assertable. */
+  logWarn?: (message: string, meta: Record<string, unknown>) => void;
+  /** Defaults to the server's persistence description. Injected for the same reason. */
+  describeUnavailability?: () => Promise<string>;
+}
+
 export async function respondIfDatabaseUnavailable(
   res: Response,
   err: unknown,
-  scope: string
+  scope: string,
+  deps: DbUnavailableDeps = {}
 ): Promise<boolean> {
   if (!isDatabaseUnavailableError(err)) return false;
 
-  log.warn(`[${scope}] database unavailable`, {
+  // Seams rather than module patching (ADR-036): the two observables that
+  // matter here — that the log carries the CAUSE CHAIN and that the 503 body
+  // carries the persistence description — are otherwise only reachable by
+  // spying on the logger, which is banned and would not survive a refactor.
+  const logWarn = deps.logWarn ?? ((message, meta) => log.warn(message, meta));
+  const describe = deps.describeUnavailability ?? describeServerPersistenceUnavailability;
+
+  logWarn(`[${scope}] database unavailable`, {
     error: getLoggableErrorSummary(err),
   });
 
   if (!res.headersSent) {
     res.status(503).json({
-      error: `Service unavailable — ${await describeServerPersistenceUnavailability()}`,
+      error: `Service unavailable — ${await describe()}`,
     });
   }
   return true;

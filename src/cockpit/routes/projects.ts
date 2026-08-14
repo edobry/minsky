@@ -7,6 +7,7 @@ import type express from "express";
 import { log } from "@minsky/shared/logger";
 import { getContextInspectorDb } from "../db-providers";
 import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 
 /** Shape returned to the frontend selector — a trimmed `ProjectRecord`. */
 export interface ProjectSummary {
@@ -64,8 +65,7 @@ export function mountProjectRoutes(app: express.Express, opts: ProjectRoutesOpti
       res.json({ projects });
     } catch (err) {
       if (await respondIfDatabaseUnavailable(res, err, "projects")) return;
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`[projects] GET /api/projects — internal error: ${message}`);
+      log.error(`[projects] GET /api/projects — internal error: ${getLoggableErrorSummary(err)}`);
       res.status(500).json({ error: "An internal error occurred while listing projects." });
     }
   });
