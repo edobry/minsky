@@ -39,6 +39,8 @@ import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
 import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
 import { ServerTimingRecorder } from "../server-timing";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
+import { getLoggableErrorSummary } from "@minsky/domain/schemas/error";
 
 /**
  * Bound for the `/overview` transcript lookup (mt#3131 D3) — see the sibling
@@ -237,9 +239,9 @@ export function mountConversationRoutes(
         stopTail();
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await respondIfDatabaseUnavailable(res, err, "conversations")) return;
       log.error(
-        `[conversation] GET /api/conversation/:agentSessionId/live-tail — internal error: ${message}`
+        `[conversation] GET /api/conversation/:agentSessionId/live-tail — internal error: ${getLoggableErrorSummary(err)}`
       );
       if (!res.headersSent) {
         res.status(500).json({ error: "An internal error occurred while starting live tail." });
@@ -517,9 +519,9 @@ export function mountConversationRoutes(
         workspace,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      if (await respondIfDatabaseUnavailable(res, err, "conversations")) return;
       log.error(
-        `[conversation] GET /api/conversation/:agentSessionId/overview — internal error: ${message}`
+        `[conversation] GET /api/conversation/:agentSessionId/overview — internal error: ${getLoggableErrorSummary(err)}`
       );
       res
         .status(500)
