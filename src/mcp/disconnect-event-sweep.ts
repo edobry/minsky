@@ -181,8 +181,13 @@ export async function triggerMcpDisconnectEventSweep(
     );
 
     let maxTimestamp = hwm ?? "";
-    for (const event of newEvents) {
-      await emitter.emit({
+    let persisted = 0;
+    for (const [index, event] of newEvents.entries()) {
+      // `tryEmit`, not `emit` (mt#4131): `emit` returns void, so advancing the
+      // HWM after it marks an event swept whether or not the row landed. That
+      // is how an 865-event backlog was dropped AND recorded as swept, leaving
+      // it unrecoverable — the HWM must only ever pass events that persisted.
+      const written = await emitter.tryEmit({
         eventType: "mcp.disconnect",
         payload: {
           cause: event.cause,
@@ -191,13 +196,31 @@ export async function triggerMcpDisconnectEventSweep(
           processRole: event.processRole,
         },
       });
+
+      if (!written) {
+        // The usual cause is not a bad row but a dead pool: this sweep is
+        // dispatched fire-and-forget at boot and is not awaited, so a SIGTERM
+        // mid-backlog closes persistence out from under it. Every remaining
+        // iteration then fails in ~1ms against the closed connection, each
+        // emitting its own swallowed warning — 865 of them in the originating
+        // incident. Stop at the first failure: one warning, and the unswept
+        // remainder is picked up on the next boot.
+        log.warn("mcp-disconnect-sweep: emit failed, halting with events unswept", {
+          persisted,
+          unswept: newEvents.length - index,
+        });
+        break;
+      }
+
+      persisted++;
       if (event.timestamp > maxTimestamp) maxTimestamp = event.timestamp;
     }
 
     if (maxTimestamp) writeHwm(maxTimestamp, fsDeps);
 
     log.debug("mcp-disconnect-sweep: emitted mcp.disconnect events", {
-      count: newEvents.length,
+      count: persisted,
+      unswept: newEvents.length - persisted,
     });
   } catch (err) {
     // Best-effort: a failed sweep must never affect MCP server boot.
