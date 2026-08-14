@@ -488,9 +488,14 @@ describe("runGuardCanary — write isolation (mt#4127)", () => {
   /** A registration whose module records what it was handed, and writes where a guard would. */
   function makeObservingReg(name: string): {
     reg: GuardRegistration;
-    observed: { cwd?: string; projectDir?: string; wroteTo?: string };
+    observed: { cwd?: string; projectDir?: string; wouldWriteTo?: string; wroteTo?: string };
   } {
-    const observed: { cwd?: string; projectDir?: string; wroteTo?: string } = {};
+    const observed: {
+      cwd?: string;
+      projectDir?: string;
+      wouldWriteTo?: string;
+      wroteTo?: string;
+    } = {};
     const reg: GuardRegistration = {
       name,
       event: "PreToolUse",
@@ -501,9 +506,18 @@ describe("runGuardCanary — write isolation (mt#4127)", () => {
             observed.projectDir = process.env[CLAUDE_PROJECT_DIR_VAR];
             // Mirror a hand-rolled evaluation writer: root on input.cwd.
             const logPath = join(String(input.cwd), ".minsky", "synthetic-evaluations.jsonl");
-            mkdirSync(dirname(logPath), { recursive: true });
-            appendFileSync(logPath, `${JSON.stringify({ session_id: CANARY_SESSION_ID })}\n`);
-            observed.wroteTo = logPath;
+            observed.wouldWriteTo = logPath;
+            // Write ONLY when the runner actually sandboxed us (PR #2995 R1).
+            // The assertions below check `wouldWriteTo`, so a regression is
+            // still caught — but the test that detects files scattering into
+            // the developer's checkout must not scatter them itself on the way
+            // to failing. Guarding here rather than asserting-then-writing
+            // keeps that true even if the assertion order later changes.
+            if (logPath.startsWith(tmpdir())) {
+              mkdirSync(dirname(logPath), { recursive: true });
+              appendFileSync(logPath, `${JSON.stringify({ session_id: CANARY_SESSION_ID })}\n`);
+              observed.wroteTo = logPath;
+            }
             // A calibration outcome rather than null, so the fixture is a
             // coherent registration: the guards that write a per-turn record
             // are exactly the calibration-first ones.
@@ -547,14 +561,37 @@ describe("runGuardCanary — write isolation (mt#4127)", () => {
     expect(process.env[CLAUDE_PROJECT_DIR_VAR] ?? "<unset>").toBe(before ?? "<unset>");
   });
 
-  test("a write the guard performs lands in the sandbox, which is then removed", async () => {
+  test("the path a guard would write to is inside the sandbox, and nothing persists", async () => {
     const { reg, observed } = makeObservingReg("mt4127-write-lands-in-sandbox");
     await runGuardCanary(reg);
 
+    // The regression check, made on the PATH rather than on a file that had to
+    // be created in the checkout to be observed.
+    expect(observed.wouldWriteTo).toBeDefined();
+    expect(observed.wouldWriteTo?.startsWith(tmpdir())).toBe(true);
+    // The fixture only writes when sandboxed, so this being set is itself
+    // evidence the guard was — and its absence afterward is the teardown.
     expect(observed.wroteTo).toBeDefined();
-    expect(observed.wroteTo?.startsWith(tmpdir())).toBe(true);
-    // Nothing persists: the sandbox is torn down in the runner's `finally`.
     expect(existsSync(String(observed.wroteTo))).toBe(false);
+  });
+
+  test("concurrent invocations do not trample each other's sandbox (PR #2995 R1)", async () => {
+    // `runGuardCanary` hands the sandbox to guards through `process.env`, which
+    // is process-global. Overlapping calls are serialized; without that, one
+    // canary's `finally` restores the pre-canary value while another is still
+    // running, and the second writes to the real repo.
+    const a = makeObservingReg("mt4127-concurrent-a");
+    const b = makeObservingReg("mt4127-concurrent-b");
+
+    await Promise.all([runGuardCanary(a.reg), runGuardCanary(b.reg)]);
+
+    // Each saw a sandbox, and each saw its OWN — a shared or restored-early
+    // value would show up as an equal pair, or as one pointing at the checkout.
+    expect(a.observed.cwd?.startsWith(tmpdir())).toBe(true);
+    expect(b.observed.cwd?.startsWith(tmpdir())).toBe(true);
+    expect(a.observed.cwd).not.toBe(b.observed.cwd);
+    expect(String(a.observed.projectDir)).toBe(String(a.observed.cwd));
+    expect(String(b.observed.projectDir)).toBe(String(b.observed.cwd));
   });
 });
 

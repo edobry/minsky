@@ -250,6 +250,46 @@ function createCanarySandbox(): string {
 }
 
 /**
+ * Tail of the chain of in-flight canary invocations, so overlapping calls run
+ * one at a time.
+ *
+ * `runGuardCanary` communicates the sandbox to guards through `process.env`,
+ * which is process-global: two concurrent invocations would each set
+ * `CLAUDE_PROJECT_DIR`, and the first to finish would restore the pre-canary
+ * value out from under the second, un-sandboxing it mid-run.
+ *
+ * The env channel is not a choice — `evaluationLogPath` reads the variable from
+ * the environment, so there is no parameter to thread instead. Serializing is
+ * what makes a global-by-contract channel safe.
+ *
+ * **This hazard predates the sandbox** (PR #2995 R1). The function has always
+ * snapshotted and restored env around a canary's `setup`, which is free to
+ * mutate it (the mt#3004 fixture-path and tracker-home seams do exactly that);
+ * concurrent callers would have trampled those too. The sandbox made the
+ * exposure load-bearing rather than introducing it, so the fix is scoped to the
+ * whole function rather than to the two lines that prompted the finding.
+ *
+ * Sequential callers pay one already-resolved `await` and are otherwise
+ * unaffected — `runAllRegistryCanaries` awaits each canary in turn today.
+ */
+let canaryInvocationChain: Promise<void> = Promise.resolve();
+
+/**
+ * Wait for any in-flight canary to finish, then claim the slot. The returned
+ * function releases it and MUST be called in a `finally`, or every later canary
+ * waits forever.
+ */
+async function acquireCanarySlot(): Promise<() => void> {
+  const priorInFlight = canaryInvocationChain;
+  let release!: () => void;
+  canaryInvocationChain = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await priorInFlight;
+  return release;
+}
+
+/**
  * Restore `process.env` to an exact prior snapshot: keys added since the
  * snapshot are deleted; keys changed or removed are set back. Used by
  * `runGuardCanary` so a canary `setup` that mutates env (fixture-path /
@@ -286,6 +326,9 @@ export async function runGuardCanary(
   if (!canary) {
     return { guardName: reg.name, source: "registry", passed: undefined };
   }
+  // Claimed before the env snapshot: the snapshot must capture the environment
+  // with no other canary's mutations in it.
+  const releaseSlot = await acquireCanarySlot();
   const envSnapshot: Record<string, string | undefined> = { ...process.env };
   const sandbox = createCanarySandbox();
   try {
@@ -329,6 +372,9 @@ export async function runGuardCanary(
     // a failure, and `recursive` because a guard may have created `.minsky/`
     // beneath the sandbox — which is the whole point of it existing.
     rmSync(sandbox, { recursive: true, force: true });
+    // LAST: the next canary may start the moment this resolves, and it must not
+    // observe this one's env or sandbox.
+    releaseSlot();
   }
 }
 
