@@ -94,13 +94,16 @@ fi
 # which it was, so say so — silently rebuilding a flattened layout is how the
 # 2026-08-13 recovery lost a multi-window working set with nothing to notice.
 # A snapshot predating these fields carries neither, and is read as observed.
-grouping_warning=$(python3 - "$SNAPSHOT" <<'PY' 2>/dev/null || true
+grouping_warning=$(python3 - "$SNAPSHOT" "$STATE_DIR" <<'PY' 2>/dev/null || true
 import json, sys
 try:
     with open(sys.argv[1]) as fh:
         d = json.load(fh)
 except (OSError, ValueError):
     sys.exit(0)
+# Resolved, not the literal variable name: this hint is the operator's next command in a
+# recovery, so it has to be pasteable as printed.
+state_dir = sys.argv[2]
 if d.get("iterm_dump", "ok") == "ok":
     sys.exit(0)
 if d.get("iterm_grouping_source") == "history":
@@ -112,7 +115,7 @@ else:
     print("WARN: iTerm was unresponsive when this snapshot was taken and no earlier "
           "grouping was available. Window layout will NOT be reconstructed — every "
           "session restores into its own window. Try an older snapshot: "
-          "ls -t \"$TAB_WATCHER_STATE_DIR\"/snapshot-*.json")
+          "ls -t %s/snapshot-*.json" % state_dir)
 PY
 )
 if [ -n "$grouping_warning" ]; then

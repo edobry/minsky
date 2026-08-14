@@ -117,6 +117,10 @@ describe("consumer warning (SC2)", () => {
     const { stderr } = runResume(snap);
     expect(stderr).toContain("iTerm was unresponsive");
     expect(stderr).toContain("will NOT be reconstructed");
+    // The hint is the operator's next command during a recovery, so it must be pasteable as
+    // printed — a literal "$TAB_WATCHER_STATE_DIR" is not (PR #2993 R3).
+    expect(stderr).toContain(`ls -t ${stateDir}/snapshot-*.json`);
+    expect(stderr).not.toContain("$TAB_WATCHER_STATE_DIR");
   });
 
   test("warns that grouping was recovered, and names when it came from", () => {
