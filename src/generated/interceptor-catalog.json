@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 99,
+  "population": 100,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
