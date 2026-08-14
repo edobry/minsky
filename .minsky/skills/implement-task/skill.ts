@@ -71,7 +71,25 @@ Then run both sweeps:
 
 1. **Open-PR sweep** — \`mcp__github__list_pull_requests\` with \`state: "open"\`. Scan titles
    and branches for any PR whose scope plausibly overlaps the spec's \`## Scope\` → \`In scope\`
-   files. Spot-check suspicious matches with \`mcp__github__pull_request_read\` method \`get_diff\`.
+   files. Titles and branches are a CANDIDATE FILTER, not evidence about files: for any
+   candidate you would act on, read its actual changed-file list with
+   \`mcp__github__pull_request_read\` method \`get_files\` before recording a collision.
+
+   **A file-level collision claim must cite an observed changed-file list (mt#3806).** A task's
+   title, its \`## Scope\` section, or an inference about where that kind of code lives is not
+   evidence about which files a PR touches. \`get_files\` is the cheap default — it returns a
+   filename list, which is the whole question here; reserve \`get_diff\` for when the hunks
+   actually matter.
+
+   **When the other work has no PR yet, a file-level claim is UNAVAILABLE.** Do not substitute
+   prose for the missing list. Record "task-level adjacency, files unknown" and decide on that
+   basis — which is a weaker finding than a collision and should not, on its own, halt work.
+
+   Origin (mem#892, 2026-08-05): this step halted on a claimed \`SessionFilmStage.tsx\` collision
+   with mt#3792. That PR changed \`PanZoomSVG.tsx\`, its test, and a verify script — the stage was
+   never in it. The filename came from mt#3792's title plus an inference about where camera code
+   lives. One \`get_files\` call falsified it, and was made only after the principal prompted to
+   resume, by which point a turn was spent and a false blocking gap was written into the spec.
 2. **Recently-merged sweep** — \`mcp__minsky__git_log\` for the last 24 hours; check for any
    merge that touched files this task plans to modify. A fix that landed overnight is just
    as bad as one in flight.
