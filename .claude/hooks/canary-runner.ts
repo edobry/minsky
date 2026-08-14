@@ -329,51 +329,62 @@ export async function runGuardCanary(
   // Claimed before the env snapshot: the snapshot must capture the environment
   // with no other canary's mutations in it.
   const releaseSlot = await acquireCanarySlot();
-  const envSnapshot: Record<string, string | undefined> = { ...process.env };
-  const sandbox = createCanarySandbox();
+  // This outer try exists ONLY to make the release unconditional (PR #2995 R2).
+  // Everything between the claim and the inner `try` can throw —
+  // `createCanarySandbox()` does real filesystem work and fails on a full or
+  // unwritable tmpdir — and such a throw would escape past `releaseSlot()`,
+  // leaving `canaryInvocationChain` pending forever. Every later canary then
+  // awaits a promise nothing resolves, so the suite HANGS rather than failing:
+  // strictly worse than the contamination this sandbox exists to prevent, and
+  // silent in a way a failure would not be.
   try {
-    // Set BEFORE the module loads: a guard may resolve its log path at import
-    // time, in which case setting this after the import would be too late.
-    process.env["CLAUDE_PROJECT_DIR"] = sandbox;
-    const mod = await (moduleLoader ?? reg.module)();
-    const ctx = buildCanaryContext(reg.event, canary.transcriptLines);
-    let inputPatch: Record<string, unknown> = {};
-    if (canary.setup) {
-      inputPatch = (await canary.setup(mod, ctx)) ?? {};
+    const envSnapshot: Record<string, string | undefined> = { ...process.env };
+    const sandbox = createCanarySandbox();
+    try {
+      // Set BEFORE the module loads: a guard may resolve its log path at import
+      // time, in which case setting this after the import would be too late.
+      process.env["CLAUDE_PROJECT_DIR"] = sandbox;
+      const mod = await (moduleLoader ?? reg.module)();
+      const ctx = buildCanaryContext(reg.event, canary.transcriptLines);
+      let inputPatch: Record<string, unknown> = {};
+      if (canary.setup) {
+        inputPatch = (await canary.setup(mod, ctx)) ?? {};
+      }
+      // Declaration order is deliberate: a canary that needs a REAL path (e.g.
+      // `check-guessed-session-path`, whose whole decision is about a path on
+      // disk) still overrides `cwd`, and `CLAUDE_PROJECT_DIR` keeps the
+      // shared-helper writers sandboxed even then.
+      const input: ToolHookInput = {
+        ...baseCanaryInput(reg.event, sandbox),
+        ...canary.input,
+        ...inputPatch,
+      } as ToolHookInput;
+      const outcome = await mod.run(input, ctx);
+      return {
+        guardName: reg.name,
+        source: "registry",
+        expects: canary.expects,
+        passed: evaluateCanaryOutcome(outcome, canary.expects),
+        outcome,
+      };
+    } catch (err) {
+      return {
+        guardName: reg.name,
+        source: "registry",
+        expects: canary.expects,
+        passed: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    } finally {
+      restoreEnvSnapshot(envSnapshot);
+      // `force` so a canary that never wrote anything does not turn cleanup
+      // into a failure, and `recursive` because a guard may have created
+      // `.minsky/` beneath the sandbox — the whole point of it existing.
+      rmSync(sandbox, { recursive: true, force: true });
     }
-    // Declaration order is deliberate: a canary that needs a REAL path (e.g.
-    // `check-guessed-session-path`, whose whole decision is about a path on
-    // disk) still overrides `cwd`, and `CLAUDE_PROJECT_DIR` keeps the
-    // shared-helper writers sandboxed even then.
-    const input: ToolHookInput = {
-      ...baseCanaryInput(reg.event, sandbox),
-      ...canary.input,
-      ...inputPatch,
-    } as ToolHookInput;
-    const outcome = await mod.run(input, ctx);
-    return {
-      guardName: reg.name,
-      source: "registry",
-      expects: canary.expects,
-      passed: evaluateCanaryOutcome(outcome, canary.expects),
-      outcome,
-    };
-  } catch (err) {
-    return {
-      guardName: reg.name,
-      source: "registry",
-      expects: canary.expects,
-      passed: false,
-      error: err instanceof Error ? err.message : String(err),
-    };
   } finally {
-    restoreEnvSnapshot(envSnapshot);
-    // `force` so a canary that never wrote anything does not turn cleanup into
-    // a failure, and `recursive` because a guard may have created `.minsky/`
-    // beneath the sandbox — which is the whole point of it existing.
-    rmSync(sandbox, { recursive: true, force: true });
-    // LAST: the next canary may start the moment this resolves, and it must not
-    // observe this one's env or sandbox.
+    // LAST, and outside everything: the next canary may start the moment this
+    // resolves, and it must not observe this one's env or sandbox.
     releaseSlot();
   }
 }

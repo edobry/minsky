@@ -575,6 +575,37 @@ describe("runGuardCanary — write isolation (mt#4127)", () => {
     expect(existsSync(String(observed.wroteTo))).toBe(false);
   });
 
+  test("a canary that throws still releases its slot (PR #2995 R2)", async () => {
+    // The reviewer's scenario is `createCanarySandbox()` throwing, which cannot
+    // be injected here — but the invariant it threatens is observable: if ANY
+    // path skips `releaseSlot()`, `canaryInvocationChain` stays pending and
+    // every later canary waits on it forever. A rejecting module loader
+    // exercises that invariant through the error path.
+    const { reg: template } = makeObservingReg("mt4127-exploding");
+    const exploding: GuardRegistration = {
+      ...template,
+      module: () => Promise.reject(new Error("canary module boom")),
+    };
+    const failed = await runGuardCanary(exploding);
+    expect(failed.passed).toBe(false);
+
+    // Raced against a timeout ON PURPOSE: a leaked slot makes the next canary
+    // HANG, and a hanging test reports as a suite timeout rather than as this
+    // assertion failing. The race converts the hang into a legible failure.
+    const { reg, observed } = makeObservingReg("mt4127-after-failure");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      runGuardCanary(reg).then(() => "completed" as const),
+      new Promise<"slot-leaked">((resolve) => {
+        timer = setTimeout(() => resolve("slot-leaked"), 2000);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+
+    expect(outcome).toBe("completed");
+    expect(observed.cwd?.startsWith(tmpdir())).toBe(true);
+  });
+
   test("concurrent invocations do not trample each other's sandbox (PR #2995 R1)", async () => {
     // `runGuardCanary` hands the sandbox to guards through `process.env`, which
     // is process-global. Overlapping calls are serialized; without that, one
