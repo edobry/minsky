@@ -12,6 +12,7 @@ import type { AskRepository } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
 import { getServerAskRepository, describeServerPersistenceUnavailability } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /** Options accepted by {@link mountAskRoutes}. */
 export interface AskRoutesOptions {
@@ -251,6 +252,7 @@ function makeDeferOrEscalateHandler(
         ...(mode === "escalate" ? { escalated: false } : {}),
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       // No transition happens here any more, so the former "Invalid
       // transition" -> 409 branch is unreachable and was removed (R1
       // non-blocking). `repo.getById` can still fail for unrelated reasons;
@@ -373,6 +375,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         truncated: total > page.length,
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -415,6 +418,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       });
       res.json({ ids });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -474,6 +478,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
         },
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       res.status(500).json({ error: message });
     }
@@ -576,6 +581,7 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
 
       res.json({ ok: true, id: ask.id, state: ask.state });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "asks")) return;
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("not found")) {
         res.status(404).json({ error: message });

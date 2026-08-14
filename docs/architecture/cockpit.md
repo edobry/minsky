@@ -149,6 +149,33 @@ not.
 | `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                  |
 | `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                           |
 
+### HTTP error semantics: 503 is a database outage, 500 is a bug (mt#4125)
+
+Every cockpit API handler distinguishes the two, and callers should too:
+
+| Status  | Means                                                                                                                                              | Caller should                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **503** | The persistence layer is unreachable — pool exhaustion, a dropped connection, no provider configured. Body: `Service unavailable — <description>`. | Treat as transient. Keep polling; render a "store unavailable" state rather than a failure. |
+| **500** | An error in the handler itself.                                                                                                                    | Treat as a defect.                                                                          |
+
+The classification runs through `respondIfDatabaseUnavailable`
+(`src/cockpit/db-unavailable-response.ts`), which wraps `isDatabaseUnavailableError` (mt#3398).
+That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the driver
+error and carries the QUERY TEXT as the wrapper's own message, so a non-walking check sees a query
+string and concludes "application bug" for what is really an outage.
+
+**This changed in mt#4125.** Before it, the predicate had 3 adopter call sites against 42
+unconditional `status(500)` sites, so a pool exhaustion was reported to the operator as an
+application bug — mt#4086 is the worked instance (`GET /api/changesets`, Supavisor
+`EMAXCONNSESSION`). Any runbook or note written before that date describing a cockpit route as
+returning 500 on a database outage is now wrong for the outage case; 500 still means what it always
+did for handler defects.
+
+Callers with a generic `if (!res.ok)` path are unaffected — both statuses are non-ok and render the
+same error state. A guard test in `src/cockpit/db-unavailable-response.test.ts` asserts the whole
+HTTP layer keeps classifying, and carries the enumerated exceptions (500s with no error object to
+classify) with their reasons.
+
 ## Widgets
 
 Each widget declares an `id` matching `WidgetModule.id` in its backend module under
