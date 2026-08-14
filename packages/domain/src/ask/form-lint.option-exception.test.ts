@@ -35,6 +35,22 @@ describe("OPTION_EXCEPTION_WORD_PATTERN", () => {
     }
   });
 
+  test("the warning text names exactly the words the pattern matches", () => {
+    // PR #3003 R1 BLOCKING #2: the message advertised "except"/"only"/"unless"
+    // after `only` had been dropped and while `other than`/`apart from` were
+    // never listed — an author reading it would have believed `only` was
+    // covered. Doc-code drift inside a single expression, which no type or
+    // test caught until the reviewer read both halves. This pins them together.
+    const message =
+      computeFormLintMatches(decideWith(["Close it except on an entity ref"])).find(
+        (m) => m.check === CHECK_UNSCOPED_OPTION_EXCEPTION
+      )?.message ?? "";
+    for (const word of ["except", "unless", "other than", "apart from"]) {
+      expect(message).toContain(`"${word}"`);
+    }
+    expect(message).not.toContain('"only"');
+  });
+
   test("does NOT match `only` — the word the narrowing removed", () => {
     // Regression pin for the false positive that shaped this pattern. `only`
     // was in the first draft, and `\bonly\b` matches inside `read-only`

@@ -507,7 +507,8 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
     matches.push({
       check: "unscoped-option-exception",
       message:
-        `${exceptionLabels} option label(s) carve an exception ("except"/"only"/"unless") — ` +
+        `${exceptionLabels} option label(s) carve an exception ` +
+        `("except"/"unless"/"other than"/"apart from") — ` +
         `state the RULE the exception carves out of, not just the exception, and say where ` +
         `the exception set came from: derived from the system's structure, or taken from the ` +
         `one case that prompted this ask. An exemption written from the case in hand is how ` +
