@@ -81,6 +81,25 @@ DB is touched (mt#3824 R2).
 Graduation to any blocking tier is gated on the spec's SC4 backtest, not on this module's authoring.
 Per `/calibration-review`, a posture change routes to an operator Ask; a tune does not.
 
+**Re-running the backtest (mt#4134).** The one-guard script this measurement came from has been
+replaced by the shared replay harness:
+
+```
+bun scripts/backtest-diff-guard.ts --guard stale-signal-sweep --rev-range <a>^..<b> [--include-terminal]
+```
+
+Prefer `--rev-range` over `--days`/`--limit` for anything you intend to quote. Those two are both
+CEILINGS and git applies the count one after the date filter, so the effective window is whichever
+binds FIRST — and the published "60-day backtest — 400 commits, 4 fires" was a case of the count
+ceiling binding: 1148 first-parent commits fell inside 60 days, so that sample actually spanned
+**12 days** (2026-08-01 → 2026-08-13). The counts were right; the window label was not. The harness
+now reports the span it walked and names the ceiling that bound it, so the same mislabel cannot
+recur silently.
+
+Re-run over the pinned equivalent range (`1efacf82d^..285927521`) on 2026-08-14: 400 commits, 5
+dropping a label, **3 fires** — one fewer than the original 4, which is the as-of-today corpus drift
+this guard's own confidence note predicts (the quoting artifact for the fourth has since closed).
+
 ## Wiring
 
 `session_pr_create` was **not** a dispatcher-spawning tool before this guard — a registration
