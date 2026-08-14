@@ -74,6 +74,7 @@ import {
   engprodMinerRunsTable,
 } from "@minsky/domain/storage/schemas/engprod-proposal-ledger-schema";
 import { tasksTable } from "@minsky/domain/storage/schemas/task-embeddings";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /** Most recent N miner runs returned per the run-history read. */
 const MAX_RUNS = 50;
@@ -182,6 +183,7 @@ export function mountEngprodProposalRoutes(app: express.Express): void {
 
       res.json({ runs, proposals });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "engprod-proposals")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[engprod-proposals] GET /api/engprod/proposals — internal error: ${message}`);
       res
@@ -381,6 +383,7 @@ async function handleDecision(
         return;
     }
   } catch (err) {
+    if (await respondIfDatabaseUnavailable(res, err, "engprod-proposals")) return;
     if (err instanceof LedgerRowMissingError) {
       log.error(`[engprod-proposals] ${decision} on ${taskId} — ${err.message}`);
       res.status(500).json({ error: err.message });

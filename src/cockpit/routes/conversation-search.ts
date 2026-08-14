@@ -31,6 +31,7 @@ import {
   parseSearchMode,
   type TranscriptFtsSearchMode,
 } from "@minsky/domain/transcripts/transcript-fts-search-query";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 export interface ConversationSearchRouteOptions {
   /**
@@ -159,6 +160,7 @@ export function mountConversationSearchRoutes(
       const coverage = await assessWindowCoverage(db, dateRange);
       res.json(buildSearchResponse(results, coverage));
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "conversation-search")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[conversations] GET /api/conversations/search — internal error: ${message}`);
       res.status(500).json({ error: "An internal error occurred while searching conversations." });

@@ -15,6 +15,7 @@ import {
 } from "../db-providers";
 import { resolveCockpitProjectScope } from "../project-scope";
 import { isDatabaseUnavailableError } from "@minsky/domain/persistence/postgres-retry";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 import type { Changeset } from "@minsky/domain/changeset/types";
 import type { SessionRecord } from "@minsky/domain/session/types";
 import type {
@@ -244,6 +245,10 @@ export function mountChangesetRoutes(app: express.Express): void {
         checksUnavailableReason,
       });
     } catch (err) {
+      // The DETAIL route, which mt#4086 left behind when it fixed the list
+      // route beneath — the sibling degradation block for this endpoint states
+      // plainly that "a 500 is a regression" (mt#3096), and it was one.
+      if (await respondIfDatabaseUnavailable(res, err, "changesets")) return;
       log.error(`[changeset] GET /api/changeset/:id — internal error: ${errText(err)}`);
       res.status(500).json({ error: "An internal error occurred while fetching the changeset." });
     }

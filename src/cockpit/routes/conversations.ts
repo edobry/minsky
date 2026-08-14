@@ -39,6 +39,7 @@ import type { ConversationId } from "@minsky/domain/ids";
 import type { ResolveJsonlFsMod, StatFn, TailerLike } from "../live-tail-poller";
 import { looksLikeConversationId, withBoundedTimeout } from "../conversation-id-space";
 import { ServerTimingRecorder } from "../server-timing";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /**
  * Bound for the `/overview` transcript lookup (mt#3131 D3) — see the sibling
@@ -237,6 +238,7 @@ export function mountConversationRoutes(
         stopTail();
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "conversations")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         `[conversation] GET /api/conversation/:agentSessionId/live-tail — internal error: ${message}`
@@ -517,6 +519,7 @@ export function mountConversationRoutes(
         workspace,
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "conversations")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         `[conversation] GET /api/conversation/:agentSessionId/overview — internal error: ${message}`

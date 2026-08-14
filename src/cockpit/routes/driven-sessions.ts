@@ -58,6 +58,7 @@ import {
 } from "../driven-session-launch";
 import { isDispatchModelId, resolveDispatchModelArg } from "@minsky/domain/ai/dispatch-models";
 import { looksLikeConversationId } from "../conversation-id-space";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /**
  * Options accepted by {@link mountDrivenSessionRoutes}. Every field here is a
@@ -247,6 +248,7 @@ export function mountDrivenSessionRoutes(
       });
       res.status(201).json(toSessionSummary(record));
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "driven-sessions")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[driven-session] spawn failed: ${message}`);
       res.status(500).json({ error: `Failed to start driven session: ${message}` });
@@ -323,6 +325,7 @@ export function mountDrivenSessionRoutes(
           return;
       }
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "driven-sessions")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[driven-session] attach failed for ${conversationIdRaw}: ${message}`);
       res.status(500).json({ error: `Failed to attach driven session: ${message}` });

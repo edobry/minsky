@@ -21,6 +21,7 @@ import { TaskTitleCache, type TaskProviderLike } from "../task-title-cache";
 // driven session just reads an empty registry.
 import { drivenSessionRegistry, isTerminalStatus } from "../driven-session-host";
 import { ServerTimingRecorder } from "../server-timing";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /**
  * Pick the driven session an operator should be returned to for a task
@@ -185,6 +186,7 @@ export function mountTaskRoutes(app: express.Express): void {
       const tasks = Array.from(meta, ([id, m]) => ({ id, title: m.title, status: m.status }));
       res.json({ tasks });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "tasks")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[tasks] GET /api/tasks/meta — internal error: ${message}`);
       res.status(500).json({ error: "An internal error occurred while resolving task labels." });
@@ -222,6 +224,7 @@ export function mountTaskRoutes(app: express.Express): void {
       const ids = tasks.map((t) => formatTaskIdForDisplay(t.id));
       res.json({ ids });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "tasks")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[tasks] GET /api/tasks/ids — internal error: ${message}`);
       res.status(500).json({ error: "An internal error occurred while listing task ids." });
@@ -350,6 +353,10 @@ export function mountTaskRoutes(app: express.Express): void {
       const [taskResult, specResult] = await taskPromise;
 
       if (taskResult.status === "rejected") {
+        // A rejected task fetch can be the DATABASE being unreachable, not a
+        // missing task — the reason carries the driver error the same way a
+        // catch would (mt#4125).
+        if (await respondIfDatabaseUnavailable(res, taskResult.reason, "tasks")) return;
         const reason =
           taskResult.reason instanceof Error
             ? taskResult.reason.message
@@ -547,6 +554,7 @@ export function mountTaskRoutes(app: express.Express): void {
         actions,
       });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "tasks")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[tasks] GET /api/tasks/:id — internal error: ${message}`);
       res.status(500).json({ error: "An internal error occurred while fetching the task." });
@@ -600,6 +608,7 @@ export function mountTaskRoutes(app: express.Express): void {
         }));
       res.json({ tasks: taskList });
     } catch (err) {
+      if (await respondIfDatabaseUnavailable(res, err, "tasks")) return;
       const message = err instanceof Error ? err.message : String(err);
       log.error(`[tasks] GET /api/tasks — internal error: ${message}`);
       res.status(500).json({ error: "An internal error occurred while listing tasks." });

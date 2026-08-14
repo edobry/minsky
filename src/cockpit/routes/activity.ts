@@ -5,6 +5,7 @@
  */
 import type express from "express";
 import { getContextInspectorDb, describeServerPersistenceUnavailability } from "../db-providers";
+import { respondIfDatabaseUnavailable } from "../db-unavailable-response";
 
 /** Mount /api/activity on `app`. */
 export function mountActivityRoutes(app: express.Express): void {
@@ -109,6 +110,7 @@ export function mountActivityRoutes(app: express.Express): void {
 
       res.json({ events, total: events.length, limit });
     } catch (err: unknown) {
+      if (await respondIfDatabaseUnavailable(res, err, "activity")) return;
       res.status(500).json({
         error: `Failed to list events: ${err instanceof Error ? err.message : String(err)}`,
       });
