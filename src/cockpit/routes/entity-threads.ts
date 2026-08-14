@@ -395,8 +395,21 @@ export function describeEntityThreadArmOutcome(
         message: `entity-thread boot: could not arm boot work at start: ${outcome.error}`,
       };
     default: {
+      // Compile-time exhaustiveness: a new outcome kind added without a case fails HERE.
       const exhaustive: never = outcome;
-      return exhaustive;
+      // ...and a runtime line, because `never` is a compile-time guarantee only. A value built
+      // by an older or newer build of a caller still arrives here, and returning `outcome`
+      // itself would hand the mount site something that is not `{ level, message }` — so
+      // `log[level](message)` would throw inside a fire-and-forget IIFE, i.e. exactly the
+      // boot-time crash the mount-site comment promises cannot happen. Matches the house
+      // convention (`pr-watch/watcher.ts`, `pr-drive-command.ts`): the fallback returns a valid
+      // value of the declared type rather than the unexpected input. `String(kind)` rather than
+      // `JSON.stringify` so a circular object cannot throw on the way to reporting itself.
+      const kind = (exhaustive as { kind?: unknown }).kind;
+      return {
+        level: "warn",
+        message: `entity-thread boot: unrecognized arm outcome ${String(kind)}`,
+      };
     }
   }
 }

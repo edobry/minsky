@@ -640,4 +640,18 @@ describe("describeEntityThreadArmOutcome (mt#4133)", () => {
 
     expect(described?.message).toContain("15000ms");
   });
+
+  // PR #2990 R1. The `never` check is compile-time only; a value from an older or newer build of
+  // a caller still reaches the default branch at runtime. This previously returned that value
+  // unchanged, so the mount site would have called `log[undefined](undefined)` and thrown inside
+  // a fire-and-forget IIFE — the boot-time crash the mount-site comment promises cannot happen.
+  // The cast is the point of the test: it constructs exactly the input the type system forbids.
+  test("returns a usable line for an unrecognized outcome instead of the raw object", () => {
+    const described = describeEntityThreadArmOutcome({
+      kind: "from-a-future-build",
+    } as unknown as EntityThreadArmOutcome);
+
+    expect(described?.level).toBe("warn");
+    expect(described?.message).toContain("from-a-future-build");
+  });
 });
