@@ -62,7 +62,6 @@
 import * as fs from "fs";
 import * as path from "path";
 
-import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import { leadingTokenOf, splitPipeline, splitTopLevel } from "./command-shape";
@@ -319,11 +318,11 @@ export async function run(
     return { calibration: { ...base, outcome: "suppressed-mcp-in-use" } };
   }
 
-  // The scan is pure over its inputs, so canary mode runs it identically.
-  if (process.env[CANARY_MODE_ENV] === "1" && !result.matched) {
-    return { calibration: { ...base, outcome: "clean" } };
-  }
-
+  // No canary short-circuit here, deliberately (PR #3004 R2 NON-BLOCKING). The sibling
+  // `truncated-outcome-read-detector` carries one, and copying it produced dead code: its guard is
+  // `!result.matched`, which the clean-return above has already handled, so the branch was
+  // unreachable. Nothing is lost by its absence — the scan is pure over its inputs and reads no DB,
+  // network or clock, so canary mode exercises the real decision path with no seam to bypass.
   return {
     additionalContext: buildWarning(result),
     calibration: { ...base, outcome: "matched" },
