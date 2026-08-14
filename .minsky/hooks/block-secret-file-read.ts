@@ -699,11 +699,23 @@ export function psFormatSpecs(tokens: string[]): string[] {
 export function psRequestsArgv(tokens: string[]): boolean {
   const specs = psFormatSpecs(tokens);
   if (specs.length === 0) return true;
-  return specs.some((spec) =>
-    spec
-      .split(/[,\s]+/)
-      .some((f) => ARGV_COLUMN_FIELDS.has(f.replace(/=.*$/, "").trim().toLowerCase()))
-  );
+  return specs.some((spec) => spec.split(/[,\s]+/).some((f) => ARGV_COLUMN_FIELDS.has(psField(f))));
+}
+
+/**
+ * Reduce one `ps -o` entry to its bare field name.
+ *
+ * `ps` lets a field carry a WIDTH (`command:80`) and/or a custom HEADER
+ * (`command=CMD`), and both suffixes are still the argv column. Stripping only
+ * `=` — as the first version of this did — let `ps -eo command:80` through as
+ * an unrecognised field name, a false negative in the exact check this exists
+ * to make (PR #2996 R1).
+ */
+function psField(entry: string): string {
+  return entry
+    .replace(/[:=].*$/, "")
+    .trim()
+    .toLowerCase();
 }
 
 /** Would this invocation print another process's argv? */
@@ -731,28 +743,34 @@ export function isNonEmittingSink(program: string, tokens: string[]): boolean {
 /**
  * Find process listings whose argv output would reach the transcript.
  *
- * Pipeline-scoped, not segment-scoped: a listing whose pipeline ENDS in a
+ * Pipeline-scoped, not segment-scoped: a listing whose output reaches a
  * counting sink (`| grep -c`, `| wc -l`, `| grep -q`) never renders a row, and
  * is the form the rule recommends for exactly this situation.
+ *
+ * The sink is looked for ANYWHERE downstream of the listing, not only in the
+ * final stage. Once a stage has reduced its input to a count, no later stage
+ * can resurrect the argv — so `ps aux | grep -c docker | tee out` is as safe
+ * as `ps aux | grep -c docker`, and requiring the sink to be LAST over-blocked
+ * it (PR #2996 R1, non-blocking).
  */
 export function findProcessListingReads(command: string): SecretReadHit[] {
   const hits: SecretReadHit[] = [];
   if (!command) return hits;
 
   for (const stages of splitPipelines(command)) {
-    const last = stages[stages.length - 1];
-    if (last === undefined) continue;
-
-    const lastTokens = tokenize(last);
-    const lastProgram = programOf(lastTokens);
-    if (lastProgram && isNonEmittingSink(lastProgram, lastTokens)) continue;
-
-    for (const stage of stages) {
+    for (const [index, stage] of stages.entries()) {
       const tokens = tokenize(stage);
       if (tokens.length === 0) continue;
       const program = programOf(tokens);
       if (!program) continue;
       if (!isArgvBearingProcessListing(program, tokens)) continue;
+
+      const reducedDownstream = stages.slice(index + 1).some((later) => {
+        const laterTokens = tokenize(later);
+        const laterProgram = programOf(laterTokens);
+        return laterProgram !== null && isNonEmittingSink(laterProgram, laterTokens);
+      });
+      if (reducedDownstream) continue;
 
       const detail =
         program === "ps" ? (psFormatSpecs(tokens)[0] ?? "default command column") : program;

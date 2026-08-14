@@ -82,6 +82,45 @@ describe("mt#3850 — process listings that print argv", () => {
     }
   });
 
+  // PR #2996 R1 (BLOCKING): `ps` field entries carry a WIDTH (`command:80`)
+  // and/or a HEADER (`command=CMD`), and both are still the argv column.
+  // Stripping only `=` let `command:80` through as an unknown field name — a
+  // false negative in the very check this suite exists for. Both modifier
+  // forms are covered here, not just the one the reviewer cited.
+  test("fires on argv fields carrying a width or header modifier", () => {
+    for (const cmd of [
+      "ps -eo command:80",
+      "ps -eo pid,command:120",
+      "ps -eo command=CMD",
+      "ps -eo args:200=COMMAND",
+      "ps -eo cmd:50",
+    ]) {
+      expect(findProcessListingReads(cmd).length, cmd).toBeGreaterThan(0);
+    }
+  });
+
+  test("a modifier on a SAFE field stays safe", () => {
+    for (const cmd of ["ps -eo comm:20", "ps -eo pid,comm:40=NAME"]) {
+      expect(findProcessListingReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  // PR #2996 R1 (non-blocking): once a stage reduces its input to a count, no
+  // later stage can resurrect the argv, so the sink need not be LAST.
+  test("permits a counting sink that is not the final stage", () => {
+    for (const cmd of [
+      "ps aux | grep -c docker | tee out",
+      "ps -eo command | wc -l | cat",
+      "ps -eo command | grep -q gho_ && echo found",
+    ]) {
+      expect(findProcessListingReads(cmd), cmd).toEqual([]);
+    }
+  });
+
+  test("still denies when nothing downstream reduces the output", () => {
+    expect(findProcessListingReads("ps aux | grep docker | tee out").length).toBeGreaterThan(0);
+  });
+
   // The guard must not deny the form its own rule recommends. A counting sink
   // renders no row, so the argv never reaches the transcript.
   test("permits an argv listing whose pipeline ends in a counting sink", () => {
