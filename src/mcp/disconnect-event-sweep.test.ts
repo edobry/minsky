@@ -333,11 +333,27 @@ describe("triggerMcpDisconnectEventSweep (mt#2537)", () => {
       getDatabaseConnection: () => Promise.resolve(fakeDb),
     } as unknown as BasePersistenceProvider;
 
-    await triggerMcpDisconnectEventSweep(provider, fakeFs);
+    const warnCalls: Array<{ message: string; meta?: Record<string, unknown> }> = [];
+    const logDeps = {
+      warn: (message: string, meta?: Record<string, unknown>) =>
+        void warnCalls.push({ message, meta }),
+    };
+
+    await triggerMcpDisconnectEventSweep(provider, fakeFs, logDeps);
 
     // Halted at the first failure rather than attempting (and losing) the rest:
     // 2 successes + 1 failure = 3 attempts, NOT 4.
     expect(insertValues).toHaveBeenCalledTimes(3);
+
+    // Exactly ONE warning for the halt, not one per dropped event — and it
+    // carries BOTH halves: the driver cause captured from the emitter, and the
+    // count left unswept. The emitter's own warn is routed into the sweep
+    // rather than logged separately, so a single failure is a single line.
+    expect(warnCalls).toHaveLength(1);
+    const halt = warnCalls.at(0);
+    expect(halt?.meta?.causeCode).toBe("CONNECTION_ENDED");
+    expect(halt?.meta?.persisted).toBe(2);
+    expect(halt?.meta?.unswept).toBe(2);
 
     // The HWM must not pass an event that was never written — otherwise the
     // unwritten events are marked swept and are gone for good.

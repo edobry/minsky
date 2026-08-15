@@ -50,6 +50,13 @@ export interface DisconnectSweepFsDeps {
   mkdirSync: (p: string, options?: { recursive?: boolean }) => void;
 }
 
+/** Injectable warn sink, mirroring `LogPostgresNoticeDeps` (mt#3628). */
+export interface DisconnectSweepLogDeps {
+  warn: (message: string, meta?: Record<string, unknown>) => void;
+}
+
+export const defaultLogDeps: DisconnectSweepLogDeps = { warn: log.warn };
+
 export const defaultFsDeps: DisconnectSweepFsDeps = {
   existsSync: (p) => fs.existsSync(p),
   readFileSync: (p) => fs.readFileSync(p, { encoding: "utf-8" }) as string,
@@ -152,10 +159,14 @@ export function parseNewDisconnectEvents(raw: string, hwm: string | null): Disco
  * @param persistenceProvider - The persistence provider from the DI container.
  * @param fsDeps - Injectable filesystem surface; defaults to real `node:fs`.
  *   Tests pass an in-memory fake (per `custom/no-real-fs-in-tests`).
+ * @param logDeps - Injectable warn sink; defaults to the shared logger. Exists
+ *   so the "exactly one warning per halt" property is assertable by a test
+ *   rather than inferred from the loop's shape (PR #3009 R1).
  */
 export async function triggerMcpDisconnectEventSweep(
   persistenceProvider: BasePersistenceProvider,
-  fsDeps: DisconnectSweepFsDeps = defaultFsDeps
+  fsDeps: DisconnectSweepFsDeps = defaultFsDeps,
+  logDeps: DisconnectSweepLogDeps = defaultLogDeps
 ): Promise<void> {
   try {
     if (!persistenceProvider.capabilities.sql) return;
@@ -176,8 +187,17 @@ export async function triggerMcpDisconnectEventSweep(
     if (newEvents.length === 0) return;
 
     const { DrizzleEventEmitter } = await import("@minsky/domain/events/emitter");
+
+    // Capture the emitter's failure detail instead of letting it log its own
+    // line (PR #3009 R1). The emitter warns once per swallowed insert, and this
+    // loop halts and warns too — two lines for one failure, against a criterion
+    // that asks for exactly one. Taking its sink lets the sweep emit a SINGLE
+    // warning carrying both halves: the driver cause (why) from the emitter,
+    // and the unswept count (how much was left) from here.
+    let failureDetail: Record<string, unknown> | undefined;
     const emitter = new DrizzleEventEmitter(
-      db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
+      { warn: (_message, meta) => void (failureDetail = meta) }
     );
 
     let maxTimestamp = hwm ?? "";
@@ -205,7 +225,8 @@ export async function triggerMcpDisconnectEventSweep(
         // emitting its own swallowed warning — 865 of them in the originating
         // incident. Stop at the first failure: one warning, and the unswept
         // remainder is picked up on the next boot.
-        log.warn("mcp-disconnect-sweep: emit failed, halting with events unswept", {
+        logDeps.warn("mcp-disconnect-sweep: emit failed, halting with events unswept", {
+          ...failureDetail,
           persisted,
           unswept: newEvents.length - index,
         });
@@ -224,7 +245,7 @@ export async function triggerMcpDisconnectEventSweep(
     });
   } catch (err) {
     // Best-effort: a failed sweep must never affect MCP server boot.
-    log.warn("mcp-disconnect-sweep: sweep failed (best-effort, swallowed)", {
+    logDeps.warn("mcp-disconnect-sweep: sweep failed (best-effort, swallowed)", {
       error: err instanceof Error ? err.message : String(err),
     });
   }
