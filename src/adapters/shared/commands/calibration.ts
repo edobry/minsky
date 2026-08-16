@@ -33,6 +33,7 @@ import { buildSweptEntries } from "../../../domain/calibration/swept-entries";
 import {
   blockingClaims,
   describeBlockingClaims,
+  logsToActOn,
   pruneStaleClaims,
   releaseClaims,
   withClaims,
@@ -641,34 +642,51 @@ export function registerCalibrationCommands(): void {
         // it will later advance can never disagree.
         const actorId = resolveActorId();
         let claimedByOthers: string[] = [];
-        if (actorId) {
-          await withWatermarkLock(workspacePath, async () => {
-            const nowMs = Date.now();
-            const store = pruneStaleClaims(await loadClaims(workspacePath), nowMs);
-            const paths = reviewDueAll.map((d) => d.path);
-            const blocked = blockingClaims(store, paths, actorId, nowMs);
-            claimedByOthers = blocked.map((c) => c.logPath);
+        await withWatermarkLock(workspacePath, async () => {
+          const nowMs = Date.now();
+          // Pruning runs even for an unidentifiable pass (PR #3015 R1): it needs
+          // no actor id, and it is what keeps a dead holder's claim from
+          // outliving its staleness window in the file. An ack therefore always
+          // leaves the store tidy, which is what SC4 asks for.
+          const store = pruneStaleClaims(await loadClaims(workspacePath), nowMs);
+          const paths = reviewDueAll.map((d) => d.path);
 
-            // Claim only what this pass will actually work on. Claiming a log
-            // another pass holds would overwrite its holder and defeat the
-            // mechanism.
-            const mine = paths.filter((p) => !claimedByOthers.includes(p));
-            const next = params.ack
-              ? // The ack is the END of a pass: release what this actor held
-                // rather than re-claiming it for a pass that is finishing.
-                releaseClaims(store, paths, actorId)
-              : withClaims(store, mine, actorId, new Date(nowMs).toISOString());
-            await saveClaims(workspacePath, next);
-          });
-        }
+          if (!actorId) {
+            await saveClaims(workspacePath, store);
+            return;
+          }
+
+          const blocked = blockingClaims(store, paths, actorId, nowMs);
+          claimedByOthers = blocked.map((c) => c.logPath);
+
+          // Claim only what this pass will actually work on. Claiming a log
+          // another pass holds would overwrite its holder and defeat the
+          // mechanism.
+          const mine = paths.filter((p) => !claimedByOthers.includes(p));
+          const next = params.ack
+            ? // The ack is the END of a pass: release what this actor held
+              // rather than re-claiming it for a pass that is finishing.
+              releaseClaims(store, paths, actorId)
+            : withClaims(store, mine, actorId, new Date(nowMs).toISOString());
+          await saveClaims(workspacePath, next);
+        });
 
         // A log another pass is actively classifying is dropped from THIS pass's
-        // review-due set — standing down means not classifying and not acking
-        // it, not merely being warned about it.
-        const reviewDue =
-          claimedByOthers.length === 0
-            ? reviewDueAll
-            : reviewDueAll.filter((d) => !claimedByOthers.includes(d.path));
+        // review-due set — standing down means not classifying it.
+        //
+        // **The ack path is deliberately NOT filtered** (PR #3015 R1). A claim
+        // answers "who is WORKING"; the receipt answers "what was READ", and
+        // this task's own `## Scope` separates them precisely so they cannot be
+        // conflated. Filtering the ack set by concurrent claims conflates them:
+        // a pass that legitimately classified a log would be unable to record
+        // that fact because someone ELSE started working on it in the interim,
+        // silently discarding real review work. The receipt already bounds what
+        // an ack may advance (mt#3906), and `selectAckablePaths` plus the
+        // drift check (mt#3899) bound it further — the claim adds nothing there
+        // and only takes away.
+        const reviewDue = logsToActOn(reviewDueAll, claimedByOthers, params.ack === true, (d) =>
+          String(d.path)
+        );
 
         // Advance watermarks for review-due logs when --ack is set.
         //

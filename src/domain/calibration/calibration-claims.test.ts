@@ -12,6 +12,7 @@ import {
   annotateClaim,
   blockingClaims,
   describeBlockingClaims,
+  logsToActOn,
   pruneStaleClaims,
   releaseClaims,
   withClaims,
@@ -161,6 +162,33 @@ describe("pruneStaleClaims", () => {
     expect(blockingClaims(pruneStaleClaims(store, at), [LOG_A], ME, at)).toEqual(
       blockingClaims(store, [LOG_A], ME, at)
     );
+  });
+});
+
+describe("logsToActOn — the ack must not be gated by claims (PR #3015 R1)", () => {
+  const due = [{ path: LOG_A }, { path: LOG_B }];
+  const pathOf = (d: { path: string }) => d.path;
+
+  test("a READ pass drops the log another actor is working on", () => {
+    expect(logsToActOn(due, [LOG_A], false, pathOf)).toEqual([{ path: LOG_B }]);
+  });
+
+  test("an ACK pass keeps it — the receipt says what was READ, not who is working", () => {
+    // The defect this replaces: a pass that legitimately classified LOG_A could
+    // not RECORD that, because someone else started working on it in between,
+    // silently discarding real review work.
+    expect(logsToActOn(due, [LOG_A], true, pathOf)).toEqual(due);
+  });
+
+  test("no claims means no filtering, on either path", () => {
+    expect(logsToActOn(due, [], false, pathOf)).toEqual(due);
+    expect(logsToActOn(due, [], true, pathOf)).toEqual(due);
+  });
+
+  test("does not mutate the input", () => {
+    const input = [...due];
+    logsToActOn(input, [LOG_A], false, pathOf);
+    expect(input).toHaveLength(2);
   });
 });
 

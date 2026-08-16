@@ -192,6 +192,29 @@ export function pruneStaleClaims(
   return next;
 }
 
+/**
+ * Which logs THIS pass should act on, given who else is working.
+ *
+ * The `isAck` branch is the whole point (PR #3015 R1). A claim answers "who is
+ * WORKING"; the receipt answers "what was READ". An ack is the second question,
+ * so filtering it by claims would let a pass that genuinely classified a log be
+ * unable to RECORD that — because someone else started working on it in the
+ * interim — silently discarding real review work. The receipt already bounds
+ * what an ack may advance; the claim adds nothing there and only takes away.
+ *
+ * Generic over the entry shape so the caller's `ReviewDueLog` type does not have
+ * to reach into this module.
+ */
+export function logsToActOn<T>(
+  reviewDueAll: readonly T[],
+  claimedByOthers: readonly string[],
+  isAck: boolean,
+  pathOf: (entry: T) => string
+): T[] {
+  if (isAck || claimedByOthers.length === 0) return [...reviewDueAll];
+  return reviewDueAll.filter((entry) => !claimedByOthers.includes(pathOf(entry)));
+}
+
 /** One line per blocking claim, for the pass that has to stand down. */
 export function describeBlockingClaims(claims: readonly AnnotatedCalibrationClaim[]): string[] {
   return claims.map(
