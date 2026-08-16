@@ -38,8 +38,8 @@
 // by saying so: at 1499 of 1500, the next guard on any other matcher still broke
 // the build, and mt#4115 owned that general split. **mt#4115 has since landed**
 // (2026-08-16). Every family now has a module of this shape, `registry.ts` holds
-// the schema plus a composition of spreads at 176 counted lines, and the
-// prediction above was confirmed twice more before the fix — by mt#4144 and by
+// the schema plus a composition of spreads and is far below the ceiling again,
+// and the prediction above was confirmed twice more before the fix — by mt#4144 and by
 // PR #2941 — for four extractions in total. The "down payment, not a substitute"
 // framing is resolved, not merely aged. Layout and authoring guidance:
 // `docs/architecture/hooks/guard-dispatcher-framework.md §Where registry entries

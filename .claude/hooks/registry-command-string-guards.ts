@@ -45,16 +45,18 @@
 // header. It then held two entries and said "mt#4115 still owns the general
 // case." mt#4115 has since landed: every family now has a module, this one
 // absorbed the five `Bash` guards that were still inline in `registry.ts`, and
-// `registry.ts` is 176 counted lines. See
-// `docs/architecture/hooks/guard-dispatcher-framework.md §Where registry entries
-// live`.
+// that file is far below the ceiling again. Deliberately no figure here —
+// `bunx eslint .minsky/hooks/registry.ts` is the check, and a quoted count went
+// stale twice inside mt#4115 itself, once between two commits of the same
+// change. See `docs/architecture/hooks/guard-dispatcher-framework.md §Where
+// registry entries live`.
 //
 // `CANARY_NONEXISTENT_SESSION_PATH` below moved here with mt#4115 for the same
 // reason: a fixture belongs beside the canary it feeds, and its only consumer is
 // `check-guessed-session-path`.
 
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { posix } from "node:path";
 import type { GuardRegistration } from "./registry";
 import { enforcementEffect, recorderEffect } from "./registry-effects";
 
@@ -68,8 +70,17 @@ import { enforcementEffect, recorderEffect } from "./registry-effects";
  * UUID-shaped string that will never exist as a real session — `exists()`
  * (real `fs.existsSync`) always returns false for it, so the canary
  * deterministically triggers the guard's deny path.
+ *
+ * `posix.join`, not `join`: the regex above requires FORWARD slashes, and
+ * platform `join` emits `\` on Windows — which would silently stop the canary
+ * matching, i.e. a fixture that no longer exercises the deny path it exists to
+ * prove. Identical output to `join` on macOS and Linux, the only platforms this
+ * repo's CI runs (`macos-latest`, `ubuntu-latest`), so this is a no-op today and
+ * correct if that ever changes. Raised as PRE-EXISTING on PR #3027 R1: the shape
+ * predates mt#4115 — it was inline in `registry.ts` — and moving it here is what
+ * made it visible.
  */
-const CANARY_NONEXISTENT_SESSION_PATH = join(
+const CANARY_NONEXISTENT_SESSION_PATH = posix.join(
   tmpdir(),
   "state",
   "minsky",

@@ -359,7 +359,7 @@ per-family module, and `registry.ts` composes them with a spread.
 | ------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | `registry-task-create-guards.ts`      | `TASK_CREATE_GUARDS`      | a task being minted (`tasks_create`)                                               |
 | `registry-pr-create-guards.ts`        | `PR_CREATE_GUARDS`        | the agent writing its work out (commit / PR create / PR edit)                      |
-| `registry-command-string-guards.ts`   | `COMMAND_STRING_GUARDS`   | a structured command string (`Bash` / `session_exec`)                              |
+| `registry-command-string-guards.ts`   | `COMMAND_STRING_GUARDS`   | a structured command string (`Bash` / `mcp__minsky__session_exec`)                 |
 | `registry-delegation-guards.ts`       | `DELEGATION_GUARDS`       | work handed outward — to a subagent (`Agent`) or the principal (`AskUserQuestion`) |
 | `registry-prompt-injection-guards.ts` | `PROMPT_INJECTION_GUARDS` | `UserPromptSubmit` guards that read the world and inject context                   |
 | `registry-prompt-scan-guards.ts`      | `PROMPT_SCAN_GUARDS`      | `UserPromptSubmit` guards that read the agent's just-completed turn                |
@@ -388,7 +388,11 @@ Add the entry to the family module, not to `registry.ts` — the file needs no e
 you are introducing a new family, which costs it one import and one spread. This is the point of
 the split: before it, `registry.ts` sat at 1479 counted lines against a 1500 `max-lines` ERROR
 ceiling, and four separate guard authors (mt#3959, mt#3913, mt#4144, mt#4044) each hit the wall
-and extracted the one family that was blocking them. It is now 176.
+and extracted the one family that was blocking them. It is now a small fraction of that.
+
+No current figure is quoted here on purpose: `bunx eslint .minsky/hooks/registry.ts` is the check,
+and the count moves every few merges. A number written into mt#4115's own module headers went stale
+between two commits of that very change.
 
 ### Order is load-bearing, but only within a co-matching set
 
