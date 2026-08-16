@@ -60,11 +60,27 @@ function unwrappedType(schema: unknown): string | undefined {
  * it, which is exactly what mt#1170 did and what let the defect recur three
  * more times before mt#1173 fixed it structurally.
  *
- * Detected BEHAVIOURALLY, through zod's public parse API: a plain `z.number()`
- * rejects the string `"1"`, a `z.coerce.number()` accepts it. `"1"` is chosen
- * because it also satisfies the refinements the registry's numeric params
- * actually carry (`.int()`, `.positive()`), so a refined coercing schema is not
- * misreported as plain.
+ * Detected BEHAVIOURALLY, through zod's public parse API, by asking whether a
+ * string gets PAST THE TYPE CHECK — not whether it parses cleanly.
+ *
+ * The distinction is load-bearing. Zod runs the type check first and only then
+ * the refinements, so on a string input:
+ *
+ *   - a NON-coercing schema always fails with an `invalid_type` issue, and its
+ *     refinements never run at all;
+ *   - a COERCING schema either succeeds, or fails on a refinement with some
+ *     OTHER code (`too_small`, `custom`, ...) — never `invalid_type`.
+ *
+ * So "no `invalid_type` issue" is exactly "the value was coerced". Verified
+ * total over 14 shapes on zod 4.4.3: `{number, bigint}` x `{bare, .min(),
+ * .int().positive(), .optional(), .default(), .refine()}`, coercing and plain.
+ *
+ * Testing `success` alone would be wrong, and was: `z.coerce.number().min(10)`
+ * coerces `"1"` perfectly well and then rejects it as `too_small`, so a
+ * success-only predicate calls a coercing schema plain (PR #3011 R1). Because
+ * the discriminator is the issue CODE, the probe value no longer has to satisfy
+ * anyone's bounds — `"1"` need only be a string that coerces, which for a
+ * numeric target it is.
  *
  * The earlier implementation read the private `coerce` flag hanging off the
  * schema's internal def object instead, which had a live false negative rather
@@ -83,7 +99,9 @@ function unwrappedType(schema: unknown): string | undefined {
  */
 function isSelfCoercing(schema: unknown): boolean {
   const parsed = (schema as z.ZodType | undefined)?.safeParse?.("1");
-  return parsed?.success === true;
+  if (!parsed) return false;
+  if (parsed.success) return true;
+  return !parsed.error.issues.some((issue) => issue.code === "invalid_type");
 }
 
 interface NumericPositional {
