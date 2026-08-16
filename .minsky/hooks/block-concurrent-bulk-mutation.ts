@@ -66,7 +66,7 @@ const EXECUTE_FLAGS: readonly string[] = ["--execute", "--apply"];
  *
  * Anchored (mt#4088). The predecessor matched a script path anywhere inside a segment, which
  * made the guard fire on any command that merely MENTIONED a script — the path was never bound
- * to an invocation. Anchoring is half the fix; {@link isLauncherPrefixToken} is the other half,
+ * to an invocation. Anchoring is half the fix; {@link isPrefixTokenAt} is the other half,
  * requiring the token to sit in COMMAND POSITION rather than be an argument to something else.
  *
  * POSIX-only by design (PR #2937 R1 NON-BLOCKING): this guard runs on `Bash` / `session_exec`
