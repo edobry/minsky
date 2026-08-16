@@ -53,6 +53,57 @@ function unwrappedType(schema: unknown): string | undefined {
   return type;
 }
 
+/**
+ * Whether the schema coerces a CLI string on its own — i.e. carries a
+ * `z.coerce.*` that makes the command work from the CLI regardless of the
+ * adapter. Worth flagging: such a schema HIDES the gap rather than not having
+ * it, which is exactly what mt#1170 did and what let the defect recur three
+ * more times before mt#1173 fixed it structurally.
+ *
+ * Detected BEHAVIOURALLY, through zod's public parse API, by asking whether a
+ * string gets PAST THE TYPE CHECK — not whether it parses cleanly.
+ *
+ * The distinction is load-bearing. Zod runs the type check first and only then
+ * the refinements, so on a string input:
+ *
+ *   - a NON-coercing schema always fails with an `invalid_type` issue, and its
+ *     refinements never run at all;
+ *   - a COERCING schema either succeeds, or fails on a refinement with some
+ *     OTHER code (`too_small`, `custom`, ...) — never `invalid_type`.
+ *
+ * So "no `invalid_type` issue" is exactly "the value was coerced". Verified
+ * total over 14 shapes on zod 4.4.3: `{number, bigint}` x `{bare, .min(),
+ * .int().positive(), .optional(), .default(), .refine()}`, coercing and plain.
+ *
+ * Testing `success` alone would be wrong, and was: `z.coerce.number().min(10)`
+ * coerces `"1"` perfectly well and then rejects it as `too_small`, so a
+ * success-only predicate calls a coercing schema plain (PR #3011 R1). Because
+ * the discriminator is the issue CODE, the probe value no longer has to satisfy
+ * anyone's bounds — `"1"` need only be a string that coerces, which for a
+ * numeric target it is.
+ *
+ * The earlier implementation read the private `coerce` flag hanging off the
+ * schema's internal def object instead, which had a live false negative rather
+ * than merely a future-fragility risk (mt#4163): that flag lives on the
+ * OUTERMOST schema, and `.optional()` / `.default()` build a wrapper whose own
+ * internals carry no `coerce`. (Spelled in prose deliberately — the underscore
+ * -prefixed accessor is greppable, and mt#4163's first acceptance test is a
+ * repo grep for private-internals access that a mention would otherwise trip.)
+ * Measured on
+ * zod 4.4.3, `z.coerce.number().optional()` and `z.coerce.number().default(5)`
+ * both read `false` — the flag went silent on precisely the masking case it
+ * exists to catch, and on the same row where `unwrappedType` had just seen
+ * THROUGH those wrappers to find the param. The two halves of one line
+ * disagreed. `.refine()` was unaffected: it adds checks in place with no
+ * wrapper (the zod-v4 fact mt#1173's tests pin).
+ */
+function isSelfCoercing(schema: unknown): boolean {
+  const parsed = (schema as z.ZodType | undefined)?.safeParse?.("1");
+  if (!parsed) return false;
+  if (parsed.success) return true;
+  return !parsed.error.issues.some((issue) => issue.code === "invalid_type");
+}
+
 interface NumericPositional {
   commandId: string;
   param: string;
@@ -81,12 +132,7 @@ for (const command of commands) {
       commandId: command.id,
       param: name,
       declaredType,
-      // A `z.coerce.*` schema parses a string on its own, so the command works
-      // from the CLI regardless of the adapter — worth flagging, because it
-      // hides the gap rather than not having it (mt#1170 did exactly this).
-      selfCoercing: Boolean(
-        (def.schema as { _zod?: { def?: { coerce?: boolean } } })?._zod?.def?.coerce
-      ),
+      selfCoercing: isSelfCoercing(def.schema),
     });
   }
 }
