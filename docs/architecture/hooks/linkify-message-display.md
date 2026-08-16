@@ -115,3 +115,104 @@ Cost of carrying the map: measured **21ms per invocation with a 407KB map, again
 
 The complement — the ids this path cannot resolve — is exactly what `turn-end-bare-ref-scan.md`
 flags, and mt#3960 made that scan read this same map so the two stay in step.
+
+## The fired-evidence channel (mt#4145)
+
+### The gap this closes
+
+Everything above describes a hook that is deliberately invisible: off the guard dispatcher, no
+fire-log record, no domain code, and — in its own words — "every failure path here is a no-op."
+That is correct for the DISPLAY. It was also true for OBSERVABILITY, and those are separable
+concerns that the original design conflated.
+
+Three layers had already stood down on the strength of this hook working:
+
+1. `cockpit-deeplinks.mdc` retired the authoring ration for `mt#` / `PR #`.
+2. **mt#3897** retired those same classes from `turn-end-bare-ref-scan`'s warn set, on the
+   recorded grounds that "the display linkifier repairs them at render time."
+3. **mt#3937** made the advisory disclose its carve-outs, which presumes the carved-out class is
+   covered downstream.
+
+Nothing verified the hook had ever fired. A `grep -c` over the live 99 MB fire log returned **0**
+records under either name (mt#4129 found the same from the catalog side). So a silent stop — a
+client contract change, a PATH problem, a `bun` resolution failure — left no trace anywhere while
+all three layers had already stopped watching. **An operator noticing bare refs was the only
+detector**, which is exactly how the 2026-08-13 incident (mem#623 R8) surfaced.
+
+### What it writes, and what it costs
+
+One line of `~/.local/state/minsky/linkify-fire-log.jsonl` per **completed message** — not per
+delta:
+
+```json
+{
+  "at": "2026-08-16T22:53:40.563Z",
+  "messageId": "m-at1",
+  "deltas": 1,
+  "totals": {
+    "task": 1,
+    "changeset": 1,
+    "ask": 0,
+    "memory": 0,
+    "session": 0,
+    "shortIdUnresolved": 0
+  }
+}
+```
+
+The running tally rides the fence-state record this hook **already writes per delta**, so the
+per-delta hot path gains no IO at all; the only added write is one append when a message ends.
+That is ADR-028 D7(5)'s own prescription ("cache + periodic sweep, splitting the expensive read
+out of the per-turn hot path"), so this MATCHES the constraint rather than deviating from it. The
+log is bounded at 256KB, trimmed to the last 500 lines at flush.
+
+**`shortIdUnresolved` is not a link count.** It records short-id refs seen in prose that stayed
+BARE because the map could not resolve them. A small non-zero value is normal (a just-minted id
+the out-of-band sweep has not picked up); a sustained spike is the signature of an absent or stale
+map, which previously degraded in total silence.
+
+### The stdout hazard this design exists around
+
+The obvious implementation — print the tally — would have been catastrophic and silent. mem#832
+measured that Claude Code **discards a hook's entire output** if stdout carries anything besides
+the one JSON object: no error, exit 0, decision ignored. An evidence channel on stdout would
+therefore have disabled the very linkification it was added to prove, and looked fine doing it.
+Everything here writes to a file; diagnostics go to stderr. `scripts/verify-linkify-fire-log.ts`
+asserts the round-trip explicitly (`JSON.stringify(parse(stdout)) === stdout.trim()`).
+
+### Reading it
+
+```
+bun scripts/check-linkify-liveness.ts              # report, always exits 0
+bun scripts/check-linkify-liveness.ts --window 6   # narrow the window
+bun scripts/check-linkify-liveness.ts --json       # machine-readable
+bun scripts/check-linkify-liveness.ts --assert-live # exit 1 unless verdict is `live`
+```
+
+Four verdicts, and the distinction between the middle two is the whole point:
+
+| Verdict       | Meaning                                                                                                                                |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `live`        | Ran, and rewrote ≥1 ref in the window.                                                                                                 |
+| `ran-idle`    | Ran, rewrote nothing. **Legitimate for a quiet window** — a separate fact from not running, which nothing could previously tell apart. |
+| `no-evidence` | No records in the window.                                                                                                              |
+| `never-ran`   | No log at all, and no in-flight state.                                                                                                 |
+
+**The verdicts are EVIDENCE claims, not firing claims.** The writer swallows its own errors by
+design (the display outranks the channel), so `no-evidence` cannot mean "the hook did not fire" —
+only that no evidence survived. The headline says "bounded to the fire log" for that reason, per
+`claim-confidence.mdc`'s rule on bounding a negative to the channel actually checked. This matters
+downstream: **mt#4174** gates an enforcement-posture change on this output, and a verdict that
+overclaimed would propagate straight into a warn storm.
+
+One known hole, named rather than hidden: the flush rides the harness's `final` signal, so a
+stream that ends without one (client crash, interrupt) never writes its record. The leftover
+fence-state file is what keeps that case from reading as `never-ran`.
+
+### What it does NOT do
+
+It does not change any enforcement posture. Making `turn-end-bare-ref-scan`'s `mt#` / `PR #`
+carve-out conditional on this evidence was mt#4145's SC4 and is **split out to mt#4174** by
+operator decision on ask#8640 — that is an enforcement-posture change, which mt#3769 routes to the
+operator, and it was deferred rather than authorized so the decision can be made with real
+measurements in hand.

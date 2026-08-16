@@ -52,12 +52,37 @@ import * as path from "path";
 
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { linkifyDelta } from "./entity-linkify";
-import type { FenceState, ShortIdMap } from "./entity-linkify";
+import { addCounts, emptyCounts, linkifyDelta } from "./entity-linkify";
+import type { FenceState, LinkifyCounts, ShortIdMap } from "./entity-linkify";
 
 export const TERMINAL_LINKIFY_OVERRIDE_ENV = "MINSKY_SKIP_TERMINAL_LINKIFY";
 
 const STATE_FILENAME = "message-display-fence-state.json";
+
+/**
+ * Append-only fire log (mt#4145) — one line per COMPLETED message, not per
+ * delta. This is the channel that lets anything downstream tell "the linkifier
+ * ran and had nothing to rewrite" from "the linkifier did not run", which
+ * nothing could distinguish before: the hook is off the guard dispatcher by
+ * ADR-028 D1/D7(5), so it writes no fire-log record, and its own contract makes
+ * every failure path a silent no-op. Three layers stood down on the strength of
+ * it (the authoring ration in `cockpit-deeplinks.mdc`, mt#3897's carve-out,
+ * mt#3937's disclosure) with no evidence underneath.
+ *
+ * Cost: ONE extra append per message. The per-delta hot path gains no IO — the
+ * running tally rides the fence-state record that is already written per delta.
+ * That is D7(5)'s prescribed shape ("cache + periodic sweep, splitting the
+ * expensive read out of the per-turn hot path"), not a deviation from it.
+ */
+const FIRE_LOG_FILENAME = "linkify-fire-log.jsonl";
+
+/**
+ * Trim threshold. The log is bounded rather than rotated: liveness is a recent-
+ * window question, so old lines have no readers. Checked once per message at
+ * flush, and the rewrite happens only when over — amortized to near zero.
+ */
+const FIRE_LOG_MAX_BYTES = 262_144;
+const FIRE_LOG_KEEP_LINES = 500;
 
 /**
  * Short-id map filename under the state dir (mt#3914). MUST match the PRODUCER's
@@ -104,6 +129,33 @@ export interface MessageDisplayInput extends ClaudeHookInput {
 interface StoredFenceState {
   messageId: string;
   inFence: boolean;
+  /**
+   * Running rewrite tally for THIS message, accumulated across its deltas
+   * (mt#4145). Rides the record that is already written per delta so the
+   * evidence channel costs no additional hot-path IO.
+   *
+   * OPTIONAL on purpose: a state file written by a build older than mt#4145 is
+   * still on disk during any rollout, and one may be mid-stream at the moment
+   * this ships. Typing it as required would make the read path assert against
+   * a record that legitimately predates the field.
+   */
+  totals?: LinkifyCounts;
+  /** How many deltas of this message have been processed. Optional for the same reason. */
+  deltas?: number;
+}
+
+/**
+ * One line of the fire log — written when a message COMPLETES (mt#4145).
+ *
+ * `deltas` is what makes a zero-rewrite record informative: `deltas > 0` with an
+ * all-zero `totals` is "ran, nothing to rewrite", which is a completely
+ * different fact from the absence of any record at all.
+ */
+export interface LinkifyFireRecord {
+  at: string;
+  messageId: string;
+  deltas: number;
+  totals: LinkifyCounts;
 }
 
 /** Resolve the Minsky state dir: MINSKY_STATE_DIR, else XDG_STATE_HOME/minsky, else ~/.local/state/minsky. */
@@ -119,12 +171,35 @@ export function getFenceStatePath(): string {
   return path.join(getStateDir(), STATE_FILENAME);
 }
 
+/**
+ * Coerce a persisted tally, tolerating a record written before mt#4145 added
+ * the field. A missing or malformed `totals` degrades to zeros rather than
+ * rejecting the whole record: the fence flag is what the DISPLAY depends on,
+ * and losing it to a bookkeeping field would trade a correct render for a
+ * counter. Under-counting one in-flight message is the right way to lose here.
+ */
+function coerceCounts(value: unknown): LinkifyCounts {
+  const base = emptyCounts();
+  if (typeof value !== "object" || value === null) return base;
+  const record = value as Record<string, unknown>;
+  for (const key of Object.keys(base) as (keyof LinkifyCounts)[]) {
+    const n = record[key];
+    if (typeof n === "number" && Number.isFinite(n) && n >= 0) base[key] = n;
+  }
+  return base;
+}
+
 function readStoredState(): StoredFenceState | null {
   try {
     const raw = fs.readFileSync(getFenceStatePath(), "utf8");
     const parsed = JSON.parse(raw) as Partial<StoredFenceState>;
     if (typeof parsed.messageId !== "string" || typeof parsed.inFence !== "boolean") return null;
-    return { messageId: parsed.messageId, inFence: parsed.inFence };
+    return {
+      messageId: parsed.messageId,
+      inFence: parsed.inFence,
+      totals: coerceCounts(parsed.totals),
+      deltas: typeof parsed.deltas === "number" && parsed.deltas >= 0 ? parsed.deltas : 0,
+    };
   } catch {
     // intentional-swallow: a missing, truncated, or concurrently-rewritten state
     // file means "no carried fence state", which degrades to treating this delta
@@ -151,6 +226,50 @@ function writeStoredState(next: StoredFenceState | null): void {
 
 export function getShortIdMapPath(): string {
   return path.join(getStateDir(), SHORT_ID_MAP_FILENAME);
+}
+
+/**
+ * Where the fire log lives (mt#4145). Exported so the liveness check reads the
+ * same path this writes rather than re-deriving the filename — the third copy
+ * of a literal is how `SHORT_ID_MAP_FILENAME` above earned its keep-in-sync
+ * comment, and there is no reason to repeat that here.
+ */
+export function getFireLogPath(): string {
+  return path.join(getStateDir(), FIRE_LOG_FILENAME);
+}
+
+/**
+ * Append one completed-message record, trimming the log when it exceeds the cap.
+ *
+ * Never throws, for the same reason every other write here does not: this runs
+ * synchronously in the display path, and a bookkeeping failure must never cost
+ * the message. Note what that means for the reader — an absent record is NOT
+ * proof the hook did not run, only that no evidence survived. The liveness check
+ * is written to say "no evidence" rather than "did not fire" for exactly this
+ * reason.
+ */
+function appendFireRecord(record: LinkifyFireRecord): void {
+  const target = getFireLogPath();
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.appendFileSync(target, `${JSON.stringify(record)}\n`);
+
+    let size = 0;
+    try {
+      size = fs.statSync(target).size;
+    } catch {
+      // intentional-swallow: if the size cannot be read, skip the trim. An
+      // untrimmed log is a disk-space concern, not a correctness one.
+      return;
+    }
+    if (size <= FIRE_LOG_MAX_BYTES) return;
+
+    const lines = fs.readFileSync(target, "utf8").split("\n").filter(Boolean);
+    fs.writeFileSync(target, `${lines.slice(-FIRE_LOG_KEEP_LINES).join("\n")}\n`);
+  } catch {
+    // intentional-swallow: see the doc comment — the display outranks the
+    // evidence channel, always.
+  }
 }
 
 /** The on-disk record written by the producer (mirrors `ShortIdMapRecord` there). */
@@ -213,26 +332,47 @@ function isOverrideTruthy(value: string | undefined): boolean {
 export function decideDisplay(
   input: MessageDisplayInput,
   stored: StoredFenceState | null,
-  shortIdMap?: ShortIdMap
-): { display: string | null; nextState: StoredFenceState | null } {
+  shortIdMap?: ShortIdMap,
+  now: () => string = () => new Date().toISOString()
+): {
+  display: string | null;
+  nextState: StoredFenceState | null;
+  /** Non-null exactly on the delta that ENDS a message — the record to append. */
+  flush: LinkifyFireRecord | null;
+} {
   const delta = input.delta ?? "";
   const messageId = input.message_id ?? "";
-  const carried: FenceState =
-    stored !== null && stored.messageId === messageId
-      ? { inFence: stored.inFence }
-      : { inFence: false };
+  const sameMessage = stored !== null && stored.messageId === messageId;
+  const carried: FenceState = sameMessage ? { inFence: stored.inFence } : { inFence: false };
+  // `?? emptyCounts()` / `?? 0` are NOT redundant with `readStoredState`'s
+  // coercion. This function is exported and reachable with a hand-built record —
+  // a caller that predates mt#4145's fields, or a state file written by an older
+  // build still on disk. It runs in the display path, where a throw costs the
+  // message, so the bookkeeping fields degrade instead of asserting.
+  const totals = sameMessage ? (stored.totals ?? emptyCounts()) : emptyCounts();
+  let deltas = sameMessage ? (stored.deltas ?? 0) : 0;
 
   if (delta === "") {
     // The final flush is empty when the message ends on a newline; treat `final`
     // as the end-of-message signal regardless, and drop the carried state.
-    return { display: null, nextState: input.final === true ? null : stored };
+    if (input.final !== true) return { display: null, nextState: stored, flush: null };
+    return { display: null, nextState: null, flush: { at: now(), messageId, deltas, totals } };
   }
 
   const result = linkifyDelta(delta, carried, { final: input.final === true, shortIdMap });
-  const nextState: StoredFenceState | null =
-    input.final === true ? null : { messageId, inFence: result.state.inFence };
+  addCounts(totals, result.counts);
+  deltas += 1;
 
-  return { display: result.text === delta ? null : result.text, nextState };
+  const isFinal = input.final === true;
+  const nextState: StoredFenceState | null = isFinal
+    ? null
+    : { messageId, inFence: result.state.inFence, totals, deltas };
+
+  return {
+    display: result.text === delta ? null : result.text,
+    nextState,
+    flush: isFinal ? { at: now(), messageId, deltas, totals } : null,
+  };
 }
 
 async function main(): Promise<void> {
@@ -247,8 +387,13 @@ async function main(): Promise<void> {
   }
   if (input.hook_event_name !== "MessageDisplay") return;
 
-  const { display, nextState } = decideDisplay(input, readStoredState(), readShortIdMap());
+  const { display, nextState, flush } = decideDisplay(input, readStoredState(), readShortIdMap());
   writeStoredState(nextState);
+  // Both writes land BEFORE the single stdout JSON below, and neither touches
+  // stdout — mem#832 measured that ANY extra stdout byte makes the harness
+  // discard a hook's whole output, so an evidence channel written the obvious
+  // way would have silently disabled the very linkification it exists to prove.
+  if (flush !== null) appendFireRecord(flush);
   if (display === null) return;
 
   const output: HookOutput = {
