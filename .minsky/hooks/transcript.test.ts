@@ -847,4 +847,64 @@ describe("collectShortIdBindings (mt#4160)", () => {
     ] as never);
     expect(bindings.size).toBe(0);
   });
+
+  // PR #3018 R1 — an object naming two entities cannot be paired without
+  // guessing, and guessing would have depended on key order.
+  test("an object carrying a SECOND uuid yields no binding, in either key order", () => {
+    const idFirst = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          id: "44444444-4444-4444-4444-444444444444",
+          shortId: "mem#42",
+          supersededBy: "55555555-5555-5555-5555-555555555555",
+        })
+      ),
+    ] as never);
+    expect(idFirst.has("mem#42")).toBe(false);
+
+    // The same record with the two uuid fields swapped. Under a first-wins rule
+    // these two calls disagree; under the uniqueness rule they cannot.
+    const supersededFirst = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          supersededBy: "55555555-5555-5555-5555-555555555555",
+          id: "44444444-4444-4444-4444-444444444444",
+          shortId: "mem#42",
+        })
+      ),
+    ] as never);
+    expect(supersededFirst.has("mem#42")).toBe(false);
+    expect([...supersededFirst.keys()]).toEqual([...idFirst.keys()]);
+  });
+
+  test("an object naming two different short ids yields no binding", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          id: "66666666-6666-6666-6666-666666666666",
+          shortId: "mem#43",
+          relatedShortId: "mem#44",
+        })
+      ),
+    ] as never);
+    expect(bindings.size).toBe(0);
+  });
+
+  test("a value REPEATED across fields is still one entity — refs_status binds", () => {
+    // `refs_status` emits the same short id as both `ref` and `id`. A raw count
+    // would read that as two short ids and refuse a legitimate binding, so the
+    // rule counts DISTINCT values.
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          ref: "mem#1041",
+          kind: "memory",
+          id: "mem#1041",
+          found: true,
+          uuid: "536e44cb-7234-4f7a-a7f2-bef92ef1371d",
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#1041")).toBe("536e44cb-7234-4f7a-a7f2-bef92ef1371d");
+  });
 });

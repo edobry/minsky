@@ -422,13 +422,14 @@ function parseShortIdRef(ref: string): { kind: ShortIdKind; num: string } | null
 /**
  * The `bare-short-id` findings worth resolving, and ONLY those (mt#4160).
  *
- * The gate is deliberately narrow, because resolving costs a database round
- * trip and this runs on every turn end: a candidate is returned only when the
+ * The gate is deliberately narrow, because resolving means walking and
+ * JSON-parsing every tool result in the transcript (`collectShortIdBindings`)
+ * and this runs on every turn end: a candidate is returned only when the
  * message ALSO carries at least one `minsky://<type>/<uuid>` link of that
  * entity's own type. With no such link there is nothing the resolved UUID could
- * match, so the query would be pure cost.
+ * match, so the walk would be pure cost.
  *
- * Measured on this detector's calibration log, that reduces the lookup to the
+ * Measured on this detector's calibration log, that reduces the walk to the
  * handful of turns a day where an author linked an entity and named its short
  * id beside the link; every other turn resolves nothing.
  */

@@ -1293,12 +1293,19 @@ const BINDING_SHORT_ID_RE = /^(?:ask|mem|ws)#\d+$/i;
  * shapes — one value that is a UUID, one that is a short id, in the same object
  * — reads both, plus any future result object carrying the pair.
  *
- * ## Ambiguity fails OPEN
+ * ## Ambiguity fails OPEN, at two levels
  *
- * If one short id is seen bound to two different UUIDs anywhere in the
- * transcript, the binding is DROPPED rather than guessed. Callers treat an
- * absent binding as "unresolved", so the consequence is that no suppression or
- * rewrite happens for that id — the conservative direction.
+ * Within one object: a binding is recorded only when the object names EXACTLY
+ * ONE entity — one distinct UUID and one distinct short id among its own string
+ * values. An object carrying a second UUID (a `supersededBy`, a foreign key, a
+ * nested resource id) yields NOTHING rather than a guess, which is what keeps
+ * the pairing from depending on key order (PR #3018 R1).
+ *
+ * Across the transcript: if one short id is nonetheless seen bound to two
+ * different UUIDs, the binding is DROPPED.
+ *
+ * Callers treat an absent binding as "unresolved", so in every ambiguous case
+ * no suppression or rewrite happens for that id — the conservative direction.
  */
 export function collectShortIdBindings(lines: TranscriptLine[]): Map<string, string> {
   const bindings = new Map<string, string>();
@@ -1311,15 +1318,28 @@ export function collectShortIdBindings(lines: TranscriptLine[]): Map<string, str
     }
     if (!node || typeof node !== "object") return;
 
-    let uuid: string | undefined;
-    let shortId: string | undefined;
+    // An object binds only when it names EXACTLY ONE entity: one distinct UUID
+    // and one distinct short id among its own string values (PR #3018 R1).
+    //
+    // Taking the first of each instead would make the pairing depend on key
+    // ORDER, which is arbitrary — a record carrying both `id` and a second uuid
+    // field like `supersededBy` would bind to whichever the serializer emitted
+    // first. Requiring uniqueness removes the ordering question rather than
+    // answering it, and it is the direction that fails OPEN: a second uuid
+    // yields NO binding, so the caller suppresses nothing.
+    //
+    // Distinctness (not raw count) is what the rule needs, because a legitimate
+    // record can repeat one value across fields — `refs_status` emits the same
+    // short id as both `ref` and `id` on every row.
+    const uuids = new Set<string>();
+    const shortIds = new Set<string>();
     for (const value of Object.values(node as Record<string, unknown>)) {
       if (typeof value !== "string") continue;
-      if (uuid === undefined && BINDING_UUID_RE.test(value)) uuid = value.toLowerCase();
-      else if (shortId === undefined && BINDING_SHORT_ID_RE.test(value)) {
-        shortId = value.toLowerCase();
-      }
+      if (BINDING_UUID_RE.test(value)) uuids.add(value.toLowerCase());
+      else if (BINDING_SHORT_ID_RE.test(value)) shortIds.add(value.toLowerCase());
     }
+    const uuid = uuids.size === 1 ? [...uuids][0] : undefined;
+    const shortId = shortIds.size === 1 ? [...shortIds][0] : undefined;
     if (uuid !== undefined && shortId !== undefined) {
       const existing = bindings.get(shortId);
       if (existing !== undefined && existing !== uuid) {
