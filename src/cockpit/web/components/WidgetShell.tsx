@@ -18,8 +18,28 @@ import { cn } from "../lib/utils";
  * - `page-body` — full-route body; the title is carried as the section label,
  *                 not re-rendered (the page already has its own heading).
  * - `rail-item` — dense rail/list row: title on the left, body on the right.
+ * - `peek`      — side-peek pane body: a narrow glance column whose frame,
+ *                 padding, title and scroller are all supplied by the pane.
+ *
+ * ## Why `peek` exists rather than reusing `page-body` (mt#4123)
+ *
+ * mt#3694 shipped the peek composing `page-body` and named this choice as
+ * deferred. It is the wrong one, and not by a matter of taste: `page-body` is
+ * defined as a body that sits inside a ROUTE, and every route that uses it
+ * supplies a wrapper the pane does not have (`TaskDetailPage` wraps it in
+ * `p-4 w-full max-w-4xl`, `MemoryPage` in `p-4 w-full max-w-3xl mx-auto`). A
+ * body composed for a page and then rendered with the page removed from around
+ * it is the single cause the five reported peek defects share.
+ *
+ * The member also gives the bodies a way to ASK. A pane's chrome can be fixed
+ * from the outside, but page-only chrome INSIDE a body — a capped scroller, a
+ * tinted card frame — cannot be, and that was the worst of the five: the task
+ * spec rendered a 10,845px document into a 540px inner window with its own
+ * scrollbar, inside the pane's scrollbar. A variant is how a body finds out
+ * which context it is in; that is what `WidgetVariant` is FOR, which is why
+ * this extends it rather than introducing a second render-context mechanism.
  */
-export type WidgetVariant = "card" | "compact" | "page-body" | "rail-item";
+export type WidgetVariant = "card" | "compact" | "page-body" | "rail-item" | "peek";
 
 export interface WidgetShellProps {
   variant: WidgetVariant;
@@ -56,6 +76,21 @@ export function WidgetShell({ variant, title, children, className }: WidgetShell
     case "page-body":
       return (
         <section aria-label={title} className={cn("flex flex-col gap-3", className)}>
+          {children}
+        </section>
+      );
+
+    case "peek":
+      // Structurally a section like `page-body`, deliberately: the pane already
+      // renders the frame, the title and the scroller, so the body's job here is
+      // the same one — be content, own no chrome. The gap is one step tighter
+      // because vertical space is what a glance column is short of, and it comes
+      // off the same stock 4px scale (`docs/design-system.md` §3).
+      //
+      // No padding: `SheetBody` supplies it for every body in the pane, so
+      // adding it here would double it for the ones that route through a shell.
+      return (
+        <section aria-label={title} className={cn("flex flex-col gap-2", className)}>
           {children}
         </section>
       );

@@ -117,7 +117,23 @@ export function PeekHost() {
             }}
           >
             <SheetContent
-              className="pointer-events-auto w-[26rem] max-w-[92vw]"
+              // Width is RESPONSIVE, not fixed (mt#4123). `w-[26rem]
+              // max-w-[92vw]` was effectively a constant: 92vw only binds below
+              // ~452px, so at every width an operator actually uses, the pane was
+              // 416px regardless of what it was covering. At 1440 that is 29% and
+              // fine; at the ~620px window the principal reported from, it is 67%
+              // and the page behind is sliced mid-word — which defeats the one
+              // thing a peek is for, keeping your place readable.
+              //
+              // `min(26rem,45vw)` keeps 416px wherever there is room for it (any
+              // viewport ≥ ~924px, so the wide case is unchanged, including two
+              // held panes: 832 of 1440 still leaves 608px of page) and yields to
+              // a proportion below that, so the page keeps a majority column at
+              // EVERY width. A breakpoint that flips the pane to full-width was
+              // the alternative; it hides the page entirely, which is a different
+              // failure rather than a fix, and it makes the pane's size jump
+              // during a window drag.
+              className="pointer-events-auto w-[min(26rem,45vw)]"
               data-testid="peek-pane"
               // Behavioral, not a test hook: `peek-dismiss.ts` resolves "is this
               // click inside SOME pane?" by walking up to this attribute.

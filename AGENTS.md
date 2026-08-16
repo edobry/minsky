@@ -826,9 +826,17 @@ Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` 
 
 **Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
 CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
-SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
-purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
-cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file CARRIES
+one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`, `.npmrc`, `.netrc`, `.mcp.json`). Use a
+check that cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a
+variable.
+
+**CARRIES, not "exists to hold" (mt#4159).** This sentence read "the file's purpose is to HOLD one"
+for two guard extensions, and that narrower test excludes most of its own list: `.npmrc` is a
+registry config, `.netrc` a machine-defaults file, `.mcp.json` an MCP server declaration. All three
+are config files that happen to carry a credential — which is what makes them easy to read without
+thinking, and why `.mcp.json` printed a live bearer token into a transcript before it was listed.
+Ask what the file CONTAINS, never what it is for.
 
 **A process listing is the third channel (mt#3850).** `ps`/`top`/`pgrep` print other processes'
 **argv**, which is world-readable — so a secret ANY process passed as a command-line argument lands
@@ -866,8 +874,11 @@ transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scr
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
 File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
-(`hook-files.mdc`); the rest is discipline-tier. Recipes + leak-containment runbook:
-`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
+(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
+channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+audit one for that and for a literal token at rest:
+`docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
+Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
 
 ## General
 
@@ -938,6 +949,23 @@ probe showed a `tool_result` block carrying no HTTP metadata, which became "the 
 enters the transcript" in a task spec; the record's sibling `toolUseResult` field held it all along
 and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
 plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
+
+**Program OUTPUT is a derived view too, and a grep you ran over it is one you BUILT (mt#4121).**
+Every example above is DATA-shaped — a parsed record, a type signature, a screenshot — so the bound
+is easy to honor while reading a data structure and easy to walk past while reading a run log. Two
+output-shaped forms, both from one session (2026-08-13). **A filter drops the structure that BOUND a
+line to its context:** a `grep -E "^\(fail\)|timed out"` over a test log put a `(fail)` from one
+block beside a `timed out` from another, and the pairing read as one record — it was an artifact of
+the filter. **A missing log line is a claim about the LOGGER, not about the code path:** "the handler
+logs there, no such line appeared, so it never ran" went into a spec as an elimination retiring two
+candidate causes, while `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts`, set by
+`tests/setup.ts`) silences winston's Console under the in-process harness (mt#2975). The code
+logged; the harness swallowed it. The tell in the second: the same turn had CORRECTLY established
+that the route uses the UNMOCKED logger, and that true fact was used to license "so its output would
+have appeared" — when that module is precisely the one carrying the silencing. **A verified fact
+adjacent to the question makes the inference feel checked.** Ask what the view CANNOT show before
+treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
+response body, not the run log you filtered.
 
 **Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
 phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
@@ -1394,10 +1422,14 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
-  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
+  is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  the explicit list, and its admission criterion is now "reading the file EMITS a credential",
+  not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
+  `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
   Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
   secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
   DB connection string by design) — invoking one directly, via any interpreter or its own
@@ -1415,7 +1447,11 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
   scripts — a second copy of any script is near-never intended, and a list would go stale silently.
   First execution-surface member of the duplication-gate family, every other one of which binds to
-  a task-graph surface (mem#999). `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
+  a task-graph surface (mem#999). **"Invoking" is now literal (mt#4088)** — the script must sit in
+  COMMAND POSITION with the flag after it, and a newline separates segments. Until then the two
+  questions were asked independently of one SEGMENT, so a command that merely MENTIONED a script
+  beside an unrelated `--execute` denied: a heredoc body documenting a test command, or a script
+  path passed as `--spec-file`. `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
 - **Bulk process-kill** (mt#4081) — `kill` naming 3+ PIDs, or `pkill`/`killall` naming an
   interactive process class. Denies with the move-vs-recreate alternative: a capability ruled out
   on ONE probed channel is not a capability that does not exist. Same matcher class as the two
@@ -1474,7 +1510,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **Turn-end-unwalked-task** — Stop scan (mt#3536): the turn minted a task id and ended with no status-set/session-start/dispatch/ask naming it. Tool-call-state-keyed, so it sees the SILENT stop. `MINSKY_ACK_UNWALKED_TASK`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Negative-existence-claim** (mt#3918) — a claim of ABSENCE written into a durable artifact, justified by a same-turn search returning <=1 hit, citing a DONE task. Matcher in `packages/domain/src/detectors/negative-existence-claim.ts` (ADR-024 Rung 1; mt#3999 consumes it). Evaluation stream, so the miss rate is measurable. Calibration-first. `MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM`.
-- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Posture per finding class — `bare-short-id`, `malformed-target`, `raw-uuid-label` LIVE; bare `mt#N`/`PR #N` RECORD-ONLY, since mt#2565's linkifier repairs those. Per-FINDING since mt#3960; advisory chain-capped at one follow-up (mt#3860). `MINSKY_ACK_BARE_ENTITY_REF`. Detail: `turn-end-bare-ref-scan.md`.
+- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Per finding class — `bare-short-id`, `malformed-target`, `raw-uuid-label` LIVE; bare `mt#N`/`PR #N` and `author-linked-short-id` (mt#4160) RECORD-ONLY. Per-FINDING since mt#3960; chain-capped (mt#3860). `MINSKY_ACK_BARE_ENTITY_REF`. Detail: `turn-end-bare-ref-scan.md`.
 - **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
 - **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
@@ -1482,16 +1518,17 @@ Detail: `guard-dispatcher-framework.md`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead). LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
 - **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose. LIVE mt#3399. `MINSKY_SKIP_SILENT_STRETCH`.
 - **Chained-verification-commands** (mt#3910) — a `Bash`/`session_exec` command string chaining TWO OR MORE verification commands (`bun test`, `bun run lint|format|typecheck|validate|build`, `bunx eslint|tsc`, `tsgo`) with `;`/`&&`/`||`, which makes a non-zero exit unattributable. Deliberately narrow. Calibration-first. `MINSKY_SKIP_CHAINED_VERIFICATION_SCAN`. Detail: `chained-verification-commands-detector.md`.
-- **Truncated-outcome-read** (mt#4096) — an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) piped into `tail`/`head`, which discards `pushed`/`pushUnconfirmed` by position. `grep`/`jq` never fire — a targeted field read is the remedy. Calibration-first. `MINSKY_SKIP_TRUNCATED_OUTCOME_READ`. Detail: `truncated-outcome-read-detector.md`.
+- **Truncated-outcome-read** (mt#4096) — an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) piped into `tail`/`head`, discarding `pushed`/`pushUnconfirmed` by position; `grep`/`jq` never fire. Second arm (mt#4176): a truncated `--help` — enumeration, not sample. Calibration-first. `MINSKY_SKIP_TRUNCATED_OUTCOME_READ`. Detail: `truncated-outcome-read-detector.md`.
 - **CLI-substitutes-MCP** (mt#4144) — a `Bash`/`session_exec` command invoking the Minsky CLI for a command that HAS an `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded. Closes the act path's non-destructive half: mt#4081's guard keys on a destructive VERB, so an agent that rebuilds an absent tool surface out of CLI calls destroys nothing and is invisible (mem#707 R10, 15 min after mt#4081 went DONE). Equivalence comes from `commandId` on each CLI leaf of `src/generated/completion-manifest.json` — generated, so it cannot go stale, and readable without the domain bootstrap a registry import would owe on every `Bash` call. Suppressed once MCP is in use; suppression still RECORDED. Calibration-first. `MINSKY_ALLOW_CLI_SUBSTITUTION`. Detail: `cli-mcp-substitution-detector.md`.
 - **Constructed-identifier batch** — TWO passes: mint-and-consume in one parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Consume surfaces include file writes — a constructed id in source code ships. mt#3991 added an existence discriminator to the second pass. Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`. Detail: `constructed-identifier-batch-detector.md`.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP); still recorded. Calibration-first (mt#3162). `MINSKY_ACK_BARE_PROHIBITION`. Detail: `bare-prohibition-dispatch-detector.md`.
 - **Duplicate-check search provenance** (mt#4004) — a duplicate-check record CLAIMING a past-tense search, in a session with no `tasks_search`/`tasks_similar`/`refs_status` call. Third tier on that record: the deny sibling checks it is PRESENT, the signature scan that its VERDICTS are true, this one that the search RAN. Calibration-first. `MINSKY_SKIP_SEARCH_PROVENANCE`.
+- **Evidence-record provenance** (mt#4044) — a `Negative control:` / `Execution evidence:` record claiming a run, written into a commit message or PR body with no matching run in the session. Widens mt#4004's shape to two more record types and the FIRST dispatcher wiring on `session_commit`/`session_pr_create`/`session_pr_edit`. A negative control needs a FAILING run that quotes back into the record or names its subject — "did a test run?" is discharged many times over in any real session. RECORD-ONLY: a pre-ship replay over 40 transcripts measured 20 fires / 80 records, sampled as mostly false, so the stream is armed and nothing injects (tune: mt#4067). `MINSKY_SKIP_EVIDENCE_PROVENANCE`. Detail: `evidence-record-provenance.md`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens (routes, source paths, backticked identifiers) already in an active task's spec that its duplicate-check record does not concede. Exact substring, no similarity metric (mem#819). Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`. Detail: `duplicate-signature-scan.md`.
 - **Stale-signal sweep** (mt#3959) — `session_pr_create` on a branch that STOPPED emitting an operator-facing `<label>=` while active task specs, live memories, or accepted ADRs still quote it. Fixing a signal retracts nothing already concluded from it. Same exact-substring class as the scan above, over three corpora, on a token lifted from the PR's own diff. Calibration-first. `MINSKY_SKIP_STALE_SIGNAL_SWEEP`. Detail: `stale-signal-sweep.md`.
-- **Unrendered-result-field scan** (mt#3913) — `session_pr_create` on a branch adding a counter/flag to a `*Result` type that no output site renders. **A log call is not a render site** — the originating incident (mt#3514) logged one of the two fields to a sink nobody read while the command printed success, so the obvious "appears in no string, template, or log call" rule misses the very field it turned on. Diff-only, no corpus. Calibration-first. `MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN`. Detail: `unrendered-result-field-scan.md`.
+- **Unrendered-result-field scan** (mt#3913) — `session_pr_create` on a branch adding a counter/flag to a `*Result` type that no output site renders. **A log call is not a render site** — the originating incident (mt#3514) logged one of the two fields to a sink nobody read while the command printed success, so the obvious "appears in no string, template, or log call" rule misses the very field it turned on. Diff-only, no corpus. Narrowed mt#4147 — a `*Result` DECLARED under `**/hooks/**` or `**/detectors/**` is a decision type whose fields were never meant to render, so it is no longer considered; measured 24 fires → 13 over the same pinned range, with the mt#3514 fixture still firing. Calibration-first. `MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN`. Detail: `unrendered-result-field-scan.md`.
 - **Flakiness-control detector** (mt#3658) — `tasks_create` whose spec claims a failure MODE with no isolation control recorded. Fires on the ATTRIBUTION ("flaky", "load-dependent") and equally on the DENIAL ("not load-dependent", "fails deterministically") — the same causal claim, and the shape that reads as already-investigated. Silenced by either evidence `/create-task` §2b prescribes: a test invocation WITH observed counts, or `UNVERIFIED` near the claim. Calibration-first. `MINSKY_SKIP_FLAKINESS_CONTROL`. Detail: `flakiness-control-detector.md`.
-- **Display linkifier** (mt#2565) — MessageDisplay: rewrites bare `mt#NNNN`/`PR #N` into deeplinks as a message streams; the stored transcript keeps the bare ref. OFF the dispatcher (ADR-028 D7(5)), loads no domain code. mt#3914 added `ask#N`/`mem#N`/`ws#N` via a cached short-id→UUID map: an unmapped id stays bare, a wrong target is never emitted. `MINSKY_SKIP_TERMINAL_LINKIFY`. Detail: `linkify-message-display.md`.
+- **Display linkifier** (mt#2565) — MessageDisplay: rewrites bare `mt#NNNN`/`PR #N`/`ask#N`/`mem#N`/`ws#N` into deeplinks as a message streams; the stored transcript keeps the bare ref. OFF the dispatcher (ADR-028 D7(5)); an unmapped short id stays bare (mt#3914). mt#4145 added a per-MESSAGE fire record, never stdout (mem#832) — `bun scripts/check-linkify-liveness.ts`. `MINSKY_SKIP_TERMINAL_LINKIFY`. Detail: `linkify-message-display.md`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
 - **Memory-capture notice** (mt#3997) — surfaces an mt#3973 resident-memory capture the first time it is seen, naming the process role, resident MB, and the tool calls in flight. Silent when none exists (the normal state). `MINSKY_SKIP_MEMORY_CAPTURE_NOTICE`. Detail: `inject-memory-capture.md`.
 - **Agent-dispatch record** (mt#2292) — PreToolUse on `Agent`: writes the `pending` `subagent_invocations` row on the RAW spawn path, and stamps `(session_id, tool_use_id)` into the prompt via `updatedInput` — the JOIN the Stop side closes on. Never denies. `MINSKY_SKIP_AGENT_DISPATCH_RECORD`. Detail: `subagent-invocation-recording-hook.md`.
@@ -1510,9 +1547,31 @@ Detail: `guard-dispatcher-framework.md`.
 
 # Design Principle: Humility
 
-A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them. Full framing: `docs/theory-of-operation.md §Companion Principles`, mt#1034.
+A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone **when the stakes warrant it**; §Stakes filter decides which do. Full framing: `docs/theory-of-operation.md §Companion Principles`, mt#1034.
 
 Operational corollaries already in force below are instances of this one principle, not separate rules: 2-strikes escalation (§Error Investigation); user decides scope, never defer identified work (§Work Completion); trust the hooks, never bypass (§Hook Files); never confidently assert a resource/file/capability doesn't exist without tool-based verification first (`verification-checklist` via `rules_get`).
+
+## Stakes filter
+
+**Trigger on the cost of being wrong, not on the shape of the decision.** The list above names
+decision SHAPES, and shape-triggering makes over-asking invitable — each of those has craft-level
+instances that are yours to settle. The test: **if the wrong answer costs a 30-second edit, decide
+it, take a reasonable default, and say what you picked.** If it costs real rework, sets precedent,
+or turns on a stance the principal holds, escalate. Over-asking on a craft-level call violates this
+principle exactly as much as usurping a principal-level one — the same failure from opposite sides.
+The closed principal-level set a halt must cite is `principal-context.mdc §Decisions Eugene reserves`.
+
+### Subjective quality is not yours to certify
+
+The filter above governs decisions you might MAKE; this governs claims you may ASSERT about
+finished work, and the boundary sits elsewhere. **Subjective visual and aesthetic quality is
+principal-owned acceptance.** "Reads as composed", "clears the jank bar", "looks good", "clean
+layout" are not agent-verifiable the way "tests pass" is — and a screenshot you chose the framing
+of is not evidence, it is an argument. Present the full, uncropped artifact at a realistic
+viewport and let the principal judge, without an accompanying verdict.
+
+Objective defects in that same render ARE yours to catch and to state. The split: what is BROKEN
+is yours; whether it LOOKS RIGHT is theirs.
 
 ## Escalation packaging
 

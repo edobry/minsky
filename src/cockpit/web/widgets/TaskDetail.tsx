@@ -20,6 +20,7 @@ import { EntityRef } from "../components/EntityRef";
 import { useEntityIndex } from "../lib/use-entity-index";
 import { useStartDrivenSession } from "../hooks/useStartDrivenSession";
 import { statusStyle } from "../lib/status-colors";
+import { cn } from "../lib/utils";
 import { DISPATCH_MODELS, DEFAULT_DISPATCH_MODEL_ID } from "@minsky/domain/ai/dispatch-models";
 import {
   Select,
@@ -166,13 +167,29 @@ export function TaskRefRow({ task }: { task: TaskRef }) {
 // reference other entities (mt#NNNN), so entity-linkification is wired in.
 // ---------------------------------------------------------------------------
 
-function SpecContent({ content }: { content: string | null }) {
+function SpecContent({ content, inPeek }: { content: string | null; inPeek: boolean }) {
   const entityIndex = useEntityIndex();
   if (!content) {
     return <p className="text-sm text-muted-foreground italic">No spec content</p>;
   }
+  // In a peek pane the spec flows into the PANE's scroller and wears the PANE's
+  // frame — it gets neither of its own (mt#4123).
+  //
+  // The page treatment is `max-h-[60vh] overflow-auto rounded bg-muted/20 p-3`,
+  // and every part of it is page-reasoning: a route showing a long spec beside
+  // other sections caps it so the page stays navigable, and tints it so it reads
+  // as one block within a wider measure. Carried into a 416px pane, the cap
+  // becomes a 540px window on a document measured at 10,845px — a scrollbar
+  // inside a scrollbar, where the outer one then has almost nothing to move —
+  // and the tint plus radius become a second frame drawn 16px inside the first.
+  //
+  // Nothing is hidden by removing them: the pane scrolls the whole spec, which
+  // is what the operator opened it to read.
   return (
-    <Prose entityIndex={entityIndex} className="max-h-[60vh] overflow-auto rounded bg-muted/20 p-3">
+    <Prose
+      entityIndex={entityIndex}
+      className={inPeek ? undefined : "max-h-[60vh] overflow-auto rounded bg-muted/20 p-3"}
+    >
       {content}
     </Prose>
   );
@@ -182,10 +199,26 @@ function SpecContent({ content }: { content: string | null }) {
 // Section wrapper — consistent heading + content layout
 // ---------------------------------------------------------------------------
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+  inPeek = false,
+}: {
+  title: string;
+  children: React.ReactNode;
+  inPeek?: boolean;
+}) {
+  // One step tighter in a pane, on the stock 4px scale: 16px between sections and
+  // 8px under a heading is page rhythm, and a glance column is short of exactly
+  // the axis it spends (mt#4123).
   return (
-    <div className="mt-4 first:mt-0">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+    <div className={inPeek ? "mt-3 first:mt-0" : "mt-4 first:mt-0"}>
+      <h3
+        className={cn(
+          "text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+          inPeek ? "mb-1.5" : "mb-2"
+        )}
+      >
         {title}
       </h3>
       {children}
@@ -349,13 +382,24 @@ function LaunchActionButton({
   );
 }
 
-function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
+function TaskDetailInner({
+  data,
+  inPeek = false,
+}: {
+  data: TaskDetailPayload;
+  inPeek?: boolean;
+}) {
   const { task, spec, parent, children, deps, actions } = data;
 
   return (
     <div className="flex flex-col gap-0">
       {/* Header */}
-      <div className="flex items-start gap-3 flex-wrap pb-4 border-b border-border">
+      <div
+        className={cn(
+          "flex items-start gap-3 flex-wrap border-b border-border",
+          inPeek ? "pb-3" : "pb-4"
+        )}
+      >
         <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">
           {task.id}
         </span>
@@ -376,7 +420,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
 
       {/* Parent */}
       {parent && (
-        <Section title="Parent">
+        <Section title="Parent" inPeek={inPeek}>
           <div className="flex items-center gap-2">
             <StatusBadge status={parent.status} />
             <TaskIdChip id={parent.id} />
@@ -386,12 +430,12 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
       )}
 
       {/* Spec */}
-      <Section title="Spec">
-        <SpecContent content={spec} />
+      <Section title="Spec" inPeek={inPeek}>
+        <SpecContent content={spec} inPeek={inPeek} />
       </Section>
 
       {/* Children */}
-      <Section title={`Children (${children.length})`}>
+      <Section title={`Children (${children.length})`} inPeek={inPeek}>
         {children.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">No children</p>
         ) : (
@@ -405,7 +449,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
 
       {/* Dependencies */}
       {(deps.outgoing.length > 0 || deps.incoming.length > 0) && (
-        <Section title="Dependencies">
+        <Section title="Dependencies" inPeek={inPeek}>
           {deps.outgoing.length > 0 && (
             <div className="mb-3">
               <p className="text-xs text-muted-foreground mb-1">
@@ -430,7 +474,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
       )}
 
       {deps.outgoing.length === 0 && deps.incoming.length === 0 && (
-        <Section title="Dependencies">
+        <Section title="Dependencies" inPeek={inPeek}>
           <p className="text-sm text-muted-foreground italic">No dependencies</p>
         </Section>
       )}
@@ -445,9 +489,18 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
 interface TaskDetailBodyProps {
   taskId: string;
   query: UseQueryResult<TaskDetailPayload, Error>;
+  /**
+   * True when this body is rendering inside a peek pane (mt#4123).
+   *
+   * Threaded rather than read from a context: `variant` already travels this
+   * path, one body needs the answer, and a context provider would be a second
+   * render-context mechanism beside `WidgetVariant` — which is the one thing
+   * `WidgetShell`'s docblock says the variant exists to avoid.
+   */
+  inPeek?: boolean;
 }
 
-function TaskDetailBody({ taskId, query }: TaskDetailBodyProps) {
+function TaskDetailBody({ taskId, query, inPeek = false }: TaskDetailBodyProps) {
   if (query.isLoading) {
     return <LoadingState message={`Loading ${taskId}…`} className="font-mono" />;
   }
@@ -468,7 +521,7 @@ function TaskDetailBody({ taskId, query }: TaskDetailBodyProps) {
     return <ErrorState message="Unexpected response shape." className="font-mono" />;
   }
 
-  return <TaskDetailInner data={data} />;
+  return <TaskDetailInner data={data} inPeek={inPeek} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +552,7 @@ export function TaskDetail({ taskId, variant = "card" }: TaskDetailProps) {
 
   return (
     <WidgetShell variant={variant} title={title}>
-      <TaskDetailBody taskId={taskId} query={query} />
+      <TaskDetailBody taskId={taskId} query={query} inPeek={variant === "peek"} />
     </WidgetShell>
   );
 }

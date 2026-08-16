@@ -39,7 +39,10 @@ this event — see the Phase 2a and Phase 2b subsections.
 - **`registry.ts`** (D2) — the declarative schema. `GuardRegistration` names a guard's
   `event`, tool-name `matcher` regex, dynamic `module()` import, `timeoutMs`, optional
   `calibrationLog` name, and `denyCapable` flag. `GUARD_REGISTRY` is the single array every
-  dispatcher consults. `getGuardsForEvent(registrations, event, toolName)` filters by event
+  dispatcher consults — though since mt#4115 its ENTRIES are filed across per-family modules
+  and composed here rather than written inline; see
+  [Where registry entries live](#where-registry-entries-live) below.
+  `getGuardsForEvent(registrations, event, toolName)` filters by event
   - matcher (a matcher-less registration always matches once its event matches — the
     non-tool-event case). `findDuplicateRegistrations(registrations)` implements ADR-028
     D7(2)'s registry-completeness lint: two registrations sharing an event and an overlapping
@@ -345,3 +348,62 @@ planning pass falsified it.
 The practical consequence for guard authors: an advisory's rendered size is a shared resource.
 Amend a guard's text by TRIMMING, not by raising its `attentionCost` annotation — raising one
 widens the injection budget for every turn in the repo (mem#865 records the worked case).
+
+## Where registry entries live
+
+`GUARD_REGISTRY` is still the one array every dispatcher consults, and `registry.ts` still
+exports it. What changed in mt#4115 is where the ENTRIES are written: each one lives in a
+per-family module, and `registry.ts` composes them with a spread.
+
+| Module                                | Export                    | The seam it covers                                                                 |
+| ------------------------------------- | ------------------------- | ---------------------------------------------------------------------------------- |
+| `registry-task-create-guards.ts`      | `TASK_CREATE_GUARDS`      | a task being minted (`tasks_create`)                                               |
+| `registry-pr-create-guards.ts`        | `PR_CREATE_GUARDS`        | the agent writing its work out (commit / PR create / PR edit)                      |
+| `registry-command-string-guards.ts`   | `COMMAND_STRING_GUARDS`   | a structured command string (`Bash` / `mcp__minsky__session_exec`)                 |
+| `registry-delegation-guards.ts`       | `DELEGATION_GUARDS`       | work handed outward — to a subagent (`Agent`) or the principal (`AskUserQuestion`) |
+| `registry-prompt-injection-guards.ts` | `PROMPT_INJECTION_GUARDS` | `UserPromptSubmit` guards that read the world and inject context                   |
+| `registry-prompt-scan-guards.ts`      | `PROMPT_SCAN_GUARDS`      | `UserPromptSubmit` guards that read the agent's just-completed turn                |
+| `registry-turn-end-guards.ts`         | `TURN_END_GUARDS`         | the turn's closing message (`Stop`)                                                |
+
+One export name is narrower than its contents: `PR_CREATE_GUARDS` also holds a guard registering
+on `session_commit` and `session_pr_edit`. That is recorded in the module's own header, which was
+revisited under mt#4115 and kept as-is — renaming implies moving the file and deleting its stale
+generated mirror, which was judged not worth the churn inside a pure-move change. Rename it when
+that family's boundary next moves.
+
+One entry stays inline in `registry.ts`: `calibration-review-cadence-detector`, whose position
+IS its contract — it must remain the array's LAST element. Filing it in a module named for a
+one-member family would restate the very one-entry-module pattern mt#4115 retired, and would put
+the invariant somewhere a reader of the array cannot see it.
+
+**A family is the SEAM its guards fire on, not one tool name.** `registry-pr-create-guards.ts`
+learned this the hard way and recorded it in its own header: it was created for two
+`session_pr_create` guards, then took a third registering on three write-path tools. Its export
+kept the narrower name. When you add a guard, pick the family whose seam matches what the guard
+is watching for; if none does, add a module rather than widening a family past its header.
+
+### Adding a guard
+
+Add the entry to the family module, not to `registry.ts` — the file needs no edit at all unless
+you are introducing a new family, which costs it one import and one spread. This is the point of
+the split: before it, `registry.ts` sat at 1479 counted lines against a 1500 `max-lines` ERROR
+ceiling, and four separate guard authors (mt#3959, mt#3913, mt#4144, mt#4044) each hit the wall
+and extracted the one family that was blocking them. It is now a small fraction of that.
+
+No current figure is quoted here on purpose: `bunx eslint .minsky/hooks/registry.ts` is the check,
+and the count moves every few merges. A number written into mt#4115's own module headers went stale
+between two commits of that very change.
+
+### Order is load-bearing, but only within a co-matching set
+
+`getGuardsForEvent` filters by event, then by matcher, and the dispatcher runs the FILTERED list
+in order with first-deny-wins. So two guards that can never match the same tool name are
+order-independent of each other, while two that can are not. Families on disjoint matchers may
+therefore be arranged freely; the guards INSIDE a family may not be reordered, and the two
+`UserPromptSubmit` families must stay adjacent because together they are that event's whole
+sequence bar the last entry.
+
+`scripts/dump-guard-registry.ts` renders the per-`(event, tool)` dispatch lists plus a field
+table for exactly this check. Run it before and after any registry reorganization and diff the
+two — array position is a lossy proxy for behavior in both directions, so compare the dispatch
+lists themselves.

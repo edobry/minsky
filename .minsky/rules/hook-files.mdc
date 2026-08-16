@@ -27,10 +27,14 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
-  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
+  is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  the explicit list, and its admission criterion is now "reading the file EMITS a credential",
+  not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
+  `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
   Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
   secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
   DB connection string by design) — invoking one directly, via any interpreter or its own
@@ -48,7 +52,11 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
   scripts — a second copy of any script is near-never intended, and a list would go stale silently.
   First execution-surface member of the duplication-gate family, every other one of which binds to
-  a task-graph surface (mem#999). `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
+  a task-graph surface (mem#999). **"Invoking" is now literal (mt#4088)** — the script must sit in
+  COMMAND POSITION with the flag after it, and a newline separates segments. Until then the two
+  questions were asked independently of one SEGMENT, so a command that merely MENTIONED a script
+  beside an unrelated `--execute` denied: a heredoc body documenting a test command, or a script
+  path passed as `--spec-file`. `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
 - **Bulk process-kill** (mt#4081) — `kill` naming 3+ PIDs, or `pkill`/`killall` naming an
   interactive process class. Denies with the move-vs-recreate alternative: a capability ruled out
   on ONE probed channel is not a capability that does not exist. Same matcher class as the two

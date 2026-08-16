@@ -101,10 +101,21 @@ const SheetContent = React.forwardRef<
 ));
 SheetContent.displayName = DialogPrimitive.Content.displayName;
 
+/**
+ * Header row.
+ *
+ * `px-4` MATCHES `SheetBody`'s horizontal gutter, and that is the whole reason
+ * it is not `px-3` (mt#4123). When only the body gained padding, the header's
+ * 12px against the body's 16px put a 4px step in the pane's left edge — measured
+ * at 13px vs 17px from the pane border — which reads as a wobble running down
+ * the column. Vertical padding stays tighter than the body's: a header is a
+ * chrome strip, and its job is to cost as little of a glance column's height as
+ * it can. Change one of these two gutters and change the other.
+ */
 const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
-      "flex shrink-0 items-center gap-2 border-b border-border px-3 py-2",
+      "flex shrink-0 items-center gap-2 border-b border-border px-4 py-2",
       "bg-popover text-popover-foreground",
       className
     )}
@@ -113,9 +124,25 @@ const SheetHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
 );
 SheetHeader.displayName = "SheetHeader";
 
-/** Scrollable body region — the pane's own scroller, independent of the page. */
+/**
+ * Scrollable body region — the pane's own scroller, independent of the page.
+ *
+ * **The padding lives here, not in the bodies (mt#4123).** Until this task the
+ * class list was `min-h-0 flex-1 overflow-auto` and nothing else, so every body
+ * rendered flush against the pane's edges — the defect the principal reported on
+ * sight. Putting it on the primitive is what makes it true for all seven peek
+ * bodies at once, including any added later; a body that supplied its own would
+ * be one more place to forget. Two of them DID supply their own `p-3`, and those
+ * wrappers were removed here rather than left to double up.
+ *
+ * `px-4 py-3` is the stock 4px Tailwind scale, which `docs/design-system.md` §3
+ * blesses as cockpit's only spacing scale ("No cockpit-specific spacing tokens").
+ * Horizontal is the larger of the two because the pane is a narrow column: the
+ * side gutters are what stop text from colliding with the border, while vertical
+ * space is the scarcer resource in a glance surface.
+ */
 const SheetBody = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("min-h-0 flex-1 overflow-auto", className)} {...props} />
+  <div className={cn("min-h-0 flex-1 overflow-auto px-4 py-3", className)} {...props} />
 );
 SheetBody.displayName = "SheetBody";
 

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { findUnrenderedResultFields, loggerCallLines } from "./unrendered-result-fields";
+import {
+  findUnrenderedResultFields,
+  isDecisionModulePath,
+  loggerCallLines,
+} from "./unrendered-result-fields";
 
 /**
  * mt#3514's ACTUAL diff (commit `fae568fbe`), hunks quoted VERBATIM.
@@ -212,6 +216,84 @@ diff --git a/docs/architecture/hooks/thing.md b/docs/architecture/hooks/thing.md
 +);
 `;
     expect(findUnrenderedResultFields(diff).map((f) => f.name)).toContain("rowsPurged");
+  });
+});
+
+describe("findUnrenderedResultFields — decision-module exclusion (mt#4147)", () => {
+  // Quoted from `d685689e6`, one of the 16 measured false positives: a detector's
+  // own scan result, whose fields feed the guard's `run()` and were never meant
+  // to reach an operator.
+  const CHAIN_SCAN_DIFF = `diff --git a/.minsky/hooks/chained-verification-commands-detector.ts b/.minsky/hooks/chained-verification-commands-detector.ts
+--- a/.minsky/hooks/chained-verification-commands-detector.ts
++++ b/.minsky/hooks/chained-verification-commands-detector.ts
+@@ -20,4 +20,7 @@ export interface ChainScanResult {
+   command: string;
++  chained: boolean;
++  segmentCount: number;
+ }
+`;
+
+  test("a *Result declared under a hooks/ root is not considered", () => {
+    expect(findUnrenderedResultFields(CHAIN_SCAN_DIFF)).toEqual([]);
+  });
+
+  test("a *Result declared under a detectors/ root is not considered", () => {
+    const diff = `diff --git a/packages/domain/src/detectors/flakiness-attribution.ts b/packages/domain/src/detectors/flakiness-attribution.ts
+--- a/packages/domain/src/detectors/flakiness-attribution.ts
++++ b/packages/domain/src/detectors/flakiness-attribution.ts
+@@ -10,3 +10,5 @@ export interface FlakinessAttributionResult {
+   matchedText: string;
++  matched: boolean;
++  hasIsolationControl: boolean;
+ }
+`;
+    expect(findUnrenderedResultFields(diff)).toEqual([]);
+  });
+
+  test("the exclusion does NOT reach a domain result — mt#3514 still fires", () => {
+    // The over-suppression control. `turn-writer.ts` sits under neither root, so
+    // narrowing the guard must not cost it the incident it was built for. If
+    // this ever goes green-by-suppression the narrowing has eaten its own
+    // regression fixture.
+    const names = findUnrenderedResultFields(MT3514_DIFF).map((f) => f.name);
+    expect(names).toContain("orphansDeleted");
+    expect(names).toContain("orphanDeleteFailed");
+  });
+
+  test("a render found inside a hooks/ file still counts as a render", () => {
+    // The exclusion is DECLARATION-site only. A domain type rendered by hook
+    // code is rendered — suppressing that would invert the guard.
+    const diff = `diff --git a/packages/domain/src/x.ts b/packages/domain/src/x.ts
+--- a/packages/domain/src/x.ts
++++ b/packages/domain/src/x.ts
+@@ -1,3 +1,4 @@ export interface PurgeResult {
+   written: number;
++  rowsPurged: number;
+ }
+diff --git a/.minsky/hooks/report.ts b/.minsky/hooks/report.ts
+--- a/.minsky/hooks/report.ts
++++ b/.minsky/hooks/report.ts
+@@ -1,2 +1,3 @@
++const SHOWN = ["rowsPurged"];
+`;
+    expect(findUnrenderedResultFields(diff)).toEqual([]);
+  });
+});
+
+describe("isDecisionModulePath", () => {
+  test("matches the roots the measurement named", () => {
+    expect(isDecisionModulePath(".minsky/hooks/chained-verification-commands-detector.ts")).toBe(
+      true
+    );
+    expect(isDecisionModulePath(".claude/hooks/transcript.ts")).toBe(true);
+    expect(isDecisionModulePath("src/hooks/adr-numbering-collision-detector.ts")).toBe(true);
+    expect(isDecisionModulePath("packages/domain/src/detectors/llm-confirm.ts")).toBe(true);
+  });
+
+  test("does not match the domain paths the true positives live on", () => {
+    expect(isDecisionModulePath("packages/domain/src/transcripts/turn-writer.ts")).toBe(false);
+    expect(isDecisionModulePath("src/cockpit/sweepers.ts")).toBe(false);
+    expect(isDecisionModulePath("scripts/run-related-tests.ts")).toBe(false);
   });
 });
 

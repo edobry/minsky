@@ -111,6 +111,38 @@ a status transition; everything else is investigation and gate-check.
    dependency: the ownership search. Gate (g) still runs in full at Step 3; this makes the claim
    the trigger rather than the step.
 
+6. **Enumerate EVERY required-actions section, not just the template's (mt#4177).** On a re-run
+   against a task that already carries a gap report, grep the spec's headings for every
+   required-actions list — match `required actions` **case-insensitively at any heading depth**,
+   since the template emits `### Required actions before READY` but a later amendment writes its
+   own under a variant (`### Required actions added`, `### Further required actions`). **Name each
+   section you found in the audit output**, so a reader can tell "walked both" from "walked one and
+   did not know there was another."
+
+   **Then classify each match — the pattern deliberately over-matches.** A heading like
+   `## Required actions resolved (2026-08-16)` is a RECORD of discharge, not a list of owed work,
+   and a later pass must not try to re-discharge it. Sort the matches into OWED and RESOLVED, name
+   which is which, and walk only the owed ones. Over-matching then costs one line of triage;
+   under-matching costs a missed action, which is the failure this item exists to prevent — so the
+   pattern is loose on purpose and the reading is where precision belongs.
+
+   Each action in every OWED section is discharged before READY, or explicitly deferred with a
+   reason. A second owed list is not optional context — its items are numbered as a continuation of
+   the first, which is exactly what makes a partial read look complete.
+
+   Originating incident (mt#2755, 2026-08-16): the spec carried actions 1-4 under the template's
+   heading and actions **5, 6, 7** under `### Required actions added`, appended by a premise
+   correction five days later with no forward pointer from the first list. A re-run discharged 1-4
+   and set READY. Action 6 was "before speccing any queued detector, read the shipped
+   policy-coverage detector and record whether each is a consumer" — and three detector children
+   had already been filed without it.
+
+   Why this is a procedure fix rather than a spec-hygiene rule: the corpus ENCOURAGES appending
+   (gap reports, premise corrections and deviation records are all appended sections), and a
+   correction that surfaces new work naturally writes its own list rather than editing a section
+   another pass authored days earlier. Requiring future specs to consolidate would not repair the
+   ones that already exist.
+
 ### Step 2.5: Premise audit
 
 Before running the spec-quality gate, answer all four checks below explicitly in your
@@ -609,8 +641,10 @@ assumption inherited from upstream research or prior agent turns.
 Cross-reference: bridge memory `e296b3ee-324e-4186-9313-926dd3f9ee5b`
 (`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
 at spec-authoring time`) is the precedent memory this gate formalizes; once this gate ships,
-that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
-(Surface 1 policy-coverage detector, graduating to enforcing mode).
+that memory's job becomes historical record + pointer here. Mechanization path: mt#2755
+(extending the shipped policy-coverage detector to this battery). The pointer this replaced
+named mt#1541, which is CLOSED — its deliverable shipped as mt#1575, but against a corpus that
+does not include this skill; see gate (n) below.
 
 #### Gate criterion (l) — Authoritative-source check for third-party-system decisions
 
@@ -868,12 +902,22 @@ passes" statement.
 **discipline** criterion — process-enforced by the `/plan-task` skill (the agent walks it every
 planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
 hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
-this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
-gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
-currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
-the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
-mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the `/plan-task` process that
-runs it: no stronger, and no weaker than its discipline-tier peers.
+this criterion makes NO claim of automated coverage. **No gate in this battery is mechanically
+enforced today** — but not because the mechanization work was abandoned, which is what this
+paragraph used to imply by naming CLOSED mt#1541 as the reason.
+
+What actually shipped: mt#1541's child **mt#1575** built a live policy-coverage detector at
+`packages/domain/src/detectors/policy-coverage/`. Its current liveness is a measurement, not a
+figure to quote here — `bun scripts/check-coverage-receipts.ts` reports it. It does not cover this
+battery, for two reasons worth knowing before you spec anything here. Its corpus
+(`corpus-loader.ts`) reads task specs, `CLAUDE.md`, `.claude/rules/*` + `.minsky/rules/*` and
+memories — **not the skills tree**, where these gates live. And it decides a different question:
+per ADR-008 §Router, whether policy names an action's category AND its authority.
+
+So the gap is real and the machinery to close it exists. **mt#2755 is an EXTENSION task, not a
+greenfield one** — it and its children should be read that way. Until it ships, gate (n) is
+exactly as strong as the `/plan-task` process that runs it: no stronger, and no weaker than its
+discipline-tier peers.
 
 **Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
 "can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
@@ -1185,6 +1229,9 @@ conversations, all of them this skill's gate reports).
 2. <concrete action the user or agent must take>
 
 To re-run the gate after fixes: `/plan-task <task-id>`
+(The re-run enumerates EVERY required-actions section in the spec, not only this one — see
+Step 2 item 6. If you are appending a LATER list, that is fine and expected; do not renumber
+this one.)
 ```
 
 4. **If any blocking gap requires a principal-owned decision** (a scope choice, a naming

@@ -70,6 +70,28 @@ exists to prevent. **If a THIRD collision occurs after this relocation, the fix
 is mechanical rather than textual** — a sweep-time claim on the log, the way
 `tasks_claims_list` works for tasks — per mt#4119's planning audit.
 
+**R3 happened (2026-08-16), and the mechanical fix shipped (mt#4164).** Two
+passes classified the same `bare-entity-ref` window one minute apart. The probe
+below had been read and had returned nothing — correctly, because the other pass
+had not filed an artifact yet. **The probe searches for ARTIFACTS, and
+classification is entirely upstream of any artifact**, so no position in this
+skill could have caught it.
+
+So the sweep now takes a CLAIM on each review-due log before you classify
+anything, and a log another pass is holding is dropped from your `reviewDue`
+set and named in `claimedByOthers`. You do not have to run the artifact probe to
+detect a live pass — the command does it. What the probe below is still for is
+the case the claim cannot see: a pass that already FINISHED and filed, whose
+claim was released. Read `claimedByOthers` in the sweep result, and if
+`claimsUnavailable` is true the runtime could not name your pass, so you are
+running with the pre-mt#4164 collision risk and the prose probe is all you have.
+
+**Run the probe per LOG, not per PASS.** A log that becomes review-due partway
+through a pass — a cadence detector firing mid-turn is the common way — has not
+been probed by the search you ran at the start for different detectors. R3's
+secondary aggravator was exactly this: the probe had been run, for the previous
+pass's detectors, two days earlier.
+
 Call the command read-only (do NOT pass `--ack` yet). **Keep the `reviewToken`
 it returns** — Step 5's ack is refused without it, and the token from THIS call
 is the one that binds the records you are about to classify (mt#3906):

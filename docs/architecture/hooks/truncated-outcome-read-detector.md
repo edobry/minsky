@@ -107,3 +107,61 @@ near-unique and would satisfy the sweep's distinct-phrase gate by construction, 
 Tool Calls` (the field-reading requirement) · `chained-verification-commands-detector.md` (sibling,
 same matcher class) · mt#3177 / mt#3205 (which made the fields exist and be returned; neither makes
 them get read) · mem#1012 (the bridge memory) · mt#4088 (the heredoc-matching hazard).
+
+## The enumeration arm (mt#4176)
+
+### What changed
+
+The detector originally fired only when a **state-mutating** command's output was positionally
+truncated, and its docblock excluded read-only commands on purpose:
+
+> a read-only command truncated the same way (`git log | head -20`) — truncating a read is
+> ordinary and firing on it would produce the unmatchable noise mem#719 records as eroding trust
+> in a detector's true positives
+
+That exclusion is correct for a **sample** and wrong for an **enumeration**. The distinction is
+not read-vs-mutate:
+
+| Shape       | Example            | Are the dropped lines part of the question? |
+| ----------- | ------------------ | ------------------------------------------- | ------------------------------------------------------------------ |
+| Sample      | `git log           | head -20`                                   | No — you want the recent few. Nothing is concluded about the rest. |
+| Enumeration | `minsky mcp --help | head -15`                                   | **Yes** — the listing exists to answer "what is the complete set?" |
+
+Truncating an enumeration manufactures an absence, and the absence is what the next claim rests
+on. So the arm keys on the first stage carrying `--help`, independent of the mutating-command
+patterns.
+
+### Originating incident (2026-08-16)
+
+An agent enumerating the `mcp` subcommand set ran `bun src/cli.ts mcp --help | head -15` and
+`minsky mcp --help | head -12`. Because Commander wraps long descriptions, a dozen lines hold far
+fewer than a dozen commands, and `proxy` and `shim` were both below the cut. The agent concluded
+neither was registered and began drafting that into a task spec as evidence that mt#3816's config
+migration rewrites user entries to a command that does not exist — a serious claim about a
+feature's safety, resting entirely on lines a `head` had removed. The untruncated run
+(`sed -n '/Commands:/,$p' | grep -E '^\s+[a-z]' | awk '{print $1}' | sort -u`) falsified it in one
+call.
+
+Recorded in mem#1032 (`family:assertion-without-verification`) alongside two sibling probe
+failures from the same session.
+
+### Why bare `-h` is excluded
+
+`-h` is widely a _value_ flag rather than a help flag — `ls -h`, `du -h`, `sort -h` all mean
+human-readable. Including it would fire on `ls -lh | head -20`, which is a textbook sample and
+exactly the false positive the preserved carve-out exists to prevent. `--help` has no such
+collision. Two regression tests pin this.
+
+### Precedence
+
+A command matching both arms reports `outcome`. Not a real invocation (`session commit --help`
+does not commit), but asserted rather than left to branch order: the discarded confirmation
+fields are the costlier warning of the two.
+
+### Attention cost
+
+The `outcome` branch renders longer than the `enumeration` branch — 508 vs 352 chars with the
+same command interpolated, measured 2026-08-16 — so `renderWorstCase()` stays posed on `outcome`
+and the guard's declared ceiling is unmoved. The command string remains the one unbounded axis,
+which is why `guard-feedback-shape.test.ts` classifies this probe a saturated SAMPLE rather than
+a proved ceiling; that predates the second arm.

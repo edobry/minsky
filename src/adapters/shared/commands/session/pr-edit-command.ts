@@ -58,12 +58,64 @@ function handlePrError(error: unknown, params: SessionPrEditParams): Error {
 }
 
 /**
+ * Injectable seams for the title-composition path (mt#4138).
+ *
+ * Both default to the real implementations, so this is an optional-`deps`
+ * parameter with a real default — no exported-type change, which is what
+ * ADR-036 rule 2 asks for in place of patching a collaborator the code reaches
+ * itself. They exist because the composed title is otherwise unobservable: the
+ * resolver is a dynamic import and `sessionPrEdit` a static one, so the only
+ * way to assert what scope the title carries would be module patching.
+ *
+ * Deliberately NOT exported (PR #3010 R1): this is test scaffolding, not a
+ * contract, and exporting it would imply a public API promise the module does
+ * not intend to keep. `executeSessionPrEdit` still accepts it structurally, and
+ * a test that needs the type derives it from the function itself via
+ * `NonNullable<Parameters<typeof executeSessionPrEdit>[3]>` — so nothing is
+ * lost by keeping it file-local.
+ */
+interface SessionPrEditSeams {
+  /** Resolves session context; the real one throws when no session matches. */
+  resolveSessionContext?: (options: {
+    sessionId?: string;
+    task?: string;
+    repo?: string;
+    sessionProvider: unknown;
+    allowAutoDetection: boolean;
+  }) => Promise<{ taskId?: string }>;
+  /** Performs the actual PR edit. */
+  editPr?: typeof sessionPrEdit;
+}
+
+/**
+ * Pick the task scope for a composed PR title.
+ *
+ * Pure and total, and deliberately independent of whether session resolution
+ * succeeded: `callerTask` was handed in by the caller and needs no resolution
+ * to be known, so it stays available even when the resolver throws. A resolved
+ * id wins when present (it is the more specific answer); otherwise the
+ * caller's own argument is used. Returns undefined only when neither is
+ * available — the one case where a scopeless title is correct rather than
+ * degraded.
+ */
+export function pickTitleScope(
+  callerTask: string | undefined,
+  resolvedTaskId: string | undefined,
+  formatForDisplay: (id: string) => string
+): string | undefined {
+  const preferred = resolvedTaskId || callerTask;
+  if (!preferred) return undefined;
+  return formatForDisplay(preferred) || undefined;
+}
+
+/**
  * Core execute logic for session.pr.edit. Exported for tests.
  */
 export async function executeSessionPrEdit(
   deps: SessionCommandDependencies,
   params: SessionPrEditParams,
-  context: CommandExecutionContext
+  context: CommandExecutionContext,
+  seams: SessionPrEditSeams = {}
 ): Promise<Record<string, unknown>> {
   if (!params.title && !params.body && !params.bodyPath) {
     throw new ValidationError(
@@ -99,6 +151,7 @@ export async function executeSessionPrEdit(
     }
 
     let finalTitle: string | undefined = params.title;
+    let titleScopeDropped = false;
     if (params.title) {
       if (params.type) {
         // Description-only --title + --type: composeConventionalTitle is the
@@ -108,35 +161,67 @@ export async function executeSessionPrEdit(
         // exactly what caused create/edit to diverge (edit re-validated a
         // description-only title with different length accounting than
         // create).
-        try {
-          const { resolveSessionContextWithFeedback } = await import(
-            "@minsky/domain/session/session-context-resolver"
-          );
-          const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+        const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
-          const resolved = await resolveSessionContextWithFeedback({
+        // ONLY the resolution is guarded (mt#4138). The previous shape wrapped
+        // resolution AND composition in one try, and the catch re-composed with
+        // no taskId at all — discarding `params.task`, which the caller had
+        // just supplied and which needs no resolution to be known.
+        //
+        // The trigger is ordinary, not exotic: resolving an explicit `task`
+        // whose session no longer exists throws ResourceNotFoundError, and that
+        // is a SIBLING of ValidationError, not a subclass, so the guard below
+        // cannot catch it. Post-merge session cleanup puts every merged task in
+        // exactly that state, so every `pr edit` after a merge lost its scope.
+        let resolvedTaskId: string | undefined;
+        try {
+          const resolveSessionContext =
+            seams.resolveSessionContext ??
+            (await import("@minsky/domain/session/session-context-resolver"))
+              .resolveSessionContextWithFeedback;
+
+          const resolved = await resolveSessionContext({
             sessionId: params.sessionId,
             task: params.task,
             repo: params.repo,
             sessionProvider: deps.sessionProvider,
             allowAutoDetection: true,
           });
-
-          const taskId: string | undefined = resolved.taskId || params.task;
-          finalTitle = composeConventionalTitle({
-            type: params.type,
-            title: params.title,
-            taskId: taskId ? formatTaskIdForDisplay(taskId) : undefined,
-          });
+          resolvedTaskId = resolved.taskId;
         } catch (err) {
-          // Only retry without a resolved taskId on session-resolution
-          // failures. A ValidationError from composeConventionalTitle (bad
-          // title format/length) is deterministic regardless of taskId and
-          // must propagate directly so the caller sees the real reason.
+          // A ValidationError here is a real input problem and must reach the
+          // caller. Anything else means only that the RESOLVED id is
+          // unavailable — it says nothing about the caller-supplied one.
           if (err instanceof ValidationError) {
             throw err;
           }
-          finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
+          log.debug("session.pr.edit: session resolution failed; falling back to caller task", {
+            task: params.task,
+            error: getErrorMessage(err),
+          });
+        }
+
+        const titleScope = pickTitleScope(params.task, resolvedTaskId, formatTaskIdForDisplay);
+
+        // Composition sits OUTSIDE the try on purpose: a ValidationError from
+        // composeConventionalTitle (bad title format/length) is deterministic
+        // regardless of taskId and must propagate. That is what the old catch's
+        // rethrow guard existed for; out here it simply propagates.
+        finalTitle = composeConventionalTitle({
+          type: params.type,
+          title: params.title,
+          taskId: titleScope,
+        });
+
+        // Regression signal: the caller named a task, so the title must carry
+        // its scope. Post-fix this can only fire if the id is unformattable —
+        // never from a resolution failure. Reported rather than returned
+        // silently under `updated: true`.
+        if (params.task && !titleScope) {
+          titleScopeDropped = true;
+          log.warn("session.pr.edit: composed a PR title without the caller's task scope", {
+            task: params.task,
+          });
         }
       } else {
         // Case-sensitive AND single-space-after-colon on purpose: the
@@ -170,7 +255,8 @@ export async function executeSessionPrEdit(
       }
     }
 
-    const result = await sessionPrEdit(
+    const editPr = seams.editPr ?? sessionPrEdit;
+    const result = await editPr(
       {
         title: finalTitle,
         body: params.body,
@@ -194,6 +280,7 @@ export async function executeSessionPrEdit(
       title: result.title,
       body: result.body,
       updated: result.updated,
+      titleScopeDropped,
     };
   } catch (error) {
     throw handlePrError(error, params);

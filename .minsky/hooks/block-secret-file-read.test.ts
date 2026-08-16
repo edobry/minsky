@@ -250,6 +250,9 @@ describe("emitting readers on secret paths (denied)", () => {
     "cat server.pem",
     "sed -n '1,5p' .env.local",
     "cut -d= -f2 .env",
+    // mt#4159 — the read that printed a live bearer token into a transcript.
+    "cat .mcp.json",
+    "jq '.mcpServers' /Users/x/Projects/minsky/.mcp.json",
   ];
   for (const cmd of denied) {
     test(`denies: ${cmd}`, () => {
@@ -297,6 +300,11 @@ describe("path classification", () => {
     expect(isSecretPath("certs/server.pem")).toBe(true);
     expect(isSecretPath("my-credentials.json")).toBe(true);
     expect(isSecretPath("app-secrets.yaml")).toBe(true);
+    // mt#4159. Matched by the EXPLICIT list, so the `.json` extension never
+    // reaches `hasSourceCodeExtension` — the generic name pattern, which is
+    // what that carve-out guards, does not fire on this name at all.
+    expect(isSecretPath(".mcp.json")).toBe(true);
+    expect(isSecretPath("/Users/x/Projects/minsky/.mcp.json")).toBe(true);
   });
 
   test("does not claim ordinary files", () => {
@@ -304,6 +312,10 @@ describe("path classification", () => {
     expect(isSecretPath("src/index.ts")).toBe(false);
     expect(isSecretPath("README.md")).toBe(false);
     expect(isSecretPath("tsconfig.json")).toBe(false);
+    // The `.mcp.json` entry is anchored at a path separator, so a file that
+    // merely ENDS in that name is not claimed.
+    expect(isSecretPath("foo.mcp.json")).toBe(false);
+    expect(isSecretPath("mcp.json")).toBe(false);
     // `.env.example` is a template of NAMES, not values — but it still matches
     // the `.env.*` family. Documented as an accepted over-fire: the cost is one
     // override on a file nobody needs to cat, and carving it out would invite

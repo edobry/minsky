@@ -14,13 +14,45 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::supervisor::{send_cmd, BuildMenuItem, StatusMenuItem, SupervisorCmd, UptimeMenuItem};
+use crate::supervisor::{
+    registry, send_cmd, BuildMenuItem, DaemonId, DaemonMenuItems, SupervisorCmd,
+};
 
-const STATUS_MENU_ID: &str = "status";
 /// Dropdown line showing the cockpit-web bundle's last-build state (mt#2297).
+/// Still a single id: only the cockpit has a bundle.
 const BUILD_MENU_ID: &str = "build_status";
-/// Dropdown line showing daemon uptime + the source mtime it was started against (mt#2299).
-const UPTIME_MENU_ID: &str = "uptime";
+
+/// The status / uptime / lifecycle menu-item ids are DERIVED from the daemon id
+/// rather than spelled out (mt#3815), so a new registry entry cannot end up with
+/// a menu item the dispatch below does not recognize.
+fn status_menu_id(id: DaemonId) -> String {
+    format!("status:{}", id.slug())
+}
+
+fn uptime_menu_id(id: DaemonId) -> String {
+    format!("uptime:{}", id.slug())
+}
+
+fn lifecycle_menu_id(action: &str, id: DaemonId) -> String {
+    format!("{action}:{}", id.slug())
+}
+
+/// Split a `<action>:<daemon>` menu id back into its parts. `None` for any id
+/// that is not one — the dispatch's `_ => {}` arm handles those.
+fn parse_lifecycle_menu_id(menu_id: &str) -> Option<(&str, DaemonId)> {
+    let (action, slug) = menu_id.split_once(':')?;
+    Some((action, DaemonId::from_slug(slug)?))
+}
+
+/// The name a daemon is shown under, taken from the same `DaemonLabels` the
+/// supervisor renders its status line from, so the menu and the status text
+/// cannot disagree about what a daemon is called.
+fn display_name_for(id: DaemonId) -> &'static str {
+    match id {
+        DaemonId::Cockpit => crate::supervisor::COCKPIT_LABELS.display_name,
+        DaemonId::Mcp => registry::MCP_LABELS.display_name,
+    }
+}
 
 /// The cockpit origin: what the in-app webview loads and what "Open Cockpit"
 /// hands to the OS browser.
@@ -128,21 +160,40 @@ pub(crate) fn init_zoom_state(app: &tauri::App<Wry>) {
 /// review R1: a label advertising a hotkey that silently failed to register
 /// would mislead users).
 pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Result<()> {
-    let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
-        .enabled(false)
-        .build(app)?;
-    app.manage(StatusMenuItem(status_item.clone()));
+    // One status + uptime line PER REGISTERED DAEMON (mt#3815), built from
+    // `DaemonId::ALL` so the dropdown cannot silently omit an entry the
+    // supervisor is actually watching.
+    let mut status_items = Vec::new();
+    let mut uptime_items = Vec::new();
+    let mut status_lines = Vec::new();
+    for id in DaemonId::ALL {
+        let name = display_name_for(id);
+        let status_item =
+            MenuItemBuilder::with_id(status_menu_id(id), format!("{name}: checking..."))
+                .enabled(false)
+                .build(app)?;
+        let uptime_item = MenuItemBuilder::with_id(uptime_menu_id(id), format!("{name} uptime: —"))
+            .enabled(false)
+            .build(app)?;
+        status_lines.push(status_item.clone());
+        status_lines.push(uptime_item.clone());
+        status_items.push((id, status_item));
+        uptime_items.push((id, uptime_item));
+    }
+    // The build line is cockpit-only and sits with the cockpit's own lines —
+    // between its status and uptime rows, where it has always been.
     let build_item = MenuItemBuilder::with_id(BUILD_MENU_ID, "Last build: never")
         .enabled(false)
         .build(app)?;
     app.manage(BuildMenuItem(build_item.clone()));
+    status_lines.insert(1, build_item.clone());
+    app.manage(DaemonMenuItems {
+        status: status_items,
+        uptime: uptime_items,
+    });
     // Best-effort: request notification permission so build-failure
     // toasts can appear (mt#2306). Ignored if denied/unavailable.
     let _ = app.notification().request_permission();
-    let uptime_item = MenuItemBuilder::with_id(UPTIME_MENU_ID, "Daemon uptime: —")
-        .enabled(false)
-        .build(app)?;
-    app.manage(UptimeMenuItem(uptime_item.clone()));
     let open_window_label = if hotkey_registered {
         format!("Open Cockpit  ({})", crate::hotkey::SUMMON_SHORTCUT_LABEL)
     } else {
@@ -151,25 +202,42 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     let open_window_item = MenuItemBuilder::with_id("open_window", open_window_label).build(app)?;
     let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let start_item = MenuItemBuilder::with_id("start", "Start Daemon").build(app)?;
-    let stop_item = MenuItemBuilder::with_id("stop", "Stop Daemon").build(app)?;
-    let restart_item = MenuItemBuilder::with_id("restart", "Restart Daemon").build(app)?;
+    // Start/Stop/Restart PER DAEMON, grouped in a submenu named for it
+    // (mt#3815). A flat list of six verbs would not say which daemon each
+    // one acts on, and the ids the handler parses carry the daemon
+    // (`start:cockpit`) rather than relying on menu position.
+    let mut lifecycle_submenus = Vec::new();
+    for id in DaemonId::ALL {
+        let name = display_name_for(id);
+        let start_item =
+            MenuItemBuilder::with_id(lifecycle_menu_id("start", id), "Start").build(app)?;
+        let stop_item =
+            MenuItemBuilder::with_id(lifecycle_menu_id("stop", id), "Stop").build(app)?;
+        let restart_item =
+            MenuItemBuilder::with_id(lifecycle_menu_id("restart", id), "Restart").build(app)?;
+        lifecycle_submenus.push(
+            SubmenuBuilder::new(app, name)
+                .item(&start_item)
+                .item(&stop_item)
+                .item(&restart_item)
+                .build()?,
+        );
+    }
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit Cockpit Tray").build(app)?;
 
-    let menu = MenuBuilder::new(app)
-        .item(&status_item)
-        .item(&build_item)
-        .item(&uptime_item)
+    let mut menu_builder = MenuBuilder::new(app);
+    for item in &status_lines {
+        menu_builder = menu_builder.item(item);
+    }
+    menu_builder = menu_builder
         .item(&separator1)
         .item(&open_window_item)
-        .item(&open_item)
-        .item(&start_item)
-        .item(&stop_item)
-        .item(&restart_item)
-        .item(&separator2)
-        .item(&quit_item)
-        .build()?;
+        .item(&open_item);
+    for submenu in &lifecycle_submenus {
+        menu_builder = menu_builder.item(submenu);
+    }
+    let menu = menu_builder.item(&separator2).item(&quit_item).build()?;
 
     let _tray = TrayIconBuilder::with_id("main")
         .tooltip("Minsky Cockpit")
@@ -433,9 +501,6 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "open" => {
             let _ = open::that(cockpit_url());
         }
-        "start" => send_cmd(app, SupervisorCmd::Start),
-        "stop" => send_cmd(app, SupervisorCmd::Stop),
-        "restart" => send_cmd(app, SupervisorCmd::Restart),
         "quit" => {
             // Ask the supervisor to stop the daemon, then exit. The
             // RunEvent::Exit handler tears the daemon down synchronously as the
@@ -443,7 +508,21 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             send_cmd(app, SupervisorCmd::Shutdown);
             app.exit(0);
         }
-        _ => {}
+        // Per-daemon lifecycle (mt#3815): `start:cockpit`, `stop:mcp`, &c. The
+        // daemon comes out of the id rather than out of menu position, so a
+        // reordered dropdown cannot send Stop to the wrong daemon.
+        other => {
+            if let Some((action, daemon)) = parse_lifecycle_menu_id(other) {
+                match action {
+                    "start" => send_cmd(app, SupervisorCmd::Start(daemon)),
+                    "stop" => send_cmd(app, SupervisorCmd::Stop(daemon)),
+                    "restart" => send_cmd(app, SupervisorCmd::Restart(daemon)),
+                    // `status:` / `uptime:` ids belong to the disabled display
+                    // rows, which cannot be clicked.
+                    _ => {}
+                }
+            }
+        }
     }
 }
 

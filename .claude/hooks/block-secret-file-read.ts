@@ -80,9 +80,19 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ALLOW_SECRET_FILE_READ";
  * Paths whose CONTENT is credential material by construction.
  *
  * Deliberately a short, explicit list rather than a heuristic. A wide v1 that
- * over-fires gets overridden into irrelevance, and every entry here is a file
- * whose whole purpose is holding secrets — so a match is near-certainly a real
- * hit. Widening later is cheap; earning back trust after noise is not.
+ * over-fires gets overridden into irrelevance, so a match here should be
+ * near-certainly a real hit. Widening later is cheap; earning back trust after
+ * noise is not.
+ *
+ * The admission criterion is that reading the file EMITS a credential — NOT that
+ * holding secrets is the file's whole purpose (mt#4159). That narrower phrasing
+ * stood here for two guard extensions and never described the list: `.npmrc` is
+ * a package-registry config that conventionally carries an auth token, `.netrc`
+ * is a machine-defaults file that conventionally carries a login, and `.mcp.json`
+ * is an MCP server declaration that conventionally carries `headers.Authorization`
+ * and `env` blocks. All three are config files first. Read literally, the old
+ * criterion rejects every one of them, which is what kept `.mcp.json` off the
+ * list until a routine read of it printed a live bearer token into a transcript.
  */
 export const EXPLICIT_SECRET_PATH_PATTERNS: readonly RegExp[] = [
   // Minsky's own config — holds `connectionString`, provider apiKeys (mt#2864
@@ -91,6 +101,10 @@ export const EXPLICIT_SECRET_PATH_PATTERNS: readonly RegExp[] = [
   // Conventional env files: `.env`, `.env.local`, `.env.production`, ...
   /(^|\/)\.env(\.[\w.-]+)?$/,
   /(^|\/)\.env(\.[\w.-]+)?[\s'"]/,
+  // MCP client config — server declarations carry `headers.Authorization`
+  // bearer tokens and `env` blocks (mt#4159). Anchored at a path separator so
+  // `foo.mcp.json` does not match.
+  /(^|\/)\.mcp\.json\b/,
   // Cloud / VCS credential stores.
   /(^|\/)\.aws\/credentials\b/,
   /(^|\/)\.netrc\b/,
