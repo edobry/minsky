@@ -91,7 +91,7 @@ to one task; the task ID in the name or header is the primary cross-reference.
 
 ### Running the browser-driving scripts
 
-Thirteen scripts here drive a real browser and share one preflight
+These scripts drive a real browser and share one preflight
 (`lib/verify-preflight.ts`, mt#4149): `verify-cockpit-navigation-latency.ts`,
 `verify-cockpit-shell-scroll.ts`, `verify-conversation-footer-stack.ts`,
 `verify-conversation-live-tail.ts`, `verify-conversation-orientation.ts`,
@@ -157,7 +157,7 @@ is a `SKIP`, not a failure. It also prints the served build's `commit` from `/ap
 machine running several sessions' cockpits at once, the service identity alone cannot tell you
 WHICH worktree's build answered.
 
-All twelve read the cockpit's identity from **`/api/health`**, not `/health` — the latter falls
+All of them read the cockpit's identity from **`/api/health`**, not `/health` — the latter falls
 through to the SPA's `index.html` and answers 200 with HTML, which would satisfy a bare
 reachability check and then fail to parse as JSON. Two of them probed `/health` and asserted no
 identity at all until mt#4149 routed every one through the shared preflight.
@@ -230,10 +230,10 @@ reproducibility if the same class of drift recurs — not part of any ongoing pi
 
 Shared utilities used by scripts above.
 
-| Module                    | Description                                                                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/pem-utils.ts`        | PEM key parsing/formatting helpers.                                                                                                                                                       |
-| `lib/verify-preflight.ts` | Shared preflight for the twelve browser-driving `verify-*.ts` scripts (mt#4149): reachability, health-body read, service-identity assertion, and the ABSENT / SLOW / WRONG-SERVICE split. |
+| Module                    | Description                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/pem-utils.ts`        | PEM key parsing/formatting helpers.                                                                                                                                                |
+| `lib/verify-preflight.ts` | Shared preflight for the browser-driving `verify-*.ts` scripts (mt#4149): reachability, health-body read, service-identity assertion, and the ABSENT / SLOW / WRONG-SERVICE split. |
 
 ## supabase/
 
