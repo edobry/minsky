@@ -27,10 +27,14 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
-  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
+  is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  the explicit list, and its admission criterion is now "reading the file EMITS a credential",
+  not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
+  `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
   Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
   secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
   DB connection string by design) — invoking one directly, via any interpreter or its own

@@ -100,11 +100,17 @@ export const CREDENTIAL_SHAPES: readonly CredentialShape[] = [
   },
   {
     name: "github-token",
-    regex: /gh[po]_[A-Za-z0-9]{36}/g,
+    regex: /gh[oprsu]_[A-Za-z0-9]{36}/g,
     precisionBasis:
-      "GitHub's documented token format (ghp_ personal-access, gho_ OAuth) is always the " +
-      "4-char prefix + EXACTLY 36 alphanumeric chars — a fixed-length vendor spec, not a " +
-      "heuristic. Scoped to the two prefixes the mt#2763 spec names explicitly.",
+      "GitHub's documented token format is always the 4-char prefix + EXACTLY 36 alphanumeric " +
+      "chars — a fixed-length vendor spec, not a heuristic. Covers all five documented " +
+      "prefixes: ghp_ (personal-access), gho_ (OAuth), ghu_ (user-to-server), ghs_ " +
+      "(server-to-server / App installation), ghr_ (refresh). mt#2763 scoped this to ghp_/gho_ " +
+      "because those were the two its spec named; mt#4159 widened it after finding the other " +
+      "three unscrubbed. The gap was not hypothetical — `gh auth token` returns ghs_ under a " +
+      "GitHub App install, and `terminal-command-best-practices.mdc`'s own leak-verification " +
+      "recipe already grepped for gh[opsu]_, so the rule and the scrubber disagreed about " +
+      "which GitHub tokens counted as credentials.",
   },
   {
     name: "slack-token",
@@ -148,6 +154,44 @@ export const CREDENTIAL_SHAPES: readonly CredentialShape[] = [
       "(scoped here to postgres/postgresql per the mt#2763 spec's enumerated shape list) — " +
       "reusing an already-vetted regex keeps the two independent secret-detection layers " +
       "(pre-commit gitleaks, this ingest-time scrubber) aligned on the same precision bar.",
+  },
+  {
+    // LAST deliberately: every shape above is anchored on a vendor sigil that identifies the
+    // token's ISSUER, so each is more specific than this one and must win first. A GitHub or
+    // OpenAI token presented as a bearer is redacted by its own shape, leaving
+    // `Bearer [REDACTED:...]` — which this regex then cannot match, because `[` is outside
+    // RFC 6750's charset. That is the same single-pass property the file docblock above
+    // describes, and it is why this entry does not double-redact.
+    name: "bearer-token",
+    // The hyphen leads the class (PR #3016 R1). It was previously last (`...+/-]`), which is
+    // identical to the engine — a `-` immediately before `]` is always literal, and a range
+    // would need `+-/` — but it was read as a `+`-to-`/` range admitting a comma. Leading is
+    // the unambiguous position; escaping it instead is what `no-useless-escape` rejects,
+    // which is ESLint independently confirming the hyphen was never a range. The comma
+    // exclusion the range reading would have broken is pinned by a test.
+    regex: /\bBearer[ \t]+[-A-Za-z0-9._~+/]{20,}={0,2}/gi,
+    precisionBasis:
+      "Case-INSENSITIVE on the scheme: RFC 7235 §2.1 (and RFC 9110 §11.1) define the auth-scheme " +
+      "token as case-insensitive, so `BEARER` and mixed-case variants are real emitter output and " +
+      "must redact. The `i` flag does not widen the body, whose class already spans both cases. " +
+      "The anchor is the `Bearer` auth-scheme keyword and the body is RFC 6750 §2.1's " +
+      "`b64token` charset (ALPHA / DIGIT / '-' / '.' / '_' / '~' / '+' / '/' with optional " +
+      "'=' padding) — a spec-documented format, the same kind of external anchor the eight " +
+      "shapes above rest on, rather than an entropy or length heuristic over free text. The " +
+      "20-char floor mirrors the openai-style-secret-key entry's and excludes a bare mention " +
+      "of the scheme with no token attached. Deliberately NOT a general high-entropy matcher: " +
+      "mem#634 measured a 91% value-grain false-positive rate for the unanchored `sk-` " +
+      "pattern, and an entropy threshold would redact commit SHAs, UUIDs and hashes " +
+      "throughout the corpus. " +
+      "Masked forms cannot match, which is the property mem#972 says to check explicitly " +
+      "rather than assume: `Bearer ***`, `Bearer <redacted>`, `Bearer $TOKEN`, " +
+      "`Bearer ${VAR}` and `Bearer [REDACTED:...]` all put a character outside the charset " +
+      "immediately after the scheme, so a correctly-redacting or variable-interpolating " +
+      "command is never reported as a leak. " +
+      "Residual over-redaction: an all-caps placeholder of 20+ chars (`Bearer " +
+      "YOUR_ACCESS_TOKEN_HERE`) matches. Accepted — redacting a placeholder in a stored " +
+      "transcript costs nothing, and narrowing by case-mix would reintroduce exactly the " +
+      "heuristic this basis rejects.",
   },
 ];
 
