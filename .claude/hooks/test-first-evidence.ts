@@ -248,13 +248,31 @@ export function mentionsNegativeControl(text: string): boolean {
 }
 
 /**
- * True when `text` records a run observed FAILING against the un-fixed tree.
+ * One negative-control record: the marker line, plus the text belonging to it.
  *
- * Structure mirrors `hasExecutionEvidence`: find a marker line, reject negations,
- * then require non-whitespace content either inline or on a following line before
- * the next heading. A marker with nothing after it is a promise, not a record.
+ * The BODY is what a provenance check needs (mt#4044) — it carries the subject
+ * the control was run against, which is the only thing that distinguishes a
+ * control that ran from the ordinary red test runs any session produces.
  */
-export function hasNegativeControlEvidence(text: string): boolean {
+export interface NegativeControlRecord {
+  /** The marker line with its decoration stripped, as the matcher saw it. */
+  label: string;
+  /** Inline content plus the lines beneath, up to the next real heading. */
+  body: string;
+}
+
+/**
+ * Every negative-control record in `text`, in document order.
+ *
+ * Extracted from {@link hasNegativeControlEvidence}, which is now a wrapper over
+ * it, so the two cannot drift: the accepted forms, the fence rule, the negation
+ * guard and the absence-only rule are stated ONCE. mt#4044 needed the record's
+ * text rather than a boolean and the corpus rule is to consume the existing
+ * matcher rather than author a second one — a second matcher is how a widening
+ * on one surface silently fails to reach the other.
+ */
+export function extractNegativeControlRecords(text: string): NegativeControlRecord[] {
+  const found: NegativeControlRecord[] = [];
   const stripped = text.replace(/<!--[\s\S]*?-->/g, "");
   const lines = stripped.split("\n");
   // Fence-aware, per mt#3277/mt#3316: an evidence block IS a pasted shell transcript, so it
@@ -295,6 +313,23 @@ export function hasNegativeControlEvidence(text: string): boolean {
     const beforeMarker = phraseIdx > 0 ? lower.slice(0, phraseIdx) : "";
     if (/\b(no|not|without|missing|skipped?|lacks?|omitted)\b/.test(beforeMarker)) continue;
 
+    // The record's BODY: whatever follows the marker, up to the next real
+    // heading. Collected for every marker — including the ones the checks below
+    // reject — but only PUSHED once a record qualifies, so the boolean wrapper's
+    // verdict is byte-for-byte what it was before this was factored out.
+    const beneath: string[] = [];
+    for (let j = i + 1; j < lines.length; j++) {
+      const nextLine = lines[j];
+      if (nextLine === undefined) break;
+      if (!fenceInternal[j] && isMarkdownHeading(nextLine)) break;
+      beneath.push(nextLine);
+    }
+    const hasContentBeneath = beneath.some((l) => l.trim().length > 0);
+    const record = (inline: string): NegativeControlRecord => ({
+      label: line,
+      body: [inline, ...beneath].filter((l) => l.length > 0).join("\n"),
+    });
+
     const inlineContent = (labelMatch?.[2] ?? "").trim();
     // The inline content must SAY something, not say there is nothing (PR #2680
     // R1). The guard above reads only the text BEFORE the phrase, so it catches
@@ -305,20 +340,28 @@ export function hasNegativeControlEvidence(text: string): boolean {
     // the reading this whole check exists to prevent.
     if (inlineContent.length > 0) {
       if (ABSENCE_ONLY_CONTENT.test(inlineContent)) continue;
-      return true;
+      found.push(record(inlineContent));
+      continue;
     }
 
-    for (let j = i + 1; j < lines.length; j++) {
-      const nextLine = lines[j];
-      if (nextLine === undefined) break;
-      // Only a REAL heading ends the section — a `# revert the fix` comment inside the
-      // pasted transcript is content, not a boundary.
-      if (!fenceInternal[j] && isMarkdownHeading(nextLine)) break;
-      if (nextLine.trim().length > 0) return true;
-    }
+    // Only a REAL heading ends the section — a `# revert the fix` comment inside
+    // the pasted transcript is content, not a boundary (applied when `beneath`
+    // was collected above).
+    if (hasContentBeneath) found.push(record(""));
   }
 
-  return false;
+  return found;
+}
+
+/**
+ * True when `text` records a run observed FAILING against the un-fixed tree.
+ *
+ * Structure mirrors `hasExecutionEvidence`: find a marker line, reject negations,
+ * then require non-whitespace content either inline or on a following line before
+ * the next heading. A marker with nothing after it is a promise, not a record.
+ */
+export function hasNegativeControlEvidence(text: string): boolean {
+  return extractNegativeControlRecords(text).length > 0;
 }
 
 /**
