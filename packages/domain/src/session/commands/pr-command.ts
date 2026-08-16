@@ -16,6 +16,39 @@ export interface SessionPrDependencies {
 }
 
 /**
+ * Resolve the commit the PR points at, after creation (mt#4046).
+ *
+ * PR creation runs a pre-PR session update before pushing, so the head here is a
+ * DIFFERENT commit from the one `session_commit` returned to the caller moments
+ * earlier. The caller needs THIS sha for `session_pr_wait-for-review`'s
+ * `expectedHeadSha`; without it, the only sha in hand is one the remote has
+ * already replaced, and the watcher waits out its full timeout while a real
+ * review sits suppressed.
+ *
+ * **Returns undefined rather than throwing.** By the time this runs the PR
+ * exists, so failing the whole operation over a diagnostic read would trade a
+ * rare inconvenience for a common one. `undefined` means "unknown" — a caller
+ * must not read it as "the head is unchanged", which is the very conflation this
+ * field exists to remove.
+ *
+ * Exported and dependency-injected so the behavior is observable without
+ * patching a module import.
+ */
+export async function resolvePrHeadSha(
+  execInRepository: (workdir: string, command: string) => Promise<string>,
+  workdir: string
+): Promise<string | undefined> {
+  try {
+    const raw = await execInRepository(workdir, "git rev-parse HEAD");
+    const sha = raw.trim();
+    return sha.length > 0 ? sha : undefined;
+  } catch (error) {
+    log.debug(`Could not resolve PR head sha after creation: ${getErrorMessage(error)}`);
+    return undefined;
+  }
+}
+
+/**
  * Prepares a PR for a session based on parameters
  */
 export async function sessionPr(
@@ -115,9 +148,15 @@ export async function sessionPr(
       options
     );
 
+    const headSha = await resolvePrHeadSha(
+      (dir, command) => gitService.execInRepository(dir, command),
+      workdir
+    );
+
     // Repository backends handle PR state persistence; include session info for CLI formatting
     return {
       ...result,
+      headSha,
       session: {
         sessionId: sessionRecord.sessionId,
         taskId: sessionRecord.taskId,
