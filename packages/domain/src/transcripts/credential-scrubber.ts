@@ -163,8 +163,17 @@ export const CREDENTIAL_SHAPES: readonly CredentialShape[] = [
     // RFC 6750's charset. That is the same single-pass property the file docblock above
     // describes, and it is why this entry does not double-redact.
     name: "bearer-token",
-    regex: /\b[Bb]earer[ \t]+[A-Za-z0-9._~+/-]{20,}={0,2}/g,
+    // The hyphen leads the class (PR #3016 R1). It was previously last (`...+/-]`), which is
+    // identical to the engine — a `-` immediately before `]` is always literal, and a range
+    // would need `+-/` — but it was read as a `+`-to-`/` range admitting a comma. Leading is
+    // the unambiguous position; escaping it instead is what `no-useless-escape` rejects,
+    // which is ESLint independently confirming the hyphen was never a range. The comma
+    // exclusion the range reading would have broken is pinned by a test.
+    regex: /\bBearer[ \t]+[-A-Za-z0-9._~+/]{20,}={0,2}/gi,
     precisionBasis:
+      "Case-INSENSITIVE on the scheme: RFC 7235 §2.1 (and RFC 9110 §11.1) define the auth-scheme " +
+      "token as case-insensitive, so `BEARER` and mixed-case variants are real emitter output and " +
+      "must redact. The `i` flag does not widen the body, whose class already spans both cases. " +
       "The anchor is the `Bearer` auth-scheme keyword and the body is RFC 6750 §2.1's " +
       "`b64token` charset (ALPHA / DIGIT / '-' / '.' / '_' / '~' / '+' / '/' with optional " +
       "'=' padding) — a spec-documented format, the same kind of external anchor the eight " +

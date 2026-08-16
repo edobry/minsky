@@ -250,6 +250,31 @@ describe("credential-scrubber", () => {
       expect(redactions[0]?.shape).toBe("bearer-token");
     });
 
+    // PR #3016 R1: the auth-scheme token is case-insensitive per RFC 7235 §2.1, so an
+    // emitter sending `BEARER` was leaving a real token unredacted.
+    test.each([
+      ["upper", "BEARER"],
+      ["lower", "bearer"],
+      ["mixed", "BeArEr"],
+    ])("redacts a bearer token with a %s-case scheme", (_label, scheme) => {
+      const { text, redactions } = scrubText(`Authorization: ${scheme} ${FAKE_BEARER_HEX}`);
+      expect(text).not.toContain(FAKE_BEARER_HEX);
+      expect(redactions).toHaveLength(1);
+      expect(redactions[0]?.shape).toBe("bearer-token");
+    });
+
+    // PR #3016 R1 read `[...+/-]` as a `+`-to-`/` range admitting a comma. It is not — a
+    // hyphen immediately before `]` is literal — but the charset boundary is worth pinning
+    // rather than re-deriving, since over-running a header separator would redact the
+    // NEXT header's name along with the token.
+    test("stops at a header separator and does not consume the comma", () => {
+      const input = `Authorization: Bearer ${FAKE_BEARER_HEX}, Next-Header: plain-value`;
+      const { text, redactions } = scrubText(input);
+      expect(redactions).toHaveLength(1);
+      expect(text).not.toContain(FAKE_BEARER_HEX);
+      expect(text).toContain(", Next-Header: plain-value");
+    });
+
     test.each([
       ["ghs (server-to-server)", `ghs_${"C".repeat(36)}`],
       ["ghu (user-to-server)", `ghu_${"D".repeat(36)}`],
