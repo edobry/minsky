@@ -90,5 +90,7 @@ transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scr
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
 File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
-(`hook-files.mdc`); the rest is discipline-tier. Recipes + leak-containment runbook:
+(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
+channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140). Recipes,
+that audit, and the leak-containment runbook:
 `docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
