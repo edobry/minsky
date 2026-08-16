@@ -128,6 +128,31 @@ describe("runSetupLocalHttp — migrate", () => {
     expect(result.message).toContain("No Minsky MCP entries found");
   });
 
+  test("an entry that cannot run the shim is left alone, and NOT called migrated", async () => {
+    // A `bun <path>/src/cli.ts` entry bypasses the `minsky` bin wrapper, which
+    // is what routes `mcp shim` (mt#3812) — rewriting it would swap a working
+    // proxy config for one that fails at spawn. The wrong report here is the
+    // subtle half: writing nothing is correct, but calling it "already
+    // migrated" tells the operator the job is done while they are still on
+    // the proxy.
+    const fs = fakeFs({
+      [PROJECT_MCP_JSON]: JSON.stringify({
+        mcpServers: {
+          minsky: { command: "bun", args: [`${PROJECT}/src/cli.ts`, "mcp", "proxy"] },
+        },
+      }),
+    });
+    const before = fs.read(PROJECT_MCP_JSON) as string;
+
+    const result = await runSetupLocalHttp({ execute: true }, { ...BASE_DEPS, fs });
+
+    expect(result.changed).toBe(false);
+    expect(fs.read(PROJECT_MCP_JSON)).toBe(before);
+    expect(result.message).not.toContain("Already migrated");
+    expect(result.message).toContain("cannot be migrated");
+    expect(result.planText).toContain("CANNOT be migrated");
+  });
+
   test("a custom --url is what lands in the rewritten entry", async () => {
     const fs = scenario();
     await runSetupLocalHttp(

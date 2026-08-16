@@ -103,6 +103,35 @@ export function isMinskyInvocation(command: string, args: string[]): boolean {
 }
 
 /**
+ * Whether this invocation can actually reach `mcp shim`.
+ *
+ * `mcp shim` is NOT a command of the normal CLI. `scripts/cli-entry.ts` — the
+ * package's `bin` — intercepts `["mcp","shim"]` from argv and imports a
+ * separate build artifact, deliberately never entering `src/cli.ts`, because
+ * that path pulls in tsyringe and the full command registry and the shim's RSS
+ * thinness is load-bearing (mt#3812; `src/mcp/shim/rss-budget.test.ts` is a
+ * committed merge gate on it). So routing depends on whether the invocation
+ * goes THROUGH that bin wrapper, and every prefix that bypasses it errors with
+ * `unknown command 'shim'`. Measured 2026-08-16:
+ *
+ *   minsky mcp shim --url …            → runs      (bin wrapper intercepts)
+ *   bun dist/minsky.js mcp shim --url … → unknown command 'shim'
+ *   bun src/cli.ts mcp shim --url …     → unknown command 'shim'
+ *
+ * Both bypassing forms are ones `isMinskyInvocation` matches on purpose, which
+ * is why this predicate is separate from it: an entry can be unambiguously
+ * Minsky's and still be unable to run the form we would rewrite it to.
+ */
+export function canRouteShim(command: string, args: string[]): boolean {
+  const base = path.basename(command);
+  if (base === "minsky") return true;
+  // `bunx`/`npx` resolve the package's bin when given `minsky`, so they route.
+  // A script path (`.../cli.ts`, `.../minsky.js`) does not — it IS the bypass.
+  if (base === "bunx" || base === "npx") return args.includes("minsky");
+  return false;
+}
+
+/**
  * Index of the `mcp` token in `args`, or -1.
  *
  * Located rather than assumed at a fixed position: the dev form prefixes a
@@ -280,6 +309,11 @@ export interface MigrationPlan {
   alreadyMigrated: DiscoveredEntry[];
   /** Minsky entries in neither form; reported, never touched. */
   skipped: DiscoveredEntry[];
+  /**
+   * Proxy-form entries whose invocation cannot route `mcp shim` — reported,
+   * never rewritten. See `canRouteShim` for which prefixes those are.
+   */
+  unroutable: DiscoveredEntry[];
   /** Distinct files the rewrites would touch. */
   filesTouched: string[];
 }
@@ -288,9 +322,23 @@ export function planMigration(entries: DiscoveredEntry[], daemonUrl: string): Mi
   const rewrites: PlannedRewrite[] = [];
   const alreadyMigrated: DiscoveredEntry[] = [];
   const skipped: DiscoveredEntry[] = [];
+  const unroutable: DiscoveredEntry[] = [];
 
   for (const entry of entries) {
     if (entry.form === "proxy") {
+      // Rewriting an entry to a command its own prefix cannot execute would
+      // hand the operator a config that fails at spawn with `unknown command
+      // 'shim'` — worse than not migrating it, because the proxy entry that
+      // did work is gone. Report instead.
+      //
+      // Substituting the installed `minsky` binary for the prefix is NOT the
+      // fix: that silently changes which binary — and which VERSION — the
+      // operator's entry runs, the same class of unrequested scope change the
+      // `other` population above is held back for.
+      if (!canRouteShim(entry.command, entry.args)) {
+        unroutable.push(entry);
+        continue;
+      }
       rewrites.push({
         entry,
         beforeArgs: entry.args,
@@ -304,7 +352,7 @@ export function planMigration(entries: DiscoveredEntry[], daemonUrl: string): Mi
   }
 
   const filesTouched = [...new Set(rewrites.map((r) => r.entry.file))];
-  return { rewrites, alreadyMigrated, skipped, filesTouched };
+  return { rewrites, alreadyMigrated, skipped, unroutable, filesTouched };
 }
 
 /** True when applying this plan would change nothing on disk. */
@@ -332,7 +380,14 @@ export function renderPlan(plan: MigrationPlan, daemonUrl: string): string {
   const lines: string[] = [];
 
   if (isNoOp(plan)) {
-    lines.push("No proxy-form Minsky MCP entries found — nothing to migrate.");
+    // Distinguish the two ways the rewrite set can be empty. "Found none" and
+    // "found some, none of them migratable" are the same empty diff and are
+    // not the same news — the second is a reason to stop and read.
+    lines.push(
+      plan.unroutable.length > 0
+        ? "No Minsky MCP entries can be migrated — see the unmigratable entries below."
+        : "No proxy-form Minsky MCP entries found — nothing to migrate."
+    );
   } else {
     lines.push(
       `Migrating ${plan.rewrites.length} Minsky MCP entr` +
@@ -352,6 +407,20 @@ export function renderPlan(plan: MigrationPlan, daemonUrl: string): string {
     lines.push("");
     lines.push("Already on the shim (no change):");
     for (const entry of plan.alreadyMigrated) lines.push(`  ${describeLocation(entry)}`);
+  }
+
+  if (plan.unroutable.length > 0) {
+    lines.push("");
+    lines.push("Proxy entries that CANNOT be migrated — this invocation cannot run `mcp shim`,");
+    lines.push("which is routed by the `minsky` bin wrapper and not by the CLI itself (mt#3812):");
+    for (const entry of plan.unroutable) {
+      lines.push(`  ${describeLocation(entry)}`);
+      lines.push(`    command: ${entry.command} · args: ${JSON.stringify(entry.args)}`);
+    }
+    lines.push("");
+    lines.push("  Left on the proxy, which still works. To move one onto the shim, point its");
+    lines.push("  `command` at an installed `minsky` binary and re-run — deliberately not done");
+    lines.push("  for you, since it changes which binary and version the entry executes.");
   }
 
   if (plan.skipped.length > 0) {

@@ -12,6 +12,7 @@ import {
   applyRewritesToDocument,
   backupPathFor,
   backupTimestamp,
+  canRouteShim,
   classifyForm,
   detectIndent,
   discoverMinskyEntries,
@@ -34,6 +35,8 @@ const OTHER_PROJECT = "/w/other";
 const CLAUDE_JSON = `${HOME}/.claude.json`;
 const PROJECT_MCP_JSON = `${PROJECT}/.mcp.json`;
 const DEV_CLI_PATH = "/Users/edobry/Projects/minsky/src/cli.ts";
+/** The installed bin — the one invocation form that can route `mcp shim`. */
+const INSTALLED_MINSKY = "/Users/edobry/.bun/bin/minsky";
 
 /** In-memory ConfigFsDeps over a path→contents map. */
 function fakeFs(files: Record<string, string>): ConfigFsDeps {
@@ -75,7 +78,7 @@ const SHIM_ARGS = ["mcp", "shim", "--url", DAEMON_URL];
 
 describe("isMinskyInvocation", () => {
   test("recognizes the installed binary by basename, absolute or bare", () => {
-    expect(isMinskyInvocation("/Users/edobry/.bun/bin/minsky", REAL_PROXY_ARGS)).toBe(true);
+    expect(isMinskyInvocation(INSTALLED_MINSKY, REAL_PROXY_ARGS)).toBe(true);
     expect(isMinskyInvocation("minsky", REAL_PROXY_ARGS)).toBe(true);
   });
 
@@ -122,7 +125,7 @@ describe("discoverMinskyEntries", () => {
     return fakeFs({
       [PROJECT_MCP_JSON]: JSON.stringify({
         mcpServers: {
-          minsky: { command: "/Users/edobry/.bun/bin/minsky", args: REAL_PROXY_ARGS },
+          minsky: { command: INSTALLED_MINSKY, args: REAL_PROXY_ARGS },
           supabase: { command: "npx", args: ["-y", "@supabase/mcp-server"] },
           "minsky-hosted": { url: "https://mcp.example.com/mcp" },
         },
@@ -233,6 +236,101 @@ describe("planMigration", () => {
 
   test("a no-op plan says so rather than rendering an empty diff", () => {
     expect(renderPlan(planMigration([], DAEMON_URL), DAEMON_URL)).toContain("nothing to migrate");
+  });
+});
+
+/**
+ * `mcp shim` is routed by the `minsky` bin wrapper (`scripts/cli-entry.ts`),
+ * not by the CLI — so an entry that invokes Minsky by SCRIPT PATH would migrate
+ * to a command that cannot run. These pin the discrimination and the reporting.
+ *
+ * The three routing verdicts below were measured against the real binaries on
+ * 2026-08-16, not assumed:
+ *
+ *   minsky mcp shim --url …             → runs
+ *   bun dist/minsky.js mcp shim --url … → error: unknown command 'shim'
+ *   bun src/cli.ts mcp shim --url …     → error: unknown command 'shim'
+ */
+describe("canRouteShim", () => {
+  test("the installed binary routes, by basename, absolute or bare", () => {
+    expect(canRouteShim(INSTALLED_MINSKY, ["mcp", "proxy"])).toBe(true);
+    expect(canRouteShim("minsky", ["mcp", "proxy"])).toBe(true);
+  });
+
+  test("a script-path invocation does NOT route — it bypasses the bin wrapper", () => {
+    expect(canRouteShim("bun", [DEV_CLI_PATH, "mcp", "proxy"])).toBe(false);
+    expect(canRouteShim("bun", ["/w/minsky/dist/minsky.js", "mcp", "proxy"])).toBe(false);
+    expect(canRouteShim("node", ["/w/minsky/dist/minsky.js", "mcp", "proxy"])).toBe(false);
+  });
+
+  test("`bunx`/`npx` route, because they resolve the package's bin", () => {
+    expect(canRouteShim("bunx", ["minsky", "mcp", "proxy"])).toBe(true);
+    expect(canRouteShim("npx", ["minsky", "mcp", "proxy"])).toBe(true);
+  });
+
+  test("every entry this predicate rejects is still recognized as Minsky's", () => {
+    // The two are deliberately separate questions: `isMinskyInvocation` decides
+    // whether we OWN the entry, `canRouteShim` whether we can migrate it. If
+    // rejection here also meant non-recognition, the entry would silently
+    // vanish from the report instead of appearing as unmigratable.
+    const devArgs = [DEV_CLI_PATH, "mcp", "proxy"];
+    expect(isMinskyInvocation("bun", devArgs)).toBe(true);
+    expect(canRouteShim("bun", devArgs)).toBe(false);
+  });
+});
+
+describe("planMigration: proxy entries that cannot run the shim", () => {
+  const devProxyEntry: DiscoveredEntry = {
+    scope: "local",
+    file: CLAUDE_JSON,
+    projectPath: PROJECT,
+    serverName: "minsky-dev",
+    form: "proxy",
+    command: "bun",
+    args: [DEV_CLI_PATH, "mcp", "proxy"],
+  };
+
+  test("is reported as unroutable, never rewritten", () => {
+    const plan = planMigration([devProxyEntry], DAEMON_URL);
+    expect(plan.rewrites).toEqual([]);
+    expect(plan.unroutable.map((e) => e.serverName)).toEqual(["minsky-dev"]);
+    // The decisive assertion: nothing on disk is touched. Rewriting this entry
+    // would replace a working proxy config with one that fails at spawn.
+    expect(plan.filesTouched).toEqual([]);
+    expect(isNoOp(plan)).toBe(true);
+  });
+
+  test("does not divert a routable proxy entry alongside it", () => {
+    const routable: DiscoveredEntry = {
+      scope: "project",
+      file: PROJECT_MCP_JSON,
+      serverName: "minsky",
+      form: "proxy",
+      command: "minsky",
+      args: REAL_PROXY_ARGS,
+    };
+    const plan = planMigration([devProxyEntry, routable], DAEMON_URL);
+    expect(plan.rewrites.map((r) => r.entry.serverName)).toEqual(["minsky"]);
+    expect(plan.unroutable.map((e) => e.serverName)).toEqual(["minsky-dev"]);
+    expect(plan.filesTouched).toEqual([PROJECT_MCP_JSON]);
+  });
+
+  test("the report names the entry, the cause, and the remedy", () => {
+    const rendered = renderPlan(planMigration([devProxyEntry], DAEMON_URL), DAEMON_URL);
+    expect(rendered).toContain("CANNOT be migrated");
+    expect(rendered).toContain("minsky-dev");
+    expect(rendered).toContain(DEV_CLI_PATH);
+    expect(rendered).toContain("bin wrapper");
+    expect(rendered).toContain("installed `minsky` binary");
+  });
+
+  test("an all-unroutable plan does not claim there was nothing to find", () => {
+    // "found none" and "found some, none migratable" are the same empty diff.
+    // Reporting the first for the second would tell the operator their config
+    // is already clean when it is in fact stuck on the proxy.
+    const rendered = renderPlan(planMigration([devProxyEntry], DAEMON_URL), DAEMON_URL);
+    expect(rendered).not.toContain("No proxy-form Minsky MCP entries found");
+    expect(rendered).toContain("No Minsky MCP entries can be migrated");
   });
 });
 

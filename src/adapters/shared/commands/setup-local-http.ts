@@ -203,12 +203,27 @@ export async function runSetupLocalHttp(
   if (isNoOp(plan)) {
     // Idempotence: a second run writes nothing and says so. Reported as a
     // success because "already in the target state" is what was asked for.
+    //
+    // Three ways to write nothing, and they are not interchangeable. Entries
+    // left on the proxy because their invocation cannot run `mcp shim` are
+    // NOT "already migrated" — saying so would tell the operator the job is
+    // done while their config is still on the old topology.
+    const noOpMessage = (): string => {
+      if (entries.length === 0) {
+        return "No Minsky MCP entries found in any Claude Code config scope — nothing to migrate.";
+      }
+      if (plan.unroutable.length > 0) {
+        return (
+          `${plan.unroutable.length} proxy entr${plan.unroutable.length === 1 ? "y" : "ies"} ` +
+          "cannot be migrated: the invocation cannot run `mcp shim`. Left on the proxy; " +
+          "nothing written."
+        );
+      }
+      return "Already migrated — no proxy-form entries remain. Nothing written.";
+    };
     return {
       success: true,
-      message:
-        entries.length === 0
-          ? "No Minsky MCP entries found in any Claude Code config scope — nothing to migrate."
-          : "Already migrated — no proxy-form entries remain. Nothing written.",
+      message: noOpMessage(),
       planText,
       changed: false,
     };
