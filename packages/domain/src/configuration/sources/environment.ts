@@ -369,6 +369,14 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
   "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
   "MINSKY_SKIP_SPEC_READ_CHECK", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
+  // The two evidence-record provenance guards (mem#966's family). Both were
+  // documented as overrides before being registered here; measured behaviour of
+  // the gap is a spurious `Unrecognized top-level config key: skip` warning on
+  // every CLI invocation while the var is set — the auto-mapping fallback routes
+  // `MINSKY_SKIP_*` to a top-level `skip` key. Not a crash, but it makes the
+  // documented escape hatch noisy enough to look broken.
+  "MINSKY_SKIP_SEARCH_PROVENANCE", // .claude/hooks/duplicate-check-search-provenance.ts (mt#4004) — duplicate-check record claiming a search that never ran
+  "MINSKY_SKIP_EVIDENCE_PROVENANCE", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
   "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
   // packages/domain/src/project/identity.ts at identity-resolution time (not
