@@ -947,6 +947,23 @@ enters the transcript" in a task spec; the record's sibling `toolUseResult` fiel
 and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
 plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
 
+**Program OUTPUT is a derived view too, and a grep you ran over it is one you BUILT (mt#4121).**
+Every example above is DATA-shaped — a parsed record, a type signature, a screenshot — so the bound
+is easy to honor while reading a data structure and easy to walk past while reading a run log. Two
+output-shaped forms, both from one session (2026-08-13). **A filter drops the structure that BOUND a
+line to its context:** a `grep -E "^\(fail\)|timed out"` over a test log put a `(fail)` from one
+block beside a `timed out` from another, and the pairing read as one record — it was an artifact of
+the filter. **A missing log line is a claim about the LOGGER, not about the code path:** "the handler
+logs there, no such line appeared, so it never ran" went into a spec as an elimination retiring two
+candidate causes, while `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts`, set by
+`tests/setup.ts`) silences winston's Console under the in-process harness (mt#2975). The code
+logged; the harness swallowed it. The tell in the second: the same turn had CORRECTLY established
+that the route uses the UNMOCKED logger, and that true fact was used to license "so its output would
+have appeared" — when that module is precisely the one carrying the silencing. **A verified fact
+adjacent to the question makes the inference feel checked.** Ask what the view CANNOT show before
+treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
+response body, not the run log you filtered.
+
 **Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
 phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
 accessor, the transcript is the source. It presents as introspection rather than a lookup, and is
@@ -1499,6 +1516,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **Constructed-identifier batch** — TWO passes: mint-and-consume in one parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Consume surfaces include file writes — a constructed id in source code ships. mt#3991 added an existence discriminator to the second pass. Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`. Detail: `constructed-identifier-batch-detector.md`.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP); still recorded. Calibration-first (mt#3162). `MINSKY_ACK_BARE_PROHIBITION`. Detail: `bare-prohibition-dispatch-detector.md`.
 - **Duplicate-check search provenance** (mt#4004) — a duplicate-check record CLAIMING a past-tense search, in a session with no `tasks_search`/`tasks_similar`/`refs_status` call. Third tier on that record: the deny sibling checks it is PRESENT, the signature scan that its VERDICTS are true, this one that the search RAN. Calibration-first. `MINSKY_SKIP_SEARCH_PROVENANCE`.
+- **Evidence-record provenance** (mt#4044) — a `Negative control:` / `Execution evidence:` record claiming a run, written into a commit message or PR body with no matching run in the session. Widens mt#4004's shape to two more record types and the FIRST dispatcher wiring on `session_commit`/`session_pr_create`/`session_pr_edit`. A negative control needs a FAILING run that quotes back into the record or names its subject — "did a test run?" is discharged many times over in any real session. RECORD-ONLY: a pre-ship replay over 40 transcripts measured 20 fires / 80 records, sampled as mostly false, so the stream is armed and nothing injects (tune: mt#4067). `MINSKY_SKIP_EVIDENCE_PROVENANCE`. Detail: `evidence-record-provenance.md`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens (routes, source paths, backticked identifiers) already in an active task's spec that its duplicate-check record does not concede. Exact substring, no similarity metric (mem#819). Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`. Detail: `duplicate-signature-scan.md`.
 - **Stale-signal sweep** (mt#3959) — `session_pr_create` on a branch that STOPPED emitting an operator-facing `<label>=` while active task specs, live memories, or accepted ADRs still quote it. Fixing a signal retracts nothing already concluded from it. Same exact-substring class as the scan above, over three corpora, on a token lifted from the PR's own diff. Calibration-first. `MINSKY_SKIP_STALE_SIGNAL_SWEEP`. Detail: `stale-signal-sweep.md`.
 - **Unrendered-result-field scan** (mt#3913) — `session_pr_create` on a branch adding a counter/flag to a `*Result` type that no output site renders. **A log call is not a render site** — the originating incident (mt#3514) logged one of the two fields to a sink nobody read while the command printed success, so the obvious "appears in no string, template, or log call" rule misses the very field it turned on. Diff-only, no corpus. Narrowed mt#4147 — a `*Result` DECLARED under `**/hooks/**` or `**/detectors/**` is a decision type whose fields were never meant to render, so it is no longer considered; measured 24 fires → 13 over the same pinned range, with the mt#3514 fixture still firing. Calibration-first. `MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN`. Detail: `unrendered-result-field-scan.md`.
