@@ -129,6 +129,19 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // rendered-nowhere; a diff can trip either, both, or neither. Independent
   // overrides; running both is the point.
   ["stale-signal-sweep", "unrendered-result-field-scan"],
+  // mt#4044's `evidence-record-provenance` shares `session_pr_create` with both
+  // guards above, and shares nothing else with either: it reads the COMMIT
+  // MESSAGE / PR BODY for an evidence record that claims a run, and joins that
+  // claim against the session transcript. The two above read the branch DIFF and
+  // never look at a transcript. Same seam, disjoint inputs, disjoint failures —
+  // so all three should run, and none subsumes another.
+  //
+  // Declared here on 2026-08-16 rather than at authoring time: this branch was
+  // approved on 2026-08-12, when its `session_pr_create` co-registration did not
+  // yet exist on main. mt#3913 landed the second guard afterwards, which is what
+  // turned a single registration into a pair needing a declaration.
+  ["stale-signal-sweep", "evidence-record-provenance"],
+  ["unrendered-result-field-scan", "evidence-record-provenance"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
