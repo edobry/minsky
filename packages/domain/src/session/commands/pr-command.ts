@@ -13,6 +13,18 @@ export interface SessionPrDependencies {
   persistenceProvider?: import("../../persistence/types").PersistenceProvider;
   /** Optional — forwarded to sessionPrImpl so the task can be advanced to IN-REVIEW. */
   taskService?: import("../../tasks/taskService").TaskServiceInterface;
+  /**
+   * The PR-preparation implementation. Defaults to the real `sessionPrImpl`
+   * (mt#4046, PR #3021 R1).
+   *
+   * Injected rather than reached for so that what this function ASSEMBLES — in
+   * particular that `headSha` lands on the returned result — is observable
+   * without patching a module import. The reviewer's finding was precisely that
+   * `resolvePrHeadSha` was tested while its wiring into the result was not,
+   * which is the shape where a helper ships with passing tests and zero
+   * production effect.
+   */
+  sessionPrImpl?: typeof sessionPrImpl;
 }
 
 /**
@@ -126,7 +138,8 @@ export async function sessionPr(
     }
 
     // Prepare PR using session operations layer (proper architecture)
-    const result = await sessionPrImpl(
+    const prepare = deps.sessionPrImpl ?? sessionPrImpl;
+    const result = await prepare(
       {
         session: resolvedContext.sessionId,
         task: params.task,

@@ -223,10 +223,13 @@ describe("formatTimeoutMessage (mt#2043 diagnostic visibility)", () => {
     expect(msg).toContain("6303291ad0000000000000000000000000000000");
     expect(msg).toContain("9a3a8ca4b0000000000000000000000000000000");
     expect(msg).toContain("NOT reviewer silence");
-    // Both causes present, and the stale-sha one names its source and its remedy.
+    // Both causes present, each with its own remedy. Phrased without naming
+    // specific commands or result fields (PR #3021 R1): this line renders for
+    // any backend with HEAD-sha support, and the rule it points at — take the
+    // sha from whichever call last pushed — holds regardless of which one that
+    // was.
     expect(msg).toContain("push has not landed");
-    expect(msg).toContain("session_pr_create");
-    expect(msg).toContain("headSha");
+    expect(msg).toContain("whichever call last pushed");
     // The load-bearing half: waiting is NOT a universal remedy here.
     expect(msg).toContain("never resolves by waiting");
     // The old wording asserted one cause as fact; it must not survive.
