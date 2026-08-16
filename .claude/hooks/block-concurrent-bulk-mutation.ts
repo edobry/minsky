@@ -169,6 +169,19 @@ function splitSegments(command: string): string[] {
   });
 }
 
+/**
+ * Tokens of one segment, splitting on whitespace OUTSIDE quotes.
+ *
+ * Quote-aware for the same reason the segment split is (PR #3023 R2). A plain `split(/\s+/)`
+ * breaks a quoted value in half, and the halves are then judged as separate tokens:
+ * `FOO="a b" bun scripts/x.ts --execute` tokenized to `FOO="a`, `b"`, … and the stray `b"` read
+ * as this segment's command, so a real invocation stopped firing. False negatives are the costly
+ * direction here — the guard exists to catch a second writer on shared state.
+ */
+function tokenize(segment: string): string[] {
+  return splitOutsideQuotes(segment, (ch) => (/\s/.test(ch) ? 1 : 0));
+}
+
 export interface BulkMutationInvocation {
   /** The script path exactly as it appeared in the command. */
   scriptPath: string;
@@ -193,7 +206,7 @@ export interface BulkMutationInvocation {
  */
 export function findBulkMutationInvocation(command: string): BulkMutationInvocation | null {
   for (const segment of splitSegments(command)) {
-    const tokens = segment.split(/\s+/).filter((token) => token.length > 0);
+    const tokens = tokenize(segment);
 
     // COMMAND POSITION: walk the prefix until a token is either the script or a real command.
     // A script invoked through an interpreter (`bun scripts/x.ts`) or directly via its shebang

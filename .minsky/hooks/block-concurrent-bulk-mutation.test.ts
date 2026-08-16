@@ -228,6 +228,16 @@ describe("findBulkMutationInvocation", () => {
     ).toBe(GUARD_EVENTS_NAME);
   });
 
+  test("still matches when an env assignment's value contains spaces", () => {
+    // R2: a quote-insensitive tokenizer split `FOO="a b"` into `FOO="a` and `b"`, and the stray
+    // half read as this segment's command — so a real invocation stopped firing.
+    const found = findBulkMutationInvocation(
+      `MINSKY_NOTE="a b" bun scripts/backfill-guard-events.ts --execute`
+    );
+    expect(found?.scriptName).toBe(GUARD_EVENTS_NAME);
+    expect(found?.flag).toBe("--execute");
+  });
+
   test("does NOT treat `run` or `exec` as a prefix out of position", () => {
     // R1: `run` and `exec` were admitted anywhere. `run` is a prefix only after an interpreter,
     // and `exec` only as the very first token.
