@@ -239,6 +239,77 @@ async function main(): Promise<void> {
     at1Check.stdout.toString().split("\n")[0] ?? ""
   );
 
+  // --- PR #3026 R1: rotation is lossless, including under concurrent append ---
+  // The reviewer's blocking finding: the previous read-the-file-then-rewrite-
+  // the-tail trim silently dropped records appended between the read and the
+  // write. This asserts the property that fix has to deliver — no record is
+  // lost across the cap — with real hook processes racing at the boundary.
+  const rot = path.join(root, "rot");
+  fs.mkdirSync(rot, { recursive: true });
+  const logPath = path.join(rot, "linkify-fire-log.jsonl");
+
+  // Seed just past the 256KB cap so the very next append triggers rotation.
+  const filler = `${JSON.stringify({
+    at: "2026-08-16T00:00:00.000Z",
+    messageId: "seed",
+    deltas: 1,
+    totals: { task: 1, changeset: 0, ask: 0, memory: 0, session: 0, shortIdUnresolved: 0 },
+  })}\n`;
+  const seedCount = Math.ceil(262_144 / filler.length) + 1;
+  fs.writeFileSync(logPath, filler.repeat(seedCount));
+
+  const CONCURRENT = 8;
+  await Promise.all(
+    Array.from({ length: CONCURRENT }, (_, i) =>
+      runHook(rot, {
+        hook_event_name: "MessageDisplay",
+        message_id: `m-rot-${i}`,
+        index: 0,
+        final: true,
+        delta: `concurrent writer ${i} mentions mt#${1000 + i}\n`,
+      })
+    )
+  );
+
+  const rotatedExists = fs.existsSync(`${logPath}.1`);
+  const visible = JSON.parse(
+    Bun.spawnSync(["bun", CHECK, "--json", "--window", "999999"], {
+      env: { ...process.env, MINSKY_STATE_DIR: rot },
+    }).stdout.toString()
+  );
+
+  check(
+    "R1 crossing the cap ROTATES rather than rewriting in place",
+    rotatedExists,
+    `rotated file present: ${rotatedExists}`
+  );
+  check(
+    "R1 every seeded record survives rotation (reader consumes both files)",
+    visible.messagesAllTime >= seedCount,
+    `seeded ${seedCount}, reader sees ${visible.messagesAllTime}`
+  );
+  check(
+    "R1 all 8 concurrent writers' records survive the rotation boundary",
+    visible.messagesAllTime >= seedCount + CONCURRENT,
+    `expected >= ${seedCount + CONCURRENT}, got ${visible.messagesAllTime}`
+  );
+
+  // --- PR #3026 R1 (non-blocking): a message with no id is legible, not blank -
+  const noId = path.join(root, "noid");
+  await runHook(noId, {
+    hook_event_name: "MessageDisplay",
+    index: 0,
+    final: true,
+    delta: "no message_id on this payload, but mt#42 is here\n",
+  });
+  const noIdLog = readLog(noId);
+  check(
+    "R1 a record with no message_id carries a sentinel + explicit flag, and is still written",
+    noIdLog[0]?.messageId === "(unknown)" &&
+      (noIdLog[0] as { messageIdMissing?: boolean }).messageIdMissing === true,
+    JSON.stringify(noIdLog)
+  );
+
   fs.rmSync(brokenHook, { force: true });
   fs.rmSync(root, { recursive: true, force: true });
 

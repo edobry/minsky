@@ -163,8 +163,37 @@ delta:
 The running tally rides the fence-state record this hook **already writes per delta**, so the
 per-delta hot path gains no IO at all; the only added write is one append when a message ends.
 That is ADR-028 D7(5)'s own prescription ("cache + periodic sweep, splitting the expensive read
-out of the per-turn hot path"), so this MATCHES the constraint rather than deviating from it. The
-log is bounded at 256KB, trimmed to the last 500 lines at flush.
+out of the per-turn hot path"), so this MATCHES the constraint rather than deviating from it.
+
+**Bounded by ROTATION, not by an in-place rewrite** — past 256KB the active log is `rename`d to
+`linkify-fire-log.jsonl.1` and a fresh one starts; the reader consumes both. The obvious
+alternative (read the file, write back the last N lines) shipped in the first revision of this
+change and was caught in review as a **durability hole**: one hook process runs per delta and the
+state dir is shared across concurrent clients, so any record appended between the read and the
+write is silently discarded by the write — in the one file whose entire purpose is durable
+evidence. `rename` is atomic, destroys nothing, and a racing writer's open handle follows the
+renamed inode, so its records land in the rotated file rather than vanishing. Re-checking the size
+before rewriting, the cheaper fix, would only narrow that window.
+
+**Atomic rename is necessary and not sufficient, which cost a second round.** With N processes
+flushing at once, several can stat the oversize file before any of them renames: the first moves
+the full log to `.1`, and the second renames the _fresh, nearly-empty_ log over the top of it,
+destroying precisely what rotation exists to preserve. Renaming atomically is not the same as
+**deciding** to rename atomically. The decision is serialized by an `fs.openSync(lock, "wx")` —
+create-if-absent, atomic — so exactly one process rotates and the losers skip the pass entirely
+(the log sits slightly over its cap until the next flush, which costs nothing). The size is
+re-checked under the lock so a queued process does not rotate an already-fresh file. A lock older
+than 60s is treated as stale and cleared, for the process that dies mid-rotation.
+
+Measured, with a deliberate control — the numbers matter because the failure is intermittent:
+
+| Rotation decision                 | Runs    | Result                                                                                             |
+| --------------------------------- | ------- | -------------------------------------------------------------------------------------------------- |
+| Serialized by the lock (shipped)  | 10 / 10 | all 1,746 records visible                                                                          |
+| Lock made non-exclusive (control) | 6       | **3 runs lost nearly everything** — 1,738 seeded → 2, 3, and 4 records visible; the other 3 passed |
+
+Note the control's passing runs. A single green run of this probe is compatible with the bug being
+present, which is how the first fix looked correct before a repeat run caught it.
 
 **`shortIdUnresolved` is not a link count.** It records short-id refs seen in prose that stayed
 BARE because the map could not resolve them. A small non-zero value is normal (a just-minted id

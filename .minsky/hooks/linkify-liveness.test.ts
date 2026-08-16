@@ -29,12 +29,15 @@ function delta(text: string, over: Partial<MessageDisplayInput> = {}): MessageDi
  */
 function runMessage(
   deltas: { text: string; final?: boolean }[],
-  shortIdMap?: ShortIdMap
+  shortIdMap?: ShortIdMap,
+  messageId?: string
 ): ReturnType<typeof decideDisplay> {
   let stored: Parameters<typeof decideDisplay>[1] = null;
   let last!: ReturnType<typeof decideDisplay>;
   for (const d of deltas) {
-    last = decideDisplay(delta(d.text, { final: d.final === true }), stored, shortIdMap, now);
+    const over: Partial<MessageDisplayInput> = { final: d.final === true };
+    if (messageId !== undefined) over.message_id = messageId;
+    last = decideDisplay(delta(d.text, over), stored, shortIdMap, now);
     stored = last.nextState;
   }
   return last;
@@ -197,6 +200,30 @@ describe("fire-log parsing degrades rather than discarding", () => {
 
     expect(records).toHaveLength(1);
     expect(records[0]?.totals).toEqual(emptyCounts());
+  });
+});
+
+describe("PR #3026 R1 — a message with no id is recorded, not dropped and not blank", () => {
+  test("the record carries a sentinel plus an explicit flag", () => {
+    const { flush } = runMessage(
+      [{ text: "mt#9\n", final: true }].map((d) => d),
+      undefined,
+      ""
+    );
+
+    // Option (b) of the review's two suggestions: keep the evidence that the
+    // hook RAN — this channel's primary signal — while making the anomaly
+    // legible rather than emitting an empty string that reads as a real id.
+    expect(flush?.messageId).toBe("(unknown)");
+    expect(flush?.messageIdMissing).toBe(true);
+    expect(flush?.totals.task).toBe(1);
+  });
+
+  test("an ordinary message carries no anomaly flag at all", () => {
+    const { flush } = runMessage([{ text: "mt#9\n", final: true }]);
+
+    expect(flush?.messageId).toBe("msg-1");
+    expect(flush?.messageIdMissing).toBeUndefined();
   });
 });
 

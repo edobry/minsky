@@ -34,6 +34,7 @@ import * as fs from "fs";
 import {
   getFenceStatePath,
   getFireLogPath,
+  getRotatedFireLogPath,
   type LinkifyFireRecord,
 } from "./linkify-message-display";
 import { emptyCounts, addCounts, type LinkifyCounts } from "./entity-linkify";
@@ -209,18 +210,34 @@ function buildHeadline(
   }
 }
 
-/** Read + summarize in one call, probing the real paths. */
-export function checkLiveness(options: LivenessOptions = {}): LivenessSummary {
-  let raw = "";
-  let logExists = true;
+function readIfPresent(file: string): string | null {
   try {
-    raw = fs.readFileSync(getFireLogPath(), "utf8");
+    return fs.readFileSync(file, "utf8");
   } catch {
-    // intentional-swallow: an absent log is the `never-ran` case, which
-    // `summarizeFireLog` renders from an empty record list.
-    logExists = false;
+    // intentional-swallow: absent is a normal state for both the active log
+    // (never ran) and the rotated one (never grew past the cap).
+    return null;
   }
-  const records = logExists ? parseFireLog(raw) : [];
+}
+
+/**
+ * Read + summarize in one call, probing the real paths.
+ *
+ * Reads the ROTATED file as well as the active one. Rotation is how the writer
+ * bounds the log without an unsynchronized rewrite (PR #3026 R1); a reader that
+ * looked only at the active file would see every pre-rotation record vanish and
+ * report `no-evidence` — turning the durability FIX into the evidence loss it
+ * was made to prevent. Rotated first, so records stay in write order.
+ */
+export function checkLiveness(options: LivenessOptions = {}): LivenessSummary {
+  const rotated = readIfPresent(getRotatedFireLogPath());
+  const active = readIfPresent(getFireLogPath());
+
+  const records = [
+    ...(rotated === null ? [] : parseFireLog(rotated)),
+    ...(active === null ? [] : parseFireLog(active)),
+  ];
+
   return summarizeFireLog(records, {
     ...options,
     inFlightStatePresent: options.inFlightStatePresent ?? fs.existsSync(getFenceStatePath()),
