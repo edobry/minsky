@@ -233,6 +233,24 @@ describe("timestamp handling", () => {
     expect(result.denominator).toBe(1);
   });
 
+  test("first/last window bounds are the chronological extremes, not the lexicographic ones", () => {
+    // `+05:00` is the discriminating case, and a `-04:00` one is NOT: a minus
+    // offset happens to sort the same way both ways, so a test built on it
+    // passes against the lexicographic bug. Here "2026-08-14T12:00:00+05:00"
+    // is 07:00Z — chronologically FIRST, lexicographically LAST — so both
+    // bounds differ between the two orderings.
+    const records = [
+      record({ hash: "mid", timestamp: "2026-08-14T09:00:00.000Z" }),
+      record({ hash: "latest", timestamp: "2026-08-14T10:00:00.000Z" }),
+      record({ hash: "earliest", timestamp: "2026-08-14T12:00:00+05:00" }),
+    ];
+
+    const result = measure(records);
+
+    expect(result.window.firstTimestamp).toBe("2026-08-14T12:00:00+05:00");
+    expect(result.window.lastTimestamp).toBe("2026-08-14T10:00:00.000Z");
+  });
+
   test("an unparseable record timestamp is excluded and counted, never silently compared", () => {
     const records = [record({ hash: "ok" }), record({ hash: "bad", timestamp: "not-a-date" })];
 

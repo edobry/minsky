@@ -280,7 +280,13 @@ export function measure(
     indeterminate: suppressed.indeterminate + patternTested.indeterminate,
   };
 
-  const timestamps = windowed.map((r) => r.timestamp).sort();
+  // Sorted by parsed instant, not by string. The window comparison was fixed
+  // to be chronological; sorting the DISPLAY bounds lexicographically here
+  // would have left the same defect one field over, reporting a first/last
+  // pair that is not actually the earliest/latest record. The original
+  // spelling is preserved in the output — only the ordering is normalized.
+  const chronological = [...windowedEntries].sort((a, b) => a.at - b.at);
+  const timestamps = chronological.map((entry) => entry.record.timestamp);
 
   const byHash = new Map<string, Label | undefined>();
   for (const record of nonEmpty) {
