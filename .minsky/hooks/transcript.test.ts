@@ -12,6 +12,7 @@ import {
   resolveParentTranscriptLinesForPath,
   readLogTailText,
   sessionHasLoggedKey,
+  collectShortIdBindings,
   DEFAULT_MAX_DEDUPE_READ_BYTES,
   type TranscriptLine,
 } from "./transcript";
@@ -777,3 +778,73 @@ describe("readLogTailText", () => {
   });
 });
 /* eslint-enable custom/no-real-fs-in-tests */
+
+describe("collectShortIdBindings (mt#4160)", () => {
+  const resultLine = (text: string) => ({
+    type: "user",
+    message: {
+      content: [{ type: "tool_result", tool_use_id: "toolu_x", content: [{ type: "text", text }] }],
+    },
+  });
+
+  test("reads the memory_create shape: id is the UUID, shortId is the ref", () => {
+    // Verbatim field order and names from a real mcp__minsky__memory_create
+    // result (session 6b2b7665, 2026-08-16).
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          id: "c748bf8f-5ac5-4026-a5a7-91f7b55f2031",
+          shortId: "mem#1045",
+          type: "project",
+          name: "handoff_cockpit-sqlstate-classifier_gate-battery-premise_2026-08-13",
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#1045")).toBe("c748bf8f-5ac5-4026-a5a7-91f7b55f2031");
+  });
+
+  test("reads the refs_status shape, where the two field names are INVERTED", () => {
+    // Same pair, opposite names: here `id` holds the short id and `uuid` the
+    // UUID. This is why the pairing keys on value shape rather than field name.
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({
+          success: true,
+          results: [
+            {
+              ref: "mem#996",
+              kind: "memory",
+              id: "mem#996",
+              uuid: "227d170f-0579-4603-aca0-433b5a4cb657",
+            },
+          ],
+        })
+      ),
+    ] as never);
+    expect(bindings.get("mem#996")).toBe("227d170f-0579-4603-aca0-433b5a4cb657");
+  });
+
+  test("a short id bound to two different UUIDs is DROPPED, not guessed", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(JSON.stringify({ id: "11111111-1111-1111-1111-111111111111", shortId: "mem#7" })),
+      resultLine(JSON.stringify({ id: "22222222-2222-2222-2222-222222222222", shortId: "mem#7" })),
+    ] as never);
+    expect(bindings.has("mem#7")).toBe(false);
+  });
+
+  test("a result carrying no short id contributes nothing", () => {
+    const bindings = collectShortIdBindings([
+      resultLine(
+        JSON.stringify({ id: "33333333-3333-3333-3333-333333333333", name: "no short id" })
+      ),
+    ] as never);
+    expect(bindings.size).toBe(0);
+  });
+
+  test("non-JSON tool-result text is skipped rather than throwing", () => {
+    const bindings = collectShortIdBindings([
+      resultLine("Task mt#4160 created successfully"),
+    ] as never);
+    expect(bindings.size).toBe(0);
+  });
+});
