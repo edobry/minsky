@@ -128,7 +128,16 @@ export type TruncationKind = "outcome" | "enumeration";
 
 export interface TruncatedOutcomeScanResult {
   matched: boolean;
-  /** The truncated command's first stage, normalized — the calibration diversity axis. */
+  /**
+   * The truncated command's first stage, normalized — part of the calibration diversity axis.
+   *
+   * The name predates the enumeration arm and no longer describes every value it holds (an
+   * enumeration match stores a non-mutating command). Kept anyway: it is a RECORD-SHAPE key, not
+   * just a local field — `calibration-sweep.ts` reads `detectorFields["mutatingCommand"]` by name
+   * and guards on it, with a dedicated shape test, and fire-log records already on disk use it.
+   * Renaming would drop every historical record out of the sweep's diversity axis for a naming
+   * win. Flagged NON-BLOCKING on PR #3024 R1; declined with this reasoning rather than silently.
+   */
   mutatingCommand: string | null;
   /** Which truncator was applied (`tail` / `head`). */
   filter: string | null;
@@ -217,8 +226,13 @@ export async function run(
     kind: result.kind,
     // The sweep's diversity axis is the SHAPE (which command, which truncator), not the raw
     // command string — a raw command is near-unique and would satisfy the distinct-phrase gate by
-    // construction, rendering the sweep inert (the mt#3781 defect). `kind` is included so the two
-    // arms are separable in review; they have different false-positive profiles.
+    // construction, rendering the sweep inert (the mt#3781 defect).
+    //
+    // `phrase` is NOT what the sweep reads for this detector. `calibration-sweep.ts` has a
+    // dedicated branch that rebuilds the axis from `detectorFields` (`kind|mutatingCommand|filter`)
+    // because the record is matches-shaped and carries no `matches`. So the arm separation lives
+    // in `kind` above, reaching the sweep through the mt#3289 passthrough — this field is a
+    // human-readable echo for anyone reading the raw log.
     phrase: result.matched ? `${result.kind}: ${result.mutatingCommand} | ${result.filter}` : null,
   };
 

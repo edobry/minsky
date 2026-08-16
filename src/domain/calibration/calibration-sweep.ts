@@ -1493,7 +1493,18 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       // The raw command is deliberately NOT the axis: it is near-unique, which
       // would satisfy the distinct-phrase gate by construction — the same defect
       // from the opposite direction.
-      phrases.add(`${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`);
+      //
+      // `kind` joins the axis with mt#4176's enumeration arm. The two arms have
+      // different false-positive profiles — the outcome arm keys on a curated
+      // command list, the enumeration arm on `--help` — so a review that cannot
+      // separate them is reading one blended rate. Records predating mt#4176
+      // carry no `kind` and are all outcome-arm by construction, so they default
+      // to `outcome` rather than dropping out of the axis.
+      const kind = rec.detectorFields["kind"];
+      const arm = typeof kind === "string" ? kind : "outcome";
+      phrases.add(
+        `${arm}|${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`
+      );
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
