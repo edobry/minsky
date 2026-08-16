@@ -113,14 +113,22 @@ a status transition; everything else is investigation and gate-check.
 
 6. **Enumerate EVERY required-actions section, not just the template's (mt#4177).** On a re-run
    against a task that already carries a gap report, grep the spec's headings for every
-   required-actions list — the template emits `### Required actions before READY`, but a later
-   amendment writes its own under a variant (`### Required actions added`, `### Further required
-   actions`). **Name each section you found in the audit output**, so a reader can tell "walked
-   both" from "walked one and did not know there was another."
+   required-actions list — match `required actions` **case-insensitively at any heading depth**,
+   since the template emits `### Required actions before READY` but a later amendment writes its
+   own under a variant (`### Required actions added`, `### Further required actions`). **Name each
+   section you found in the audit output**, so a reader can tell "walked both" from "walked one and
+   did not know there was another."
 
-   Each action in every such section is discharged before READY, or explicitly deferred with a
-   reason. A second list is not optional context — its items are numbered as a continuation of the
-   first, which is exactly what makes a partial read look complete.
+   **Then classify each match — the pattern deliberately over-matches.** A heading like
+   `## Required actions resolved (2026-08-16)` is a RECORD of discharge, not a list of owed work,
+   and a later pass must not try to re-discharge it. Sort the matches into OWED and RESOLVED, name
+   which is which, and walk only the owed ones. Over-matching then costs one line of triage;
+   under-matching costs a missed action, which is the failure this item exists to prevent — so the
+   pattern is loose on purpose and the reading is where precision belongs.
+
+   Each action in every OWED section is discharged before READY, or explicitly deferred with a
+   reason. A second owed list is not optional context — its items are numbered as a continuation of
+   the first, which is exactly what makes a partial read look complete.
 
    Originating incident (mt#2755, 2026-08-16): the spec carried actions 1-4 under the template's
    heading and actions **5, 6, 7** under `### Required actions added`, appended by a premise
