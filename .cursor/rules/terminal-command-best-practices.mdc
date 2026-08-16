@@ -92,6 +92,7 @@ already excludes `maskConnectionString`'s masked rendering, so it does not repro
 
 File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
 (`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
-channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140). Recipes,
-that audit, and the leak-containment runbook:
-`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
+channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+audit one for that and for a literal token at rest:
+`docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
+Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
