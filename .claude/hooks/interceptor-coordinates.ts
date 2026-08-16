@@ -418,6 +418,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
   ],
   [
+    "evidence-record-provenance",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same claim shape as `duplicate-check-search-provenance`, at the commit and PR-body seams. `recordReview` only — no `injectAgent`, unlike that sibling: a pre-ship replay over 40 transcripts measured the negative-control half's fires as mostly false, so the stream is armed and nothing injects until mt#4067 tunes it.",
+    },
+  ],
+  [
     "duplicate-signature-scan",
     {
       interventions: [recordReview],
