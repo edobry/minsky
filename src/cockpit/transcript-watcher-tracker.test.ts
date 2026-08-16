@@ -143,6 +143,28 @@ describe("TranscriptWatcherTracker", () => {
     // back-dating entries or sleeping — `recordSessionEvent` always stamps Date.now().
     const now = () => Date.now();
 
+    /**
+     * The exact millisecond `recordSessionEvent` stamped, read back from the
+     * registry (mt#4137).
+     *
+     * Any assertion that pins an entry to a window EDGE must anchor on this,
+     * never on a second `now()` read: `recordSessionEvent` stamps its own
+     * `Date.now()`, so a later read can be one or more milliseconds ahead, and
+     * an edge computed from it lands outside the window. Such a test passes
+     * only when two adjacent clock reads happen to return the same millisecond
+     * — which they usually do on an idle machine and do not under load.
+     *
+     * `lastEventAt` is an ISO string at millisecond precision, so `Date.parse`
+     * recovers the stamp exactly.
+     */
+    const stampOf = (agentSessionId: string): number => {
+      const entry = tracker.getActiveSessions().find((s) => s.agentSessionId === agentSessionId);
+      if (!entry?.lastEventAt) {
+        throw new Error(`no event stamp recorded for "${agentSessionId}"`);
+      }
+      return Date.parse(entry.lastEventAt);
+    };
+
     test("a session with a just-recorded event is live", () => {
       tracker.recordSessionEvent("fresh", false);
       expect(tracker.getLiveSessions(now()).map((s) => s.agentSessionId)).toEqual(["fresh"]);
@@ -156,18 +178,31 @@ describe("TranscriptWatcherTracker", () => {
 
     test("an event exactly at the window boundary still counts as live", () => {
       tracker.recordSessionEvent("boundary", false);
-      const atEdge = now() + LIVE_SESSION_WINDOW_MS;
+      // Anchored on the recorded stamp, so this is EXACTLY the edge regardless of
+      // how much time passes between recording and asserting (mt#4137).
+      const atEdge = stampOf("boundary") + LIVE_SESSION_WINDOW_MS;
       expect(tracker.getLiveSessions(atEdge).map((s) => s.agentSessionId)).toEqual(["boundary"]);
+    });
+
+    test("one millisecond past the boundary is not live", () => {
+      tracker.recordSessionEvent("just-past", false);
+      const pastEdge = stampOf("just-past") + LIVE_SESSION_WINDOW_MS + 1;
+      expect(tracker.getLiveSessions(pastEdge)).toHaveLength(0);
     });
 
     test("the live set is a subset — stale entries drop, fresh ones stay", () => {
       tracker.recordSessionEvent("stale-one", false);
-      const later = now() + LIVE_SESSION_WINDOW_MS + 1;
-      // A second session whose event lands at `later` is inside the window relative
-      // to `later`, while the first has aged out.
       tracker.recordSessionEvent("still-live", false);
-      const live = tracker.getLiveSessions(now()).map((s) => s.agentSessionId);
+      // Anchor on the LATER of the two stamps (mt#4137). Computing `later` from a
+      // clock read taken BEFORE "still-live" was recorded required that read and
+      // the subsequent stamp to be the same millisecond — otherwise "still-live"
+      // was still inside the window at `later` and the length-0 assertion failed.
+      const latest = stampOf("still-live");
+      const later = latest + LIVE_SESSION_WINDOW_MS + 1;
+      const live = tracker.getLiveSessions(latest).map((s) => s.agentSessionId);
       expect(live).toContain("still-live");
+      // Both are strictly outside at `later`: "stale-one" was stamped no later
+      // than "still-live", so it is at least as far past the edge.
       expect(tracker.getLiveSessions(later)).toHaveLength(0);
     });
 
