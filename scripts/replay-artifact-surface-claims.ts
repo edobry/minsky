@@ -23,6 +23,8 @@
 import {
   buildArtifactProseCorpus,
   detectCodeMechanismAssertion,
+  elideBlocksAndQuotes,
+  symbolsNear,
 } from "../.minsky/hooks/code-mechanism-assertion-detector";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
 
@@ -100,7 +102,7 @@ const FIXTURES: Fixture[] = [
     id: "instance-2-mt4104-scope-memory-capture",
     tool: "tasks_create",
     key: "spec",
-    symbol: "memory-capture.ts",
+    symbol: "src/mcp/memory-capture.ts",
     provenance:
       "mt#4104 `## Scope`, the `memory-capture.ts` bullet, quoted verbatim in its own premise check (i)(2).",
     body: [
@@ -163,8 +165,23 @@ function run(fixture: Fixture, body: string): StageResult {
   // it. A backed claim is excluded at claim level, which would confound the
   // measurement with a suppression that did not happen on the real turns.
   const result = detectCodeMechanismAssertion(corpus, "", "");
+  // Exact-token extraction, not a substring test (PR #3007 R1). The question is
+  // whether the detector's OWN tokenizer yields this symbol from this corpus, so
+  // ask `symbolsNear` rather than whether the string appears anywhere: a raw
+  // `includes` reports `memory-capture.ts` as extracted on the strength of the
+  // longer `src/mcp/memory-capture.ts` span it sits inside, which would render an
+  // extraction failure as a matcher miss — the one discrimination this script
+  // exists to make.
+  //
+  // Anchored mid-corpus with a window wide enough to span it, because extraction
+  // is COUNTERFACTUAL here: with no predicate match the real detector never calls
+  // `symbolsNear` at all, and what this measures is whether the token would be
+  // yielded if it did. Elided first, exactly as `detectCodeMechanismAssertion`
+  // elides before tokenizing, so both stages judge the same text.
+  const prose = elideBlocksAndQuotes(corpus);
+  const tokens = symbolsNear(prose, Math.floor(prose.length / 2), prose.length);
   return {
-    extracted: corpus.includes(fixture.symbol),
+    extracted: tokens.includes(fixture.symbol),
     matched: result.matched,
     claims: result.claims,
   };
