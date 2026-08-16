@@ -29,6 +29,9 @@ import type { ToolHookInput } from "./types";
 const BACKFILL_SCRIPT = "scripts/backfill-agent-tool-call-projection.ts";
 const BACKFILL_NAME = "backfill-agent-tool-call-projection.ts";
 
+/** A second real script, used where a case needs one distinct from the worked example. */
+const GUARD_EVENTS_NAME = "backfill-guard-events.ts";
+
 /** The other run's real coordinates from that incident. */
 const OTHER_PID = 26946;
 const OTHER_ELAPSED = "03:16:33";
@@ -64,7 +67,7 @@ describe("findBulkMutationInvocation", () => {
     const found = findBulkMutationInvocation(
       "bun scripts/backfill-guard-events.ts --execute --batch-size=50 --verify-sample=10"
     );
-    expect(found?.scriptName).toBe("backfill-guard-events.ts");
+    expect(found?.scriptName).toBe(GUARD_EVENTS_NAME);
   });
 
   test("matches an absolute path", () => {
@@ -109,6 +112,81 @@ describe("findBulkMutationInvocation", () => {
       "git status; bun scripts/repair-transcript-metadata.ts --execute"
     );
     expect(found?.scriptName).toBe("repair-transcript-metadata.ts");
+  });
+
+  // --- mt#4088: the flag must belong to the script's INVOCATION ---------------------
+  //
+  // The predecessor asked "is there an execute flag?" and "is there a script path?" of the same
+  // segment, independently. Both questions could be answered YES by text belonging to different
+  // commands — or to no command at all.
+
+  test("does NOT match a script named only in a heredoc body (the mt#4088 live denial)", () => {
+    // Verbatim shape of the command denied on 2026-08-13. `--execute` is `tasks edit`'s own
+    // dry-run-to-apply flag; the script appears only as prose being written INTO a spec.
+    const command = [
+      "SP=/tmp/specs ; cat >> $SP/mt3875.md <<'EOF'",
+      "Counts were taken with: MINSKY_PREPUSH_FULL_SUITE=1 bun scripts/run-tests-gated.ts",
+      "EOF",
+      "timeout 120 bun run src/cli.ts tasks edit mt#3875 --spec-file $SP/mt3875.md --execute",
+    ].join("\n");
+    expect(findBulkMutationInvocation(command)).toBeNull();
+  });
+
+  test("does NOT match a script passed as an ARGUMENT to a different command", () => {
+    // One segment, no separator: the script is the value of --spec-file, and --execute belongs
+    // to `tasks edit`. Command position is what tells them apart.
+    expect(
+      findBulkMutationInvocation(
+        "bun run src/cli.ts tasks edit mt#3875 --spec-file scripts/foo.ts --execute"
+      )
+    ).toBeNull();
+  });
+
+  test("does NOT match across a newline: script on one line, unrelated flag on the next", () => {
+    // No heredoc anywhere — two ordinary lines. This is why stripping heredoc bodies alone
+    // would not have been sufficient.
+    expect(
+      findBulkMutationInvocation("bun scripts/foo.ts\nbun run src/cli.ts tasks edit mt#1 --execute")
+    ).toBeNull();
+  });
+
+  test("does NOT match a wrapped command that merely names a script", () => {
+    expect(
+      findBulkMutationInvocation(
+        "timeout 120 bun run src/cli.ts tasks edit --spec scripts/x.ts --execute"
+      )
+    ).toBeNull();
+  });
+
+  // --- the newline split must not cost us a true positive --------------------------
+
+  test("still matches across a backslash line continuation", () => {
+    // Splitting on raw newlines would break this invocation in half and miss it.
+    const found = findBulkMutationInvocation(
+      "bun scripts/backfill-guard-events.ts \\\n  --execute"
+    );
+    expect(found?.scriptName).toBe(GUARD_EVENTS_NAME);
+    expect(found?.flag).toBe("--execute");
+  });
+
+  test("still matches a script invoked on its own line", () => {
+    const found = findBulkMutationInvocation(
+      "git status\nbun scripts/repair-transcript-metadata.ts --execute"
+    );
+    expect(found?.scriptName).toBe("repair-transcript-metadata.ts");
+  });
+
+  test("still matches an env-assigned and wrapper-prefixed invocation", () => {
+    const found = findBulkMutationInvocation(
+      "MINSKY_X=1 timeout 300 bun scripts/backfill-guard-events.ts --execute"
+    );
+    expect(found?.scriptName).toBe(GUARD_EVENTS_NAME);
+  });
+
+  test("still matches a direct shebang invocation", () => {
+    const found = findBulkMutationInvocation("./scripts/backfill-guard-events.ts --apply");
+    expect(found?.scriptName).toBe(GUARD_EVENTS_NAME);
+    expect(found?.flag).toBe("--apply");
   });
 });
 

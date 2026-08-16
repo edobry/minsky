@@ -66,7 +66,12 @@ export const OVERRIDE_ENV = "MINSKY_ALLOW_CONCURRENT_BULK_MUTATION";
 const EXECUTE_FLAGS: readonly string[] = ["--execute", "--apply"];
 
 /**
- * Matches a `scripts/<name>.ts` argument anywhere in a command segment.
+ * Matches a WHOLE token that is a `scripts/<name>.ts` path.
+ *
+ * Anchored (mt#4088). The predecessor matched a script path anywhere inside a segment, which
+ * made the guard fire on any command that merely MENTIONED a script — the path was never bound
+ * to an invocation. Anchoring is half the fix; {@link isLauncherPrefixToken} is the other half,
+ * requiring the token to sit in COMMAND POSITION rather than be an argument to something else.
  *
  * POSIX-only by design (PR #2937 R1 NON-BLOCKING): this guard runs on `Bash` / `session_exec`
  * commands, whose paths are forward-slash on every platform this repo targets, and the repo's own
@@ -75,7 +80,65 @@ const EXECUTE_FLAGS: readonly string[] = ["--execute", "--apply"];
  * direction as `chained-verification-commands`' stale-pattern-list note. Widen it if a script is
  * ever added whose name this cannot match.
  */
-const SCRIPT_PATH_PATTERN = /(?:^|[\s"'=/])((?:[\w./-]*\/)?scripts\/[\w.-]+\.ts)\b/;
+const SCRIPT_TOKEN_PATTERN = /^(?:[\w./-]*\/)?scripts\/[\w.-]+\.ts$/;
+
+/**
+ * Tokens that may legitimately sit BEFORE the script in command position.
+ *
+ * An interpreter (`bun scripts/x.ts`), an interpreter subcommand (`bun run`), or a wrapper
+ * (`timeout 120 bun …`, `nohup`, `env`). Anything NOT in this set is itself the command being
+ * run — so a script path appearing after it is an ARGUMENT, not an invocation.
+ */
+const LAUNCHER_PREFIX_TOKENS: ReadonlySet<string> = new Set([
+  "bun",
+  "bunx",
+  "npx",
+  "node",
+  "deno",
+  "tsx",
+  "ts-node",
+  "run",
+  "exec",
+  "env",
+  "nohup",
+  "time",
+  "timeout",
+]);
+
+/**
+ * A `VAR=value` environment assignment, or a bare duration/count argument to a wrapper.
+ *
+ * Both precede the real command without being it: `MINSKY_X=1 bun scripts/y.ts --execute` and
+ * `timeout 120 bun scripts/y.ts --execute` are invocations, and the `120` must not be mistaken
+ * for the command.
+ */
+const PREFIX_ARGUMENT_PATTERN = /^(?:[A-Za-z_][A-Za-z0-9_]*=.*|\d+(?:\.\d+)?[smhd]?)$/;
+
+/** True when `token` can precede the command without being it. */
+function isLauncherPrefixToken(token: string): boolean {
+  return LAUNCHER_PREFIX_TOKENS.has(token) || PREFIX_ARGUMENT_PATTERN.test(token);
+}
+
+/**
+ * Segments of `command`, treating a NEWLINE as a separator alongside `;`, `&&` and `||`.
+ *
+ * `splitTopLevel` deliberately splits on those three only, so a multi-line command arrives as ONE
+ * segment and text from a heredoc body is matched against a flag from a later line — the mt#4088
+ * false positive. The newline split is done HERE rather than in `command-shape` because that
+ * helper is shared with five other guards (`chained-verification-commands`, which also re-exports
+ * it, `block-bulk-process-kill`, `truncated-outcome-read`, `detect-cli-mcp-substitution`, plus
+ * `leadingCommandOf` internally); re-segmenting their input is a much larger change than this
+ * guard needs, and two of them are deny-tier.
+ *
+ * Backslash-continued lines are re-joined FIRST: `bun scripts/x.ts \` + `--execute` is one
+ * command, and splitting it would turn a true positive into a miss.
+ */
+function splitSegments(command: string): string[] {
+  return command
+    .replace(/\\\n/g, " ")
+    .split("\n")
+    .flatMap((line) => splitTopLevel(line));
+}
 
 export interface BulkMutationInvocation {
   /** The script path exactly as it appeared in the command. */
@@ -91,22 +154,38 @@ export interface BulkMutationInvocation {
  *
  * Quote-aware segment splitting is reused from `command-shape` so a `;` inside a quoted argument
  * cannot manufacture or suppress a match — the same reasoning `chained-verification-commands`
- * records for its own split.
+ * records for its own split. {@link splitSegments} adds the newline boundary on top of it.
+ *
+ * The order of the two checks is deliberate (mt#4088): find the INVOKED script first, then look
+ * for an execute flag AFTER it. The predecessor asked the two questions independently of each
+ * other — "is there an execute flag in this segment?" and "is there a script path in this
+ * segment?" — and never checked that the flag belonged to the script's invocation, so a command
+ * that merely mentioned a script beside an unrelated `--execute` matched.
  */
 export function findBulkMutationInvocation(command: string): BulkMutationInvocation | null {
-  for (const segment of splitTopLevel(command)) {
+  for (const segment of splitSegments(command)) {
+    const tokens = segment.split(/\s+/).filter((token) => token.length > 0);
+
+    // COMMAND POSITION: the first token that is not part of a launcher prefix is the command this
+    // segment runs. A script invoked through an interpreter (`bun scripts/x.ts`) or directly via
+    // its shebang (`./scripts/x.ts`) both count; a script named as an ARGUMENT to some other
+    // command (`... --spec-file scripts/x.ts`) does not, because a non-prefix token precedes it.
+    const scriptIndex = tokens.findIndex(
+      (token, index) =>
+        SCRIPT_TOKEN_PATTERN.test(token) && tokens.slice(0, index).every(isLauncherPrefixToken)
+    );
+    if (scriptIndex === -1) continue;
+
+    // The flag must belong to THAT invocation, so only tokens after the script count.
     const flag = EXECUTE_FLAGS.find((candidate) =>
-      // Whole-argument match: the flag must be delimited, not a prefix of a longer token.
-      new RegExp(`(?:^|\\s)${candidate}(?:\\s|=|$)`).test(segment)
+      tokens
+        .slice(scriptIndex + 1)
+        // Whole-argument match: `--execute-after=…` is a different flag, not this one.
+        .some((token) => token === candidate || token.startsWith(`${candidate}=`))
     );
     if (!flag) continue;
 
-    const match = SCRIPT_PATH_PATTERN.exec(segment);
-    if (!match?.[1]) continue;
-
-    // A script invoked through an interpreter or directly via its shebang both count; what
-    // matters is that this segment runs it, not how it was spelled.
-    const scriptPath = match[1];
+    const scriptPath = tokens[scriptIndex] ?? "";
     const scriptName = scriptPath.split("/").pop() ?? scriptPath;
     return { scriptPath, scriptName, flag };
   }
