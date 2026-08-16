@@ -605,8 +605,10 @@ assumption inherited from upstream research or prior agent turns.
 Cross-reference: bridge memory \`e296b3ee-324e-4186-9313-926dd3f9ee5b\`
 (\`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
 at spec-authoring time\`) is the precedent memory this gate formalizes; once this gate ships,
-that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
-(Surface 1 policy-coverage detector, graduating to enforcing mode).
+that memory's job becomes historical record + pointer here. Mechanization path: mt#2755
+(extending the shipped policy-coverage detector to this battery). The pointer this replaced
+named mt#1541, which is CLOSED — its deliverable shipped as mt#1575, but against a corpus that
+does not include this skill; see gate (n) below.
 
 #### Gate criterion (l) — Authoritative-source check for third-party-system decisions
 
@@ -864,12 +866,21 @@ passes" statement.
 **discipline** criterion — process-enforced by the \`/plan-task\` skill (the agent walks it every
 planning session), exactly like its sibling gates (h)/(j)/(k)/(l)/(m), none of which is
 hook-enforced. The heuristic above is applied by the agent; it is NOT a mechanical detector, and
-this criterion makes NO claim of automated coverage. The battery-wide mechanization path these
-gates formerly cited — mt#1541 (policy-coverage detector) — is CLOSED, so the whole gate battery
-currently lacks a live automated-enforcement backstop. That gap — with gate (n)'s heuristic as
-the first concrete detector target — is tracked in **mt#2755** (the live successor to CLOSED
-mt#1541). Until mt#2755 ships, gate (n) is exactly as strong as the \`/plan-task\` process that
-runs it: no stronger, and no weaker than its discipline-tier peers.
+this criterion makes NO claim of automated coverage. **No gate in this battery is mechanically
+enforced today** — but not because the mechanization work was abandoned, which is what this
+paragraph used to imply by naming CLOSED mt#1541 as the reason.
+
+What actually shipped: mt#1541's child **mt#1575** built a live policy-coverage detector
+(\`packages/domain/src/detectors/policy-coverage/\`, thousands of invocations a week). It does not
+cover this battery, for two reasons worth knowing before you spec anything here. Its corpus
+(\`corpus-loader.ts\`) reads task specs, \`CLAUDE.md\`, \`.claude/rules/*\` + \`.minsky/rules/*\` and
+memories — **not the skills tree**, where these gates live. And it decides a different question:
+per ADR-008 §Router, whether policy names an action's category AND its authority.
+
+So the gap is real and the machinery to close it exists. **mt#2755 is an EXTENSION task, not a
+greenfield one** — it and its children should be read that way. Until it ships, gate (n) is
+exactly as strong as the \`/plan-task\` process that runs it: no stronger, and no weaker than its
+discipline-tier peers.
 
 **Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
 "can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
