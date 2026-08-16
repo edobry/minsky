@@ -606,3 +606,61 @@ under `~/.local/state/minsky/`). A closed laptop means:
 This is the same shape mt#2320's ADR-017 module doc already names for transcripts; recorded here
 so a miner reading THIS corpus's freshness guarantee does not have to cross-reference the
 transcript path to learn it applies here too.
+
+## Sweep-time claims on a calibration log (mt#4164)
+
+`observability calibration-review` takes a **claim** on each review-due log at SWEEP time — before
+it returns any records — so a second pass can see the first one working. Two passes classifying the
+same window is pure waste: both read the same records, both file findings, and only one ack can
+survive.
+
+### Why the claim exists rather than the prose probe alone
+
+`/calibration-review` Step 1 has carried a probe against this since R1: search for a tune task or
+disposition ask already filed. That probe searches for **artifacts**, and a pass that is
+mid-classification has filed none — classification is the entire expensive part and all of it is
+upstream of any artifact. R3 (2026-08-16) is the demonstration: two passes over the same
+`bare-entity-ref` window, filed one minute apart, the second's probe correctly finding nothing.
+
+The probe is still useful for what the claim cannot see: a pass that already FINISHED and released.
+
+### Store
+
+`.minsky/calibration-review-claims.json` — repo-local, gitignored, a sibling of
+`calibration-review-watermarks.json` and written under the **same** mkdir lock, so a claim and the
+watermark it will later advance are never inconsistent.
+
+```json
+{ "<log path>": { "actorId": "...", "claimedAt": "<iso>", "lastRefreshedAt": "<iso>" } }
+```
+
+Freshness is **derived at read**, never stored. `presence.ts` states the reason: _"a stored
+`presence = 'LIVE'` is a claim no writer can retract when the process dies mid-tool-call."_ A pass
+killed mid-classification therefore ages out on its own, with no reaper to run. `CLAIM_STALE_MS` is
+30 minutes, from observed sweep→ack spans of 4–10 minutes.
+
+It is deliberately NOT the `presence_claims` table, though that table is grain-agnostic and would
+have accepted a fourth `subject_kind`: the sweep is filesystem-only and runs in hook and CLI
+contexts with no database bootstrap, and `presence_claims` backs an operator-facing fleet-state
+surface that an internal coordination row has no business in (mt#2569).
+
+### Result fields
+
+| Field               | Meaning                                                                                                                                                                                                                                   |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claimedByOthers`   | Log paths another actor is classifying right now. These are EXCLUDED from `reviewDue` on a read pass — the pass stands down rather than duplicating the work. Empty on every uncontended run.                                             |
+| `claimsUnavailable` | `true` when the runtime could not name this pass (`CLAUDE_AGENT_ID` / `CLAUDE_CODE_SESSION_ID` both absent). No claim was taken and none was honoured, so the pass runs with the pre-mt#4164 collision risk. Reported rather than silent. |
+
+Text mode adds a `Stood down on N log(s)` block naming each holder and how long it has held.
+
+### What the claim deliberately does NOT gate
+
+**The ack.** A claim answers "who is WORKING"; the receipt (`reviewToken`, mt#3906) answers "what
+was READ". Filtering the ack set by concurrent claims would conflate them, and a pass that
+legitimately classified a log would be unable to RECORD that because someone else started working
+on it in the interim — silently discarding real review work. `logsToActOn` keeps the two apart, and
+its `isAck` branch is asserted by test.
+
+**`driftedPaths` (mt#3899).** That is the after-the-fact DETECTION half and is unchanged. Detection
+and prevention are not substitutes: a claim can be missing (unidentifiable runtime) or stale, and
+the drift check is what still catches the resulting race.

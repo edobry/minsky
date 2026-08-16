@@ -31,6 +31,15 @@ import {
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { buildSweptEntries } from "../../../domain/calibration/swept-entries";
 import {
+  blockingClaims,
+  describeBlockingClaims,
+  logsToActOn,
+  pruneStaleClaims,
+  releaseClaims,
+  withClaims,
+  type CalibrationClaimStore,
+} from "../../../domain/calibration/calibration-claims";
+import {
   runSweep,
   computeReviewDueLogs,
   advanceWatermarks,
@@ -181,6 +190,51 @@ async function saveWatermarks(workspacePath: string, store: WatermarkStore): Pro
   const { join } = await import("node:path");
   const storePath = join(workspacePath, WATERMARK_STORE_PATH);
   await writeFileMkdir(storePath, `${JSON.stringify(store, null, 2)}\n`);
+}
+
+/**
+ * Sweep-time claim store (mt#4164), a sibling of the watermark store and guarded
+ * by the SAME lock — the two are written in one critical section, so a pass can
+ * never take a claim it then fails to record, or release one whose ack was lost.
+ */
+const CLAIM_STORE_PATH = ".minsky/calibration-review-claims.json";
+
+async function loadClaims(workspacePath: string): Promise<CalibrationClaimStore> {
+  const { join } = await import("node:path");
+  const content = await readFileOrNull(join(workspacePath, CLAIM_STORE_PATH));
+  if (!content) return {};
+  try {
+    return JSON.parse(content) as CalibrationClaimStore;
+  } catch {
+    // Same posture as the watermark store: an unreadable file degrades to "no
+    // claims" rather than blocking every pass on a corrupt one.
+    return {};
+  }
+}
+
+async function saveClaims(workspacePath: string, store: CalibrationClaimStore): Promise<void> {
+  const { join } = await import("node:path");
+  await writeFileMkdir(
+    join(workspacePath, CLAIM_STORE_PATH),
+    `${JSON.stringify(store, null, 2)}\n`
+  );
+}
+
+/**
+ * This pass's actor identity, or null when the runtime cannot supply one.
+ *
+ * Null is a real outcome rather than a fallback to an invented id: a claim whose
+ * holder cannot be named is worse than no claim — a second pass would see it,
+ * stand down, and have nobody to attribute the work to. So an unidentifiable
+ * pass FAILS OPEN (claims nothing, blocks nobody) and says so in the result,
+ * which is the current behaviour and therefore not a regression.
+ */
+function resolveActorId(): string | null {
+  const agentId = process.env.CLAUDE_AGENT_ID;
+  if (agentId && agentId.trim()) return agentId.trim();
+  const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+  if (sessionId && sessionId.trim()) return `com.anthropic.claude-code:conv:${sessionId.trim()}`;
+  return null;
 }
 
 /**
@@ -577,7 +631,62 @@ export function registerCalibrationCommands(): void {
         // logs, not only pastThreshold. `--ack` below advances exactly this set
         // (mt#2878), so what an operator can discharge is BY CONSTRUCTION what
         // the cadence hook warns about.
-        const reviewDue = computeReviewDueLogs(results, watermarks, Date.now());
+        const reviewDueAll = computeReviewDueLogs(results, watermarks, Date.now());
+
+        // Sweep-time claims (mt#4164). Taken BEFORE the caller classifies
+        // anything, because classification is the expensive part and it is
+        // entirely upstream of any artifact a prose probe could have found —
+        // which is why that probe failed three times (R1/R2/R3).
+        //
+        // Read-merge-write under the watermark lock so a claim and the watermark
+        // it will later advance can never disagree.
+        const actorId = resolveActorId();
+        let claimedByOthers: string[] = [];
+        await withWatermarkLock(workspacePath, async () => {
+          const nowMs = Date.now();
+          // Pruning runs even for an unidentifiable pass (PR #3015 R1): it needs
+          // no actor id, and it is what keeps a dead holder's claim from
+          // outliving its staleness window in the file. An ack therefore always
+          // leaves the store tidy, which is what SC4 asks for.
+          const store = pruneStaleClaims(await loadClaims(workspacePath), nowMs);
+          const paths = reviewDueAll.map((d) => d.path);
+
+          if (!actorId) {
+            await saveClaims(workspacePath, store);
+            return;
+          }
+
+          const blocked = blockingClaims(store, paths, actorId, nowMs);
+          claimedByOthers = blocked.map((c) => c.logPath);
+
+          // Claim only what this pass will actually work on. Claiming a log
+          // another pass holds would overwrite its holder and defeat the
+          // mechanism.
+          const mine = paths.filter((p) => !claimedByOthers.includes(p));
+          const next = params.ack
+            ? // The ack is the END of a pass: release what this actor held
+              // rather than re-claiming it for a pass that is finishing.
+              releaseClaims(store, paths, actorId)
+            : withClaims(store, mine, actorId, new Date(nowMs).toISOString());
+          await saveClaims(workspacePath, next);
+        });
+
+        // A log another pass is actively classifying is dropped from THIS pass's
+        // review-due set — standing down means not classifying it.
+        //
+        // **The ack path is deliberately NOT filtered** (PR #3015 R1). A claim
+        // answers "who is WORKING"; the receipt answers "what was READ", and
+        // this task's own `## Scope` separates them precisely so they cannot be
+        // conflated. Filtering the ack set by concurrent claims conflates them:
+        // a pass that legitimately classified a log would be unable to record
+        // that fact because someone ELSE started working on it in the interim,
+        // silently discarding real review work. The receipt already bounds what
+        // an ack may advance (mt#3906), and `selectAckablePaths` plus the
+        // drift check (mt#3899) bound it further — the claim adds nothing there
+        // and only takes away.
+        const reviewDue = logsToActOn(reviewDueAll, claimedByOthers, params.ack === true, (d) =>
+          String(d.path)
+        );
 
         // Advance watermarks for review-due logs when --ack is set.
         //
@@ -721,6 +830,15 @@ export function registerCalibrationCommands(): void {
             // mt#3899: paths whose intended write was dropped because another
             // pass changed them mid-sweep. Empty on every uncontended run.
             driftedPaths,
+            // mt#4164: logs another pass is actively classifying right now.
+            // They are EXCLUDED from `reviewDue` above — this pass stands down
+            // on them. `driftedPaths` is the sibling AFTER-the-fact signal;
+            // this one fires before the work, which is the whole point.
+            claimedByOthers,
+            // True when the runtime could not name this pass, so no claim was
+            // taken and none was honoured. Reported rather than silent: a pass
+            // that cannot claim is running with the pre-mt#4164 collision risk.
+            claimsUnavailable: actorId === null,
             // mt#3906: the receipt for THIS read — pass it back as
             // `reviewToken` on the ack that follows.
             reviewToken,
@@ -754,6 +872,22 @@ export function registerCalibrationCommands(): void {
               `mid-sweep; their values stand: ${driftedPaths.join(", ")}`
             : "";
 
+        // mt#4164: the BEFORE-the-work sibling of the line above. A pass that
+        // sees this has not wasted anything yet, which is the difference the
+        // claim mechanism exists to make.
+        const claimedSuffix =
+          claimedByOthers.length > 0
+            ? `\nStood down on ${claimedByOthers.length} log(s) — another pass is classifying ` +
+              `them now:\n  ${describeBlockingClaims(
+                blockingClaims(
+                  await loadClaims(workspacePath),
+                  claimedByOthers,
+                  actorId ?? "",
+                  Date.now()
+                )
+              ).join("\n  ")}`
+            : "";
+
         // mt#3906: the tail the ack declined to advance over. A reviewer who
         // cannot see this number has to infer it from a later sweep, which is
         // how it went unnoticed for as long as it did.
@@ -785,6 +919,7 @@ export function registerCalibrationCommands(): void {
             clearedSuffix +
             skippedSuffix +
             driftedSuffix +
+            claimedSuffix +
             midPassSuffix +
             clampedSuffix +
             unreceiptedSuffix +
