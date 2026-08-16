@@ -85,20 +85,31 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)  |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
+| `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)              |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
 | `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
 
 ### Running the browser-driving scripts
 
-Twelve scripts here drive a real browser and share one preflight
+Thirteen scripts here drive a real browser and share one preflight
 (`lib/verify-preflight.ts`, mt#4149): `verify-cockpit-navigation-latency.ts`,
 `verify-cockpit-shell-scroll.ts`, `verify-conversation-footer-stack.ts`,
 `verify-conversation-live-tail.ts`, `verify-conversation-orientation.ts`,
 `verify-conversation-switcher-pinned.ts`, `verify-conversation-turn-target.ts`,
 `verify-driven-session-scrollport.ts`, `verify-interceptors-axes-render.ts`,
-`verify-session-film-camera.ts`, `verify-session-film-panes.ts`, and
-`verify-terminal-ask-render.ts`. Their shared prerequisites are worth stating (everything below is
-checked at startup — an ABSENT precondition exits 0 with a `SKIP:` line rather than failing).
+`verify-peek-pane-layout.ts`, `verify-session-film-camera.ts`,
+`verify-session-film-panes.ts`, and `verify-terminal-ask-render.ts`. Their shared prerequisites are
+worth stating (everything below is checked at startup — an ABSENT precondition exits 0 with a
+`SKIP:` line rather than failing).
+
+**Poll in-page conditions from OUTSIDE, one `Runtime.evaluate` per attempt (mt#4123).** A
+`Runtime.evaluate` binds to ONE execution context, and a context belongs to ONE document — so an
+async expression that loops internally stays pinned to whichever document existed when it started.
+A tab opened via `PUT /json/new` is typically still on the pre-navigation document at that moment,
+so an in-page wait loop polls a document the SPA never mounts into: it burns its full deadline and
+reports the element as missing, which reads exactly like a broken fixture rather than a timing bug.
+`verify-cockpit-shell-scroll.ts`'s `waitForShellMounted` and `verify-peek-pane-layout.ts`'s
+`pollUntil` are both shaped this way for that reason; copy the shape rather than the convenience.
 
 They exist because the component suite runs under happy-dom, which has **no layout engine**: every
 `clientHeight` / `scrollHeight` / `getBoundingClientRect()` reads 0 there, so no geometry assertion
