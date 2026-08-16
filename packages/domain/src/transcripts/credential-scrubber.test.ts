@@ -31,6 +31,12 @@ const FAKE_PEM_KEY = [
 ].join("\n");
 const FAKE_JWT = [`eyJ${"a".repeat(10)}`, `eyJ${"b".repeat(10)}`, `${"c".repeat(10)}`].join(".");
 const FAKE_PG_URL = "postgresql://fakeuser:fakepassword@db.example.invalid:5432/mydb";
+// mt#4159. The hex fixture mirrors the shape `.mcp.json` actually carried (64
+// hex chars, no vendor sigil); the b64 fixture exercises the rest of RFC 6750
+// §2.1's charset — `-`, `_`, `~`, `+`, `/`, `.` — so a body using the full
+// grammar is covered, not just the hex subset that prompted the shape.
+const FAKE_BEARER_HEX = "0123456789abcdef".repeat(4); // 64 chars
+const FAKE_BEARER_B64 = "FAKE-not-a-real-bearer.token_value~1+2/3";
 
 describe("credential-scrubber", () => {
   describe("CREDENTIAL_SHAPES", () => {
@@ -217,6 +223,127 @@ describe("credential-scrubber", () => {
       const { value, redactions } = scrubValueDeep(input);
       expect(value).toEqual(input);
       expect(redactions).toEqual([]);
+    });
+  });
+
+  // ── mt#4159 — the two shapes `.mcp.json`'s credentials slipped through ─────
+  //
+  // Found by reading `.mcp.json` while applying mt#4140: the file's
+  // `minsky-hosted` entry carries `"Authorization": "Bearer <64 hex>"`, which
+  // matched none of the eight shapes and ingested verbatim.
+  describe("mt#4159 — bearer tokens and the non-ghp GitHub prefixes", () => {
+    test("redacts a bearer token in an Authorization header", () => {
+      const { text, redactions } = scrubText(
+        `"headers": { "Authorization": "Bearer ${FAKE_BEARER_HEX}" }`
+      );
+      expect(text).not.toContain(FAKE_BEARER_HEX);
+      expect(text).toContain("[REDACTED:bearer-token:");
+      expect(redactions).toHaveLength(1);
+      expect(redactions[0]?.shape).toBe("bearer-token");
+    });
+
+    test("redacts a bearer token in a curl -H argument", () => {
+      const { text, redactions } = scrubText(
+        `curl -H 'Authorization: Bearer ${FAKE_BEARER_B64}' https://example.invalid/mcp`
+      );
+      expect(text).not.toContain(FAKE_BEARER_B64);
+      expect(redactions[0]?.shape).toBe("bearer-token");
+    });
+
+    // PR #3016 R1: the auth-scheme token is case-insensitive per RFC 7235 §2.1, so an
+    // emitter sending `BEARER` was leaving a real token unredacted.
+    test.each([
+      ["upper", "BEARER"],
+      ["lower", "bearer"],
+      ["mixed", "BeArEr"],
+    ])("redacts a bearer token with a %s-case scheme", (_label, scheme) => {
+      const { text, redactions } = scrubText(`Authorization: ${scheme} ${FAKE_BEARER_HEX}`);
+      expect(text).not.toContain(FAKE_BEARER_HEX);
+      expect(redactions).toHaveLength(1);
+      expect(redactions[0]?.shape).toBe("bearer-token");
+    });
+
+    // PR #3016 R1 read `[...+/-]` as a `+`-to-`/` range admitting a comma. It is not — a
+    // hyphen immediately before `]` is literal — but the charset boundary is worth pinning
+    // rather than re-deriving, since over-running a header separator would redact the
+    // NEXT header's name along with the token.
+    test("stops at a header separator and does not consume the comma", () => {
+      const input = `Authorization: Bearer ${FAKE_BEARER_HEX}, Next-Header: plain-value`;
+      const { text, redactions } = scrubText(input);
+      expect(redactions).toHaveLength(1);
+      expect(text).not.toContain(FAKE_BEARER_HEX);
+      expect(text).toContain(", Next-Header: plain-value");
+    });
+
+    test.each([
+      ["ghs (server-to-server)", `ghs_${"C".repeat(36)}`],
+      ["ghu (user-to-server)", `ghu_${"D".repeat(36)}`],
+      ["ghr (refresh)", `ghr_${"E".repeat(36)}`],
+    ])("redacts a %s GitHub token", (_label, token) => {
+      const { text, redactions } = scrubText(`token=${token}`);
+      expect(text).not.toContain(token);
+      expect(redactions[0]?.shape).toBe("github-token");
+    });
+
+    // mem#972: a shape that cannot tell a secret from its redaction reports
+    // every correctly-masking command as a leak. Each of these puts a character
+    // outside RFC 6750's charset immediately after the scheme.
+    test.each([
+      ["asterisk mask", "Authorization: Bearer ***"],
+      ["angle-bracket placeholder", "Authorization: Bearer <redacted>"],
+      ["shell variable", 'curl -H "Authorization: Bearer $MINSKY_TOKEN"'],
+      ["braced shell variable", 'curl -H "Authorization: Bearer ${MINSKY_TOKEN}"'],
+      ["scheme with no token", "the header uses the Bearer scheme"],
+      ["short token below the floor", "Authorization: Bearer abc123"],
+    ])("leaves a masked or token-less form untouched: %s", (_label, input) => {
+      const { text, redactions } = scrubText(input);
+      expect(text).toBe(input);
+      expect(redactions).toEqual([]);
+    });
+
+    // The over-redaction control: structurally similar, definitely not credentials.
+    test.each([
+      ["a git commit SHA", "merged as 28f8f54d0a1b2c3d4e5f60718293a4b5c6d7e8f9"],
+      ["a UUID", "session cecf26e4-cf15-41f9-8dcc-a2998475762b started"],
+      ["a sha256 digest", `sha256:${"ab".repeat(32)}`],
+    ])("does not redact %s", (_label, input) => {
+      const { text, redactions } = scrubText(input);
+      expect(text).toBe(input);
+      expect(redactions).toEqual([]);
+    });
+
+    // The single-pass ordering property the file docblock asserts: a more
+    // specific shape wins, and its `[REDACTED:...]` output is not re-matched by
+    // the bearer shape, so the value is redacted exactly once.
+    test("a GitHub token presented as a bearer is redacted once, by its own shape", () => {
+      const { text, redactions } = scrubText(`Authorization: Bearer ${FAKE_GITHUB_PAT}`);
+      expect(text).not.toContain(FAKE_GITHUB_PAT);
+      expect(redactions).toHaveLength(1);
+      expect(redactions[0]?.shape).toBe("github-token");
+      expect(text).not.toContain("[REDACTED:bearer-token:");
+    });
+
+    test("a JWT presented as a bearer is redacted once, by the jwt shape", () => {
+      const { text, redactions } = scrubText(`Authorization: Bearer ${FAKE_JWT}`);
+      expect(text).not.toContain(FAKE_JWT);
+      expect(redactions).toHaveLength(1);
+      expect(redactions[0]?.shape).toBe("jwt");
+    });
+
+    test("scrubValueDeep reaches a bearer token nested in a config-shaped object", () => {
+      const input = {
+        mcpServers: {
+          "minsky-hosted": {
+            type: "http",
+            url: "https://example.invalid/mcp",
+            headers: { Authorization: `Bearer ${FAKE_BEARER_HEX}` },
+          },
+        },
+      };
+      const { value, redactions } = scrubValueDeep(input);
+      expect(redactions).toHaveLength(1);
+      expect(redactions[0]?.shape).toBe("bearer-token");
+      expect(JSON.stringify(value)).not.toContain(FAKE_BEARER_HEX);
     });
   });
 });

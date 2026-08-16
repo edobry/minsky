@@ -42,9 +42,17 @@ Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` 
 
 **Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
 CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
-SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
-purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
-cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file CARRIES
+one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`, `.npmrc`, `.netrc`, `.mcp.json`). Use a
+check that cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a
+variable.
+
+**CARRIES, not "exists to hold" (mt#4159).** This sentence read "the file's purpose is to HOLD one"
+for two guard extensions, and that narrower test excludes most of its own list: `.npmrc` is a
+registry config, `.netrc` a machine-defaults file, `.mcp.json` an MCP server declaration. All three
+are config files that happen to carry a credential — which is what makes them easy to read without
+thinking, and why `.mcp.json` printed a live bearer token into a transcript before it was listed.
+Ask what the file CONTAINS, never what it is for.
 
 **A process listing is the third channel (mt#3850).** `ps`/`top`/`pgrep` print other processes'
 **argv**, which is world-readable — so a secret ANY process passed as a command-line argument lands

@@ -826,9 +826,17 @@ Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` 
 
 **Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
 CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
-SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
-purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
-cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file CARRIES
+one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`, `.npmrc`, `.netrc`, `.mcp.json`). Use a
+check that cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a
+variable.
+
+**CARRIES, not "exists to hold" (mt#4159).** This sentence read "the file's purpose is to HOLD one"
+for two guard extensions, and that narrower test excludes most of its own list: `.npmrc` is a
+registry config, `.netrc` a machine-defaults file, `.mcp.json` an MCP server declaration. All three
+are config files that happen to carry a credential — which is what makes them easy to read without
+thinking, and why `.mcp.json` printed a live bearer token into a transcript before it was listed.
+Ask what the file CONTAINS, never what it is for.
 
 **A process listing is the third channel (mt#3850).** `ps`/`top`/`pgrep` print other processes'
 **argv**, which is world-readable — so a secret ANY process passed as a command-line argument lands
@@ -1411,10 +1419,14 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
-  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
+  is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  the explicit list, and its admission criterion is now "reading the file EMITS a credential",
+  not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
+  `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
   Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
   secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
   DB connection string by design) — invoking one directly, via any interpreter or its own
@@ -1491,7 +1503,7 @@ Detail: `guard-dispatcher-framework.md`.
 - **Turn-end-unwalked-task** — Stop scan (mt#3536): the turn minted a task id and ended with no status-set/session-start/dispatch/ask naming it. Tool-call-state-keyed, so it sees the SILENT stop. `MINSKY_ACK_UNWALKED_TASK`.
 - **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
 - **Negative-existence-claim** (mt#3918) — a claim of ABSENCE written into a durable artifact, justified by a same-turn search returning <=1 hit, citing a DONE task. Matcher in `packages/domain/src/detectors/negative-existence-claim.ts` (ADR-024 Rung 1; mt#3999 consumes it). Evaluation stream, so the miss rate is measurable. Calibration-first. `MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM`.
-- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Posture per finding class — `bare-short-id`, `malformed-target`, `raw-uuid-label` LIVE; bare `mt#N`/`PR #N` RECORD-ONLY, since mt#2565's linkifier repairs those. Per-FINDING since mt#3960; advisory chain-capped at one follow-up (mt#3860). `MINSKY_ACK_BARE_ENTITY_REF`. Detail: `turn-end-bare-ref-scan.md`.
+- **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Per finding class — `bare-short-id`, `malformed-target`, `raw-uuid-label` LIVE; bare `mt#N`/`PR #N` and `author-linked-short-id` (mt#4160) RECORD-ONLY. Per-FINDING since mt#3960; chain-capped (mt#3860). `MINSKY_ACK_BARE_ENTITY_REF`. Detail: `turn-end-bare-ref-scan.md`.
 - **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
 - **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
