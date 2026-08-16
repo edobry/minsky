@@ -1253,3 +1253,111 @@ export function extractLastUserMessage(lines: TranscriptLine[]): string {
   }
   return "";
 }
+
+/** A full 36-char canonical UUID. */
+const BINDING_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** An ADR-029 numeric short id, e.g. `mem#1045`. */
+const BINDING_SHORT_ID_RE = /^(?:ask|mem|ws)#\d+$/i;
+
+/**
+ * Harvest `<short id> -> <UUID>` bindings from the tool results in a transcript
+ * (mt#4160).
+ *
+ * ## Why the transcript rather than the database
+ *
+ * A consumer that needs to resolve a short id the display map does not hold
+ * (`short-id-map-cache.ts`) cannot simply query for it: that file's header
+ * records the measurement — `domain-bootstrap.ts` caps a hook process's
+ * Postgres connect at 2s against a measured cold connect of 4.3-5.5s, so "a DB
+ * read from hook context does not resolve slowly — it resolves to null every
+ * time." A resolver built that way would be inert in production while passing
+ * every injected-dependency test.
+ *
+ * The transcript needs no connection and is already resolved into
+ * `ctx.transcriptLines`. It is also the AUTHORITATIVE source for the population
+ * that matters: an id the map missed is one minted since the last sweep, and
+ * the call that minted it returned both halves of the binding in this very
+ * transcript.
+ *
+ * ## Why the pairing is keyed on VALUE SHAPE, not field names
+ *
+ * The two field names are not stable across tools and are in fact inverted
+ * between them: `memory_create` answers `{ id: <uuid>, shortId: "mem#1045" }`
+ * while `refs_status` answers `{ id: "mem#996", uuid: <uuid> }`. Keying on
+ * names would need a per-tool table that goes stale silently; keying on the
+ * shapes — one value that is a UUID, one that is a short id, in the same object
+ * — reads both, plus any future result object carrying the pair.
+ *
+ * ## Ambiguity fails OPEN, at two levels
+ *
+ * Within one object: a binding is recorded only when the object names EXACTLY
+ * ONE entity — one distinct UUID and one distinct short id among its own string
+ * values. An object carrying a second UUID (a `supersededBy`, a foreign key, a
+ * nested resource id) yields NOTHING rather than a guess, which is what keeps
+ * the pairing from depending on key order (PR #3018 R1).
+ *
+ * Across the transcript: if one short id is nonetheless seen bound to two
+ * different UUIDs, the binding is DROPPED.
+ *
+ * Callers treat an absent binding as "unresolved", so in every ambiguous case
+ * no suppression or rewrite happens for that id — the conservative direction.
+ */
+export function collectShortIdBindings(lines: TranscriptLine[]): Map<string, string> {
+  const bindings = new Map<string, string>();
+  const ambiguous = new Set<string>();
+
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+
+    // An object binds only when it names EXACTLY ONE entity: one distinct UUID
+    // and one distinct short id among its own string values (PR #3018 R1).
+    //
+    // Taking the first of each instead would make the pairing depend on key
+    // ORDER, which is arbitrary — a record carrying both `id` and a second uuid
+    // field like `supersededBy` would bind to whichever the serializer emitted
+    // first. Requiring uniqueness removes the ordering question rather than
+    // answering it, and it is the direction that fails OPEN: a second uuid
+    // yields NO binding, so the caller suppresses nothing.
+    //
+    // Distinctness (not raw count) is what the rule needs, because a legitimate
+    // record can repeat one value across fields — `refs_status` emits the same
+    // short id as both `ref` and `id` on every row.
+    const uuids = new Set<string>();
+    const shortIds = new Set<string>();
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      if (typeof value !== "string") continue;
+      if (BINDING_UUID_RE.test(value)) uuids.add(value.toLowerCase());
+      else if (BINDING_SHORT_ID_RE.test(value)) shortIds.add(value.toLowerCase());
+    }
+    const uuid = uuids.size === 1 ? [...uuids][0] : undefined;
+    const shortId = shortIds.size === 1 ? [...shortIds][0] : undefined;
+    if (uuid !== undefined && shortId !== undefined) {
+      const existing = bindings.get(shortId);
+      if (existing !== undefined && existing !== uuid) {
+        ambiguous.add(shortId);
+      } else {
+        bindings.set(shortId, uuid);
+      }
+    }
+
+    for (const value of Object.values(node as Record<string, unknown>)) visit(value);
+  };
+
+  for (const line of lines) {
+    const content = line.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_result") continue;
+      const parsed = parseResultJson(extractToolResultText(block["content"]));
+      if (parsed !== undefined) visit(parsed);
+    }
+  }
+
+  for (const key of ambiguous) bindings.delete(key);
+  return bindings;
+}
