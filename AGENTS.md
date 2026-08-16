@@ -939,6 +939,23 @@ enters the transcript" in a task spec; the record's sibling `toolUseResult` fiel
 and our ingest simply drops it (mt#2583). Why this class survives checks that catch a wrong value,
 plus worked examples: `docs/rules-rationale/claim-confidence.md §Absence in a derived view`.
 
+**Program OUTPUT is a derived view too, and a grep you ran over it is one you BUILT (mt#4121).**
+Every example above is DATA-shaped — a parsed record, a type signature, a screenshot — so the bound
+is easy to honor while reading a data structure and easy to walk past while reading a run log. Two
+output-shaped forms, both from one session (2026-08-13). **A filter drops the structure that BOUND a
+line to its context:** a `grep -E "^\(fail\)|timed out"` over a test log put a `(fail)` from one
+block beside a `timed out` from another, and the pairing read as one record — it was an artifact of
+the filter. **A missing log line is a claim about the LOGGER, not about the code path:** "the handler
+logs there, no such line appeared, so it never ran" went into a spec as an elimination retiring two
+candidate causes, while `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts:46`, set by
+`tests/setup.ts:145`) silences winston's Console under the in-process harness (mt#2975). The code
+logged; the harness swallowed it. The tell in the second: the same turn had CORRECTLY established
+that the route uses the UNMOCKED logger, and that true fact was used to license "so its output would
+have appeared" — when that module is precisely the one carrying the silencing. **A verified fact
+adjacent to the question makes the inference feel checked.** Ask what the view CANNOT show before
+treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
+response body, not the run log you filtered.
+
 **Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
 phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
 accessor, the transcript is the source. It presents as introspection rather than a lookup, and is

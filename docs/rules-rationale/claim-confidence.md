@@ -265,6 +265,49 @@ The third is the originating incident for the rule change: it is a verbatim viol
 capability-shaped bound mt#3162 had already shipped, missed because the claim's surface was data
 rather than capability.
 
+### Worked examples — output-shaped (2026-08-13, one session)
+
+Every row above is DATA-shaped: the derived view is a rendering of a data structure. The family
+recurred twice past those fixes on a different shape — **the derived view was a program's emitted
+OUTPUT**, and in the first case, a grep the agent had built over it itself.
+
+| Derived view read                                                    | Primary source not read                     | Wrong conclusion                                                                                                   |
+| -------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| A `grep -E "^\(fail\)\|timed out"` over a run log                    | the run log's own adjacency, in the file    | "this test fails on a `waitFor` timeout" — the two lines came from different blocks; the file has no `waitFor`     |
+| The absence of an `[changesets] … internal error` line in run output | the HTTP response body the handler produced | "the handler's own catch never ran, so the 500 came from a layer above" — the body was that catch's text, verbatim |
+
+**Why a grep is the harder case.** The other views in this section were built by someone else — a
+parser, a type system, a renderer — so it is at least possible to ask what they were built to show.
+A grep is one you construct in the moment, to answer the question you are already asking, which
+makes its output feel like the log rather than a view of it. What it drops is not a field but a
+RELATION: in a bun test run, a `(fail)` line and the `error:` block above it are bound by adjacency
+in the file, and a filter that selects both patterns puts unrelated lines next to each other with
+the pairing intact-looking. That claim went into two task specs — mt#4086's, and mt#3501's, where it
+became evidence that a different task's failure class was broader than it is. One file open
+falsified it.
+
+**Why the second survived a correct finding.** The elimination rested on: the route logs on that
+path → no such line appeared → the path did not execute. The middle step is a claim about the
+LOGGER and was never checked. `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts:46`, read
+at `:77`, set by `tests/setup.ts:145`) silences winston's Console transport under the in-process
+harness (mt#2975) — the code logged and the harness swallowed it. The aggravating detail is that the
+same turn had CORRECTLY established that the route imports the UNMOCKED `@minsky/shared/logger`, and
+that true finding was used to license "so its output would have appeared" — when that module is
+precisely the one carrying the silencing. **A verified fact adjacent to the question makes the
+inference feel checked**, which is why this one shipped as a _second elimination_ retiring two
+candidate causes rather than as a hypothesis. The falsifier cost one run: capture the response body.
+
+**What the detector could not do about either.** `negative-existence-claim` (mt#3918) was the
+shipped containment and reached neither, though not for the reason first recorded. The original
+diagnosis blamed its required DONE-task conjunct; measured against the matcher and against the
+detector's full evaluation stream (172 turns, 2026-08-12 → 08-16), that conjunct has never once
+suppressed a candidate, and both recurrences fail conjunct 1 instead. The corpus's `never`-family
+patterns are present-tense (`never runs` / `never fires` / `never executes`), while a post-hoc
+diagnosis is written in the simple past — `never ran` matches nothing. And the first recurrence
+asserts a mechanism is PRESENT, so no negation-keyed corpus can reach it at all. mt#4162 carries the
+measurement of that recall-miss rate and the rung decision it gates; ADR-024 and the matcher's own
+docblock both refuse the obvious repair of widening the phrase list.
+
 ### The check
 
 Before writing a negative into a durable artifact, name the view you actually read and ask whether
