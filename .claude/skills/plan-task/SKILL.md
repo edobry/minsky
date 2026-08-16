@@ -874,9 +874,10 @@ this criterion makes NO claim of automated coverage. **No gate in this battery i
 enforced today** — but not because the mechanization work was abandoned, which is what this
 paragraph used to imply by naming CLOSED mt#1541 as the reason.
 
-What actually shipped: mt#1541's child **mt#1575** built a live policy-coverage detector
-(`packages/domain/src/detectors/policy-coverage/`, thousands of invocations a week). It does not
-cover this battery, for two reasons worth knowing before you spec anything here. Its corpus
+What actually shipped: mt#1541's child **mt#1575** built a live policy-coverage detector at
+`packages/domain/src/detectors/policy-coverage/`. Its current liveness is a measurement, not a
+figure to quote here — `bun scripts/check-coverage-receipts.ts` reports it. It does not cover this
+battery, for two reasons worth knowing before you spec anything here. Its corpus
 (`corpus-loader.ts`) reads task specs, `CLAUDE.md`, `.claude/rules/*` + `.minsky/rules/*` and
 memories — **not the skills tree**, where these gates live. And it decides a different question:
 per ADR-008 §Router, whether policy names an action's category AND its authority.
