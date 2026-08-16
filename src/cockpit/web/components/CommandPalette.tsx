@@ -73,6 +73,8 @@ interface PaletteSession {
 interface PaletteAsk {
   type: "ask";
   id: string;
+  /** `ask#N` (ADR-029) — null for legacy rows predating the backfill. */
+  shortId: string | null;
   title: string;
   kind: string;
   parentTaskId: string | null;
@@ -146,7 +148,12 @@ const PAGES: PalettePage[] = [
   },
   { type: "page", path: "/tasks", label: "Task List", description: "Flat sortable task table" },
   { type: "page", path: "/tasks/graph", label: "Task Graph", description: "Dependency graph view" },
-  { type: "page", path: "/changesets", label: "Changesets", description: "Active PRs across sessions" },
+  {
+    type: "page",
+    path: "/changesets",
+    label: "Changesets",
+    description: "Active PRs across sessions",
+  },
   { type: "page", path: "/asks", label: "Asks", description: "Pending principal-attention asks" },
   { type: "page", path: "/activity", label: "Activity", description: "System event log" },
   {
@@ -172,7 +179,6 @@ const PAGES: PalettePage[] = [
 // ---------------------------------------------------------------------------
 // Data fetchers
 // ---------------------------------------------------------------------------
-
 
 function extractSessions(data: WidgetData | undefined): PaletteSession[] {
   if (!data || data.state !== "ok") return [];
@@ -204,24 +210,50 @@ function extractSessions(data: WidgetData | undefined): PaletteSession[] {
     }));
 }
 
-function extractAsks(data: WidgetData | undefined): PaletteAsk[] {
-  if (!data || data.state !== "ok") return [];
-  const payload = data.payload as {
-    cohort?: {
-      id: string;
-      title: string;
-      kind: string;
-      parentTaskId?: string;
-    }[];
-  };
-  if (!Array.isArray(payload?.cohort)) return [];
-  return payload.cohort.map((a) => ({
-    type: "ask" as const,
-    id: a.id,
-    title: a.title,
-    kind: a.kind,
-    parentTaskId: a.parentTaskId ?? null,
-  }));
+/**
+ * The palette's ask index — pending AND terminal (mt#4095).
+ *
+ * Sourced from `GET /api/asks?state=...&summary=true`, not from the attention
+ * widget's cohort. That cohort is the radiator feed (pending operator asks in
+ * the active service window), so this palette advertised "Search ... asks ..."
+ * while being structurally unable to find one the operator had already
+ * resolved — which is precisely when someone reaches for search.
+ *
+ * Preloaded and filtered client-side by cmdk, matching how the palette already
+ * treats tasks (`fetchTaskIndex` loads the full list). `summary=true` is what
+ * makes that affordable: a full row carries its question body and options at
+ * ~3.3 KB, a summary row is scalars.
+ *
+ * Fails open to `[]` — an asks-endpoint hiccup must not break palette search
+ * for the other entity types.
+ */
+async function fetchPaletteAsks(): Promise<PaletteAsk[]> {
+  try {
+    const params = new URLSearchParams({
+      // Both halves in one request. `suspended` is the pending queue; the
+      // terminal alias expands to closed/cancelled/expired, because someone
+      // hunting a resolved ask does not know which of the three it landed in.
+      state: "suspended,terminal",
+      summary: "true",
+      limit: "2000",
+    });
+    const res = await fetch(`/api/asks?${params.toString()}`);
+    if (!res.ok) return [];
+    const data = (await res.json()) as {
+      asks?: { id: string; shortId?: string; title: string; kind: string; parentTaskId?: string }[];
+    };
+    if (!Array.isArray(data?.asks)) return [];
+    return data.asks.map((a) => ({
+      type: "ask" as const,
+      id: a.id,
+      shortId: a.shortId ?? null,
+      title: a.title,
+      kind: a.kind,
+      parentTaskId: a.parentTaskId ?? null,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 function extractMemories(data: WidgetData | undefined): PaletteMemory[] {
@@ -346,9 +378,11 @@ export function CommandPalette() {
     staleTime: 30_000,
   });
 
-  const attentionQuery = useQuery<WidgetData, Error>({
-    queryKey: ["attention"],
-    queryFn: () => fetchWidgetData("attention"),
+  // Distinct key from ["attention"] — that one is the radiator widget's
+  // payload and carries pending asks only (mt#4095).
+  const asksQuery = useQuery<PaletteAsk[], Error>({
+    queryKey: ["palette", "asks"],
+    queryFn: fetchPaletteAsks,
     enabled: open,
     staleTime: 30_000,
   });
@@ -375,7 +409,7 @@ export function CommandPalette() {
     ...t,
   }));
   const sessions = extractSessions(agentsQuery.data);
-  const asks = extractAsks(attentionQuery.data);
+  const asks = asksQuery.data ?? [];
   const memories = extractMemories(memoriesQuery.data);
   const conversations = extractConversations(conversationsQuery.data);
 
@@ -532,13 +566,15 @@ export function CommandPalette() {
               </CommandGroup>
             )}
 
-            {/* Asks */}
+            {/* Asks. The match string carries `shortId` (mt#4095) — cmdk
+                filters on `value`, so typing `ask#7754` can only find a row
+                whose value contains it, and before mt#4095 it never did. */}
             {asks.length > 0 && (
               <CommandGroup heading="Asks">
                 {asks.map((ask) => (
                   <CommandItem
                     key={ask.id}
-                    value={`ask ${ask.id} ${ask.title} ${ask.kind}`}
+                    value={`ask ${ask.shortId ?? ""} ${ask.id} ${ask.title} ${ask.kind}`}
                     onSelect={() => handleSelect(ask)}
                   >
                     <TypeBadge type="ask" />

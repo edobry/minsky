@@ -57,6 +57,7 @@
  */
 
 import { log } from "@minsky/shared/logger";
+import { readProcessMemory } from "@minsky/shared/process-memory";
 
 /** Default poll interval (ms) for the parent-death watcher. */
 export const DEFAULT_PARENT_DEATH_POLL_INTERVAL_MS = 5_000;
@@ -309,6 +310,31 @@ export function wireOrphanExitWatchers(options: WireOrphanExitWatchersOptions): 
  * ~7x below the SMALLEST of the three processes that took the machine
  * down. Capping the 2026-08-08 giants here would have held them to ~6 GB
  * combined instead of ~130 GB.
+ *
+ * ## Restated for the unit change (mt#4104)
+ *
+ * Every figure above is in RSS. The reading is now `phys_footprint` (macOS) /
+ * `VmRSS + VmSwap` (Linux), and the two are NOT interconvertible — RSS counts
+ * clean file-backed pages the kernel does not charge the task, and misses
+ * swapped-out pages it does.
+ *
+ * Re-measured 2026-08-13 across 11 live `mcp start` processes plus the cockpit
+ * daemon: the idle band is **210-413 MB** in footprint units, against mt#3973's
+ * RSS-measured 427-644 MB. The band is both LOWER and tighter — the same two
+ * processes read 44-56 MB RSS against 215-384 MB footprints, so RSS was
+ * scattering the band in both directions rather than tracking it.
+ *
+ * **2048 MB is deliberately KEPT.** It now sits ~5x above the band top rather
+ * than the ~4.5x computed above, so the unit change GAINS headroom rather than
+ * losing it, and the ceiling's job is to bound a runaway well short of machine
+ * exhaustion — not to sit tight against the idle band, where the only thing a
+ * lower number buys is false positives. The bound that mattered is unchanged:
+ * still below mt#3764's 4083 MB orphan, still far below the pathological tail.
+ *
+ * **Not made per-platform, and here is the limit of that claim:** only macOS
+ * was measurable from where this was derived. The hosted Railway surface is
+ * Linux and its band is UNMEASURED; mt#3888 owns whether to arm the ceiling
+ * there and at what limit, and this band is not evidence about it.
  */
 export const DEFAULT_MEMORY_CEILING_MB = 2048;
 
@@ -318,29 +344,27 @@ export const DEFAULT_MEMORY_CEILING_POLL_INTERVAL_MS = 30_000;
 const BYTES_PER_MB = 1024 * 1024;
 
 /**
- * Read the current process's resident set size in bytes.
+ * Read the current process's swap-inclusive memory in bytes, or `null` when it
+ * could not be measured.
  *
- * `process.memoryUsage.rss()` is the cheap variant — it reads only RSS
- * rather than computing the whole heap breakdown, which matters because
- * this runs on an interval for the life of the process. It is present in
- * both Node and Bun, but the repo's ambient `process` shim
- * (`src/types/node.d.ts`) does not describe the callable property, hence
- * the cast — the same shim gap `getCurrentProcessPpid` above works
- * around. Falls back to the object form if the fast path is absent.
+ * Was `getCurrentProcessMemoryBytes`, reading `process.memoryUsage.rss()`
+ * (mt#4104). RSS was the wrong quantity in the most consequential direction: it
+ * FALLS as the OS swaps a process out, so the 2026-08-13 specimen read ~900 MB
+ * while holding 48.2 GB and never tripped a 2048 MB ceiling. Measured on the
+ * live fleet the same day, 2 of 11 MCP processes read 44-56 MB RSS against
+ * 215-384 MB footprints — the same inversion, already happening, just not yet
+ * at a dangerous scale.
+ *
+ * `null` rather than a fallback number: see `readProcessMemory`'s union.
  */
-export function getCurrentProcessResidentBytes(): number {
-  const proc = process as typeof process & {
-    memoryUsage: (() => { rss: number }) & { rss?: () => number };
-  };
-  if (typeof proc.memoryUsage.rss === "function") {
-    return proc.memoryUsage.rss();
-  }
-  return proc.memoryUsage().rss;
+export function getCurrentProcessMemoryBytes(): number | null {
+  const result = readProcessMemory(process.pid);
+  return result.ok ? result.bytes : null;
 }
 
 /**
  * Seconds this process has been running. Same ambient-shim gap as
- * `getCurrentProcessPpid` and `getCurrentProcessResidentBytes` — hoisted
+ * `getCurrentProcessPpid` and `getCurrentProcessMemoryBytes` — hoisted
  * here rather than cast at each call site, since both `start-command.ts`
  * and the proxy CLI need it for the breach record.
  */
@@ -356,20 +380,43 @@ export interface MemoryCeilingBreach {
 
 export interface ResidentMemoryCeilingWatcherOptions {
   ceilingBytes: number;
-  /** Returns the CURRENT resident bytes. Injected so tests don't depend on the real `process`. */
-  getResidentBytes: () => number;
+  /**
+   * Returns the process's swap-inclusive memory, or `null` when it could not be
+   * measured (mt#4104). Injected so tests don't depend on the real `process`.
+   *
+   * `null` is not zero and not "fine": an unmeasurable tick is skipped, because
+   * the alternative — substituting a number — is what let an RSS reading that
+   * collapses under swap pass for a healthy process while it held 48 GB.
+   */
+  getResidentBytes: () => number | null;
   pollIntervalMs?: number;
   /** Injectable so tests can assert without real timers. Defaults to `setInterval`/`clearInterval`. */
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  /**
+   * Keep polling after a breach instead of disarming (mt#4112).
+   *
+   * The one-shot default is correct for the original caller, which EXITS on
+   * breach — repeat firing during its own teardown would be noise. It is wrong
+   * for a supervisor that OUTLIVES the process it is measuring: the stdio
+   * proxy kills and respawns its child, so a one-shot watcher would bound the
+   * first runaway and then sit disarmed for the rest of the proxy's lifetime,
+   * leaving every subsequent child unguarded. That failure is invisible —
+   * nothing errors, and the first kill looks like the mechanism working.
+   *
+   * A repeating watcher can fire again while the caller is still handling the
+   * previous breach, so a caller that opts in owns its own re-entrancy guard.
+   */
+  repeatAfterBreach?: boolean;
   onCeilingExceeded: (breach: MemoryCeilingBreach) => void;
 }
 
 /**
  * Poll resident memory and fire `onCeilingExceeded` the first time it is
- * at or above `ceilingBytes`. Fires at most once per watcher, mirroring
- * `startParentDeathWatcher`'s one-shot semantics — the process is exiting,
- * so repeat firing during teardown would be noise.
+ * at or above `ceilingBytes`. Fires at most once per watcher by default,
+ * mirroring `startParentDeathWatcher`'s one-shot semantics — the process is
+ * exiting, so repeat firing during teardown would be noise. Pass
+ * `repeatAfterBreach` when the caller survives the breach (mt#4112).
  */
 export function startResidentMemoryCeilingWatcher(
   options: ResidentMemoryCeilingWatcherOptions
@@ -382,9 +429,14 @@ export function startResidentMemoryCeilingWatcher(
   const timer = setIntervalFn(() => {
     if (stopped) return;
     const residentBytes = options.getResidentBytes();
+    // Skip, do not substitute (mt#4104). An unmeasurable tick tells us nothing;
+    // treating it as 0 would silently disarm the ceiling for the whole run.
+    if (residentBytes === null) return;
     if (residentBytes >= options.ceilingBytes) {
-      stopped = true;
-      clearIntervalFn(timer);
+      if (!options.repeatAfterBreach) {
+        stopped = true;
+        clearIntervalFn(timer);
+      }
       options.onCeilingExceeded({ residentBytes, ceilingBytes: options.ceilingBytes });
     }
   }, pollIntervalMs);
@@ -445,7 +497,18 @@ export function shouldArmMemoryCeilingWatcher(decision: MemoryCeilingArmDecision
 
 export interface WireMemoryCeilingWatcherOptions {
   initialPpid: number;
-  getResidentBytes?: () => number;
+  /**
+   * Override the memory reader. `null` means "could not measure" and is
+   * propagated to the watcher, which skips that tick (mt#4104).
+   *
+   * PR #2968 R1: this stayed `() => number` while the watcher it feeds moved to
+   * `() => number | null`. It typechecked — the default `getCurrentProcessMemoryBytes`
+   * widens the union at the call site — so nothing failed; the cost was that a
+   * caller could not inject a null-returning reader through this seam at all,
+   * which is exactly the new behavior. A type that compiles and still forbids
+   * the intended use is the shape this note exists to prevent recurring.
+   */
+  getResidentBytes?: () => number | null;
   /**
    * Names the process class in the breach record — `"mcp start"` or
    * `"mcp proxy"`. The panic stackshot that motivated this carried no
@@ -494,7 +557,7 @@ export function wireMemoryCeilingWatcher(
 
   return startResidentMemoryCeilingWatcher({
     ceilingBytes,
-    getResidentBytes: options.getResidentBytes ?? getCurrentProcessResidentBytes,
+    getResidentBytes: options.getResidentBytes ?? getCurrentProcessMemoryBytes,
     pollIntervalMs: parsePositiveIntEnv(env.MINSKY_MCP_MEMORY_CEILING_POLL_MS),
     setIntervalFn: options.setIntervalFn,
     clearIntervalFn: options.clearIntervalFn,

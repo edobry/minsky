@@ -47,10 +47,12 @@
  * announces "mt#3174, Cockpit entity-reference layer…" while the row still
  * renders just the id.
  */
-import type { ReactNode } from "react";
+import type { ReactNode, MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { usePeek, classifyRefClick, rememberPeekOpener } from "../lib/peek";
+import { ENTITY_REF_ATTR } from "../lib/peek-dismiss";
 import { useResolvedEntityLabel, type EntityLabelInfo } from "../lib/use-entity-index";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "./ui/hover-card";
 import { statusStyle } from "../lib/status-colors";
@@ -160,6 +162,7 @@ function EntityHoverContent({
 export function EntityRef({ type, id, children, appendLabel, search, className }: EntityRefProps) {
   const info = useResolvedEntityLabel(type, id);
   const to = `${entityToPath(type, id)}${search ?? ""}`;
+  const { openPeek, openPeekHolding } = usePeek();
 
   // Children mode with appendLabel: matched text verbatim, then the truncated
   // label. With no resolved label the appended span is absent entirely, so the
@@ -187,10 +190,42 @@ export function EntityRef({ type, id, children, appendLabel, search, className }
     ? `${id}, ${info.label}${info.status ? `, ${info.status}` : ""}`
     : undefined;
 
+  // Peek on an ordinary click (mt#3694). The link's `to` is left exactly as it
+  // was: Cmd/Ctrl-click, middle-click and "open in new tab" must keep working,
+  // and they only do so on a real anchor with a real href — which is also the
+  // promote gesture, so it costs nothing to preserve and would be a real
+  // regression to swallow. `classifyRefClick` owns that branch.
+  //
+  // A ref carrying `search` addresses something WITHIN the entity (a specific
+  // conversation turn, mt#3791). A peek addresses the entity itself, so peeking
+  // one of those would silently drop the part the reference was pointing at —
+  // those keep navigating.
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (search) return;
+    const intent = classifyRefClick(event);
+    if (intent === "navigate") return;
+    event.preventDefault();
+    // Remember THIS anchor so closing the peek returns focus here rather than
+    // dropping it on document.body (mt#3694 R2). Captured before the open call,
+    // because `currentTarget` is nulled once React finishes dispatching.
+    rememberPeekOpener(event.currentTarget);
+    if (intent === "peek-holding") openPeekHolding({ type, id });
+    else openPeek({ type, id });
+  };
+
   return (
     <HoverCard openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
-        <Link to={to} className={cn(LINK_CLASS, className)} aria-label={accessibleName}>
+        <Link
+          to={to}
+          onClick={onClick}
+          className={cn(LINK_CLASS, className)}
+          aria-label={accessibleName}
+          // Exempts this anchor from the peek's outside-dismiss (mt#4143). Without it, an
+          // ordinary click here would dismiss the assembly on the way to replacing its
+          // contents, and a shift-click would dismiss the very pane it means to hold.
+          {...{ [ENTITY_REF_ATTR]: "true" }}
+        >
           {inline}
         </Link>
       </HoverCardTrigger>

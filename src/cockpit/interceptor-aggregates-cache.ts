@@ -225,10 +225,21 @@ export async function refreshInterceptorAggregates(): Promise<void> {
     return;
   }
 
+  // Read the registry BEFORE the canary batch: the canary lookup covers the
+  // UNION of the fire-log population and the declared one (mt#4057). A
+  // declared interceptor that has never fired is absent from `lifetime`
+  // entirely, so keying canary off `lifetime` alone would leave exactly the
+  // never-fired guards — the dormant case — permanently unverifiable.
+  const registryByGuard = await guarded("registry catalog artifact", async () =>
+    readRegistryByGuard()
+  );
+  const declaredNames = registryByGuard ? [...registryByGuard.keys()] : [];
+  const canaryNames = [...new Set([...lifetime.map((row) => row.guardName), ...declaredNames])];
+
   const canaryByGuard = await guarded("canary history", async () => {
     const repo = buildGuardCanaryHistoryRepository(db as PostgresJsDatabase);
     if (!repo) throw new Error("canary repository unavailable");
-    const statuses = await repo.getGuardStatuses(lifetime.map((row) => row.guardName));
+    const statuses = await repo.getGuardStatuses(canaryNames);
     const map = new Map<string, CanaryStatusJoin>();
     for (const [guardName, status] of statuses) {
       map.set(guardName, { ...status });
@@ -236,16 +247,13 @@ export async function refreshInterceptorAggregates(): Promise<void> {
     // Guards absent from the repository result carry never-verified implicitly
     // (guard-canary-history contract); make that explicit so a consumer never
     // confuses "no canary rows" with "canary source failed".
-    for (const row of lifetime) {
-      if (!map.has(row.guardName)) map.set(row.guardName, { state: "never-verified" });
+    for (const guardName of canaryNames) {
+      if (!map.has(guardName)) map.set(guardName, { state: "never-verified" });
     }
     return map;
   });
 
   const healthByGuard = await guarded("guard-health summary", async () => readHealthByGuard());
-  const registryByGuard = await guarded("registry catalog artifact", async () =>
-    readRegistryByGuard()
-  );
 
   cached = assembleInterceptorAggregates({
     computedAt: new Date(startedAt).toISOString(),
@@ -260,6 +268,7 @@ export async function refreshInterceptorAggregates(): Promise<void> {
     calibrationByGuard: calibration?.byGuard ?? null,
     registryByGuard,
     calibrationReviewDue: calibration?.reviewDue ?? null,
+    declaredNames,
   });
 }
 
@@ -306,12 +315,17 @@ export async function fetchGuardDetail(guardName: string): Promise<InterceptorDe
 
   const snapshot = cached;
   const snapshotRow = snapshot?.rows.find((r) => r.guardName === guardName);
+  const declaredOnlyRow = snapshot?.declaredOnlyRows.find((r) => r.guardName === guardName);
 
   if (decisionCounts.length === 0 && !snapshotRow) {
+    // Declared but never fired (mt#4057). Still unknown to the FIRE LOG — the
+    // flag stays true and the zero counts stay zero — but not unknown to the
+    // system: its canary state is what makes the dormant verdict possible, so
+    // return the declared-only row rather than a null that erases it.
     return {
       guardName,
       windowDays: CATALOG_WINDOW_DAYS,
-      row: null,
+      row: declaredOnlyRow ? { ...declaredOnlyRow, canary } : null,
       unknownToFireLog: true,
       snapshotComputedAt: snapshot?.computedAt ?? null,
     };

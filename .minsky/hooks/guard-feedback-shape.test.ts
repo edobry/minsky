@@ -268,6 +268,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
     expect(producing).toEqual(
       [
         "ask-routing-deferral-detector",
+        "block-bulk-process-kill",
         "block-secret-file-read",
         // mt#4002: the five calibration-first guards now produce measurable text
         // through `renderProbe`. Before that they were absent from this receipt
@@ -277,7 +278,9 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "calibration-review-cadence-detector",
         "causal-premise-detector",
         "chained-verification-commands",
+        "truncated-outcome-read",
         "check-guessed-session-path",
+        "cli-mcp-substitution",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
         "flakiness-control-detector",
@@ -366,6 +369,9 @@ type FeedbackShape =
 
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
+  // Fixed body plus at most six PIDs (`pids.slice(0, 6)` then `…`) — the cap is
+  // in `buildDenialReason`, so the message cannot grow with the kill's size.
+  "block-bulk-process-kill": "capped",
   "block-secret-file-read": "fixed",
   // The five calibration-first guards, newly visible to this receipt (mt#4002).
   // Until `renderProbe` existed they rendered nothing measurable, so none of
@@ -384,6 +390,13 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // longer (denial) directive branch (mt#3658).
   "flakiness-control-detector": WORST_CASE_CANARY,
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
+  // mt#4096: two interpolations, both bounded — the command is the pipeline stage
+  // (itself bounded by the shell) and the filter is one of two literal tokens.
+  "truncated-outcome-read": "capped",
+  // mt#4144: two interpolations, both a registry command id (a short dotted
+  // string) — the second is a pure transform of the first, so neither grows with
+  // the command being scanned.
+  "cli-mcp-substitution": "capped",
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation

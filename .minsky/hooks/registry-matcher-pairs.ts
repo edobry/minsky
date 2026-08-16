@@ -81,6 +81,67 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["check-guessed-session-path", "block-concurrent-bulk-mutation"],
   ["block-secret-file-read", "block-concurrent-bulk-mutation"],
   ["chained-verification-commands", "block-concurrent-bulk-mutation"],
+  // Fifth guard on the Bash/session_exec command string (mt#4081), and back to
+  // deciding purely from the text — but about a different property than any
+  // sibling: not what the command TOUCHES (a constructed path, a secret) nor
+  // how many results it CONFLATES (chained verification) nor whether a twin is
+  // already running (concurrent bulk-mutation), but how much live state a
+  // single call DESTROYS. Independent overrides; running all five is the point.
+  ["check-guessed-session-path", "block-bulk-process-kill"],
+  ["block-secret-file-read", "block-bulk-process-kill"],
+  ["chained-verification-commands", "block-bulk-process-kill"],
+  ["block-concurrent-bulk-mutation", "block-bulk-process-kill"],
+  // Sixth guard on the Bash/session_exec command string (mt#4096). Every sibling
+  // asks about the command's EFFECT — what it touches, how many results it
+  // conflates, whether a twin is running, how much it destroys. This one asks
+  // about the command's OUTPUT: whether the pipeline discards the outcome fields
+  // a later claim will rest on. It is the only one whose subject is the pipe
+  // TAIL rather than the leading command, and the only one that fires on a
+  // command that is otherwise entirely correct to run. Independent overrides;
+  // running all six is the point.
+  ["check-guessed-session-path", "truncated-outcome-read"],
+  ["block-secret-file-read", "truncated-outcome-read"],
+  ["chained-verification-commands", "truncated-outcome-read"],
+  ["block-concurrent-bulk-mutation", "truncated-outcome-read"],
+  ["block-bulk-process-kill", "truncated-outcome-read"],
+  // Sixth question about the same Bash/session_exec command string (mt#4144),
+  // and the first that is not about the command alone: every sibling above asks
+  // a property of WHAT the command does — a constructed path, a secret read, an
+  // unattributable exit, a truncated outcome field, a concurrent bulk mutation,
+  // a mass kill. This one asks what the command SUBSTITUTES FOR: it pairs the
+  // command against a generated CLI->MCP equivalence oracle and against session
+  // state (has any `mcp__minsky__*` call succeeded). Folding it into any sibling
+  // would put that session-state leg, whose false-positive surface is entirely
+  // unrelated to theirs, behind one calibration log and one override.
+  ["check-guessed-session-path", "cli-mcp-substitution"],
+  ["block-secret-file-read", "cli-mcp-substitution"],
+  ["chained-verification-commands", "cli-mcp-substitution"],
+  ["block-concurrent-bulk-mutation", "cli-mcp-substitution"],
+  ["block-bulk-process-kill", "cli-mcp-substitution"],
+  ["truncated-outcome-read", "cli-mcp-substitution"],
+  // Two guards on `session_pr_create`, both reading the SAME branch diff and
+  // both asking about operator-facing output — but about opposite failures, and
+  // neither subsumes the other. `stale-signal-sweep` (mt#3959) fires on a label
+  // the diff STOPPED emitting and looks OUTWARD, at durable artifacts still
+  // quoting the old meaning. `unrendered-result-field-scan` (mt#3913) fires on a
+  // field the diff ADDED and looks INWARD, at whether anything in the diff
+  // prints it at all. One is rendered-under-a-wrong-name, the other is
+  // rendered-nowhere; a diff can trip either, both, or neither. Independent
+  // overrides; running both is the point.
+  ["stale-signal-sweep", "unrendered-result-field-scan"],
+  // mt#4044's `evidence-record-provenance` shares `session_pr_create` with both
+  // guards above, and shares nothing else with either: it reads the COMMIT
+  // MESSAGE / PR BODY for an evidence record that claims a run, and joins that
+  // claim against the session transcript. The two above read the branch DIFF and
+  // never look at a transcript. Same seam, disjoint inputs, disjoint failures —
+  // so all three should run, and none subsumes another.
+  //
+  // Declared here on 2026-08-16 rather than at authoring time: this branch was
+  // approved on 2026-08-12, when its `session_pr_create` co-registration did not
+  // yet exist on main. mt#3913 landed the second guard afterwards, which is what
+  // turned a single registration into a pair needing a declaration.
+  ["stale-signal-sweep", "evidence-record-provenance"],
+  ["unrendered-result-field-scan", "evidence-record-provenance"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

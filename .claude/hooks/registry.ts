@@ -29,6 +29,8 @@ import type { DerivedBudgets } from "./types";
 import type { TranscriptLine } from "./transcript";
 import type { RecordedTurnAnchor } from "./turn-anchor-store";
 import { userPromptLine, toolUseLine, toolResultLine } from "./canary-transcript";
+import { COMMAND_STRING_GUARDS } from "./registry-command-string-guards";
+import { PR_CREATE_GUARDS } from "./registry-pr-create-guards";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -937,6 +939,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // The `session_pr_create` family (mt#3959, mt#3913) is spread in from its own
+  // module because this file is AT the 1500-line max-lines ceiling — see that
+  // module's header, and mt#4115 for the general split it is a down payment on.
+  ...PR_CREATE_GUARDS,
   // -------------------------------------------------------------------------
   // mt#4004 — the duplicate-check record claims a search that never ran.
   //
@@ -1003,76 +1009,6 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     },
   },
   // -------------------------------------------------------------------------
-  // mt#4044 — the same claim shape, on the two record types the sibling above
-  // cannot see, at the two seams it does not watch.
-  //
-  // mem#966 point 4 said to generalize past duplicate checks the day mt#4004
-  // shipped; the next instance landed the following day (mt#4024, commit
-  // 98e2ac5fd — a `Negative control —` block written before the control ran, and
-  // wrong). This registration adds the FIRST dispatcher wiring for
-  // `session_commit` / `session_pr_create` / `session_pr_edit`: settings.json
-  // carried those tool names already, but only on standalone hooks
-  // (`check-branch-fresh`, `dispatch-intent-write-gate`), never on the
-  // dispatcher — so no registry guard could reach a commit message until now.
-  //
-  // The two record types get DIFFERENT discharge rules, settled by replay rather
-  // than symmetry: "did a test run?" is discharged five times over in any real
-  // implementation session, so the negative-control half joins on the record's
-  // own SUBJECT against FAILING runs. Full argument in the module header.
-  // -------------------------------------------------------------------------
-  {
-    name: "evidence-record-provenance",
-    // RECORDER ONLY — no advisory, unlike the mt#4004 sibling, and the
-    // difference is measured rather than stylistic. Replaying the finished
-    // detector over 40 recent transcripts (`scripts/replay-evidence-provenance.ts
-    // <t> --all`) put the negative-control half at 20 fires in 80 records, and
-    // sampling those fires found them dominated by two false-positive classes
-    // neither join reaches: a prose record naming what was REVERTED rather than
-    // the test that went red, and a PR body edited in a later conversation than
-    // the run it reports. Injecting at that rate is the mem#719 failure mode —
-    // noise that trains the reader to discount the true positives. So this lands
-    // as an armed evidence stream and nothing else; the tune and the graduation
-    // to advisory are mt#4067, driven by the calibration data rather than by a
-    // second guess.
-    effects: [recorderEffect()],
-    // `advisory`: which prose counts as a record, and which call counts as its
-    // run, are both heuristics the calibration log exists to size. The join
-    // between them is exact.
-    tuningOwnership: "advisory",
-    event: "PreToolUse",
-    matcher:
-      "mcp__minsky__session_commit|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
-    module: () => import("./evidence-record-provenance").then((m) => ({ run: m.run })),
-    // Higher than the sibling's 5s because this one walks every tool RESULT body
-    // in the transcript, not just the tool-name list — the failing-run join needs
-    // what the calls returned. Still in-memory over lines the dispatcher already
-    // parsed; no IO of its own.
-    timeoutMs: 8000,
-    calibrationLog: "evidence-record-provenance",
-    // LOAD-BEARING, exactly as on the sibling (PR #2886 R1): `ctx.transcriptLines`
-    // is populated ONLY for a registration that declares this (D6), and the
-    // session's calls are this guard's entire discriminating half. Without it the
-    // guard records `skipped` on every live run — present, tested, green, inert.
-    needsTranscript: true,
-    // Calibration-first per ADR-024 and ask#6982; asserted in a test, not intended.
-    denyCapable: false,
-    attentionCost: { denialMessageSizeChars: 1100, optionCount: 1 },
-    // The canary carries a record claiming a control, in a canary process whose
-    // transcript is empty — so the healthy outcome is a RECORDED skip, this
-    // guard's honest answer to a claim it cannot adjudicate. Asserting `matched`
-    // would bake in the wrong reading of an absent transcript.
-    canary: {
-      input: {
-        tool_name: "mcp__minsky__session_commit",
-        tool_input: {
-          message:
-            "fix(mt#0): canary\n\nNegative control — `canaryProbeSubject`: reverted, observed failing.\n",
-        },
-      },
-      expects: "calibration",
-    },
-  },
-  // -------------------------------------------------------------------------
   // mt#3910 — chained verification commands, detected at the tool boundary.
   //
   // `terminal-command-best-practices.mdc §Verification Commands` bans this and
@@ -1121,6 +1057,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // The command-string guard family (mt#4096, mt#4144) lives in its own module:
+  // registry.ts is AT the max-lines ceiling and comments cannot buy room, so a
+  // shared-matcher family pays one import and one spread here. See mt#4115.
+  ...COMMAND_STRING_GUARDS,
   {
     name: "record-agent-dispatch",
     effects: [
@@ -1267,6 +1207,42 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
         },
       },
       expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4081: the ACT-path half of the operator-deferral family. Its sibling
+  // detector catches the DEFER path (prose handing a fixable thing to the
+  // operator); the act path emits no prose at all — the agent concludes a
+  // capability is unavailable and quietly builds a destructive workaround. On
+  // 2026-08-13 that workaround was `kill` on 26 live sessions, and the operator
+  // denied it by hand. See mem#707 R8.
+  // -------------------------------------------------------------------------
+  {
+    name: "block-bulk-process-kill",
+    // BOTH effects, for the same reason the sibling above declares both: the
+    // `overridden` outcome is the record most worth keeping, and a guard that
+    // declares only the enforcement effect has nowhere to land it.
+    effects: [enforcementEffect(), recorderEffect()],
+    // `invariant`: "do not mass-kill the operator's working set" is not a
+    // threshold anyone tunes. The escape is the documented per-call override.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./block-bulk-process-kill").then((m) => ({ run: m.run })),
+    // Pure string decision — no subprocess, no process table.
+    timeoutMs: 2000,
+    calibrationLog: "block-bulk-process-kill",
+    denyCapable: true,
+    // MEASURED against buildDenialReason(): 708 chars for the PID form (8 pids,
+    // the originating incident's shape), 699 for the process-name form. One
+    // remediation option (the MINSKY_ALLOW_BULK_PROCESS_KILL override).
+    attentionCost: { denialMessageSizeChars: 800, optionCount: 1 },
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: { command: "kill 111 222 333" },
+      },
+      expects: "deny",
     },
   },
   // -------------------------------------------------------------------------
@@ -1800,6 +1776,12 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     // not a proved ceiling — capping it is this guard's own follow-up.
     attentionCost: { denialMessageSizeChars: 1550, optionCount: 2 },
     canary: {
+      // No `session_id` here on purpose: `baseCanaryInput` already stamps
+      // `mt2889-canary-session` on EVERY canary (`canary-runner.ts:175`), and
+      // that literal is what lets a canary-written row be filtered out of a
+      // denominator — relevant since mt#3743, because this guard now writes an
+      // evaluation record on every turn it reaches a verdict on. Setting it
+      // again here would be a redundant restatement of the shared default.
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
         { type: "user", message: { role: "user", content: "first turn" } },
@@ -2528,10 +2510,24 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
     timeoutMs: 5000,
     calibrationLog: "untaken-action",
     denyCapable: false,
-    // False by design (PR #2293 R1): detection reads last_assistant_message, and
-    // the dedup key is derived from that message — NOT from the transcript,
-    // whose absent-case default would suppress the phrase session-wide.
-    needsTranscript: false,
+    // True since mt#4063, for the SUPPRESSION signal only. PR #2293 R1's
+    // reasoning for setting this false still holds and is unchanged: detection
+    // reads `last_assistant_message`, and the dedup key is derived from that
+    // message — NOT from the transcript, whose absent-case default would
+    // suppress the phrase session-wide. Both remain message-derived.
+    //
+    // What the transcript is read for is the armed-watcher suppression, whose
+    // absent-case default runs the OTHER way: no transcript means no
+    // tool-call evidence, which means no suppression, which means the guard
+    // fires exactly as it did before. That asymmetry is what makes the read
+    // safe here and is pinned by a test ("with no transcript in context the
+    // guard behaves exactly as before"), so the canary below — which carries
+    // no `transcriptLines` and expects `warn` — stays valid unchanged.
+    //
+    // Marginal cost is ~zero: `resolveDispatchContext` resolves the transcript
+    // once per dispatch, and the sibling `turn-end-unwalked-task-scan` already
+    // requests it on this same Stop event.
+    needsTranscript: true,
     attentionCost: { denialMessageSizeChars: 450, optionCount: 2 },
     canary: {
       input: {

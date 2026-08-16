@@ -19,11 +19,15 @@ import {
   isPgRetryableConnectionError,
 } from "@minsky/domain/persistence/postgres-retry";
 import {
+  armEntityThreadBootWork,
   deriveAgentStopReason,
+  deriveAgentStopReasonWithPersisted,
+  describeEntityThreadArmOutcome,
   mountEntityThreadRoutes,
   parseEntityType,
   parseMessageBody,
   supportsOriginSeeding,
+  type EntityThreadArmOutcome,
 } from "./entity-threads";
 
 describe("parseEntityType", () => {
@@ -224,6 +228,84 @@ describe("deriveAgentStopReason (mt#4037)", () => {
 
   test("no record at all is UNKNOWN, not a restart", () => {
     expect(deriveAgentStopReason(LOCAL_ID, registryWith(undefined))).toBeUndefined();
+  });
+});
+
+/**
+ * mt#4093 — the registry-only form above says nothing in the one case that
+ * matters most after a restart: an ABSENT record.
+ *
+ * Boot reconciliation loads only non-terminal rows and may not run at all, so
+ * "no record" is routine — and it renders identically to a thread that never
+ * had an agent. The persisted row settles it, and the row is the same evidence
+ * boot reconciliation would have built its record from.
+ */
+describe("deriveAgentStopReasonWithPersisted (mt#4093)", () => {
+  const LOCAL_ID = "entity-thread:ask:a902cba7";
+  const EMPTY_REGISTRY = { get: () => undefined } as never;
+  const db = {} as never;
+
+  test("an absent record falls back to the persisted row and reports the restart", async () => {
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () =>
+        ({ localId: LOCAL_ID, status: "spawned", harnessSessionId: "1b355295" }) as never,
+    });
+    // A row naming a conversation IS resumable — the next message resumes it,
+    // which is exactly what `cockpit-restart` already means to the panel.
+    expect(reason).toBe("cockpit-restart");
+  });
+
+  test("a persisted unrecoverable verdict is reported as such", async () => {
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () =>
+        ({ localId: LOCAL_ID, status: "unrecoverable", harnessSessionId: "1b355295" }) as never,
+    });
+    expect(reason).toBe("unrecoverable");
+  });
+
+  test("a row that never linked a conversation stays UNKNOWN", async () => {
+    // There is nothing to resume, so telling the operator "send anything to
+    // pick it back up" would be false.
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () =>
+        ({ localId: LOCAL_ID, status: "spawned", harnessSessionId: null }) as never,
+    });
+    expect(reason).toBeUndefined();
+  });
+
+  test("no row at all is still UNKNOWN", async () => {
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry: EMPTY_REGISTRY,
+      getPersisted: async () => null,
+    });
+    expect(reason).toBeUndefined();
+  });
+
+  test("a registry record present is answered by the registry — the store is not consulted", async () => {
+    let consulted = 0;
+    const registry = {
+      get: (id: string) =>
+        id === LOCAL_ID
+          ? { localId: LOCAL_ID, status: "exited", proc: undefined, harnessSessionId: "1b355295" }
+          : undefined,
+    } as never;
+
+    const reason = await deriveAgentStopReasonWithPersisted(LOCAL_ID, db, {
+      registry,
+      getPersisted: async () => {
+        consulted += 1;
+        return { localId: LOCAL_ID, status: "spawned", harnessSessionId: "1b355295" } as never;
+      },
+    });
+
+    // An `exited` record is the actuator's own verdict about itself. Re-deriving
+    // from the row could only disagree with it — and would turn "the agent
+    // finished" into "send anything to pick it back up".
+    expect(reason).toBeUndefined();
+    expect(consulted).toBe(0);
   });
 });
 
@@ -482,5 +564,94 @@ describe("DB-unavailable status classification on the routes", () => {
       body: JSON.stringify({ text: "what is this?" }),
     });
     expect(res.status).toBe(500);
+  });
+});
+
+/**
+ * Boot-work arming (mt#4133).
+ *
+ * Three of the four outcomes below used to produce NO operator-visible line. The `catch` logged
+ * at `debug`, under the default level; and a db handle that never settled reached neither the
+ * `if (db)` nor the catch, because the `await` had no bound at all — the daemon skipped its
+ * pending-reply drain and transcript reconcile in silence. That is the shape mt#4103 found next
+ * door, where an unsettled await left the driven-session registry empty for a daemon's whole life.
+ *
+ * These drive the real `armEntityThreadBootWork` on every branch that does NOT reach the db, so
+ * no fake handle is passed to `schedulePendingDrain` or the reconcile. The `armed` branch is
+ * covered at the describer, where the decision that matters (no second line) actually lives.
+ */
+describe("armEntityThreadBootWork (mt#4133)", () => {
+  test("bounds a handle that never settles instead of hanging silently", async () => {
+    const outcome = await armEntityThreadBootWork({
+      // Never settles — the case with no bound before this change.
+      getDb: () => new Promise<never>(() => {}),
+      timeoutMs: 15_000,
+      // Resolves immediately, so the timeout branch is exercised deterministically rather than
+      // by waiting out a real 15 seconds.
+      timeoutSignal: async () => ({ timedOut: true }) as const,
+    });
+
+    expect(outcome).toEqual({ kind: "timed-out", timeoutMs: 15_000 });
+  });
+
+  test("reports a rejected handle as an outcome rather than throwing out of the mount path", async () => {
+    const outcome = await armEntityThreadBootWork({
+      getDb: () => Promise.reject(new Error("pool exhausted")),
+    });
+
+    expect(outcome.kind).toBe("failed");
+    // The cause survives into the line an operator reads — a bare "could not arm" would send
+    // them back to the code to guess.
+    expect(outcome.kind === "failed" && outcome.error).toContain("pool exhausted");
+  });
+
+  test("distinguishes no-persistence from a failure", async () => {
+    const outcome = await armEntityThreadBootWork({ getDb: async () => null });
+
+    expect(outcome).toEqual({ kind: "no-persistence" });
+  });
+});
+
+describe("describeEntityThreadArmOutcome (mt#4133)", () => {
+  test("says nothing for the armed case, because the reconcile logs its own line", () => {
+    // Pins the no-double-logging decision. Without this, a later change that "helpfully" adds a
+    // success line here would report one healthy boot twice and nothing would catch it.
+    expect(describeEntityThreadArmOutcome({ kind: "armed" })).toBeNull();
+  });
+
+  test("warns — not debugs — on every outcome that skipped the boot work", () => {
+    const outcomes: EntityThreadArmOutcome[] = [
+      { kind: "no-persistence" },
+      { kind: "timed-out", timeoutMs: 15_000 },
+      { kind: "failed", error: "pool exhausted" },
+    ];
+
+    for (const outcome of outcomes) {
+      const described = describeEntityThreadArmOutcome(outcome);
+      // `warn` is the whole point: `debug` sits below the default level, which is why these were
+      // invisible on a real boot.
+      expect(described?.level).toBe("warn");
+      expect(described?.message).toContain("entity-thread boot:");
+    }
+  });
+
+  test("names the bound it exceeded, so the line is actionable on its own", () => {
+    const described = describeEntityThreadArmOutcome({ kind: "timed-out", timeoutMs: 15_000 });
+
+    expect(described?.message).toContain("15000ms");
+  });
+
+  // PR #2990 R1. The `never` check is compile-time only; a value from an older or newer build of
+  // a caller still reaches the default branch at runtime. This previously returned that value
+  // unchanged, so the mount site would have called `log[undefined](undefined)` and thrown inside
+  // a fire-and-forget IIFE — the boot-time crash the mount-site comment promises cannot happen.
+  // The cast is the point of the test: it constructs exactly the input the type system forbids.
+  test("returns a usable line for an unrecognized outcome instead of the raw object", () => {
+    const described = describeEntityThreadArmOutcome({
+      kind: "from-a-future-build",
+    } as unknown as EntityThreadArmOutcome);
+
+    expect(described?.level).toBe("warn");
+    expect(described?.message).toContain("from-a-future-build");
   });
 });

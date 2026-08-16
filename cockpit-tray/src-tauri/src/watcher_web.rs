@@ -312,11 +312,19 @@ fn update_build_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
 }
 
 /// Set the build-status label, skipping the UI round-trip when unchanged.
+///
+/// The dedupe field moved onto `CockpitPolicy` in mt#3815 — only the cockpit
+/// entry has a bundle, so a non-cockpit `Sup` reaching here is a wiring
+/// mistake rather than a state to render, and the early return says so.
 pub(crate) fn set_build_status(app: &AppHandle, sup: &mut Sup, label: String) {
-    if sup.last_build_label.as_deref() == Some(label.as_str()) {
+    let Some(policy) = sup.cockpit_mut() else {
+        eprintln!("[cockpit-tray] ignoring a build-status update for a non-cockpit daemon");
+        return;
+    };
+    if policy.last_build_label.as_deref() == Some(label.as_str()) {
         return;
     }
-    sup.last_build_label = Some(label.clone());
+    policy.last_build_label = Some(label.clone());
     let _ = update_build_status(app, &label);
 }
 

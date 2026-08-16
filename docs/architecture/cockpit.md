@@ -26,6 +26,39 @@ details (a task at `/tasks/:id`, a conversation at `/conversation/:id`, a worksp
 working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
 palette is mounted globally.
 
+### Side peek (mt#3694)
+
+Over that shell sits a **side peek**: clicking an `EntityRef` opens the entity in a pane
+above the current page rather than navigating to it (`PeekHost`, mounted in `Layout` as a
+sibling of `<main>` so the page behind stays mounted). Operator-facing behavior and gestures:
+`docs/cockpit-ui.md` §The side peek.
+
+Three properties are load-bearing and easy to break:
+
+- **The pathname never changes.** Pane state lives entirely in a `?peek=` query parameter,
+  derived on every render with no second copy (`lib/peek.ts`). That is simultaneously why the
+  peek is URL-addressable, why Back closes it, why it is ephemeral with nothing persisted —
+  and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
+  `matchEntityRoute(pathname)` and a search-only change cannot reach it. **A peek therefore
+  cannot be implemented as a route change**; that is the constraint the whole design turns on.
+- **The panes are non-modal, and do not dismiss on outside interaction.** Coexisting with a
+  live page is the feature. Radix's default treats any outside click as a dismissal, which
+  silently breaks the hold gesture — a shift-click lands outside the open pane, so the pane
+  closes at the same moment the hold opens the next one. `PeekHost` prevents all three
+  outside-interaction events. Non-modal also means panes do NOT trap focus (verified in
+  `@radix-ui/react-dialog@1.1.15`: `DialogContentNonModal` sets `trapFocus: false`), which is
+  unavoidable — a focus trap needs exactly one region to trap into, and the hold gesture
+  allows two live panes.
+- **One renderer per entity.** A peeked entity renders the SAME component its full page
+  renders (`PeekBody`), never a compact second implementation that would drift. Types without
+  a shareable body render an open-as-page affordance carrying no entity fields rather than a
+  miniature stand-in; `PEEKABLE_WITH_BODY` pins the split and a test asserts the exact list
+  (mt#4069 completes it).
+
+The pane-list algebra and wire format are pure and separately tested (`lib/peek-codec.ts`) —
+an ordinary open replaces the last pane, a held pane survives so the next lands beside it, and
+growth costs a gesture per pane, so there is no cap or eviction policy.
+
 ### Keyboard shortcuts
 
 | Chord            | Action                                                                                              |
@@ -115,6 +148,33 @@ not.
 | `/plant/interlock-history` | Interlock history   | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                                                                                                                                      |
 | `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                  |
 | `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                           |
+
+### HTTP error semantics: 503 is a database outage, 500 is a bug (mt#4125)
+
+Every cockpit API handler distinguishes the two, and callers should too:
+
+| Status  | Means                                                                                                                                              | Caller should                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **503** | The persistence layer is unreachable — pool exhaustion, a dropped connection, no provider configured. Body: `Service unavailable — <description>`. | Treat as transient. Keep polling; render a "store unavailable" state rather than a failure. |
+| **500** | An error in the handler itself.                                                                                                                    | Treat as a defect.                                                                          |
+
+The classification runs through `respondIfDatabaseUnavailable`
+(`src/cockpit/db-unavailable-response.ts`), which wraps `isDatabaseUnavailableError` (mt#3398).
+That predicate walks the error's `cause` chain, which is load-bearing: drizzle wraps the driver
+error and carries the QUERY TEXT as the wrapper's own message, so a non-walking check sees a query
+string and concludes "application bug" for what is really an outage.
+
+**This changed in mt#4125.** Before it, the predicate had 3 adopter call sites against 42
+unconditional `status(500)` sites, so a pool exhaustion was reported to the operator as an
+application bug — mt#4086 is the worked instance (`GET /api/changesets`, Supavisor
+`EMAXCONNSESSION`). Any runbook or note written before that date describing a cockpit route as
+returning 500 on a database outage is now wrong for the outage case; 500 still means what it always
+did for handler defects.
+
+Callers with a generic `if (!res.ok)` path are unaffected — both statuses are non-ok and render the
+same error state. A guard test in `src/cockpit/db-unavailable-response.test.ts` asserts the whole
+HTTP layer keeps classifying, and carries the enumerated exceptions (500s with no error object to
+classify) with their reasons.
 
 ## Widgets
 

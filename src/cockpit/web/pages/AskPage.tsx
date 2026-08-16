@@ -35,16 +35,11 @@ import {
   escalateAsk,
   AskNotFoundError,
   type AskItem,
-  type AskState,
   type AsksListResponse,
   composeResolvePayload,
 } from "../widgets/AskDetail";
 import { isTerminal } from "@minsky/domain/ask/state-machine";
-// Browser-safe import (mt#3239): NOT from "@minsky/domain/ask/close-as-resolved" — that module
-// also imports "@minsky/shared/logger", whose top-level `process.env` reads crash the browser
-// bundle regardless of which export is used. See packages/shared/src/ask-closure.ts for the full
-// incident writeup.
-import { isAutomatedClosureResponder } from "@minsky/shared/ask-closure";
+import { TerminalAskNotice } from "../components/TerminalAskNotice";
 import { LoadingState } from "../components/LoadingState";
 import { ErrorState } from "../components/ErrorState";
 import { CopyId } from "../components/CopyId";
@@ -55,17 +50,6 @@ import {
   ResolveProposalCard,
   RESOLVE_PROPOSAL_SURFACE,
 } from "../components/ResolveProposalCard";
-
-/** Human phrasing for a terminal state. Terminal-vs-open classification itself
- * comes from the domain state machine's `isTerminal` (the single source of
- * truth — note "responded" is NOT terminal: the response is recorded but the
- * ask has not closed, so it still renders the actionable detail view).
- */
-function terminalLabel(state: AskState): string {
-  if (state === "expired") return "expired";
-  if (state === "cancelled") return "cancelled";
-  return "resolved";
-}
 
 export function AskPage() {
   const { id } = useParams<{ id: string }>();
@@ -160,42 +144,25 @@ export function AskPage() {
       ) : query.isError ? (
         <ErrorState prefix="Failed to load ask" error={query.error} />
       ) : ask && terminal ? (
-        // mt#3215: a system-driven closure (e.g. the stale-suspended-close
-        // sweep's parent-terminal signal) leaves `ask.response` populated —
-        // the SAME field a genuine operator answer populates — so this page
-        // must not render the two identically. `isAutomatedClosureResponder`
-        // is the single source of truth both this page and
-        // `formatAskWaitMessage` (the agent-facing wait tool) use to tell
-        // them apart. The ask#6024 incident: an operator opened this exact
-        // page to answer a pending authorization and was told it had
-        // "already been responded to" — it had actually been auto-closed,
-        // unanswered, when its parent task went terminal.
-        (() => {
-          const autoClosed = ask.response ? isAutomatedClosureResponder(ask.response.responder) : false;
-          return (
-            <div className="flex flex-col gap-2 py-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                {autoClosed
-                  ? "This ask was auto-closed by the system — it was NOT answered by an operator."
-                  : `This ask was ${terminalLabel(ask.state)}.`}
-              </p>
-              <p className="text-xs text-muted-foreground/70">{ask.title}</p>
-              {ask.response ? (
-                <div className="mx-auto mt-2 max-w-lg text-left">
-                  <p className="text-xs text-muted-foreground mb-1">
-                    {autoClosed
-                      ? `Auto-closed by ${ask.response.responder} (not an operator response)`
-                      : `Response${ask.response.responder ? ` — by ${ask.response.responder}` : ""}`}
-                    {ask.respondedAt ? ` on ${new Date(ask.respondedAt).toLocaleString()}` : ""}:
-                  </p>
-                  <pre className="text-xs bg-card border border-border rounded p-2 overflow-x-auto">
-                    {JSON.stringify(ask.response.payload, null, 2)}
-                  </pre>
-                </div>
-              ) : null}
-            </div>
-          );
-        })()
+        // mt#4091 — a terminal ask renders the closure notice AND the full ask
+        // body. This branch used to render the notice INSTEAD of <AskDetail>,
+        // so resolving an ask destroyed the operator's view of what it had
+        // asked: the question, the options with their descriptions, and the
+        // contextRefs were all dropped, and the recorded answer showed as a raw
+        // JSON payload. The per-id endpoint has always returned this data for a
+        // terminal ask (mt#2669) — only the render discarded it.
+        //
+        // Read-only is a MODE on the same component rather than a second
+        // renderer, which is what keeps the closed view from drifting from the
+        // pending one — and it satisfies mt#3368's constraint structurally
+        // rather than by convention: an already-resolved ask has no action
+        // controls to offer, so there is nothing that could write to a closed
+        // record. The mt#3215 auto-closed-vs-answered distinction lives in
+        // TerminalAskNotice, which owns the closure phrasing.
+        <div className="space-y-4">
+          <TerminalAskNotice ask={ask} />
+          <AskDetail ask={ask} readOnly onClose={() => navigate("/asks")} />
+        </div>
       ) : ask ? (
         <AskDetail
           ask={ask}

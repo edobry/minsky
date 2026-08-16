@@ -275,6 +275,57 @@ export interface AskRepository {
   listByClassifierVersion(version: string): Promise<Ask[]>;
 
   /**
+   * One page of Asks across several states, for a single routing target,
+   * most-recently-concluded first (mt#4092).
+   *
+   * The cockpit's resolved-asks view needs a bounded slice of a large set:
+   * ~4,500 rows sit in the terminal states, ~1,500 of them operator-routed, and
+   * the surface shows a page of them. Composing that from `listByState` means
+   * pulling every row in every requested state across every routing target and
+   * discarding ~97% of it in JS — measured at 2.7-6.4s per request against the
+   * real store, versus 0.3s for the pending queue. This pushes the state
+   * filter, the routing-target filter, the ordering, and the limit into one
+   * query, and returns the true match count beside the page so a caller can say
+   * how much it is not showing.
+   *
+   * Ordering is by conclusion time — `closedAt`, falling back to `respondedAt`
+   * and then `createdAt`, so a row that never reached a terminal timestamp
+   * still sorts deterministically rather than drifting on physical row order.
+   *
+   * @param params.states        States to include (empty ⇒ no rows, no query).
+   * @param params.routingTarget Exact `routingTarget` to match.
+   * @param params.limit         Maximum rows in `asks`; `total` is unbounded.
+   */
+  listByStatesForRoutingTarget(params: {
+    states: AskState[];
+    routingTarget: string;
+    limit: number;
+    projectScope?: ProjectScope;
+  }): Promise<{ asks: Ask[]; total: number }>;
+
+  /**
+   * Every `(shortId, id)` pair for a routing target, in ANY state (mt#4095).
+   *
+   * Feeds the cockpit linkifier's id-set, which decides SYNCHRONOUSLY at render
+   * whether an `ask#N` in prose becomes a link — so the set has to be complete
+   * before the first render, and an async per-id lookup cannot serve it. That
+   * is why this is a comprehensive, uncapped, two-column projection rather than
+   * a page of full rows: the same shape, and the same reason, as the task
+   * surface's `/api/tasks/ids`.
+   *
+   * State-agnostic on purpose. The defect this exists to fix is that a closed
+   * ask's `ask#N` silently stopped resolving in every memory, spec and
+   * transcript that mentioned it.
+   *
+   * Rows with no `shortId` (legacy, pre-backfill) are omitted — there is no
+   * short id to alias.
+   */
+  listShortIdsForRoutingTarget(params: {
+    routingTarget: string;
+    projectScope?: ProjectScope;
+  }): Promise<{ shortId: string; id: string }[]>;
+
+  /**
    * Batch-list open Asks for any task in `taskIds`.
    *
    * "Open" means state is not one of the terminal states (closed / cancelled
@@ -810,6 +861,66 @@ export class DrizzleAskRepository implements AskRepository {
     return rows.map(toAsk);
   }
 
+  async listByStatesForRoutingTarget(params: {
+    states: AskState[];
+    routingTarget: string;
+    limit: number;
+    projectScope?: ProjectScope;
+  }): Promise<{ asks: Ask[]; total: number }> {
+    const { states, routingTarget, limit, projectScope } = params;
+    if (states.length === 0) return { asks: [], total: 0 };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [
+      inArray(asksTable.state, states),
+      eq(asksTable.routingTarget, routingTarget),
+    ];
+    if (projectScope && !isAllProjects(projectScope)) {
+      conditions.push(eq(asksTable.projectId, projectScope));
+    }
+    const where = conditions.length === 1 ? conditions[0] : and(...conditions);
+
+    // COALESCE, not three ORDER BY terms: the fallback is per-ROW (use this
+    // row's closedAt, else its respondedAt, else its createdAt), which is a
+    // different ordering from "sort by closedAt, break ties on respondedAt".
+    const concludedAt = sql`coalesce(${asksTable.closedAt}, ${asksTable.respondedAt}, ${asksTable.createdAt})`;
+
+    const [rows, counted] = await Promise.all([
+      this.db.select().from(asksTable).where(where).orderBy(desc(concludedAt)).limit(limit),
+      this.db
+        .select({ n: sql<number>`count(*)` })
+        .from(asksTable)
+        .where(where),
+    ]);
+
+    return { asks: rows.map(toAsk), total: Number(counted[0]?.n ?? 0) };
+  }
+
+  async listShortIdsForRoutingTarget(params: {
+    routingTarget: string;
+    projectScope?: ProjectScope;
+  }): Promise<{ shortId: string; id: string }[]> {
+    const { routingTarget, projectScope } = params;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const conditions: any[] = [
+      eq(asksTable.routingTarget, routingTarget),
+      isNotNull(asksTable.shortId),
+    ];
+    if (projectScope && !isAllProjects(projectScope)) {
+      conditions.push(eq(asksTable.projectId, projectScope));
+    }
+
+    const rows = await this.db
+      .select({ shortId: asksTable.shortId, id: asksTable.id })
+      .from(asksTable)
+      .where(and(...conditions));
+
+    // `isNotNull` already excludes them at the DB, but the column's type stays
+    // nullable, so this narrows rather than re-filters.
+    return rows.flatMap((r) => (r.shortId ? [{ shortId: r.shortId, id: r.id }] : []));
+  }
+
   async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
     if (taskIds.length === 0) return [];
     // Explicit isNotNull on parentTaskId is redundant with `IN (...)` in
@@ -1235,8 +1346,22 @@ export class FakeAskRepository implements AskRepository {
   }
 
   async getById(id: string): Promise<Ask | null> {
-    const ask = this.store.get(id);
-    return ask ? { ...ask } : null;
+    const direct = this.store.get(id);
+    if (direct) return { ...direct };
+    // Parity with the Drizzle backend, which resolves an `ask#N` short id (and
+    // a uuid prefix) through `askIdWhere` (mt#4095). A fake that only matched
+    // the uuid would let a short-id lookup test pass against behavior the fake
+    // never had, or fail one the real backend handles — the double becoming the
+    // assertion target instead of the behavior (ADR-036).
+    const byShortId = this.all.find((a) => a.shortId === id);
+    if (byShortId) return { ...byShortId };
+    if (id.length >= 8) {
+      const byPrefix = this.all.filter((a) => a.id.startsWith(id));
+      // A uuid prefix is only an id when it is UNAMBIGUOUS, matching the
+      // real backend's single-row semantics.
+      if (byPrefix.length === 1 && byPrefix[0]) return { ...byPrefix[0] };
+    }
+    return null;
   }
 
   async claimPrincipalPage(id: string, at: Date): Promise<{ claimed: boolean; ask: Ask }> {
@@ -1282,6 +1407,46 @@ export class FakeAskRepository implements AskRepository {
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {
     return this.all.filter((a) => a.classifierVersion === version).map((a) => ({ ...a }));
+  }
+
+  async listByStatesForRoutingTarget(params: {
+    states: AskState[];
+    routingTarget: string;
+    limit: number;
+    projectScope?: ProjectScope;
+  }): Promise<{ asks: Ask[]; total: number }> {
+    const { states, routingTarget, limit, projectScope } = params;
+    if (states.length === 0) return { asks: [], total: 0 };
+
+    const scoped = projectScope !== undefined && !isAllProjects(projectScope);
+    const matched = this.all.filter(
+      (a) =>
+        states.includes(a.state) &&
+        a.routingTarget === routingTarget &&
+        (!scoped || a.projectId === projectScope)
+    );
+    // Mirrors the Drizzle backend's COALESCE ordering — a fake that returned
+    // insertion order would let an ordering regression pass its tests.
+    const concludedAt = (a: Ask) => a.closedAt ?? a.respondedAt ?? a.createdAt;
+    matched.sort((a, b) => concludedAt(b).localeCompare(concludedAt(a)));
+
+    return { asks: matched.slice(0, limit).map((a) => ({ ...a })), total: matched.length };
+  }
+
+  async listShortIdsForRoutingTarget(params: {
+    routingTarget: string;
+    projectScope?: ProjectScope;
+  }): Promise<{ shortId: string; id: string }[]> {
+    const { routingTarget, projectScope } = params;
+    const scoped = projectScope !== undefined && !isAllProjects(projectScope);
+    return this.all
+      .filter(
+        (a) =>
+          a.routingTarget === routingTarget &&
+          Boolean(a.shortId) &&
+          (!scoped || a.projectId === projectScope)
+      )
+      .map((a) => ({ shortId: a.shortId as string, id: a.id }));
   }
 
   async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {

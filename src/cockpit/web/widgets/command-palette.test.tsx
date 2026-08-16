@@ -50,11 +50,15 @@ function openPalette() {
 
 describe("CommandPalette (mt#2399)", () => {
   const originalFetch = globalThis.fetch;
+  /** Every `/api/asks*` URL the palette requested this test (mt#4095). */
+  let askUrls: string[] = [];
 
   beforeEach(() => {
     localStorage.clear();
+    askUrls = [];
     globalThis.fetch = (async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url.startsWith("/api/asks")) askUrls.push(url);
       if (url.endsWith("/api/tasks")) {
         return new Response(
           JSON.stringify({
@@ -77,6 +81,38 @@ describe("CommandPalette (mt#2399)", () => {
                 },
               ],
             },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      // The palette's ask source since mt#4095. It used to read the attention
+      // widget's cohort below, which carries PENDING operator asks only — so a
+      // resolved ask could never be found by a surface that advertises search.
+      // The fixture therefore includes a terminal ask alongside the pending one.
+      if (url.startsWith("/api/asks?")) {
+        return new Response(
+          JSON.stringify({
+            asks: [
+              {
+                id: "55556666-0000-0000-0000-000000000000",
+                shortId: "ask#2399",
+                title: "Palette fixture ask",
+                kind: "direction.decide",
+                state: "suspended",
+                parentTaskId: "mt#2320",
+              },
+              {
+                id: "77778888-0000-0000-0000-000000000000",
+                shortId: "ask#7754",
+                title: "Paste the Supabase service_role key",
+                kind: "direction.decide",
+                state: "closed",
+                parentTaskId: null,
+              },
+            ],
+            total: 2,
+            returned: 2,
+            truncated: false,
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
@@ -180,6 +216,79 @@ describe("CommandPalette (mt#2399)", () => {
     // query cache from the palette's own fetch). The palette dialog closed on
     // selection, so the only "Palette fixture ask" text left is the tab's.
     expect(screen.getByText("Palette fixture ask")).toBeDefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // Reaching a RESOLVED ask (mt#4095)
+  //
+  // The palette advertises "Search tasks, sessions, conversations, asks,
+  // memories, pages..." and could not find an ask the operator had already
+  // resolved — which is exactly when someone reaches for search. Its source was
+  // the attention widget's pending-only cohort.
+  // -------------------------------------------------------------------------
+
+  test("the palette actually REQUESTS terminal asks, not just pending ones", async () => {
+    // Without this, every assertion below is satisfied by a fixture that
+    // returns terminal asks regardless of what was asked for — the test would
+    // pass against a palette that still requests the pending queue only.
+    renderPalette();
+    openPalette();
+    await screen.findByPlaceholderText(/Search tasks, sessions/);
+
+    await waitFor(() => expect(askUrls.length).toBeGreaterThan(0));
+    const listUrl = askUrls.find((u) => u.startsWith("/api/asks?")) ?? "";
+    const state = new URLSearchParams(listUrl.split("?")[1] ?? "").get("state") ?? "";
+    expect(state.split(",")).toContain("terminal");
+    expect(state.split(",")).toContain("suspended");
+  });
+
+  test("a CLOSED ask is findable by its ask#N short id", async () => {
+    renderPalette();
+    openPalette();
+
+    const input = await screen.findByPlaceholderText(/Search tasks, sessions/);
+    fireEvent.change(input, { target: { value: "ask#7754" } });
+
+    // cmdk filters on each item's `value`, so this can only match if the short
+    // id is IN that string — which it was not before mt#4095.
+    const askItem = await screen.findByText("Paste the Supabase service_role key", undefined, {
+      timeout: 3000,
+    });
+    expect(askItem).toBeDefined();
+  });
+
+  test("a CLOSED ask is findable by a word from its title", async () => {
+    renderPalette();
+    openPalette();
+
+    const input = await screen.findByPlaceholderText(/Search tasks, sessions/);
+    fireEvent.change(input, { target: { value: "service_role" } });
+
+    const askItem = await screen.findByText("Paste the Supabase service_role key", undefined, {
+      timeout: 3000,
+    });
+    expect(askItem).toBeDefined();
+  });
+
+  test("selecting a CLOSED ask lands on its uuid route, not its short id", async () => {
+    renderPalette();
+    openPalette();
+
+    const input = await screen.findByPlaceholderText(/Search tasks, sessions/);
+    fireEvent.change(input, { target: { value: "ask#7754" } });
+
+    const askItem = await screen.findByText("Paste the Supabase service_role key", undefined, {
+      timeout: 3000,
+    });
+    fireEvent.click(askItem);
+
+    // ADR-029: the uuid is the sole deeplink target. The palette may ACCEPT
+    // `ask#N` as input; it must never navigate to it.
+    await waitFor(() => {
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/ask/77778888-0000-0000-0000-000000000000"
+      );
+    });
   });
 
   test("selecting a memory lands on /memory/:id", async () => {

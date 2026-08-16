@@ -117,15 +117,41 @@ this pass.
 
 ## B. Evaluation streams — `.minsky/*-evaluations.jsonl`
 
-Five files. **Not** covered by `CALIBRATION_LOG_REGISTRY` or any of its three
+Six files. **Not** covered by `CALIBRATION_LOG_REGISTRY` or any of its three
 declaration surfaces — a deliberate, separate convention (per-turn "did the
 detector evaluate, and what did each conjunct decide" records, written to
 measure the detector's MISS rate, distinct from the fire-only calibration
-log). Each is a hardcoded `EVALUATION_LOG` constant local to its detector file,
-not a registry entry.
+log). The `Registry status` column below refers to `CALIBRATION_LOG_REGISTRY`;
+every one of these IS registered for INGEST, in
+`packages/domain/src/guard-events/stream-sources.ts` §B — that list is data, and
+a stream absent from it accumulates on disk and reaches no consumer.
+
+**These streams contain synthetic rows — subtract them before computing a rate
+(mt#4127).** A canary drives the guard's REAL `run()`, so a guard that writes a
+per-turn record writes one for the canary too. Every such row carries
+`session_id: "mt2889-canary-session"` (`CANARY_SESSION_ID`, stamped by
+`baseCanaryInput` in `.minsky/hooks/canary-runner.ts`); filter with the exported
+`isCanaryRecord()` rather than re-typing the literal. **Do not `grep -c canary`**
+— that also matches real turns whose captured text discusses canary runs, which
+measured 31 against a true 25 on `operator-deferral` (2026-08-13).
+
+As of mt#4127 `runGuardCanary` sandboxes its own writes (a temp repo root, set
+on both `CLAUDE_PROJECT_DIR` and `input.cwd`), so no NEW canary rows reach these
+files. The historical ones remain and are what the filter is for: measured
+2026-08-13, `operator-deferral` 25, `negative-existence-claim` 15,
+`retrospective-trigger` 10, `silent-stretch` 5, `stop-at-decision` 0.
+
+Two writer conventions coexist. The older streams hold a hardcoded
+`EVALUATION_LOG` path constant local to the detector file; since mt#3745 the
+convention is a bare `EVALUATION_LOG_NAME` plus the shared
+`evaluationLogPath()` / `logEvaluationRecord()` in `.minsky/hooks/dispatcher.ts`,
+which resolves the repo root the same way the calibration writer does. Prefer
+the shared helper: the two hand-rolled writers mt#3745 replaced had scattered 12
+stray logs across 6 session workspaces by rooting on a raw cwd.
 
 | Stream                               | Path                                                 | Writer                                               | Record shape (one line)                                                                                                                                         | Registry status                      | Ingest disposition |
 | ------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------ |
+| causal-premise-evaluations           | `.minsky/causal-premise-evaluations.jsonl`           | `.minsky/hooks/causal-premise-detector.ts`           | `{timestamp, session_id, fired, matchedPhrases, hadSameTurnVerification, captureSchema, judgedInput: {excerpt, hash, length, truncated}}` (mt#3743)             | unregistered                         | ingest             |
 | negative-existence-claim-evaluations | `.minsky/negative-existence-claim-evaluations.jsonl` | `.minsky/hooks/negative-existence-claim-detector.ts` | `{timestamp, fired, claimPresent, thinSearchPresent, citedTaskCount, doneTaskCount, doneLookupRan, doneLookupUnavailable, searchCount, proseChars, session_id}` | unregistered (by design — see above) | ingest             |
 | operator-deferral-evaluations        | `.minsky/operator-deferral-evaluations.jsonl`        | `.minsky/hooks/operator-deferral-detector.ts`        | per-turn evaluation record (fired + per-surface conjunct outcomes)                                                                                              | unregistered                         | ingest             |
 | retrospective-trigger-evaluations    | `.minsky/retrospective-trigger-evaluations.jsonl`    | `.minsky/hooks/retrospective-trigger-scanner.ts`     | per-turn evaluation record                                                                                                                                      | unregistered                         | ingest             |
@@ -342,6 +368,14 @@ $ find .minsky -maxdepth 1 -name "*-evaluations.jsonl" | wc -l
 27 `*-calibration.jsonl` + 5 `*-evaluations.jsonl` + 1
 `subagent-model-mismatch.jsonl` = 33. Every one of the 33 is a row in §A, §B,
 or §C above — no stream absent from the inventory (AT1).
+
+**This is a dated snapshot, deliberately not rewritten as streams are added.**
+The command output above is a measurement taken on 2026-08-12; editing the
+recorded numbers in place would turn an observation into an assertion. mt#3743
+added `causal-premise-evaluations.jsonl`, so the live counts are one higher on
+both the total and the `*-evaluations.jsonl` line. §A–§C above are the live
+inventory and are kept current; re-run the commands rather than trusting this
+block's figures.
 
 ### H.4 — state-dir stream existence + size (guard/calibration + adjacent)
 
