@@ -97,21 +97,77 @@ export interface Measurement {
   canaryExcluded: number;
   outsideWindowExcluded: number;
   emptyTextExcluded: number;
+  /**
+   * Rows the corpus lost before any measurement ran. Reported rather than
+   * thrown on, and reported even at zero: "0 malformed" is the receipt that
+   * the check ran, which a silent skip cannot distinguish itself from.
+   */
+  dataQuality: { malformedLines: number; invalidTimestamps: number };
   denominator: number;
   fired: number;
   fieldCoverage: { recordsWithAllFields: number; captureSchemas: number[] };
   strata: { suppressed: StratumCounts; patternTested: StratumCounts };
   rate: { overall?: number; suppressed?: number; patternTested?: number };
   distinct: DistinctCounts;
+  verdict: Verdict;
 }
 
-/** Parse a JSONL evaluation stream, skipping blank lines. */
-export function parseStream(text: string): EvaluationRecord[] {
-  return text
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line) => JSON.parse(line) as EvaluationRecord);
+/** ADR-024 §(b) bar: `0 known-FP AND <=5% new false-negative`. */
+export const FALSE_NEGATIVE_BAR = 0.05;
+
+/**
+ * Which halves of ADR-024 §(b)'s bar this run actually evaluated.
+ *
+ * Both halves are stated explicitly, including when they were NOT evaluated,
+ * because the failure mode here is a reader taking silence for a pass. Two
+ * ways that happens:
+ *
+ *  - Run with no `--labels` and every rate is `n/a`, yet the bar is printed
+ *    beside it. Nothing says "no comparison was made."
+ *  - `0 known-FP` holds trivially in a window with zero fires — no fire means
+ *    no false positive was possible. That is a fact about the window, not
+ *    evidence of precision, and it must not read as half a pass.
+ *
+ * This script only ever computes the false-negative half; the FP half needs
+ * fires classified, which is a different pass.
+ */
+export interface Verdict {
+  falseNegative: "not-evaluated" | "met" | "not-met";
+  falsePositive: "vacuous-zero-fires" | "not-computed-by-this-script";
+  resolvedLabels: number;
+}
+
+export interface ParsedStream {
+  records: EvaluationRecord[];
+  malformedLines: number;
+}
+
+/**
+ * Parse a JSONL evaluation stream, skipping blank lines.
+ *
+ * A malformed line is SKIPPED AND COUNTED, never thrown on: the stream is
+ * append-only telemetry written by a live hook, so a partial line from an
+ * interrupted write is routine rather than exceptional, and letting one kill
+ * the run would make the measurement non-reproducible on exactly the days it
+ * matters. The count rides in the report so a skip is never silent — a
+ * measurement over a corpus that quietly lost rows is the failure mode this
+ * whole task exists to avoid.
+ */
+export function parseStream(text: string): ParsedStream {
+  const records: EvaluationRecord[] = [];
+  let malformedLines = 0;
+
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    try {
+      records.push(JSON.parse(line) as EvaluationRecord);
+    } catch {
+      malformedLines += 1;
+    }
+  }
+
+  return { records, malformedLines };
 }
 
 const REQUIRED_FIELDS = [
@@ -128,9 +184,24 @@ function hasAllFields(record: EvaluationRecord): boolean {
   return REQUIRED_FIELDS.every((field) => field in record);
 }
 
-function inWindow(record: EvaluationRecord, since?: string, until?: string): boolean {
-  if (since && record.timestamp < since) return false;
-  if (until && record.timestamp > until) return false;
+/**
+ * Epoch ms for an ISO-8601 timestamp, or `undefined` when it does not parse.
+ *
+ * The window bounds used to be raw string comparisons, which are only
+ * chronological while every timestamp is same-precision UTC with a trailing
+ * `Z`. A record carrying an offset (`+00:00`), different sub-second precision,
+ * or no zone designator would sort lexicographically but not chronologically —
+ * and would land on the wrong side of `--until` with no error to notice.
+ */
+export function parseTimestamp(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? undefined : ms;
+}
+
+function inWindow(at: number, since?: number, until?: number): boolean {
+  if (since !== undefined && at < since) return false;
+  if (until !== undefined && at > until) return false;
   return true;
 }
 
@@ -163,13 +234,30 @@ function rateOf(stratum: StratumCounts): number | undefined {
 
 export function measure(
   records: EvaluationRecord[],
-  opts: { since?: string; until?: string; labels?: Record<string, Label> } = {}
+  opts: {
+    since?: string;
+    until?: string;
+    labels?: Record<string, Label>;
+    malformedLines?: number;
+  } = {}
 ): Measurement {
   const labels = opts.labels ?? {};
   const raw = records.length;
 
-  const windowed = records.filter((r) => inWindow(r, opts.since, opts.until));
-  const outsideWindowExcluded = raw - windowed.length;
+  const since = parseTimestamp(opts.since);
+  const until = parseTimestamp(opts.until);
+
+  // A record whose timestamp does not parse cannot be placed in the window at
+  // all, so it is excluded and counted rather than silently compared. Keeping
+  // it would put an unplaceable row inside a windowed denominator.
+  const dated = records
+    .map((record) => ({ record, at: parseTimestamp(record.timestamp) }))
+    .filter((entry): entry is { record: EvaluationRecord; at: number } => entry.at !== undefined);
+  const invalidTimestamps = raw - dated.length;
+
+  const windowedEntries = dated.filter((entry) => inWindow(entry.at, since, until));
+  const windowed = windowedEntries.map((entry) => entry.record);
+  const outsideWindowExcluded = dated.length - windowed.length;
 
   const nonCanary = windowed.filter((r) => !isCanaryRecord(r));
   const canaryExcluded = windowed.length - nonCanary.length;
@@ -209,6 +297,9 @@ export function measure(
     rate: distinctLabels.length > 0 ? distinctFn / distinctLabels.length : undefined,
   };
 
+  const overallRate = rateOf(combined);
+  const firedInDenominator = nonEmpty.filter((r) => r.fired).length;
+
   return {
     window: {
       since: opts.since,
@@ -220,8 +311,9 @@ export function measure(
     canaryExcluded,
     outsideWindowExcluded,
     emptyTextExcluded,
+    dataQuality: { malformedLines: opts.malformedLines ?? 0, invalidTimestamps },
     denominator: nonEmpty.length,
-    fired: nonEmpty.filter((r) => r.fired).length,
+    fired: firedInDenominator,
     fieldCoverage: {
       recordsWithAllFields: windowed.filter(hasAllFields).length,
       captureSchemas: [...new Set(windowed.map((r) => r.captureSchema))].sort(),
@@ -233,11 +325,73 @@ export function measure(
       patternTested: rateOf(patternTested),
     },
     distinct,
+    verdict: {
+      // Judged on the per-record rate, the stricter of the two framings. When
+      // the two disagree the run is too close to call from this corpus, and
+      // `render()` prints both so the disagreement is visible rather than
+      // resolved by whichever one this line happened to pick.
+      falseNegative:
+        overallRate === undefined
+          ? "not-evaluated"
+          : overallRate <= FALSE_NEGATIVE_BAR
+            ? "met"
+            : "not-met",
+      falsePositive:
+        firedInDenominator === 0 ? "vacuous-zero-fires" : "not-computed-by-this-script",
+      resolvedLabels: combined.labeled - combined.indeterminate,
+    },
   };
 }
 
 function pct(value: number | undefined): string {
   return value === undefined ? "n/a (no resolved labels)" : `${(value * 100).toFixed(1)}%`;
+}
+
+/**
+ * The verdict block, written so that no run of this script can be skim-read as
+ * a pass it did not establish. Every branch names what was NOT evaluated.
+ */
+function renderVerdict(m: Measurement): string {
+  const bar = `${(FALSE_NEGATIVE_BAR * 100).toFixed(0)}%`;
+  const lines = [`ADR-024 §(b) bar: 0 known-FP AND <=${bar} new false-negative`, ""];
+
+  if (m.verdict.falseNegative === "not-evaluated") {
+    lines.push(
+      `  false-negative half: NOT EVALUATED — 0 resolved labels.`,
+      `    No rate was computed, so this run establishes nothing about the bar.`,
+      `    Pass --labels <file> mapping judgedInput.hash -> a label to evaluate it.`
+    );
+  } else {
+    const met = m.verdict.falseNegative === "met";
+    lines.push(
+      `  false-negative half: ${met ? "MET" : "NOT MET"} — ` +
+        `${pct(m.rate.overall)} per record (${m.verdict.resolvedLabels} resolved labels), ` +
+        `${pct(m.distinct.rate)} per distinct text, against <=${bar}.`
+    );
+    if (m.distinct.rate !== undefined && met !== m.distinct.rate <= FALSE_NEGATIVE_BAR) {
+      lines.push(
+        `    CAUTION: the two framings straddle the bar, so this verdict rests on`,
+        `    which one is chosen. Treat it as too close to call from this corpus.`
+      );
+    }
+  }
+
+  lines.push("");
+  if (m.verdict.falsePositive === "vacuous-zero-fires") {
+    lines.push(
+      `  false-positive half: VACUOUS — the detector fired 0 times in this window,`,
+      `    so no false positive was possible. "0 known-FP" holds trivially here and`,
+      `    is NOT evidence of precision. Do not report it as half a pass.`
+    );
+  } else {
+    lines.push(
+      `  false-positive half: NOT COMPUTED — ${m.fired} fire(s) in this window.`,
+      `    This script measures only the false-negative half; classifying those`,
+      `    fires is a separate pass.`
+    );
+  }
+
+  return lines.join("\n");
 }
 
 function renderStratum(name: string, stratum: StratumCounts, rate: number | undefined): string {
@@ -267,6 +421,10 @@ export function render(m: Measurement): string {
     `  records with all 7 fields: ${m.fieldCoverage.recordsWithAllFields}`,
     `  captureSchema values:      [${m.fieldCoverage.captureSchemas.join(", ")}]`,
     "",
+    "data quality (rows the corpus lost before measuring)",
+    `  malformed JSONL lines:     ${m.dataQuality.malformedLines}`,
+    `  unparseable timestamps:    ${m.dataQuality.invalidTimestamps}`,
+    "",
     "strata (matchedPhrases: [] means a different thing in each)",
     renderStratum(
       "suppressed by verification gate (patterns never ran):",
@@ -285,9 +443,7 @@ export function render(m: Measurement): string {
     `  false negatives:  ${m.distinct.falseNegatives}`,
     `  rate:             ${pct(m.distinct.rate)}`,
     "",
-    `overall false-negative rate: ${pct(m.rate.overall)} per record, ` +
-      `${pct(m.distinct.rate)} per distinct text`,
-    `ADR-024 §(b) bar:            <=5% new false-negative, 0 known-FP`,
+    renderVerdict(m),
   ].join("\n");
 }
 
@@ -306,8 +462,12 @@ function loadLabels(path: string | undefined): Record<string, Label> | undefined
 }
 
 function dumpRecords(records: EvaluationRecord[], since?: string, until?: string): void {
+  const sinceMs = parseTimestamp(since);
+  const untilMs = parseTimestamp(until);
+
   for (const record of records) {
-    if (!inWindow(record, since, until)) continue;
+    const at = parseTimestamp(record.timestamp);
+    if (at === undefined || !inWindow(at, sinceMs, untilMs)) continue;
     if (isCanaryRecord(record) || record.judgedInput.length === 0) continue;
     const stratum = record.hadSameTurnVerification ? "SUPPRESSED" : "PATTERN-TESTED";
     console.log(
@@ -330,16 +490,34 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const records = parseStream(readFileSync(logPath, "utf-8"));
+  const { records, malformedLines } = parseStream(readFileSync(logPath, "utf-8"));
   const since = readArg(argv, "--since");
   const until = readArg(argv, "--until");
+
+  // A bound that does not parse would silently window nothing out, so it is a
+  // hard error rather than a skipped filter — the failure mode of a bad
+  // `--until` is a plausible-looking report over the wrong corpus.
+  for (const [flag, value] of [
+    ["--since", since],
+    ["--until", until],
+  ] as const) {
+    if (value !== undefined && parseTimestamp(value) === undefined) {
+      console.error(`FAIL: ${flag} is not a parseable timestamp: ${value}`);
+      process.exit(1);
+    }
+  }
 
   if (argv.includes("--dump")) {
     dumpRecords(records, since, until);
     return;
   }
 
-  const result = measure(records, { since, until, labels: loadLabels(readArg(argv, "--labels")) });
+  const result = measure(records, {
+    since,
+    until,
+    malformedLines,
+    labels: loadLabels(readArg(argv, "--labels")),
+  });
   console.log(argv.includes("--json") ? JSON.stringify(result, null, 2) : render(result));
 }
 

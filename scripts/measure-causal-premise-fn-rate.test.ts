@@ -3,6 +3,7 @@ import { CANARY_SESSION_ID } from "../.minsky/hooks/canary-runner";
 import {
   measure,
   parseStream,
+  render,
   type EvaluationRecord,
   type Label,
 } from "./measure-causal-premise-fn-rate";
@@ -172,6 +173,122 @@ describe("parseStream", () => {
   test("skips blank lines and returns one record per JSON line", () => {
     const text = `${JSON.stringify(record({ hash: "a" }))}\n\n${JSON.stringify(record({ hash: "b" }))}\n`;
 
-    expect(parseStream(text)).toHaveLength(2);
+    const parsed = parseStream(text);
+
+    expect(parsed.records).toHaveLength(2);
+    expect(parsed.malformedLines).toBe(0);
+  });
+
+  test("a malformed line is skipped and counted, not thrown on", () => {
+    const text = [
+      JSON.stringify(record({ hash: "a" })),
+      '{"timestamp":"2026-08-14T00:00:00.000Z","judgedInp', // truncated write
+      JSON.stringify(record({ hash: "b" })),
+    ].join("\n");
+
+    const parsed = parseStream(text);
+
+    expect(parsed.records).toHaveLength(2);
+    expect(parsed.malformedLines).toBe(1);
+  });
+
+  test("the malformed count reaches the report rather than being swallowed", () => {
+    const result = measure([record({ hash: "a" })], { malformedLines: 3 });
+
+    expect(result.dataQuality.malformedLines).toBe(3);
+  });
+});
+
+describe("timestamp handling", () => {
+  test("windows chronologically, not lexicographically, across mixed zone forms", () => {
+    const records = [
+      // Same instant, three spellings that do NOT sort lexicographically:
+      // an offset form, a no-millis form, and the canonical Z form. All three
+      // are inside the window and must survive it.
+      record({ hash: "offset", timestamp: "2026-08-14T00:00:00+00:00" }),
+      record({ hash: "no-millis", timestamp: "2026-08-14T00:00:00Z" }),
+      record({ hash: "canonical", timestamp: "2026-08-14T00:00:00.000Z" }),
+    ];
+
+    const result = measure(records, {
+      since: "2026-08-13T00:00:00.000Z",
+      until: "2026-08-15T00:00:00.000Z",
+    });
+
+    expect(result.outsideWindowExcluded).toBe(0);
+    expect(result.denominator).toBe(3);
+  });
+
+  test("an offset-form bound is honored rather than string-compared", () => {
+    const records = [
+      record({ hash: "before", timestamp: "2026-08-14T09:00:00.000Z" }),
+      record({ hash: "after", timestamp: "2026-08-14T11:00:00.000Z" }),
+    ];
+
+    // 06:00-04:00 == 10:00Z. A raw string comparison against "2026-08-14T06:00:00-04:00"
+    // would place BOTH records after the bound and exclude neither.
+    const result = measure(records, { until: "2026-08-14T06:00:00-04:00" });
+
+    expect(result.outsideWindowExcluded).toBe(1);
+    expect(result.denominator).toBe(1);
+  });
+
+  test("an unparseable record timestamp is excluded and counted, never silently compared", () => {
+    const records = [record({ hash: "ok" }), record({ hash: "bad", timestamp: "not-a-date" })];
+
+    const result = measure(records, { until: "2026-08-15T00:00:00.000Z" });
+
+    expect(result.dataQuality.invalidTimestamps).toBe(1);
+    expect(result.denominator).toBe(1);
+  });
+});
+
+describe("verdict", () => {
+  test("with no labels the bar is reported NOT EVALUATED, never as a pass", () => {
+    const result = measure([record({ hash: "a" })]);
+
+    expect(result.verdict.falseNegative).toBe("not-evaluated");
+    expect(result.rate.overall).toBeUndefined();
+    expect(render(result)).toContain("false-negative half: NOT EVALUATED");
+  });
+
+  test("a zero-fire window marks the false-positive half vacuous, not satisfied", () => {
+    const result = measure([record({ hash: "a", fired: false })]);
+
+    expect(result.fired).toBe(0);
+    expect(result.verdict.falsePositive).toBe("vacuous-zero-fires");
+
+    const text = render(result);
+    expect(text).toContain("false-positive half: VACUOUS");
+    expect(text).toContain("NOT evidence of precision");
+  });
+
+  test("a window with fires reports the false-positive half as not computed by this script", () => {
+    const result = measure([record({ hash: "a", fired: true })]);
+
+    expect(result.verdict.falsePositive).toBe("not-computed-by-this-script");
+    expect(render(result)).toContain("false-positive half: NOT COMPUTED");
+  });
+
+  test("a rate above the bar reads NOT MET", () => {
+    const records = [
+      record({ hash: "a" }),
+      record({ hash: "b" }),
+      ...Array.from({ length: 18 }, (_, i) => record({ hash: `ok${i}` })),
+    ];
+    const entries: Record<string, Label> = { a: "claim-unbacked", b: "claim-backed" };
+    for (let i = 0; i < 18; i += 1) entries[`ok${i}`] = "claim-backed";
+
+    const result = measure(records, labels(entries));
+
+    // 1 of 20 == 5%, exactly at the bar, which the bar admits ("<=5%").
+    expect(result.rate.overall).toBe(0.05);
+    expect(result.verdict.falseNegative).toBe("met");
+
+    const over = measure([...records, record({ hash: "c" })], {
+      labels: { ...entries, c: "claim-unbacked" },
+    });
+    expect(over.verdict.falseNegative).toBe("not-met");
+    expect(render(over)).toContain("false-negative half: NOT MET");
   });
 });
