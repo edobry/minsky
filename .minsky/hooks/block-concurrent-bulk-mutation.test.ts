@@ -238,6 +238,24 @@ describe("findBulkMutationInvocation", () => {
     expect(found?.flag).toBe("--execute");
   });
 
+  test("still matches when the interpreter carries its own options", () => {
+    // R3: an option before the script stopped the command-position walk, missing a real
+    // invocation.
+    for (const command of [
+      `bun --bun scripts/backfill-guard-events.ts --execute`,
+      `bun run --silent scripts/backfill-guard-events.ts --execute`,
+      `timeout --preserve-status 120 bun scripts/backfill-guard-events.ts --execute`,
+    ]) {
+      expect(findBulkMutationInvocation(command)?.scriptName).toBe(GUARD_EVENTS_NAME);
+    }
+  });
+
+  test("does NOT let an option carry a script into command position behind another command", () => {
+    // The bound on the rule above: an option is a prefix token only once a LAUNCHER has been
+    // seen, so an unrecognized command's own flag cannot smuggle a script path through.
+    expect(findBulkMutationInvocation("mytool --spec-file scripts/foo.ts --execute")).toBeNull();
+  });
+
   test("does NOT treat `run` or `exec` as a prefix out of position", () => {
     // R1: `run` and `exec` were admitted anywhere. `run` is a prefix only after an interpreter,
     // and `exec` only as the very first token.

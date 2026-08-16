@@ -102,6 +102,17 @@ const ASSIGNMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 /** A bare duration/count — `timeout`'s argument, and nothing else's. */
 const DURATION_PATTERN = /^\d+(?:\.\d+)?[smhd]?$/;
 
+/** An option token: `-v`, `--bun`, `--loader=x`. Not a bare `-` or `--`. */
+const OPTION_PATTERN = /^--?[A-Za-z0-9]/;
+
+/** What the prefix walk has seen so far, for the two context-dependent token classes. */
+interface PrefixState {
+  /** An interpreter or wrapper has appeared, so an option now belongs to it. */
+  seenLauncher: boolean;
+  /** `timeout` has appeared, so a bare number is its duration argument. */
+  seenTimeout: boolean;
+}
+
 /**
  * Strip ONE layer of matching surrounding quotes.
  *
@@ -131,9 +142,20 @@ function stripQuotes(token: string): string {
  *   - an interpreter or wrapper: anywhere in the prefix, since they nest (`nohup timeout 5 bun …`);
  *   - `run`: only directly after an interpreter (`bun run`), never standing alone;
  *   - `exec`: only as the very first token, which is the only position the shell builtin occupies;
- *   - a bare number: only directly after `timeout`, whose argument it is.
+ *   - a bare number: only directly after `timeout`, whose argument it is;
+ *   - an option: only once a launcher has been seen, so it belongs to that launcher
+ *     (`bun --bun scripts/x.ts`) and cannot carry a script into command position behind some
+ *     other command's flag — `mytool --spec-file scripts/x.ts --execute` still stops at `mytool`.
+ *
+ * **Known residue, deliberately not covered (PR #3023 R3).** A SEPARATED option value still stops
+ * the walk: in `node --loader ts-node/esm scripts/x.ts --execute`, the bare `ts-node/esm` is
+ * indistinguishable from a command name, so admitting it would mean admitting any token after a
+ * launcher — which is the over-broad rule this whole task removed. Measured before accepting the
+ * gap: of 435 script invocations across `package.json`, `.github/workflows/`, `docs/`,
+ * `.minsky/rules/` and `scripts/`, **433 are the bare `bun scripts/X.ts` form and none uses an
+ * interpreter option**. The residue is a false NEGATIVE, so it degrades recall only.
  */
-function isPrefixTokenAt(tokens: readonly string[], index: number): boolean {
+function isPrefixTokenAt(tokens: readonly string[], index: number, state: PrefixState): boolean {
   const token = stripQuotes(tokens[index] ?? "");
   const previous = index > 0 ? stripQuotes(tokens[index - 1] ?? "") : undefined;
 
@@ -141,7 +163,11 @@ function isPrefixTokenAt(tokens: readonly string[], index: number): boolean {
   if (INTERPRETERS.has(token) || WRAPPERS.has(token)) return true;
   if (token === "run") return previous !== undefined && INTERPRETERS.has(previous);
   if (token === "exec") return index === 0;
-  if (DURATION_PATTERN.test(token)) return previous === "timeout";
+  // Keyed on `timeout` having been SEEN, not on it being the immediately preceding token: its
+  // own options sit between the two (`timeout --preserve-status 120 bun …`). Still bounded — a
+  // bare number with no `timeout` anywhere in the prefix remains a command, not an argument.
+  if (DURATION_PATTERN.test(token)) return state.seenTimeout;
+  if (OPTION_PATTERN.test(token)) return state.seenLauncher;
   return false;
 }
 
@@ -213,14 +239,18 @@ export function findBulkMutationInvocation(command: string): BulkMutationInvocat
     // (`./scripts/x.ts`) both count; a script named as an ARGUMENT to some other command
     // (`... --spec-file scripts/x.ts`) does not, because that command's own name stops the walk.
     let scriptIndex = -1;
+    const state: PrefixState = { seenLauncher: false, seenTimeout: false };
     for (let index = 0; index < tokens.length; index++) {
-      if (SCRIPT_TOKEN_PATTERN.test(stripQuotes(tokens[index] ?? ""))) {
+      const token = stripQuotes(tokens[index] ?? "");
+      if (SCRIPT_TOKEN_PATTERN.test(token)) {
         scriptIndex = index;
         break;
       }
       // The first non-prefix token IS this segment's command. Anything after it is an argument,
       // so no later script path can be the invocation — stop rather than keep scanning.
-      if (!isPrefixTokenAt(tokens, index)) break;
+      if (!isPrefixTokenAt(tokens, index, state)) break;
+      if (INTERPRETERS.has(token) || WRAPPERS.has(token)) state.seenLauncher = true;
+      if (token === "timeout") state.seenTimeout = true;
     }
     if (scriptIndex === -1) continue;
 
