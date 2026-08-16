@@ -55,7 +55,9 @@
  *   MINSKY_COCKPIT_URL=http://127.0.0.1:3861 bun scripts/verify-conversation-switcher-pinned.ts
  *
  * Prerequisites (each CHECKED at startup — a missing one exits 0 with a `SKIP:`
- * line, so running this unattended is safe):
+ * line, so running this unattended is safe. A prerequisite that is PRESENT but
+ * too slow to answer is a DIFFERENT outcome: `INCOMPLETE:` and exit 2, never a
+ * silent 0 — mt#4149):
  *
  *   1. A running cockpit started WITHOUT `--no-dev-chromium` (that flag
  *      disables the very browser this attaches to):
@@ -77,11 +79,7 @@
  * Exits non-zero only on a real behavioral failure. Sibling CDP shape:
  * `scripts/verify-cockpit-shell-scroll.ts` (mt#3338).
  */
-import {
-  assertServiceIdentity,
-  describeHealthIdentityResult,
-  SERVICE_IDENTITIES,
-} from "../packages/domain/src/deployment/health-identity";
+import { preflightCockpit } from "./lib/verify-preflight";
 
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
 const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
@@ -97,51 +95,15 @@ const CONV_SUBAGENT = "66666666-7777-8888-9999-aaaaaaaaaaaa";
 const LABEL_ORCHESTRATOR = "Conversation switcher legibility";
 const LABEL_SUBAGENT = "implementer — mt#3691";
 
-function skip(reason: string): never {
-  console.log(`SKIP: ${reason}`);
-  process.exit(0);
-}
-
-async function reachable(url: string): Promise<boolean> {
-  try {
-    await fetch(url, { signal: AbortSignal.timeout(3000) });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // --- Prerequisites -------------------------------------------------------
 
 /**
- * `/api/health`, NOT `/health` — the latter falls through to the SPA's
- * index.html and answers 200 with HTML, which would let a bare reachability
- * check pass against a page that is not the API at all.
+ * ABSENT, SLOW and WRONG-SERVICE are three different answers (mt#4149), and the
+ * shared preflight keeps them apart: a missing cockpit is a `SKIP:` + exit 0, a
+ * present-but-over-budget one exits non-zero rather than printing the same line,
+ * and `/api/health`'s `service` field is asserted rather than a bare 200.
  */
-const HEALTH = `${COCKPIT}/api/health`;
-
-if (!(await reachable(HEALTH))) skip(`no cockpit reachable at ${COCKPIT}`);
-if (!(await reachable(`${CDP}/json/version`))) skip(`no CDP endpoint at ${CDP}`);
-
-/**
- * Assert WHICH service answered (mt#3148). Every Minsky service is built from
- * the same monorepo, so a misconfigured build can put a different application
- * on this port and answer 200 identically. A probe that cannot fail carries no
- * information.
- */
-let healthBody: unknown;
-try {
-  healthBody = await (await fetch(HEALTH, { signal: AbortSignal.timeout(5000) })).json();
-} catch (err) {
-  console.error(`FAIL: ${HEALTH} did not return JSON: ${err instanceof Error ? err.message : err}`);
-  process.exit(1);
-}
-const identity = assertServiceIdentity(healthBody, SERVICE_IDENTITIES.cockpit);
-if (!identity.ok) {
-  console.error(`FAIL: ${describeHealthIdentityResult(identity)}`);
-  process.exit(1);
-}
-console.log(describeHealthIdentityResult(identity));
+await preflightCockpit({ cockpitUrl: COCKPIT, cdpUrl: CDP });
 
 // --- The stubbed payload -------------------------------------------------
 
