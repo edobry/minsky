@@ -19,6 +19,7 @@
 import { execAsync, safeShellQuote } from "@minsky/shared/exec";
 import { regenerateStagedClaudeHooks } from "./claude-hooks-compile-regen";
 import { regenerateDockerfileBunBuild, checkBunBuildSync } from "./bun-build-sync-regen";
+import { regenerateInterceptorCatalog } from "./interceptor-catalog-regen";
 import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { resolveTsgoBinary } from "../utils/tsgo-binary";
 import { stat, readdir, readFile } from "fs/promises";
@@ -314,6 +315,18 @@ export class PreCommitHook {
       );
       if (!completionManifestResult.success) {
         return completionManifestResult;
+      }
+
+      // Step 1c: Interceptor-catalog regeneration (mt#4010). Same auto-fix-and-
+      // restage shape and same rationale as Step 1b: a mechanically-derived
+      // artifact with zero editorial content. Keeps the cockpit's
+      // `/interceptors` route from rendering data that no longer matches the
+      // authored descriptions it distills.
+      const interceptorCatalogResult = await this.instrumented("interceptor-catalog-regen", () =>
+        this.runInterceptorCatalogRegen()
+      );
+      if (!interceptorCatalogResult.success) {
+        return interceptorCatalogResult;
       }
 
       // Console-usage validation moved into ESLint as the `custom/no-raw-console`
@@ -671,10 +684,12 @@ export class PreCommitHook {
           // ./pre-commit-subprocess-failure so the timeout message names the
           // same number this enforces — mt#3406.)
           timeout: ESLINT_TIMEOUT_MS,
-          // The full-repo --format json payload was ~850KB; a staged-file run
-          // is far smaller, but keep real headroom — a big staged set with many
-          // findings is still sizable, and the 1MB exec default
-          // truncate-KILLS the process at the boundary rather than truncating.
+          // The full-repo --format json payload measured 1,565,238 bytes on
+          // 2026-07-30 (mt#3410) — the "~850KB" this comment used to cite was
+          // already stale by 1.8x. A staged-file run is far smaller, but keep
+          // real headroom: a big staged set with many findings is still
+          // sizable, and the 1MB exec default truncate-KILLS the process at the
+          // boundary rather than truncating.
           maxBuffer: 16 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
@@ -1310,6 +1325,20 @@ export class PreCommitHook {
    */
   private async runDockerfileBunBuildRegen(): Promise<HookResult> {
     return regenerateDockerfileBunBuild({
+      projectRoot: this.projectRoot,
+      runGit: (args) => this.runGitArgv(args),
+      logLine: (line) => log.cli(line),
+      exec: execAsync,
+    });
+  }
+
+  /**
+   * Thin wrapper over {@link regenerateInterceptorCatalog} (mt#4010): keep the
+   * cockpit's interceptor catalog in sync with the authored hook-tree data it
+   * distills. Auto-fixes and re-stages, like the completion-manifest step.
+   */
+  private async runInterceptorCatalogRegen(): Promise<HookResult> {
+    return regenerateInterceptorCatalog({
       projectRoot: this.projectRoot,
       runGit: (args) => this.runGitArgv(args),
       logLine: (line) => log.cli(line),

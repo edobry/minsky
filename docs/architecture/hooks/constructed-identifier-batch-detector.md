@@ -50,3 +50,20 @@ chat, which is ephemeral and contradictable.
 - `guessed-session-path-guard.md` — root-tier sibling.
 - `CLAUDE.md §Sequence Dependent Tool Calls` — the rule this enforces ("Never construct an
   identifier").
+
+## The consume-before-mint pass carries an EXISTENCE discriminator (mt#3991)
+
+A written `mt#` id that **already exists** is not a construction — it is an ordinary
+cross-reference. The pass checks this with **one bounded DB lookup per turn**.
+
+Without that check the pass fired on ordinary citations and measured **9/10 false**. Its original
+discriminator was a prior-source check: assume a legitimate citation has a source earlier in the
+transcript. That assumption is wrong in the common case — an agent citing a task it read from the
+task graph, or knows from the session it planned, has no transcript source for it at all.
+
+Two deliberate asymmetries:
+
+- **A lookup that cannot run fires anyway** (fail-toward-firing). A DB the hook cannot reach must
+  not silently convert the detector into a no-op; that is the mem#534 dead-detector shape.
+- **`ask#` and `mem#` are unchecked.** Every measured fire was `mt#`, and each additional id space
+  costs another lookup in a bounded per-turn budget. Widen it when a fire justifies it.

@@ -114,6 +114,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "git.stash_pop",
   "git.stats",
   "git.status",
+  "guard-events.ingest",
   "init",
   "knowledge.fetch",
   "knowledge.search",

@@ -141,6 +141,18 @@ const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
     // `rawJsonlType === "user"`, which silently miscounted tool results
     // (PR #2419 R1 BLOCKING).
     "@minsky/domain/transcripts/rewind-detection",
+    // mt#4057: same "zero imports at ANY hop" bar as the two above —
+    // interceptor-state.ts's ONLY import is `import type { ... }` from
+    // ./aggregates, erased at compile time, so it contributes no runtime import
+    // edge whatsoever (verified: `grep '^import' ` returns that one type-only
+    // line and nothing else). The `/interceptors` catalog and detail pages
+    // import `deriveInterceptorState` / `deriveInterceptorCost` /
+    // `computeAttentionCounts` from it so the deterrent-vs-dormant-vs-broken
+    // verdict has ONE authority shared with the server-side verification
+    // script, rather than a second copy in the web bundle that could drift into
+    // inferring health from fire counts — the exact conflation mt#3754 exists
+    // to prevent.
+    "@minsky/domain/guard-events/interceptor-state",
   ],
 };
 

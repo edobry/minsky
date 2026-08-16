@@ -14,9 +14,18 @@ and documents the parts that can only be pinned with a comment.
 ## 1. Health response shape (`cockpit-health-shape.json`)
 
 `GET /api/health` is emitted by `src/cockpit/routes/health.ts` and polled by
-the Rust supervisor (`health_ok` / `poll_health_detail` in
-`cockpit-tray/src-tauri/src/supervisor.rs`). `cockpit-health-shape.json` in
-this directory is the single golden fixture both sides read:
+the Rust supervisor (`daemon_core::probe_health` for the transport and the
+identity, `supervisor::db_status_from_body` for the cockpit-only `db` field).
+`cockpit-health-shape.json` in this directory is the single golden fixture both
+sides read:
+
+**mt#3815 changed which fields the Rust side consumes, and why.** The supervisor
+now watches a REGISTRY of daemons rather than one, so the endpoint path is
+per-entry (`/api/health` for the cockpit, `/health` for the MCP daemon) and the
+probe asserts the body's `service` identity instead of accepting any 2xx —
+`service` is therefore a `rustConsumedFields` entry now. The old `health_ok` /
+`poll_health_detail` pair named below is gone; their replacements are named
+above and read the same fields.
 
 - **Bun side** — `src/cockpit/health-contract.test.ts` boots the real
   `createCockpitServer()`, fetches `/api/health`, and asserts the live
@@ -25,7 +34,7 @@ this directory is the single golden fixture both sides read:
 - **Cargo side** — `cockpit-tray/src-tauri/src/supervisor.rs`'s
   `health_contract` test module reads the SAME fixture via `include_str!`
   and asserts two things: (a) every field in `rustConsumedFields` (the
-  fields `poll_health_detail` actually parses — currently `db` and
+  fields the supervisor actually parses — currently `service`, `db` and
   `processStartedAtMs`) is present in the fixture, and (b) the literal
   TypeScript source of `src/cockpit/routes/health.ts` (also pulled in via
   `include_str!`) still emits each of those field names. (b) is what makes a
@@ -35,10 +44,10 @@ this directory is the single golden fixture both sides read:
 **What this catches:** renaming, removing, or changing the type of any
 top-level `/api/health` field in `health.ts` fails the bun test immediately
 (the live response no longer matches the checked-in fixture). Renaming one
-of the two Rust-consumed fields (`db`, `processStartedAtMs`) additionally
-fails the cargo test immediately (the source-text scan no longer finds the
-old field name). Landing the rename cleanly requires updating this fixture
-AND (for the two Rust-consumed fields) `supervisor.rs`'s parsing code —
+of the three Rust-consumed fields (`service`, `db`, `processStartedAtMs`)
+additionally fails the cargo test immediately (the source-text scan no longer
+finds the old field name). Landing the rename cleanly requires updating this
+fixture AND (for the three Rust-consumed fields) the tray's parsing code —
 which is the explicit goal: the two implementations cannot silently drift
 apart on the fields that matter to both.
 

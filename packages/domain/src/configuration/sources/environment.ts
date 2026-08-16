@@ -211,6 +211,9 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_DEPLOY_VERIFY", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
   "MINSKY_SKIP_SUBAGENT_MODEL_CHECK", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
   "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
+  "MINSKY_SKIP_TRUNCATED_OUTCOME_READ", // .claude/hooks/truncated-outcome-read-detector.ts (mt#4096) — truncated-outcome-read observer override
+  "MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK", // .claude/hooks/guard-events-ingest-on-session-end.ts (mt#4035) — SessionEnd guard-events sweep-tick override
+  "MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
   "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
   "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
   // mt#4017 — NOT hook-read: this one is read by scripts/drizzle-config-loader.ts,
@@ -260,6 +263,15 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SHOW_SQL", // (debug flag — promote to logger.* if it grows)
   "MINSKY_STATE_DIR", // src/mcp/disconnect-tracker.ts (process-local path override)
   "MINSKY_COCKPIT_URL", // .claude/hooks/record-conversation-run-state.ts (mt#3161) — cockpit daemon origin override for the run-state writer
+  // mt#4149 — preflight budgets for the browser-driving `scripts/verify-*.ts`
+  // family, all read in `scripts/lib/verify-preflight.ts`. Registered because an
+  // operator raising one of these on a contended machine would otherwise crash
+  // the CLI at boot: the dot-path parser maps e.g.
+  // MINSKY_VERIFY_REACH_TIMEOUT_MS -> verify.reach.timeout.ms, which strict
+  // config validation rejects.
+  "MINSKY_VERIFY_REACH_TIMEOUT_MS", // scripts/lib/verify-preflight.ts — "is anything listening?" budget (default 3000)
+  "MINSKY_VERIFY_HEALTH_TIMEOUT_MS", // scripts/lib/verify-preflight.ts — health-body read + identity-parse budget (default 5000)
+  "MINSKY_VERIFY_SLOW_CONFIRM_TIMEOUT_MS", // scripts/lib/verify-preflight.ts — how long to keep measuring a target that already missed its budget (default 30000)
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
   "MINSKY_ALLOW_TEST_DB", // src/cockpit/db-providers.ts (mt#3254) — opts a test into a real LOCAL database; without it the production resolution path refuses to hand a live connection to a test process
@@ -316,8 +328,13 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
   "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
+  "MINSKY_ALLOW_CONCURRENT_BULK_MUTATION", // .claude/hooks/block-concurrent-bulk-mutation.ts (mt#4055) — override when two concurrent runs of one script are genuinely intended
+  "MINSKY_ALLOW_BULK_PROCESS_KILL", // .claude/hooks/block-bulk-process-kill.ts (mt#4081) — override when a mass kill of the working set is genuinely what was asked for
   "MINSKY_SKIP_DUPLICATE_RECORD", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
+  "MINSKY_SKIP_FLAKINESS_CONTROL", // .claude/hooks/flakiness-control-detector.ts (mt#3658) — override for the tasks_create flakiness-isolation-control detector
   "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
+  "MINSKY_SKIP_STALE_SIGNAL_SWEEP", // .claude/hooks/stale-signal-sweep.ts (mt#3959) — skip the log-only sweep for artifacts quoting an output label this PR stopped emitting
+  "MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN", // .claude/hooks/unrendered-result-field-scan.ts (mt#3913) — skip the log-only scan for *Result counter fields no output site renders
   "MINSKY_SKIP_AGENT_DISPATCH_RECORD", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
   "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
   "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
@@ -352,6 +369,14 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
   "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
   "MINSKY_SKIP_SPEC_READ_CHECK", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
+  // The two evidence-record provenance guards (mem#966's family). Both were
+  // documented as overrides before being registered here; measured behaviour of
+  // the gap is a spurious `Unrecognized top-level config key: skip` warning on
+  // every CLI invocation while the var is set — the auto-mapping fallback routes
+  // `MINSKY_SKIP_*` to a top-level `skip` key. Not a crash, but it makes the
+  // documented escape hatch noisy enough to look broken.
+  "MINSKY_SKIP_SEARCH_PROVENANCE", // .claude/hooks/duplicate-check-search-provenance.ts (mt#4004) — duplicate-check record claiming a search that never ran
+  "MINSKY_SKIP_EVIDENCE_PROVENANCE", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
   "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
   // packages/domain/src/project/identity.ts at identity-resolution time (not

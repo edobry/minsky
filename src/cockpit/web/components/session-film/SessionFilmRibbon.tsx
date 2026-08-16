@@ -194,20 +194,6 @@ export interface SessionFilmRibbonProps {
    * element and cannot be applied by a wrapper.
    */
   style?: CSSProperties;
-  /**
-   * Asserts the film subject's session was verified re-scrubbed, for the
-   * content endpoint's scrub gate (mt#3262 SC 5) — mirrors the `events`
-   * fetch's own `verifiedRescrubbed` query param, which the host owns and does
-   * not thread down to this component. NOTE (mt#3461): no re-scrub-confirmation
-   * UI has ever existed — the host has always pinned this false, so the
-   * override this prop models is currently unreachable from either side.
-   * mt#3268 owns the scrub-gate posture question. Defaults to `false`: a pre-cutoff
-   * session's expanded-row content will 422 (rendered as "Content
-   * unavailable", never a crash — spec AT 4) even when the host already
-   * asserted the override for the events fetch. Threading it through is a
-   * follow-up, not required for this task's acceptance criteria.
-   */
-  verifiedRescrubbed?: boolean;
 }
 
 /** An event's outcome as the operator reads it — see `session-film-config.ts`'s label doc (mt#3795). */
@@ -511,7 +497,6 @@ export function SessionFilmRibbon({
   onScrollRowChange,
   className,
   style,
-  verifiedRescrubbed = false,
 }: SessionFilmRibbonProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -583,8 +568,8 @@ export function SessionFilmRibbon({
   // content never changes underneath a still-open film.
   const entityIndex = useEntityIndex();
   const contentQuery = useQuery({
-    queryKey: sessionFilmContentQueryKey(filmConversationId ?? "", verifiedRescrubbed),
-    queryFn: () => fetchSessionFilmContent(filmConversationId as string, verifiedRescrubbed),
+    queryKey: sessionFilmContentQueryKey(filmConversationId ?? ""),
+    queryFn: () => fetchSessionFilmContent(filmConversationId as string),
     enabled: expandedRowIndex !== null && filmConversationId !== null,
     staleTime: Infinity,
   });

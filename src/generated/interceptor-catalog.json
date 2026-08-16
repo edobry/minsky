@@ -1,0 +1,2916 @@
+{
+  "_generated": "by scripts/build-interceptor-catalog.ts — do not edit directly",
+  "generatedFrom": [
+    ".minsky/hooks/interceptor-coordinates.ts",
+    ".minsky/hooks/interceptor-descriptions.ts",
+    ".minsky/hooks/known-guard-names.ts",
+    ".minsky/hooks/registry.ts"
+  ],
+  "population": 101,
+  "divergence": {
+    "declaredButNotDescribed": [],
+    "describedButNotDeclared": []
+  },
+  "failureClasses": {
+    "unreviewed-merge": {
+      "failure": "Code reaches main without the review, checks, or evidence its policy requires.",
+      "question": "What stops me merging something unreviewed?"
+    },
+    "broken-main": {
+      "failure": "A commit leaves the tree unbuildable, unformatted, untested, or with generated outputs out of sync with their sources.",
+      "question": "What stops me committing a tree that does not build?"
+    },
+    "corrupt-record": {
+      "failure": "A durable record is written in a state later readers cannot trust: a spec missing required sections, an illegal status transition, a mutated already-applied migration, a colliding identifier.",
+      "question": "What keeps the task graph and the migration history trustworthy?"
+    },
+    "secret-exposure": {
+      "failure": "A credential reaches a persisted surface — the transcript, the repo, a log.",
+      "question": "What stops a secret leaking into something permanent?"
+    },
+    "unfounded-claim": {
+      "failure": "Something is asserted as fact without the evidence it needs: a code mechanism never read, a causal story never checked, a result narrated before it happened.",
+      "question": "What stops me asserting something I never checked?"
+    },
+    "wrong-workspace": {
+      "failure": "Work lands in the wrong tree or travels through the wrong channel: main instead of the session, raw git/gh instead of the tools, a fork writing where it declared it would not.",
+      "question": "What stops my edits landing in the wrong place?"
+    },
+    "duplicate-work": {
+      "failure": "Effort is spent on something another task, agent, or PR already owns.",
+      "question": "What stops me redoing work someone else is already doing?"
+    },
+    "lost-signal": {
+      "failure": "Something the principal needed does not reach them — the turn dropped it (a decision not routed, an action named but not taken, an incident not escalated) or rendered it unusable (a wall of text, a silent stretch, an unclickable reference).",
+      "question": "What makes sure I actually see what I need to see?"
+    },
+    "stale-context": {
+      "failure": "The agent acts on facts that have since changed: the date, git state, production state, a stale skill or daemon, a memory never retrieved.",
+      "question": "What stops me acting on stale facts?"
+    },
+    "unrecorded-learning": {
+      "failure": "A failure or a finding evaporates instead of becoming a durable fix in the substrate.",
+      "question": "What makes sure we learn from a failure instead of repeating it?"
+    },
+    "blind-enforcement": {
+      "failure": "The interception system itself fails without anyone noticing — a guard erroring in a streak, a calibration log past its review window, a fire-log record with no known source.",
+      "question": "What tells me the guards themselves are still working?"
+    }
+  },
+  "entries": [
+    {
+      "guardName": "adr-numbering-collision-check",
+      "description": "Blocks two ADRs claiming the same number, which parallel branches produce independently.",
+      "failureClasses": ["corrupt-record", "duplicate-work"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/adr-numbering-collision-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "ask-routing-deferral-detector",
+      "description": "Injects when a decision is deferred to the principal in chat prose instead of being routed through the Asks subsystem, where it would get attention accounting.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/ask-routing-deferral-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "auto-session-title",
+      "description": "Emits a derived title for the conversation. Outputs a scalar rather than a decision about the trajectory.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/auto-session-title.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "note": "The ontology (§3c) records this as the entity the genus definition fits worst: it is in the corpus because it occupies an interception point and fires on the same machinery, not because it decides anything.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "bare-prohibition",
+      "description": "Records a dispatch prompt telling a subagent NOT to do something without stating the basis, which strips the recipient of standing to correct a wrong premise. A missing licence-to-falsify no longer fires on its own.",
+      "failureClasses": ["lost-signal", "unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/warn-bare-prohibition-dispatch.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "filenameNote": "The fire-log key is `bare-prohibition`; the module is `warn-bare-prohibition-dispatch.ts`. Name and file diverge, so a filename-derived lookup misses it.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-bulk-process-kill",
+      "description": "Denies a command that kills many processes at once — `kill` with 3+ PIDs, or `pkill`/`killall` naming an interactive process class. The denial names the move-vs-recreate alternative: a capability ruled out on ONE probed channel is not a capability that does not exist. Act-path half of the operator-deferral family, whose detector reads only deferral prose.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/block-bulk-process-kill.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-concurrent-bulk-mutation",
+      "description": "Denies invoking a `scripts/*.ts` with an execute-class flag (`--execute`/`--apply`) while another process is already running that same script. Keys on the concurrency rather than on a curated list of dangerous scripts. First execution-surface member of the duplication-gate family — every sibling binds to a task-graph surface.",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [
+        ".minsky/hooks/block-concurrent-bulk-mutation.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-git-gh-cli",
+      "description": "Denies git and gh CLI invocations for which a purpose-built MCP tool exists, so operations go through the audited tool surface. Carves out the recommended escape hatches (`git stash`/`reset`/`restore`/`status`) inside a session.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [".minsky/hooks/block-git-gh-cli.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-nested-fork-dispatch",
+      "description": "Denies an UNDECLARED nested `fork` dispatch — a subagent calling the Agent tool with `subagent_type: \"fork\"` while no live dispatch-intent declaration covers its session. A top-level fork from the main agent is unaffected.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [".minsky/hooks/block-nested-fork-dispatch.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-out-of-band-merge",
+      "description": "Denies a PR merge when the PR body documents a coupled out-of-band coordination step that may not have been completed.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [".minsky/hooks/block-out-of-band-merge.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-secret-file-read",
+      "description": "Denies printing a known-secret-bearing file (`config.yaml`, `.env*`, `*.pem`) through an emitting reader. Reader and path together deny; naming the path alone is fine.",
+      "failureClasses": ["secret-exposure"],
+      "provenance": [".minsky/hooks/block-secret-file-read.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-subagent-bypass-merge",
+      "description": "Denies every raw `gh api PUT /repos/.../pulls/.../merge` invocation, forcing the bypass through the audited in-band path that records a reason.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [
+        ".minsky/hooks/block-subagent-bypass-merge.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "block-subagent-merge-without-grant",
+      "description": "Denies `session_pr_merge` from a subagent unless a valid, unexpired capability grant covers the task. Default-deny: a missing store or no match is the guard working.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [
+        ".minsky/hooks/block-subagent-merge-without-grant.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "build-claim-injection-detector",
+      "description": "Records a claim that a build, bundle, or install succeeded without the evidence that would establish it. Log-only.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/build-claim-injection-detector.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "bun-build-sync-check",
+      "description": "Blocks a commit where the bun-build configuration and its generated consumers have diverged.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/bun-build-sync-regen.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "calibration-review-cadence-detector",
+      "description": "Injects a warning naming calibration logs past their review threshold, so the deferred decision loop the recorders feed actually gets run.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [
+        ".minsky/hooks/calibration-review-cadence-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "system",
+      "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "causal-premise-detector",
+      "description": "Records a causal explanation offered without checking its cheapest falsifier. Log-only.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/causal-premise-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "chained-verification-commands",
+      "description": "Records a Bash or `session_exec` command string chaining two or more verification commands with `;`/`&&`/`||`, which makes a non-zero exit unattributable to any one check. Deliberately narrow: a single verification command wrapped in labels or a `cd` prefix does not fire.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/chained-verification-commands-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "check-branch-fresh",
+      "description": "Blocks a commit or PR whose diff OVERLAPS commits that landed on main since the branch was cut. Ahead-count alone no longer blocks; a failed overlap probe fails closed.",
+      "failureClasses": ["broken-main"],
+      "provenance": [".minsky/hooks/check-branch-fresh.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "check-generated-file-edit",
+      "description": "Blocks edits to generated files, identified by their banner markers, so a change lands in the source that produces them rather than in the output.",
+      "failureClasses": ["broken-main"],
+      "provenance": [".minsky/hooks/check-generated-file-edit.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "check-guessed-session-path",
+      "description": "Denies a tool call naming a session-workspace path that does not exist on disk — the tell of a path assembled from a plausible-looking pattern instead of read from the call that minted it.",
+      "failureClasses": ["wrong-workspace", "unfounded-claim"],
+      "provenance": [".minsky/hooks/check-guessed-session-path.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "check-task-spec-read",
+      "description": "Blocks advancing a task to READY, binding a session to it, or one-call-dispatching an existing task when that task's spec was never surfaced in-session — the task-hijack case.",
+      "failureClasses": ["unfounded-claim", "duplicate-work"],
+      "provenance": [".minsky/hooks/check-task-spec-read.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "claude-hooks-compile-regen",
+      "description": "Recompiles `.claude/hooks/*` from their `.minsky/hooks/*` sources and re-stages them, so the hooks that actually run are never older than the sources under review.",
+      "failureClasses": ["broken-main", "blind-enforcement"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/claude-hooks-compile-regen.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "cli-mcp-substitution",
+      "description": "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/detect-cli-mcp-substitution.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "code-formatting",
+      "description": "Runs the formatter over staged files and re-stages the result — auto-fix-and-restage, not detect-and-block.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "code-mechanism-assertion-detector",
+      "description": "Injects when the turn asserts how a code symbol behaves without having read it. Live in chat; the added-comment and durable-artifact surfaces are log-only. Relayed claims — a subagent report, a search synthesis — SURFACE rather than suppress.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/code-mechanism-assertion-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "compile-check",
+      "description": "Blocks a commit where any compile target's generated output is out of sync with its source.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/compile-check-targets.test.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "completion-manifest-regen",
+      "description": "Regenerates the shell-completion manifest and re-stages it. Auto-fixes rather than blocking, because the manifest is a mechanically-derived artifact with zero editorial content.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/completion-manifest-regen.test.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "constructed-identifier-batch-detector",
+      "description": "Records an identifier minted and consumed in the same parallel batch, and consume-before-mint across a turn. A written `mt#` id that already exists is not a construction — checked by one bounded lookup per turn.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/constructed-identifier-batch-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "denier",
+      "description": "Not an interceptor. A synthetic name from a deny-path scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "fixture",
+      "subject": "trajectory",
+      "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
+    },
+    {
+      "guardName": "deploy-domain-check",
+      "description": "Verifies every domain asserted as a deployment target in deploy or site config is one we actually control, per the verified allowlist in `infra/controlled-domains.json`.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/deploy-domain-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "dispatch-intent-write-gate",
+      "description": "Denies session-mutating and PR-mutating tool calls from a subagent whose dispatched session carries a live `read-only` dispatch-intent declaration, regardless of which agent id makes the call. Contains a fork's WRITES; it cannot stop a fork from thinking like an implementer.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [".minsky/hooks/dispatch-intent-write-gate.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "dockerfile-bun-build-regen",
+      "description": "Keeps the Dockerfile's bun-build invocation in sync with the build configuration.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/dockerfile-bun-build-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "dockerfile-workspace-copy-regen",
+      "description": "Keeps the Dockerfile's workspace COPY directives in sync with the actual workspace layout, so the image does not silently omit a package.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/workspace-copy-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "duplicate-check-search-provenance",
+      "description": "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
+      "failureClasses": ["duplicate-work", "unfounded-claim"],
+      "provenance": [".minsky/hooks/duplicate-check-search-provenance.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "duplicate-generated-content-check",
+      "description": "Blocks a commit where a generated artifact contains duplicated content — the signature of a generator run twice or a merge that concatenated two outputs.",
+      "failureClasses": ["broken-main"],
+      "provenance": [
+        "src/hooks/pre-commit.ts",
+        "src/hooks/duplicate-generated-content-detector.ts"
+      ],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "duplicate-signature-scan",
+      "description": "Records when a new task spec carries signature tokens — routes, source paths, backticked identifiers — that already appear in an active task the duplicate-check record does not concede overlapping. Checks whether the record's verdicts are TRUE, where its deny-tier sibling checks only that the record is PRESENT.",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [".minsky/hooks/duplicate-signature-scan.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "eslint-rule-tests",
+      "description": "Runs the custom ESLint rules' own test suite, so a change to an architectural rule cannot land without its tests passing.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "eslint-validation",
+      "description": "Blocks a commit with lint errors or warnings — the repo runs a zero-tolerance warning gate.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "evidence-record-provenance",
+      "description": "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/evidence-record-provenance.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "fast-related-tests",
+      "description": "Runs the tests related to the staged files, so a commit that breaks its own neighbourhood is caught before push.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/related-tests-check.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "first-guard",
+      "description": "Not an interceptor. A synthetic name from a two-guard ordering scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "fixture",
+      "subject": "trajectory",
+      "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
+    },
+    {
+      "guardName": "flakiness-control-detector",
+      "description": "Records when a new task spec claims a test failure's MODE — that it is flaky, or equally that it is NOT load-dependent and fails deterministically — without recording the isolation control that would settle it, or marking the claim UNVERIFIED. The denial is the more dangerous shape: it reads as the already-investigated verdict.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/flakiness-control-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "guard-health-escalation-detector",
+      "description": "Injects a banner while any interceptor is in a critical error streak, so a guard failing repeatedly surfaces instead of failing silently.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [
+        ".minsky/hooks/guard-health-escalation-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "system",
+      "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "hook-permission-check",
+      "description": "Verifies every generated hook file is executable, since a hook without the execute bit silently never runs.",
+      "failureClasses": ["broken-main", "blind-enforcement"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/hook-permission-check.test.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "immutable-migration-check",
+      "description": "Blocks edits to a migration that has already been applied — the change would silently diverge from what ran against every existing database.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/immutable-migration-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "inject-current-time",
+      "description": "Injects the current wall-clock time into every turn, unconditionally, so a date is never asserted from memory.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/inject-current-time.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "inject-dispatch-watchdog",
+      "description": "Injects the state of in-flight subagent dispatches, so a subagent that has gone silent or stalled surfaces to the orchestrating agent rather than being discovered later.",
+      "failureClasses": ["stale-context", "lost-signal"],
+      "provenance": [".minsky/hooks/inject-dispatch-watchdog.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "inject-git-state",
+      "description": "Injects the current branch, ahead/behind counts against the last-fetched origin, a working-tree summary, and recent commits into every turn.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/inject-git-state.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "inject-memory-capture",
+      "description": "Injects a memory-capture prompt surface into the turn.",
+      "failureClasses": ["stale-context", "unrecorded-learning"],
+      "provenance": [".minsky/hooks/inject-memory-capture.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "inject-prod-state",
+      "description": "Injects current production/deployment state into every turn.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/inject-prod-state.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "interceptor-catalog-regen",
+      "description": "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      "failureClasses": ["broken-main", "blind-enforcement"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/interceptor-catalog-regen.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "knowledge-acquisition-detector",
+      "description": "Records a turn that acquired durable, reusable knowledge without routing it to an artifact that outlives the task. Log-only.",
+      "failureClasses": ["unrecorded-learning"],
+      "provenance": [
+        ".minsky/hooks/knowledge-acquisition-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "mcp-daemon-staleness-detector",
+      "description": "Injects a warning when the running MCP daemon is older than the built source, so a tool result that reflects stale server code is attributable rather than mysterious.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/mcp-daemon-staleness-detector.ts", ".minsky/hooks/registry.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "memory-search",
+      "description": "Auto-injects top-K memory-search results for non-trivial prompts, restoring preamble-parity for Claude Code without the agent having to remember to search.",
+      "failureClasses": ["stale-context"],
+      "provenance": [".minsky/hooks/memory-search.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "embedding",
+      "role": "feeder",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "migration-collision-check",
+      "description": "Blocks two migrations claiming the same sequence number, which two branches produce independently and neither notices.",
+      "failureClasses": ["corrupt-record", "duplicate-work"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/migration-collision-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "migration-guard-and-duplicate-content-check",
+      "description": "Retired pre-commit step that combined the migration-safety and duplicate-generated-content checks; split into `migration-guard-check` and `duplicate-generated-content-check`.",
+      "failureClasses": ["corrupt-record", "broken-main"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "retired",
+      "subject": "trajectory",
+      "note": "Last seen 2026-07-29. No source module exists — the step was split into its two successors, so the oracle's declaration is the only honest pointer.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "authored",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "migration-guard-check",
+      "description": "Blocks a migration whose shape violates the repo's migration-safety rules.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/migration-guard-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "migration-journal-check",
+      "description": "Blocks a commit whose migration journal disagrees with the migration files on disk.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/migration-journal-check.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "mt3612-live-rewrite",
+      "description": "Not an interceptor. A synthetic name from a prompt-rewrite scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "fixture",
+      "subject": "trajectory",
+      "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
+    },
+    {
+      "guardName": "negative-existence-claim-detector",
+      "description": "Records a claim that something does not exist — zero call sites, nothing implements X — when the search behind it returned at most one hit and the prose cites a task that already shipped the thing. Log-only.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/negative-existence-claim-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "node-shim-check",
+      "description": "Blocks a commit reintroducing a Node shim where the project's Bun-native path is required.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "nul-byte-check",
+      "description": "Blocks a commit whose staged content contains NUL bytes, which corrupt the file for every downstream text tool.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/nul-byte-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "operator-deferral-ask-surface",
+      "description": "The `AskUserQuestion` half of the operator-deferral evaluation: records option labels that defer an action the agent could have probed for itself.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/operator-deferral-detector.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "operator-deferral-detector",
+      "description": "Records an ACTION deferred to the principal without a same-turn capability probe, across three surfaces: capability-deferral prose, AskUserQuestion option labels, and permission-deferral prose. Writes every evaluation, fired or not, so the miss RATE is measurable.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/operator-deferral-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "overridden-guard",
+      "description": "Not an interceptor. A synthetic name from an override-path scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "fixture",
+      "subject": "trajectory",
+      "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
+    },
+    {
+      "guardName": "policy-coverage",
+      "description": "Runs before every Edit/Write/NotebookEdit: when a tool call encodes a preference-bound choice that no policy source covers, it emits a `direction.decide` ask and blocks the action with the question surfaced as the denial reason.",
+      "failureClasses": ["lost-signal", "blind-enforcement"],
+      "provenance": [".minsky/hooks/policy-coverage-detector.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "note": "Ontology amendment (a): its declared type is a capability SET — it selects deny, warn, or allow per fire — so it is legitimately both a guard and a detector.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        },
+        {
+          "type": "allow"
+        },
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard", "detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "pre-narration-detector",
+      "description": "Injects when a turn states a tool outcome — created, merged, tests pass — before that result is in hand.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [".minsky/hooks/pre-narration-detector.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "rationalization-review",
+      "description": "Declared as a standalone enforcement point and present in the fire log, but no source module for it exists in this repo — so what it does cannot be stated from source.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "note": "No source module exists. UNVERIFIED — description deliberately withheld rather than inferred. `rationalization-review` appears only in `known-guard-names.ts`'s STANDALONE_GUARD_NAMES and in one fire-log record; a repo-wide grep finds no implementing module. Either it is a retired name that belongs in RETIRED_GUARD_NAMES, or its module is named something this search did not reach. Resolve before the catalog renders it as a live interceptor.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
+    },
+    {
+      "guardName": "record-agent-dispatch",
+      "description": "On a raw `Agent` spawn, writes the pending `subagent_invocations` row and stamps the harness `(session_id, tool_use_id)` into the prompt via `updatedInput` — the join the Stop side needs, since PreToolUse has no `agent_id` and SubagentStop has no `tool_use_id`. Mutates as well as records; never denies.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/record-agent-dispatch.ts", ".minsky/hooks/registry.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        },
+        {
+          "type": "record",
+          "audience": "framework"
+        },
+        {
+          "type": "record",
+          "audience": "operator"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "record-turn-anchor",
+      "description": "Writes the turn-anchor store at Stop. Always returns null; its only observable effect is a file write that OTHER interceptors read — framework state, not evidence for review.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/record-turn-anchor.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "note": "Ontology §3c calls this the `record(framework)` case, distinct from `record(review)`: nothing in `/calibration-review` consumes it.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["canary"],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "framework"
+        }
+      ],
+      "mechanism": "constant",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-checks-on-bypass-merge",
+      "description": "Denies a bypass merge whose required status checks have not passed.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [
+        ".minsky/hooks/require-checks-on-bypass-merge.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-deploy-verification-before-merge",
+      "description": "Denies a merge of a deploy-surface PR whose body carries no `Deploy verification:` commitment, and covers the tray usability-claim case.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [
+        ".minsky/hooks/require-deploy-verification-before-merge.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-duplicate-check-record",
+      "description": "Denies `tasks_create` whose spec carries no `Duplicate check:` line. A presence check on the spec text, deliberately not a similarity judgment — the advisory sibling owns that.",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [
+        ".minsky/hooks/require-duplicate-check-record.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-execution-evidence-before-merge",
+      "description": "Denies a merge of a PR adding new test or script files without an `Execution evidence:` block. Four log-only calibration surfaces ride along on the same trigger: per-AT coverage, per-criterion coverage, test-first negative control, and render-path evidence.",
+      "failureClasses": ["unreviewed-merge", "unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/require-execution-evidence-before-merge.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard", "detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-growth-justification-before-merge",
+      "description": "Denies a merge that grows the always-loaded rule corpus without a justification, or that pushes a single rule past its size ceiling.",
+      "failureClasses": ["unreviewed-merge", "lost-signal"],
+      "provenance": [
+        ".minsky/hooks/require-growth-justification-before-merge.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-review-before-merge",
+      "description": "Denies a merge without a passing reviewer-bot review on the current HEAD. The REQUEST_CHANGES override is an operator-approved grant, not an env skip.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [
+        ".minsky/hooks/require-review-before-merge.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "require-session-for-main-workspace-edits",
+      "description": "Blocks Edit/Write/NotebookEdit on main-workspace files, so code changes happen in an isolated session workspace.",
+      "failureClasses": ["wrong-workspace"],
+      "provenance": [
+        ".minsky/hooks/require-session-for-main-workspace-edits.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "retrospective-completeness-detector",
+      "description": "Records whether a retrospective that FIRED is complete — the sections its declared triage level requires, and in-turn status reads for the fix-tasks it cites. Log-only.",
+      "failureClasses": ["unrecorded-learning"],
+      "provenance": [
+        ".minsky/hooks/retrospective-completeness-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["attentionCost", "canary"],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "retrospective-trigger-scanner",
+      "description": "Scans the just-completed turn for user-correction and self-recognized-failure phrases and injects a reminder to run `/retrospective`, recording every evaluation.",
+      "failureClasses": ["unrecorded-learning"],
+      "provenance": [
+        ".minsky/hooks/retrospective-trigger-scanner.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "rules-compile-check",
+      "description": "Blocks a commit where a `.minsky/rules/*.mdc` source changed but its generated outputs did not — the exact gap that ships a rule edit no agent ever reads.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/rules-compile-check.test.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "second-guard",
+      "description": "Not an interceptor. A synthetic name from a two-guard ordering scenario in a hand-rolled live-verification harness that wrote into the REAL fire log; it corresponds to no enforcement point in this repo.",
+      "failureClasses": ["blind-enforcement"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "fixture",
+      "subject": "trajectory",
+      "note": "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": null,
+      "pointSource": "none",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["point", "interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": true
+    },
+    {
+      "guardName": "secret-scanning",
+      "description": "Blocks a commit whose staged content matches a known credential shape.",
+      "failureClasses": ["secret-exposure"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "silent-stretch-detector",
+      "description": "Injects when a tool-only run crosses the heartbeat cadence — 10 minutes wall-clock or 15 consecutive tool calls — with no interstitial prose.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/silent-stretch-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "skill-staleness-detector",
+      "description": "Injects a warning when a skill, agent, or rule has drifted from its compiled baseline.",
+      "failureClasses": ["stale-context"],
+      "provenance": [
+        ".minsky/hooks/skill-staleness-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "filenameNote": "Named `*-detector` but its declared effect is `additionalContext` (injector) — it injects, it does not record. Axis 2 is inject, not record.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "stale-signal-sweep",
+      "description": "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      "failureClasses": ["stale-context", "unfounded-claim"],
+      "provenance": [".minsky/hooks/stale-signal-sweep.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "standalone-duplicate-matcher",
+      "description": "The advisory standalone-creation duplicate probe: warns when a task being created resembles one that already exists. Split out of the parallel-work guard; embedding-based, and provably unable to discriminate at the distances real duplicates sit at — which is why the deny-tier sibling is a presence check instead.",
+      "failureClasses": ["duplicate-work"],
+      "provenance": [
+        ".minsky/hooks/parallel-work-guard-standalone.ts",
+        ".minsky/rules/hook-files.mdc"
+      ],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "note": "Live in the fire log (87 records) but ABSENT from `known-guard-names.ts`'s `STANDALONE_GUARD_NAMES` snapshot until mt#4008 added it — so `scripts/audit-fire-log.ts` was reporting a legitimate enforcement point as an actionable unknown, exactly the false-positive failure mode that module's staleness note warns about.",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "authored",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        }
+      ],
+      "mechanism": "embedding",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "stop-at-decision-scan",
+      "description": "Records the silent stop at a ripe decision: a turn whose mutations are all evidence-writes, ending having minted nothing and said nothing. Log-only.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/stop-at-decision-scan.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["attentionCost", "canary"],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "substrate-bypass-detector",
+      "description": "Injects when a turn makes a commitment, writes retrospective prose, or reaches around the substrate instead of encoding the result in it; the post-merge-instruction leg is log-only.",
+      "failureClasses": ["unrecorded-learning", "lost-signal"],
+      "provenance": [
+        ".minsky/hooks/substrate-bypass-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "tasks-status-set-guard",
+      "description": "Validates a `tasks_status_set` transition against the canonical task state machine, denying transitions the machine does not permit.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/tasks-status-set-guard.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "truncated-outcome-read",
+      "description": "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/truncated-outcome-read-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "turn-end-bare-ref-scan",
+      "description": "Injects when a closing message carries an entity reference the reader cannot click. Posture is per finding class: bare short ids the display map cannot resolve, malformed targets and raw-uuid labels are live; bare `mt#`/`PR #` is record-only because the display linkifier repairs those.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/turn-end-bare-ref-scan.ts",
+        ".minsky/hooks/bare-entity-ref-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "turn-end-retro-scan",
+      "description": "The Stop-event sibling of the retrospective trigger scanner: injects a `/retrospective` reminder when the just-completed turn carries a failure signal.",
+      "failureClasses": ["unrecorded-learning"],
+      "provenance": [".minsky/hooks/turn-end-retro-scan.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "turn-end-unescalated-incident-scan",
+      "description": "Injects when the final message reports an incident and names the remediation as the principal's, with no ask carrying `severity: \"incident\"`.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/turn-end-unescalated-incident-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "turn-end-untaken-action-scan",
+      "description": "Injects when the final message names a next action without taking it. Suppressed — with the suppression recorded — when the message names a principal-reserved category.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/turn-end-untaken-action-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "turn-end-unwalked-task-scan",
+      "description": "Injects when a turn minted a task id and ended with no status-set, session-start, dispatch, or ask naming it. Keyed on tool-call state, so it sees the SILENT stop.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/turn-end-unwalked-task-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "type-check",
+      "description": "Blocks a commit that does not typecheck. Covers the root tsconfig plus every workspace and standalone project a `typecheck:*` script names, so `scripts/**` and the hook trees are included.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "unit-tests",
+      "description": "Retired pre-commit step that ran the unit suite on every commit; superseded by `fast-related-tests`, which scopes the run to the staged files.",
+      "failureClasses": ["broken-main"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "retired",
+      "subject": "trajectory",
+      "note": "Last seen 2026-07-20. No source module exists — a retired step's implementation is gone by definition, so the oracle's declaration is the only honest pointer. The fire log is append-only history, so its records persist under this name permanently.",
+      "provenanceStatus": "declaration-only",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "authored",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "unrendered-result-field-scan",
+      "description": "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/unrendered-result-field-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "validate-task-spec",
+      "description": "Denies `tasks_create` when the spec is missing the sections a task spec is required to carry.",
+      "failureClasses": ["corrupt-record"],
+      "provenance": [".minsky/hooks/validate-task-spec.ts", ".minsky/rules/hook-files.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "variable-naming-check",
+      "description": "Blocks a commit carrying the variable-naming mistakes this repo has hit before.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "wall-of-text-detector",
+      "description": "Records a turn-end report that violates the Tier-1 shape — over the word budget, or leading with a process-internal label instead of plain language.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/wall-of-text-detector.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    }
+  ]
+}

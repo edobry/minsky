@@ -95,10 +95,10 @@
             "statusMessage": "Checking for git/gh CLI..."
           },
           {
-            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry on this matcher (check-guessed-session-path, chained-verification-commands, block-secret-file-read). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block.",
+            "_comment": "ADR-028 D1 guard-dispatcher pilot (mt#2650): the SOLE settings.json entry for every guard migrated onto .minsky/hooks/dispatch-pretooluse.ts's in-process registry on this matcher (check-guessed-session-path, chained-verification-commands, block-secret-file-read, block-concurrent-bulk-mutation, block-bulk-process-kill). Takes the migrated guard's ORIGINAL slot in this block to preserve first-deny-wins execution order relative to its siblings — do not add new individual hook commands here; register them in .minsky/hooks/registry.ts's GUARD_REGISTRY instead. Timeout is DERIVED (mt#3981, absorbing mt#3675) — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block; it moved 20 -> 25 when mt#4055 added the fourth guard to this matcher, and 25 -> 27 when mt#4081 added the fifth (a 2s pure-string decision, no subprocess), and 27 -> 32 when mt#4096 added truncated-outcome-read (a 5s pure-string decision), and 32 -> 37 when mt#4144 added cli-mcp-substitution (a 5s decision: one read of the generated completion manifest plus a transcript tool-name scan, no subprocess and no domain code).",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 20,
+            "timeout": 37,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           },
           {
@@ -182,10 +182,10 @@
             "statusMessage": "Validating task spec structure..."
           },
           {
-            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the THREE guards registered on this matcher (require-duplicate-check-record 5s, duplicate-signature-scan 18s, duplicate-check-search-provenance 5s per mt#4004) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart.",
+            "_comment": "mt#3823: the ADR-028 D1 dispatcher's slot in the tasks_create block, absent until 2026-08-10 — so neither guard registered on this matcher ever ran. Placed LAST so validate-task-spec's structural check surfaces before the duplicate-record deny. Timeout is DERIVED (mt#3981, absorbing mt#3675) from the FOUR guards registered on this matcher (require-duplicate-check-record 5s, duplicate-signature-scan 18s, duplicate-check-search-provenance 5s per mt#4004, flakiness-control-detector 5s per mt#3658) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts and registry.test.ts's dispatcher-parity block, which is what fails if the two drift apart.",
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
-            "timeout": 33,
+            "timeout": 38,
             "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
@@ -242,6 +242,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts",
             "timeout": 15,
             "statusMessage": "Checking branch freshness..."
+          },
+          {
+            "_comment": "mt#4044: the FIRST dispatcher entry on the commit/PR-body seam. These three tool names already appeared in this file, but only on standalone hooks (check-branch-fresh here, dispatch-intent-write-gate below), so no GUARD_REGISTRY guard could reach a commit message or a PR body until this entry existed — the mt#3823 defect class, caught in advance by registry.test.ts's parity block. Register new guards in .minsky/hooks/registry.ts, not as new commands here. Timeout is DERIVED (mt#3981): sum of the routed guards' budgets + DISPATCH_TIMEOUT_MARGIN_MS, asserted for equality by that same parity block.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 43,
+            "statusMessage": "Checking evidence-record provenance..."
           }
         ]
       },
@@ -277,6 +284,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-success-criteria.ts",
             "timeout": 20,
             "statusMessage": "Surfacing the task's success criteria..."
+          },
+          {
+            "_comment": "mt#3959: the ADR-028 D1 dispatcher's slot in the session_pr_create block. This is what makes session_pr_create a dispatcher-spawning tool — the sibling _comment above and the dispatch-intent gate's both record that it was NOT one, and that is the state this entry changed; a guard registered on this matcher without it would never run, which registry.test.ts's dispatcher-parity block is what catches (it caught exactly that while mt#3959 was being added). Timeout is DERIVED (mt#3981, absorbing mt#3675) from the guards registered on this matcher (stale-signal-sweep 18s + unrendered-result-field-scan 12s per mt#3913) plus a 5s margin — see .minsky/hooks/dispatch-timeout-budget.ts. Re-derive it when adding another. Placed LAST so the success-criteria injection above is read before the advisory output.",
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/dispatch-pretooluse.ts",
+            "timeout": 43,
+            "statusMessage": "Running guard dispatcher (PreToolUse)..."
           }
         ]
       },
@@ -357,6 +371,17 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/transcript-ingest-on-session-end.ts",
             "timeout": 45,
             "statusMessage": "Ingesting finished session transcript..."
+          }
+        ]
+      },
+      {
+        "_comment": "mt#4035 — guard/calibration exhaust ingest, latency-optimization half; the cockpit sweep is the correctness layer (SessionEnd does not reliably fire, per ADR-017/mt#2313).",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-events-ingest-on-session-end.ts",
+            "timeout": 25,
+            "statusMessage": "Ingesting guard/calibration exhaust..."
           }
         ]
       },

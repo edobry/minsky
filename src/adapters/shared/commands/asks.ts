@@ -983,7 +983,16 @@ export function assertNoSerializedParameterArtifact(
 
 export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLintMatch[] {
   return matches.filter(
-    (m) => m.check !== "missing-force-immediate" && m.check !== "unlinkified-reference"
+    (m) =>
+      m.check !== "missing-force-immediate" &&
+      m.check !== "unlinkified-reference" &&
+      // mt#4148: advisory permanently, not as a calibration-first term awaiting
+      // graduation. Every other check here states a condition the author can
+      // SATISFY — supply a link, shorten the body, add options. This one asks
+      // whether an exemption set is complete, which no matcher can decide, so
+      // blocking on it would only teach authors to reword the label. The fire
+      // is the prompt; the judgment stays with the author.
+      m.check !== "unscoped-option-exception"
   );
 }
 

@@ -35,6 +35,7 @@ import {
 } from "@simplewebauthn/server";
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import { log } from "@minsky/shared/logger";
+import { respondIfDatabaseUnavailable } from "./db-unavailable-response";
 
 /**
  * Hex-encode bytes without `Buffer#toString(encoding)`.
@@ -184,6 +185,13 @@ export function extractSessionToken(req: Request): string | null {
 export function isPublicPath(path: string): boolean {
   if (path === "/api/health") return true;
   if (path.startsWith("/api/auth/")) return true;
+  // Published conversation shares (mt#4024). The ONLY data route that is
+  // deliberately public, and it is not a hole in the gate: it serves exactly
+  // one conversation, only when the operator explicitly published it, only
+  // while the share is live, and only if that transcript passes the scrub
+  // gate. Note how narrow the prefix is — `/api/shares` (mint, list, revoke)
+  // stays GATED; only the `/public/` sub-path is open.
+  if (path.startsWith("/api/shares/public/")) return true;
   if (!path.startsWith("/api/")) return true; // SPA shell + static assets
   return false;
 }
@@ -370,6 +378,7 @@ export function createPasskeyAuthRouter(deps: PasskeyAuthDeps): Router {
         const ceremonyId = resolved.ceremonies.create("registration", options.challenge);
         res.json({ ceremonyId, options });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "cockpit-auth")) return;
         log.error("[cockpit-auth] register/start failed:", { originalError: err });
         res.status(500).json({ error: "Could not start enrollment" });
       }
@@ -416,6 +425,7 @@ export function createPasskeyAuthRouter(deps: PasskeyAuthDeps): Router {
         res.setHeader("Set-Cookie", await issueSession(resolved, passkeyId, isSecureRequest(req)));
         res.json({ verified: true });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "cockpit-auth")) return;
         log.error("[cockpit-auth] register/finish failed:", { originalError: err });
         res.status(500).json({ error: "Could not complete enrollment" });
       }
@@ -435,6 +445,7 @@ export function createPasskeyAuthRouter(deps: PasskeyAuthDeps): Router {
         const ceremonyId = resolved.ceremonies.create("authentication", options.challenge);
         res.json({ ceremonyId, options });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "cockpit-auth")) return;
         log.error("[cockpit-auth] login/start failed:", { originalError: err });
         res.status(500).json({ error: "Could not start sign-in" });
       }
@@ -482,6 +493,7 @@ export function createPasskeyAuthRouter(deps: PasskeyAuthDeps): Router {
         res.setHeader("Set-Cookie", await issueSession(resolved, passkey.id, isSecureRequest(req)));
         res.json({ verified: true });
       } catch (err: unknown) {
+        if (await respondIfDatabaseUnavailable(res, err, "cockpit-auth")) return;
         log.error("[cockpit-auth] login/finish failed:", { originalError: err });
         res.status(500).json({ error: "Could not complete sign-in" });
       }

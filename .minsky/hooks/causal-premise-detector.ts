@@ -47,6 +47,12 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+import { logEvaluationRecord } from "./dispatcher";
+import {
+  captureArtifact,
+  CAPTURE_SCHEMA_FIELD,
+  CAPTURE_SCHEMA_VERSION,
+} from "./judged-input-capture";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -407,6 +413,137 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 }
 
 // ---------------------------------------------------------------------------
+// Evaluation stream — every evaluated turn, fired or not (mt#3743)
+// ---------------------------------------------------------------------------
+
+/**
+ * Stream name; `evaluationLogPath` derives
+ * `.minsky/causal-premise-evaluations.jsonl` from it.
+ *
+ * The calibration log above records what this detector CAUGHT. The quantity
+ * ADR-024 §(b) bounds — "≤5% new false-negative" — is what it MISSED, and no
+ * analysis of the first yields the second: an unfired miss writes nothing, so
+ * the corpus that would measure it is the corpus that does not exist. This
+ * stream is the denominator, one record per turn a verdict was reached on.
+ *
+ * That is why the rung decision was not merely un-started but UNDECIDABLE: the
+ * calibration log held 3 records over ~2 months (4 as of 2026-08-13) while the
+ * family it watches recurred four times in five days. ADR-024's 2026-08-03
+ * amendment named this fix for the sibling family and this is the same move.
+ */
+export const EVALUATION_LOG_NAME = "causal-premise";
+
+/**
+ * Cap on the captured turn text, in UTF-16 code units.
+ *
+ * GROUNDED IN OBSERVED SIZE rather than a round number
+ * (`decision-defaults.mdc §Thresholds`), by the same derivation
+ * {@link ARTIFACT_CAPTURE_MAX_CHARS} used for PR bodies — applied to this
+ * surface's own corpus instead of inheriting a bound sized for a different one.
+ * Assistant-turn text length over the 12 most recent transcripts of this
+ * project (797 turns, measured 2026-08-13): p50 134 / p75 202 / p90 346 /
+ * p95 1,277 / p99 1,976 / max 3,470. 4,000 clears the observed maximum with
+ * ~15% headroom, so a truncated capture is the rare case rather than the normal
+ * one — which matters because a truncated capture cannot re-derive a verdict
+ * that turned on text past the cut.
+ *
+ * Deliberately far below `ARTIFACT_CAPTURE_MAX_CHARS` (16,000). That cap sizes
+ * an artifact captured on a FIRE; this stream writes on EVERY evaluated turn,
+ * so its volume tracks conversation length rather than the fire rate. The
+ * smaller cap is what keeps the log a log rather than a transcript mirror.
+ */
+export const EVALUATED_TURN_CAPTURE_MAX_CHARS = 4_000;
+
+/** Inputs to {@link buildEvaluationRecord}. */
+export interface EvaluationRecordParams {
+  /**
+   * Shared with the calibration record written for the same turn, so the two
+   * are joinable on `(session_id, timestamp)`. Passed in rather than generated
+   * here precisely so both records carry ONE value — two `new Date()` calls
+   * would differ by milliseconds and silently break the join.
+   */
+  timestamp: string;
+  sessionId?: string;
+  /**
+   * The turn text AFTER {@link elideMarkdownContexts}. Never the raw text —
+   * see {@link buildEvaluationRecord}.
+   */
+  elidedText: string;
+  result: CausalDetectionResult;
+}
+
+/**
+ * Build one evaluation record. Pure — the record IS the observable, so the
+ * behavior is testable without patching a write path
+ * (`testing-standards.mdc §Testable Design`).
+ *
+ * **Capture runs on ELIDED text.** Widening what a detector writes to a log is
+ * the moment pasted tool output can start reaching that log, and this stream
+ * widens it twice over: a whole turn rather than a phrase, on every turn rather
+ * than on a fire. `judged-input-capture`'s header states the rule — capture from
+ * the elided copy, never the raw text — and the elision is what makes the wider
+ * window safe rather than a new exposure.
+ *
+ * This deliberately differs from the sibling `transcript_excerpt` on the
+ * CALIBRATION record, which slices RAW text on purpose so a reviewer can see
+ * whether a matched phrase was quoted rather than asserted (mt#3289). That
+ * judgment needs the backticks; this one does not — classifying a MISS asks
+ * whether a causal claim was made at all, and the elided copy answers it.
+ */
+export function buildEvaluationRecord({
+  timestamp,
+  sessionId,
+  elidedText,
+  result,
+}: EvaluationRecordParams): Record<string, unknown> {
+  return {
+    timestamp,
+    session_id: sessionId,
+    fired: result.matched,
+    matchedPhrases: result.matchedPhrases,
+    hadSameTurnVerification: result.hadSameTurnVerification,
+    [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
+    judgedInput: captureArtifact(elidedText, EVALUATED_TURN_CAPTURE_MAX_CHARS),
+  };
+}
+
+/**
+ * Injectable write seam. A parameter rather than a module import the callers
+ * reach themselves, so a test can force a failure by passing a throwing writer
+ * instead of patching `./dispatcher` — the design the testable-design
+ * checkpoint asks for.
+ */
+export type EvaluationWriter = (record: Record<string, unknown>, cwd?: string) => void;
+
+export const defaultEvaluationWriter: EvaluationWriter = (record, cwd) => {
+  logEvaluationRecord(EVALUATION_LOG_NAME, record, { fallbackCwd: cwd });
+};
+
+/**
+ * Write one evaluation record, degrading to the detector's existing behavior on
+ * any failure.
+ *
+ * {@link logEvaluationRecord} already fail-opens, so in production this catch is
+ * unreachable; it exists because the seam above admits an arbitrary writer, and
+ * a measurement stream must never break the guard whose behavior it measures.
+ * The error is written to stderr rather than swallowed — the failure mode this
+ * whole family keeps hitting is a broken mechanism that looks identical to one
+ * with nothing to say.
+ */
+export function recordEvaluation(
+  record: Record<string, unknown>,
+  cwd?: string,
+  write: EvaluationWriter = defaultEvaluationWriter
+): void {
+  try {
+    write(record, cwd);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`[causal-premise-detector] Failed to write evaluation record: ${msg}\n`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Injection text (gated by INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
@@ -469,7 +606,11 @@ export function renderWorstCase(): string {
  * `INJECTION_ENABLED = false`, so no `additionalContext` is ever returned
  * until that flag flips).
  */
-export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome | null {
+export function run(
+  input: ClaudeHookInput,
+  ctx: DispatchContext,
+  writeEvaluation: EvaluationWriter = defaultEvaluationWriter
+): GuardOutcome | null {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -497,10 +638,16 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   if (turnLines.length === 0) return null;
 
   let result: CausalDetectionResult;
+  let elidedText: string;
   try {
     const assistantText = extractAssistantText(turnLines);
     const toolUseNames = extractToolUseNames(turnLines);
     result = detectCausalPremise(assistantText, toolUseNames);
+    // Recomputed rather than threaded out of `detectCausalPremise`: it is a pure
+    // function of the same input, so the second call returns the identical
+    // string, and widening `CausalDetectionResult` would change a contract this
+    // detector's tests assert against directly.
+    elidedText = elideMarkdownContexts(assistantText);
   } catch (err) {
     process.stderr.write(
       `[causal-premise-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -508,11 +655,26 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     return null;
   }
 
+  // ONE timestamp for both records, so the evaluation record and the
+  // calibration record written for this same turn join on
+  // `(session_id, timestamp)`.
+  const timestamp = new Date().toISOString();
+
+  // Written for every turn a verdict was reached on, fired or NOT — this is the
+  // denominator a fire-only log cannot provide. A detection error above is
+  // deliberately not recorded: it is a skip, not a verdict, and counting it
+  // would inflate the denominator with turns the detector never judged.
+  recordEvaluation(
+    buildEvaluationRecord({ timestamp, sessionId: input.session_id, elidedText, result }),
+    input.cwd,
+    writeEvaluation
+  );
+
   if (!result.matched) return null;
 
   const outcome: GuardOutcome = {
     calibration: {
-      timestamp: new Date().toISOString(),
+      timestamp,
       session_id: input.session_id,
       matchedPhrases: result.matchedPhrases,
       hadSameTurnVerification: result.hadSameTurnVerification,
@@ -595,16 +757,29 @@ export async function main(): Promise<void> {
   }
 
   let result: CausalDetectionResult;
+  let elidedText: string;
   try {
     const assistantText = extractAssistantText(turnLines);
     const toolUseNames = extractToolUseNames(turnLines);
     result = detectCausalPremise(assistantText, toolUseNames);
+    elidedText = elideMarkdownContexts(assistantText);
   } catch (err) {
     console.error(
       `[causal-premise-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`
     );
     process.exit(0);
   }
+
+  // Shared by both records for this turn — see `run()`.
+  const timestamp = new Date().toISOString();
+
+  // Unconditional, unlike the calibration write below: the evaluation stream is
+  // the denominator, and dropping a record because the turn ran late would bias
+  // it toward exactly the slow turns most likely to differ from the rest.
+  recordEvaluation(
+    buildEvaluationRecord({ timestamp, sessionId: input.session_id, elidedText, result }),
+    input.cwd
+  );
 
   if (!result.matched) {
     process.exit(0);
@@ -613,7 +788,7 @@ export async function main(): Promise<void> {
   // Log to calibration JSONL when within budget
   if (Date.now() < overallDeadline) {
     appendCalibrationRecord(input.cwd, {
-      timestamp: new Date().toISOString(),
+      timestamp,
       session_id: input.session_id,
       matchedPhrases: result.matchedPhrases,
       hadSameTurnVerification: result.hadSameTurnVerification,

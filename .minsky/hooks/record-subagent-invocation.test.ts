@@ -56,14 +56,26 @@ function metricsLine(opts: {
   agentId?: string;
 }): Record<string, unknown> {
   const blocks = Array.from({ length: opts.toolUseCount ?? 0 }, () => ({ type: "tool_use" }));
+  // mt#4122: `role`, `content` and `usage` are nested under `message` — that is
+  // what the harness emits, verified against real on-disk transcripts. This
+  // fixture previously placed all three at the top level. The tests still
+  // passed, because they were exercising a shape no producer emits; the reader
+  // returned null for `tool_use_count` and `total_tokens` on every real
+  // transcript for the corpus's entire lifetime and nothing here could see it.
+  //
+  // Note the comment on `agentId` above: that ONE field was verified 60/60
+  // against real files while the fields beside it stayed assumed. A fixture is
+  // only a stand-in for the shape it was actually checked against.
   return {
     type: "assistant",
-    role: "assistant",
-    content: blocks,
-    usage:
-      opts.inputTokens != null || opts.outputTokens != null
-        ? { input_tokens: opts.inputTokens ?? 0, output_tokens: opts.outputTokens ?? 0 }
-        : undefined,
+    message: {
+      role: "assistant",
+      content: blocks,
+      usage:
+        opts.inputTokens != null || opts.outputTokens != null
+          ? { input_tokens: opts.inputTokens ?? 0, output_tokens: opts.outputTokens ?? 0 }
+          : undefined,
+    },
     timestamp: opts.timestamp,
     agent_session_id: opts.agentSessionId,
     agentId: opts.agentId,

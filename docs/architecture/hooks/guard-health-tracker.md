@@ -298,3 +298,17 @@ incident. Scope is per-session, not global, mirroring `turn-end-scan-store.ts`'s
 pattern: a brand-new conversation always sees an active critical escalation at least once, even
 if an unrelated concurrent session's cooldown is running. Fails open toward SURFACING on any
 store read/write error.
+
+## Liveness: a streak now resets on evidence of a CLEAN run (mt#3892)
+
+The summary carries `liveness` — `failing` / `recovered` / `dormant` — plus `lastCleanRunAt`,
+joined from the fire-log's `guardOutcome: "decided"` records.
+
+Before this, a streak reset only on the 24h age-out, which collapsed two different states into
+one: a guard that ran cleanly since its last failure, and a guard that has not run at all. Those
+call for opposite responses — the first needs nothing, the second is a possibly-dead detector
+(mem#534). `recovered` and `dormant` are no longer one state.
+
+**A `crashed` record never counts as clean.** A fail-open guard writes `allow` on every crash, so
+counting a crash as evidence of a clean run would report a permanently broken guard as
+`recovered` — precisely inverting the signal the tracker exists to carry.

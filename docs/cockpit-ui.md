@@ -46,10 +46,69 @@ task graph — back ~184px of content width.
 | `⌘⇧O`            | Start a new conversation              |
 | `⌘⇧[` / `⌘⇧]`    | Previous / next tab, in strip order   |
 | `⌃Tab` / `⌃⇧Tab` | Previous / next tab, in recency order |
+| `⌘W`             | Close the tab you are looking at      |
+| `⌘⇧W`            | Close the cockpit window              |
 
-All of them yield to text entry. The two tab chords are reserved by browsers for
-their own tab switching, so they fire only inside the cockpit tray window and are
-simply inert in a browser tab.
+The first five yield to text entry. The tab-cycling chords are reserved by
+browsers for their own tab switching, so they fire only inside the cockpit tray
+window and are simply inert in a browser tab.
+
+`⌘W` / `⌘⇧W` are tray-window only for a different reason: they are entries in
+the Window menu, so a browser tab keeps browser behavior (`⌘W` closes the
+browser tab). In the tray, `⌘W` closes the active entity tab — the browser
+mapping, which is why window-close moved to `⌘⇧W`. On a list page or the
+dashboard there is no tab in view, so `⌘W` does nothing rather than closing the
+window out from under your working set.
+
+## The side peek (mt#3694)
+
+Clicking an entity reference — an `mt#NNNN` in prose, an ask, a memory, a
+changeset, anywhere one is rendered — opens that entity in a **side pane over the
+current page** instead of navigating to it. The page behind stays exactly where
+it was: same scroll position, same loaded data, same URL path. Closing the pane
+costs one Esc and returns you to what you were reading, with nothing left behind.
+
+Peeking deliberately does **not** open a tab. The tab strip records where you have
+NAVIGATED; a peek is the path that does not navigate, which is the whole reason it
+is cheap.
+
+| Gesture                        | Does                                                      |
+| ------------------------------ | --------------------------------------------------------- |
+| Click a reference              | Peek it — **replacing** whatever pane is already open     |
+| `⇧`-click a reference          | **Hold** the current pane; the next click opens beside it |
+| `⌘`/`Ctrl`-click, middle-click | Promote: open as a full page (and therefore as a tab)     |
+| Click anywhere off the peek    | Close **every** open pane at once                         |
+| `Esc`                          | Close the newest pane (repeat to unwind held panes)       |
+| Browser Back                   | Close the newest pane                                     |
+| Header pin control             | Hold this pane, same as `⇧`-click                         |
+| Header ↗ control              | Open this pane's entity as a full page                    |
+
+**Holding is how you compare two things.** By default one pane is open at a time
+and each click reuses it, so reading down a conversation never accumulates panes.
+When you want to keep something on screen while you look at the next thing, hold
+it — and because every extra pane costs a deliberate gesture, there is no cap and
+nothing is ever evicted or buried behind something else.
+
+**Clicking away closes the whole peek; `Esc` takes it apart one pane at a time.**
+Those are deliberately different, because they answer different intentions: a
+click on the page behind means you are done peeking and want the page back, while
+`Esc` is how you dismantle a held pair a pane at a time. "Away" means away from
+the peek as a whole — clicking one pane never closes the pane beside it, and
+clicking an entity reference opens that entity rather than closing anything, so
+neither reading a held pair nor walking from one entity to the next can dismiss
+the assembly out from under you. Tabbing into the page behind is not a dismissal
+either; only a click is.
+
+**A peek is addressable and disposable.** The open panes live in the URL as a
+`?peek=` parameter, so copying the link, sharing it, or reloading brings the same
+panes back. Nothing is persisted anywhere else: navigate away from the page you
+peeked FROM and the whole assembly is gone.
+
+Every routable entity type now renders a real pane body (mt#4069 closed the last
+four — asks, sessions, conversations and interceptors). The convention that got it
+there still holds: a peek renders the same component the entity's full page
+renders, never a separate compact copy that could quietly drift out of agreement
+with it.
 
 ## Plant Board (`/plant`)
 

@@ -34,6 +34,14 @@ async function postJson(url: string, body: unknown): Promise<Response> {
   });
 }
 
+/**
+ * Published share pages (mt#4024) never reach this component: `main.tsx` routes
+ * `/s/:token` as a sibling of this gate rather than beneath it, so a page whose
+ * whole purpose is being readable without an account cannot have a sign-in
+ * screen rendered over it. This file briefly carried a `/s/` path check for the
+ * same purpose; the route split makes it structural instead of a regex two
+ * components had to agree on.
+ */
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<GateState>({ kind: "checking" });
   const [busy, setBusy] = useState(false);

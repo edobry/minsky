@@ -10,6 +10,7 @@
 import { describe, test, expect } from "bun:test";
 import { entityToPath, entityToMinskyUri, parseMinskyUri, minskyUriToPath } from "./entity-codec";
 import { matchEntityRoute } from "./tabs";
+import { tokenEntity } from "./entity-linkifier";
 
 // Shared fixture ids
 const ASK_ID = "0a1b2c3d-0000-0000-0000-000000000000";
@@ -336,5 +337,63 @@ describe("changeset id numeric enforcement (mt#2536 R1)", () => {
     // `[PR #1234](minsky://changeset/1234)` → terminal captures the trailing )
     expect(parseMinskyUri("minsky://changeset/1234)")).toEqual({ type: "changeset", id: "1234" });
     expect(minskyUriToPath("minsky://changeset/1234)")).toBe("/changeset/1234");
+  });
+});
+
+describe("interceptor type (mt#4010)", () => {
+  // The id is a `guardName` — kebab-case, already URL-safe, and NOT a uuid.
+  const NAME = "turn-end-bare-ref-scan";
+
+  test("entityToPath produces the plural-noun detail route", () => {
+    expect(entityToPath("interceptor", NAME)).toBe(`/interceptors/${NAME}`);
+  });
+
+  test("URI round-trips through parseMinskyUri", () => {
+    const uri = entityToMinskyUri("interceptor", NAME);
+    expect(uri).toBe(`minsky://interceptor/${NAME}`);
+    expect(parseMinskyUri(uri)).toEqual({ type: "interceptor", id: NAME });
+  });
+
+  test("path round-trips through matchEntityRoute (the REVERSE codec)", () => {
+    // The gap the original spec's consumer list missed: without the tabs.tsx
+    // branch the forward direction resolves and the round-trip silently fails.
+    const path = entityToPath("interceptor", NAME);
+    const tab = matchEntityRoute(path);
+    expect(tab?.kind).toBe("interceptor");
+    expect(tab?.entityId).toBe(NAME);
+    // The label is the full name, not a shortened uuid prefix.
+    expect(tab?.label).toBe(NAME);
+  });
+
+  test("minskyUriToPath resolves end to end", () => {
+    expect(minskyUriToPath(`minsky://interceptor/${NAME}`)).toBe(`/interceptors/${NAME}`);
+  });
+
+  test("the bare catalog route is NOT an entity route", () => {
+    // `/interceptors` is a list destination; only a detail path opens a tab.
+    expect(matchEntityRoute("/interceptors")).toBeNull();
+  });
+
+  test("tokenEntity inverts entityToPath for the new type", () => {
+    // `tokenEntity` is a THIRD inverse (path segment -> type), keyed by a
+    // `Record<string, ...>` so the typechecker cannot enforce exhaustiveness
+    // the way it did for EntityRef's and TabBar's Records. Without this case,
+    // a `minsky://interceptor/...` URI in Prose renders an anchor that
+    // navigates but loses its entity identity.
+    expect(tokenEntity({ kind: "link", to: entityToPath("interceptor", NAME) } as never)).toEqual({
+      type: "interceptor",
+      id: NAME,
+    });
+  });
+
+  test("a name needing encoding survives the round-trip", () => {
+    // No current guardName contains a URL-reserved character, but the codec
+    // must not depend on that — a future name with a `/` would otherwise
+    // silently address a different route.
+    const odd = "weird/name";
+    const uri = entityToMinskyUri("interceptor", odd);
+    expect(uri).toBe("minsky://interceptor/weird%2Fname");
+    expect(parseMinskyUri(uri)).toEqual({ type: "interceptor", id: odd });
+    expect(matchEntityRoute(entityToPath("interceptor", odd))?.entityId).toBe(odd);
   });
 });

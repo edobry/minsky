@@ -24,6 +24,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { Glob } from "bun";
 import { AskPage } from "./AskPage";
 import { TabsProvider } from "../lib/tabs";
 import type { AskItem } from "../widgets/AskDetail";
@@ -224,6 +225,233 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
 });
 
 /**
+ * A terminal ask still shows what it asked (mt#4091).
+ *
+ * The originating report: the principal resolved ask#7754 by accident, opened
+ * its deeplink, and could read the discussion thread but not the question —
+ * "since the ask was resolved, I lose the context of what it was about." The
+ * page was rendering a closure notice INSTEAD of the ask body, and showing the
+ * recorded answer as `JSON.stringify` (`{"chosen": "hold"}` rather than the
+ * option label "Hold off on production storage").
+ *
+ * Fixtures mirror the live shape of ask#7754.
+ */
+describe("terminal ask retains its body and reads its answer in operator language (mt#4091)", () => {
+  /** The option ask#7754 was actually answered with. */
+  const CHOSEN_LABEL = "Hold off on production storage";
+  const OPTIONS = [
+    { label: "Here's the key — go ahead", value: "approve", description: "You supply the key." },
+    { label: CHOSEN_LABEL, value: "hold", description: "Nothing is created." },
+  ];
+
+  /**
+   * Assert the chosen-marker badge sits on the option it names.
+   *
+   * A page-wide `getByText("chosen")` cannot distinguish the marker from a
+   * payload key of the same name — which is precisely what this change removes,
+   * so a test that could confuse the two is unable to witness a regression
+   * (PR #2961 R1). Anchoring on the badge's own testid and then reading its
+   * row's text ties the marker to the label instead.
+   */
+  function expectChosenBadgeOn(label: string): void {
+    const badges = screen.getAllByTestId("ask-option-chosen");
+    expect(badges.length).toBe(1);
+    expect(badges[0]?.parentElement?.textContent).toContain(label);
+  }
+  const CONTEXT_REFS = [
+    { kind: "task", ref: "mt#2680", description: "the blocked task" },
+    { kind: "file", ref: "packages/domain/src/transcripts/store.ts" },
+  ];
+
+  function closedAsk(overrides: Partial<AskItem> = {}): AskItem {
+    return makeAsk({
+      state: "closed",
+      question: "Should I create the production storage bucket?",
+      options: OPTIONS,
+      contextRefs: CONTEXT_REFS,
+      respondedAt: "2026-08-13T12:00:00.000Z",
+      closedAt: "2026-08-13T12:00:00.000Z",
+      ...overrides,
+    });
+  }
+
+  /** Stub the per-id endpoint; records every URL fetched so mounts are observable. */
+  function stub(ask: AskItem): string[] {
+    const urls: string[] = [];
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      urls.push(url);
+      if (url.includes("/api/entity-thread/")) {
+        return jsonResponse({
+          localId: `entity-thread:ask:${ask.id}`,
+          entityType: "ask",
+          entityId: ask.id,
+          live: false,
+          blocks: [],
+        });
+      }
+      if (url.includes(`/api/asks/${ask.id}`)) return jsonResponse({ ask });
+      return jsonResponse({ error: "unexpected" }, 500);
+    }) as unknown as typeof globalThis.fetch;
+    return urls;
+  }
+
+  test("AT1: the question, every option with its description, and the contextRefs all render", async () => {
+    const ask = closedAsk({
+      response: { responder: "operator", payload: { chosen: "hold", option: "hold" } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Should I create the production storage bucket/)).toBeDefined();
+    });
+    for (const opt of OPTIONS) {
+      // getAll, not get: the chosen option's label and description appear twice
+      // on the page by design — once in the notice as the answer of record, and
+      // once in the options list as part of the question of record.
+      expect(screen.getAllByText(opt.label).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(new RegExp(opt.description)).length).toBeGreaterThan(0);
+    }
+    for (const ref of CONTEXT_REFS) {
+      expect(screen.getByText(ref.ref)).toBeDefined();
+    }
+  });
+
+  test("AT6: the terminal branch renders AskDetail itself, not an inlined copy of the body", async () => {
+    // "From:" and "Age:" are AskDetail's own metadata labels — an inlined body
+    // in AskPage would satisfy AT1 while failing this.
+    const ask = closedAsk({ response: { responder: "operator", payload: { chosen: "hold" } } });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText("From:")).toBeDefined());
+    expect(screen.getByText("Age:")).toBeDefined();
+  });
+
+  test("AT2: the chosen option renders as its LABEL, with no JSON dump", async () => {
+    const ask = closedAsk({
+      response: { responder: "operator", payload: { chosen: "hold", option: "hold" } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(CHOSEN_LABEL).length).toBeGreaterThan(0);
+    });
+    expectChosenBadgeOn(CHOSEN_LABEL);
+    expect(screen.queryByText(/Raw response record/)).toBeNull();
+    expect(screen.queryByText(/"chosen":/)).toBeNull();
+  });
+
+  test("AT2a: an option stored without a `value` still resolves by label (mt#3181 path)", async () => {
+    const ask = closedAsk({
+      // No `value` — the shape of ask#5769, the ONE stored ask predating
+      // `askOptionSchema`'s normalization (measured 2026-08-13: 1 of 183 asks
+      // carrying options). `AskOption.value` is REQUIRED on purpose, so a
+      // fixture for that row has to step outside the type; the cast is
+      // deliberate, not a workaround. See the field's comment in
+      // `../widgets/AskDetail.tsx`.
+      options: [
+        { label: "Approve the rotation" },
+        { label: CHOSEN_LABEL },
+      ] as unknown as AskItem["options"],
+      response: {
+        responder: "operator",
+        payload: { chosen: CHOSEN_LABEL, option: CHOSEN_LABEL },
+      },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getAllByTestId("ask-option-chosen").length).toBe(1));
+    expectChosenBadgeOn(CHOSEN_LABEL);
+    expect(screen.queryByText(/Raw response record/)).toBeNull();
+  });
+
+  test("AT2b: an optionless approval reads as Approved", async () => {
+    const ask = closedAsk({
+      kind: "authorization.approve",
+      options: undefined,
+      response: { responder: "operator", payload: { approved: true } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText("Approved")).toBeDefined());
+    expect(screen.queryByText(/Raw response record/)).toBeNull();
+  });
+
+  test("AT2b: a free-text disposition renders as prose", async () => {
+    const ask = closedAsk({
+      response: { responder: "operator", payload: { message: "Answered in conversation." } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText(/Answered in conversation/)).toBeDefined());
+    expect(screen.queryByText(/Raw response record/)).toBeNull();
+    // The message text alone does NOT discriminate: the pre-mt#4091 page dumped
+    // the whole payload, so `/Answered in conversation/` matched INSIDE the JSON
+    // and this was the one case the negative control could not fail. Asserting
+    // the JSON key is absent is what makes the probe capable of failing.
+    expect(screen.queryByText(/"message":/)).toBeNull();
+  });
+
+  test("AT2b: a policy resolution says so, and is NOT presented as unanswered", async () => {
+    const ask = closedAsk({
+      response: { responder: "policy", payload: { citation: "commit-auth standing grant" } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText("Resolved by policy")).toBeDefined());
+    expect(screen.getByText(/commit-auth standing grant/)).toBeDefined();
+    // `isAutomatedClosureResponder` excludes `policy` deliberately — a covering
+    // policy is a real answer, so the mt#3215 language must NOT appear here.
+    expect(screen.queryByText(/NOT answered by an operator/)).toBeNull();
+  });
+
+  test("AT2b: an unrecognized payload shape is labelled as the raw record", async () => {
+    const ask = closedAsk({
+      response: { responder: "operator", payload: { somethingNew: 42 } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText(/Raw response record/)).toBeDefined());
+  });
+
+  test("AT4: no resolve, defer or escalate control is offered on a terminal ask", async () => {
+    const ask = closedAsk({
+      response: { responder: "operator", payload: { chosen: "hold" } },
+    });
+    stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText("From:")).toBeDefined());
+    expect(screen.queryByRole("button", { name: /defer/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /escalate/i })).toBeNull();
+    for (const opt of OPTIONS) {
+      expect(screen.queryByRole("button", { name: new RegExp(opt.label) })).toBeNull();
+    }
+  });
+
+  test("AT5: the discussion thread still mounts for a terminal ask (mt#3365 unchanged)", async () => {
+    const ask = closedAsk({
+      response: { responder: "operator", payload: { chosen: "hold" } },
+    });
+    const urls = stub(ask);
+    renderAskPage(ask.id);
+
+    await waitFor(() => expect(screen.getByText("From:")).toBeDefined());
+    await waitFor(() => {
+      expect(urls.some((url) => url.includes(`/api/entity-thread/`))).toBe(true);
+    });
+  });
+});
+
+/**
  * Browser-safety regression guard (mt#3239).
  *
  * mt#3215 (PR #2315) added `import { isAutomatedClosureResponder } from
@@ -233,12 +461,18 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
  * process`. Nothing in the tests ABOVE caught this: they pass under Bun, where `process` IS
  * defined, so importing the Node-dependent chain never throws in that environment.
  *
- * This block reproduces the actual failure mode instead of re-testing rendered output. It
- * extracts the import specifier this file currently uses for `isAutomatedClosureResponder` (by
- * reading its own source — so the check tracks whatever AskPage.tsx actually imports, not a
+ * This block reproduces the actual failure mode instead of re-testing rendered output. It scans
+ * the cockpit-web tree for every file importing `isAutomatedClosureResponder`, extracts each
+ * one's specifier from source (so the check tracks what the code actually imports, not a
  * hardcoded assumption), then dynamically imports THAT specifier in a freshly spawned Bun
  * subprocess with `globalThis.process` deleted before the import runs — the closest simulation
  * of a real browser's absence of `process` available without a full browser/jsdom harness.
+ *
+ * The scan is tree-wide rather than pinned to AskPage.tsx because the import MOVED (mt#4091):
+ * the closure phrasing now lives in `components/TerminalAskNotice.tsx`, and a guard pinned to
+ * one path would have thrown its "update this test's extraction regex" error on a change that
+ * was in no way a browser-safety regression. Scanning for the SYMBOL survives the next move and
+ * covers any additional importer that appears — which a path-pinned guard would silently miss.
  *
  * Subprocess isolation is deliberate, not incidental: bunfig.toml runs this file with
  * `randomize = true` test-file ordering, and a same-process `delete globalThis.process` followed
@@ -258,28 +492,37 @@ describe("AskPage deeplink resolution (mt#2669)", () => {
  * check for the whole-page question and this subprocess check is scoped to the one import mt#3239
  * actually fixed.
  */
-describe("AskPage import-chain browser safety (mt#3239)", () => {
-  const ASK_PAGE_PATH = fileURLToPath(new URL("./AskPage.tsx", import.meta.url));
-  const ASK_PAGE_SOURCE = readFileSync(ASK_PAGE_PATH, "utf8");
+describe("cockpit-web import-chain browser safety (mt#3239)", () => {
+  const WEB_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
-  function extractIsAutomatedClosureResponderSpecifier(): string {
-    const match = ASK_PAGE_SOURCE.match(
-      /import\s*\{\s*isAutomatedClosureResponder\s*\}\s*from\s*["']([^"']+)["']/
-    );
-    const specifier = match?.[1];
-    if (!specifier) {
-      throw new Error(
-        "AskPage.tsx no longer imports isAutomatedClosureResponder by this exact pattern -- " +
-          "update this test's extraction regex to match the current import shape."
+  interface ImportSite {
+    /** Absolute path of the importing file, used to resolve a relative specifier. */
+    file: string;
+    specifier: string;
+  }
+
+  /** Every cockpit-web source file importing `isAutomatedClosureResponder`. */
+  function findImportSites(): ImportSite[] {
+    const sites: ImportSite[] = [];
+    for (const relative of new Glob("**/*.{ts,tsx}").scanSync(WEB_ROOT)) {
+      // Test files are excluded so this guard cannot match its own regex literal.
+      if (/\.test\.tsx?$/.test(relative)) continue;
+      const file = `${WEB_ROOT}${relative}`;
+      const match = readFileSync(file, "utf8").match(
+        /import\s*\{\s*isAutomatedClosureResponder\s*\}\s*from\s*["']([^"']+)["']/
       );
+      if (match?.[1]) sites.push({ file, specifier: match[1] });
     }
-    return specifier;
+    return sites;
   }
 
   /** Import `specifier` in a fresh Bun subprocess with `process` deleted first. */
-  async function importsWithoutProcess(specifier: string): Promise<{ exitCode: number; stderr: string }> {
+  async function importsWithoutProcess(
+    specifier: string,
+    importer: string = fileURLToPath(new URL("./AskPage.tsx", import.meta.url))
+  ): Promise<{ exitCode: number; stderr: string }> {
     const resolvedSpecifier = specifier.startsWith(".")
-      ? fileURLToPath(new URL(specifier, `file://${ASK_PAGE_PATH}`))
+      ? fileURLToPath(new URL(specifier, `file://${importer}`))
       : specifier;
     const script = `delete globalThis.process; await import(${JSON.stringify(resolvedSpecifier)});`;
     // process.execPath (not a bare "bun") guarantees the subprocess is the SAME Bun binary
@@ -300,15 +543,22 @@ describe("AskPage import-chain browser safety (mt#3239)", () => {
     return { exitCode, stderr };
   }
 
-  test("the module AskPage.tsx currently imports isAutomatedClosureResponder from has no Node dependency", async () => {
-    const specifier = extractIsAutomatedClosureResponderSpecifier();
-    const { exitCode, stderr } = await importsWithoutProcess(specifier);
-    expect(
-      exitCode,
-      `AskPage.tsx imports isAutomatedClosureResponder from "${specifier}", which crashes when ` +
-        `\`process\` is undefined (the browser condition that broke the cockpit ask page, ` +
-        `mt#3239):\n${stderr}`
-    ).toBe(0);
+  test("at least one cockpit-web file imports isAutomatedClosureResponder (the scan has teeth)", () => {
+    // Without this, a rename of the symbol would turn the check below into a
+    // vacuous pass over an empty list — green, and testing nothing.
+    expect(findImportSites().length).toBeGreaterThan(0);
+  });
+
+  test("every module cockpit-web imports isAutomatedClosureResponder from has no Node dependency", async () => {
+    for (const site of findImportSites()) {
+      const { exitCode, stderr } = await importsWithoutProcess(site.specifier, site.file);
+      expect(
+        exitCode,
+        `${site.file} imports isAutomatedClosureResponder from "${site.specifier}", which ` +
+          `crashes when \`process\` is undefined (the browser condition that broke the cockpit ` +
+          `ask page, mt#3239):\n${stderr}`
+      ).toBe(0);
+    }
   });
 
   test("regression guard: the pre-mt#3239 Node import path DOES crash without `process` (proves the check above has teeth)", async () => {

@@ -91,7 +91,52 @@ export interface EntityThreadResponse {
    * predating this field is the honest answer rather than a reassuring zero.
    */
   pendingReplies?: PendingRepliesInfo;
+  /**
+   * Why the agent is not running, when the daemon can tell (mt#4037).
+   *
+   * Optional and UNKNOWN when absent — same discipline as `live`. Only a
+   * definite answer produces a line; the panel falls back to the weaker
+   * stranded notice rather than guessing at a cause.
+   */
+  agentStopReason?: AgentStopReason;
+  /**
+   * A conversation this thread's agent was replaced with a fresh one (mt#4093).
+   *
+   * Optional and OMITTED when nothing was replaced — same discipline as the two
+   * fields above. Present means the daemon has a RECORDED swap, not an inferred
+   * one; absent means it has nothing to report, which for a daemon predating
+   * this field is the honest answer.
+   */
+  conversationSwap?: ConversationSwapInfo;
+
+  /**
+   * Replies restored from the harness transcript after the in-memory buffer
+   * died with a daemon restart (mt#4073). Absent when nothing was recovered.
+   */
+  recoveredReplies?: RecoveredRepliesInfo;
 }
+
+/** The recovery behind {@link EntityThreadResponse.recoveredReplies} (mt#4073). */
+export interface RecoveredRepliesInfo {
+  count: number;
+  /** ISO instant the oldest recovered reply was originally sent. */
+  oldestOriginallySentAt?: string;
+}
+
+/** The recorded swap behind {@link EntityThreadResponse.conversationSwap}. */
+export interface ConversationSwapInfo {
+  /** The conversation the current agent replaced. */
+  replacedConversationId: string;
+  /** ISO instant of the swap, when recorded. */
+  replacedAt?: string;
+}
+
+/**
+ * `cockpit-restart` — the daemon went down while this actuator was live, so the
+ * agent was killed by the cockpit rather than stopping on its own. Resumable.
+ * `unrecoverable` — there is no transcript to resume, or its workspace is gone.
+ */
+export type AgentStopReason = "cockpit-restart" | "unrecoverable";
 
 /**
  * The daemon's account of replies that did not reach the store (mt#4036).
@@ -283,6 +328,75 @@ function replyWord(n: number): string {
   return n === 1 ? "reply" : "replies";
 }
 
+/**
+ * What to tell the operator about a stopped agent (mt#4037), or `null` to fall
+ * back to the weaker stranded notice.
+ *
+ * The stranded notice — "The agent stopped before answering" — is the only
+ * thing the panel could say before this, and on 2026-08-11 it was false: a
+ * cockpit restart killed the agent mid-task at 23:38 local, and the operator
+ * read a line blaming the agent, with no hint that sending anything would bring
+ * it back. They waited 12h34m.
+ *
+ * So the restart line has to do two things the stranded line does not: name the
+ * COCKPIT as what stopped it, and say that re-sending resumes. `null` when the
+ * daemon reports nothing — an unsupported cause is worse than a vague true
+ * statement.
+ */
+export function deriveAgentStoppedNotice(reason: AgentStopReason | undefined): string | null {
+  if (reason === "cockpit-restart") {
+    return "The cockpit restarted and stopped this agent mid-task — send anything to pick it back up.";
+  }
+  if (reason === "unrecoverable") {
+    return "This agent can't be resumed — its conversation is gone. Send a message to start a fresh one.";
+  }
+  return null;
+}
+
+/**
+ * What to tell the operator when a fresh agent replaced the conversation the
+ * blocks above belong to (mt#4093), or `null` when none did.
+ *
+ * The line has one job: break the continuity the rendered history otherwise
+ * asserts. On 2026-08-12 a thread swapped agents silently and the operator
+ * nudged it; the incoming agent answered "Nothing was in flight" — true of the
+ * conversation IT could see, false of the thread on screen, and nothing
+ * anywhere said the two were different. So this names the state ("has not seen
+ * the messages above") rather than the mechanism, which is what the operator
+ * needs in order to re-ask rather than wait.
+ *
+ * The replaced conversation id is deliberately NOT rendered. It addresses an
+ * on-disk transcript the panel cannot open, so showing it would offer a handle
+ * that leads nowhere; it is carried in the response for the daemon logs and for
+ * whatever recovery surface eventually wants it.
+ */
+export function deriveConversationSwapNotice(swap: ConversationSwapInfo | undefined): string | null {
+  if (!swap?.replacedConversationId) return null;
+  return "The earlier conversation couldn't be resumed, so a fresh agent took over — it has not seen the messages above.";
+}
+
+/**
+ * What to say about replies restored from the transcript (mt#4073).
+ *
+ * The notice exists because of WHERE a recovered reply lands, not merely that
+ * one did. `seq` is allocated `MAX(seq)+1` inside the insert, so a recovered
+ * reply appends at the TAIL while carrying its ORIGINAL timestamp — an answer
+ * from an hour ago sitting below messages that came after it. Unexplained, that
+ * reads as the agent repeating itself out of nowhere.
+ *
+ * Says "below" rather than naming a position: the thread renders in `seq` order
+ * and the recovered turns are always at the end, so that is the direction the
+ * operator has to look.
+ */
+export function deriveRecoveredRepliesNotice(
+  info: RecoveredRepliesInfo | undefined
+): string | null {
+  if (!info || info.count < 1) return null;
+  return info.count === 1
+    ? "A reply that failed to save was recovered from the agent's transcript — it's at the end of the thread, with the time it was originally sent."
+    : `${info.count} replies that failed to save were recovered from the agent's transcript — they're at the end of the thread, with the times they were originally sent.`;
+}
+
 export function deriveOriginNotice(originSeeded: boolean | undefined): string | null {
   if (originSeeded === true) return "Grounded in the conversation that filed this.";
   if (originSeeded === false) return "The originating conversation isn't reachable for this one.";
@@ -397,6 +511,9 @@ export function EntityThreadPanel({
   const proposal = proposalSlot ? findLatestResolveProposal(blocks ?? []) : null;
   const originNotice = deriveOriginNotice(query.data?.originSeeded);
   const pendingNotice = derivePendingRepliesNotice(query.data?.pendingReplies);
+  const stoppedNotice = deriveAgentStoppedNotice(query.data?.agentStopReason);
+  const swapNotice = deriveConversationSwapNotice(query.data?.conversationSwap);
+  const recoveredNotice = deriveRecoveredRepliesNotice(query.data?.recoveredReplies);
 
   return (
     <section className={className} aria-label="Discussion">
@@ -414,6 +531,31 @@ export function EntityThreadPanel({
         </p>
       )}
 
+      {/* mt#4093: rendered OUTSIDE the pending/stopped/stranded chain below,
+          deliberately. Those three answer one question — why is no reply
+          coming? — and are mutually exclusive answers to it. This answers a
+          different one: whose conversation are the blocks above? Both can be
+          true at once (a swapped-in agent can also be stranded), and suppressing
+          this to show one of those would restore exactly the silent continuity
+          the swap creates. Placed under the history it qualifies. */}
+      {swapNotice ? (
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-conversation-swap">
+          {swapNotice}
+        </p>
+      ) : null}
+
+      {/* mt#4073: also outside the pending/stopped/stranded chain, and for the
+          same reason the swap notice is. Those answer "why is no reply coming?";
+          this answers "why is an old reply sitting at the bottom?" — and a
+          thread can need both at once, since the restart that recovered one
+          reply is often the restart that stranded another. Placed under the
+          history because that is where the recovered turns are. */}
+      {recoveredNotice ? (
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-recovered-replies">
+          {recoveredNotice}
+        </p>
+      ) : null}
+
       {/* mt#4036: this takes precedence over the stranded notice below, and the
           precedence is the fix, not a cosmetic ordering. "The agent stopped
           before answering" is FALSE when a reply was produced and lost — it
@@ -424,6 +566,16 @@ export function EntityThreadPanel({
       {pendingNotice ? (
         <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-pending-replies">
           {pendingNotice}
+        </p>
+      ) : stoppedNotice ? (
+        /* mt#4037: a KNOWN cause outranks the stranded line, which is the
+           panel's weakest true statement — it names no cause and offers no way
+           back. When the daemon can say the cockpit killed the agent, saying
+           "the agent stopped before answering" instead is not merely vaguer, it
+           is false. The stranded line survives below as the fallback for a
+           daemon that reports no reason at all. */
+        <p className="text-sm text-muted-foreground mt-2" data-testid="entity-thread-agent-stopped">
+          {stoppedNotice}
         </p>
       ) : stranded ? (
         <p className="text-sm text-muted-foreground mt-2">

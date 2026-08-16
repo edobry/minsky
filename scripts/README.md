@@ -90,12 +90,15 @@ to one task; the task ID in the name or header is the primary cross-reference.
 
 ### Running the browser-driving scripts
 
+Twelve scripts here drive a real browser and share one preflight
+(`lib/verify-preflight.ts`, mt#4149): `verify-cockpit-navigation-latency.ts`,
 `verify-cockpit-shell-scroll.ts`, `verify-conversation-footer-stack.ts`,
 `verify-conversation-live-tail.ts`, `verify-conversation-orientation.ts`,
-`verify-driven-session-scrollport.ts`, and `verify-session-film-panes.ts` are the scripts here that
-drive a real browser, so their shared prerequisites are worth stating (everything below is checked
-at startup — each script exits 0 with a `SKIP:` line rather than failing when a precondition is
-absent).
+`verify-conversation-switcher-pinned.ts`, `verify-conversation-turn-target.ts`,
+`verify-driven-session-scrollport.ts`, `verify-interceptors-axes-render.ts`,
+`verify-session-film-camera.ts`, `verify-session-film-panes.ts`, and
+`verify-terminal-ask-render.ts`. Their shared prerequisites are worth stating (everything below is
+checked at startup — an ABSENT precondition exits 0 with a `SKIP:` line rather than failing).
 
 They exist because the component suite runs under happy-dom, which has **no layout engine**: every
 `clientHeight` / `scrollHeight` / `getBoundingClientRect()` reads 0 there, so no geometry assertion
@@ -143,12 +146,31 @@ is a `SKIP`, not a failure. It also prints the served build's `commit` from `/ap
 machine running several sessions' cockpits at once, the service identity alone cannot tell you
 WHICH worktree's build answered.
 
-Note that `verify-cockpit-shell-scroll.ts` reads the cockpit's identity from **`/api/health`**, not
-`/health` — the latter falls through to the SPA's `index.html` and answers 200 with HTML, which
-would satisfy a bare reachability check and then fail to parse as JSON.
+All twelve read the cockpit's identity from **`/api/health`**, not `/health` — the latter falls
+through to the SPA's `index.html` and answers 200 with HTML, which would satisfy a bare
+reachability check and then fail to parse as JSON. Two of them probed `/health` and asserted no
+identity at all until mt#4149 routed every one through the shared preflight.
 
-Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`) and `MINSKY_CDP_URL` (default
-`http://127.0.0.1:9222`).
+**A slow target is not a skip.** The preflight separates three answers, because they mean
+different things operationally:
+
+| Answer                                | Output                                                      | Exit |
+| ------------------------------------- | ----------------------------------------------------------- | ---- |
+| nothing is listening                  | `SKIP: no cockpit reachable at …`                           | 0    |
+| present, but answered past its budget | `INCOMPLETE: … answered in 20134ms, past its 3000ms budget` | 2    |
+| answered, but it is the wrong service | `FAIL: identity FAILED: expected …`                         | 1    |
+
+Before mt#4149 the middle row printed the SAME `SKIP:` line as the first and also exited 0, so a
+caller reading the exit code could not tell a performed check from a skipped one. That is not
+hypothetical: on 2026-08-13 a cockpit served from a session worktree answered `/api/health`
+correctly but took 20.1 s against the 3000 ms budget, and mt#4071's render verification was
+reported as a skip.
+
+Overrides: `MINSKY_COCKPIT_URL` (default `http://127.0.0.1:3737`), `MINSKY_CDP_URL` (default
+`http://127.0.0.1:9222`), and the preflight budgets `MINSKY_VERIFY_REACH_TIMEOUT_MS` (3000),
+`MINSKY_VERIFY_HEALTH_TIMEOUT_MS` (5000), `MINSKY_VERIFY_SLOW_CONFIRM_TIMEOUT_MS` (30000). Raising
+the first two is the designed response to an `INCOMPLETE:` on a legitimately slow target — a
+malformed value is rejected rather than silently replaced by the default.
 
 ```bash
 MINSKY_COCKPIT_URL=http://127.0.0.1:3839 bun scripts/verify-conversation-live-tail.ts
@@ -175,16 +197,17 @@ reproducibility if the same class of drift recurs — not part of any ongoing pi
 
 ## Measurement / benchmark / monitoring
 
-| Script                                      | Description                                                                                                          |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `measure-adapter-costs.ts`                  | Measures incremental cost of each MCP adapter file after shared commands load.                                       |
-| `measure-cold-start.ts`                     | Cold-start measurement: bundle vs raw-source perf delta (mt#1740).                                                   |
-| `measure-mcp-start-cold-start.ts`           | Cold-start measurement for the `mcp start` path specifically (mt#1745). Output: `mcp-start-cold-start-results.json`. |
-| `measure-source-only.ts`                    | Quick source-path-only cold-start measurement (mt#1792).                                                             |
-| `benchmark-mcp-memory-enrichment.ts`        | Latency benchmark for memory-enrichment middleware (mt#1588 spike).                                                  |
-| `calibrate-epic-decomposition-staleness.ts` | Calibration script for the mt#1710 Shape C detector against live Postgres.                                           |
-| `monitor-reviewer-health.ts`                | Pulls the minsky-reviewer GitHub App's webhook delivery history for health monitoring.                               |
-| `mcp-start-cold-start-results.json`         | Output data from `measure-mcp-start-cold-start.ts` (not a script).                                                   |
+| Script                                      | Description                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `measure-adapter-costs.ts`                  | Measures incremental cost of each MCP adapter file after shared commands load.                                                                                                                                                                                                                                      |
+| `measure-cold-start.ts`                     | Cold-start measurement: bundle vs raw-source perf delta (mt#1740).                                                                                                                                                                                                                                                  |
+| `measure-mcp-start-cold-start.ts`           | Cold-start measurement for the `mcp start` path specifically (mt#1745). Output: `mcp-start-cold-start-results.json`.                                                                                                                                                                                                |
+| `measure-source-only.ts`                    | Quick source-path-only cold-start measurement (mt#1792).                                                                                                                                                                                                                                                            |
+| `benchmark-mcp-memory-enrichment.ts`        | Latency benchmark for memory-enrichment middleware (mt#1588 spike).                                                                                                                                                                                                                                                 |
+| `calibrate-epic-decomposition-staleness.ts` | Calibration script for the mt#1710 Shape C detector against live Postgres.                                                                                                                                                                                                                                          |
+| `monitor-reviewer-health.ts`                | Pulls the minsky-reviewer GitHub App's webhook delivery history for health monitoring.                                                                                                                                                                                                                              |
+| `audit-unknown-harness-tags.ts`             | Reports harness markup tags absent from `HARNESS_MARKUP_TAGS`, over the local transcript corpus (mt#4061). Report-only; `--json`, `--fail-on-unknown`. Exits 0 with a `SKIP:` line when no corpus is present. Always prints the corpus size — see the script header for why a clean report is ambiguous without it. |
+| `mcp-start-cold-start-results.json`         | Output data from `measure-mcp-start-cold-start.ts` (not a script).                                                                                                                                                                                                                                                  |
 
 ## Historical research (not code)
 
@@ -196,9 +219,10 @@ reproducibility if the same class of drift recurs — not part of any ongoing pi
 
 Shared utilities used by scripts above.
 
-| Module             | Description                         |
-| ------------------ | ----------------------------------- |
-| `lib/pem-utils.ts` | PEM key parsing/formatting helpers. |
+| Module                    | Description                                                                                                                                                                               |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/pem-utils.ts`        | PEM key parsing/formatting helpers.                                                                                                                                                       |
+| `lib/verify-preflight.ts` | Shared preflight for the twelve browser-driving `verify-*.ts` scripts (mt#4149): reachability, health-body read, service-identity assertion, and the ABSENT / SLOW / WRONG-SERVICE split. |
 
 ## supabase/
 

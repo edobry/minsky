@@ -12,7 +12,6 @@ import {
   RepoIdSchema,
   BaseBackendParametersSchema,
   BaseExecutionContextSchema,
-  BaseListingParametersSchema,
   BaseSuccessResponseSchema,
   BaseErrorResponseSchema,
   ForceSchema,
@@ -55,12 +54,25 @@ export const SessionStatusSchema = z.enum([
 // ========================
 
 /**
- * Session creation parameters
+ * Session creation parameters.
+ *
+ * `sessionId` and `description` are OPTIONAL because the operation genuinely
+ * runs without them: `session start --task mt#1234` supplies neither, and
+ * `validatePreconditions` derives the session id from the task
+ * (`start-session-operations.ts`, `let sessionId = inputSessionId`) and treats
+ * `description` as a truthy auto-create trigger (`if (description && !taskId)`).
+ *
+ * They used to be required, which was not a stricter contract — it was a FALSE
+ * one, and it cost two defects (mt#3212). Nothing could satisfy it on the
+ * `--task` path, so `SessionService.start` bridged the gap with an `as` cast,
+ * and a cast makes a MISSING optional field a non-error: `recover` was dropped
+ * silently on this exact call chain twice (mt#2742 adapter → service, mt#3955
+ * service → domain), both times with every typecheck and test green.
  */
 export const SessionStartParametersSchema = z
   .object({
-    sessionId: SessionIdSchema,
-    description: SessionDescriptionSchema,
+    sessionId: SessionIdSchema.optional(),
+    description: SessionDescriptionSchema.optional(),
     task: TaskIdSchema.optional(),
     branch: GitBranchSchema,
     packageManager: PackageManagerSchema,
@@ -77,35 +89,19 @@ export const SessionStartParametersSchema = z
   .extend(BaseBackendParametersSchema.shape)
   .extend(BaseExecutionContextSchema.shape);
 
-/**
- * Session retrieval parameters
- */
-export const SessionGetParametersSchema = z
-  .object({
-    sessionId: SessionIdSchema.optional(),
-    task: TaskIdSchema.optional(),
-    json: z.boolean().optional(),
-  })
-  .extend(BaseBackendParametersSchema.shape);
-
-/**
- * Session listing parameters
- */
-export const SessionListParametersSchema = BaseBackendParametersSchema.extend(
-  BaseExecutionContextSchema.shape
-).extend(BaseListingParametersSchema.shape);
-
-/**
- * Session deletion parameters
- */
-export const SessionDeleteParametersSchema = z
-  .object({
-    sessionId: SessionIdSchema.optional(),
-    task: TaskIdSchema.optional(),
-    force: ForceSchema,
-    json: z.boolean().optional(),
-  })
-  .extend(BaseBackendParametersSchema.shape);
+// mt#3212: `SessionGetParametersSchema`, `SessionListParametersSchema` and
+// `SessionDeleteParametersSchema` were DELETED here. Each was a parallel,
+// independently-maintained description of an operation whose live contract is
+// the `*Params` schema in `./session.ts` — `SessionService.get/list/delete` and
+// the `*Impl` functions they call BOTH take the `*Params` type, so these three
+// had no consumer beyond their own declaration and the barrel re-export.
+//
+// Two definitions of one contract is the defect, not an inconvenience: the one
+// you find first is not necessarily the one production uses. The
+// `SessionDeleteParametersSchema` copy still carried a `force` flag that
+// mt#3105 SC5 REMOVED from the live schema, so reading it would have told you
+// a destructive guard could be lifted by a bare boolean — which is exactly the
+// design mt#3021 rejected.
 
 /**
  * Session update parameters
@@ -132,16 +128,9 @@ export const SessionUpdateParametersSchema = z
   })
   .extend(BaseBackendParametersSchema.shape);
 
-/**
- * Session directory parameters
- */
-export const SessionDirectoryParametersSchema = z
-  .object({
-    sessionId: SessionIdSchema.optional(),
-    task: TaskIdSchema.optional(),
-    json: z.boolean().optional(),
-  })
-  .extend(BaseBackendParametersSchema.shape);
+// mt#3212: `SessionDirectoryParametersSchema` was DELETED here, for the same
+// reason as its three siblings above — `SessionService.getDir` and
+// `getSessionDirImpl` both take `SessionDirParams` from `./session.ts`.
 
 /**
  * Session PR creation parameters
@@ -168,17 +157,10 @@ export const SessionPRParametersSchema = z
   })
   .extend(BaseBackendParametersSchema.shape);
 
-/**
- * Session approval parameters
- */
-export const SessionApproveParametersSchema = z
-  .object({
-    sessionId: SessionIdSchema.optional(),
-    session: SessionIdSchema.optional(),
-    task: TaskIdSchema.optional(),
-    noStash: z.boolean().default(false),
-  })
-  .extend(BaseBackendParametersSchema.shape);
+// mt#3212: `SessionApproveParametersSchema` was DELETED here — declaration-only,
+// like the four above. Approve's live parameter type is the hand-written
+// `SessionApproveParams` interface in `../session/session-commands.ts`, which
+// `pureSessionApprove` actually takes.
 
 /**
  * Session commit parameters
@@ -311,14 +293,12 @@ export type GitBranch = z.infer<typeof GitBranchSchema>;
 export type PackageManager = z.infer<typeof PackageManagerSchema>;
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export type SessionStartParameters = z.infer<typeof SessionStartParametersSchema>;
-export type SessionGetParameters = z.infer<typeof SessionGetParametersSchema>;
-export type SessionListParameters = z.infer<typeof SessionListParametersSchema>;
-export type SessionDeleteParameters = z.infer<typeof SessionDeleteParametersSchema>;
 export type SessionUpdateParameters = z.infer<typeof SessionUpdateParametersSchema>;
-export type SessionDirectoryParameters = z.infer<typeof SessionDirectoryParametersSchema>;
 export type SessionPRParameters = z.infer<typeof SessionPRParametersSchema>;
-export type SessionApproveParameters = z.infer<typeof SessionApproveParametersSchema>;
 export type SessionCommitParameters = z.infer<typeof SessionCommitParametersSchema>;
+// mt#3212: the `SessionGet/List/Delete/Directory/ApproveParameters` types were
+// deleted with the schemas they inferred from — see the comments above each
+// deletion site. The surviving four are the ones with live consumers.
 export type BaseSessionData = z.infer<typeof BaseSessionDataSchema>;
 export type SessionOperationResponse = z.infer<typeof SessionOperationResponseSchema>;
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;

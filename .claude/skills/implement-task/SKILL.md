@@ -74,7 +74,27 @@ Then run both sweeps:
 
 1. **Open-PR sweep** — `mcp__github__list_pull_requests` with `state: "open"`. Scan titles
    and branches for any PR whose scope plausibly overlaps the spec's `## Scope` → `In scope`
-   files. Spot-check suspicious matches with `mcp__github__pull_request_read` method `get_diff`.
+   files. Titles and branches are a CANDIDATE FILTER, not evidence about files: for any
+   candidate you would act on, read its actual changed-file list with
+   `mcp__github__pull_request_read` method `get_files` before recording a collision.
+
+   **A file-level collision claim must cite an observed changed-file list (mt#3806).** The
+   evidence is `get_files`/`get_diff` for an open PR, or `mcp__minsky__git_log` with the file
+   path filter (`git_log --path`) for work that already merged — both sweeps below, and both
+   are file-level reads. A task's title, its `## Scope` section, or an inference about where
+   that kind of code lives is not evidence about which files were touched. `get_files` is the
+   cheap default — it returns a filename list, which is the whole question here; reserve
+   `get_diff` for when the hunks actually matter.
+
+   **When the other work has no PR yet, a file-level claim is UNAVAILABLE.** Do not substitute
+   prose for the missing list. Record "task-level adjacency, files unknown" and decide on that
+   basis — which is a weaker finding than a collision and should not, on its own, halt work.
+
+   Origin (mem#892, 2026-08-05): this step halted on a claimed `SessionFilmStage.tsx` collision
+   with mt#3792. That PR changed `PanZoomSVG.tsx`, its test, and a verify script — the stage was
+   never in it. The filename came from mt#3792's title plus an inference about where camera code
+   lives. One `get_files` call falsified it, and was made only after the principal prompted to
+   resume, by which point a turn was spent and a false blocking gap was written into the spec.
 2. **Recently-merged sweep** — `mcp__minsky__git_log` for the last 24 hours; check for any
    merge that touched files this task plans to modify. A fix that landed overnight is just
    as bad as one in flight.
@@ -526,6 +546,13 @@ When the PR is authored by `minsky-ai[bot]` or another identity that the reviewe
 4. **Verified-false-positive** — the cited code, when actually re-read, does NOT contain the claimed defect. An out-of-diff, pre-existing, but FACTUALLY TRUE finding is NOT a false positive — surface and file it (per mt#1882) rather than bypassing.
 
 If the named condition, once checked against its definition, does not actually hold, the bypass is refused — continue waiting, fix the finding, or escalate instead.
+
+**Retrigger ONCE before escalating a verified false positive (mt#3729).** Reviewer verdicts are non-deterministic: a finding you have correctly verified as false may simply not reappear on a re-review of the SAME commit — and when it doesn't, the bypass, the `authorization.approve` Ask, and the operator-approved D8 grant were all avoidable. So once condition 4 holds, and before invoking ANY override path, call `mcp__minsky__reviewer_retrigger` and re-wait with `since` set to the prior review's timestamp.
+
+- **Cleared on re-review** → merge normally; no operator attention spent.
+- **Same finding re-fires** → the disagreement is durable, not a flake. Escalate NOW, citing both review ids as evidence.
+
+**Exactly once** — a second identical finding is the signal to escalate, not to retrigger again. This does NOT weaken `merge-coordination` §7b (which forbids a *blind* retrigger that discards an unread verdict's prose): this rung fires strictly after the review has been read and the finding verified false, so nothing diagnostic is thrown away. Full rationale, worked counter-example (mt#2921, where the re-fire made escalation correct), and the originating incident (PR #2640 — a false "generated file edited directly" finding paged the principal at 21:50; a retrigger returned APPROVED ~2 minutes later): `merge-coordination` §8a and memory `8b40f396` CORRECTION 3.
 
 - **Preferred audited bypass (in-band, mt#2215):** `session_pr_merge(task: "mt#<id>", forceBypass: true, bypassReason: "<evidence>")`. This is the in-band replacement for the raw `gh api PUT` below — no hand-run CLI. It requires a non-empty `bypassReason` and a present (non-DISMISSED) `CHANGES_REQUESTED` review (the false-positive / self-reversal / leakage-stale case; for reviewer ABSENCE use `acceptStaleReviewerSilence` instead), refuses on failing status checks or other merge blockers, auto-dismisses the blocking review using `bypassReason`, writes the canonical audit signature into the merge-commit body, always uses `merge_method=merge`, and triggers Minsky session cleanup. Use this when the conditions in the next bullet hold.
 - **Fallback — raw bypass via `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`** (only when the in-band `forceBypass` path is unavailable) when ALL of these hold:

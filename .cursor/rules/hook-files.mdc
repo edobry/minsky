@@ -28,16 +28,38 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
-  `*.pem`, …) via an emitting reader. Reader+path together deny; naming the path alone is fine.
+  `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
+  is fine.
   Do NOT answer it with a redaction filter (`terminal-command-best-practices.mdc`). Narrowed
   mt#3703 — a grep PATTERN is no longer read as a path, and the generic `credential|secret`
-  name match no longer fires on a source file (`.ts`/`.js`); the explicit file list is unchanged.
+  name match no longer fires on a source file (`.ts`/`.js`). Widened mt#4159 — `.mcp.json` joined
+  the explicit list, and its admission criterion is now "reading the file EMITS a credential",
+  not "holding secrets is the file's whole purpose"; the old phrasing excluded `.npmrc` and
+  `.netrc`, which were already on the list, and is why `.mcp.json` was never considered.
   Extended mt#4017 (R4) with a second, independent check on the same guard: a fixed list of
   secret-EMITTING scripts (currently `scripts/drizzle-config-loader.ts`, whose stdout is a live
   DB connection string by design) — invoking one directly, via any interpreter or its own
   shebang, denies the same way a reader+secret-path pair does. Same matcher class as the
   file-read check (structured command string against a fixed list, no paraphrase axis), so no
-  new guard and no calibration-first ladder. `MINSKY_ALLOW_SECRET_FILE_READ` covers both checks.
+  new guard and no calibration-first ladder. Extended again mt#3850 with a THIRD check: a
+  process listing that requests the **argv** column (`ps` with no `-o`, or `-o` naming
+  `command`/`args`/`cmd`; `top -c`; `pgrep -a`) — argv is world-readable, so a secret any
+  process passed as an argument lands in the output even though the command names no secret and
+  no path. Keyed on the COLUMN, and PIPELINE-scoped: a listing whose pipeline ends in a counting
+  sink (`| grep -c`, `| grep -q`, `| wc -l`) renders no row and is permitted, because that is
+  the safe form the rule teaches. `MINSKY_ALLOW_SECRET_FILE_READ` covers all three checks.
+- **Concurrent bulk-mutation** (mt#4055) — invoking a `scripts/*.ts` with an execute-class flag
+  (`--execute`/`--apply`) while another process is already running that same script. Denies with
+  the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
+  scripts — a second copy of any script is near-never intended, and a list would go stale silently.
+  First execution-surface member of the duplication-gate family, every other one of which binds to
+  a task-graph surface (mem#999). `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
+- **Bulk process-kill** (mt#4081) — `kill` naming 3+ PIDs, or `pkill`/`killall` naming an
+  interactive process class. Denies with the move-vs-recreate alternative: a capability ruled out
+  on ONE probed channel is not a capability that does not exist. Same matcher class as the two
+  above (structured command string, no paraphrase axis), so it ships denying rather than
+  calibration-first. Act-path half of the operator-deferral family, whose detector catches only
+  the deferral-PROSE path (mem#707 R8). `MINSKY_ALLOW_BULK_PROCESS_KILL`.
 - **Duplicate-check record** (mt#3673) — `tasks_create` whose spec carries no
   `Duplicate check:` line (either named candidates + reconciliation, or the literal
   `Duplicate check: no candidates found.`). Presence check on the spec text, NOT a similarity

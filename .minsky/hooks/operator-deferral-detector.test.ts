@@ -3,6 +3,8 @@ import {
   detectCapabilityDeferral,
   detectPermissionDeferral,
   detectDenialAnchoredDeferral,
+  detectAskJustificationAbsence,
+  summarizeAskJustificationEvaluation,
   detectAskDeferral,
   extractAskTexts,
   hasProbeEvidence,
@@ -15,6 +17,9 @@ import {
   runAskSurface,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
+  detectActPathWorkaround,
+  isDestructiveCommand,
+  hasCapabilitySearch,
 } from "./operator-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
@@ -26,7 +31,11 @@ import { extractDistinctPhrases } from "../../src/domain/calibration/calibration
 // ---------------------------------------------------------------------------
 
 const FIXTURE_PATH = "/tmp/fixture.jsonl";
-const DEFERRAL_PROSE = "Deferred to operator: requires Railway access.";
+/** The capability-deferral phrase behind this detector's first live fire. */
+const RAILWAY_ACCESS = "requires Railway access";
+const DEFERRAL_PROSE = `Deferred to operator: ${RAILWAY_ACCESS}.`;
+/** The generic directive's opening — asserted present on some surfaces, ABSENT on others. */
+const PROBE_DIRECTIVE = "Run the capability probe";
 const ASK_OPTION_LABEL = "ask-option-label";
 const CAPABILITY_PROSE = "capability-deferral-prose";
 const R5_LABEL = "You recover the reviewer service";
@@ -664,7 +673,7 @@ describe("calibration-first posture", () => {
     const reminder = buildReminder([
       {
         surface: CAPABILITY_PROSE,
-        matchedPhrase: "requires Railway access",
+        matchedPhrase: RAILWAY_ACCESS,
         context: "Deferred — this requires Railway access.",
       },
     ]);
@@ -744,7 +753,7 @@ const denialResult = (id: string, text: string = DENIAL_NO_REASON): TranscriptLi
 });
 
 const asksCreate = (): TranscriptLine =>
-  assistantToolUse("mcp__minsky__asks_create", {
+  assistantToolUse(ASKS_CREATE_TOOL, {
     title: "The harness blocks the Railway write; please add a Bash permission rule.",
   });
 
@@ -910,7 +919,7 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     // Asserted on the directive's own wording, NOT on a token like "whoami":
     // that string also appears inside the quoted denied command, so it would
     // pass or fail for a reason unrelated to the directive.
-    expect(reminder).not.toContain("Run the capability probe");
+    expect(reminder).not.toContain(PROBE_DIRECTIVE);
   });
 
   // mt#3533's per-guard size test is GONE (mt#4002). `guard-feedback-shape.test.ts`
@@ -925,12 +934,576 @@ describe("Surface D — denial-anchored deferral (mt#3533)", () => {
     const reminder = buildReminder([
       {
         surface: CAPABILITY_PROSE,
-        matchedPhrase: "requires Railway access",
+        matchedPhrase: RAILWAY_ACCESS,
         context: DEFERRAL_PROSE,
       },
       { surface: DENIAL_ANCHORED, matchedPhrase: "railway", context: DENIED_COMPOUND_CURL },
     ]);
     expect(reminder).toContain("simpler shape");
-    expect(reminder).toContain("Run the capability probe");
+    expect(reminder).toContain(PROBE_DIRECTIVE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface E — ask-justification capability-absence (mt#3999)
+// ---------------------------------------------------------------------------
+
+const ASK_JUSTIFICATION = "ask-justification";
+
+/** The channel that lied in the anchor instance — and that surface A counts as a probe. */
+const CREDENTIALS_LIST_TOOL = "mcp__minsky__config_credentials_list";
+
+/** The independent channel that would have falsified it. */
+const AI_VALIDATE_TOOL = "mcp__minsky__ai_validate";
+
+/** The tool whose payload carries an ask justification. */
+const ASKS_CREATE_TOOL = "mcp__minsky__asks_create";
+
+/**
+ * ask#6754's claim, verbatim in substance (mt#3547, 2026-08-01): the agent read
+ * ONE channel, the credential store, which returned exit-0 JSON that silently
+ * omitted the provider — and then asked the operator to authorize pulling a
+ * PRODUCTION credential off Railway on that premise.
+ */
+const ANCHOR_JUSTIFICATION =
+  "I have no OpenAI key — the credential store has Anthropic and Google, not OpenAI. May I " +
+  "pull the production key off Railway so the replay corpus can run?";
+
+const OPERATOR_ROUTED_RESULT = JSON.stringify({
+  id: "ask-1",
+  state: "routed",
+  routingTarget: "operator",
+  transport: "inbox",
+});
+
+const POLICY_CLOSED_RESULT = JSON.stringify({
+  id: "ask-1",
+  state: "closed",
+  routingTarget: "policy",
+});
+
+function correlatedToolUse(
+  id: string,
+  name: string,
+  input: Record<string, unknown>
+): TranscriptLine {
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", id, name, input }] },
+  } as unknown as TranscriptLine;
+}
+
+function correlatedToolResult(id: string, content: string): TranscriptLine {
+  return {
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content }] },
+  } as unknown as TranscriptLine;
+}
+
+/** A turn that creates an ask, plus whatever channel calls preceded it. */
+function askTurn(options: {
+  justification?: string;
+  result?: string;
+  channels?: Array<{ name: string; input?: Record<string, unknown> }>;
+}): TranscriptLine[] {
+  const {
+    justification = ANCHOR_JUSTIFICATION,
+    result = OPERATOR_ROUTED_RESULT,
+    channels = [{ name: CREDENTIALS_LIST_TOOL }],
+  } = options;
+
+  const lines: TranscriptLine[] = [];
+  channels.forEach((channel, i) => {
+    lines.push(correlatedToolUse(`toolu_ch${i}`, channel.name, channel.input ?? {}));
+    lines.push(correlatedToolResult(`toolu_ch${i}`, "{}"));
+  });
+  lines.push(
+    correlatedToolUse("toolu_ask", ASKS_CREATE_TOOL, {
+      kind: "authorization.approve",
+      title: "Authorize pulling the production OpenAI key",
+      question: justification,
+    })
+  );
+  lines.push(correlatedToolResult("toolu_ask", result));
+  return lines;
+}
+
+describe("surface E — ask-justification capability-absence (mt#3999)", () => {
+  test("AT1: the anchor instance fires, and the advisory names the second channel", () => {
+    const matches = detectAskJustificationAbsence(askTurn({}));
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(ASK_JUSTIFICATION);
+    expect(matches[0]?.matchedPhrase).toContain("no OpenAI key");
+
+    const reminder = buildReminder(matches);
+    // SC2: the guidance names the CONCRETE second channel for the named
+    // subject, not "run a probe" — which is the failure, restated as advice.
+    expect(reminder).toContain("ai_providers_list");
+    expect(reminder).toContain("ai_validate --provider OpenAI");
+  });
+
+  test("AT1 crux: it fires even though the turn DID call a probe-listed tool", () => {
+    const turn = askTurn({});
+
+    // The distinction the whole surface rests on. `hasProbeEvidence` — what
+    // surfaces A and C suppress on — says this turn probed, because
+    // `config_credentials_list` is on its probe list. That call is exactly what
+    // produced the false premise, so suppressing here would blind the detector
+    // to its own anchor instance.
+    expect(hasProbeEvidence(turn)).toBe(true);
+    expect(detectAskJustificationAbsence(turn)).toHaveLength(1);
+  });
+
+  test("AT2: a genuine SECOND channel in the same turn suppresses it", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        channels: [
+          { name: CREDENTIALS_LIST_TOOL },
+          { name: AI_VALIDATE_TOOL, input: { provider: "openai" } },
+        ],
+      })
+    );
+    expect(matches).toEqual([]);
+  });
+
+  test("AT2b: two calls on the SAME channel are still one channel", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        channels: [
+          { name: CREDENTIALS_LIST_TOOL },
+          { name: "mcp__minsky__config_get", input: { key: "ai.providers" } },
+        ],
+      })
+    );
+    expect(matches).toHaveLength(1);
+  });
+
+  test("AT3: a justification asserting no non-existence does not fire", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        justification:
+          "Should the cockpit surface be called Attention or Inbox? Both read fine to me and " +
+          "this sets a precedent, so it is your call.",
+      })
+    );
+    expect(matches).toEqual([]);
+  });
+
+  test("AT4: an ask the router did NOT send to the operator does not fire", () => {
+    const matches = detectAskJustificationAbsence(askTurn({ result: POLICY_CLOSED_RESULT }));
+    // A policy-covered ask short-circuits to closed and reaches no human, so it
+    // spends none of the attention this surface is about.
+    expect(matches).toEqual([]);
+  });
+
+  test("AT4b: a quoted absence claim is not read as an asserted one", () => {
+    const matches = detectAskJustificationAbsence(
+      askTurn({
+        justification:
+          'The reviewer bot wrote "I have no OpenAI key" in its finding. Is that finding worth ' +
+          "acting on, or should I dismiss it?",
+      })
+    );
+    expect(matches).toEqual([]);
+  });
+
+  test("AT5: fired and non-fired turns both record the surface-E conjuncts", () => {
+    const fired = summarizeAskJustificationEvaluation(askTurn({}));
+    expect(fired).toEqual({
+      operatorRoutedAsks: 1,
+      absenceClaimPresent: true,
+      distinctChannels: 1,
+    });
+
+    const suppressed = summarizeAskJustificationEvaluation(
+      askTurn({
+        channels: [
+          { name: CREDENTIALS_LIST_TOOL },
+          { name: AI_VALIDATE_TOOL, input: { provider: "openai" } },
+        ],
+      })
+    );
+    expect(suppressed.absenceClaimPresent).toBe(true);
+    expect(suppressed.distinctChannels).toBe(2);
+
+    // The record carries them, so a review can recover the population by
+    // filtering rather than needing a separate denominator.
+    const record = buildEvaluationRecord(undefined, [], "", "prose-turn", fired);
+    expect(record["ask_justification"]).toEqual(fired);
+    expect(record["evaluated"]).toBe("prose-turn");
+  });
+
+  test("AT5b: distinctChannels is turn-level across MULTIPLE routed asks (PR #2920 R1)", () => {
+    const twoAsks: TranscriptLine[] = [
+      correlatedToolUse("toolu_c0", CREDENTIALS_LIST_TOOL, {}),
+      correlatedToolResult("toolu_c0", "{}"),
+      correlatedToolUse("toolu_c1", AI_VALIDATE_TOOL, { provider: "openai" }),
+      correlatedToolResult("toolu_c1", "{}"),
+      correlatedToolUse("toolu_a1", ASKS_CREATE_TOOL, { question: ANCHOR_JUSTIFICATION }),
+      correlatedToolResult("toolu_a1", OPERATOR_ROUTED_RESULT),
+      // A second routed ask whose `question` is NOT a string. The earlier
+      // implementation `continue`d before assigning the count, so this turn
+      // reported 0 channels despite having consulted two.
+      correlatedToolUse("toolu_a2", ASKS_CREATE_TOOL, { question: 42 }),
+      correlatedToolResult("toolu_a2", OPERATOR_ROUTED_RESULT),
+    ];
+
+    const summary = summarizeAskJustificationEvaluation(twoAsks);
+    expect(summary.operatorRoutedAsks).toBe(2);
+    expect(summary.distinctChannels).toBe(2);
+  });
+
+  test("AT6: surface E gets its OWN directive, not the probe one", () => {
+    const reminder = buildReminder([
+      { surface: ASK_JUSTIFICATION, matchedPhrase: "no OpenAI key", context: ANCHOR_JUSTIFICATION },
+    ]);
+    expect(reminder).toContain("ONE channel supports");
+    // The generic directive tells the agent to run a capability probe. On this
+    // surface it HAD run one — handing it that line invites reading a true
+    // positive as a false one (`guard-feedback-authoring.mdc §The directive has
+    // to fit the shape of the fire`).
+    expect(reminder).not.toContain(PROBE_DIRECTIVE);
+    expect(reminder).not.toContain("simpler shape");
+  });
+
+  test("AT6b: the anchor turn does not double-report across surfaces", () => {
+    const turn = askTurn({});
+    // The claim lives in the ask INPUT, not the assistant prose, so the prose
+    // surfaces see nothing — one incident, one record, which is the
+    // non-duplication property the A-vs-mt#2303 boundary test pins for the
+    // other direction.
+    expect(detectCapabilityDeferral(turn)).toEqual([]);
+    expect(detectPermissionDeferral(turn)).toEqual([]);
+    expect(detectDenialAnchoredDeferral(turn)).toEqual([]);
+    expect(detectAskJustificationAbsence(turn)).toHaveLength(1);
+  });
+
+  test("run() actually reports surface E — the wiring, not just the detector", () => {
+    // Every other test in this block calls `detectAskJustificationAbsence`
+    // directly, so deleting the surface from `run()`'s match list would leave
+    // them ALL green — the mt#3270 R1 shape this file's own comment warns
+    // about. This is the test that fails when the wiring goes.
+    const outcome = run(
+      { session_id: "s-e", transcript_path: FIXTURE_PATH } as ClaudeHookInput,
+      ctxWith([userPrompt("run the replay corpus"), ...askTurn({}), userPrompt("next")])
+    );
+    const matches = outcome?.calibration?.["matches"] as Array<Record<string, unknown>> | undefined;
+    expect(matches?.some((m) => m["category"] === ASK_JUSTIFICATION)).toBe(true);
+  });
+
+  test("the calibration record keeps the shared matches shape", () => {
+    const matches = detectAskJustificationAbsence(askTurn({}));
+    const record = buildCalibrationRecord("sess-1", matches);
+    const entries = record["matches"] as Array<Record<string, unknown>>;
+
+    expect(entries[0]).toEqual({
+      category: ASK_JUSTIFICATION,
+      phrase: matches[0]?.matchedPhrase,
+      context: matches[0]?.context,
+    });
+    // `secondChannel` is advisory-only and must not leak into the record — the
+    // sweep parser reads this family without a per-detector branch.
+    expect(entries[0]).not.toHaveProperty("secondChannel");
+    const parsed = [record].map(
+      (r) => JSON.parse(JSON.stringify(r)) as Parameters<typeof extractDistinctPhrases>[0][number]
+    );
+    expect(extractDistinctPhrases(parsed).size).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3865 — the tune. Every fixture below is the VERBATIM `context` string from
+// `.minsky/operator-deferral-calibration.jsonl`, at the timestamp named in the
+// case label, except where a case says otherwise and explains why.
+// ---------------------------------------------------------------------------
+
+/**
+ * AT1 — must not fire. Each entry is a rated FALSE POSITIVE from one of the
+ * three calibration windows, with the cause it belongs to.
+ */
+const TUNE_FALSE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  [
+    "Cause A / 2026-08-10T10:32 — a prohibition, not a request",
+    "Then — no needed. Don't paste the token into this chat; I don't need to see it.",
+  ],
+  ["Cause A / 2026-08-10T10:35 — the same, in a bulleted list", "- **Don't paste the token here."],
+  [
+    "Cause C / 2026-08-10T15:18 — names a standing instruction AND asks in the same message",
+    "I'm not spawning it; your setup says not to call the Agent tool unless you ask. " +
+      "Flagging it because there's no third auto-resume: say the word and I'll redispatch " +
+      "the prepared continuation prompt.",
+  ],
+  [
+    "SC7 / 2026-08-11T22:40 — declines to START new work, on the turn's own budget",
+    "I'm stopping here for a plain reason rather than a scope one: this turn has run long " +
+      "enough that I'd rather start that investigation with fresh context than tail-end it. " +
+      "Say the word and I'll pick up either.",
+  ],
+  [
+    "SC7 / 2026-08-12T03:18 — declines to START new work, to avoid derailing a live process",
+    "Not planning mt#4025 further right now — the research planner is still running and I'd " +
+      "rather not derail it. Say the word and I'll walk it after.",
+  ],
+  [
+    "Class C / 2026-08-12T03:25 — reserved category named in the PRECEDING sentence",
+    "Both are standing-default changes, so I'm not making them unilaterally. Want me to pick " +
+      "mt#3711 back up, and file the channel-awareness gap separately?",
+  ],
+];
+
+/**
+ * AT2 — must still fire. Every rated REAL POSITIVE whose context survives in
+ * the log, verbatim. This half is the load-bearing one: a suppression that
+ * quietly takes a real positive with it is a worse outcome than the false
+ * positives being tuned away, because the miss leaves no trace anywhere.
+ */
+const TUNE_REAL_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+  [
+    "2026-08-05T23:22 — an in-authority refactor",
+    "Worth noting the same argument applies to any other command whose body is pure side " +
+      "effect. Want me to convert it?",
+  ],
+  [
+    "2026-08-06T18:52 — a PR the agent could open",
+    "It stopped without opening a PR, so the work is committed but parked on its branch. Say " +
+      "the word and I'll open the PR for it, or leave it for whoever owns that thread.",
+  ],
+  [
+    "2026-08-08T08:24 — carries a `since` REASON and is still a real deferral",
+    "I'd fold this into one task — collapse per-message chrome into per-run, actor labels " +
+      "instead of role labels, elapsed instead of absolute time, and read/write visual " +
+      "weighting — since they're all the same underlying fix. Want me to file it?",
+  ],
+  [
+    "2026-08-09T00:06 — file-it-yourself under decision-defaults",
+    "It's documented in the workflow header, and mt#3616 just went DONE, so **nothing open " +
+      "tracks it** — my search turned up no task. Say the word and I'll file one; I didn't " +
+      "want to mint a task you may prefer to just do.",
+  ],
+  [
+    "2026-08-09T00:07 — a verification the probe rule says to just run",
+    "Both are quick to verify and both bear on the design. Say the word and I'll check them.",
+  ],
+  [
+    "2026-08-10T15:36 — recovering the agent's own uncommitted work",
+    "Flagging rather than filing an ask, since you're in this conversation: the risk is 10 " +
+      "files of staged work in session that no commit covers. Say the word if you want me to " +
+      "recover it.",
+  ],
+  [
+    "2026-08-11T22:48 — messaging a peer agent, which the agent can do",
+    "No recovery attempt was consumed and I've taken no action. Confirming that peer is " +
+      "genuinely done is yours to make — I can message it if you'd like.",
+  ],
+  [
+    "2026-08-11T23:37 — a check the agent can re-run",
+    "Merged (verified-1a) — deployed: unverified. Say the word and I'll re-run that check.",
+  ],
+  [
+    "2026-08-12T01:31 — both halves are file-it-yourself",
+    "Want me to patch the memory and open that task?",
+  ],
+];
+
+describe("mt#3865 — false positives the tune removes (AT1)", () => {
+  test.each(TUNE_FALSE_POSITIVES)("stays silent: %s", (_label, prose) => {
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("Class B — a deferral ATTRIBUTED to a document is not one being made", () => {
+    // RECONSTRUCTED, not verbatim, and the reason is the defect mt#3649 owns:
+    // the stored context for 2026-08-08T21:40 is capped at 240 chars and ends
+    // mid-word at "the ADR's auth section told rea", BEFORE the matched phrase
+    // `paste a bearer token`. Nothing can be replayed from that. The clause is
+    // reconstructed from the visible prefix; the reported-speech frame it turns
+    // on is fully visible in the record.
+    const prose =
+      "I fixed a blocking security finding in it along the way: the ADR's auth section told " +
+      "readers to paste a bearer token into the chat.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("Class B — an ENUMERATED open question describes an RFC's structure", () => {
+    const prose =
+      "The prefilter question is deferred to the principal as open question (b); the RFC " +
+      "should provide the option set rather than pick one.";
+    expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
+  });
+});
+
+describe("mt#3865 — real positives the tune must preserve (AT2)", () => {
+  test.each(TUNE_REAL_POSITIVES)("still fires: %s", (_label, prose) => {
+    const matches = [
+      ...detectCapabilityDeferral([assistantText(prose)]),
+      ...detectPermissionDeferral([assistantText(prose)]),
+    ];
+    expect(matches.length).toBeGreaterThan(0);
+  });
+});
+
+describe("mt#3865 — the negation guard is bounded (AT1 controls)", () => {
+  test("an UNNEGATED request for the same secret still fires", () => {
+    const matches = detectCapabilityDeferral([
+      assistantText("Paste the token into this chat so I can use it."),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("a negated CAPABILITY claim is not a prohibition — 'will not be able to' still fires", () => {
+    // `not` alone is deliberately absent from NEGATION_LEAD_PATTERN: this
+    // sentence IS the deferral the surface exists to catch, and a bare-`not`
+    // pattern would swallow it.
+    const matches = detectCapabilityDeferral([
+      assistantText("I will not be able to proceed until you provide the token."),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
+
+  test("a prohibition does not hide a REAL deferral elsewhere in the turn", () => {
+    // The suppressed match continues to the next pattern rather than returning.
+    const matches = detectCapabilityDeferral([
+      assistantText(`Don't paste the token here.\nSeparately, this ${RAILWAY_ACCESS}.`),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedPhrase).toContain(RAILWAY_ACCESS);
+  });
+});
+
+describe("mt#3865 — the widened window does not widen the destructive half (AT5)", () => {
+  test("a reserved category in the PRECEDING sentence now suppresses", () => {
+    const prose = "That would set a durable default for every later turn. Want me to apply it?";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("'production' in the PRECEDING sentence does NOT suppress an unrelated ask", () => {
+    // The over-suppression the widening risks. The destructive half stays
+    // sentence-scoped precisely so this keeps firing; widening it to the lead
+    // sentence would make an incidental mention of prod mask a real ask.
+    const prose = "The production logs were clean when I checked. Want me to commit the changelog?";
+    expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+
+  test("'production' in the MATCH sentence still suppresses", () => {
+    const prose = "The changelog is drafted. Want me to deploy it to production?";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+});
+
+describe("mt#3865 — rule-discussion suppression is a REGRESSION PIN, not new (AT3)", () => {
+  // This behaviour shipped in mt#3273, two weeks before the spec section that
+  // asked for it as a fix. Pinned here so a future elision change cannot
+  // silently undo it — and labelled, because a test that passed before the
+  // change is evidence of nothing unless it says so.
+  const RULE_QUOTATION =
+    'ty-deferral prose ("requires Railway access") when the turn shows no probe; ' +
+    "Surface B catches the same";
+
+  test("the quoted rule text does not fire", () => {
+    expect(detectCapabilityDeferral([assistantText(RULE_QUOTATION)])).toEqual([]);
+  });
+
+  test("the same phrase UNQUOTED does fire — the control that makes the pin meaningful", () => {
+    expect(
+      detectCapabilityDeferral([assistantText("This requires Railway access, so it's on you.")])
+    ).toHaveLength(1);
+  });
+
+  test("a suppressed turn still produces an evaluation record", () => {
+    const record = buildEvaluationRecord("s-3865", [], RULE_QUOTATION);
+    expect(record["fired"]).toBe(false);
+    expect(record["session_id"]).toBe("s-3865");
+    // The half a fire-only log cannot give: the scanned text is retained, so a
+    // suppression can be re-rated later as a miss if it turns out to be one.
+    expect(record["text_tail"]).toContain(RAILWAY_ACCESS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surface F — act-path improvised workaround (mt#4081)
+// ---------------------------------------------------------------------------
+
+/**
+ * The 2026-08-13 turn, reduced to its shape: one channel probed, a no-op read as
+ * a capability absence, then a mass kill — and no capability search anywhere in
+ * the turn. Surface E evaluated this turn and scored `fired: false`
+ * (`absenceClaimPresent: false`), which is what this surface exists to catch.
+ */
+function actPathTurn(
+  options: { search?: { name: string }; command?: string } = {}
+): TranscriptLine[] {
+  const { search, command = "kill 544 654 818 88112 966 1106" } = options;
+  const lines: TranscriptLine[] = [
+    correlatedToolUse("toolu_probe", "Bash", {
+      command: "osascript -e 'tell application \"iTerm2\" to move tab 1 of window 1'",
+    }),
+    correlatedToolResult("toolu_probe", "MOVE OK"),
+  ];
+  if (search) {
+    lines.push(correlatedToolUse("toolu_search", search.name, { query: "iterm2 move tab" }));
+    lines.push(correlatedToolResult("toolu_search", "async_set_tabs"));
+  }
+  lines.push(correlatedToolUse("toolu_kill", "Bash", { command }));
+  lines.push(correlatedToolResult("toolu_kill", ""));
+  return lines;
+}
+
+describe("surface F — act-path improvised workaround (mt#4081)", () => {
+  test("AT3: the 2026-08-13 turn fires, without needing an absence-claim phrase", () => {
+    const matches = detectActPathWorkaround(actPathTurn());
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe("act-path-workaround");
+    // The trigger is tool-call state — nothing in this turn's prose was read.
+    expect(matches[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("AT4: the same turn with a WebSearch in it does not fire", () => {
+    expect(detectActPathWorkaround(actPathTurn({ search: { name: "WebSearch" } }))).toHaveLength(0);
+  });
+
+  test("a Skill load counts as a capability search", () => {
+    expect(detectActPathWorkaround(actPathTurn({ search: { name: "Skill" } }))).toHaveLength(0);
+  });
+
+  test("a turn with no destructive action does not fire", () => {
+    const lines = [
+      correlatedToolUse("toolu_ls", "Bash", { command: "ls -la" }),
+      correlatedToolResult("toolu_ls", ""),
+    ];
+    expect(detectActPathWorkaround(lines)).toHaveLength(0);
+  });
+
+  test("the diversity axis is the verb, not the PID list", () => {
+    const a = detectActPathWorkaround(actPathTurn({ command: "kill 1 2 3" }));
+    const b = detectActPathWorkaround(actPathTurn({ command: "kill 9 8 7" }));
+    expect(a[0]?.matchedPhrase).toBe("kill");
+    expect(b[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("hasCapabilitySearch is true for WebFetch", () => {
+    expect(
+      hasCapabilitySearch([correlatedToolUse("toolu_wf", "WebFetch", { url: "https://x" })])
+    ).toBe(true);
+  });
+});
+
+describe("surface F — parse robustness (PR #2954 R1)", () => {
+  test("a kill verb quoted inside a commit message is not a destructive action", () => {
+    const lines = [
+      correlatedToolUse("toolu_c", "Bash", {
+        command: "git commit -m 'fix: kill the retry loop'",
+      }),
+      correlatedToolResult("toolu_c", ""),
+    ];
+    expect(detectActPathWorkaround(lines)).toHaveLength(0);
+    expect(isDestructiveCommand("git commit -m 'fix: kill the retry loop'")).toBe(false);
+  });
+
+  test("a real kill still reads as destructive, path-qualified or not", () => {
+    expect(isDestructiveCommand("kill 111 222 333")).toBe(true);
+    expect(isDestructiveCommand("/bin/kill 111")).toBe(true);
+    expect(isDestructiveCommand("echo done && killall node")).toBe(true);
   });
 });

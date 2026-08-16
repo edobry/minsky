@@ -98,6 +98,7 @@ export default {
     "./packages/domain/src/storage/schemas/guard-canary-runs-schema.ts",
     "./packages/domain/src/storage/schemas/cockpit-auth-schema.ts",
     "./packages/domain/src/storage/schemas/guard-events-schema.ts",
+    "./packages/domain/src/storage/schemas/conversation-shares-schema.ts",
   ],
   out: "./packages/domain/src/storage/migrations/pg",
   dialect: "postgresql",

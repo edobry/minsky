@@ -105,7 +105,7 @@ import {
   lookupMergeDeploySurface,
   readStore,
   type MergeDeploySurfaceStore,
-} from "./merge-deploy-surface-record";
+} from "../../packages/domain/src/deployment/merge-deploy-surface-record";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection

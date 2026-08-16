@@ -282,12 +282,52 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "flakiness-control-detector",
+    {
+      description:
+        "Records when a new task spec claims a test failure's MODE — that it is flaky, or equally that it is NOT load-dependent and fails deterministically — without recording the isolation control that would settle it, or marking the claim UNVERIFIED. The denial is the more dangerous shape: it reads as the already-investigated verdict.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("flakiness-control-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "stale-signal-sweep",
+    {
+      description:
+        "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      failureClasses: ["stale-context", "unfounded-claim"],
+      provenance: [hook("stale-signal-sweep"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "unrendered-result-field-scan",
+    {
+      description:
+        "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("unrendered-result-field-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
         "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
       failureClasses: ["duplicate-work", "unfounded-claim"],
       provenance: [hook("duplicate-check-search-provenance")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "evidence-record-provenance",
+    {
+      description:
+        "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("evidence-record-provenance"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -302,12 +342,55 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "truncated-outcome-read",
+    {
+      description:
+        "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("truncated-outcome-read-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "cli-mcp-substitution",
+    {
+      description:
+        "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("detect-cli-mcp-substitution"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "record-agent-dispatch",
     {
       description:
         "On a raw `Agent` spawn, writes the pending `subagent_invocations` row and stamps the harness `(session_id, tool_use_id)` into the prompt via `updatedInput` — the join the Stop side needs, since PreToolUse has no `agent_id` and SubagentStop has no `tool_use_id`. Mutates as well as records; never denies.",
       failureClasses: ["blind-enforcement"],
       provenance: [hook("record-agent-dispatch"), REGISTRY],
+      stratum: "registry",
+    },
+  ],
+  [
+    "block-concurrent-bulk-mutation",
+    {
+      description:
+        "Denies invoking a `scripts/*.ts` with an execute-class flag (`--execute`/`--apply`) while another process is already running that same script. Keys on the concurrency rather than on a curated list of dangerous scripts. First execution-surface member of the duplication-gate family — every sibling binds to a task-graph surface.",
+      failureClasses: ["duplicate-work"],
+      provenance: [hook("block-concurrent-bulk-mutation"), HOOK_FILES_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "block-bulk-process-kill",
+    {
+      description:
+        "Denies a command that kills many processes at once — `kill` with 3+ PIDs, or `pkill`/`killall` naming an interactive process class. The denial names the move-vs-recreate alternative: a capability ruled out on ONE probed channel is not a capability that does not exist. Act-path half of the operator-deferral family, whose detector reads only deferral prose.",
+      // `unfounded-claim`, not a destruction-specific class: what this guard
+      // actually interrupts is acting irreversibly on a capability claim that
+      // one probe of one channel cannot support. The kill is the symptom.
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("block-bulk-process-kill"), HOOK_FILES_RULE],
       stratum: "registry",
     },
   ],
@@ -985,6 +1068,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Recompiles `.claude/hooks/*` from their `.minsky/hooks/*` sources and re-stages them, so the hooks that actually run are never older than the sources under review.",
       failureClasses: ["broken-main", "blind-enforcement"],
       provenance: [PRECOMMIT, "src/hooks/claude-hooks-compile-regen.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
+    "interceptor-catalog-regen",
+    {
+      description:
+        "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      failureClasses: ["broken-main", "blind-enforcement"],
+      provenance: [PRECOMMIT, "src/hooks/interceptor-catalog-regen.ts"],
       stratum: "precommit",
     },
   ],

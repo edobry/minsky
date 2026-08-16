@@ -14,12 +14,16 @@
  *   session      → /agents/:id       (NOTE: /agents/, not /session/)
  *   changeset    → /changeset/:id    (changeset id == PR number; mt#2535 added the route)
  *   conversation → /conversation/:id (harness agentSessionId; mt#2769)
+ *   interceptor  → /interceptors/:name (id is the `guardName`; mt#4010)
  *
- * ACCEPT vs EMIT (mt#3800). `parseMinskyUri` accepts SIX types — the five above plus
- * `conversation` — so `minsky://conversation/<agentSessionId>` resolves, which is what lets a
- * terminal-side command (`/cockpit`) hand the tray a live conversation. What agents deliberately
- * EMIT in terminal output is a narrower, separate question governed by
- * `cockpit-deeplinks.mdc §The five entity types`; do not read either list as the other's contract.
+ * ACCEPT vs EMIT (mt#3800, extended mt#4010). `parseMinskyUri` accepts SEVEN types — the five
+ * agents emit, plus `conversation` (so `minsky://conversation/<agentSessionId>` resolves, which is
+ * what lets a terminal-side command (`/cockpit`) hand the tray a live conversation) and
+ * `interceptor` (mt#4010's catalog detail route). What agents deliberately EMIT in terminal output
+ * is a narrower, separate question governed by `cockpit-deeplinks.mdc §The five entity types`; do
+ * not read either list as the other's contract. `interceptor` is deliberately on the ACCEPT side
+ * only: it makes a catalog row addressable and linkable from within the cockpit, and adding a
+ * sixth emit-type is a separate decision this task does not take.
  *
  * From mt#2769 until mt#3800 this header attributed the five-type restriction to an "ADR-022
  * stage-1 constraint." It was not one: ADR-022 contains no mention of `minsky://`, URIs, or a
@@ -35,14 +39,29 @@
  * @see mt#2769 — added "conversation" (web-route only)
  */
 
+/**
+ * Entity types that have a routable cockpit detail page.
+ *
+ * This ARRAY is the single runtime source of truth and `RoutableEntityType` is
+ * derived from it, rather than the two being maintained side by side (mt#3694).
+ * Two consumers need to ENUMERATE the set at runtime, not just narrow against
+ * it: `parseMinskyUri`'s validation below, which previously kept its own
+ * hand-written copy that could drift, and the peek layer's coverage test, which
+ * asserts every routable type renders a body — so adding a type here is a
+ * failing test until that type has one, instead of a silent gap.
+ */
+export const ROUTABLE_ENTITY_TYPES = [
+  "task",
+  "ask",
+  "session",
+  "memory",
+  "changeset",
+  "conversation",
+  "interceptor",
+] as const;
+
 /** Entity types that have a routable cockpit detail page. */
-export type RoutableEntityType =
-  | "task"
-  | "ask"
-  | "session"
-  | "memory"
-  | "changeset"
-  | "conversation";
+export type RoutableEntityType = (typeof ROUTABLE_ENTITY_TYPES)[number];
 
 /**
  * Convert a `(type, id)` pair to the cockpit SPA path.
@@ -68,6 +87,10 @@ export function entityToPath(type: RoutableEntityType, id: string): string {
       return `/changeset/${encoded}`;
     case "conversation":
       return `/conversation/${encoded}`;
+    case "interceptor":
+      // Plural route noun, singular type noun — the catalog lives at
+      // `/interceptors` (ask#7119) and a detail page is a row within it.
+      return `/interceptors/${encoded}`;
   }
 }
 
@@ -105,9 +128,10 @@ const TRAILING_PROSE_PUNCTUATION = /[.,;:!?)\]>]+$/;
 /**
  * Parse a `minsky://` URI back to `{type, id}`.
  *
- * Returns `null` when the input is not a valid `minsky://` URI or the type is not one of the six
- * accepted URI types (task/ask/session/memory/changeset/conversation). `session` keeps meaning the
- * WORKSPACE id here, unrelated to `conversation` — see the module header's accept-vs-emit note.
+ * Returns `null` when the input is not a valid `minsky://` URI or the type is not one of the seven
+ * accepted URI types (task/ask/session/memory/changeset/conversation/interceptor). `session` keeps
+ * meaning the WORKSPACE id here, unrelated to `conversation` — see the module header's
+ * accept-vs-emit note.
  *
  * Example: `parseMinskyUri("minsky://task/mt%232370")` → `{type: "task", id: "mt#2370"}`
  */
@@ -124,16 +148,10 @@ export function parseMinskyUri(uri: string): { type: RoutableEntityType; id: str
   // Pass 1 of 2: strip the punctuation a terminal captured verbatim.
   const rawId = withoutScheme.slice(slashIdx + 1).replace(TRAILING_PROSE_PUNCTUATION, "");
 
-  // Validate type
-  const validTypes: RoutableEntityType[] = [
-    "task",
-    "ask",
-    "session",
-    "memory",
-    "changeset",
-    "conversation",
-  ];
-  if (!(validTypes as string[]).includes(rawType)) return null;
+  // Validate type against the shared runtime list (mt#3694) rather than a
+  // second hand-written copy, which is how this check could silently fall
+  // behind the type union it is meant to enforce.
+  if (!(ROUTABLE_ENTITY_TYPES as readonly string[]).includes(rawType)) return null;
 
   // Id must not be empty
   if (!rawId) return null;

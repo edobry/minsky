@@ -16,7 +16,7 @@ import {
   wireMemoryCeilingWatcher,
   getCurrentProcessPpid,
   getCurrentProcessUptimeSeconds,
-  getCurrentProcessResidentBytes,
+  getCurrentProcessMemoryBytes,
   resolveMemoryCeilingBytes,
 } from "../orphan-exit";
 import { log } from "@minsky/shared/logger";
@@ -166,7 +166,7 @@ export function createProxyCommand(): Command {
         wireMemoryCaptureWatcher({
           processRole: "mcp proxy",
           ceilingBytes: resolveMemoryCeilingBytes(),
-          getResidentBytes: getCurrentProcessResidentBytes,
+          getResidentBytes: getCurrentProcessMemoryBytes,
           getUptimeSeconds: getCurrentProcessUptimeSeconds,
         });
 

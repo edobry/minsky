@@ -77,9 +77,19 @@ export const OVERRIDE_ENV_VAR = "MINSKY_ALLOW_SECRET_FILE_READ";
  * Paths whose CONTENT is credential material by construction.
  *
  * Deliberately a short, explicit list rather than a heuristic. A wide v1 that
- * over-fires gets overridden into irrelevance, and every entry here is a file
- * whose whole purpose is holding secrets — so a match is near-certainly a real
- * hit. Widening later is cheap; earning back trust after noise is not.
+ * over-fires gets overridden into irrelevance, so a match here should be
+ * near-certainly a real hit. Widening later is cheap; earning back trust after
+ * noise is not.
+ *
+ * The admission criterion is that reading the file EMITS a credential — NOT that
+ * holding secrets is the file's whole purpose (mt#4159). That narrower phrasing
+ * stood here for two guard extensions and never described the list: `.npmrc` is
+ * a package-registry config that conventionally carries an auth token, `.netrc`
+ * is a machine-defaults file that conventionally carries a login, and `.mcp.json`
+ * is an MCP server declaration that conventionally carries `headers.Authorization`
+ * and `env` blocks. All three are config files first. Read literally, the old
+ * criterion rejects every one of them, which is what kept `.mcp.json` off the
+ * list until a routine read of it printed a live bearer token into a transcript.
  */
 export const EXPLICIT_SECRET_PATH_PATTERNS: readonly RegExp[] = [
   // Minsky's own config — holds `connectionString`, provider apiKeys (mt#2864
@@ -88,6 +98,10 @@ export const EXPLICIT_SECRET_PATH_PATTERNS: readonly RegExp[] = [
   // Conventional env files: `.env`, `.env.local`, `.env.production`, ...
   /(^|\/)\.env(\.[\w.-]+)?$/,
   /(^|\/)\.env(\.[\w.-]+)?[\s'"]/,
+  // MCP client config — server declarations carry `headers.Authorization`
+  // bearer tokens and `env` blocks (mt#4159). Anchored at a path separator so
+  // `foo.mcp.json` does not match.
+  /(^|\/)\.mcp\.json\b/,
   // Cloud / VCS credential stores.
   /(^|\/)\.aws\/credentials\b/,
   /(^|\/)\.netrc\b/,
@@ -232,13 +246,15 @@ export interface SecretReadHit {
   /** The secret-bearing path token found in that segment, or the invoked script's path. */
   path: string;
   /**
-   * Which shape produced this hit (mt#4017). `"file-read"` is a reader+
-   * secret-path pair (the original R1-R3 shape); `"script-invocation"` is a
-   * direct invocation of a script whose stdout is a credential by design
-   * (R4) — there is no separate reader/emitting-flag distinction to make,
-   * the invocation itself IS the hit.
+   * Which shape produced this hit (mt#4017, extended mt#3850). `"file-read"`
+   * is a reader+secret-path pair (the original R1-R3 shape);
+   * `"script-invocation"` is a direct invocation of a script whose stdout is a
+   * credential by design (R4) — there is no separate reader/emitting-flag
+   * distinction to make, the invocation itself IS the hit;
+   * `"process-listing"` is an invocation that prints another process's ARGV,
+   * where a secret rides along in a row the caller never asked for.
    */
-  kind: "file-read" | "script-invocation";
+  kind: "file-read" | "script-invocation" | "process-listing";
 }
 
 /**
@@ -557,6 +573,227 @@ export function findSecretScriptInvocations(command: string): SecretReadHit[] {
   return hits;
 }
 
+// ── Process listings (mt#3850) ──────────────────────────────────────────────
+//
+// The third channel, alongside secret VARIABLES and secret-bearing FILES. It
+// has the file channel's defining property — the command's purpose is innocent
+// and the secret arrives in output the caller did not know it was requesting —
+// with one difference that makes it harder to notice: nothing in the command
+// names a secret OR a path. The originating incident (2026-08-08) was an agent
+// grepping a process list for a stuck `git` process; a `docker run -e
+// GITHUB_PERSONAL_ACCESS_TOKEN=<value>` row rode along and put a live token in
+// the transcript.
+//
+// Keyed on the COLUMN, because the column is what carries values: argv is
+// world-readable on every process, the process NAME is not sensitive, and the
+// difference between the two is a flag.
+
+/** Programs that can print another process's argv. */
+const PROCESS_LISTING_PROGRAMS: ReadonlySet<string> = new Set(["ps", "top", "pgrep"]);
+
+/**
+ * `ps` format fields that render the full command line. `comm`/`ucomm` are the
+ * executable NAME only and are deliberately absent — they are the safe form
+ * this guard steers callers toward.
+ */
+const ARGV_COLUMN_FIELDS: ReadonlySet<string> = new Set(["command", "args", "cmd"]);
+
+/** Final-stage programs that reduce their input to a count or an exit status. */
+const COUNTING_SINKS: ReadonlySet<string> = new Set(["wc"]);
+
+/**
+ * Split a command into pipelines, each a list of stages.
+ *
+ * `splitSegments` above flattens `|` and `;`/`&&` into one list, which cannot
+ * answer the question this check needs: does this process listing's output
+ * reach the transcript, or is it consumed by a counting sink? `ps -eo command`
+ * and `ps -eo command | grep -c gho_` differ only in pipeline structure, and
+ * the second is the safe recipe `terminal-command-best-practices.mdc` teaches —
+ * a guard that denied it would be blocking its own documented remedy.
+ */
+export function splitPipelines(command: string): string[][] {
+  const pipelines: string[][] = [];
+  let stages: string[] = [];
+  let current = "";
+  let quote: '"' | "'" | null = null;
+
+  const pushStage = (): void => {
+    const s = current.trim();
+    if (s.length > 0) stages.push(s);
+    current = "";
+  };
+  const pushPipeline = (): void => {
+    pushStage();
+    if (stages.length > 0) pipelines.push(stages);
+    stages = [];
+  };
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (ch === undefined) continue;
+
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+
+    // `||` must be tested before the single-char `|`.
+    const two = command.slice(i, i + 2);
+    if (two === "&&" || two === "||") {
+      pushPipeline();
+      i++;
+      continue;
+    }
+    if (ch === "|") {
+      pushStage();
+      continue;
+    }
+    if (ch === ";" || ch === "\n") {
+      pushPipeline();
+      continue;
+    }
+    current += ch;
+  }
+  pushPipeline();
+
+  return pipelines;
+}
+
+/** The `-o` / `--format` field specs given to a `ps` invocation, if any. */
+export function psFormatSpecs(tokens: string[]): string[] {
+  const specs: string[] = [];
+  const args = tokens.slice(1);
+  for (let i = 0; i < args.length; i++) {
+    const t = args[i];
+    if (t === undefined) continue;
+    if (t === "-o" || t === "--format") {
+      const v = args[i + 1];
+      if (v !== undefined) {
+        specs.push(v);
+        i++;
+      }
+      continue;
+    }
+    if (t.startsWith("--format=")) {
+      specs.push(t.slice("--format=".length));
+      continue;
+    }
+    // Attached or bundled short form: `-opid,comm`, `-eopid,comm`.
+    const attached = /^-[a-zA-Z]*o(.+)$/.exec(t);
+    if (attached?.[1]) {
+      specs.push(attached[1]);
+      continue;
+    }
+    // Bundled with the spec in the NEXT token: `-eo pid,comm`.
+    if (/^-[a-zA-Z]*o$/.test(t)) {
+      const v = args[i + 1];
+      if (v !== undefined) {
+        specs.push(v);
+        i++;
+      }
+    }
+  }
+  return specs;
+}
+
+/**
+ * Does this `ps` invocation request the argv column?
+ *
+ * Fail-closed on the no-format case: `ps aux`, `ps -ef` and a bare `ps` all
+ * print the full command line by default, so ABSENCE of an explicit format is
+ * argv-bearing. Only an explicit field list that omits `command`/`args`/`cmd`
+ * is safe.
+ */
+export function psRequestsArgv(tokens: string[]): boolean {
+  const specs = psFormatSpecs(tokens);
+  if (specs.length === 0) return true;
+  return specs.some((spec) => spec.split(/[,\s]+/).some((f) => ARGV_COLUMN_FIELDS.has(psField(f))));
+}
+
+/**
+ * Reduce one `ps -o` entry to its bare field name.
+ *
+ * `ps` lets a field carry a WIDTH (`command:80`) and/or a custom HEADER
+ * (`command=CMD`), and both suffixes are still the argv column. Stripping only
+ * `=` — as the first version of this did — let `ps -eo command:80` through as
+ * an unrecognised field name, a false negative in the exact check this exists
+ * to make (PR #2996 R1).
+ */
+function psField(entry: string): string {
+  return entry
+    .replace(/[:=].*$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** Would this invocation print another process's argv? */
+export function isArgvBearingProcessListing(program: string, tokens: string[]): boolean {
+  if (!PROCESS_LISTING_PROGRAMS.has(program)) return false;
+  if (program === "ps") return psRequestsArgv(tokens);
+  // `top -c` (Linux) switches the command column to the full command line.
+  if (program === "top") return tokens.slice(1).includes("-c");
+  // `pgrep -a` / `--list-full` prints the full command line beside each pid.
+  if (program === "pgrep") {
+    return tokens
+      .slice(1)
+      .some((t) => t === "--list-full" || (/^-[a-zA-Z]+$/.test(t) && t.slice(1).includes("a")));
+  }
+  return false;
+}
+
+/** Does this final stage reduce its input to a count or an exit status? */
+export function isNonEmittingSink(program: string, tokens: string[]): boolean {
+  if (COUNTING_SINKS.has(program)) return true;
+  if (CONDITIONAL_READERS.has(program)) return !isEmittingInvocation(program, tokens);
+  return false;
+}
+
+/**
+ * Find process listings whose argv output would reach the transcript.
+ *
+ * Pipeline-scoped, not segment-scoped: a listing whose output reaches a
+ * counting sink (`| grep -c`, `| wc -l`, `| grep -q`) never renders a row, and
+ * is the form the rule recommends for exactly this situation.
+ *
+ * The sink is looked for ANYWHERE downstream of the listing, not only in the
+ * final stage. Once a stage has reduced its input to a count, no later stage
+ * can resurrect the argv — so `ps aux | grep -c docker | tee out` is as safe
+ * as `ps aux | grep -c docker`, and requiring the sink to be LAST over-blocked
+ * it (PR #2996 R1, non-blocking).
+ */
+export function findProcessListingReads(command: string): SecretReadHit[] {
+  const hits: SecretReadHit[] = [];
+  if (!command) return hits;
+
+  for (const stages of splitPipelines(command)) {
+    for (const [index, stage] of stages.entries()) {
+      const tokens = tokenize(stage);
+      if (tokens.length === 0) continue;
+      const program = programOf(tokens);
+      if (!program) continue;
+      if (!isArgvBearingProcessListing(program, tokens)) continue;
+
+      const reducedDownstream = stages.slice(index + 1).some((later) => {
+        const laterTokens = tokenize(later);
+        const laterProgram = programOf(laterTokens);
+        return laterProgram !== null && isNonEmittingSink(laterProgram, laterTokens);
+      });
+      if (reducedDownstream) continue;
+
+      const detail =
+        program === "ps" ? (psFormatSpecs(tokens)[0] ?? "default command column") : program;
+      hits.push({ segment: stage, reader: program, path: detail, kind: "process-listing" });
+    }
+  }
+  return hits;
+}
+
 /** Collect all string values from a tool_input object (command + any string args). */
 export function collectStrings(toolInput: Record<string, unknown>): string[] {
   const out: string[] = [];
@@ -571,7 +808,11 @@ export function findInToolInput(toolInput: Record<string, unknown>): SecretReadH
   const hits: SecretReadHit[] = [];
   const seen = new Set<string>();
   for (const s of collectStrings(toolInput)) {
-    for (const hit of [...findSecretReads(s), ...findSecretScriptInvocations(s)]) {
+    for (const hit of [
+      ...findSecretReads(s),
+      ...findSecretScriptInvocations(s),
+      ...findProcessListingReads(s),
+    ]) {
       const key = `${hit.kind}::${hit.reader}::${hit.path}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -590,8 +831,12 @@ export function findInToolInput(toolInput: Record<string, unknown>): SecretReadH
  * is load-bearing: R3 happened to an agent who DID redact.
  */
 export function buildDenialReason(hits: SecretReadHit[]): string {
-  const fileHits = hits.filter((h) => h.kind !== "script-invocation");
+  // Match each kind EXACTLY. This was `!== "script-invocation"` while there
+  // were only two kinds; left that way, a third kind would silently render
+  // under the file-read heading and offer file-read remedies.
+  const fileHits = hits.filter((h) => h.kind === "file-read");
   const scriptHits = hits.filter((h) => h.kind === "script-invocation");
+  const processHits = hits.filter((h) => h.kind === "process-listing");
 
   const lines: string[] = [
     "This command would print credentials into the persisted, ingested transcript.",
@@ -628,6 +873,28 @@ export function buildDenialReason(hits: SecretReadHit[]): string {
       "",
       "To check whether the DB is configured without printing the credential, use:",
       "  bun run src/cli.ts persistence check      # or the persistence_check MCP tool",
+      ""
+    );
+  }
+
+  if (processHits.length > 0) {
+    lines.push(
+      "Blocked process listing(s) — these print other processes' ARGV:",
+      processHits.map((h) => `  - ${h.reader} (${h.path})`).join("\n"),
+      "",
+      "argv is world-readable, and a secret passed as a command-line argument by",
+      "ANY process on this machine lands in that output. Nothing in your command",
+      "names a secret — that is what makes this one easy to miss: on 2026-08-08 a",
+      "`ps` looking for a stuck git process printed a live GitHub token that a",
+      "`docker run -e TOKEN=<value>` row happened to carry (mt#3850).",
+      "",
+      "Select columns that cannot carry a value:",
+      "  ps -eo pid,etime,comm               # comm is the executable NAME only",
+      "",
+      "Or keep the argv column and end the pipeline in a counting sink, which",
+      "renders no row (these are ALLOWED and are the recommended diagnostic form):",
+      "  ps -eo command | grep -c <pattern>",
+      "  ps -eo command | grep -q <pattern>",
       ""
     );
   }

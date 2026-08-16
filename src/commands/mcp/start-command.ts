@@ -12,7 +12,7 @@ import { Command } from "commander";
 import type { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
-import { log } from "@minsky/shared/logger";
+import { log, setProcessRole } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
@@ -1329,6 +1329,15 @@ export function createStartCommand(
         // SAME baseline (set at cli.ts module load).
         profileCheckpoint("action_entry");
 
+        // mt#2464: this subcommand is a long-running SERVER, not a one-shot
+        // command, so undo the CLI entry point's blanket declaration. Without
+        // this the deployed minsky-mcp — which boots via `minsky mcp start
+        // --http` and is therefore a CLI process — would keep discarding every
+        // domain `log.info`/`log.warn`, the exact silence this task removes.
+        // Safe for the stdio transport too: the sink writes to stderr, never to
+        // the stdout channel the JSON-RPC protocol owns.
+        setProcessRole("long-running-service");
+
         // mt#2098: When no container is passed (standalone MCP server boot
         // without the CLI composition root), create one from the portable
         // domain bootstrap. This makes the MCP server independently bootable.
@@ -2138,7 +2147,7 @@ export function createStartCommand(
           wireMemoryCeilingWatcher,
           getCurrentProcessPpid,
           getCurrentProcessUptimeSeconds,
-          getCurrentProcessResidentBytes,
+          getCurrentProcessMemoryBytes,
           resolveMemoryCeilingBytes,
         } = await import("../../mcp/orphan-exit");
         const { wireMemoryCaptureWatcher } = await import("../../mcp/memory-capture");
@@ -2187,7 +2196,7 @@ export function createStartCommand(
         wireMemoryCaptureWatcher({
           processRole,
           ceilingBytes: resolveMemoryCeilingBytes(),
-          getResidentBytes: getCurrentProcessResidentBytes,
+          getResidentBytes: getCurrentProcessMemoryBytes,
           getUptimeSeconds: getCurrentProcessUptimeSeconds,
           getInFlightToolCalls: () => server.getInFlightToolCalls(),
           getDiagnostics: () =>
@@ -2208,7 +2217,7 @@ export function createStartCommand(
           if (watermarkBytes !== null) {
             server.setSessionAdmissionGate(
               createAdmissionGate({
-                getResidentBytes: getCurrentProcessResidentBytes,
+                getResidentBytes: getCurrentProcessMemoryBytes,
                 watermarkBytes,
               })
             );

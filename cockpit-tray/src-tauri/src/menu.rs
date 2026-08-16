@@ -3,7 +3,7 @@
 //
 // `build` constructs the tray dropdown (status/build/uptime lines + daemon
 // lifecycle actions) and the macOS application menu (mt#2327: gives the
-// cockpit window standard shortcuts like Cmd+R / Cmd+W / zoom, which Tauri
+// cockpit window standard shortcuts like Cmd+R / Cmd+C / zoom, which Tauri
 // does not create by default). `handle_menu_event` is the single dispatch
 // point both menus route through. Split out of main.rs (mt#2628).
 
@@ -14,13 +14,45 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::supervisor::{send_cmd, BuildMenuItem, StatusMenuItem, SupervisorCmd, UptimeMenuItem};
+use crate::supervisor::{
+    registry, send_cmd, BuildMenuItem, DaemonId, DaemonMenuItems, SupervisorCmd,
+};
 
-const STATUS_MENU_ID: &str = "status";
 /// Dropdown line showing the cockpit-web bundle's last-build state (mt#2297).
+/// Still a single id: only the cockpit has a bundle.
 const BUILD_MENU_ID: &str = "build_status";
-/// Dropdown line showing daemon uptime + the source mtime it was started against (mt#2299).
-const UPTIME_MENU_ID: &str = "uptime";
+
+/// The status / uptime / lifecycle menu-item ids are DERIVED from the daemon id
+/// rather than spelled out (mt#3815), so a new registry entry cannot end up with
+/// a menu item the dispatch below does not recognize.
+fn status_menu_id(id: DaemonId) -> String {
+    format!("status:{}", id.slug())
+}
+
+fn uptime_menu_id(id: DaemonId) -> String {
+    format!("uptime:{}", id.slug())
+}
+
+fn lifecycle_menu_id(action: &str, id: DaemonId) -> String {
+    format!("{action}:{}", id.slug())
+}
+
+/// Split a `<action>:<daemon>` menu id back into its parts. `None` for any id
+/// that is not one — the dispatch's `_ => {}` arm handles those.
+fn parse_lifecycle_menu_id(menu_id: &str) -> Option<(&str, DaemonId)> {
+    let (action, slug) = menu_id.split_once(':')?;
+    Some((action, DaemonId::from_slug(slug)?))
+}
+
+/// The name a daemon is shown under, taken from the same `DaemonLabels` the
+/// supervisor renders its status line from, so the menu and the status text
+/// cannot disagree about what a daemon is called.
+fn display_name_for(id: DaemonId) -> &'static str {
+    match id {
+        DaemonId::Cockpit => crate::supervisor::COCKPIT_LABELS.display_name,
+        DaemonId::Mcp => registry::MCP_LABELS.display_name,
+    }
+}
 
 /// The cockpit origin: what the in-app webview loads and what "Open Cockpit"
 /// hands to the OS browser.
@@ -128,21 +160,40 @@ pub(crate) fn init_zoom_state(app: &tauri::App<Wry>) {
 /// review R1: a label advertising a hotkey that silently failed to register
 /// would mislead users).
 pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Result<()> {
-    let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
-        .enabled(false)
-        .build(app)?;
-    app.manage(StatusMenuItem(status_item.clone()));
+    // One status + uptime line PER REGISTERED DAEMON (mt#3815), built from
+    // `DaemonId::ALL` so the dropdown cannot silently omit an entry the
+    // supervisor is actually watching.
+    let mut status_items = Vec::new();
+    let mut uptime_items = Vec::new();
+    let mut status_lines = Vec::new();
+    for id in DaemonId::ALL {
+        let name = display_name_for(id);
+        let status_item =
+            MenuItemBuilder::with_id(status_menu_id(id), format!("{name}: checking..."))
+                .enabled(false)
+                .build(app)?;
+        let uptime_item = MenuItemBuilder::with_id(uptime_menu_id(id), format!("{name} uptime: —"))
+            .enabled(false)
+            .build(app)?;
+        status_lines.push(status_item.clone());
+        status_lines.push(uptime_item.clone());
+        status_items.push((id, status_item));
+        uptime_items.push((id, uptime_item));
+    }
+    // The build line is cockpit-only and sits with the cockpit's own lines —
+    // between its status and uptime rows, where it has always been.
     let build_item = MenuItemBuilder::with_id(BUILD_MENU_ID, "Last build: never")
         .enabled(false)
         .build(app)?;
     app.manage(BuildMenuItem(build_item.clone()));
+    status_lines.insert(1, build_item.clone());
+    app.manage(DaemonMenuItems {
+        status: status_items,
+        uptime: uptime_items,
+    });
     // Best-effort: request notification permission so build-failure
     // toasts can appear (mt#2306). Ignored if denied/unavailable.
     let _ = app.notification().request_permission();
-    let uptime_item = MenuItemBuilder::with_id(UPTIME_MENU_ID, "Daemon uptime: —")
-        .enabled(false)
-        .build(app)?;
-    app.manage(UptimeMenuItem(uptime_item.clone()));
     let open_window_label = if hotkey_registered {
         format!("Open Cockpit  ({})", crate::hotkey::SUMMON_SHORTCUT_LABEL)
     } else {
@@ -151,25 +202,42 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     let open_window_item = MenuItemBuilder::with_id("open_window", open_window_label).build(app)?;
     let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
     let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
-    let start_item = MenuItemBuilder::with_id("start", "Start Daemon").build(app)?;
-    let stop_item = MenuItemBuilder::with_id("stop", "Stop Daemon").build(app)?;
-    let restart_item = MenuItemBuilder::with_id("restart", "Restart Daemon").build(app)?;
+    // Start/Stop/Restart PER DAEMON, grouped in a submenu named for it
+    // (mt#3815). A flat list of six verbs would not say which daemon each
+    // one acts on, and the ids the handler parses carry the daemon
+    // (`start:cockpit`) rather than relying on menu position.
+    let mut lifecycle_submenus = Vec::new();
+    for id in DaemonId::ALL {
+        let name = display_name_for(id);
+        let start_item =
+            MenuItemBuilder::with_id(lifecycle_menu_id("start", id), "Start").build(app)?;
+        let stop_item =
+            MenuItemBuilder::with_id(lifecycle_menu_id("stop", id), "Stop").build(app)?;
+        let restart_item =
+            MenuItemBuilder::with_id(lifecycle_menu_id("restart", id), "Restart").build(app)?;
+        lifecycle_submenus.push(
+            SubmenuBuilder::new(app, name)
+                .item(&start_item)
+                .item(&stop_item)
+                .item(&restart_item)
+                .build()?,
+        );
+    }
     let separator2 = tauri::menu::PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit Cockpit Tray").build(app)?;
 
-    let menu = MenuBuilder::new(app)
-        .item(&status_item)
-        .item(&build_item)
-        .item(&uptime_item)
+    let mut menu_builder = MenuBuilder::new(app);
+    for item in &status_lines {
+        menu_builder = menu_builder.item(item);
+    }
+    menu_builder = menu_builder
         .item(&separator1)
         .item(&open_window_item)
-        .item(&open_item)
-        .item(&start_item)
-        .item(&stop_item)
-        .item(&restart_item)
-        .item(&separator2)
-        .item(&quit_item)
-        .build()?;
+        .item(&open_item);
+    for submenu in &lifecycle_submenus {
+        menu_builder = menu_builder.item(submenu);
+    }
+    let menu = menu_builder.item(&separator2).item(&quit_item).build()?;
 
     let _tray = TrayIconBuilder::with_id("main")
         .tooltip("Minsky Cockpit")
@@ -187,7 +255,7 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // lifecycle, but it does NOT give the cockpit *window* the standard
     // web-app keyboard shortcuts. On macOS those come from the
     // application menu's accelerators, which Tauri (unlike Electron) does
-    // not create by default — so Cmd+R / Cmd+W / Cmd+C&c. were dead in the
+    // not create by default — so Cmd+R / Cmd+C / close &c. were dead in the
     // cockpit window. Build a minimal app menu so they work when the
     // window is focused. Zoom (Cmd +/-/0) is driven by the View-menu
     // items below via `WebviewWindow::set_zoom` (mt#2334) — Tauri's
@@ -257,9 +325,39 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
         .item(&history_back_item)
         .item(&history_forward_item)
         .build()?;
+    // Close Tab / Close Window (mt#4059). `⌘W` addresses the ENTITY TAB, and
+    // window-close moves to `⌘⇧W` -- the mapping every tabbed macOS app uses
+    // (Safari, Chrome, Terminal, iTerm), and the one an operator arriving from
+    // a browser already has in their fingers.
+    //
+    // `CmdOrCtrl` is deliberate, not inherited by accident (PR #2936 R1): the
+    // same relocation is correct off-mac, because browsers there also bind
+    // Ctrl+W to close-tab and Ctrl+Shift+W to close-window. The tray ships as a
+    // macOS menu-bar app today, so this is currently theoretical -- but the
+    // theoretical behavior is the RIGHT one, and every other accelerator in
+    // this file already uses the same modifier token.
+    //
+    // Both are CUSTOM items rather than `SubmenuBuilder::close_window()`,
+    // because a `PredefinedMenuItem`'s accelerator cannot be changed: only
+    // MenuItem/CheckMenuItem/IconMenuItem expose `set_accelerator`, and the
+    // predefined variant's chord comes from a fixed table (muda
+    // `items/predefined.rs`, which binds CloseWindow to CmdOrCtrl+W on macOS).
+    // Same substitution, for the same reason, that Quit above already makes.
+    //
+    // `close_window` calls `WebviewWindow::close()` rather than hiding
+    // directly, so it lands on the mt#2675 hide-on-close `CloseRequested`
+    // handler in `create_cockpit_window` -- identical behavior to the red
+    // button, with one definition of what closing means.
+    let close_tab_item = MenuItemBuilder::with_id("close_tab", "Close Tab")
+        .accelerator("CmdOrCtrl+W")
+        .build(app)?;
+    let close_window_item = MenuItemBuilder::with_id("close_window", "Close Window")
+        .accelerator("CmdOrCtrl+Shift+W")
+        .build(app)?;
     let window_submenu = SubmenuBuilder::new(app, "Window")
         .minimize()
-        .close_window()
+        .item(&close_tab_item)
+        .item(&close_window_item)
         .build()?;
     let app_menu = MenuBuilder::new(app)
         .item(&app_submenu)
@@ -277,7 +375,9 @@ pub(crate) fn build(app: &tauri::App<Wry>, hotkey_registered: bool) -> tauri::Re
     // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
     app.on_menu_event(move |app, event| match event.id().as_ref() {
         "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" | "history_back"
-        | "history_forward" => handle_menu_event(app, event.id().as_ref()),
+        | "history_forward" | "close_tab" | "close_window" => {
+            handle_menu_event(app, event.id().as_ref())
+        }
         _ => {}
     });
 
@@ -325,6 +425,32 @@ pub(crate) fn eval_history_nav(app: &AppHandle, forward: bool, guard_editable: b
     }
 }
 
+/// Close the cockpit SPA's ACTIVE entity tab (mt#4059).
+///
+/// The ADR-023 native->SPA seam in its `eval`-a-global form -- the deep-link
+/// shape (`deeplink.rs`), not the history shape. `history.back()` is a native
+/// browser API the eval can call directly; a tab is SPA state with no native
+/// equivalent, so the SPA installs `window.__minskyCloseActiveTab` and this
+/// calls it.
+///
+/// The `typeof` guard makes a pre-mount or non-cockpit document a no-op rather
+/// than a thrown ReferenceError, and the SPA side no-ops when no entity tab is
+/// active -- so `⌘W` on a list page does nothing at all, and deliberately does
+/// NOT fall through to closing the window. There is no payload, so ADR-023's
+/// JSON-encoding requirement (a script-injection guard for interpolated
+/// values) has nothing to encode: keep this script a literal.
+pub(crate) fn eval_close_active_tab(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) else {
+        return;
+    };
+    let script = "(function () {\n  \
+         if (typeof window.__minskyCloseActiveTab === 'function') { window.__minskyCloseActiveTab(); }\n\
+         })()";
+    if let Err(e) = window.eval(script) {
+        eprintln!("[cockpit-tray] failed to close the active cockpit tab: {e}");
+    }
+}
+
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "open_window" => open_cockpit_window(app),
@@ -339,6 +465,20 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         // focused-editable carve-out applies -- see eval_history_nav.
         "history_back" | "history_forward" => {
             eval_history_nav(app, id == "history_forward", true);
+        }
+        // Tab close (mt#4059) -- SPA state, so it goes through the ADR-023
+        // eval-a-global seam. Window close keeps the pre-mt#4059 behavior at
+        // its new chord: `close()` is intercepted by the hide-on-close handler.
+        "close_tab" => eval_close_active_tab(app),
+        "close_window" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                if let Err(e) = window.close() {
+                    // "requested" because the request is what failed: a
+                    // successful close() is intercepted and becomes a hide, so
+                    // this line means the window neither closed NOR hid.
+                    eprintln!("[cockpit-tray] failed to request cockpit window close (hide-on-close): {e}");
+                }
+            }
         }
         "zoom_in" | "zoom_out" | "zoom_reset" => {
             // try_state (not state) so an early/edge invocation before the
@@ -361,9 +501,6 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
         "open" => {
             let _ = open::that(cockpit_url());
         }
-        "start" => send_cmd(app, SupervisorCmd::Start),
-        "stop" => send_cmd(app, SupervisorCmd::Stop),
-        "restart" => send_cmd(app, SupervisorCmd::Restart),
         "quit" => {
             // Ask the supervisor to stop the daemon, then exit. The
             // RunEvent::Exit handler tears the daemon down synchronously as the
@@ -371,7 +508,21 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             send_cmd(app, SupervisorCmd::Shutdown);
             app.exit(0);
         }
-        _ => {}
+        // Per-daemon lifecycle (mt#3815): `start:cockpit`, `stop:mcp`, &c. The
+        // daemon comes out of the id rather than out of menu position, so a
+        // reordered dropdown cannot send Stop to the wrong daemon.
+        other => {
+            if let Some((action, daemon)) = parse_lifecycle_menu_id(other) {
+                match action {
+                    "start" => send_cmd(app, SupervisorCmd::Start(daemon)),
+                    "stop" => send_cmd(app, SupervisorCmd::Stop(daemon)),
+                    "restart" => send_cmd(app, SupervisorCmd::Restart(daemon)),
+                    // `status:` / `uptime:` ids belong to the disabled display
+                    // rows, which cannot be clicked.
+                    _ => {}
+                }
+            }
+        }
     }
 }
 
@@ -434,7 +585,7 @@ pub(crate) fn ensure_cockpit_window_visible(app: &AppHandle) {
 /// global-hotkey toggle's "visible+focused -> hide" direction). Mirrors the
 /// hide-on-close `CloseRequested` handler in `create_cockpit_window` below --
 /// same behavior, triggered by the hotkey instead of the window's close
-/// button / Cmd+W.
+/// button / Cmd+Shift+W (Cmd+W closes the active TAB since mt#4059).
 pub(crate) fn hide_cockpit_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
         if let Err(e) = window.hide() {
@@ -549,7 +700,7 @@ fn create_cockpit_window(app: &AppHandle) {
     {
         Ok(window) => {
             // Hide-on-close (mt#2675): intercept CloseRequested so the red
-            // button / Cmd+W hides the window (preserving SPA state) instead
+            // button / Cmd+Shift+W hides the window (preserving SPA state) instead
             // of destroying it, and drop Dock + Cmd-Tab presence while
             // hidden. Destroyed is the defensive fallback for any destroy
             // path that bypasses CloseRequested (e.g. app teardown).

@@ -24,7 +24,7 @@
 //      file, which puts the change in front of a human. (PR #2616 R1 flagged the
 //      brittleness; it is intentional and scoped to the policy phrases only — nothing
 //      here asserts the surrounding explanatory prose.)
-//   2. DRIFT (`describe` #2) — derived, not hardcoded. The six reserved categories are
+//   2. DRIFT (`describe` #2) — derived, not hardcoded. The reserved categories are
 //      read out of the canonical rule at run time and checked against each surface's
 //      restatement, so adding a seventh category canonically fails until the copies
 //      catch up. This is the answer to "the list is hand-copied in two places": the
@@ -47,6 +47,20 @@ const read = (relPath: string): string => readFileSync(join(REPO_ROOT, relPath),
 // below, and a typo'd path would silently read a different file.
 const SKILL_SOURCE = ".minsky/skills/plan-task/skill.ts";
 const RULE_SOURCE = ".minsky/rules/key-workflows.mdc";
+
+// mt#4141: the THIRD surface carrying the citation test, added after R7 of the
+// confabulated-strategic-frame family. The two surfaces above are both scoped to a
+// skill-chain transition ("override the chain-walk default at any transition"), so a
+// turn-end deferral outside any chain reached the principal with the test never applied.
+// /classify-before-deferring owns the whether-question generally — /escalation-packaging
+// §Related delegates it there explicitly — and its Class C copy had drifted to six
+// categories against the canonical seven, precisely because nothing here covered it.
+const CLASSIFY_SOURCE = ".minsky/skills/classify-before-deferring/SKILL.md";
+const CLASSIFY_GENERATED = ".claude/skills/classify-before-deferring/SKILL.md";
+// Opens the restatement window on both classify surfaces AND on the plan-task skill —
+// they deliberately share the phrase, so the drift guard reads the same construction
+// everywhere it appears.
+const CLOSED_LIST_MARKER = "The closed list:";
 
 // The positive test itself: a halt must NAME the category.
 const CITATION_MARKER = "NAME which reserved category";
@@ -80,6 +94,18 @@ describe("halt-on-principal-decision requires naming the reserved category (mt#3
       expect(content).toContain(CITATION_MARKER);
       expect(content).toContain(SOURCE_MARKER);
       expect(content).toContain(DEMOTION_MARKER);
+    });
+  }
+
+  // Asserted separately from SURFACES, not appended to it: DEMOTION_MARKER is about
+  // demoting plan-task's negative enumeration of bad halt rationales to illustration.
+  // /classify-before-deferring never carried that enumeration, so requiring the marker
+  // there would assert the presence of text that has nothing to demote.
+  for (const surface of [CLASSIFY_SOURCE, CLASSIFY_GENERATED]) {
+    test(`${surface} states the positive citation test (mt#4141)`, () => {
+      const content = read(surface);
+      expect(content).toContain(CITATION_MARKER);
+      expect(content).toContain(SOURCE_MARKER);
     });
   }
 });
@@ -131,13 +157,21 @@ const RESTATEMENTS: Array<{ name: string; content: () => string; openMarker: str
   {
     name: SKILL_SOURCE,
     content: () => planTaskSkill.content as string,
-    openMarker: "The closed list:",
+    openMarker: CLOSED_LIST_MARKER,
   },
   {
     name: RULE_SOURCE,
     content: () => read(RULE_SOURCE),
     openMarker: "State the category before halting on it:",
   },
+  // mt#4141 — both the source and its compiled output. The generated copy is included
+  // because an agent reads .claude/skills/, so a source-only assertion passes on a stale
+  // compile: exactly the failure mode the SURFACES list above already guards against.
+  ...[CLASSIFY_SOURCE, CLASSIFY_GENERATED].map((name) => ({
+    name,
+    content: () => read(name),
+    openMarker: CLOSED_LIST_MARKER,
+  })),
 ];
 
 describe("restated reserved-category lists track principal-context.mdc (mt#3596)", () => {

@@ -152,6 +152,12 @@ export interface CalibrationLogEntry {
    *   "chained-verification-commands" → {timestamp, session_id, outcome}
    *     (mt#3910 `chained-verification-commands-detector.ts`, same D4 write
    *     path) — an outcome-status record, no `matches` array.
+   *   "truncated-outcome-read"        → {timestamp, session_id, outcome,
+   *     mutatingCommand?, filter?} (mt#4096
+   *     `truncated-outcome-read-detector.ts`, same D4 write path) — an
+   *     outcome-status record, no `matches` array. The two extra fields carry
+   *     the violation SHAPE (which command, which truncator), which is the
+   *     sweep's diversity axis for this kind.
    *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
    *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
    *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
@@ -199,6 +205,8 @@ export interface CalibrationLogEntry {
     | "operator-instruction-trigger"
     | "agent-dispatch-record"
     | "chained-verification-commands"
+    | "truncated-outcome-read"
+    | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
     | "generic-matches";
   /**
@@ -1468,6 +1476,24 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       for (const skill of rec.loadedSkills) {
         phrases.add(skill);
       }
+    } else if (
+      rec.detectorFields &&
+      typeof rec.detectorFields["mutatingCommand"] === "string" &&
+      typeof rec.detectorFields["filter"] === "string"
+    ) {
+      // truncated-outcome-read (mt#4096): diversity axis = the violation SHAPE
+      // (which outcome-bearing command, which truncator), read out of the
+      // mt#3289 `detectorFields` passthrough rather than a dedicated parse
+      // branch — the record is matches-shaped and carries no `matches`, so
+      // without this clause it would fall to the `else` below, add nothing, and
+      // sit at zero diversity forever no matter how varied the real fires were.
+      // That is the mt#3781 inert-sweep defect, which this detector's own
+      // record-shape comment cites; PR #2960 R1 caught it reproduced here.
+      //
+      // The raw command is deliberately NOT the axis: it is near-unique, which
+      // would satisfy the distinct-phrase gate by construction — the same defect
+      // from the opposite direction.
+      phrases.add(`${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`);
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
@@ -1870,6 +1896,8 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "operator-instruction-trigger": true,
   "agent-dispatch-record": true,
   "chained-verification-commands": true,
+  "truncated-outcome-read": true,
+  "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
   "generic-matches": true,
 };
@@ -2708,6 +2736,20 @@ const CALIBRATION_NAME_TO_GUARD_NAME: Readonly<Record<string, string>> = {
   "retrospective-completeness": "retrospective-completeness-detector",
   "stop-at-decision": "stop-at-decision-scan",
 };
+
+/**
+ * The guard name a calibration log's state attaches to, in the FIRE-LOG
+ * name-space (mt#4009). The fire-log population uses `GuardRegistration`
+ * names (`wall-of-text-detector`, `turn-end-bare-ref-scan`, ...), which is
+ * exactly what {@link CALIBRATION_NAME_TO_GUARD_NAME} maps to — exported as
+ * a function so consumers joining calibration state onto fire-log-derived
+ * rows share THIS mapping instead of minting a second one (the
+ * `stream-sources.ts` per-stream labels are a different name-space and do
+ * NOT join against fire-log rows).
+ */
+export function guardNameForCalibrationLog(logName: string): string {
+  return CALIBRATION_NAME_TO_GUARD_NAME[logName] ?? logName;
+}
 
 /**
  * Map ONE legacy calibration record to the fire-log schema's decision axis.
