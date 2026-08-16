@@ -569,7 +569,11 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
   the other PID and its elapsed time. Keys on the CONCURRENCY, not on a curated list of dangerous
   scripts — a second copy of any script is near-never intended, and a list would go stale silently.
   First execution-surface member of the duplication-gate family, every other one of which binds to
-  a task-graph surface (mem#999). `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
+  a task-graph surface (mem#999). **"Invoking" is now literal (mt#4088)** — the script must sit in
+  COMMAND POSITION with the flag after it, and a newline separates segments. Until then the two
+  questions were asked independently of one SEGMENT, so a command that merely MENTIONED a script
+  beside an unrelated `--execute` denied: a heredoc body documenting a test command, or a script
+  path passed as `--spec-file`. `MINSKY_ALLOW_CONCURRENT_BULK_MUTATION`.
 - **Bulk process-kill** (mt#4081) — `kill` naming 3+ PIDs, or `pkill`/`killall` naming an
   interactive process class. Denies with the move-vs-recreate alternative: a capability ruled out
   on ONE probed channel is not a capability that does not exist. Same matcher class as the two

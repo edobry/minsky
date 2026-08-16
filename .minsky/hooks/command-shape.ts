@@ -17,8 +17,14 @@
  * Split `input` wherever `separatorAt` reports a separator OUTSIDE quotes, returning the trimmed
  * non-empty parts. `separatorAt` returns the separator's length (0 = not a separator), so a
  * caller can match one- or two-character operators.
+ *
+ * Exported (mt#4088) so a guard needing a DIFFERENT separator set can reuse the quote and
+ * backslash handling instead of copying it. `block-concurrent-bulk-mutation` adds the newline;
+ * its first attempt split on raw newlines and thereby cut quoted strings in half, which is the
+ * class of defect this walker exists to prevent. The export adds no caller to the functions
+ * below and changes no behavior for `splitTopLevel` / `splitPipeline`.
  */
-function splitOutsideQuotes(
+export function splitOutsideQuotes(
   input: string,
   separatorAt: (ch: string, next: string | undefined) => number
 ): string[] {
