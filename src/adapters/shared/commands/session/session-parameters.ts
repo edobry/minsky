@@ -1106,7 +1106,13 @@ export const sessionPrReviewDismissCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   reviewId: {
-    schema: z.coerce.number().int().positive(),
+    // Plain `z.number()`, matching every other numeric param in the registry.
+    // mt#1170 needed `z.coerce.number()` here because a CLI positional arrived
+    // as a string and nothing coerced it; mt#1173 moved that coercion to the
+    // CLI adapter (`normalizeCliParameters`), so the per-schema workaround —
+    // which also applied `Number()`'s `true`->1 / `null`->0 semantics to the
+    // MCP boundary — is no longer needed.
+    schema: z.number().int().positive(),
     description: "GitHub review ID to dismiss (numeric — see PR review URLs)",
     required: true,
   },
