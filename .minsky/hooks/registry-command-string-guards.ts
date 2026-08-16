@@ -1,33 +1,53 @@
-// Registry entries for the command-string guard family (mt#4096, mt#4144).
+// Registry entries for the command-string guard family (mt#2889, mt#3282,
+// mt#3910, mt#4055, mt#4081, mt#4096, mt#4144).
+//
+// ## The family boundary
+//
+// Every guard here registers on `Bash|mcp__minsky__session_exec` and decides
+// from a STRUCTURED COMMAND STRING — the shell command itself, parsed, with no
+// paraphrase axis. That last property is why ADR-024's calibration ladder does
+// not govern any of them: its rungs scope to `UserPromptSubmit` guidance hooks
+// matching behavioral trigger phrases in the agent's own prose, and there is no
+// paraphrase to widen in a shell command. Postures here are therefore decided
+// per guard on the ordinary evidence, not by climbing that ladder.
+//
+// The family splits cleanly in two, and the split is the posture:
+//
+//   - DENY on the command as written — `check-guessed-session-path` (a session
+//     path that does not exist on disk), `block-secret-file-read` (a reader
+//     aimed at a secret-bearing file, a secret-emitting script, or an argv
+//     column), `block-concurrent-bulk-mutation` (a second copy of a script
+//     already running with an execute flag), `block-bulk-process-kill`.
+//   - RECORD only — `chained-verification-commands` (a non-zero exit made
+//     unattributable), `truncated-outcome-read` (an outcome field discarded by
+//     position before anyone read it), `cli-mcp-substitution` (the MCP surface
+//     rebuilt out of CLI calls without telling the operator). The commands
+//     these match are ordinary; only a conjunction makes them reportable, which
+//     is why they never deny.
+//
+// ## Order
+//
+// The array order below is the dispatch order, and it is load-bearing: every
+// guard here matches the same tool names, so the dispatcher's first-deny-wins
+// walk runs them in exactly this sequence. It reproduces the pre-mt#4115
+// `GUARD_REGISTRY` order byte-for-byte — do not reorder to tidy.
 //
 // ## Why a family module
 //
-// `registry.ts` is AT the 1500-line `max-lines` ERROR ceiling, and the rule sets
-// `skipComments`/`skipBlankLines`, so comments cannot buy room. Adding mt#4144's
-// guard inline put the file at 1519 and broke the build — the recurrence
-// `registry-pr-create-guards.ts` predicted in its own header: "at 1499 of 1500
-// the next guard on any OTHER matcher still breaks the build. mt#4115 owns that
-// general split."
+// `registry.ts` was AT the 1500-line `max-lines` ERROR ceiling, and the rule
+// sets `skipComments`/`skipBlankLines`, so comments cannot buy room. This module
+// was created by mt#4144, whose guard put the file at 1519 inline and broke the
+// build — the recurrence `registry-pr-create-guards.ts` had predicted in its own
+// header. It then held two entries and said "mt#4115 still owns the general
+// case." mt#4115 has since landed: every family now has a module, this one
+// absorbed the five `Bash` guards that were still inline in `registry.ts`, and
+// `registry.ts` is 176 counted lines. See
+// `docs/architecture/hooks/guard-dispatcher-framework.md §Where registry entries
+// live`.
 //
-// This is that split, done for the family that forced it — the same shape and
-// for the same reason as the `session_pr_create` module. Exporting an ARRAY
-// means `registry.ts` pays ONE import and ONE spread for the whole family, so
-// every further guard on this matcher costs it zero additional lines. It does
-// not buy headroom back for other families; mt#4115 still owns the general case.
-//
-// ## What these guards share
-//
-// Both register on `Bash|mcp__minsky__session_exec` and both match a STRUCTURED
-// COMMAND STRING with no paraphrase axis — which is why ADR-024's ladder does not
-// govern either of them (its rungs scope to `UserPromptSubmit` guidance hooks
-// matching behavioral trigger phrases in the agent's own prose; there is no
-// paraphrase to widen in a shell command). Both ship calibration-first and never
-// deny: the commands they match are ordinary, and only a conjunction makes them
-// reportable.
-//
-// Where they diverge: mt#4096 catches "the outcome field was discarded before
-// anyone read it"; mt#4144 catches "the MCP surface was rebuilt out of CLI calls
-// without telling the operator".
+// `CANARY_NONEXISTENT_SESSION_PATH` below moved here with mt#4115 for the same
+// reason: a fixture belongs beside the canary it feeds, and its only consumer is
+// `check-guessed-session-path`.
 
 import { tmpdir } from "node:os";
 import { join } from "node:path";

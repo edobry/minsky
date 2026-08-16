@@ -365,6 +365,12 @@ per-family module, and `registry.ts` composes them with a spread.
 | `registry-prompt-scan-guards.ts`      | `PROMPT_SCAN_GUARDS`      | `UserPromptSubmit` guards that read the agent's just-completed turn                |
 | `registry-turn-end-guards.ts`         | `TURN_END_GUARDS`         | the turn's closing message (`Stop`)                                                |
 
+One export name is narrower than its contents: `PR_CREATE_GUARDS` also holds a guard registering
+on `session_commit` and `session_pr_edit`. That is recorded in the module's own header, which was
+revisited under mt#4115 and kept as-is — renaming implies moving the file and deleting its stale
+generated mirror, which was judged not worth the churn inside a pure-move change. Rename it when
+that family's boundary next moves.
+
 One entry stays inline in `registry.ts`: `calibration-review-cadence-detector`, whose position
 IS its contract — it must remain the array's LAST element. Filing it in a module named for a
 one-member family would restate the very one-entry-module pattern mt#4115 retired, and would put

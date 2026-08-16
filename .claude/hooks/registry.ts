@@ -781,12 +781,10 @@ export const GUARD_REGISTRY: GuardRegistration[] = [
   // Stop — the turn's closing message.
   ...TURN_END_GUARDS,
 
-  // The one entry that stays inline, because its position IS its contract: it
-  // must remain the LAST element of this array
-  // (docs/architecture/hooks/calibration-review-cadence-detector.md). Filing it
-  // in a module named for a one-member family would restate the very
-  // one-entry-module pattern mt#4115 exists to retire, and would move the
-  // invariant somewhere a reader of this array cannot see it.
+  // The one entry that stays inline (mt#4115), because its position IS its
+  // contract. Filing it in a module named for a one-member family would restate
+  // the very one-entry-module pattern that split exists to retire, and would
+  // move the invariant below somewhere a reader of this array cannot see it.
   // -------------------------------------------------------------------------
   // Phase 2b (mt#2687) — calibration-review-cadence-detector sat AFTER the
   // Phase 2a dispatcher slot in the pre-migration settings.json order. Kept

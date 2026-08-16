@@ -6,9 +6,17 @@
 // registers on `session_commit` / `session_pr_create` / `session_pr_edit`. The
 // shared property is the SEAM — a guard that fires when the agent writes its work
 // out — not the single tool name the first two happened to share. The export
-// keeps the name `PR_CREATE_GUARDS` because renaming it is a cross-file contract
-// change that mt#4115's general split will revisit; this comment is the record
-// that the name is now narrower than its contents.
+// keeps the name `PR_CREATE_GUARDS`, which is narrower than its contents.
+//
+// **Revisited under mt#4115 and kept** (2026-08-16), since that split is where
+// this note said the question would be settled. Settling it: the name is the one
+// thing here a reader could be misled by, and this paragraph removes that risk
+// at no cost. Renaming would move the module file too (a half-rename reads worse
+// than either end state), which means a git rename plus deleting the stale
+// generated `.claude/hooks/` mirror — real churn, in a change whose entire claim
+// is that it moved 2019 lines without altering behavior. The naming accuracy is
+// worth less than keeping that claim easy to audit. Whoever next widens this
+// family's boundary should rename then, when the file is being edited anyway.
 //
 // ## Why a family module, and why it is not just a workaround
 //
@@ -24,10 +32,18 @@
 // `registry.ts` pays ONE import and ONE spread for the pair instead of two of
 // each. Measured: 1501 counted lines with two one-entry modules, 1499 with this
 // one — so the SECOND guard costs `registry.ts` zero additional lines, and every
-// further `session_pr_create` guard costs zero too. It does not buy headroom
-// back for other families; at 1499 of 1500 the next guard on any OTHER matcher
-// still breaks the build. mt#4115 owns that general split; this is a down
-// payment on it, not a substitute.
+// further `session_pr_create` guard costs zero too.
+//
+// It did NOT buy headroom back for other families, and this header used to end
+// by saying so: at 1499 of 1500, the next guard on any other matcher still broke
+// the build, and mt#4115 owned that general split. **mt#4115 has since landed**
+// (2026-08-16). Every family now has a module of this shape, `registry.ts` holds
+// the schema plus a composition of spreads at 176 counted lines, and the
+// prediction above was confirmed twice more before the fix — by mt#4144 and by
+// PR #2941 — for four extractions in total. The "down payment, not a substitute"
+// framing is resolved, not merely aged. Layout and authoring guidance:
+// `docs/architecture/hooks/guard-dispatcher-framework.md §Where registry entries
+// live`.
 //
 // ## What the two guards share, and where they diverge
 //
