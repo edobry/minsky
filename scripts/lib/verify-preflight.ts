@@ -379,6 +379,19 @@ export async function preflightCockpit(
     )
   );
 
+  /**
+   * The CDP endpoint gets the SAME three-way split, deliberately (PR #3013 R1).
+   *
+   * mt#4149's `## Scope` originally moved the CDP half into this module
+   * "unchanged", which would have meant a slow dev chromium still reporting as
+   * ABSENT — `SKIP:` and exit 0. That was scoped out to avoid redesigning the
+   * CDP check, not to preserve the conflation on it: "present but too slow to
+   * answer" is not "not installed" for a browser any more than for a cockpit,
+   * and the machine contention that produces one produces the other. Giving one
+   * probe in this function a different meaning for SLOW than the other would
+   * plant exactly the trap the module exists to remove. Scope expanded and
+   * recorded in the spec rather than worked around with a per-probe flag.
+   */
   if (opts.cdpUrl !== undefined) {
     applyVerdict(
       verdictForReach(

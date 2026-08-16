@@ -304,10 +304,17 @@ describe("probeReachability (real fetch binding)", () => {
   });
 
   it("classifies a port with nothing listening as absent", async () => {
-    // Port 1 is privileged and unbound in every environment this runs in; a
-    // connect there is refused immediately rather than timing out.
+    // Bind an ephemeral port, then close it, and probe THAT — rather than
+    // asserting some well-known port is unbound. A hardcoded port is a claim
+    // about the environment the suite happens to run in (PR #3013 R1: container
+    // and CI shims can answer, or route, a privileged port differently); a port
+    // the OS just handed us and we just released is a claim about this process.
+    const doomed = Bun.serve({ port: 0, fetch: () => new Response("ok") });
+    const closedPort = doomed.port;
+    doomed.stop(true);
+
     const outcome = await probeReachability(
-      "http://127.0.0.1:1/",
+      `http://127.0.0.1:${closedPort}/`,
       { budgetMs: 3000, confirmBudgetMs: 5000 },
       {}
     );
