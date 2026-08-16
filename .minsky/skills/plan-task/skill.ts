@@ -107,6 +107,30 @@ a status transition; everything else is investigation and gate-check.
    dependency: the ownership search. Gate (g) still runs in full at Step 3; this makes the claim
    the trigger rather than the step.
 
+6. **Enumerate EVERY required-actions section, not just the template's (mt#4177).** On a re-run
+   against a task that already carries a gap report, grep the spec's headings for every
+   required-actions list — the template emits \`### Required actions before READY\`, but a later
+   amendment writes its own under a variant (\`### Required actions added\`, \`### Further required
+   actions\`). **Name each section you found in the audit output**, so a reader can tell "walked
+   both" from "walked one and did not know there was another."
+
+   Each action in every such section is discharged before READY, or explicitly deferred with a
+   reason. A second list is not optional context — its items are numbered as a continuation of the
+   first, which is exactly what makes a partial read look complete.
+
+   Originating incident (mt#2755, 2026-08-16): the spec carried actions 1-4 under the template's
+   heading and actions **5, 6, 7** under \`### Required actions added\`, appended by a premise
+   correction five days later with no forward pointer from the first list. A re-run discharged 1-4
+   and set READY. Action 6 was "before speccing any queued detector, read the shipped
+   policy-coverage detector and record whether each is a consumer" — and three detector children
+   had already been filed without it.
+
+   Why this is a procedure fix rather than a spec-hygiene rule: the corpus ENCOURAGES appending
+   (gap reports, premise corrections and deviation records are all appended sections), and a
+   correction that surfaces new work naturally writes its own list rather than editing a section
+   another pass authored days earlier. Requiring future specs to consolidate would not repair the
+   ones that already exist.
+
 ### Step 2.5: Premise audit
 
 Before running the spec-quality gate, answer all four checks below explicitly in your
@@ -1193,6 +1217,9 @@ conversations, all of them this skill's gate reports).
 2. <concrete action the user or agent must take>
 
 To re-run the gate after fixes: \`/plan-task <task-id>\`
+(The re-run enumerates EVERY required-actions section in the spec, not only this one — see
+Step 2 item 6. If you are appending a LATER list, that is fine and expected; do not renumber
+this one.)
 \`\`\`
 
 4. **If any blocking gap requires a principal-owned decision** (a scope choice, a naming
