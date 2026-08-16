@@ -1,10 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import {
-  executeSessionPrEdit,
-  pickTitleScope,
-  type SessionPrEditParams,
-  type SessionPrEditSeams,
-} from "./pr-edit-command";
+import { executeSessionPrEdit, pickTitleScope, type SessionPrEditParams } from "./pr-edit-command";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { SessionCommandDependencies } from "./types";
 import { ResourceNotFoundError, ValidationError } from "@minsky/domain/errors/index";
@@ -127,6 +122,11 @@ describe("session pr edit - task scope survives resolution failure (mt#4138)", (
   const deps = {} as SessionCommandDependencies;
   const DESCRIPTION = "Bound the entity-thread boot await";
 
+  // The seams type is intentionally file-local in the production module (it is
+  // test scaffolding, not a contract), so derive it from the function itself
+  // rather than importing it.
+  type Seams = NonNullable<Parameters<typeof executeSessionPrEdit>[3]>;
+
   /** Records the title the command actually handed to the edit path. */
   function recordingEditPr() {
     const seen: { title?: string } = {};
@@ -139,7 +139,7 @@ describe("session pr edit - task scope survives resolution failure (mt#4138)", (
         body: "b",
         updated: true,
       };
-    }) as unknown as NonNullable<SessionPrEditSeams["editPr"]>;
+    }) as unknown as NonNullable<Seams["editPr"]>;
     return { seen, editPr };
   }
 

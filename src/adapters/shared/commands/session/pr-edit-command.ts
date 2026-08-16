@@ -66,8 +66,15 @@ function handlePrError(error: unknown, params: SessionPrEditParams): Error {
  * itself. They exist because the composed title is otherwise unobservable: the
  * resolver is a dynamic import and `sessionPrEdit` a static one, so the only
  * way to assert what scope the title carries would be module patching.
+ *
+ * Deliberately NOT exported (PR #3010 R1): this is test scaffolding, not a
+ * contract, and exporting it would imply a public API promise the module does
+ * not intend to keep. `executeSessionPrEdit` still accepts it structurally, and
+ * a test that needs the type derives it from the function itself via
+ * `NonNullable<Parameters<typeof executeSessionPrEdit>[3]>` — so nothing is
+ * lost by keeping it file-local.
  */
-export interface SessionPrEditSeams {
+interface SessionPrEditSeams {
   /** Resolves session context; the real one throws when no session matches. */
   resolveSessionContext?: (options: {
     sessionId?: string;
