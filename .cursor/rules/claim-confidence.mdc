@@ -56,8 +56,8 @@ line to its context:** a `grep -E "^\(fail\)|timed out"` over a test log put a `
 block beside a `timed out` from another, and the pairing read as one record — it was an artifact of
 the filter. **A missing log line is a claim about the LOGGER, not about the code path:** "the handler
 logs there, no such line appeared, so it never ran" went into a spec as an elimination retiring two
-candidate causes, while `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts:46`, set by
-`tests/setup.ts:145`) silences winston's Console under the in-process harness (mt#2975). The code
+candidate causes, while `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts`, set by
+`tests/setup.ts`) silences winston's Console under the in-process harness (mt#2975). The code
 logged; the harness swallowed it. The tell in the second: the same turn had CORRECTLY established
 that the route uses the UNMOCKED logger, and that true fact was used to license "so its output would
 have appeared" — when that module is precisely the one carrying the silencing. **A verified fact

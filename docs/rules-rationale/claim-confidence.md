@@ -288,9 +288,12 @@ falsified it.
 
 **Why the second survived a correct finding.** The elimination rested on: the route logs on that
 path → no such line appeared → the path did not execute. The middle step is a claim about the
-LOGGER and was never checked. `TEST_LOGGER_SILENCED_FLAG` (`packages/shared/src/logger.ts:46`, read
-at `:77`, set by `tests/setup.ts:145`) silences winston's Console transport under the in-process
-harness (mt#2975) — the code logged and the harness swallowed it. The aggravating detail is that the
+LOGGER and was never checked. `TEST_LOGGER_SILENCED_FLAG` (declared and read in
+`packages/shared/src/logger.ts`, set by `tests/setup.ts`) silences winston's Console transport under
+the in-process harness (mt#2975) — the code logged and the harness swallowed it. Anchored to the
+symbol rather than a line number on purpose: the original incident record cited
+`packages/shared/src/logger.ts:116`, which had already drifted to a different declaration by the
+time this was written, in both the task spec and the bridge memory that carried it. The aggravating detail is that the
 same turn had CORRECTLY established that the route imports the UNMOCKED `@minsky/shared/logger`, and
 that true finding was used to license "so its output would have appeared" — when that module is
 precisely the one carrying the silencing. **A verified fact adjacent to the question makes the
