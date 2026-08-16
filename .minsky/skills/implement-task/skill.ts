@@ -498,13 +498,24 @@ what's next), just without stopping there.
 
 **Default mechanism: \`session_pr_wait-for-review\` with \`reviewer: "minsky-reviewer[bot]"\`.**
 
+**One rule for \`expectedHeadSha\` (mt#4046): it is the head of whichever call LAST PUSHED.** Not "the sha \`session_commit\` returned" — that is the same thing only when \`session_commit\` was the last thing to push. TWO calls push, and each returns its own head:
+
+| Wait | \`expectedHeadSha\` comes from |
+| --- | --- |
+| The FIRST, right after \`session_pr_create\` | that call's returned \`headSha\` |
+| Every wait after a fix-and-push | that \`session_commit\`'s returned \`commitHash\` |
+
 First wait (no \`since\` — picks up the first review on the PR):
 
 \`\`\`
-mcp__minsky__session_pr_wait-for-review(task: "mt#<id>", reviewer: "minsky-reviewer[bot]")
+mcp__minsky__session_pr_wait-for-review(
+  task: "mt#<id>",
+  reviewer: "minsky-reviewer[bot]",
+  expectedHeadSha: "<session_pr_create's headSha>"
+)
 \`\`\`
 
-Subsequent waits (after pushing a fix) pass TWO things — \`since\`, so the call returns the NEW review rather than the stale CHANGES_REQUESTED one, and \`expectedHeadSha\`, so it does not return a review of a tree the remote has not received yet:
+Subsequent waits (after pushing a fix) add \`since\`, so the call returns the NEW review rather than the stale CHANGES_REQUESTED one:
 
 \`\`\`
 mcp__minsky__session_pr_wait-for-review(
@@ -517,9 +528,13 @@ mcp__minsky__session_pr_wait-for-review(
 
 **Why \`expectedHeadSha\` (mt#3877).** \`session_commit\` runs the full suite in pre-commit and routinely exceeds the 120s MCP tool timeout, at which point the harness BACKGROUNDS it — the call returns, and the push completes up to a minute later. Arming the watcher in that window gets you a review of the PREVIOUS head, re-reporting the findings your unpushed commit already fixed: one wasted round of reviewer tokens, ~9 minutes, and an agent turn spent deciding whether the bot self-reversed (observed on PR #2730, 2026-08-09, with 44 seconds between the review and the push).
 
-\`requireCurrentHead: true\` does NOT protect you here, and the reason is worth internalizing rather than memorizing: at the moment you arm the watcher, the stale commit genuinely IS the remote's current head. The flag compares a review against the remote, never against your local intent, so it is satisfied by exactly the wrong thing. \`expectedHeadSha\` supplies the missing half — the commit you MEANT to be reviewed — and the wait polls on until the remote reaches it. Take the sha from \`session_commit\`'s returned \`commitHash\`; do not construct or recall it.
+\`requireCurrentHead: true\` does NOT protect you here, and the reason is worth internalizing rather than memorizing: at the moment you arm the watcher, the stale commit genuinely IS the remote's current head. The flag compares a review against the remote, never against your local intent, so it is satisfied by exactly the wrong thing. \`expectedHeadSha\` supplies the missing half — the commit you MEANT to be reviewed — and the wait polls on until the remote reaches it. Read the sha off the call that pushed it, per the table above; never construct or recall it.
 
-**Do NOT block on \`pushed: true\` before arming the watcher — that is what \`expectedHeadSha\` is for.** Arm it immediately after \`session_commit\` returns, passing the sha; the wait absorbs the push lag by polling. \`pushed: true\` (or \`pushConfirmedVia\`) in the backgrounded commit's eventual notification is a DIAGNOSTIC you consult when something goes wrong, not a precondition you wait on first. Precedence, in one line: pass \`expectedHeadSha\` always; read \`pushed\` only if the wait times out with \`expectedHeadShaUnreached\`, which says the push is stuck rather than the reviewer being silent — go check the commit rather than waiting longer or bypassing.
+**Why the table, and not just "\`session_commit\`'s \`commitHash\`" (mt#4046).** That was this section's wording for months, and it is correct for the round it describes and WRONG for the first wait, because \`session_pr_create\` runs a pre-PR session update and pushes a head of its own. Five sessions in five days armed the first watcher with the pre-creation sha, and each waited out its FULL timeout — 10 to 15 minutes — while a real review sat suppressed as \`push-not-landed\` (PR #2920, #2966, #2980, #3000, #3013). The failure is silent and reads exactly like reviewer silence, which is the documented lead-in to the bypass ladder, so the natural next move is bypassing an already-reviewed PR. Note the shape: those agents were following this text, not ignoring it — an instruction that is right in one case and wrong in another does not fail loudly, it fails as time. \`session_pr_create\` now returns \`headSha\` so the rule can be one sentence instead of a carve-out.
+
+**Diagnosing it if you hit it anyway.** \`matched: false\` with a populated \`lastSeenReviews\` is this, not silence — read \`expectedHeadShaUnreached.lastObservedHeadSha\` and re-wait against THAT sha rather than waiting longer. When the wait outran the 120s tool cap and was backgrounded, its payload may never have been read; then the tell is \`forge_check_runs_list\` with the FULL sha — zero check runs on your sha and a normal count on the observed head means the remote never received yours.
+
+**Do NOT block on \`pushed: true\` before arming the watcher — that is what \`expectedHeadSha\` is for.** Arm it immediately after \`session_commit\` returns, passing the sha; the wait absorbs the push lag by polling. \`pushed: true\` (or \`pushConfirmedVia\`) in the backgrounded commit's eventual notification is a DIAGNOSTIC you consult when something goes wrong, not a precondition you wait on first. Precedence, in one line: pass \`expectedHeadSha\` always; read \`pushed\` only if the wait times out with \`expectedHeadShaUnreached\`, which says the remote never served the sha you named rather than the reviewer being silent — and that has two causes with opposite remedies (a stuck push, which waiting fixes; a stale sha, which waiting never fixes). Check the commit and the observed head rather than waiting longer or bypassing.
 
 **Diagnostic (mt#3877).** When a review re-reports findings you believe you just fixed, compare its \`commitId\` against your local HEAD BEFORE concluding the reviewer self-reversed. A stale-head review and a genuine self-reversal are indistinguishable from the findings alone, and only one of them is a bypass condition — mistaking the first for the second is how a wasted round turns into an unjustified bypass.
 
