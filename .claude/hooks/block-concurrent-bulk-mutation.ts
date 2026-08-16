@@ -52,7 +52,7 @@
 import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { splitTopLevel } from "./command-shape";
+import { splitOutsideQuotes } from "./command-shape";
 
 export const OVERRIDE_ENV = "MINSKY_ALLOW_CONCURRENT_BULK_MUTATION";
 
@@ -82,14 +82,8 @@ const EXECUTE_FLAGS: readonly string[] = ["--execute", "--apply"];
  */
 const SCRIPT_TOKEN_PATTERN = /^(?:[\w./-]*\/)?scripts\/[\w.-]+\.ts$/;
 
-/**
- * Tokens that may legitimately sit BEFORE the script in command position.
- *
- * An interpreter (`bun scripts/x.ts`), an interpreter subcommand (`bun run`), or a wrapper
- * (`timeout 120 bun …`, `nohup`, `env`). Anything NOT in this set is itself the command being
- * run — so a script path appearing after it is an ARGUMENT, not an invocation.
- */
-const LAUNCHER_PREFIX_TOKENS: ReadonlySet<string> = new Set([
+/** Interpreters that run a script named as their next argument. */
+const INTERPRETERS: ReadonlySet<string> = new Set([
   "bun",
   "bunx",
   "npx",
@@ -97,26 +91,58 @@ const LAUNCHER_PREFIX_TOKENS: ReadonlySet<string> = new Set([
   "deno",
   "tsx",
   "ts-node",
-  "run",
-  "exec",
-  "env",
-  "nohup",
-  "time",
-  "timeout",
 ]);
 
-/**
- * A `VAR=value` environment assignment, or a bare duration/count argument to a wrapper.
- *
- * Both precede the real command without being it: `MINSKY_X=1 bun scripts/y.ts --execute` and
- * `timeout 120 bun scripts/y.ts --execute` are invocations, and the `120` must not be mistaken
- * for the command.
- */
-const PREFIX_ARGUMENT_PATTERN = /^(?:[A-Za-z_][A-Za-z0-9_]*=.*|\d+(?:\.\d+)?[smhd]?)$/;
+/** Wrappers that run the command that follows them. */
+const WRAPPERS: ReadonlySet<string> = new Set(["env", "nohup", "time", "timeout"]);
 
-/** True when `token` can precede the command without being it. */
-function isLauncherPrefixToken(token: string): boolean {
-  return LAUNCHER_PREFIX_TOKENS.has(token) || PREFIX_ARGUMENT_PATTERN.test(token);
+/** A `VAR=value` environment assignment, which can only ever precede the command. */
+const ASSIGNMENT_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/** A bare duration/count — `timeout`'s argument, and nothing else's. */
+const DURATION_PATTERN = /^\d+(?:\.\d+)?[smhd]?$/;
+
+/**
+ * Strip ONE layer of matching surrounding quotes.
+ *
+ * `bun 'scripts/x.ts' --execute` is an ordinary invocation, and an anchored whole-token pattern
+ * would miss it (PR #3023 R1) — a silent false negative, the direction that matters most for a
+ * guard whose job is to catch a second writer. Only a MATCHED pair is stripped, so a token
+ * carrying one stray quote from a split-up quoted string (`"text`) is left as-is and still fails
+ * the script test.
+ */
+function stripQuotes(token: string): string {
+  const first = token[0];
+  if ((first === '"' || first === "'") && token.length >= 2 && token.endsWith(first)) {
+    return token.slice(1, -1);
+  }
+  return token;
+}
+
+/**
+ * Whether the token at `index` can precede the command WITHOUT being it.
+ *
+ * Contextual rather than a flat set (PR #3023 R1). A flat set admitted `run`, `exec` and any bare
+ * number anywhere in the prefix, so a command whose own name happened to be one of those, or that
+ * took a numeric first argument, would let a later script path read as the invocation. Each token
+ * class now names where it may appear:
+ *
+ *   - an assignment: anywhere in the prefix — that is the only place shell grammar allows it;
+ *   - an interpreter or wrapper: anywhere in the prefix, since they nest (`nohup timeout 5 bun …`);
+ *   - `run`: only directly after an interpreter (`bun run`), never standing alone;
+ *   - `exec`: only as the very first token, which is the only position the shell builtin occupies;
+ *   - a bare number: only directly after `timeout`, whose argument it is.
+ */
+function isPrefixTokenAt(tokens: readonly string[], index: number): boolean {
+  const token = stripQuotes(tokens[index] ?? "");
+  const previous = index > 0 ? stripQuotes(tokens[index - 1] ?? "") : undefined;
+
+  if (ASSIGNMENT_PATTERN.test(token)) return true;
+  if (INTERPRETERS.has(token) || WRAPPERS.has(token)) return true;
+  if (token === "run") return previous !== undefined && INTERPRETERS.has(previous);
+  if (token === "exec") return index === 0;
+  if (DURATION_PATTERN.test(token)) return previous === "timeout";
+  return false;
 }
 
 /**
@@ -124,20 +150,23 @@ function isLauncherPrefixToken(token: string): boolean {
  *
  * `splitTopLevel` deliberately splits on those three only, so a multi-line command arrives as ONE
  * segment and text from a heredoc body is matched against a flag from a later line — the mt#4088
- * false positive. The newline split is done HERE rather than in `command-shape` because that
- * helper is shared with five other guards (`chained-verification-commands`, which also re-exports
- * it, `block-bulk-process-kill`, `truncated-outcome-read`, `detect-cli-mcp-substitution`, plus
- * `leadingCommandOf` internally); re-segmenting their input is a much larger change than this
- * guard needs, and two of them are deny-tier.
+ * false positive.
  *
- * Backslash-continued lines are re-joined FIRST: `bun scripts/x.ts \` + `--execute` is one
- * command, and splitting it would turn a true positive into a miss.
+ * Reuses `command-shape`'s quote-aware walker rather than splitting the raw string (PR #3023 R1).
+ * A naive `String.split("\n")` cuts quoted strings in half, and the halves then re-parse as
+ * commands: `echo "…\nbun scripts/x.ts --execute more"` produced a fresh false positive of exactly
+ * the class this task fixes. The walker also absorbs backslash-escape pairs, so a `\`-continued
+ * line stays ONE segment for free — no pre-pass, and no risk of the split turning a real
+ * invocation into a miss.
+ *
+ * `splitTopLevel` itself is untouched: it is shared with five other guards, two of them deny-tier.
  */
 function splitSegments(command: string): string[] {
-  return command
-    .replace(/\\\n/g, " ")
-    .split("\n")
-    .flatMap((line) => splitTopLevel(line));
+  return splitOutsideQuotes(command, (ch, next) => {
+    if (ch === "\n" || ch === ";") return 1;
+    if ((ch === "&" && next === "&") || (ch === "|" && next === "|")) return 2;
+    return 0;
+  });
 }
 
 export interface BulkMutationInvocation {
@@ -166,26 +195,33 @@ export function findBulkMutationInvocation(command: string): BulkMutationInvocat
   for (const segment of splitSegments(command)) {
     const tokens = segment.split(/\s+/).filter((token) => token.length > 0);
 
-    // COMMAND POSITION: the first token that is not part of a launcher prefix is the command this
-    // segment runs. A script invoked through an interpreter (`bun scripts/x.ts`) or directly via
-    // its shebang (`./scripts/x.ts`) both count; a script named as an ARGUMENT to some other
-    // command (`... --spec-file scripts/x.ts`) does not, because a non-prefix token precedes it.
-    const scriptIndex = tokens.findIndex(
-      (token, index) =>
-        SCRIPT_TOKEN_PATTERN.test(token) && tokens.slice(0, index).every(isLauncherPrefixToken)
-    );
+    // COMMAND POSITION: walk the prefix until a token is either the script or a real command.
+    // A script invoked through an interpreter (`bun scripts/x.ts`) or directly via its shebang
+    // (`./scripts/x.ts`) both count; a script named as an ARGUMENT to some other command
+    // (`... --spec-file scripts/x.ts`) does not, because that command's own name stops the walk.
+    let scriptIndex = -1;
+    for (let index = 0; index < tokens.length; index++) {
+      if (SCRIPT_TOKEN_PATTERN.test(stripQuotes(tokens[index] ?? ""))) {
+        scriptIndex = index;
+        break;
+      }
+      // The first non-prefix token IS this segment's command. Anything after it is an argument,
+      // so no later script path can be the invocation — stop rather than keep scanning.
+      if (!isPrefixTokenAt(tokens, index)) break;
+    }
     if (scriptIndex === -1) continue;
 
     // The flag must belong to THAT invocation, so only tokens after the script count.
     const flag = EXECUTE_FLAGS.find((candidate) =>
       tokens
         .slice(scriptIndex + 1)
+        .map(stripQuotes)
         // Whole-argument match: `--execute-after=…` is a different flag, not this one.
         .some((token) => token === candidate || token.startsWith(`${candidate}=`))
     );
     if (!flag) continue;
 
-    const scriptPath = tokens[scriptIndex] ?? "";
+    const scriptPath = stripQuotes(tokens[scriptIndex] ?? "");
     const scriptName = scriptPath.split("/").pop() ?? scriptPath;
     return { scriptPath, scriptName, flag };
   }

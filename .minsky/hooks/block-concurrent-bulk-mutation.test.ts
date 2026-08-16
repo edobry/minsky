@@ -188,6 +188,56 @@ describe("findBulkMutationInvocation", () => {
     expect(found?.scriptName).toBe(GUARD_EVENTS_NAME);
     expect(found?.flag).toBe("--apply");
   });
+
+  // --- PR #3023 R1: the four ways the first fix was too loose or too tight ----------
+
+  test("still matches a QUOTED script token", () => {
+    // R1: anchoring the pattern to a whole token made `bun 'scripts/x.ts'` a silent miss.
+    // A false negative on this guard means a second writer on shared state goes unblocked.
+    for (const command of [
+      `bun 'scripts/backfill-guard-events.ts' --execute`,
+      `bun "scripts/backfill-guard-events.ts" --execute`,
+    ]) {
+      expect(findBulkMutationInvocation(command)?.scriptName).toBe(GUARD_EVENTS_NAME);
+    }
+  });
+
+  test("still matches a quoted execute flag", () => {
+    expect(
+      findBulkMutationInvocation(`bun scripts/backfill-guard-events.ts '--execute'`)?.flag
+    ).toBe("--execute");
+  });
+
+  test("does NOT split inside a quoted string that spans a newline", () => {
+    // R1: a raw newline split cut this in half, and the second half re-parsed as a command —
+    // a NEW false positive of exactly the class this task fixes. The trailing `more` is what
+    // makes `--execute` a clean token in the broken version.
+    expect(
+      findBulkMutationInvocation('echo "see the note\nbun scripts/foo.ts --execute more"')
+    ).toBeNull();
+  });
+
+  test("does NOT treat a bare number as a launcher prefix except after timeout", () => {
+    // R1: allowing any bare number anywhere in the prefix let a numeric first argument carry a
+    // later script path into command position.
+    expect(findBulkMutationInvocation("5 scripts/foo.ts --execute")).toBeNull();
+    // ...but timeout's own argument still is one.
+    expect(
+      findBulkMutationInvocation("timeout 5 bun scripts/backfill-guard-events.ts --execute")
+        ?.scriptName
+    ).toBe(GUARD_EVENTS_NAME);
+  });
+
+  test("does NOT treat `run` or `exec` as a prefix out of position", () => {
+    // R1: `run` and `exec` were admitted anywhere. `run` is a prefix only after an interpreter,
+    // and `exec` only as the very first token.
+    expect(findBulkMutationInvocation("run scripts/foo.ts --execute")).toBeNull();
+    expect(findBulkMutationInvocation("mytool exec scripts/foo.ts --execute")).toBeNull();
+    // ...and both still work where they legitimately appear.
+    expect(
+      findBulkMutationInvocation("exec bun scripts/backfill-guard-events.ts --execute")?.scriptName
+    ).toBe(GUARD_EVENTS_NAME);
+  });
 });
 
 describe("decide", () => {
