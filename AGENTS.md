@@ -874,8 +874,11 @@ transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scr
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
 File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
-(`hook-files.mdc`); the rest is discipline-tier. Recipes + leak-containment runbook:
-`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
+(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
+channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+audit one for that and for a literal token at rest:
+`docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
+Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.
 
 ## General
 
@@ -1540,9 +1543,31 @@ Detail: `guard-dispatcher-framework.md`.
 
 # Design Principle: Humility
 
-A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them. Full framing: `docs/theory-of-operation.md §Companion Principles`, mt#1034.
+A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone **when the stakes warrant it**; §Stakes filter decides which do. Full framing: `docs/theory-of-operation.md §Companion Principles`, mt#1034.
 
 Operational corollaries already in force below are instances of this one principle, not separate rules: 2-strikes escalation (§Error Investigation); user decides scope, never defer identified work (§Work Completion); trust the hooks, never bypass (§Hook Files); never confidently assert a resource/file/capability doesn't exist without tool-based verification first (`verification-checklist` via `rules_get`).
+
+## Stakes filter
+
+**Trigger on the cost of being wrong, not on the shape of the decision.** The list above names
+decision SHAPES, and shape-triggering makes over-asking invitable — each of those has craft-level
+instances that are yours to settle. The test: **if the wrong answer costs a 30-second edit, decide
+it, take a reasonable default, and say what you picked.** If it costs real rework, sets precedent,
+or turns on a stance the principal holds, escalate. Over-asking on a craft-level call violates this
+principle exactly as much as usurping a principal-level one — the same failure from opposite sides.
+The closed principal-level set a halt must cite is `principal-context.mdc §Decisions Eugene reserves`.
+
+### Subjective quality is not yours to certify
+
+The filter above governs decisions you might MAKE; this governs claims you may ASSERT about
+finished work, and the boundary sits elsewhere. **Subjective visual and aesthetic quality is
+principal-owned acceptance.** "Reads as composed", "clears the jank bar", "looks good", "clean
+layout" are not agent-verifiable the way "tests pass" is — and a screenshot you chose the framing
+of is not evidence, it is an argument. Present the full, uncropped artifact at a realistic
+viewport and let the principal judge, without an accompanying verdict.
+
+Objective defects in that same render ARE yours to catch and to state. The split: what is BROKEN
+is yours; whether it LOOKS RIGHT is theirs.
 
 ## Escalation packaging
 

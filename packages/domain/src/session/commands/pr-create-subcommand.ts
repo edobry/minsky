@@ -53,6 +53,8 @@ export async function sessionPrCreate(
   title?: string;
   body?: string;
   url?: string;
+  /** The commit the PR points at — pass this to `expectedHeadSha` (mt#4046). */
+  headSha?: string;
   pullRequest?: PullRequestInfo;
   /**
    * Receipt of the IN-REVIEW status transition attempted post-PR-create.
