@@ -48,7 +48,11 @@ export type FireLogDecision = "allow" | "warn" | "deny";
 
 /**
  * RFC Part 1 override classification, computed against
- * {@link KNOWN_OVERRIDE_ENV_VARS} (mirroring `HOOK_ONLY_ENV_VARS`):
+ * {@link KNOWN_OVERRIDE_ENV_VARS} — the hooks-tree copy of
+ * `OPERATOR_OVERRIDE_ENV_VARS`, held equal to it in both directions by
+ * `known-override-env-vars.test.ts` (mt#3882). It is NOT a copy of the full
+ * `HOOK_ONLY_ENV_VARS` registry, which also holds credentials, server config
+ * and test fixtures that no operator ever authorized:
  *
  * - `authorized_exception` — the override env-var IS a documented,
  *   registered legitimate-use escape-hatch (present in the oracle).
