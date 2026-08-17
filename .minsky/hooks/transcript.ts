@@ -1041,6 +1041,16 @@ const DENIAL_REASON_MARKER = /To tell you how to proceed, the user said:\s*/;
 export interface DeniedToolCall {
   /** Transcript-line index of the DENIAL — callers order against this. */
   index: number;
+  /**
+   * The `tool_use_id` this denial correlated to — the call's IDENTITY.
+   *
+   * Exposed (mt#4111) because a caller that must skip exactly the denied
+   * invocation cannot key on {@link command}: two calls in one turn can carry
+   * byte-identical command text, and a denial followed by a permitted retry is
+   * the ordinary shape. Keying on the text drops the retry too, which inverts
+   * the signal for any caller whose subject is what the turn actually DID.
+   */
+  useId: string;
   toolName: string | undefined;
   input: Record<string, unknown>;
   /** The `command` input, for the shell-running tools; undefined for every other tool. */
@@ -1115,7 +1125,7 @@ export function findDeniedToolCalls(lines: TranscriptLine[]): DeniedToolCall[] {
     const command = typeof input["command"] === "string" ? (input["command"] as string) : undefined;
     const reasonMatch = DENIAL_REASON_MARKER.exec(text);
     const reason = reasonMatch ? text.slice(reasonMatch.index + reasonMatch[0].length).trim() : "";
-    return { index, toolName: call?.name, input, command, reason };
+    return { index, useId, toolName: call?.name, input, command, reason };
   });
 }
 
@@ -1163,6 +1173,11 @@ export function findIndexedToolUses(lines: TranscriptLine[]): IndexedToolUse[] {
 /** A tool call paired with the body of the result it produced. */
 export interface ToolCallWithResult {
   index: number;
+  /**
+   * The call's `tool_use_id`, or undefined when the block carried none — the
+   * identity a caller joins against {@link DeniedToolCall.useId} (mt#4111).
+   */
+  useId: string | undefined;
   toolName: string;
   input: Record<string, unknown>;
   /** The result body, or "" when no correlated result appears in `lines`. */
@@ -1228,6 +1243,7 @@ export function findToolCallsWithResults(lines: TranscriptLine[]): ToolCallWithR
     const hasResult = useId !== undefined && resultsById.has(useId);
     return {
       index,
+      useId,
       toolName,
       input,
       resultText: hasResult ? (resultsById.get(useId as string) ?? "") : "",
