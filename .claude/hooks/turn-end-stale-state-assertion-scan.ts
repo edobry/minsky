@@ -138,14 +138,27 @@ const PENDING_ASSERTION_PATTERNS: ReadonlyArray<{ family: string; re: RegExp }> 
   { family: "for-you-to", re: /\bfor\s+you\s+to\s+(answer|decide|review|approve)\b/gi },
 ];
 
+/**
+ * Which id-space a ref's identifier lives in.
+ *
+ * Load-bearing, and the reason is PR #3061's review: refs arrive in two spaces
+ * and a lookup that queries one silently resolves nothing for the other. An
+ * ask's `ask#N` is its `short_id`; a `minsky://ask/<uuid>` target is its `id`.
+ * (Tasks have only one space — `tasks.id` is `text` holding `mt#N`, so the bare
+ * and link forms coincide.)
+ */
+export type IdForm = "short" | "uuid";
+
 /** An entity reference the substrate can resolve. */
 export interface EntityRef {
   /** `ask` or `task` — the two kinds this guard resolves without a network call. */
   kind: "ask" | "task";
   /** The ref exactly as it appeared, e.g. `ask#8467` or `mt#2430`. */
   ref: string;
-  /** The identifier to look up: the short-id number for an ask, the full id for a task. */
+  /** The identifier to look up, interpreted per {@link idForm}. */
   id: string;
+  /** Which column {@link id} matches. */
+  idForm: IdForm;
   /** Character offset of the ref within the scanned text. */
   at: number;
 }
@@ -185,25 +198,32 @@ export function collectEntityRefs(text: string): EntityRef[] {
   const out: EntityRef[] = [];
   const seen = new Set<string>();
 
-  const push = (kind: EntityRef["kind"], ref: string, id: string, at: number): void => {
-    const dedupe = `${kind}:${id}`;
+  const push = (
+    kind: EntityRef["kind"],
+    ref: string,
+    id: string,
+    idForm: IdForm,
+    at: number
+  ): void => {
+    const dedupe = `${kind}:${idForm}:${id}`;
     if (seen.has(dedupe)) return;
     seen.add(dedupe);
-    out.push({ kind, ref, id, at });
+    out.push({ kind, ref, id, idForm, at });
   };
 
   for (const m of text.matchAll(/\bask#(\d+)\b/gi)) {
-    push("ask", m[0], m[1] ?? "", m.index ?? 0);
+    push("ask", m[0], m[1] ?? "", "short", m.index ?? 0);
   }
   for (const m of text.matchAll(/\bmt#(\d+)\b/gi)) {
-    push("task", m[0], `mt#${m[1] ?? ""}`, m.index ?? 0);
+    push("task", m[0], `mt#${m[1] ?? ""}`, "short", m.index ?? 0);
   }
-  // Link targets carry the UUID rather than the short id. Recorded so a
-  // uuid-linked ref is not invisible; resolution by uuid is handled below.
+  // Link targets. An ask's carries its UUID, a DIFFERENT column from the short
+  // id above — so it is tagged and resolved separately. A task's decodes back
+  // to `mt#N`, which is what `tasks.id` already holds, so it is the same space.
   for (const m of text.matchAll(/minsky:\/\/(ask|task)\/([A-Za-z0-9%#._-]+)/gi)) {
     const kind = (m[1] ?? "").toLowerCase() === "ask" ? "ask" : "task";
     const raw = decodeURIComponent(m[2] ?? "");
-    push(kind, m[0], raw, m.index ?? 0);
+    push(kind, m[0], raw, kind === "ask" ? "uuid" : "short", m.index ?? 0);
   }
 
   return out;
@@ -252,6 +272,23 @@ export function findPendingClaims(finalMessage: string): PendingClaim[] {
   return claims;
 }
 
+/** What the substrate returned for one ref, plus the key that identifies the ENTITY. */
+export interface ResolvedState {
+  /** The entity's live state string, verbatim from the row. */
+  state: string;
+  /**
+   * A stable per-entity key, so the same entity named in two id-forms collapses
+   * to one claim. For an ask this is its uuid regardless of which form was
+   * matched; for a task, its id.
+   */
+  identity: string;
+}
+
+/** The key a ref resolves under. Both id-spaces coexist, so the form is part of it. */
+export function refKey(entity: EntityRef): string {
+  return `${entity.kind}:${entity.idForm}:${entity.id}`;
+}
+
 /**
  * Decide, for each claim, whether the substrate's answer contradicts it.
  *
@@ -267,19 +304,25 @@ export function findPendingClaims(finalMessage: string): PendingClaim[] {
  */
 export function classifyResolved(
   claims: PendingClaim[],
-  askStates: ReadonlyMap<string, string>,
-  taskStates: ReadonlyMap<string, string>
+  states: ReadonlyMap<string, ResolvedState>
 ): ResolvedClaim[] {
   const out: ResolvedClaim[] = [];
+  const seenIdentities = new Set<string>();
   for (const claim of claims) {
-    const { kind, id } = claim.entity;
-    const liveState = kind === "ask" ? askStates.get(id) : taskStates.get(id);
-    if (liveState === undefined) continue;
+    const resolved = states.get(refKey(claim.entity));
+    if (resolved === undefined) continue;
+    // One ENTITY, one claim — even when the message names it twice in two
+    // id-forms (PR #3061 review). Deduping on the ref would have recorded
+    // `ask#8467` and its `minsky://ask/<uuid>` link as two independent
+    // findings about the same ask, which is exactly what a well-linked
+    // message produces.
+    if (seenIdentities.has(resolved.identity)) continue;
+    seenIdentities.add(resolved.identity);
     const isTerminal =
-      kind === "ask"
-        ? TERMINAL_ASK_STATES.includes(liveState.toLowerCase())
-        : TERMINAL_TASK_STATUSES_FOR_SCAN.includes(liveState.toUpperCase());
-    out.push({ ...claim, liveState, isTerminal });
+      claim.entity.kind === "ask"
+        ? TERMINAL_ASK_STATES.includes(resolved.state.toLowerCase())
+        : TERMINAL_TASK_STATUSES_FOR_SCAN.includes(resolved.state.toUpperCase());
+    out.push({ ...claim, liveState: resolved.state, isTerminal });
   }
   return out;
 }
@@ -367,29 +410,49 @@ async function runLookup(claims: PendingClaim[]): Promise<LookupResult> {
     if (!db) return { resolved: [], failed: "no database connection" };
 
     const { sql } = await import("drizzle-orm");
-    const resolved: ResolvedClaim[] = [];
+    const states = new Map<string, ResolvedState>();
 
-    const askIds = claims.filter((c) => c.entity.kind === "ask").map((c) => c.entity.id);
+    // Two id-spaces for asks, queried in ONE statement rather than two so a
+    // message carrying both forms costs the same round-trip as either alone.
+    // The row returns BOTH columns, which is what lets each matched ref key
+    // into the map under its own form while sharing one identity.
+    const askShortIds = claims
+      .filter((c) => c.entity.kind === "ask" && c.entity.idForm === "short")
+      .map((c) => c.entity.id);
+    const askUuids = claims
+      .filter((c) => c.entity.kind === "ask" && c.entity.idForm === "uuid")
+      .map((c) => c.entity.id);
     const taskIds = claims.filter((c) => c.entity.kind === "task").map((c) => c.entity.id);
 
-    const askStates = new Map<string, string>();
-    if (askIds.length > 0) {
-      // Matched on the numeric short id, which is what an `ask#N` ref carries.
-      // `::text` on both sides so a uuid-shaped ref simply fails to match rather
-      // than erroring the whole query out.
+    if (askShortIds.length > 0 || askUuids.length > 0) {
+      // `::text` on both sides so a malformed ref fails to MATCH rather than
+      // erroring the statement out — a uuid-shaped string compared against a
+      // uuid column would otherwise raise on a bad cast.
+      const shortClause =
+        askShortIds.length > 0 ? sql`short_id::text in ${askShortIds}` : sql`false`;
+      const uuidClause = askUuids.length > 0 ? sql`id::text in ${askUuids}` : sql`false`;
       const rows = await db.execute(sql`
-        select short_id::text as short_id, state::text as state
+        select id::text as id, short_id::text as short_id, state::text as state
         from asks
-        where short_id::text in ${askIds}
+        where ${shortClause} or ${uuidClause}
       `);
       for (const row of Array.isArray(rows) ? rows : []) {
-        if (!isStateRow(row, "short_id")) continue;
-        askStates.set(row["short_id"] ?? "", row["state"] ?? "");
+        if (!isStateRow(row, "id")) continue;
+        const identity = row["id"] ?? "";
+        const state = row["state"] ?? "";
+        const shortId = row["short_id"];
+        if (typeof shortId === "string" && shortId.length > 0) {
+          states.set(`ask:short:${shortId}`, { state, identity });
+        }
+        states.set(`ask:uuid:${identity}`, { state, identity });
       }
     }
 
-    const taskStates = new Map<string, string>();
     if (taskIds.length > 0) {
+      // One space only: `tasks.id` is `text` holding `mt#N` (full-schema.sql),
+      // so the bare ref and the decoded `minsky://task/mt%23N` target are the
+      // same string. Verified against the schema rather than assumed — PR #3061
+      // review asserted these were uuids, and they are not.
       const rows = await db.execute(sql`
         select id::text as id, status::text as status
         from tasks
@@ -397,13 +460,12 @@ async function runLookup(claims: PendingClaim[]): Promise<LookupResult> {
       `);
       for (const row of Array.isArray(rows) ? rows : []) {
         if (!isStateRow(row, "id")) continue;
-        taskStates.set(row["id"] ?? "", row["status"] ?? "");
+        const identity = row["id"] ?? "";
+        states.set(`task:short:${identity}`, { state: row["status"] ?? "", identity });
       }
     }
 
-    resolved.push(...classifyResolved(claims, askStates, taskStates));
-
-    return { resolved };
+    return { resolved: classifyResolved(claims, states) };
   } catch (err: unknown) {
     return {
       resolved: [],

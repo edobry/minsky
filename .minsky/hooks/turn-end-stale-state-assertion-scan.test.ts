@@ -20,6 +20,7 @@ import {
   collectEntityRefs,
   findPendingClaims,
   PROXIMITY_CHARS,
+  refKey,
   TERMINAL_ASK_STATES,
 } from "./turn-end-stale-state-assertion-scan";
 
@@ -114,11 +115,19 @@ describe("findPendingClaims — the gate", () => {
   });
 });
 
+/** State map keyed the way `lookupLiveStates` builds it. */
+function askShort(shortId: string, state: string, identity = `uuid-of-${shortId}`) {
+  return new Map([[`ask:short:${shortId}`, { state, identity }]]);
+}
+function taskState(id: string, state: string) {
+  return new Map([[`task:short:${id}`, { state, identity: id }]]);
+}
+
 describe("classifyResolved — the substrate decision", () => {
   const claims = findPendingClaims(R17_MESSAGE);
 
   test("AT1 — a closed ask asserted as pending is a contradiction", () => {
-    const resolved = classifyResolved(claims, new Map([["8467", "closed"]]), new Map());
+    const resolved = classifyResolved(claims, askShort("8467", "closed"));
 
     const ask = resolved.find((r) => r.entity.kind === "ask");
     expect(ask?.isTerminal).toBe(true);
@@ -130,21 +139,21 @@ describe("classifyResolved — the substrate decision", () => {
 
   test("AT2 — a suspended or routed ask is NOT a contradiction", () => {
     for (const openState of ["suspended", "routed"]) {
-      const resolved = classifyResolved(claims, new Map([["8467", openState]]), new Map());
+      const resolved = classifyResolved(claims, askShort("8467", openState));
       expect(resolved.find((r) => r.entity.kind === "ask")?.isTerminal).toBe(false);
     }
   });
 
   test("every terminal ask state is treated as terminal", () => {
     for (const state of TERMINAL_ASK_STATES) {
-      const resolved = classifyResolved(claims, new Map([["8467", state]]), new Map());
+      const resolved = classifyResolved(claims, askShort("8467", state));
       expect(resolved.find((r) => r.entity.kind === "ask")?.isTerminal).toBe(true);
     }
   });
 
   test("AT4 — a task asserted as blocked on the principal, but DONE, is a contradiction", () => {
     const taskClaims = findPendingClaims("mt#2430 is still blocked on your decision.");
-    const resolved = classifyResolved(taskClaims, new Map(), new Map([["mt#2430", "DONE"]]));
+    const resolved = classifyResolved(taskClaims, taskState("mt#2430", "DONE"));
 
     expect(resolved).toHaveLength(1);
     expect(resolved[0]?.isTerminal).toBe(true);
@@ -153,7 +162,7 @@ describe("classifyResolved — the substrate decision", () => {
 
   test("a task still in PLANNING is not a contradiction", () => {
     const taskClaims = findPendingClaims("mt#2430 is still blocked on your decision.");
-    const resolved = classifyResolved(taskClaims, new Map(), new Map([["mt#2430", "PLANNING"]]));
+    const resolved = classifyResolved(taskClaims, taskState("mt#2430", "PLANNING"));
 
     expect(resolved[0]?.isTerminal).toBe(false);
   });
@@ -161,6 +170,69 @@ describe("classifyResolved — the substrate decision", () => {
   test("a ref the substrate cannot resolve is DROPPED, not treated as terminal", () => {
     // The failure direction that matters: an unresolved row must never become a
     // finding, or a lookup miss manufactures a contradiction.
-    expect(classifyResolved(claims, new Map(), new Map())).toEqual([]);
+    expect(classifyResolved(claims, new Map())).toEqual([]);
+  });
+});
+
+/**
+ * PR #3061 review, both BLOCKING findings. Refs arrive in two id-spaces —
+ * `ask#N` is `asks.short_id`, a `minsky://ask/<uuid>` target is `asks.id` — and
+ * the first cut queried only one, so a uuid-linked ref could never resolve and
+ * the same ask named both ways counted twice.
+ */
+describe("two id-spaces (PR #3061 review)", () => {
+  const BOTH_FORMS =
+    "Still with you: [ask#8467](minsky://ask/2f747fc3-70e4-4e3c-952c-4af9c1eed01d) — your call.";
+
+  test("a ref carries which id-space its identifier belongs to", () => {
+    const refs = collectEntityRefs(BOTH_FORMS);
+
+    expect(refs.find((r) => r.id === "8467")?.idForm).toBe("short");
+    expect(refs.find((r) => r.id.startsWith("2f747fc3"))?.idForm).toBe("uuid");
+    // A task link decodes to the SAME space as the bare form — `tasks.id` is
+    // text holding `mt#N`, so there is no second space to track.
+    expect(collectEntityRefs("minsky://task/mt%232430")[0]?.idForm).toBe("short");
+  });
+
+  test("refKey separates the two spaces", () => {
+    const refs = collectEntityRefs(BOTH_FORMS);
+    const keys = refs.map(refKey);
+
+    expect(keys).toContain("ask:short:8467");
+    expect(keys).toContain("ask:uuid:2f747fc3-70e4-4e3c-952c-4af9c1eed01d");
+  });
+
+  test("a uuid-linked ask RESOLVES — it was previously unreachable", () => {
+    const claims = findPendingClaims(BOTH_FORMS);
+    const uuid = "2f747fc3-70e4-4e3c-952c-4af9c1eed01d";
+    const states = new Map([[`ask:uuid:${uuid}`, { state: "closed", identity: uuid }]]);
+
+    const resolved = classifyResolved(claims, states);
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.isTerminal).toBe(true);
+  });
+
+  test("the same ask in BOTH forms yields ONE claim, not two", () => {
+    const claims = findPendingClaims(BOTH_FORMS);
+    const uuid = "2f747fc3-70e4-4e3c-952c-4af9c1eed01d";
+    // Both keys resolve, and both carry the SAME identity — which is what the
+    // real query produces, since one row supplies both columns.
+    const states = new Map([
+      ["ask:short:8467", { state: "closed", identity: uuid }],
+      [`ask:uuid:${uuid}`, { state: "closed", identity: uuid }],
+    ]);
+
+    expect(claims.length).toBeGreaterThan(1);
+    expect(classifyResolved(claims, states)).toHaveLength(1);
+  });
+
+  test("two DIFFERENT asks still yield two claims", () => {
+    const claims = findPendingClaims("Waiting on you: ask#8467 and ask#8468.");
+    const states = new Map([
+      ["ask:short:8467", { state: "closed", identity: "uuid-a" }],
+      ["ask:short:8468", { state: "closed", identity: "uuid-b" }],
+    ]);
+
+    expect(classifyResolved(claims, states)).toHaveLength(2);
   });
 });
