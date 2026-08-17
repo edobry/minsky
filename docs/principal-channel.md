@@ -55,28 +55,79 @@ agent with nothing to say. That is not hypothetical: on 2026-08-03 a transient
 DNS failure against the Pulumi backend stopped the channel from starting **five
 times**, and each was noticed only when a message went unanswered (mt#3608).
 
-`GET /api/health` therefore reports the channel's own state, independent of the
-poller:
+`GET /api/health` therefore reports the channel's own state:
 
 ```json
-{ "principalChannel": { "state": "running", "chatId": "167346572" } }
+{
+  "principalChannel": {
+    "state": "running",
+    "chatId": "167346572",
+    "since": "2026-08-17T03:48:02.000Z",
+    "lastProgressAt": "2026-08-17T03:49:17.000Z"
+  }
+}
 ```
 
-| `state`        | Means                                                                                                         |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `running`      | The poller is up and consuming updates. Carries the `chatId`.                                                 |
-| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                 |
-| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                        |
-| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                  |
-| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.** |
-| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                      |
+| `state`        | Means                                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`.                                                 |
+| `stalled`      | Launched, then stopped making progress. Carries `chatId`, `since`, `lastProgressAt`, `staleForMs`, `thresholdMs`. **Not consuming messages.** |
+| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                                 |
+| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                        |
+| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason`, `attempts`, `lastAttemptAt`, `nextAttemptAt`.                   |
+| `failed`       | An exception AFTER credentials resolved (poller/actuator construction). Carries `reason` only. **The channel is not running.**                |
+| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                                      |
 
-**`failed` and `unconfigured` are deliberately different states.** The first
+Field lists above are exhaustive per variant and match `PrincipalChannelStatus`
+in `src/cockpit/principal-channel-launch.ts`. Two rows were wrong before mt#4183
+and are corrected rather than carried forward:
+
+- **`failed` never carried `attempts`.** mt#3689 removed it: there it was always
+  the literal `1` and counted nothing, since that failure happens once, after
+  credentials have already resolved — so one field was carrying two meanings
+  across two fault classes. `state` already separates them.
+- **`failed` is no longer reachable from a credential-read failure.** mt#3683
+  removed that path's retry ceiling, so a failing read keeps retrying instead of
+  settling here. The row's old wording ("could not be read after retries")
+  described behaviour that no longer exists.
+
+`retrying`'s row was incomplete in the other direction — it omitted
+`nextAttemptAt`, which is the field that actually discriminates "still working
+the problem" from "stuck".
+
+**`running` used to be a latch, and this section used to say so wrongly.** Until
+mt#4183 the sentence above read "reports the channel's own state, **independent
+of the poller**" — which was false when written. `running` was assigned once, at
+the moment the poller was launched, and no code path ever wrote it again. It
+therefore reported the state the channel reached at STARTUP, not its state now.
+On 2026-08-16 the poll loop parked on an unsettled await and this field said
+`running` for ~44 hours while Telegram held undelivered updates and the daemon
+had zero connections to `api.telegram.org`.
+
+What makes it true now is that `running` and `stalled` are **projected on read**
+rather than stored: `lastProgressAt` comes from the poll loop's own progress
+reports into the sweep-liveness registry (mt#4185 registers the poller as
+`principal-channel poll`; see `GET /api/sweeps`), and `stalled` is computed when
+that stamp — or, before the first one lands, `since` — is older than the
+registry's own stall threshold. There is no write site for `stalled`, which is
+the point: nothing has to remember to update it, so it cannot go stale the way
+the latch did.
+
+Read `staleForMs` rather than just the state: "stalled 4 minutes" and "stalled 4
+days" call for different responses, and only the number distinguishes them.
+
+**`retrying` and `unconfigured` are deliberately different states.** The first
 means the credentials probably exist but could not be READ — a fault, usually
 transient, and retrying is the right response. The second means they were never
 set — an operator has to act. Before mt#3608 both reported the same
 "not configured" message, which reads as an operator oversight and is why five
 faults in one day went unexamined.
+
+This contrast used to name `failed` rather than `retrying`, and that stopped
+being true at mt#3683: an unreadable credential no longer exhausts into
+`failed`, it keeps retrying. `failed` now means something narrower and later —
+construction of the poller or actuator threw AFTER credentials had already
+resolved — so it is not the counterpart to `unconfigured` any more.
 
 The tray does not parse this field (it reads only `db` and
 `processStartedAtMs`), so it is for operators and the cockpit UI.
