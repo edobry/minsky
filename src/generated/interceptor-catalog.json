@@ -6,9 +6,9 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 101,
+  "population": 102,
   "divergence": {
-    "declaredButNotDescribed": [],
+    "declaredButNotDescribed": ["new-surface-design-pass"],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -1708,6 +1708,28 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "new-surface-design-pass",
+      "description": null,
+      "failureClasses": [],
+      "provenance": [],
+      "stratum": null,
+      "subject": "trajectory",
+      "provenanceStatus": "none",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": true,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
       "deliberatelyUnauthored": false
     },
     {
