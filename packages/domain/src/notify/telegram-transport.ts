@@ -133,6 +133,23 @@ export interface SendMessageOptions {
    * mt#3500 Phase 0) — reconciling that is Phase 2's job, not this field's.
    */
   messageThreadId?: number;
+  /**
+   * Deliver without a notification (mt#3711).
+   *
+   * Telegram notifies on a SEND but not on an EDIT, which is why the reply
+   * stream was built to edit one message in place rather than post a message
+   * per chunk (see `principal-channel-reply-stream.ts`). That framing treated
+   * "separate message" and "notification" as inseparable; `disable_notification`
+   * is what separates them, so a turn can render as successive chat messages —
+   * the shape a chat interface actually has — while still buzzing the phone
+   * once.
+   *
+   * Optional and omitted by default, mirroring {@link SendMessageOptions.messageThreadId}
+   * above: a caller that does not set it produces byte-for-byte the same wire
+   * payload as before this field existed, so the two alert callers (the
+   * reviewer's circuit-breaker sink, `notifyPrincipal`) are unaffected.
+   */
+  disableNotification?: boolean;
   fetchFn?: FetchFn;
 }
 
@@ -179,6 +196,7 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     parseMode,
     plainFallback,
     messageThreadId,
+    disableNotification,
     fetchFn = fetch,
   } = opts;
 
@@ -189,6 +207,7 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     replyToMessageId,
     parseMode,
     messageThreadId,
+    disableNotification,
     fetchFn,
   });
 
@@ -206,6 +225,7 @@ export async function sendTelegramMessage(opts: SendMessageOptions): Promise<Tel
     replyToMessageId,
     parseMode: undefined,
     messageThreadId,
+    disableNotification,
     fetchFn,
   });
 
@@ -294,9 +314,19 @@ async function postSendMessage(opts: {
   replyToMessageId: number | undefined;
   parseMode: "HTML" | undefined;
   messageThreadId: number | undefined;
+  disableNotification: boolean | undefined;
   fetchFn: FetchFn;
 }): Promise<TelegramSendResult> {
-  const { token, chatId, text, replyToMessageId, parseMode, messageThreadId, fetchFn } = opts;
+  const {
+    token,
+    chatId,
+    text,
+    replyToMessageId,
+    parseMode,
+    messageThreadId,
+    disableNotification,
+    fetchFn,
+  } = opts;
   const url = `${TELEGRAM_API_BASE}/bot${token}/sendMessage`;
 
   let response: Response;
@@ -311,6 +341,7 @@ async function postSendMessage(opts: {
         ...(parseMode === undefined ? {} : { parse_mode: parseMode }),
         ...(replyToMessageId === undefined ? {} : { reply_to_message_id: replyToMessageId }),
         ...(messageThreadId === undefined ? {} : { message_thread_id: messageThreadId }),
+        ...(disableNotification === undefined ? {} : { disable_notification: disableNotification }),
       }),
     });
   } catch (err: unknown) {

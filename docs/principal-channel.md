@@ -97,19 +97,28 @@ Replies are rendered — bold, italic, code, fenced blocks, links, quotes — vi
 Telegram's HTML mode. Tables become monospace blocks and headings become bold
 lines, because Telegram has no markup for either.
 
-**Replies stream.** Rather than arriving as one blob when the turn ends, the
-answer appears as soon as there is any of it and fills in as it is written. It
-is a single message being edited in place, roughly once a second — so your phone
-notifies you ONCE, when the reply first appears, not on every update. A reply
-too long for one Telegram message continues into a second one, split at a
-paragraph or line break rather than mid-word.
+**Replies stream, as a sequence of messages.** Rather than arriving as one blob
+when the turn ends, the answer appears as soon as there is any of it and fills
+in as it is written. Each run of prose between tool calls is its own message:
+the text within a message fills in live, and when the agent stops to use a tool,
+that message is finished and the next thought starts a new one — the way a
+person types in chat, rather than one message that keeps growing under your eyes.
+
+**Your phone still notifies you ONCE per turn**, on the first message. Every
+later message in the same turn is delivered silently, so a turn with six blocks
+costs you one notification, exactly as the single-message version did. A block
+too long for one Telegram message continues into another, split at a paragraph
+or line break rather than mid-word — that split is silent too.
 
 Two things worth knowing about how it settles:
 
-- **What you see mid-stream can change.** A turn that uses tools writes text
-  around each step; the message settles on the turn's final answer when it
-  finishes, which is not always the concatenation of everything that flickered
-  past.
+- **Nothing you have already read is taken away.** A turn that uses tools writes
+  text around each step, and its final answer is usually shorter than everything
+  that streamed. That final answer never overwrites what is already in the chat:
+  if it continues the last message it is added to it, if you have already seen it
+  nothing happens, and if it is something new — a timeout notice, say — it
+  arrives as its own message. (Until mt#3711 it DID overwrite, which is why a
+  reply could visibly shrink back down the moment the turn finished.)
 - **Streaming can never cost you the reply.** If editing fails partway, the
   complete answer is sent as a fresh message rather than left half-drawn — you
   may see some text twice, which is the deliberate trade. A half-written reply
