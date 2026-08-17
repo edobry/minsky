@@ -18,9 +18,12 @@
  *
  * ## Usage
  *
- *   bun scripts/verify-driven-session-mcp-config.ts [workspacePath]
+ *   bun scripts/verify-driven-session-mcp-config.ts [workspacePath] [sourceDir]
  *
- * Defaults to the current directory. Exits 0 on pass or graceful skip
+ * `workspacePath` is the driven session's cwd; `sourceDir` is where the
+ * operator's `.mcp.json` lives (mt#4239 — the daemon's checkout, NOT the
+ * session workspace, which never has one because the file is gitignored).
+ * Both default to the current directory. Exits 0 on pass or graceful skip
  * (`claude` not on PATH), non-zero on failure. Emits a JSON result object on
  * stdout.
  *
@@ -29,7 +32,7 @@
  * two trivial prompts.
  */
 import { spawnSync } from "child_process";
-import { buildDrivenSessionMcpConfig } from "../src/cockpit/driven-session-mcp-config";
+import { resolveDrivenSessionMcpConfig } from "../src/cockpit/driven-session-mcp-config";
 
 const SKIP_EXIT = 0;
 const FAIL_EXIT = 1;
@@ -92,7 +95,22 @@ function main(): void {
     process.exit(SKIP_EXIT);
   }
 
-  const mcpConfig = buildDrivenSessionMcpConfig(workspace);
+  // mt#4239: the expected set is no longer the constant `["minsky"]` — it is
+  // whatever the production resolver produces for this machine's `.mcp.json`.
+  // Deriving the expectation from the SAME function under test is deliberate
+  // here: the question this script answers is "does the genuine `claude` binary
+  // accept and honor what we emit", not "did we emit the right names" (the unit
+  // tests own that). Restating a literal set would make the script fail on any
+  // machine configured differently, which is how a verify script gets ignored.
+  // argv[3] is the directory holding the operator's `.mcp.json` — the DAEMON's
+  // checkout, which is not the driven session's workspace and is very often not
+  // this script's cwd either. Running from a session clone without it resolves
+  // nothing and quietly verifies only the `minsky` path, i.e. it would pass
+  // while testing none of what mt#4239 added.
+  const sourceDir = process.argv[3] ?? process.cwd();
+  const resolution = resolveDrivenSessionMcpConfig(workspace, { sourceDir });
+  const mcpConfig = resolution.config;
+  const expected = [...resolution.serverNames].sort();
   const failures: string[] = [];
 
   // Check 1 — the session loads exactly the server set we declare, and
@@ -103,8 +121,18 @@ function main(): void {
   ) as InitEvent | undefined;
 
   const servers = (initEvent?.mcp_servers ?? []).map((server) => server.name);
-  if (servers.length !== 1 || servers[0] !== "minsky") {
-    failures.push(`expected exactly ["minsky"], got ${JSON.stringify(servers)}`);
+  if (JSON.stringify([...servers].sort()) !== JSON.stringify(expected)) {
+    failures.push(
+      `expected exactly ${JSON.stringify(expected)}, got ${JSON.stringify([...servers].sort())}`
+    );
+  }
+
+  // A rejection is reported, never a failure: refusing a remote server is this
+  // build working as designed (mt#4239), and refusing a name absent from the
+  // operator's `.mcp.json` is a local configuration fact, not a defect in the
+  // code under test.
+  for (const { name, reason } of resolution.rejected) {
+    process.stderr.write(`note: not provisioning \`${name}\` — ${reason}\n`);
   }
 
   // Check 2 — the tools actually resolve. At init the server reports
@@ -112,11 +140,40 @@ function main(): void {
   // happens inside the ToolSearch call, so the server list alone does NOT
   // prove a tool is reachable. This is the check that reproduces the mt#3377
   // symptom directly ("No matching deferred tools found").
+  //
+  // mt#4239 extends it to EVERY provisioned server, not just `minsky`. The
+  // reason is this task's own originating finding: the Notion connector appears
+  // in a payload perfectly happily and then fails to authenticate, so "declared"
+  // and "reachable" are different claims and only the second one matters. A
+  // check that probed `minsky` alone would have reported PASS for a driven
+  // session whose `github` tools were entirely dead.
+  const PROBE_TOOL_BY_SERVER: Readonly<Record<string, string>> = {
+    minsky: "mcp__minsky__tasks_status_get",
+    github: "mcp__github__get_me",
+    supabase: "mcp__supabase__list_tables",
+  };
+
+  const probeTools = servers
+    .map((name) => (name === undefined ? undefined : PROBE_TOOL_BY_SERVER[name]))
+    .filter((tool): tool is string => tool !== undefined);
+
+  // A provisioned server with no known probe tool is NAMED rather than silently
+  // skipped — an unprobed server must not read as a verified one.
+  const unprobed = servers.filter(
+    (name) => name !== undefined && PROBE_TOOL_BY_SERVER[name] === undefined
+  );
+  if (unprobed.length > 0) {
+    process.stderr.write(
+      `note: no probe tool registered for ${JSON.stringify(unprobed)} — ` +
+        "these were NOT checked for reachability\n"
+    );
+  }
+
   const probe = parseLines(
     runTurn(
-      'Call ToolSearch with query "select:mcp__minsky__tasks_status_get". Then reply with ' +
-        "exactly LOADED if the tool schema came back, or MISSING if it returned no matching " +
-        "deferred tools. Reply with one word only.",
+      `Call ToolSearch with query "select:${probeTools.join(",")}". Then reply with ` +
+        "exactly LOADED if EVERY one of those tool schemas came back, or MISSING if any " +
+        "returned no matching deferred tools. Reply with one word only.",
       mcpConfig,
       workspace
     )
@@ -129,7 +186,20 @@ function main(): void {
 
   const status = failures.length === 0 ? "PASS" : "FAIL";
   process.stdout.write(
-    `${JSON.stringify({ status, workspace, servers, toolSearchProbe: answer, failures }, null, 2)}\n`
+    `${JSON.stringify(
+      {
+        status,
+        workspace,
+        sourceDir,
+        expected,
+        servers,
+        rejected: resolution.rejected,
+        toolSearchProbe: answer,
+        failures,
+      },
+      null,
+      2
+    )}\n`
   );
   process.exit(failures.length === 0 ? 0 : FAIL_EXIT);
 }

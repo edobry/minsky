@@ -267,13 +267,36 @@ operator's own credentials + the operator's own machine.
   This is required because the child's working directory is a workspace clone,
   and Claude Code resolves MCP servers per-project: the operator's `.mcp.json`
   lives in the main checkout and is gitignored, so a clone inherits none of it.
-  The server set is deliberately just `minsky` — `github`/`supabase` carry their
-  own credential paths, so granting them is a separate decision — and
   `--strict-mcp-config` keeps the surface from varying with whichever claude.ai
   connectors and plugins the operator happens to have configured. Each session
   costs one additional `minsky mcp start` process (~57 MB RSS, measured
   2026-07-30); if concurrent driven sessions routinely exceed ~4, revisit
   against the hosted-HTTP server option (mt#2141).
+- **Which servers (mt#4239)** — `cockpit.drivenSession.mcpServers` selects the
+  set, resolved by name against the operator's `.mcp.json` in the **daemon's**
+  checkout (not the session clone, which never has one) and copied verbatim.
+  Default `["minsky", "github"]`; override with
+  `MINSKY_COCKPIT_DRIVEN_SESSION_MCP_SERVERS` (comma-separated). `minsky` is
+  always present and always synthesized — it must point at the running build and
+  this session's repo path, so an inherited entry of the same name never shadows
+  it.
+
+  Two exclusions are deliberate. **`supabase` is resolvable but not a default**:
+  driven sessions run under `bypassPermissions` and can be triggered from a phone
+  unattended, and that server carries `execute_sql` / `apply_migration` against
+  the production project — adding it is an explicit operator decision.
+  **Remote/OAuth servers are refused outright**, with a log line naming the
+  server: a headless `claude -p` child cannot complete an OAuth flow (verified
+  live against claude 2.1.226; vendor-documented at
+  code.claude.com/docs/en/mcp), and because `-p` waits for pending servers before
+  the first turn, emitting one would cost up to `MCP_TIMEOUT` — 30s by default —
+  of dead latency on **every** spawn while still delivering no tools. Notion is
+  the motivating case and is tracked separately at mt#4242.
+
+  Verify a real spawn with
+  `bun scripts/verify-driven-session-mcp-config.ts <workspace> <daemon-checkout>`,
+  which probes a tool from every provisioned server rather than assuming a
+  declared server is a reachable one.
 
 ### Reading the run list
 

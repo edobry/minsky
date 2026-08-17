@@ -53,6 +53,7 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "./driven-session-host";
+import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 import { raceAgainstTimeout } from "@minsky/shared/timeout";
 import {
   getServerSessionProvider,
@@ -926,6 +927,9 @@ export async function orchestrateDrivenSessionResume(
     }
 
     const { record } = resumeDrivenSession({
+      // mt#4239: a resume must re-resolve the SAME server set a start would, or
+      // the conversation silently loses tools at the first daemon restart.
+      mcpServerNames: drivenSessionMcpServerNames(),
       previous: {
         localId: row.localId,
         cwd: row.cwd,
@@ -1086,6 +1090,9 @@ export async function orchestrateDrivenSessionAttach(
   // the two mutually exclusive rather than each locking its own namespace.
   const lockOutcome = await withResumeLock(db, conversationId, async () => {
     const { record } = resumeDrivenSession({
+      // mt#4239: a resume must re-resolve the SAME server set a start would, or
+      // the conversation silently loses tools at the first daemon restart.
+      mcpServerNames: drivenSessionMcpServerNames(),
       previous: {
         // A fresh actuator id. The conversation id is the durable key; the
         // localId is this process's handle on it, and an attached conversation
