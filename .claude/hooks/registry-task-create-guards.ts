@@ -399,4 +399,52 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  {
+    // mt#4153. Full contract in the module's header; matcher in
+    // `packages/domain/src/detectors/spec-criterion-claim.ts`.
+    name: "spec-criterion-claim-detector",
+    effects: [recorderEffect()],
+    // `advisory`: which phrases count as a corpus-state assertion or a
+    // conditional gate is a heuristic the calibration log exists to size. The
+    // half it conjoins with is exact — an inline verifying command, and an
+    // exact-substring lookup against the ask's chosen option.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    // BOTH the create and the edit surfaces, because the two classes are
+    // reachable at different moments: Class A wherever a spec body is in the
+    // payload, Class B only where a task id exists for an ask to point at. At
+    // `tasks_create` the task does not exist yet, so Class B cannot fire there —
+    // SC2's own rule, and the R2 incident it exists for was an edit.
+    matcher: "mcp__minsky__tasks_create|mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit",
+    module: () => import("./spec-criterion-claim-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./spec-criterion-claim-detector").then((m) => m.renderWorstCase()),
+    // Class B does one indexed single-row read on the edit path; Class A is pure.
+    timeoutMs: 10000,
+    calibrationLog: "spec-criterion-claim",
+    denyCapable: false,
+    // Reads only `tool_input`, never `ctx.transcriptLines` — so declaring this
+    // would buy a transcript the guard never opens.
+    needsTranscript: false,
+    // MEASURED via `renderProbe`: 1954 saturated, both class directives present
+    // at once with criteria at the matcher's 160-char excerpt cap. The
+    // finding-count axis is UNCAPPED, so that is a sample rather than a proved
+    // ceiling — `render-probe-sample`, and an `…and N more` cap is owed before
+    // this guard's injection is enabled.
+    attentionCost: { denialMessageSizeChars: 2000, optionCount: 2 },
+    // Calibration-first: the canary asserts `calibration`, not additionalContext,
+    // so a later INJECTION_ENABLED flip gains an outcome rather than breaking
+    // this. Deterministic with or without a database: the canary is a CREATE, so
+    // it carries no task id, the ask lookup is never attempted, and only Class A
+    // can fire — which needs nothing but the spec text in the payload.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary criterion task",
+          spec: "## Success Criteria\n\n- [ ] `MINSKY_ACK_CANARY` remains documented in CLAUDE.md.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
 ];

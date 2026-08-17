@@ -469,6 +469,10 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["flakiness-control-detector", lexicalDetector],
+  // Same shape as the sibling above: a lexical pass over the spec prose an agent
+  // just authored. Class B adds an exact-substring lookup against the authorizing
+  // ask, which sharpens the verdict without changing the mechanism class.
+  ["spec-criterion-claim-detector", lexicalDetector],
   [
     "stale-signal-sweep",
     {

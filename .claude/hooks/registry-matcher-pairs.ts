@@ -109,6 +109,35 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["claim-provenance-scan", "duplicate-signature-scan"],
   ["claim-provenance-scan", "duplicate-check-search-provenance"],
   ["claim-provenance-scan", "flakiness-control-detector"],
+  // Seventh question about the same spec text (mt#4153), and the first to read
+  // `## Success Criteria` as a CLAIM. Every sibling reads a different section or a
+  // different claim class: whether the duplicate-check record is present, whether
+  // its verdicts are true, whether its search ran, whether a failure-MODE claim
+  // carries its control, whether a collision or ownership claim carries provenance.
+  // None reads the criteria — which is the gap this exists for, because a criterion
+  // is not a claim that drives a decision but the claim the work is measured
+  // AGAINST, so a wrong one certifies the wrong thing as done or blocks work that
+  // was already authorized. Not foldable into any of them: its Class B half
+  // resolves the authorizing ask, which no sibling touches, and its Class A half is
+  // silenced by evidence — an inline verifying command — that means nothing to the
+  // others. It also spans two more matchers than they do, since Class B is only
+  // reachable on an edit. Independent overrides; running all seven is the point.
+  //
+  // The sixth pair below was added while resolving a merge, not authored with the
+  // other five: `duplicate-check-candidate-read` (mt#4167) landed on this same
+  // matcher after they were written, so the list was complete against the siblings
+  // it could see and silent about that one — the identical shape mt#4167's own note
+  // describes one hunk down, now hit a third time. It is orthogonal for the reason
+  // the whole comment gives: that guard asks whether a named candidate's spec was
+  // opened, which is a question about the duplicate-check record, not about whether
+  // a criterion asserts something unverified.
+  ["spec-criterion-claim-detector", "require-duplicate-check-record"],
+  ["spec-criterion-claim-detector", "duplicate-signature-scan"],
+  ["spec-criterion-claim-detector", "duplicate-check-search-provenance"],
+  ["spec-criterion-claim-detector", "flakiness-control-detector"],
+  ["spec-criterion-claim-detector", "claim-provenance-scan"],
+  ["spec-criterion-claim-detector", "duplicate-check-candidate-read"],
+
   // The pair NEITHER side could declare alone: mt#4167 and mt#4168 landed within
   // an hour of each other, each adding a `tasks_create` guard while the other was
   // in review, so each one's own list is complete against the four it could see
