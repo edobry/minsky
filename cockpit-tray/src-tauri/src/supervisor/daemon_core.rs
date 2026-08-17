@@ -843,6 +843,128 @@ pub(crate) fn daemon_start_time(pid: u32) -> Option<SystemTime> {
 }
 
 // ---------------------------------------------------------------------------
+// Swap-inclusive memory ceiling (mt#4105)
+// ---------------------------------------------------------------------------
+
+/// The ceiling a supervised daemon's swap-inclusive memory must stay under.
+///
+/// 2048 MB, matching `DEFAULT_MEMORY_CEILING_MB` (`src/mcp/orphan-exit.ts:339`) —
+/// the in-process watcher's default. Both enforce the SAME quantity at the same
+/// threshold; what differs is WHO runs the check, which is the entire point: a
+/// process that has wedged its own event loop cannot be the thing that notices
+/// it has wedged, so its `setInterval` watcher never fires (mt#4099 measured a
+/// 48.2 GB `mcp start` with all of it armed and zero `kevent` samples).
+pub(crate) const MEMORY_CEILING_BYTES: u64 = 2048 * 1024 * 1024;
+
+/// Parse `phys_footprint: 15517760 B` out of `footprint -f bytes -p <pid>`.
+///
+/// `-f bytes` is what makes this a parser and not a unit converter — without it
+/// `footprint` prints human units and the caller has to interpret `1.4G`.
+/// Pure, so the shape agreement with `footprint(1)` is unit-testable.
+pub(crate) fn parse_footprint_bytes(stdout: &str) -> Option<u64> {
+    for line in stdout.lines() {
+        let Some((label, rest)) = line.split_once(':') else {
+            continue;
+        };
+        // `phys_footprint_peak` is a DIFFERENT quantity printed on an adjacent
+        // line — a `contains` match would take whichever came first.
+        if label.trim() != "phys_footprint" {
+            continue;
+        }
+        let digits: String = rest
+            .trim()
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        if digits.is_empty() {
+            continue;
+        }
+        return digits.parse::<u64>().ok();
+    }
+    None
+}
+
+/// Sum `VmRSS` and `VmSwap` (both printed in kB) from `/proc/<pid>/status`.
+///
+/// Per `proc_pid_status(5)`, VmSwap is "Swapped-out virtual memory size by
+/// anonymous private pages". RSS alone is the blind spot this task exists to
+/// close: mt#4099's specimen read ~900 MB RSS against a 48.2 GB footprint.
+///
+/// `None` unless BOTH fields are present — a partial read would silently
+/// under-report by exactly the swapped-out amount that matters here.
+pub(crate) fn parse_proc_status_bytes(contents: &str) -> Option<u64> {
+    let mut rss_kb: Option<u64> = None;
+    let mut swap_kb: Option<u64> = None;
+    for line in contents.lines() {
+        let Some((label, rest)) = line.split_once(':') else {
+            continue;
+        };
+        let slot = match label.trim() {
+            "VmRSS" => &mut rss_kb,
+            "VmSwap" => &mut swap_kb,
+            _ => continue,
+        };
+        *slot = rest.split_whitespace().next().and_then(|n| n.parse().ok());
+    }
+    Some((rss_kb? + swap_kb?) * 1024)
+}
+
+/// Swap-inclusive memory for `pid`, or `None` when it could not be measured.
+///
+/// Mirrors [`daemon_start_time`]'s shape — a system binary, a pure parser, an
+/// `Option` — and mirrors the TypeScript primitive's CHOICE of interface rather
+/// than its code. `packages/shared/src/process-memory.ts` reaches the same two
+/// quantities the same two ways, and records why a native call is not an option:
+/// `task_info(TASK_VM_INFO)` "cannot read another process's without
+/// `task_for_pid`, which requires root or the debugger entitlement on modern
+/// macOS." A Rust crate binding the same call hits the same wall, and the crates
+/// that avoid it report RSS — the blind spot. So the subprocess is not a
+/// shortcut here; on macOS it is the only route to `phys_footprint` for a
+/// foreign pid.
+///
+/// Cost measured 2026-08-16: 0.03s per call, against a 5s [`POLL_INTERVAL`].
+pub(crate) fn daemon_memory_bytes(pid: u32) -> Option<u64> {
+    if cfg!(target_os = "macos") {
+        let out = Command::new("/usr/bin/footprint")
+            .args(["-f", "bytes", "-p", &pid.to_string()])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        parse_footprint_bytes(&String::from_utf8_lossy(&out.stdout))
+    } else {
+        let contents = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        parse_proc_status_bytes(&contents)
+    }
+}
+
+/// Whether a reading breaches the ceiling.
+///
+/// **An unmeasurable process does NOT breach.** `None` means `footprint` failed,
+/// the pid is gone, or `/proc` was unreadable — none of which is evidence the
+/// daemon is oversized, and treating them as one would let a transient failure
+/// SIGKILL a healthy daemon. The in-process watcher makes the same choice for
+/// the same reason (`process-memory.ts` returns a discriminated union precisely
+/// so "could not measure" is not representable as a number).
+pub(crate) fn breaches_ceiling(measured: Option<u64>, ceiling: u64) -> bool {
+    matches!(measured, Some(bytes) if bytes > ceiling)
+}
+
+/// SIGKILL, for a child that cannot be asked to leave.
+///
+/// [`kill_pid`] sends SIGTERM, which Node/Bun delivers to a JS handler — and
+/// `src/commands/mcp/start-command.ts:2132-2134` registers exactly such a
+/// handler. A wedged event loop never runs it, so SIGTERM on the case this
+/// mechanism exists for is a no-op. SIGKILL is not deliverable to a handler and
+/// needs no cooperation from the target, which is the property required here.
+pub(crate) fn kill_pid_force(pid: u32) {
+    let _ = Command::new("/bin/kill")
+        .args(["-KILL", &pid.to_string()])
+        .output();
+}
+
+// ---------------------------------------------------------------------------
 // The supervised-daemon record.
 // ---------------------------------------------------------------------------
 
@@ -914,6 +1036,15 @@ pub(crate) struct SupervisedDaemon {
     /// Last time a sustained-HTTP-failure alert was fired; reset when health
     /// returns (condition cleared → next episode re-alerts immediately).
     pub(crate) last_http_alert: Option<Instant>,
+    /// Set when this supervisor SIGKILLed the current child for breaching
+    /// [`MEMORY_CEILING_BYTES`], and read by [`classify_exit`] on the poll that
+    /// observes the exit (mt#4105).
+    ///
+    /// It exists because a SIGKILLed process is indistinguishable from any other
+    /// signalled death at the syscall level — the supervisor's own record is the
+    /// ONLY thing that can tell "we removed it" from "it died". Cleared at spawn,
+    /// so it can never carry across into a later child's exit.
+    pub(crate) killed_for_ceiling: bool,
 }
 
 impl SupervisedDaemon {
@@ -940,6 +1071,7 @@ impl SupervisedDaemon {
             last_process_started_at_ms: None,
             consecutive_http_failed: 0,
             last_http_alert: None,
+            killed_for_ceiling: false,
         }
     }
 }
@@ -1108,6 +1240,22 @@ pub(crate) enum ExitClass {
     Conflict,
     /// Anything else — the daemon died and should be respawned (throttled).
     Crash,
+    /// WE killed it: it breached [`MEMORY_CEILING_BYTES`] and was SIGKILLed by
+    /// this supervisor (mt#4105). Respawn it, but do NOT count it toward the
+    /// restart throttle.
+    ///
+    /// Distinct from [`Crash`] because the exit is INDISTINGUISHABLE from one at
+    /// the syscall level — a SIGKILLed process reports no exit code, exactly like
+    /// a process the kernel killed for its own reasons. The only thing that can
+    /// tell them apart is the supervisor's own record of having fired, which is
+    /// why this is carried in as a flag rather than inferred from the status.
+    ///
+    /// Not counting it is ADR-038 §Question 3's constraint generalized: it
+    /// requires the supervisor not to double-count mt#3764's self-exit as a
+    /// crash, and a kill the supervisor itself ordered has the same property —
+    /// throttling on it would make the ceiling progressively slower to enforce
+    /// the more often it was needed.
+    CeilingKill,
 }
 
 /// Classify a spawned daemon's exit.
@@ -1120,11 +1268,21 @@ pub(crate) enum ExitClass {
 ///
 /// `reprobe_is_ours` is [`HealthProbe::is_ours`] taken AFTER the exit was
 /// observed; `port_held` is [`port_in_use`] at the same moment.
+///
+/// `we_killed_for_ceiling` is the supervisor's own record that it SIGKILLed this
+/// child for breaching the ceiling (mt#4105). It is checked FIRST and outranks
+/// the health re-probe: a ceiling kill frees the port, so an unrelated incumbent
+/// binding it in the same tick would otherwise read as `AdoptedIncumbent` and
+/// suppress the respawn of a daemon we deliberately removed.
 pub(crate) fn classify_exit(
     exit_code: Option<i32>,
     reprobe_is_ours: bool,
     port_held: bool,
+    we_killed_for_ceiling: bool,
 ) -> ExitClass {
+    if we_killed_for_ceiling {
+        return ExitClass::CeilingKill;
+    }
     if reprobe_is_ours {
         // Something of ours is serving the port even though our child is gone.
         // Whatever the code, the correct response is to adopt rather than to
@@ -1812,14 +1970,14 @@ mod tests {
     #[test]
     fn exit_zero_with_our_service_serving_is_an_adopted_incumbent() {
         assert_eq!(
-            classify_exit(Some(0), true, true),
+            classify_exit(Some(0), true, true, false),
             ExitClass::AdoptedIncumbent
         );
         // The incumbent is what matters, not the code: a daemon killed by a
         // signal (code None) while a replacement already serves is the same
         // situation.
         assert_eq!(
-            classify_exit(None, true, true),
+            classify_exit(None, true, true, false),
             ExitClass::AdoptedIncumbent,
             "an incumbent of ours outranks the exit code"
         );
@@ -1829,18 +1987,123 @@ mod tests {
     /// indistinguishable from here, and want the same treatment: not a crash.
     #[test]
     fn exit_zero_with_nothing_serving_is_a_clean_stop() {
-        assert_eq!(classify_exit(Some(0), false, false), ExitClass::CleanStop);
+        assert_eq!(
+            classify_exit(Some(0), false, false, false),
+            ExitClass::CleanStop
+        );
     }
 
     #[test]
     fn nonzero_exit_against_a_foreign_listener_is_a_conflict() {
-        assert_eq!(classify_exit(Some(1), false, true), ExitClass::Conflict);
+        assert_eq!(
+            classify_exit(Some(1), false, true, false),
+            ExitClass::Conflict
+        );
     }
 
     #[test]
     fn nonzero_exit_with_a_free_port_is_a_crash() {
-        assert_eq!(classify_exit(Some(1), false, false), ExitClass::Crash);
-        assert_eq!(classify_exit(None, false, false), ExitClass::Crash);
+        assert_eq!(
+            classify_exit(Some(1), false, false, false),
+            ExitClass::Crash
+        );
+        assert_eq!(classify_exit(None, false, false, false), ExitClass::Crash);
+    }
+
+    // -----------------------------------------------------------------------
+    // Memory ceiling (mt#4105).
+    // -----------------------------------------------------------------------
+
+    /// The discriminating case for SC4. A SIGKILLed child reports the SAME exit
+    /// status as one the kernel killed — `None` — so without the flag these two
+    /// assertions would be the same call, and the first would be counted as a
+    /// crash against the restart throttle.
+    #[test]
+    fn a_ceiling_kill_is_told_from_a_crash_only_by_the_supervisors_own_record() {
+        assert_eq!(
+            classify_exit(None, false, false, true),
+            ExitClass::CeilingKill
+        );
+        assert_eq!(classify_exit(None, false, false, false), ExitClass::Crash);
+    }
+
+    /// The flag outranks the health re-probe: a ceiling kill frees the port, so
+    /// an incumbent binding it in the same tick must not turn a deliberate
+    /// removal into an adoption that suppresses the respawn.
+    #[test]
+    fn a_ceiling_kill_outranks_an_incumbent_taking_the_freed_port() {
+        assert_eq!(
+            classify_exit(None, true, true, true),
+            ExitClass::CeilingKill
+        );
+    }
+
+    #[test]
+    fn parses_the_footprint_bytes_form() {
+        // The shape `footprint -f bytes -p <pid>` actually prints, peak line
+        // included — captured from a live run 2026-08-16.
+        let out = "    phys_footprint: 2605888 B     phys_footprint_peak: 2605888 B\n";
+        assert_eq!(parse_footprint_bytes(out), Some(2605888));
+    }
+
+    /// `phys_footprint_peak` is a different quantity on the same line. A
+    /// `contains("phys_footprint")` match would accept it, and on a process that
+    /// had shrunk since its high-water mark the ceiling would fire on a number
+    /// the process no longer occupies.
+    #[test]
+    fn the_peak_field_is_not_mistaken_for_the_current_footprint() {
+        let peak_first = "phys_footprint_peak: 9999999 B\nphys_footprint: 1024 B\n";
+        assert_eq!(parse_footprint_bytes(peak_first), Some(1024));
+    }
+
+    #[test]
+    fn unusable_footprint_output_is_none_rather_than_a_guess() {
+        assert_eq!(parse_footprint_bytes(""), None);
+        assert_eq!(parse_footprint_bytes("no such process"), None);
+        assert_eq!(
+            parse_footprint_bytes("phys_footprint: B"),
+            None,
+            "a label with no number is not a measurement"
+        );
+    }
+
+    #[test]
+    fn sums_rss_and_swap_from_proc_status() {
+        let status = "Name:\tbun\nVmRSS:\t  900 kB\nVmSwap:\t  100 kB\n";
+        assert_eq!(parse_proc_status_bytes(status), Some(1000 * 1024));
+    }
+
+    /// The whole point of the Linux path is that RSS alone under-reports by the
+    /// swapped-out amount — the 48.2 GB specimen read ~900 MB RSS. Returning the
+    /// RSS half when VmSwap is missing would reintroduce exactly that blind spot
+    /// while looking like a successful measurement.
+    #[test]
+    fn a_proc_status_missing_vmswap_is_not_measured_at_all() {
+        assert_eq!(parse_proc_status_bytes("VmRSS:\t900 kB\n"), None);
+        assert_eq!(parse_proc_status_bytes("VmSwap:\t100 kB\n"), None);
+        assert_eq!(parse_proc_status_bytes(""), None);
+    }
+
+    /// Fail-safe direction. An unmeasurable process is not evidence of an
+    /// oversized one, and the consequence of confusing them is SIGKILL on a
+    /// healthy daemon every time `footprint` hiccups.
+    #[test]
+    fn an_unmeasurable_process_never_breaches() {
+        assert!(!breaches_ceiling(None, 10));
+        assert!(
+            !breaches_ceiling(Some(10), 10),
+            "at the ceiling is not over it"
+        );
+        assert!(breaches_ceiling(Some(11), 10));
+    }
+
+    /// The tray and the in-process watcher must enforce the same number, or an
+    /// operator reading one and observing the other has no way to reconcile
+    /// them. Pinned against `DEFAULT_MEMORY_CEILING_MB` in
+    /// `src/mcp/orphan-exit.ts`, which is 2048.
+    #[test]
+    fn the_ceiling_matches_the_in_process_watchers_default() {
+        assert_eq!(MEMORY_CEILING_BYTES, 2048 * 1024 * 1024);
     }
 
     // -----------------------------------------------------------------------
