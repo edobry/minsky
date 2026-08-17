@@ -51,6 +51,27 @@ describe("collectEntityRefs", () => {
     expect(collectEntityRefs("see mem#669 and ws#372")).toEqual([]);
   });
 
+  test("a malformed percent-escape is skipped, not thrown (PR #3061 R3)", () => {
+    // `decodeURIComponent` throws a URIError on a bad escape, and the ref regex
+    // admits `%` — so a truncated deeplink is ordinary untrusted prose that
+    // would otherwise take the whole Stop guard down.
+    for (const bad of ["minsky://task/mt%2", "minsky://ask/%ZZ", "minsky://task/%"]) {
+      expect(() => collectEntityRefs(bad)).not.toThrow();
+      expect(collectEntityRefs(bad)).toEqual([]);
+    }
+  });
+
+  test("a well-formed percent-escape still decodes", () => {
+    // The guard must not become so defensive it drops the NORMAL form: a task
+    // deeplink percent-encodes its `#` by convention (`cockpit-deeplinks.mdc`).
+    expect(collectEntityRefs("minsky://task/mt%232430")[0]?.id).toBe("mt#2430");
+  });
+
+  test("a malformed ref does not suppress a valid one beside it", () => {
+    const refs = collectEntityRefs("minsky://task/mt%2 and ask#8467");
+    expect(refs.map((r) => r.id)).toEqual(["8467"]);
+  });
+
   test("dedupes repeated refs to the same entity", () => {
     const refs = collectEntityRefs("ask#8467 ... ask#8467 again");
     expect(refs).toHaveLength(1);

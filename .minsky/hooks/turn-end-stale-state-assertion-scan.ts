@@ -179,6 +179,27 @@ export interface ResolvedClaim extends PendingClaim {
 }
 
 /**
+ * Percent-decode a link target, or `null` when it is malformed.
+ *
+ * `decodeURIComponent` THROWS a `URIError` on a bad escape (`%ZZ`, a truncated
+ * `%2`), and the ref regex admits `%` — so `minsky://task/mt%2`, a mistyped or
+ * truncated deeplink, would throw out of a Stop guard on an ordinary message
+ * (PR #3061 R3). A scanner reading arbitrary prose must treat that prose as
+ * untrusted input: an unparseable target is not a ref, and skipping it is the
+ * whole correct behaviour.
+ */
+function safeDecode(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    // intentional-swallow: a malformed target is not a ref. The throw carries
+    // no information the caller can act on, and letting it escape would turn a
+    // typo in a link into a guard failure.
+    return null;
+  }
+}
+
+/**
  * Collect entity refs the substrate can resolve.
  *
  * The UNION of two forms, which is the refinement mt#4199's planning audit
@@ -219,7 +240,8 @@ export function collectEntityRefs(text: string): EntityRef[] {
   // to `mt#N`, which is what `tasks.id` already holds, so it is the same space.
   for (const m of text.matchAll(/minsky:\/\/(ask|task)\/([A-Za-z0-9%#._-]+)/gi)) {
     const kind = (m[1] ?? "").toLowerCase() === "ask" ? "ask" : "task";
-    const raw = decodeURIComponent(m[2] ?? "");
+    const raw = safeDecode(m[2] ?? "");
+    if (raw === null) continue;
     push(kind, m[0], raw, kind === "ask" ? "uuid" : "short", m.index ?? 0);
   }
 
