@@ -130,11 +130,18 @@ const WORKING_TURN_PREFIX = "mcp__minsky__session_pr_";
  * classified keeps counting as work, which costs a missed advisory rather than
  * a fabricated one.
  */
-const READ_ONLY_SESSION_PR_TOOLS: ReadonlySet<string> = new Set([
+export const READ_ONLY_SESSION_PR_TOOLS: ReadonlySet<string> = new Set([
   "mcp__minsky__session_pr_list",
   "mcp__minsky__session_pr_get",
   "mcp__minsky__session_pr_checks",
   "mcp__minsky__session_pr_review_context",
+  // The HYPHEN is correct and is not a typo (PR #3090 R1 flagged it as one).
+  // This command's id is `session.pr.wait-for-review` — the leaf name itself
+  // contains a hyphen, unlike its siblings — so the MCP tool name keeps it
+  // after the `.`→`_` mapping. Verified against
+  // `src/generated/completion-manifest.json` (`"commandId":
+  // "session.pr.wait-for-review"`), and pinned by a test below so the next
+  // reader does not "correct" it into a name that matches nothing.
   "mcp__minsky__session_pr_wait-for-review",
 ]);
 
@@ -381,8 +388,23 @@ export interface DecisionStopDetection {
   candidateTaskIds: string[];
   /** Every suppression that applies — empty means the structural signature fired. */
   suppressionReasons: string[];
-  /** Discharge tool names actually seen (for the evaluation stream). */
+  /**
+   * Discharge tool names that actually DISCHARGED.
+   *
+   * Since mt#4228 this is narrower than "seen": a `tasks_status_set` whose only
+   * transitions open hand-offs is present in the turn and absent here. The
+   * calibration stream would otherwise lose that distinction entirely — a turn
+   * with no status-set call and a turn with a PLANNING-only one would look
+   * identical — so {@link DecisionStopDetection.statusSetSeenButNotDischarging}
+   * carries it alongside (PR #3090 R1, non-blocking).
+   */
   dischargeToolsSeen: string[];
+  /**
+   * A `tasks_status_set` ran this turn and did NOT discharge, because every
+   * status it set opens a hand-off. Exactly the R6 signature, and the field a
+   * later calibration pass needs to count how often this fires.
+   */
+  statusSetSeenButNotDischarging: boolean;
   specPatchCount: number;
   memoryCreateCount: number;
   boundTaskIds: string[];
@@ -451,6 +473,7 @@ export function detectDecisionStop(
     candidateTaskIds,
     suppressionReasons,
     dischargeToolsSeen,
+    statusSetSeenButNotDischarging: statusSetInputs.length > 0 && !statusSetDischarges,
     specPatchCount: specPatchInputs.length,
     memoryCreateCount: findToolUseInputs(turnLines, EVIDENCE_COMPANION_TOOL).length,
     boundTaskIds: [...bound],
@@ -552,6 +575,7 @@ export function run(
       boundTaskIds: detection.boundTaskIds,
       suppressionReasons: detection.suppressionReasons,
       dischargeToolsSeen: detection.dischargeToolsSeen,
+      statusSetSeenButNotDischarging: detection.statusSetSeenButNotDischarging,
       specPatchCount: detection.specPatchCount,
       memoryCreateCount: detection.memoryCreateCount,
       targetStatuses,

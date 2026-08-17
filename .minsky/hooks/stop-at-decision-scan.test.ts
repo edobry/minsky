@@ -1,6 +1,6 @@
 /* eslint-disable custom/no-real-fs-in-tests -- the dedup store (turn-end-scan-store.ts) writes real per-session JSON files; these tests exercise the real store roundtrip (write -> dedup-read) in an isolated mkdtemp dir, mirroring turn-end-unwalked-task-scan.test.ts's precedent */
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,6 +12,7 @@ import {
   RECOMMENDATION_MARKERS_BASELINE,
   RECOMMENDATION_MARKERS_MT4085,
   RECOMMENDATION_MARKER_REASON,
+  READ_ONLY_SESSION_PR_TOOLS,
 } from "./stop-at-decision-scan";
 import type { RunDeps } from "./stop-at-decision-scan";
 import type { TranscriptLine } from "./transcript";
@@ -594,6 +595,65 @@ describe("hand-off-qualified suppressions (mt#4228)", () => {
       );
       expect(detection.suppressionReasons).toContain("working-turn");
     }
+  });
+
+  test("every READ_ONLY_SESSION_PR_TOOLS entry names a real command (PR #3090 R1)", () => {
+    // R1 flagged the hyphen in `…session_pr_wait-for-review` as a typo. It is
+    // not: that command's id is `session.pr.wait-for-review`, so the leaf name
+    // itself carries a hyphen and the MCP name keeps it. Pinned against the
+    // GENERATED manifest rather than a hand-written list, so an entry that
+    // matches nothing fails here instead of silently never suppressing —
+    // which is exactly the failure mode the finding was worried about, caught
+    // by a mechanism rather than by agreeing with it.
+    const manifest = JSON.parse(
+      readFileSync(join(process.cwd(), "src/generated/completion-manifest.json"), "utf8")
+    ) as unknown;
+    const ids = new Set<string>();
+    const walk = (node: unknown): void => {
+      if (Array.isArray(node)) return void node.forEach(walk);
+      if (node === null || typeof node !== "object") return;
+      const record = node as Record<string, unknown>;
+      const id = record["commandId"];
+      if (typeof id === "string") ids.add(`mcp__minsky__${id.replace(/\./g, "_")}`);
+      Object.values(record).forEach(walk);
+    };
+    walk(manifest);
+
+    expect(ids.size).toBeGreaterThan(50);
+    for (const tool of READ_ONLY_SESSION_PR_TOOLS) {
+      expect(ids.has(tool)).toBe(true);
+    }
+  });
+
+  test("a hand-off status-set is RECORDED as seen-but-not-discharging", () => {
+    // The calibration stream must still be able to tell "no status-set call"
+    // from "a status-set call that opened a hand-off" (PR #3090 R1,
+    // non-blocking) — `dischargeToolsSeen` alone can no longer distinguish them.
+    const handoff = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "PLANNING",
+        }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+    expect(handoff.dischargeToolsSeen).toEqual([]);
+    expect(handoff.statusSetSeenButNotDischarging).toBe(true);
+
+    const forward = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "DONE",
+        }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+    expect(forward.statusSetSeenButNotDischarging).toBe(false);
+
+    // No call at all is also false — the flag means "seen AND not discharging".
+    expect(mustDetect(incidentTranscript()).statusSetSeenButNotDischarging).toBe(false);
   });
 
   test("a session write is working regardless of path — no path check applies to it", () => {
