@@ -1,0 +1,272 @@
+[
+  {
+    "index": 0,
+    "timestamp": "2026-08-12T18:07:40.243Z",
+    "session_id": "4f9e4c3b-f129-47f8-b5f8-93c341bd528c",
+    "proseChars": 31623,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 8
+  },
+  {
+    "index": 1,
+    "timestamp": "2026-08-12T18:11:16.491Z",
+    "session_id": "0ca6d9ac-e8e1-4575-9ce1-2856312f0570",
+    "proseChars": 6478,
+    "label": "no-claim",
+    "handVerified": true,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 2,
+    "timestamp": "2026-08-12T20:07:28.988Z",
+    "session_id": "689d2bc2-5753-4c97-bd6c-2c169a2f2d21",
+    "proseChars": 13606,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 2
+  },
+  {
+    "index": 3,
+    "timestamp": "2026-08-12T20:35:29.804Z",
+    "session_id": "fb9b0436-8c8f-414b-bc31-881d9baa8d7d",
+    "proseChars": 4280,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 4,
+    "timestamp": "2026-08-12T20:39:02.707Z",
+    "session_id": "8f170396-2e39-4fe6-a403-47d6f637f299",
+    "proseChars": 19880,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 5
+  },
+  {
+    "index": 5,
+    "timestamp": "2026-08-12T20:43:55.124Z",
+    "session_id": "3f36d1ff-be5d-46db-a0f0-88fbdbccb753",
+    "proseChars": 59872,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 11
+  },
+  {
+    "index": 6,
+    "timestamp": "2026-08-12T21:30:01.308Z",
+    "session_id": "d979944c-0e0b-47bb-8627-1ad5a37069fe",
+    "proseChars": 31371,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 6
+  },
+  {
+    "index": 7,
+    "timestamp": "2026-08-12T21:42:05.949Z",
+    "session_id": "9d39a38c-6d4a-46e1-9e93-acf99367ef21",
+    "proseChars": 7624,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 1
+  },
+  {
+    "index": 8,
+    "timestamp": "2026-08-12T21:51:20.792Z",
+    "session_id": "97ba0764-5d15-4044-b890-95acdc5700b3",
+    "proseChars": 41313,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 9,
+    "timestamp": "2026-08-12T21:52:31.523Z",
+    "session_id": "0af66d07-b3df-44b8-9122-ec86b3078bc8",
+    "proseChars": 15349,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "index": 10,
+    "timestamp": "2026-08-12T22:00:57.769Z",
+    "session_id": "c813d0b2-7d4b-4859-8804-f84a26a844f5",
+    "proseChars": 58138,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 4
+  },
+  {
+    "index": 11,
+    "timestamp": "2026-08-12T22:04:20.124Z",
+    "session_id": "97ba0764-5d15-4044-b890-95acdc5700b3",
+    "proseChars": 12736,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "index": 12,
+    "timestamp": "2026-08-12T22:23:25.821Z",
+    "session_id": "8b874b2b-5de0-4bed-a608-ec1d950f930b",
+    "proseChars": 4062,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 13,
+    "timestamp": "2026-08-13T13:53:59.878Z",
+    "session_id": "95a8ab1b-c6c9-46b1-a698-13e58bcfc53b",
+    "proseChars": 1330,
+    "label": "no-claim",
+    "handVerified": true,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 14,
+    "timestamp": "2026-08-13T15:39:50.056Z",
+    "session_id": "97ba0764-5d15-4044-b890-95acdc5700b3",
+    "proseChars": 9844,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 15,
+    "timestamp": "2026-08-13T16:03:25.156Z",
+    "session_id": "1d1ef701-b05c-44bb-bd15-52c73ea82bd8",
+    "proseChars": 48545,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 8
+  },
+  {
+    "index": 16,
+    "timestamp": "2026-08-13T17:15:27.476Z",
+    "session_id": "f248cf84-bb98-41cc-8eb6-ae9633fd9655",
+    "proseChars": 36651,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 6
+  },
+  {
+    "index": 17,
+    "timestamp": "2026-08-13T21:06:22.955Z",
+    "session_id": "1d1ef701-b05c-44bb-bd15-52c73ea82bd8",
+    "proseChars": 13073,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 2
+  },
+  {
+    "index": 18,
+    "timestamp": "2026-08-14T05:16:28.247Z",
+    "session_id": "4ac4a92e-92ac-441f-a0eb-76cf1272ad76",
+    "proseChars": 65674,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 12
+  },
+  {
+    "index": 19,
+    "timestamp": "2026-08-16T21:05:05.184Z",
+    "session_id": "849479b9-55e3-4857-a5b0-7b3ef69f2970",
+    "proseChars": 11796,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "index": 20,
+    "timestamp": "2026-08-16T21:08:58.213Z",
+    "session_id": "5ec16026-0b5b-4b6d-940e-3afe8b2e6e0d",
+    "proseChars": 9474,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 21,
+    "timestamp": "2026-08-16T22:29:21.684Z",
+    "session_id": "9751007a-aada-4793-903e-372f47546b74",
+    "proseChars": 28212,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 7
+  },
+  {
+    "index": 22,
+    "timestamp": "2026-08-16T22:33:52.212Z",
+    "session_id": "849479b9-55e3-4857-a5b0-7b3ef69f2970",
+    "proseChars": 17177,
+    "label": "claim-missed",
+    "handVerified": true,
+    "missedSentenceCount": 2
+  },
+  {
+    "index": 23,
+    "timestamp": "2026-08-16T23:40:32.159Z",
+    "session_id": "2db303dd-c368-4d26-a6fb-b741a6d36f77",
+    "proseChars": 22761,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 5
+  },
+  {
+    "index": 24,
+    "timestamp": "2026-08-17T00:24:30.755Z",
+    "session_id": "0f7be47b-fc91-49a2-99d5-4bbcdc18eb12",
+    "proseChars": 35180,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 25,
+    "timestamp": "2026-08-17T01:23:02.674Z",
+    "session_id": "0f7be47b-fc91-49a2-99d5-4bbcdc18eb12",
+    "proseChars": 35180,
+    "label": "no-claim",
+    "handVerified": true,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 26,
+    "timestamp": "2026-08-17T02:10:00.587Z",
+    "session_id": "b099506a-5d9b-41dd-b828-77195ef0e82d",
+    "proseChars": 20427,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 1
+  },
+  {
+    "index": 27,
+    "timestamp": "2026-08-17T02:10:09.308Z",
+    "session_id": "0f7be47b-fc91-49a2-99d5-4bbcdc18eb12",
+    "proseChars": 35180,
+    "label": "no-claim",
+    "handVerified": false,
+    "missedSentenceCount": 0
+  },
+  {
+    "index": 28,
+    "timestamp": "2026-08-17T02:11:39.164Z",
+    "session_id": "9e43fad5-ccd7-4a4f-a356-d8cc212ed012",
+    "proseChars": 15897,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 8
+  },
+  {
+    "index": 29,
+    "timestamp": "2026-08-17T02:51:47.655Z",
+    "session_id": "0f7be47b-fc91-49a2-99d5-4bbcdc18eb12",
+    "proseChars": 39302,
+    "label": "claim-missed",
+    "handVerified": false,
+    "missedSentenceCount": 2
+  }
+]
