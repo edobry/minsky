@@ -224,7 +224,11 @@ function unavailableMessage(ref: string, kind: RefKind, cause: unknown): string 
 export function renderOutcomeLabel(result: RefStatusResult): string {
   switch (result.outcome) {
     case "found":
-      return `${result.status}${result.title ? `  ${result.title}` : ""}`;
+      // `status` is optional on ResolvedRef, so a resolver may legitimately
+      // report a hit without one — interpolating it raw printed the literal
+      // string "undefined" in the status column (PR #3041 R1). Carried over
+      // from the pre-extraction expression; fixed here rather than moved.
+      return `${result.status ?? "FOUND"}${result.title ? `  ${result.title}` : ""}`;
     case "absent":
       return "NOT FOUND";
     case "unavailable":

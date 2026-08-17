@@ -361,6 +361,21 @@ describe("outcome discriminates the three non-found cases", () => {
     // that assert the ref does not exist.
     expect(label({ outcome: "unavailable", error: "backend down" })).not.toMatch(/NOT FOUND/);
   });
+
+  // PR #3041 R1: `status` is optional on ResolvedRef, so a hit without one used
+  // to interpolate the literal string "undefined" into the status column.
+  test("a found ref with no status does not render the word undefined", () => {
+    const label = renderOutcomeLabel({
+      ref: "mt#1",
+      kind: "task",
+      id: "mt#1",
+      found: true,
+      outcome: "found",
+      title: "A task",
+    });
+    expect(label).not.toMatch(/undefined/);
+    expect(label).toBe("FOUND  A task");
+  });
 });
 
 describe("completion-manifest integrity", () => {
