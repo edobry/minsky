@@ -22,6 +22,8 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 const BOUND_TASK = "mt#3639";
 const TARGET_TASK = "mt#3521";
 const SESSION_START_TOOL = "mcp__minsky__session_start";
+/** Declared once — mt#4228 added a second cluster of cases that name it. */
+const STATUS_SET_TOOL_NAME = "mcp__minsky__tasks_status_set";
 const BOUND_TARGET_REASON = "bound-task-target";
 /** Aliased from the hook's export — one source of truth for the reason string. */
 const MARKER_REASON = RECOMMENDATION_MARKER_REASON;
@@ -140,7 +142,13 @@ describe("detectDecisionStop (pure core)", () => {
   // AT2 — the same evidence-write turn, discharged. Each consumer call must silence it.
   test.each([
     ["mcp__minsky__asks_create", { question: "Rung-2 disposition?", parentTaskId: TARGET_TASK }],
-    ["mcp__minsky__tasks_status_set", { taskId: TARGET_TASK, status: "READY" }],
+    // IN-PROGRESS, not READY (mt#4228). This row asserts that the tool
+    // discharges; a transition INTO READY no longer does, because it OPENS a
+    // hand-off rather than walking one. The READY and PLANNING cases are
+    // asserted directly in the `hand-off-qualified suppressions` block below,
+    // so the behaviour this row used to cover is still pinned — by the test
+    // that is actually about it.
+    [STATUS_SET_TOOL_NAME, { taskId: TARGET_TASK, status: "IN-PROGRESS" }],
     ["mcp__minsky__tasks_dispatch", { taskId: TARGET_TASK }],
     ["mcp__minsky__tasks_create", { title: "follow-up" }],
     [SESSION_START_TOOL, { task: "mt#9999" }],
@@ -457,5 +465,149 @@ describe("mt#4085 — the natural-prose decision handoff", () => {
       "Two corrections recorded: the rewrite trigger I'd captured was wrong, and the Rust " +
       "spike isn't a drop-in reference. I've recorded that and withdrawn the gap.";
     expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(narratesTheWrite))).toBe(false);
+  });
+});
+
+describe("hand-off-qualified suppressions (mt#4228)", () => {
+  /** A closing message with no recommendation marker, so only the suppressions under test can fire. */
+  const R6_FINAL_MESSAGE =
+    "mt#3845 is out of BLOCKED and back in PLANNING with all of this recorded. " +
+    "PR #3078 is open against the same two files, so that should land first.";
+
+  /** Detect, assert the turn was a candidate at all, and hand back a non-null result. */
+  function mustDetect(full: TranscriptLine[]): NonNullable<ReturnType<typeof detectDecisionStop>> {
+    const detection = detectDecisionStop(finalTurnOf(full), full, R6_FINAL_MESSAGE);
+    expect(detection).not.toBeNull();
+    return detection as NonNullable<typeof detection>;
+  }
+
+  test("R6: a spec-patch + a transition INTO PLANNING + a scratch write now FIRES", () => {
+    // The verbatim shape of the 2026-08-17 incident, from the detector's own
+    // evaluation record: candidate mt#3845, one spec patch, suppressed by
+    // `discharged:mcp__minsky__tasks_status_set` and `working-turn`.
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "PLANNING",
+        }),
+        toolResult("toolu_status", { success: true }),
+        toolUse("toolu_scratch", "Write", {
+          file_path: "/private/tmp/claude-501/proj/sess/scratchpad/runs.ts",
+          content: "// measurement script",
+        }),
+        toolResult("toolu_scratch", { success: true }),
+      ])
+    );
+
+    expect(detection.candidateTaskIds).toEqual([TARGET_TASK]);
+    expect(detection.suppressionReasons).toEqual([]);
+  });
+
+  test("a transition to IN-PROGRESS still discharges — only hand-off states changed", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, {
+          taskId: TARGET_TASK,
+          status: "IN-PROGRESS",
+        }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain(`discharged:${STATUS_SET_TOOL_NAME}`);
+    expect(detection.dischargeToolsSeen).toEqual([STATUS_SET_TOOL_NAME]);
+  });
+
+  test("an unparseable status FAILS OPEN and still discharges", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_status", STATUS_SET_TOOL_NAME, { taskId: TARGET_TASK }),
+        toolResult("toolu_status", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain(`discharged:${STATUS_SET_TOOL_NAME}`);
+  });
+
+  test("a REPO write still marks the turn as working", () => {
+    // The path predicate must not swallow real work — this is the half that
+    // keeps the `working-turn` suppression meaningful.
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_repo", "Write", {
+          file_path: "/Users/edobry/Projects/minsky/src/thing.ts",
+          content: "export const x = 1;",
+        }),
+        toolResult("toolu_repo", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain("working-turn");
+  });
+
+  test("a scratch write BESIDE a repo write still marks the turn as working", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_scratch", "Write", { file_path: "/tmp/probe.ts", content: "//" }),
+        toolResult("toolu_scratch", { success: true }),
+        toolUse("toolu_repo", "Edit", {
+          file_path: "/Users/edobry/Projects/minsky/src/thing.ts",
+          old_string: "a",
+          new_string: "b",
+        }),
+        toolResult("toolu_repo", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain("working-turn");
+  });
+
+  test("a READ-ONLY session_pr_* call is not work — this is what kept R6 suppressed", () => {
+    // The `mcp__minsky__session_pr_` prefix matched the whole family. Listing
+    // PRs is investigation, which is the trigger condition, not a reason to
+    // suppress. Found by replay: the R6 turn's `working-turn` came from one
+    // `session_pr_list` and survived both qualifications the task was scoped to.
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_list", "mcp__minsky__session_pr_list", { status: "open" }),
+        toolResult("toolu_list", { pullRequests: [] }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toEqual([]);
+  });
+
+  test("a MUTATING session_pr_* call is still work", () => {
+    // The other half of the family must keep suppressing, or the exclusion has
+    // swallowed the rule instead of narrowing it.
+    for (const tool of [
+      "mcp__minsky__session_pr_create",
+      "mcp__minsky__session_pr_merge",
+      "mcp__minsky__session_pr_edit",
+    ]) {
+      const detection = mustDetect(
+        incidentTranscript([
+          toolUse("toolu_mutate", tool, { task: TARGET_TASK }),
+          toolResult("toolu_mutate", { success: true }),
+        ])
+      );
+      expect(detection.suppressionReasons).toContain("working-turn");
+    }
+  });
+
+  test("a session write is working regardless of path — no path check applies to it", () => {
+    const detection = mustDetect(
+      incidentTranscript([
+        toolUse("toolu_sess", "mcp__minsky__session_write_file", {
+          sessionId: "s",
+          path: "/tmp/whatever.ts",
+          content: "//",
+        }),
+        toolResult("toolu_sess", { success: true }),
+      ])
+    );
+
+    expect(detection.suppressionReasons).toContain("working-turn");
   });
 });

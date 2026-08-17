@@ -116,3 +116,77 @@ message. Marker matching is existential, so a candidate matching the tail necess
 full message: sound for confirming a suppression, unsound for confirming a NON-suppression. The two
 negative-control records are 232 and 213 chars, i.e. complete, which is what makes them usable as
 controls at all.
+
+## mt#4228 (2026-08-17) — the suppressions fired hardest exactly when the stop was real
+
+R6 of `family:stop-at-handoff`. The principal asked a design question; the agent investigated,
+patched the finding into an open task's spec, set that task BLOCKED → PLANNING, and stopped. The
+principal had to ask _"why didn't you keep going?"_
+
+**This detector evaluated that exact turn and suppressed itself.** Its own evaluation record:
+
+```json
+{
+  "timestamp": "2026-08-17T18:19:11.970Z",
+  "fired": false,
+  "candidateTaskIds": ["mt#3845"],
+  "suppressionReasons": ["discharged:mcp__minsky__tasks_status_set", "working-turn"],
+  "specPatchCount": 1,
+  "targetStatuses": {}
+}
+```
+
+The trigger was correct. Three suppression predicates were not, and each is the same shape — a
+PROXY standing in for the property it is meant to test:
+
+1. **`tasks_status_set` discharged unconditionally.** Setting a task to PLANNING or READY OPENS a
+   hand-off; it is the moment `/plan-task` or `/implement-task` should start, not evidence either
+   did. Now qualified on the `status` ARGUMENT (`handoff-status.ts`), so only a transition to
+   IN-PROGRESS / IN-REVIEW / DONE / BLOCKED / CLOSED discharges.
+2. **`Write` / `Edit` counted as work regardless of path.** The R6 turn's only `Write` was a
+   throwaway measurement script in the harness scratchpad — evidence-gathering, which is the
+   trigger condition. Now path-scoped against the temp roots.
+3. **`session_pr_list` counted as work.** `WORKING_TURN_PREFIX` matched the whole `session_pr_*`
+   family, and half of it only reads. **This is the one that actually kept R6 suppressed** — it
+   survived both of the qualifications the task was originally scoped to make, and was found by
+   running the replay rather than by reading the code. Now excluded via
+   `READ_ONLY_SESSION_PR_TOOLS`.
+
+All three fail OPEN: an unparseable status, an unreadable write input, or an unclassified
+`session_pr_*` tool keeps its pre-mt#4228 reading. The failure being fixed is a MISSED advisory;
+fabricating one out of unreadable input would be worse, because the calibration stream is what the
+posture decision rests on.
+
+### Measured effect
+
+`scripts/replay-stop-at-decision-handoff.ts` recovers each evaluated turn from the local transcript
+store and re-runs the pure core. Over 606 evaluation records (392 carrying a candidate task, 384
+surviving recovery + a fidelity check, 8 unreproduced):
+
+|                                          | value                    |
+| ---------------------------------------- | ------------------------ |
+| fired before                             | 19                       |
+| fired after                              | **23**                   |
+| newly firing                             | **4** (1.0% of compared) |
+| attributable to the status-set change    | 1                        |
+| attributable to the working-turn changes | 4                        |
+
+Attribution overlaps on purpose — a turn suppressed by two predicates needed both lifted, so the
+columns are not a partition. The R6 turn itself now fires with an empty suppression set.
+
+**Two arithmetic traps this script hit before the numbers were trustworthy**, both recorded because
+each produced a plausible-looking wrong answer: comparing the pure core's verdict against records
+whose `fired` included `run()`'s post-core `target-not-open` filter (manufactured three fake new
+fires), and counting `firedBefore` on records the fidelity check then dropped (reported 24 → 21, a
+_fall_, which a loosening change cannot produce). A delta that moves the wrong way is a bug in the
+measurement, not a finding.
+
+### Scoped to THIS guard, deliberately
+
+The task originally proposed the same qualification for `turn-end-unwalked-task-scan`'s
+`WALK_FORWARD_TOOLS`, by symmetry. That criterion was **withdrawn during implementation** — it broke
+four fixtures that walk via `tasks status set … PLANNING`, and the fixtures are right. The two
+guards ask different questions: this one asks whether the turn took the next step after writing
+evidence, where PLANNING is the stop; the sibling asks whether anything happened to a just-minted
+id, where PLANNING is `/plan-task` Step 1 and firing would tell an agent mid-planning to go plan.
+The reasoning lives on `collectWalkedIds` in the file that does NOT carry the qualification.

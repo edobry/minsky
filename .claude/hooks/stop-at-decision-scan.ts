@@ -56,6 +56,7 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import type { TranscriptLine } from "./transcript";
 import { extractFinalTurn, extractToolUseNames, findToolUseInputs } from "./transcript";
+import { anyStatusSetIsForwardMotion, STATUS_SET_TOOL } from "./handoff-status";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STOP_AT_DECISION";
 
@@ -108,6 +109,78 @@ export const WORKING_TURN_TOOLS: readonly string[] = [
   "NotebookEdit",
 ];
 const WORKING_TURN_PREFIX = "mcp__minsky__session_pr_";
+
+/**
+ * The `session_pr_*` tools that only READ (mt#4228).
+ *
+ * {@link WORKING_TURN_PREFIX} matches the whole family on the assumption that
+ * touching a PR is work. Half of the family does not touch anything: listing
+ * PRs, reading one, polling its checks, or waiting for a review are exactly
+ * what an agent does while INVESTIGATING — which is the evidence-gathering this
+ * detector's trigger is about, so counting them as work suppresses the guard
+ * on the turns it exists to see.
+ *
+ * This is what actually kept the R6 incident suppressed. Its `working-turn`
+ * came from a single `session_pr_list` call — a read — and it survived both of
+ * the qualifications mt#4228 was originally scoped to make. Found by running
+ * the replay, not by reading the code.
+ *
+ * An EXCLUSION list rather than an inclusion list, so the failure direction
+ * stays the same as the rest of this module: a `session_pr_*` tool nobody has
+ * classified keeps counting as work, which costs a missed advisory rather than
+ * a fabricated one.
+ */
+const READ_ONLY_SESSION_PR_TOOLS: ReadonlySet<string> = new Set([
+  "mcp__minsky__session_pr_list",
+  "mcp__minsky__session_pr_get",
+  "mcp__minsky__session_pr_checks",
+  "mcp__minsky__session_pr_review_context",
+  "mcp__minsky__session_pr_wait-for-review",
+]);
+
+/**
+ * The harness-native write tools, whose `file_path` decides whether the write
+ * was WORK (mt#4228).
+ *
+ * Every other entry in {@link WORKING_TURN_TOOLS} is unambiguous — a session
+ * write, a commit, a push all target the repo by construction. `Write` / `Edit`
+ * / `NotebookEdit` do not: the same tool writes a throwaway measurement script
+ * to the harness scratchpad, and that is the OPPOSITE of the turn being a
+ * working one. In the R6 incident the turn's only `Write` was a scratch script
+ * used to MEASURE the problem being recorded — evidence-gathering, which is the
+ * trigger condition, counted as a reason to suppress.
+ */
+const PATH_SCOPED_WRITE_TOOLS: readonly string[] = ["Write", "Edit", "NotebookEdit"];
+
+/**
+ * Path prefixes that are never repo work.
+ *
+ * Deliberately a prefix list over temp roots rather than "is it under the repo":
+ * {@link detectDecisionStop} is a PURE function with no cwd, and threading one
+ * in to answer a question that three literals answer would put IO into the
+ * core for no gain. macOS resolves `/tmp` through `/private/tmp` and hands
+ * per-process temp dirs out of `/var/folders`, so all three forms appear in
+ * real `file_path` values; the harness scratchpad
+ * (`/private/tmp/claude-<uid>/<project>/<session>/scratchpad`) sits under the
+ * second.
+ *
+ * A repo that genuinely lived under `/tmp` would read as never-working here.
+ * That is accepted: it is not a real configuration, and the failure direction
+ * is a redundant advisory rather than a missed one.
+ */
+const SCRATCH_PATH_PREFIXES: readonly string[] = [
+  "/tmp/",
+  "/private/tmp/",
+  "/private/var/folders/",
+  "/var/folders/",
+];
+
+/** True when a `Write`/`Edit` targeted a scratch path rather than the repo. */
+function isScratchWrite(input: Record<string, unknown>): boolean {
+  const path = input["file_path"] ?? input["path"] ?? input["notebook_path"];
+  if (typeof path !== "string") return false;
+  return SCRATCH_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
 
 /**
  * First-cut recommendation markers (mt#3653 `## Scope`: measured, then tuned
@@ -339,10 +412,31 @@ export function detectDecisionStop(
   const candidateTaskIds = [...targets].filter((id) => !bound.has(id));
 
   const toolNames = extractToolUseNames(turnLines);
-  const dischargeToolsSeen = toolNames.filter((n) => DISCHARGE_TOOLS.includes(n));
-  const workingTurn = toolNames.some(
-    (n) => WORKING_TURN_TOOLS.includes(n) || n.startsWith(WORKING_TURN_PREFIX)
+
+  // `tasks_status_set` discharges only when it moved something FORWARD (mt#4228).
+  // A transition INTO PLANNING or READY opens a hand-off rather than walking
+  // one, so it is the canonical stop-at-handoff rather than evidence against
+  // it. Every other entry in DISCHARGE_TOOLS stays unconditional.
+  const statusSetInputs = findToolUseInputs(turnLines, STATUS_SET_TOOL);
+  const statusSetDischarges =
+    statusSetInputs.length > 0 && anyStatusSetIsForwardMotion(statusSetInputs);
+  const dischargeToolsSeen = toolNames.filter(
+    (n) => DISCHARGE_TOOLS.includes(n) && (n !== STATUS_SET_TOOL || statusSetDischarges)
   );
+
+  // A `Write`/`Edit` to a scratch path is not repo work (mt#4228) — see
+  // PATH_SCOPED_WRITE_TOOLS. Everything else in WORKING_TURN_TOOLS targets the
+  // repo by construction and needs no path check.
+  const workingTurn = toolNames.some((n) => {
+    if (n.startsWith(WORKING_TURN_PREFIX)) return !READ_ONLY_SESSION_PR_TOOLS.has(n);
+    if (!WORKING_TURN_TOOLS.includes(n)) return false;
+    if (!PATH_SCOPED_WRITE_TOOLS.includes(n)) return true;
+    const inputs = findToolUseInputs(turnLines, n);
+    // Fail OPEN: the tool ran and its inputs are unreadable, so keep the
+    // pre-mt#4228 reading rather than manufacturing a fire.
+    if (inputs.length === 0) return true;
+    return !inputs.every(isScratchWrite);
+  });
   const hasMarker = RECOMMENDATION_MARKERS.some((re) => re.test(lastAssistantMessage));
 
   const suppressionReasons: string[] = [];
