@@ -198,6 +198,22 @@ interface ExtractedCriterion {
  * A criterion is a list item plus its indented continuation lines — criteria wrap,
  * and a trigger sitting on the second line of a bullet is the same claim as one on
  * the first. Section ends at the next `##`-or-shallower heading.
+ *
+ * ## Elision runs on the WHOLE spec, before structure is read
+ *
+ * This ordering is load-bearing rather than incidental, and getting it wrong was
+ * caught by this module's own SC8 test. Eliding each criterion AFTER extracting it
+ * cannot work: a fenced block containing `- [ ] \`FOO\` remains documented` — which
+ * is exactly how these incidents get written up — parses as a bullet while the
+ * fence markers sit on OTHER lines, so a per-criterion elide sees no fence and the
+ * quoted example becomes a criterion. Eliding first blanks the fence's contents, so
+ * the pseudo-bullet is gone before anything looks for structure.
+ *
+ * That works because `elideMarkdownNonProse` replaces elided spans with
+ * SAME-LENGTH whitespace and preserves newlines: raw and elided share identical
+ * line numbering, so structure can be read off the elided text while the RAW line
+ * is still recoverable by index. The raw form is needed because a verifying command
+ * lives in a code span the elision blanks — see {@link hasInlineVerifyingCommand}.
  */
 export function extractCriteria(
   spec: string,
@@ -206,18 +222,23 @@ export function extractCriteria(
   const out: ExtractedCriterion[] = [];
   if (typeof spec !== "string" || spec.trim() === "") return out;
 
-  const lines = spec.split("\n");
+  const rawLines = spec.split("\n");
+  const elidedLines = elide(spec).split("\n");
+
   let section: string | null = null;
-  let buffer: string[] = [];
+  let indices: number[] = [];
 
   const flush = (): void => {
-    if (section === null || buffer.length === 0) return;
-    const raw = buffer.join("\n");
-    if (raw.trim() !== "") out.push({ section, raw, elided: elide(raw) });
-    buffer = [];
+    if (section === null || indices.length === 0) return;
+    const raw = indices.map((i) => rawLines[i] ?? "").join("\n");
+    const elided = indices.map((i) => elidedLines[i] ?? "").join("\n");
+    if (elided.trim() !== "") out.push({ section, raw, elided });
+    indices = [];
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < elidedLines.length; i++) {
+    const line = elidedLines[i] ?? "";
+
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     if (heading) {
       flush();
@@ -232,12 +253,12 @@ export function extractCriteria(
     // A new list item ends the previous one; anything indented continues it.
     if (/^\s{0,3}(?:[-*+]|\d+\.)\s+/.test(line)) {
       flush();
-      buffer.push(line);
+      indices.push(i);
       continue;
     }
-    if (buffer.length > 0 && (line.trim() === "" || /^\s+/.test(line))) {
-      buffer.push(line);
-    } else if (buffer.length > 0) {
+    if (indices.length > 0 && (line.trim() === "" || /^\s+/.test(line))) {
+      indices.push(i);
+    } else if (indices.length > 0) {
       flush();
     }
   }
