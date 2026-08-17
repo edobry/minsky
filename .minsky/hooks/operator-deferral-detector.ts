@@ -83,6 +83,12 @@ import { isReshapedRetry, leadingTokenOf } from "./command-shape";
 import type { TranscriptLine } from "./transcript";
 import { findKillInvocation, findKillVerb } from "./block-bulk-process-kill";
 import type { KillInvocation } from "./block-bulk-process-kill";
+// The offer-shape recognizer (mt#3801). It is DECLARED in the sibling detector
+// because that is where its two constituents already lived; importing it keeps
+// one definition serving both surfaces rather than a second copy that drifts.
+// Same one-way hook-to-hook edge `turn-end-untaken-action-scan` already has on
+// that module, and the same one this file already has on the kill parse above.
+import { findOfferShape } from "./ask-routing-deferral-detector";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -443,12 +449,23 @@ export const STANDING_INSTRUCTION_PATTERNS: RegExp[] = [
  * turn's own budget, a concurrent process, a selection already made — where
  * the offer is a revert rather than a request.
  *
- * SCOPE BOUNDARY (mt#3801). This does NOT cover the offer-shape
+ * SCOPE BOUNDARY (mt#3801, SHIPPED). This does NOT cover the offer-shape
  * "X unless you'd rather Y", where the agent PROPOSES a next step and hands
- * the choice over. mt#3801 owns that decision point and takes the opposite
- * position on it. The line: a completed or firmly-stated decision of the
- * agent's own is not a decision being handed over; a proposed next step is.
+ * the choice over. mt#3801 took the opposite position on that decision point
+ * and its structural trigger now fires it — see `findOfferShape`. The line the
+ * two agree on: a completed or firmly-stated decision of the agent's own is not
+ * a decision being handed over; a proposed next step is. This array is what
+ * keeps the first half suppressed once the trigger widened the second, which is
+ * why the offer path runs through the same {@link isPermissionAskSuppressed}
+ * chain rather than beside it.
  */
+export const SETTLED_DECISION_PATTERNS: RegExp[] = [
+  /\bI\s+(picked|chose|selected|went\s+with)\b/i,
+  /\bwith\s+fresh\s+context\b/i,
+  /\bthis\s+turn\s+has\s+run\s+long\b/i,
+  /\brather\s+not\s+derail\b/i,
+];
+
 /**
  * The message SURFACES A COLLISION with another actor — which is not a deferral
  * the agent chose, but the behaviour `user-preferences.mdc §Probe before
@@ -469,13 +486,6 @@ export const PEER_COLLISION_PATTERNS: RegExp[] = [
   /\b(another|a\s+second|the\s+other|a\s+peer)\s+(agent|actor|session|conversation)\b/i,
   /\bsecond\s+agent\b/i,
   /\bpeer\s+(agent|session)\s+is\b/i,
-];
-
-export const SETTLED_DECISION_PATTERNS: RegExp[] = [
-  /\bI\s+(picked|chose|selected|went\s+with)\b/i,
-  /\bwith\s+fresh\s+context\b/i,
-  /\bthis\s+turn\s+has\s+run\s+long\b/i,
-  /\brather\s+not\s+derail\b/i,
 ];
 
 /**
@@ -1143,15 +1153,7 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
     const m = pattern.exec(scanned);
     if (!m) continue;
     const idx = m.index ?? 0;
-    const sentence = sentenceAround(scanned, idx);
-    const window = sentenceWithLead(scanned, idx);
-    if (DESTRUCTIVE_EXCLUSIONS.some((x) => x.test(sentence))) continue;
-    if (PRINCIPAL_RESERVED_EXCLUSIONS.some((x) => x.test(window))) continue;
-    if (SETTLED_DECISION_PATTERNS.some((p) => p.test(window))) continue;
-    // The conjunction (mt#3865 Cause C): naming a standing instruction only
-    // suppresses BECAUSE the ask accompanies it, and the ask is `m` itself.
-    if (STANDING_INSTRUCTION_PATTERNS.some((p) => p.test(window))) continue;
-    if (PEER_COLLISION_PATTERNS.some((p) => p.test(window))) continue;
+    if (isPermissionAskSuppressed(scanned, idx)) continue;
     return [
       {
         surface: "permission-deferral-prose",
@@ -1160,7 +1162,47 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
       },
     ];
   }
+  // The structural offer shape (mt#3801) — `"Next step is X unless you'd rather
+  // I do Y"`. It reaches the SAME suppression chain as the literal corpus
+  // above, which is the point of factoring that chain out: a permission-ask's
+  // exclusions turn on the ACTION being offered, never on how the offer was
+  // phrased, so a second copy that drifted would silence one path and not the
+  // other. Runs last so a literal match keeps its own phrase.
+  const offer = findOfferShape(scanned);
+  if (offer && !isPermissionAskSuppressed(scanned, offer.index)) {
+    return [
+      {
+        surface: "permission-deferral-prose",
+        matchedPhrase: offer.label,
+        context: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 1 }),
+      },
+    ];
+  }
   return [];
+}
+
+/**
+ * The permission surface's suppression chain, against the two windows it needs
+ * (mt#3865) — shared by the literal-pattern path and the structural offer path.
+ *
+ * The DESTRUCTIVE half stays scoped to the match's SENTENCE so an unrelated
+ * mention of "production" three paragraphs away cannot mask a real
+ * permission-ask about something else. Everything else reads one sentence
+ * further back, because the reserved-category declaration and the standing
+ * instruction are naturally written in the sentence BEFORE the ask. The two
+ * halves therefore cannot share a window — see {@link sentenceWithLead}.
+ */
+function isPermissionAskSuppressed(scanned: string, idx: number): boolean {
+  const sentence = sentenceAround(scanned, idx);
+  const window = sentenceWithLead(scanned, idx);
+  if (DESTRUCTIVE_EXCLUSIONS.some((x) => x.test(sentence))) return true;
+  if (PRINCIPAL_RESERVED_EXCLUSIONS.some((x) => x.test(window))) return true;
+  if (SETTLED_DECISION_PATTERNS.some((p) => p.test(window))) return true;
+  // The conjunction (mt#3865 Cause C): naming a standing instruction only
+  // suppresses BECAUSE the ask accompanies it, and the ask is the match itself.
+  if (STANDING_INSTRUCTION_PATTERNS.some((p) => p.test(window))) return true;
+  if (PEER_COLLISION_PATTERNS.some((p) => p.test(window))) return true;
+  return false;
 }
 
 /**

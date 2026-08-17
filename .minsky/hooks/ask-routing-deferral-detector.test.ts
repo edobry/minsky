@@ -7,7 +7,9 @@ import {
   DEFERRAL_MENU_PATTERNS,
   MENU_SHAPE_REQUIRED_PATTERNS,
   detectDeferralPhrases,
+  findOfferShape,
   hasMenuShape,
+  namesAgentAction,
   lineAt,
   turnHasAsksCreate,
   elideQuotedContexts,
@@ -564,5 +566,139 @@ describe("menu-shape gating for pause/stop (mt#3271)", () => {
     expect(hasMenuShape("do X?")).toBe(true);
     expect(hasMenuShape("take A or B")).toBe(true);
     expect(lineAt("one\n\ntwo\n\nthree", 6)).toBe("two");
+  });
+
+  // The mt#3801 refactor moved these four legs into MENU_SHAPE_LEGS so one
+  // declaration serves both the gate and the trigger. Pin all four here: the
+  // case above covers two, and a leg silently dropped in the move would leave
+  // the gate quietly narrower with nothing failing.
+  test("all four menu-shape legs survive the MENU_SHAPE_LEGS refactor (mt#3801)", () => {
+    expect(hasMenuShape("do X?")).toBe(true);
+    expect(hasMenuShape("take A or B")).toBe(true);
+    expect(hasMenuShape("I'll hold unless told otherwise")).toBe(true);
+    expect(hasMenuShape("go ahead if you'd rather")).toBe(true);
+    expect(hasMenuShape("merged and green")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3801 — the OFFER shape as a first-class trigger.
+//
+// The originating sentence closed a turn by proposing a next step and handing
+// the choice over. It matched no entry in either deferral corpus, so this
+// detector stayed silent and the Stop sibling emitted the COMMITMENT directive
+// ("take it now") for a sentence whose defect was offering rather than acting.
+//
+// The fix is a conjunction over two constituents this file already had, not a
+// ninth phrase — see `findOfferShape`.
+// ---------------------------------------------------------------------------
+
+/** Verbatim from the 2026-08-05 incident turn (R9 of the family, mem#831). */
+const OFFER_SHAPE_MESSAGE =
+  "Next step is /plan-task mt#3799 unless you'd rather I go straight at it.";
+
+/** AT4's negative control: `unless` as a factual qualifier, with no actor. */
+const FACTUAL_UNLESS =
+  "The migration ran cleanly unless a row was locked, in which case it retried.";
+
+describe("offer-shape trigger (mt#3801)", () => {
+  test("AT1: the originating sentence now fires the menu class", () => {
+    const matches = detectDeferralPhrases(OFFER_SHAPE_MESSAGE);
+    expect(matches.some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+  });
+
+  test("AT4: a factual `unless` with no actor stays quiet", () => {
+    expect(detectDeferralPhrases(FACTUAL_UNLESS)).toEqual([]);
+  });
+
+  // The conjunction, asserted on its own rather than only through its effect.
+  // This is what makes AT4 a real control: the menu leg MATCHES the negative
+  // control, so promoting `hasMenuShape` unguarded would fire on it. Measured,
+  // not argued.
+  test("the guarding conjunction is menu-shape AND an agent-action clause", () => {
+    expect(hasMenuShape(FACTUAL_UNLESS)).toBe(true);
+    expect(namesAgentAction(FACTUAL_UNLESS)).toBe(false);
+    expect(findOfferShape(FACTUAL_UNLESS)).toBeNull();
+
+    expect(hasMenuShape(OFFER_SHAPE_MESSAGE)).toBe(true);
+    expect(namesAgentAction(OFFER_SHAPE_MESSAGE)).toBe(true);
+    expect(findOfferShape(OFFER_SHAPE_MESSAGE)).not.toBeNull();
+  });
+
+  // Every agent-action form is non-past by construction. A first-person REPORT
+  // beside a menu token is not an offer, and this is the case a naive "does the
+  // line mention `I`?" predicate would get wrong.
+  test("a past-tense first-person report beside `unless` does NOT fire", () => {
+    expect(namesAgentAction("I fixed the migration unless a row was locked.")).toBe(false);
+    expect(detectDeferralPhrases("I fixed the migration unless a row was locked.")).toEqual([]);
+  });
+
+  test("each agent-action form is recognized", () => {
+    expect(namesAgentAction("I'll take it")).toBe(true);
+    expect(namesAgentAction("I can take it")).toBe(true);
+    expect(namesAgentAction("you'd rather I go")).toBe(true);
+    expect(namesAgentAction("want me to file it")).toBe(true);
+    expect(namesAgentAction("the sweep retried it")).toBe(false);
+  });
+
+  // Line-scoped, for the reason lineAt records: a menu token and an
+  // agent-action clause in different paragraphs were not said in one breath.
+  test("the two constituents must land on the SAME line", () => {
+    expect(
+      findOfferShape("Merged and green. I can take mt#3799 next unless you'd rather stop.")
+    ).not.toBeNull();
+    // Menu token on line 1, agent-action clause on line 2 — no offer.
+    expect(findOfferShape("Anything else?\nI can take mt#3799 next.")).toBeNull();
+  });
+
+  // A deliberate boundary, not an oversight. The INVERTED modal ("Should I file
+  // it?") is a permission-ask question, and it is already the literal corpus's
+  // territory — `PERMISSION_DEFERRAL_PATTERNS` carries `/(shall|should)\s+I/`
+  // on the surface where it matters. Adding it here would widen a live guard
+  // past the class this task measured, so the trigger stays on the declarative
+  // offer shape and the question form keeps its existing owner.
+  test("the inverted-modal question form is left to the literal corpus", () => {
+    expect(namesAgentAction("Should I file it separately?")).toBe(false);
+  });
+
+  // The phrase field feeds the sweep's diversity axis, which decides when this
+  // log gets reviewed. A per-turn-unique phrase would make every record
+  // distinct and stall the review trigger — so the trigger reports a stable
+  // label, never the matched sentence.
+  test("the reported phrase is a stable low-cardinality label, not the sentence", () => {
+    const [match] = detectDeferralPhrases(OFFER_SHAPE_MESSAGE);
+    expect(match?.matchedPhrase).toBe("offer-shape:unless");
+    expect(match?.matchedPhrase).not.toContain("mt#3799");
+    // The sentence is still recoverable — it lives in `context`, which is what
+    // a calibration reviewer classifies from.
+    expect(match?.context).toContain("straight at it");
+  });
+
+  // Additive by construction: the structural trigger runs only when the literal
+  // corpus produced nothing for this class, so no pre-existing record changes
+  // shape. "I'll stop here unless you want more" satisfies BOTH, and must keep
+  // reporting the literal phrase it has always reported.
+  test("a literal menu match keeps its own phrase — the trigger runs second", () => {
+    const [match] = detectDeferralPhrases("I'll stop here unless you want more.");
+    expect(match?.matchedPhrase).toBe("I'll stop here");
+  });
+
+  test("the offer shape reaches the ask-routing suppression unchanged", () => {
+    // Quoted discussion OF the shape must not fire it — the same elision the
+    // literal corpus gets, since the trigger runs over the elided copy.
+    expect(detectDeferralPhrases(`The phrase "unless you'd rather I go" is on the list.`)).toEqual(
+      []
+    );
+  });
+
+  // KNOWN MISS, pinned deliberately so it is a recorded decision rather than an
+  // untested belief. Closing it means widening `hasMenuShape`, which is also
+  // the pause/stop suppression gate — the false-positive direction on a
+  // live-injecting guard. See that function's docblock.
+  test("known miss: a comma before `or` is not recognized as a disjunction", () => {
+    const commaOr = "Next step is mt#3799, or I can go straight at it.";
+    expect(namesAgentAction(commaOr)).toBe(true);
+    expect(hasMenuShape(commaOr)).toBe(false);
+    expect(findOfferShape(commaOr)).toBeNull();
   });
 });

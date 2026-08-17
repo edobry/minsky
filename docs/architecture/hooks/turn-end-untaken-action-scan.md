@@ -122,6 +122,32 @@ concluded the fire was a false positive. It was a paradigm true positive — the
 corpus because of an earlier incident of exactly this shape. A directive that does not fit teaches
 the reader to discount the detector, which is the mem#719 dynamic reached from the other side.
 
+### The branch was reachable only as far as the sibling's recall (mt#3801)
+
+`deferralShaped` is not computed here. It is `detectDeferralPhrases(finalMessage).length > 0` —
+this guard delegates the offer/commitment classification wholesale to `ask-routing-deferral`'s
+corpus. So the branch above is only ever selected for shapes THAT detector recognizes, and a
+sentence it misses arrives here classified as a commitment by default.
+
+That is what happened on 2026-08-05, the same day the branch shipped. The closing sentence was:
+
+> Next step is `/plan-task mt#3799` unless you'd rather I go straight at it.
+
+It matched this guard's `next-up` COMMITMENT family and got "Take it now" — because neither
+deferral corpus had an entry for a **negated default**, so `deferralShaped` was false. The branch
+built for this sentence six days earlier was never reached.
+
+**Nothing on this surface changed to fix it.** mt#3801 added a structural offer trigger to
+`ask-routing-deferral` (a conjunction of its existing `hasMenuShape` recognizer with a first-person
+agent-action clause), and the classification now reaches the branch that already existed. The
+lesson worth carrying: a delegated classification inherits the delegate's blind spots silently —
+the fire still happens, the directive is just wrong, so there is no missing-fire signal to notice.
+The regression test for it lives beside the two branch tests in this guard's own file, asserting on
+the rendered directive rather than on the flag.
+
+Full narration of the trigger: `docs/architecture/hooks/ask-routing-deferral-detector.md §The offer
+shape as a structural trigger`.
+
 ## The ceiling, and why it binds here
 
 `attentionCost.denialMessageSizeChars` is **450**, enforced against a real render by
