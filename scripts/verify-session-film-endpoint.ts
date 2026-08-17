@@ -12,15 +12,22 @@
  *   bun scripts/verify-session-film-endpoint.ts [conversationId] [--port N]
  *   bun scripts/verify-session-film-endpoint.ts [conversationId] [--base-url http://host:port]
  *
- * With no `conversationId`, picks the most-recently-ingested conversation
- * with a scrub-gate-OK transcript (via the events endpoint's own DB path —
- * NOT a raw query, so this exercises the exact same code the cockpit route
- * uses).
+ * With no `conversationId`, walks the most-recently-ingested conversations
+ * (up to MAX_CANDIDATES) until one yields events — a listed conversation can
+ * legitimately have none, so a single empty candidate is not a verdict on the
+ * endpoint. Everything goes through the events endpoint's own DB path, NOT a
+ * raw query, so this exercises the exact same code the cockpit route uses.
+ *
+ * A run only SKIPs when the daemon is unreachable or the corpus is genuinely
+ * empty. With a non-empty corpus and no readable film it FAILS — reporting
+ * "nothing to verify" there is what let this script verify nothing from
+ * mt#3268 until mt#4188 (its selector keyed on `scrubGateOk`, a field ADR-040
+ * removed from the row, so `find` matched nothing on every run).
  *
  * What it asserts:
  *   1. GET /api/cockpit/session-film/sessions returns a non-empty list.
- *   2. GET /api/cockpit/session-film/events?conversationId=<id> for a
- *      scrub-gate-OK session returns 200 with a non-empty `events` array.
+ *   2. GET /api/cockpit/session-film/events?conversationId=<id> returns 200
+ *      with a non-empty `events` array for at least one listed conversation.
  *   3. The returned events are ORDERED (non-decreasing `tStart`, allowing
  *      ties within a parallel batch).
  *   4. Every event has the expected SemanticEvent shape (schemaVersion,
@@ -40,8 +47,25 @@
 interface SessionRow {
   agentSessionId: string;
   label: string;
-  scrubGateOk: boolean;
+  /**
+   * Sort key for candidate selection. This used to be `scrubGateOk`, which
+   * ADR-040 / mt#3268 removed from the route's row along with the gate itself
+   * ("`scrubGateOk`, the picker's disabled rows and refusal copy … all go").
+   * The selector kept testing it, so `find` returned undefined on every row and
+   * the script SKIPped every no-argument run while the endpoint was healthy —
+   * it verified nothing from mt#3268 until mt#4188. Key selection on a field
+   * the route actually returns.
+   */
+  ingestedAt: string | null;
 }
+
+/**
+ * How many recent conversations to try before giving up. A conversation can be
+ * listed and still yield no events (pre-adapter ingest, windowed-out lines), so
+ * one candidate is not a verdict on the endpoint — mirrors
+ * `verify-session-film-panes.ts`'s MAX_CANDIDATES for the same reason.
+ */
+const MAX_CANDIDATES = 6;
 
 interface SemanticEventShape {
   schemaVersion: string;
@@ -104,6 +128,66 @@ function parseArgs(argv: string[]): {
   return { conversationId, port, baseUrl };
 }
 
+type VerifyOutcome =
+  | { kind: "pass"; count: number; ingestedAt: string | null }
+  | { kind: "no-events" }
+  | { kind: "fail"; reason: string };
+
+/**
+ * Assert the events endpoint's contract for ONE conversation.
+ *
+ * Returns an outcome rather than exiting, so the caller can distinguish the two
+ * cases that used to be conflated: `no-events` is a property of THAT
+ * conversation (it can be listed and still have nothing the adapter emitted),
+ * so the caller tries the next candidate; `fail` is a property of the ENDPOINT
+ * and stops the run.
+ */
+async function verifyConversation(base: string, row: SessionRow): Promise<VerifyOutcome> {
+  const res = await fetch(
+    `${base}/api/cockpit/session-film/events?conversationId=${encodeURIComponent(row.agentSessionId)}`
+  );
+  if (!res.ok) {
+    return { kind: "fail", reason: `/events returned HTTP ${res.status}: ${await res.text()}` };
+  }
+
+  const body = (await res.json()) as { events: SemanticEventShape[]; ingestedAt: string | null };
+  const events = body.events;
+  if (events.length === 0) return { kind: "no-events" };
+
+  let prevT = -Infinity;
+  for (const [i, event] of events.entries()) {
+    if (typeof event.schemaVersion !== "string" || typeof event.verb !== "string") {
+      return {
+        kind: "fail",
+        reason: `event[${i}] missing expected SemanticEvent fields: ${JSON.stringify(event)}`,
+      };
+    }
+    if (
+      !event.target ||
+      typeof event.target.realm !== "string" ||
+      typeof event.target.id !== "string"
+    ) {
+      return {
+        kind: "fail",
+        reason: `event[${i}] missing target.realm/id: ${JSON.stringify(event)}`,
+      };
+    }
+    const t = Date.parse(event.tStart);
+    if (Number.isNaN(t)) {
+      return { kind: "fail", reason: `event[${i}] has an unparsable tStart: ${event.tStart}` };
+    }
+    if (t < prevT) {
+      return {
+        kind: "fail",
+        reason: `events are not ordered — event[${i}].tStart (${event.tStart}) precedes a prior event's tStart.`,
+      };
+    }
+    prevT = t;
+  }
+
+  return { kind: "pass", count: events.length, ingestedAt: body.ingestedAt };
+}
+
 async function main(): Promise<void> {
   const { conversationId: explicitId, port, baseUrl } = parseArgs(process.argv.slice(2));
   const base = baseUrl ?? `http://127.0.0.1:${port}`;
@@ -128,72 +212,53 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const target =
-    (explicitId && sessionsBody.sessions.find((s) => s.agentSessionId === explicitId)) ??
-    sessionsBody.sessions.find((s) => s.scrubGateOk);
-
-  if (!target) {
-    console.error(
-      "SKIP: no scrub-gate-OK session available to verify (all ingested sessions predate the credential-scrub cutover)."
-    );
-    process.exit(0);
-  }
-
-  console.error(`Verifying conversationId=${target.agentSessionId} ("${target.label}") ...`);
-
-  const eventsRes = await fetch(
-    `${base}/api/cockpit/session-film/events?conversationId=${encodeURIComponent(target.agentSessionId)}`
-  );
-  if (!eventsRes.ok) {
-    console.error(`FAIL: /events returned HTTP ${eventsRes.status}: ${await eventsRes.text()}`);
-    process.exit(1);
-  }
-
-  const eventsBody = (await eventsRes.json()) as {
-    events: SemanticEventShape[];
-    ingestedAt: string | null;
-  };
-  const events = eventsBody.events;
-
-  if (events.length === 0) {
-    console.error("FAIL: events array is empty — expected a non-trivial transcript.");
-    process.exit(1);
-  }
-
-  let prevT = -Infinity;
-  for (const [i, event] of events.entries()) {
-    if (typeof event.schemaVersion !== "string" || typeof event.verb !== "string") {
+  let candidates: SessionRow[];
+  if (explicitId) {
+    const requested = sessionsBody.sessions.find((s) => s.agentSessionId === explicitId);
+    if (!requested) {
+      // Previously this fell through to the auto-selector and verified some
+      // OTHER conversation — a pass reported for something nobody asked about.
       console.error(
-        `FAIL: event[${i}] missing expected SemanticEvent fields: ${JSON.stringify(event)}`
+        `FAIL: conversationId=${explicitId} was requested but /sessions does not list it ` +
+          `(${sessionsBody.sessions.length} listed).`
       );
       process.exit(1);
     }
-    if (
-      !event.target ||
-      typeof event.target.realm !== "string" ||
-      typeof event.target.id !== "string"
-    ) {
-      console.error(`FAIL: event[${i}] missing target.realm/id: ${JSON.stringify(event)}`);
-      process.exit(1);
-    }
-    const t = Date.parse(event.tStart);
-    if (Number.isNaN(t)) {
-      console.error(`FAIL: event[${i}] has an unparsable tStart: ${event.tStart}`);
-      process.exit(1);
-    }
-    if (t < prevT) {
-      console.error(
-        `FAIL: events are not ordered — event[${i}].tStart (${event.tStart}) precedes a prior event's tStart.`
-      );
-      process.exit(1);
-    }
-    prevT = t;
+    candidates = [requested];
+  } else {
+    candidates = [...sessionsBody.sessions]
+      .sort((a, b) => String(b.ingestedAt ?? "").localeCompare(String(a.ingestedAt ?? "")))
+      .slice(0, MAX_CANDIDATES);
   }
 
+  const emptied: string[] = [];
+  for (const row of candidates) {
+    console.error(`Verifying conversationId=${row.agentSessionId} ("${row.label}") ...`);
+    const outcome = await verifyConversation(base, row);
+
+    if (outcome.kind === "pass") {
+      console.error(
+        `PASS: ${outcome.count} ordered SemanticEvent(s) returned for ` +
+          `conversationId=${row.agentSessionId} (ingestedAt=${outcome.ingestedAt ?? "null"}).`
+      );
+      return;
+    }
+    if (outcome.kind === "fail") {
+      console.error(`FAIL: ${outcome.reason}`);
+      process.exit(1);
+    }
+
+    emptied.push(row.agentSessionId);
+    console.error(`  no events for ${row.agentSessionId} — trying the next candidate`);
+  }
+
+  // Deliberately FAIL, not SKIP: /sessions listed a non-empty corpus, so
+  // "nothing to verify" is not an honest description of this state.
   console.error(
-    `PASS: ${events.length} ordered SemanticEvent(s) returned for conversationId=${target.agentSessionId} ` +
-      `(ingestedAt=${eventsBody.ingestedAt ?? "null"}).`
+    `FAIL: none of the ${candidates.length} candidate conversation(s) returned any events ` +
+      `(tried ${emptied.join(", ")}), though /sessions listed ${sessionsBody.sessions.length}.`
   );
+  process.exit(1);
 }
 
 if (import.meta.main) {
