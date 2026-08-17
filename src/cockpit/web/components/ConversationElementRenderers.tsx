@@ -13,8 +13,39 @@
  * assembly (`pairToolInvocations`, `TurnView`, `CompactionBoundary`) — only
  * the single-element renderers moved here.
  *
+ * ## Weight hierarchy (mt#4220)
+ *
+ * Speech is the narrative spine of a transcript; tool calls are EVIDENCE the
+ * reader consults when a claim needs checking. So the visual weight ordering on
+ * this surface is, loudest first:
+ *
+ *   1. failures        — `destructive` border + tint, expanded by default
+ *   2. assistant/user prose — full `text-foreground`, `text-sm` (design-system `body`)
+ *   3. everything else — `text-muted-foreground`, `text-xs`, NO border, NO tint
+ *
+ * Before mt#4220 this was inverted: every machine element (tool call, thinking
+ * block, injected span, command) was a bordered, tinted card and the healthy
+ * tool row additionally carried an accent hue (`border-sky-500/30 bg-sky-500/5`,
+ * name in `text-sky-300`), while assistant prose rendered with no wrapper and no
+ * class at all. Border and color are the two strongest attention signals on a
+ * dark surface (`src/cockpit/CLAUDE.md` §"Dark-mode-first"), and both were spent
+ * entirely on the machinery — so a run of a dozen collapsed calls read as a
+ * dozen glowing boxes and the paragraph between them read as the gap between
+ * them.
+ *
+ * The size ordering was ALREADY correct and was not the defect: `<Prose>` renders
+ * at `text-sm` (the design-system `body` token, "primary readable content") and
+ * every machine element at `text-xs` (`small`, "captions, metadata"). What was
+ * wrong was colour and enclosure, which is why the fix is subtractive.
+ *
+ * **Adding an element kind here?** Give it rule 3 unless it is a failure. Reach
+ * for a border, a background tint, or a hue only when you can say which of the
+ * three tiers it belongs to and why — not to make it "findable", which is what
+ * produced the inversion.
+ *
  * @see mt#3262 — this extraction
  * @see mt#2374 / mt#2790 / mt#2791 — original implementation history
+ * @see mt#4220 — the weight hierarchy above
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -45,6 +76,21 @@ export type SpawnInfo = NonNullable<ToolCallElement["spawn"]>;
 
 const SPAWN_BADGE_CLASS =
   "mr-2 shrink-0 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300";
+
+/**
+ * Focus ring for this module's disclosure controls (mt#4220, PR #3078 R1).
+ *
+ * `src/cockpit/CLAUDE.md` §"Accessibility-first primitives" requires a visible
+ * focus state on every interactive element, and these four — the tool-row
+ * toggle, the injected-span toggle, the command toggle, and the thinking
+ * `<summary>` — had none. That was already a gap before mt#4220 (the card
+ * border was unconditional chrome, never a focus indicator), but de-carding
+ * makes it acute: a keyboard user tabbing onto a borderless, tintless row had
+ * nothing at all to see. `ring-inset` because these rows have no border to sit
+ * outside of — an outset ring on a bare line reads as a stray box.
+ */
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded";
 
 /**
  * The `→ subagent (kind)` marker on an Agent tool call.
@@ -151,10 +197,15 @@ export function ThinkingBlock({
 
   return (
     <details
-      className="group rounded border border-border/60 bg-muted/20"
+      className="group rounded"
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+      <summary
+        className={cn(
+          "cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          FOCUS_RING
+        )}
+      >
         <span className="italic">thinking</span>
         <span className="ml-1 text-muted-foreground/60 group-open:hidden">
           ({thinking.length} chars — click to expand)
@@ -256,8 +307,11 @@ export function ToolInvocation({
       // must find an element that is already anchored.
       {...{ [TOOL_USE_ANCHOR_ATTR]: call.id }}
       className={cn(
-        "rounded border",
-        isError ? "border-destructive/50 bg-destructive/5" : "border-sky-500/30 bg-sky-500/5",
+        "rounded",
+        // A healthy call is a dim LINE, not a card (mt#4220): no border, no
+        // tint. Only a failure keeps the card — see the weight hierarchy note
+        // at the top of this module for why.
+        isError && "border border-destructive/50 bg-destructive/5",
         isAddressed && ADDRESSED_MARK_CLASS
       )}
     >
@@ -273,24 +327,30 @@ export function ToolInvocation({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs",
+            FOCUS_RING
+          )}
         >
           <Icon
             aria-hidden
-            className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : "text-sky-500/80")}
+            className={cn(
+              "h-3.5 w-3.5 shrink-0",
+              isError ? "text-destructive" : "text-muted-foreground/60"
+            )}
           />
           <span
             title={nameTooltip}
             className={cn(
               "shrink-0 font-mono font-medium",
-              isError ? "text-destructive" : "text-sky-300"
+              isError ? "text-destructive" : "text-muted-foreground"
             )}
           >
             {label}
           </span>
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-muted-foreground",
+              "min-w-0 flex-1 truncate text-muted-foreground/60",
               isError && "text-destructive/80"
             )}
           >
@@ -326,7 +386,7 @@ export function ToolInvocation({
             value={call.input}
             toolName={call.name}
             entityIndex={entityIndex}
-            className="border-sky-500/20 text-foreground/80"
+            className="border-border/40 text-foreground/80"
           />
           {result ? (
             <>
@@ -369,8 +429,10 @@ export function ToolResult({
   return (
     <div
       className={cn(
-        "rounded border bg-muted/20",
-        element.isError ? "border-destructive/40" : "border-border/60"
+        // Same weight rule as ToolInvocation (mt#4220): the healthy case is a
+        // dim line, only a failure keeps the card.
+        "rounded",
+        element.isError && "border border-destructive/40 bg-destructive/5"
       )}
     >
       <div className="flex items-center gap-2 px-2 py-1 text-xs text-muted-foreground">
@@ -422,12 +484,15 @@ export function InjectedContentBlock({
   }, [expandEpoch]);
 
   return (
-    <div className="rounded border border-border/40 bg-muted/10">
+    <div className="rounded">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground"
+        className={cn(
+          "flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground",
+          FOCUS_RING
+        )}
       >
         <span className="italic">{span.label}</span>
         <span className="text-muted-foreground/50">
@@ -489,7 +554,7 @@ export function CommandInvocation({
   const { command, output, caveat } = element;
 
   return (
-    <div className="rounded border border-border/40 bg-muted/10">
+    <div className="rounded">
       <div className="flex items-start gap-2 px-2 py-1">
         <span aria-hidden className="select-none font-mono text-xs text-muted-foreground/60">
           &gt;
@@ -506,7 +571,7 @@ export function CommandInvocation({
           aria-expanded={open}
           aria-controls={detailsId}
           aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
-          className="ml-auto shrink-0 text-xs text-muted-foreground/60"
+          className={cn("ml-auto shrink-0 text-xs text-muted-foreground/60", FOCUS_RING)}
         >
           {open ? "▾" : "▸"}
         </button>
@@ -661,7 +726,21 @@ export function ElementView({
           </div>
         );
       }
-      return <Prose entityIndex={entityIndex}>{element.text}</Prose>;
+      // Full-strength foreground, overriding <Prose>'s default `text-foreground/90`
+      // (mt#4220). Speech is the narrative spine of a transcript and every other
+      // element on this surface now recedes to `text-muted-foreground`; a prose
+      // block dimmed to 90% while the machinery around it carries the eye is the
+      // inverted hierarchy this task exists to correct. Deliberately a CALL-SITE
+      // override rather than a change to <Prose>'s default: this is the one
+      // surface where prose competes with dense machinery for attention, and
+      // ~16 other Prose sites (task specs, memory bodies, ask questions) have no
+      // such competition. If a second surface ever needs it, promote it to the
+      // default rather than adding a second override.
+      return (
+        <Prose entityIndex={entityIndex} className="text-foreground">
+          {element.text}
+        </Prose>
+      );
     }
     case "thinking":
       // mt#3276: thinking text is NEVER recorded — Claude Code writes
