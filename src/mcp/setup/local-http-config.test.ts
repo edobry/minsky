@@ -409,12 +409,48 @@ describe("applyRewritesToDocument", () => {
   });
 });
 
+describe("detectIndent: tab-indented documents", () => {
+  test("tabs are preserved rather than collapsed to the numeric default", () => {
+    // PR #3032 R1 (non-blocking): returning 2 for a tab-indented file made
+    // `JSON.stringify` reformat every line -- the whole-file diff this
+    // function exists to prevent, produced by the one input it could not
+    // express an answer for.
+    expect(detectIndent('{\n\t"a": {\n\t\t"b": 1\n\t}\n}')).toBe("\t");
+  });
+
+  test("a tab-indented config round-trips without reformatting its untouched lines", () => {
+    const raw = `{\n\t"mcpServers": {\n\t\t"minsky": {\n\t\t\t"command": "minsky",\n\t\t\t"args": ["mcp", "proxy"]\n\t\t}\n\t}\n}\n`;
+    const entry: DiscoveredEntry = {
+      scope: "project",
+      file: PROJECT_MCP_JSON,
+      serverName: "minsky",
+      form: "proxy",
+      command: "minsky",
+      args: ["mcp", "proxy"],
+    };
+    const rewrite: PlannedRewrite = {
+      entry,
+      beforeArgs: entry.args,
+      afterArgs: SHIM_ARGS,
+    };
+
+    const written = applyRewritesToDocument(raw, [rewrite]);
+    if (written === null) throw new Error("expected a rewrite, got no change");
+
+    expect(written).toContain('\t"mcpServers"');
+    expect(written).not.toContain('  "mcpServers"');
+    expect(JSON.parse(written).mcpServers.minsky.args).toEqual(SHIM_ARGS);
+  });
+});
+
 describe("detectIndent", () => {
   test("reads the document's own indentation, defaulting to 2", () => {
     expect(detectIndent(JSON.stringify({ a: { b: 1 } }, null, 4))).toBe(4);
     expect(detectIndent(JSON.stringify({ a: { b: 1 } }, null, 2))).toBe(2);
     expect(detectIndent('{"a":1}')).toBe(2);
-    expect(detectIndent(JSON.stringify({ a: { b: 1 } }, null, "\t"))).toBe(2);
+    // Was asserted as 2 -- that expectation encoded the reformat-the-whole-file
+    // defect rather than a decision. Tabs now round-trip as themselves.
+    expect(detectIndent(JSON.stringify({ a: { b: 1 } }, null, "\t"))).toBe("\t");
   });
 });
 

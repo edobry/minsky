@@ -95,12 +95,12 @@ which version — your entry runs. To move one onto the shim, point its `command
 
 ### Flags
 
-| Flag            | Effect                                                                                      |
-| --------------- | ------------------------------------------------------------------------------------------- |
-| `--execute`     | Apply. Without it, the plan prints and nothing is written.                                  |
-| `--revert`      | Restore the most recent backup of each config and stop the daemon. Also dry-run by default. |
-| `--url <url>`   | Daemon MCP URL for the shim (default `http://127.0.0.1:48765/mcp`).                         |
-| `--repo <path>` | Project root whose `.mcp.json` is scanned (default: current directory).                     |
+| Flag            | Effect                                                                                                                                                                                  |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--execute`     | Apply. Without it, the plan prints and nothing is written.                                                                                                                              |
+| `--revert`      | Restore the most recent backup of each config and stop the daemon. Also dry-run by default.                                                                                             |
+| `--url <url>`   | Daemon MCP URL (default `http://127.0.0.1:48765/mcp`). Decides all three: what the rewritten entry points at, where the daemon is probed for, and the host/port a spawned daemon binds. |
+| `--repo <path>` | Project root whose `.mcp.json` is scanned (default: current directory).                                                                                                                 |
 
 ## Reverting
 

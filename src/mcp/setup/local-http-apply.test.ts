@@ -13,6 +13,8 @@ import {
   classifyDaemonProbe,
   ConfigWriteError,
   daemonSpawnCommand,
+  healthUrlForMcpUrl,
+  parseDaemonEndpoint,
   ensureDaemonRunning,
   resolveSelfInvocation,
   revertCandidates,
@@ -237,6 +239,25 @@ describe("ensureDaemonRunning", () => {
     expect(started.status.detail).toContain("/health");
   });
 
+  test("probes the endpoint it was given, not the default", async () => {
+    // PR #3032 R1: --url wrote a config pointing at one port while the ensure
+    // step probed 48765, so the operator could be left aimed at nothing.
+    const probed: string[] = [];
+    const result = await ensureDaemonRunning(ARGV, {
+      healthUrl: "http://127.0.0.1:9999/health",
+      deps: {
+        probe: async (url: string) => {
+          probed.push(url);
+          return healthy;
+        },
+        spawnDetached: () => {},
+        sleep: async () => {},
+      },
+    });
+    expect(probed).toEqual(["http://127.0.0.1:9999/health"]);
+    expect(result.spawned).toBe(false);
+  });
+
   test("refuses to spawn over a foreign holder of the port", async () => {
     const spawned: string[][] = [];
     const foreign: HealthProbeOutcome = { kind: "body", body: { service: "minsky-cockpit" } };
@@ -285,6 +306,65 @@ describe("resolveSelfInvocation", () => {
 
   test("an empty argv falls back to the installed name rather than producing nothing", () => {
     expect(resolveSelfInvocation([])).toEqual(["minsky"]);
+  });
+
+  test("a package runner keeps its package argument", () => {
+    // PR #3032 R1: argv[1] under `bunx minsky ...` is the bin NAME, not a
+    // script path, so the extension test missed it and the prefix collapsed to
+    // a bare `bunx` -- spawning `bunx mcp start ...`, which names no package
+    // and cannot run.
+    expect(resolveSelfInvocation(["/home/e/.bun/bin/bunx", "minsky", "setup"])).toEqual([
+      "/home/e/.bun/bin/bunx",
+      "minsky",
+    ]);
+    expect(resolveSelfInvocation(["/usr/local/bin/npx", "minsky", "setup"])).toEqual([
+      "/usr/local/bin/npx",
+      "minsky",
+    ]);
+  });
+});
+
+describe("daemon endpoint threading", () => {
+  test("a URL yields the host and port the daemon must bind", () => {
+    expect(parseDaemonEndpoint("http://127.0.0.1:9999/mcp")).toEqual({
+      host: "127.0.0.1",
+      port: 9999,
+    });
+    expect(healthUrlForMcpUrl("http://127.0.0.1:9999/mcp")).toBe("http://127.0.0.1:9999/health");
+  });
+
+  test("an unusable URL is reported as such rather than silently defaulting", () => {
+    // Falling back to the default here is what produced the mismatch: a config
+    // aimed at one endpoint and a probe aimed at another.
+    expect(parseDaemonEndpoint("not-a-url")).toBeNull();
+    expect(parseDaemonEndpoint("")).toBeNull();
+    expect(healthUrlForMcpUrl("not-a-url")).toBeNull();
+  });
+
+  test("a non-default endpoint is carried into the spawn command", () => {
+    const argv = daemonSpawnCommand(["/bin/minsky"], PROJECT, { host: "127.0.0.1", port: 9999 });
+    expect(argv).toEqual([
+      "/bin/minsky",
+      "mcp",
+      "start",
+      "--http",
+      "--local-daemon",
+      "--repo",
+      PROJECT,
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "9999",
+    ]);
+  });
+
+  test("the default endpoint adds no flags -- the mode already supplies them", () => {
+    const withDefault = daemonSpawnCommand(["/bin/minsky"], PROJECT, {
+      host: "127.0.0.1",
+      port: 48765,
+    });
+    expect(withDefault).toEqual(daemonSpawnCommand(["/bin/minsky"], PROJECT));
+    expect(withDefault).not.toContain("--port");
   });
 });
 

@@ -487,11 +487,18 @@ export function findLatestBackup(file: string, deps: ConfigFsDeps): string | nul
  * Re-serializing `~/.claude.json` with the wrong indent would rewrite a large
  * file the operator never asked us to reformat; detecting it keeps the diff
  * to the entry we actually changed.
+ *
+ * Returns the whitespace VERBATIM for a tab-indented document rather than a
+ * width. `JSON.stringify` takes a string indent as readily as a number, and
+ * collapsing tabs to the numeric default reformatted every line of a
+ * tab-indented config — the whole-file diff this function exists to avoid,
+ * reached by the one path that could not express its own answer.
  */
-export function detectIndent(raw: string): number {
+export function detectIndent(raw: string): string | number {
   const match = raw.match(/\n(\s+)"/);
   const indent = match?.[1];
-  if (indent === undefined || indent.includes("\t")) return 2;
+  if (indent === undefined) return 2;
+  if (indent.includes("\t")) return indent;
   return indent.length;
 }
 

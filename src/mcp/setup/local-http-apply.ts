@@ -13,6 +13,7 @@
  */
 
 import { spawn } from "child_process";
+import path from "path";
 import {
   applyRewritesToDocument,
   backupPathFor,
@@ -200,8 +201,68 @@ export function localDaemonMcpUrl(
  * correct repo, so the operator should see which one this run picked. The
  * general multi-repo binding question belongs to mt#3814 / mt#2430.
  */
-export function daemonSpawnCommand(invocation: string[], projectRoot: string): string[] {
-  return [...invocation, "mcp", "start", "--http", "--local-daemon", "--repo", projectRoot];
+export function daemonSpawnCommand(
+  invocation: string[],
+  projectRoot: string,
+  endpoint?: DaemonEndpoint
+): string[] {
+  const base = [...invocation, "mcp", "start", "--http", "--local-daemon", "--repo", projectRoot];
+  // `--local-daemon` is a MODE that supplies ADR-038's host/port contract for
+  // any value the caller did not pass explicitly, and `mcp start` honors an
+  // explicit `--port`/`--host` over that default (see start-command.ts's
+  // `getOptionValueSource` branch). So the override is appended ONLY when the
+  // requested endpoint differs from the contract: at the default we let the
+  // mode speak, and a printed spawn line carrying redundant flags would imply
+  // a choice was made where none was.
+  if (endpoint === undefined || isDefaultDaemonEndpoint(endpoint)) return base;
+  return [...base, "--host", endpoint.host, "--port", String(endpoint.port)];
+}
+
+export interface DaemonEndpoint {
+  host: string;
+  port: number;
+}
+
+export function isDefaultDaemonEndpoint(endpoint: DaemonEndpoint): boolean {
+  return endpoint.host === DEFAULT_LOCAL_DAEMON_HOST && endpoint.port === DEFAULT_LOCAL_DAEMON_PORT;
+}
+
+/**
+ * The host/port a given MCP URL points at.
+ *
+ * `--url` decides where the rewritten config sends the shim, so it must also
+ * decide where this command probes for a daemon and what endpoint it spawns
+ * one on. Deriving all three from one string is what keeps them from drifting:
+ * before this, `--url http://127.0.0.1:9999/mcp` wrote a config aimed at 9999
+ * while the ensure-running step probed and spawned 48765, leaving the operator
+ * with a config pointing at nothing.
+ *
+ * Returns null for a URL that is not parseable or carries no usable port; the
+ * caller turns that into an operator-facing error rather than silently falling
+ * back to the default, which would reintroduce exactly that drift.
+ */
+export function parseDaemonEndpoint(mcpUrl: string): DaemonEndpoint | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(mcpUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.hostname === "") return null;
+  const port =
+    parsed.port === ""
+      ? parsed.protocol === "https:"
+        ? 443
+        : 80
+      : Number.parseInt(parsed.port, 10);
+  if (!Number.isInteger(port) || port <= 0) return null;
+  return { host: parsed.hostname, port };
+}
+
+/** The `/health` URL for the same daemon a given MCP URL addresses. */
+export function healthUrlForMcpUrl(mcpUrl: string): string | null {
+  const endpoint = parseDaemonEndpoint(mcpUrl);
+  return endpoint === null ? null : localDaemonHealthUrl(endpoint.host, endpoint.port);
 }
 
 /**
@@ -220,6 +281,14 @@ export function resolveSelfInvocation(argv: string[] = process.argv): string[] {
   const [interpreter, script] = argv;
   if (interpreter === undefined) return ["minsky"];
   if (script !== undefined && (script.endsWith(".ts") || script.endsWith(".js"))) {
+    return [interpreter, script];
+  }
+  // `bunx minsky ...` / `npx minsky ...`: argv[1] is the package bin name, not
+  // a script path, so the extension test above misses it and the prefix would
+  // collapse to a bare `bunx` — spawning `bunx mcp start ...`, which names no
+  // package and cannot run. The runner needs its package argument kept.
+  const runner = path.basename(interpreter);
+  if ((runner === "bunx" || runner === "npx") && script !== undefined) {
     return [interpreter, script];
   }
   return [interpreter];

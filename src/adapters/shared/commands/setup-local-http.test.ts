@@ -153,6 +153,48 @@ describe("runSetupLocalHttp — migrate", () => {
     expect(result.planText).toContain("CANNOT be migrated");
   });
 
+  test("a custom --url also decides where the daemon is probed and spawned", async () => {
+    // PR #3032 R1 BLOCKING: --url reached only the rewritten config. The
+    // ensure-running step still probed 48765 and spawned without a port, so
+    // `--url ...:9999` produced a config aimed at a daemon that was never
+    // started there.
+    const fs = scenario();
+    const probed: string[] = [];
+    const spawnedArgv: string[][] = [];
+
+    await runSetupLocalHttp(
+      { execute: true, url: "http://127.0.0.1:9999/mcp" },
+      {
+        ...BASE_DEPS,
+        fs,
+        daemon: {
+          probe: async (url: string) => {
+            probed.push(url);
+            return { kind: "body", body: { service: "minsky-mcp" } };
+          },
+          spawnDetached: (argv: string[]) => {
+            spawnedArgv.push(argv);
+          },
+          sleep: async () => {},
+        },
+      }
+    );
+
+    expect(probed.every((u) => u === "http://127.0.0.1:9999/health")).toBe(true);
+    expect(probed).not.toContain("http://127.0.0.1:48765/health");
+  });
+
+  test("an unusable --url fails before anything is written", async () => {
+    const fs = scenario();
+    const before = fs.read(PROJECT_MCP_JSON) as string;
+
+    await expect(
+      runSetupLocalHttp({ execute: true, url: "not-a-url" }, { ...BASE_DEPS, fs })
+    ).rejects.toThrow("--url");
+
+    expect(fs.read(PROJECT_MCP_JSON)).toBe(before);
+  });
+
   test("a custom --url is what lands in the rewritten entry", async () => {
     const fs = scenario();
     await runSetupLocalHttp(

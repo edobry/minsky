@@ -32,10 +32,13 @@ import {
 } from "../../../mcp/setup/local-http-config";
 import {
   applyPlan,
+  ConfigWriteError,
   daemonSpawnCommand,
   ensureDaemonRunning,
+  healthUrlForMcpUrl,
   localDaemonHealthUrl,
   localDaemonMcpUrl,
+  parseDaemonEndpoint,
   resolveSelfInvocation,
   revertCandidates,
   revertFromBackups,
@@ -155,7 +158,14 @@ async function runRevert(
     };
   }
 
+  // Same URL discipline as the migrate path: a revert that probed the default
+  // while the daemon was started on an overridden endpoint would report "still
+  // answering" (or a false stop) about the wrong port. An unparseable value
+  // falls back to the default here rather than throwing — revert is the
+  // operator's way OUT, and it must not be blockable by a bad flag.
+  const revertHealthUrl = healthUrlForMcpUrl(options.url ?? localDaemonMcpUrl());
   const stopped = await stopLocalDaemon({
+    ...(revertHealthUrl === null ? {} : { healthUrl: revertHealthUrl }),
     ...(deps.daemon === undefined ? {} : { deps: deps.daemon }),
   });
   emit(
@@ -190,12 +200,27 @@ export async function runSetupLocalHttp(
     return runRevert(options, deps, projectRoot, home);
   }
 
+  // `--url` decides where the rewritten config points, so it must also decide
+  // where we probe for a daemon and what endpoint we spawn one on. Deriving all
+  // three from the one string is what stops them drifting: probing the default
+  // while writing a config aimed elsewhere leaves the operator pointed at
+  // nothing. An unparseable URL is an operator error, raised before anything is
+  // written rather than absorbed into a silent fallback.
+  const endpoint = parseDaemonEndpoint(daemonUrl);
+  if (endpoint === null) {
+    throw new ConfigWriteError(
+      `--url must be an absolute URL with a host, e.g. ${localDaemonMcpUrl()} — got: ${daemonUrl}`
+    );
+  }
+  const healthUrl = localDaemonHealthUrl(endpoint.host, endpoint.port);
+
   const entries = discoverMinskyEntries({ projectRoot, home, deps: fs });
   const plan = planMigration(entries, daemonUrl);
   const planText = renderPlan(plan, daemonUrl);
   const spawnArgv = daemonSpawnCommand(
     resolveSelfInvocation(deps.argv ?? process.argv),
-    projectRoot
+    projectRoot,
+    endpoint
   );
 
   emit(planText);
@@ -231,7 +256,7 @@ export async function runSetupLocalHttp(
 
   emit("");
   emit(`Daemon: ${spawnArgv.join(" ")}`);
-  emit(`  (started only if nothing is already serving ${localDaemonHealthUrl()})`);
+  emit(`  (started only if nothing is already serving ${healthUrl})`);
 
   if (options.execute !== true) {
     emit("");
@@ -267,6 +292,7 @@ export async function runSetupLocalHttp(
   }
 
   const daemon = await ensureDaemonRunning(spawnArgv, {
+    healthUrl,
     ...(deps.daemon === undefined ? {} : { deps: deps.daemon }),
   });
   emit(
