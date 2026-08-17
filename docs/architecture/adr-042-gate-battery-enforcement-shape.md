@@ -152,6 +152,31 @@ the vendor hook-lifecycle docs alone — each has a working precedent to check a
 PreToolUse guard at each of these matchers receives the tool input it needs — stronger than the
 documentation, because it is running.
 
+**What wiring the dispatcher onto `tasks_status_set` actually commits us to** (PR #3036 R1; read
+from `dispatcher.ts` rather than assumed, because three tasks will act on this paragraph):
+
+- **The matcher is the TOOL, not the transition.** Every `tasks_status_set` call would enter the
+  dispatcher — PLANNING, IN-PROGRESS, IN-REVIEW, BLOCKED, all of them — and the READY filter has to
+  live inside each guard. READY is a small fraction of that traffic, so the two `ready` rows must
+  return early and cheaply on the other transitions. `getGuardsForEvent` returning an empty list
+  short-circuits before any context resolution, but a matched-then-discarded guard does not.
+- **Guards run sequentially, each behind a dynamic `import()`**, so latency is additive, not
+  parallel.
+- **A registration's `timeoutMs` is declarative and unenforced.** The dispatch loop never reads it —
+  `registry.test.ts` asserts each registration DECLARES one, and nothing bounds a guard by it. A
+  `ready` guard that reads a spec and scans a transcript is therefore unbounded from the
+  dispatcher's side; bound it yourself.
+- **The advisory budget is shared, not per-guard.** `MERGED_CONTEXT_BUDGET_CHARS` (6156) covers
+  every guard's `additionalContext` on the event combined; over budget, the lowest-priority
+  fragments are dropped and named. The two `ready` rows compete with each other for it.
+- **The seam becomes mixed.** `tasks-status-set-guard.ts` and `check-task-spec-read.ts` stay
+  standalone unless separately migrated, so they sit outside the dispatcher's first-deny-wins
+  ordering and outside the merged context. That is tolerable — it is how `session_pr_merge` already
+  works — but it is a property to know, not to discover.
+
+A crashing guard is caught and the loop continues, so none of the above can take the seam down; the
+risk is latency and silently-dropped advisories, not failure.
+
 Rows at `create` and `pr` join the existing `registry-task-create-guards.ts` and
 `registry-pr-create-guards.ts`. The `ready` rows need a **new `registry-status-set-guards.ts`**,
 plus a one-time change adding `dispatch-pretooluse.ts` to `.claude/settings.json`'s
