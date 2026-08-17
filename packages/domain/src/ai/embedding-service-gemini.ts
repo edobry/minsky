@@ -1,7 +1,8 @@
 import { injectable } from "tsyringe";
 import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
-import { RateLimitError } from "./enhanced-error-types";
+import { truncateEmbeddingInput } from "./embeddings/truncate-input";
+import { ProviderInputError, RateLimitError } from "./enhanced-error-types";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
 import {
@@ -10,8 +11,8 @@ import {
   REQUEST_TIMEOUT_MS,
 } from "./request-resilience";
 
-const GEMINI_EMBEDDING_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001";
+const GEMINI_EMBEDDING_MODEL = "gemini-embedding-001";
+const GEMINI_EMBEDDING_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_EMBEDDING_MODEL}`;
 
 interface GeminiEmbeddingResponse {
   embedding?: { values: number[] };
@@ -57,7 +58,10 @@ export class GeminiEmbeddingService implements EmbeddingService {
   }
 
   async generateEmbedding(content: string): Promise<number[]> {
-    const resp = await this.requestWithRetry([content]);
+    // `generateEmbeddings` below delegates here per input, so bounding this one
+    // method covers both entry points.
+    const bounded = await truncateEmbeddingInput(content, GEMINI_EMBEDDING_MODEL, "google");
+    const resp = await this.requestWithRetry([bounded]);
     if (resp.embedding?.values) return resp.embedding.values;
     if (resp.embeddings?.[0]?.values) return resp.embeddings[0].values;
     throw new Error("Invalid Gemini embedding response");
@@ -153,9 +157,17 @@ export class GeminiEmbeddingService implements EmbeddingService {
         );
       }
 
-      throw new Error(
-        `Gemini embedding request failed: ${res.status} ${res.statusText}${extra}`.trim()
-      );
+      const message =
+        `Gemini embedding request failed: ${res.status} ${res.statusText}${extra}`.trim();
+
+      // Same split as the OpenAI service (mt#4212): a 4xx that is not a rate
+      // limit or an auth failure is a rejected request body, which must not
+      // count against the provider circuit breaker.
+      if (res.status >= 400 && res.status < 500 && ![401, 403, 429].includes(res.status)) {
+        throw new ProviderInputError(message, "gemini", res.status);
+      }
+
+      throw new Error(message);
     }
 
     return (await res.json()) as GeminiEmbeddingResponse;

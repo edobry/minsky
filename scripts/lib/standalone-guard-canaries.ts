@@ -180,12 +180,30 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
       enforcementEffect(),
       recorderEffect("execution-evidence-at-coverage"),
       recorderEffect("execution-evidence-test-first"),
+      recorderEffect("execution-evidence-render-path"),
+      recorderEffect("execution-evidence-sc-coverage"),
     ],
     expects: "deny",
-    // TWO logs from one guard: the gate writes `execution-evidence-at-coverage`
-    // itself and `execution-evidence-test-first` through `test-first-evidence.ts`,
-    // which it calls in-process. The list form exists for this (mt#3519).
-    calibrationLog: ["execution-evidence-at-coverage", "execution-evidence-test-first"],
+    // FOUR logs from one guard, every one written in-process off this same merge-gate
+    // entry point: `execution-evidence-at-coverage` by the gate itself, and the other
+    // three through modules it calls — `test-first-evidence.ts`,
+    // `render-path-evidence.ts`, `success-criteria-coverage.ts`. The list form exists
+    // for this (mt#3519).
+    //
+    // mt#4064: this declared two of the four, and the two shapes the omission takes are
+    // different. `-render-path` was ON DISK, so it read as `Unmapped` — with no
+    // declaration there is no invocation evidence to join, which is exactly the
+    // dormant-vs-dead distinction mt#3502 built the three-state model for, and
+    // `check-calibration-sweep-coverage.ts` FAILED outright because no sweep visited it.
+    // `-sc-coverage` has never been written, so it was invisible to both checks and
+    // would have surfaced the same way on its first fire. Adding a calibration surface
+    // to this guard means adding it here in the same change.
+    calibrationLog: [
+      "execution-evidence-at-coverage",
+      "execution-evidence-test-first",
+      "execution-evidence-render-path",
+      "execution-evidence-sc-coverage",
+    ],
     check: async () => {
       const { checkExecutionEvidence } = await import(
         "../../.minsky/hooks/require-execution-evidence-before-merge"
