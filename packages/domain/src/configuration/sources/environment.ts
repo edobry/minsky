@@ -181,15 +181,57 @@ export const environmentMappings = {
  * consistent — diagnostics that consume `metadata.loadedVariables` see the
  * same view of "what env vars affected configuration" that the loader used.
  *
- * Keep in sync with `.claude/hooks/*.ts` as new hook-only `MINSKY_*` env
- * vars are introduced.
+ * Register a new hook-only `MINSKY_*` var by adding it to
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES` below WITH a category — the set exported here
+ * is derived from that record's keys (mt#3882), so there is nothing to keep in
+ * sync by hand and nothing to edit directly.
  */
 // Exported so the lint rule `eslint-rules/no-unregistered-minsky-env-var.js`
 // (mt#1788) can grep this file for the canonical allowlist. The rule does
 // AST-based extraction (since ESLint runs under Node and can't import .ts),
 // so the export is a parallel signal — the const stays here regardless.
 
-export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+/**
+ * What KIND of hook-only var an entry is (mt#3882).
+ *
+ * This distinction used to exist only in prose at each var's definition site,
+ * which is why `.minsky/hooks/known-override-env-vars.ts` — the hooks-tree
+ * list of operator escape hatches — could not be checked against anything and
+ * drifted 63 entries behind in one direction while carrying 45 entries that
+ * were never escape hatches in the other. Recording it HERE, once, is what
+ * lets a test derive that list instead of asking every future guard author to
+ * remember an unwritten rule.
+ *
+ * - `operator-override` — a guard, gate or detector consults this var as its
+ *   OWN override: setting it makes that mechanism not apply its decision
+ *   (skip, allow, suppress). This is the population the fire log's
+ *   `authorized_exception` classification is about, and the exact set
+ *   `KNOWN_OVERRIDE_ENV_VARS` must equal. An opt-IN that turns on additional
+ *   behavior is not one of these — it overrides nothing.
+ * - `test-fixture` — set by tests or the guard-canary harness, never by an
+ *   operator in normal use.
+ * - `tunable` — everything else: thresholds, paths, credentials, feature
+ *   flags, service config, process-to-process signals. Legitimate to set;
+ *   simply not an override of anybody's decision.
+ */
+export type HookOnlyEnvVarCategory = "operator-override" | "test-fixture" | "tunable";
+
+/**
+ * The canonical registry, keyed by var name so each entry's category sits
+ * beside the comment its author was already writing.
+ *
+ * **The record shape is load-bearing, not a style choice.**
+ * `eslint-rules/no-unregistered-minsky-env-var.js` cannot import this file
+ * (ESLint runs under Node, which will not load TypeScript), so it extracts
+ * names by matching the SOURCE TEXT with two line-anchored regexes. A
+ * `  MINSKY_FOO: "operator-override",` line is matched by its `mappingKeyRe`
+ * (`/^[ \t]*["']?(MINSKY_[A-Z0-9_]+)["']?[ \t]*:/gm`). An array of objects
+ * (`{ name: "MINSKY_FOO", … }`) would match NEITHER of its regexes, silently
+ * yielding an empty registry — and its empty-registry branch flags every
+ * `process.env.MINSKY_*` read in the repo. Keep one entry per line, name
+ * first, colon after.
+ */
+export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVarCategory>> = {
   // mt#3101 — NOT hook-read: this one is read by domain code
   // (`provenance/authorship-judging-flag.ts`). It belongs in this set for the
   // set's actual reason rather than its historical name — it is a `MINSKY_*`
@@ -198,24 +240,24 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // strict-mode validation would reject it, crashing the CLI whenever it is
   // set. Default-off switch for merge-time AI authorship-tier judging
   // (ask#5581).
-  "MINSKY_AUTHORSHIP_TIER_JUDGING",
-  "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
-  "MINSKY_FORCE_DUPLICATE_OK", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
-  "MINSKY_ALLOW_NESTED_FORK", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) — launch-time-only override for an undeclared nested fork dispatch
-  "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
-  "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
-  "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
-  "MINSKY_SKIP_BUNDLE_SMOKE", // .claude/hooks/require-review-before-merge.ts (mt#1787)
-  "MINSKY_SKIP_REQUIRED_CHECKS", // .claude/hooks/require-review-before-merge.ts (mt#1938)
-  "MINSKY_SKIP_SMOKE_CHECK", // .claude/hooks/require-review-before-merge.ts (mt#2060)
-  "MINSKY_SKIP_DEPLOY_VERIFY", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
-  "MINSKY_SKIP_SUBAGENT_MODEL_CHECK", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
-  "MINSKY_SKIP_CHAINED_VERIFICATION_SCAN", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
-  "MINSKY_SKIP_TRUNCATED_OUTCOME_READ", // .claude/hooks/truncated-outcome-read-detector.ts (mt#4096) — truncated-outcome-read observer override
-  "MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK", // .claude/hooks/guard-events-ingest-on-session-end.ts (mt#4035) — SessionEnd guard-events sweep-tick override
-  "MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
-  "MINSKY_TEST_WATCHDOG_MS", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
-  "MINSKY_TEST_READY_TIMEOUT_MS", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
+  MINSKY_AUTHORSHIP_TIER_JUDGING: "tunable",
+  MINSKY_FORCE_PARALLEL: "operator-override", // .claude/hooks/parallel-work-guard.ts
+  MINSKY_FORCE_DUPLICATE_OK: "operator-override", // .claude/hooks/parallel-work-guard.ts (mt#1435 — tasks_create dup guard)
+  MINSKY_ALLOW_NESTED_FORK: "operator-override", // .claude/hooks/block-nested-fork-dispatch.ts (mt#3045) — launch-time-only override for an undeclared nested fork dispatch
+  MINSKY_SKIP_FRESHNESS: "operator-override", // .claude/hooks/check-branch-fresh.ts
+  MINSKY_TWO_STRIKES_STATE_DIR: "tunable", // .claude/hooks/two-strikes-record.ts
+  MINSKY_TWO_STRIKES_MODE: "tunable", // .claude/hooks/two-strikes-record.ts
+  MINSKY_SKIP_BUNDLE_SMOKE: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#1787)
+  MINSKY_SKIP_REQUIRED_CHECKS: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#1938)
+  MINSKY_SKIP_SMOKE_CHECK: "operator-override", // .claude/hooks/require-review-before-merge.ts (mt#2060)
+  MINSKY_SKIP_DEPLOY_VERIFY: "operator-override", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2353)
+  MINSKY_SKIP_SUBAGENT_MODEL_CHECK: "operator-override", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
+  MINSKY_SKIP_CHAINED_VERIFICATION_SCAN: "operator-override", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
+  MINSKY_SKIP_TRUNCATED_OUTCOME_READ: "operator-override", // .claude/hooks/truncated-outcome-read-detector.ts (mt#4096) — truncated-outcome-read observer override
+  MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK: "operator-override", // .claude/hooks/guard-events-ingest-on-session-end.ts (mt#4035) — SessionEnd guard-events sweep-tick override
+  MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS: "tunable", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
+  MINSKY_TEST_WATCHDOG_MS: "tunable", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
+  MINSKY_TEST_READY_TIMEOUT_MS: "test-fixture", // src/commands/mcp/start-command.test.ts (mt#3140) — readiness-marker deadline override for the shutdown-path tests
   // mt#4017 — NOT hook-read: this one is read by scripts/drizzle-config-loader.ts,
   // which calls loadConfiguration() itself, so the var is present in process.env
   // when the loader's own environment source parses it. It is the sanctioned-
@@ -225,7 +267,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // this entry the auto-mapping fallback would route it to
   // `drizzle.loader.gate` and mt#1612 strict-mode validation would reject it,
   // crashing the loader itself on the very invocation the gate exists to allow.
-  "MINSKY_DRIZZLE_LOADER_GATE",
+  MINSKY_DRIZZLE_LOADER_GATE: "tunable",
   // Pre-push test-gate controls (.husky/pre-push -> scripts/run-tests-gated.ts).
   // Neither has a config-schema home, so without entries here the auto-mapping
   // fallback would route them to `skip.prepushTests` / `prepush.fullSuite` and
@@ -233,64 +275,64 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // who has them set. MINSKY_SKIP_PREPUSH_TESTS predates mt#3562 and was never
   // registered; added here because it is the same one-line defect as the new
   // var beside it, not as a separate change.
-  "MINSKY_SKIP_PREPUSH_TESTS", // .husky/pre-push (mt#2716) — skip the local suite entirely
-  "MINSKY_PREPUSH_FULL_SUITE", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
-  "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
-  "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
-  "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
-  "MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
-  "MINSKY_SKIP_MIGRATION_COLLISION_CHECK", // src/hooks/pre-commit.ts (mt#2948) — journal-when-immutability + concurrent-migration-collision check override
-  "MINSKY_SKIP_MIGRATION_GUARD_CHECK", // src/hooks/pre-commit.ts (mt#3299) — unguarded DROP INDEX / CREATE UNIQUE INDEX check override
-  "MINSKY_SKIP_DUPLICATE_GENERATED_CONTENT_CHECK", // src/hooks/pre-commit.ts (mt#3299) — duplicate-generated-content check override
-  "MINSKY_SKIP_ADR_NUMBERING_COLLISION_CHECK", // src/hooks/pre-commit.ts (mt#3613) — ADR-numbering-collision check override
-  "MINSKY_SKIP_RELATED_TESTS", // src/hooks/pre-commit.ts (mt#2932) — fast changed-file-scoped related-test gate override
-  "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
+  MINSKY_SKIP_PREPUSH_TESTS: "operator-override", // .husky/pre-push (mt#2716) — skip the local suite entirely
+  MINSKY_PREPUSH_FULL_SUITE: "tunable", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
+  MINSKY_SKIP_NUL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
+  MINSKY_SKIP_MIGRATION_JOURNAL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
+  MINSKY_SKIP_DEPLOY_DOMAIN_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
+  MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
+  MINSKY_SKIP_MIGRATION_COLLISION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2948) — journal-when-immutability + concurrent-migration-collision check override
+  MINSKY_SKIP_MIGRATION_GUARD_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#3299) — unguarded DROP INDEX / CREATE UNIQUE INDEX check override
+  MINSKY_SKIP_DUPLICATE_GENERATED_CONTENT_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#3299) — duplicate-generated-content check override
+  MINSKY_SKIP_ADR_NUMBERING_COLLISION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#3613) — ADR-numbering-collision check override
+  MINSKY_SKIP_RELATED_TESTS: "operator-override", // src/hooks/pre-commit.ts (mt#2932) — fast changed-file-scoped related-test gate override
+  MINSKY_SKIP_CLI_AUTORUN: "tunable", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
   // mt#2335 — loaded-source freshness signal. Set by scripts/cli-entry.ts BEFORE
   // it imports the bundle, read by src/mcp/source-freshness.ts (surfaced in
   // debug.systemInfo). Must be registered so the env-var-to-config dot-path
   // parser skips them at boot (mt#1785 class) instead of mapping e.g.
   // MINSKY_LOADED_COMMIT -> loaded.commit.
-  "MINSKY_LOADED_COMMIT", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
-  "MINSKY_RUN_MODE", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
-  "MINSKY_PACKAGE_ROOT", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
+  MINSKY_LOADED_COMMIT: "tunable", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
+  MINSKY_RUN_MODE: "tunable", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
+  MINSKY_PACKAGE_ROOT: "tunable", // scripts/cli-entry.ts -> src/mcp/source-freshness.ts
   // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
   // Many of these arguably belong in environmentMappings with a proper config
   // path; that promotion is a follow-up. The immediate goal is making the
   // env-var-to-config parser SKIP them so Railway env-var sets don't crash
   // the loader. Each entry is annotated with a representative read site.
-  "MINSKY_NON_INTERACTIVE", // src/cli.ts, src/utils/interactive.ts (UX flag)
-  "MINSKY_VERBOSE", // src/adapters/cli/utils/error-handler.ts (debug flag)
-  "MINSKY_SHOW_SQL", // (debug flag — promote to logger.* if it grows)
-  "MINSKY_STATE_DIR", // src/mcp/disconnect-tracker.ts (process-local path override)
-  "MINSKY_COCKPIT_URL", // .claude/hooks/record-conversation-run-state.ts (mt#3161) — cockpit daemon origin override for the run-state writer
+  MINSKY_NON_INTERACTIVE: "tunable", // src/cli.ts, src/utils/interactive.ts (UX flag)
+  MINSKY_VERBOSE: "tunable", // src/adapters/cli/utils/error-handler.ts (debug flag)
+  MINSKY_SHOW_SQL: "tunable", // (debug flag — promote to logger.* if it grows)
+  MINSKY_STATE_DIR: "tunable", // src/mcp/disconnect-tracker.ts (process-local path override)
+  MINSKY_COCKPIT_URL: "tunable", // .claude/hooks/record-conversation-run-state.ts (mt#3161) — cockpit daemon origin override for the run-state writer
   // mt#4149 — preflight budgets for the browser-driving `scripts/verify-*.ts`
   // family, all read in `scripts/lib/verify-preflight.ts`. Registered because an
   // operator raising one of these on a contended machine would otherwise crash
   // the CLI at boot: the dot-path parser maps e.g.
   // MINSKY_VERIFY_REACH_TIMEOUT_MS -> verify.reach.timeout.ms, which strict
   // config validation rejects.
-  "MINSKY_VERIFY_REACH_TIMEOUT_MS", // scripts/lib/verify-preflight.ts — "is anything listening?" budget (default 3000)
-  "MINSKY_VERIFY_HEALTH_TIMEOUT_MS", // scripts/lib/verify-preflight.ts — health-body read + identity-parse budget (default 5000)
-  "MINSKY_VERIFY_SLOW_CONFIRM_TIMEOUT_MS", // scripts/lib/verify-preflight.ts — how long to keep measuring a target that already missed its budget (default 30000)
-  "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
-  "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
-  "MINSKY_ALLOW_TEST_DB", // src/cockpit/db-providers.ts (mt#3254) — opts a test into a real LOCAL database; without it the production resolution path refuses to hand a live connection to a test process
-  "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
-  "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
-  "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
-  "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
-  "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
-  "MINSKY_MCP_SESSION_REAPER_INTERVAL_MS", // src/mcp/server.ts (mt#3814 — sweep interval; pairs with the idle timeout above, which was untunable without it)
-  "MINSKY_MCP_SESSION_ADMISSION_WATERMARK_MB", // src/mcp/daemon/memory-admission.ts (mt#3814 — resident-memory watermark above which the shared daemon refuses NEW sessions)
-  "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
-  "MINSKY_MCP_ALLOW_UNKNOWN_PARAMS", // src/mcp/command-mapper.ts (mt#2778 — escape hatch: downgrade undeclared-param rejection to a warn log; promote to mcp.allowUnknownParams if it grows)
-  "MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES", // src/adapters/mcp/shared-command-integration.ts (mt#3155 — escape hatch: downgrade wrong-typed provided-value rejection to a warn log; promote to mcp.allowInvalidParamValues if it grows)
-  "MINSKY_MCP_MEMORY_ENRICHMENT", // src/mcp (feature flag)
-  "MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS", // src/mcp (feature config)
-  "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
-  "MINSKY_MCP_INIT_RETRY_INTERVAL_MS", // src/commands/mcp/start-command.ts (mt#1962 — init retry backoff)
-  "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
-  "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS", // src/cockpit/shared-persistence.ts (mt#2244 — init-timeout override)
+  MINSKY_VERIFY_REACH_TIMEOUT_MS: "tunable", // scripts/lib/verify-preflight.ts — "is anything listening?" budget (default 3000)
+  MINSKY_VERIFY_HEALTH_TIMEOUT_MS: "tunable", // scripts/lib/verify-preflight.ts — health-body read + identity-parse budget (default 5000)
+  MINSKY_VERIFY_SLOW_CONFIRM_TIMEOUT_MS: "tunable", // scripts/lib/verify-preflight.ts — how long to keep measuring a target that already missed its budget (default 30000)
+  MINSKY_DEPLOY_MEMORY_FILE: "tunable", // (deployment-time bootstrap; not config)
+  MINSKY_MAIN_WORKSPACE: "test-fixture", // (test-fixture constant)
+  MINSKY_ALLOW_TEST_DB: "test-fixture", // src/cockpit/db-providers.ts (mt#3254) — opts a test into a real LOCAL database; without it the production resolution path refuses to hand a live connection to a test process
+  MINSKY_SESSIONDB_POSTGRES_URL: "tunable", // legacy detection (post-mt#1610 retire)
+  MINSKY_MCP_MAX_SESSIONS: "tunable", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
+  MINSKY_MCP_PROFILE: "tunable", // src/utils/cold-start-profile.ts (debug flag)
+  MINSKY_MCP_RETRY_AFTER_SECS: "tunable", // src/mcp (server config — promote to mcp.retryAfterSecs)
+  MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS: "tunable", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
+  MINSKY_MCP_SESSION_REAPER_INTERVAL_MS: "tunable", // src/mcp/server.ts (mt#3814 — sweep interval; pairs with the idle timeout above, which was untunable without it)
+  MINSKY_MCP_SESSION_ADMISSION_WATERMARK_MB: "tunable", // src/mcp/daemon/memory-admission.ts (mt#3814 — resident-memory watermark above which the shared daemon refuses NEW sessions)
+  MINSKY_MCP_TOOL_NAMES: "tunable", // src/mcp/server.ts (naming convention flag)
+  MINSKY_MCP_ALLOW_UNKNOWN_PARAMS: "tunable", // src/mcp/command-mapper.ts (mt#2778 — escape hatch: downgrade undeclared-param rejection to a warn log; promote to mcp.allowUnknownParams if it grows)
+  MINSKY_MCP_ALLOW_INVALID_PARAM_VALUES: "tunable", // src/adapters/mcp/shared-command-integration.ts (mt#3155 — escape hatch: downgrade wrong-typed provided-value rejection to a warn log; promote to mcp.allowInvalidParamValues if it grows)
+  MINSKY_MCP_MEMORY_ENRICHMENT: "tunable", // src/mcp (feature flag)
+  MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS: "tunable", // src/mcp (feature config)
+  MINSKY_MCP_INSTRUCTIONS_BUNDLE: "tunable", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
+  MINSKY_MCP_INIT_RETRY_INTERVAL_MS: "tunable", // src/commands/mcp/start-command.ts (mt#1962 — init retry backoff)
+  MINSKY_POSTGRES_MAX_CONNECTIONS: "tunable", // src/domain (pool config — promote to persistence.postgres.maxConnections)
+  MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS: "tunable", // src/cockpit/shared-persistence.ts (mt#2244 — init-timeout override)
   // mt#1994 — hook-only override env vars whose only read site is in
   // .claude/hooks/*.ts (outside the mt#1788 ESLint rule's prior scan path).
   // Each is documented in CLAUDE.md or the hook's own header as a user-facing
@@ -300,93 +342,93 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // rejects (`Unrecognized key: "ack"`). The mt#1994 PR also extends the
   // ESLint rule to scan .claude/hooks/**/*.ts so future hook authors can't
   // reintroduce the gap.
-  "MINSKY_ACK_OOB_MERGE", // .claude/hooks/block-out-of-band-merge.ts (mt#1695)
-  "MINSKY_FORCE_EDIT_GENERATED", // .claude/hooks/check-generated-file-edit.ts (mt#1699)
-  "MINSKY_SKIP_SKILL_STALENESS", // .claude/hooks/skill-staleness-detector.ts (mt#1622)
-  "MINSKY_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts + src/mcp/daemon-state.ts (state-dir override)
-  "MINSKY_FORCE_LOOP_TERMINAL", // .claude/hooks/loop-preflight-pr-merge-check.ts
-  "MINSKY_SKIP_DAEMON_STALENESS", // .claude/hooks/mcp-daemon-staleness-detector.ts
-  "MINSKY_CANARY_MODE", // .claude/hooks/types.ts (mt#3004, PR #2145 R1) — canary-mode gate set only by scripts/run-guard-canaries.ts + tests; the two seams below are honored only while it is "1"
-  "MINSKY_DAEMON_TRACKER_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts (mt#3004) — canary-gated tracker-home override for the guard-canary suite
-  "MINSKY_MEMORY_SEARCH_CANARY_STUB", // .claude/hooks/memory-search.ts (mt#3004) — canary-gated fixture-file stub replacing the CLI subprocess in the guard-canary suite
-  "MINSKY_UNASKED_DIRECTION_DETECTOR", // .claude/hooks/post-merge-unasked-direction-scan.ts
+  MINSKY_ACK_OOB_MERGE: "operator-override", // .claude/hooks/block-out-of-band-merge.ts (mt#1695)
+  MINSKY_FORCE_EDIT_GENERATED: "operator-override", // .claude/hooks/check-generated-file-edit.ts (mt#1699)
+  MINSKY_SKIP_SKILL_STALENESS: "operator-override", // .claude/hooks/skill-staleness-detector.ts (mt#1622)
+  MINSKY_HOME: "tunable", // .claude/hooks/mcp-daemon-staleness-detector.ts + src/mcp/daemon-state.ts (state-dir override)
+  MINSKY_FORCE_LOOP_TERMINAL: "operator-override", // .claude/hooks/loop-preflight-pr-merge-check.ts
+  MINSKY_SKIP_DAEMON_STALENESS: "operator-override", // .claude/hooks/mcp-daemon-staleness-detector.ts
+  MINSKY_CANARY_MODE: "test-fixture", // .claude/hooks/types.ts (mt#3004, PR #2145 R1) — canary-mode gate set only by scripts/run-guard-canaries.ts + tests; the two seams below are honored only while it is "1"
+  MINSKY_DAEMON_TRACKER_HOME: "test-fixture", // .claude/hooks/mcp-daemon-staleness-detector.ts (mt#3004) — canary-gated tracker-home override for the guard-canary suite
+  MINSKY_MEMORY_SEARCH_CANARY_STUB: "test-fixture", // .claude/hooks/memory-search.ts (mt#3004) — canary-gated fixture-file stub replacing the CLI subprocess in the guard-canary suite
+  MINSKY_UNASKED_DIRECTION_DETECTOR: "operator-override", // .claude/hooks/post-merge-unasked-direction-scan.ts
   // mt#1767 / mt#2560 — auto-migration controls in postgres-provider.ts.
   // Process-only; they govern boot-time behavior, not runtime config. Adding to
   // the hook-only set so Railway env-var sets (e.g. MINSKY_AUTO_MIGRATE=1 as the
   // local/dev opt-in) don't crash the loader via the env-var-to-config dot-path
   // parser.
-  "MINSKY_AUTO_MIGRATE", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-in, default OFF per mt#2560)
-  "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
-  "MINSKY_ACK_SUBSTRATE_BYPASS", // .claude/hooks/substrate-bypass-detector.ts (mt#2020) — override for substrate-bypass warning injection
-  "MINSKY_ACK_RETROSPECTIVE_TRIGGER", // .claude/hooks/retrospective-trigger-scanner.ts (mt#2057) — override for retrospective-trigger warning injection
-  "MINSKY_SKIP_RETRO_COMPLETENESS", // .claude/hooks/retrospective-completeness-detector.ts (mt#3601) — override for the log-only retrospective structural-completeness scan
-  "MINSKY_DISABLE_RUNG2_NOMINATION", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
-  "MINSKY_RUNG2_NOMINATION_ENFORCE", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
-  "MINSKY_KA_RUNG2_NOMINATION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
-  "MINSKY_DISABLE_RUNG3_CONFIRM", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
-  "MINSKY_ACK_PRE_NARRATION", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
-  "MINSKY_SKIP_SESSION_PATH_CHECK", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
-  "MINSKY_ALLOW_SECRET_FILE_READ", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
-  "MINSKY_ALLOW_CONCURRENT_BULK_MUTATION", // .claude/hooks/block-concurrent-bulk-mutation.ts (mt#4055) — override when two concurrent runs of one script are genuinely intended
-  "MINSKY_ALLOW_BULK_PROCESS_KILL", // .claude/hooks/block-bulk-process-kill.ts (mt#4081) — override when a mass kill of the working set is genuinely what was asked for
-  "MINSKY_SKIP_DUPLICATE_RECORD", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
-  "MINSKY_SKIP_FLAKINESS_CONTROL", // .claude/hooks/flakiness-control-detector.ts (mt#3658) — override for the tasks_create flakiness-isolation-control detector
-  "MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
-  "MINSKY_SKIP_STALE_SIGNAL_SWEEP", // .claude/hooks/stale-signal-sweep.ts (mt#3959) — skip the log-only sweep for artifacts quoting an output label this PR stopped emitting
-  "MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN", // .claude/hooks/unrendered-result-field-scan.ts (mt#3913) — skip the log-only scan for *Result counter fields no output site renders
-  "MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS", // .claude/hooks/new-surface-design-pass.ts (mt#4124) — skip the log-only scan for a branch that ADDS a render-path surface with no design skill invoked
-  "MINSKY_SKIP_AGENT_DISPATCH_RECORD", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
-  "MINSKY_SKIP_BRIDGE_RETIREMENT", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
-  "MINSKY_SKIP_READY_CHAIN_WALK", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
-  "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
-  "MINSKY_COCKPIT_RP_ID", // src/cockpit/server.ts (mt#4023) — WebAuthn relying-party id for the public deployment; defaults to the Railway hostname. Changing it invalidates every enrolled passkey, since a credential is bound to the rpID it was created under.
-  "MINSKY_COCKPIT_ORIGIN", // src/cockpit/server.ts (mt#4023) — expected WebAuthn origin; defaults to `https://<rpID>`. Override only when the scheme or port differs from that default.
-  "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
-  "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
-  "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
-  "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
-  "MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS", // src/cockpit/server.ts (mt#2321) — cockpit transcript sweep-backstop cadence override (positive integer ms)
-  "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
-  "MINSKY_SKIP_PROD_STATE_INJECTION", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
-  "MINSKY_SKIP_MEMORY_CAPTURE_NOTICE", // .claude/hooks/inject-memory-capture.ts (mt#3997) — skip resident-memory capture notice
-  "MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION", // .claude/hooks/inject-dispatch-watchdog.ts (mt#2646) — skip dispatch-watchdog injection
-  "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
+  MINSKY_AUTO_MIGRATE: "tunable", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-in, default OFF per mt#2560)
+  MINSKY_MIGRATIONS_FOLDER: "tunable", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
+  MINSKY_ACK_SUBSTRATE_BYPASS: "operator-override", // .claude/hooks/substrate-bypass-detector.ts (mt#2020) — override for substrate-bypass warning injection
+  MINSKY_ACK_RETROSPECTIVE_TRIGGER: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#2057) — override for retrospective-trigger warning injection
+  MINSKY_SKIP_RETRO_COMPLETENESS: "operator-override", // .claude/hooks/retrospective-completeness-detector.ts (mt#3601) — override for the log-only retrospective structural-completeness scan
+  MINSKY_DISABLE_RUNG2_NOMINATION: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
+  MINSKY_RUNG2_NOMINATION_ENFORCE: "tunable", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
+  MINSKY_KA_RUNG2_NOMINATION: "tunable", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
+  MINSKY_DISABLE_RUNG3_CONFIRM: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
+  MINSKY_ACK_PRE_NARRATION: "operator-override", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
+  MINSKY_SKIP_SESSION_PATH_CHECK: "operator-override", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
+  MINSKY_ALLOW_SECRET_FILE_READ: "operator-override", // .claude/hooks/block-secret-file-read.ts (mt#3282) — override for the secret-bearing-file read guard
+  MINSKY_ALLOW_CONCURRENT_BULK_MUTATION: "operator-override", // .claude/hooks/block-concurrent-bulk-mutation.ts (mt#4055) — override when two concurrent runs of one script are genuinely intended
+  MINSKY_ALLOW_BULK_PROCESS_KILL: "operator-override", // .claude/hooks/block-bulk-process-kill.ts (mt#4081) — override when a mass kill of the working set is genuinely what was asked for
+  MINSKY_SKIP_DUPLICATE_RECORD: "operator-override", // .claude/hooks/require-duplicate-check-record.ts (mt#3673) — override for the tasks_create duplicate-check-record gate
+  MINSKY_SKIP_FLAKINESS_CONTROL: "operator-override", // .claude/hooks/flakiness-control-detector.ts (mt#3658) — override for the tasks_create flakiness-isolation-control detector
+  MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN: "operator-override", // .claude/hooks/duplicate-signature-scan.ts (mt#3722) — skip the log-only corpus scan for signature-token overlap
+  MINSKY_SKIP_STALE_SIGNAL_SWEEP: "operator-override", // .claude/hooks/stale-signal-sweep.ts (mt#3959) — skip the log-only sweep for artifacts quoting an output label this PR stopped emitting
+  MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN: "operator-override", // .claude/hooks/unrendered-result-field-scan.ts (mt#3913) — skip the log-only scan for *Result counter fields no output site renders
+  MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS: "operator-override", // .claude/hooks/new-surface-design-pass.ts (mt#4124) — skip the log-only scan for a branch that ADDS a render-path surface with no design skill invoked
+  MINSKY_SKIP_AGENT_DISPATCH_RECORD: "operator-override", // .claude/hooks/record-agent-dispatch.ts (mt#2292) — skip the dispatch-row DB write on the raw Agent spawn path; the prompt stamp is still emitted, so the Stop side can still correlate
+  MINSKY_SKIP_BRIDGE_RETIREMENT: "operator-override", // .claude/hooks/bridge-memory-retirement.ts (mt#2062) — suppress bridge-memory retirement reminder
+  MINSKY_SKIP_READY_CHAIN_WALK: "operator-override", // .claude/hooks/drive-ready-to-implementation.ts (mt#3373) — suppress the READY -> /implement-task chain-walk reminder
+  MINSKY_COCKPIT_PREVIEW: "tunable", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
+  MINSKY_COCKPIT_RP_ID: "tunable", // src/cockpit/server.ts (mt#4023) — WebAuthn relying-party id for the public deployment; defaults to the Railway hostname. Changing it invalidates every enrolled passkey, since a credential is bound to the rpID it was created under.
+  MINSKY_COCKPIT_ORIGIN: "tunable", // src/cockpit/server.ts (mt#4023) — expected WebAuthn origin; defaults to `https://<rpID>`. Override only when the scheme or port differs from that default.
+  MINSKY_FORCE_BYPASS: "operator-override", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
+  MINSKY_SKIP_TIME_INJECTION: "operator-override", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
+  MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK: "operator-override", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
+  MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED: "tunable", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
+  MINSKY_TRANSCRIPT_SWEEP_INTERVAL_MS: "tunable", // src/cockpit/server.ts (mt#2321) — cockpit transcript sweep-backstop cadence override (positive integer ms)
+  MINSKY_SKIP_GIT_STATE_INJECTION: "operator-override", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
+  MINSKY_SKIP_PROD_STATE_INJECTION: "operator-override", // .claude/hooks/inject-prod-state.ts (mt#2506) — skip prod-state injection
+  MINSKY_SKIP_MEMORY_CAPTURE_NOTICE: "operator-override", // .claude/hooks/inject-memory-capture.ts (mt#3997) — skip resident-memory capture notice
+  MINSKY_SKIP_DISPATCH_WATCHDOG_INJECTION: "operator-override", // .claude/hooks/inject-dispatch-watchdog.ts (mt#2646) — skip dispatch-watchdog injection
+  MINSKY_SKIP_UNMERGED_MIGRATION_CHECK: "operator-override", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
   // mt#2324 — process-only overrides read via the BRACKET form
   // (process.env["MINSKY_*"]) in src/. They surfaced once the
   // no-unregistered-minsky-env-var ESLint rule was extended to catch
   // static-literal computed access (the rule previously skipped all bracket
   // reads). Registering them hook-only so a value set on a deployed
   // environment doesn't crash the env-var-to-config dot-path parser at boot.
-  "MINSKY_DEV_CHROMIUM_USER_DATA_DIR", // src/cockpit/dev-chromium.ts (dev Chromium profile dir override)
-  "MINSKY_DEV_CHROMIUM_EXECUTABLE", // src/cockpit/dev-chromium.ts (dev Chromium binary path override)
-  "MINSKY_REVIEWER_WATCH_OWNER", // src/adapters/shared/commands/reviewer-watch.ts (watch-target owner override; mt#2455)
-  "MINSKY_REVIEWER_WATCH_REPO", // src/adapters/shared/commands/reviewer-watch.ts (watch-target repo override; mt#2455)
-  "MINSKY_REVIEWER_WATCH_BOT_LOGIN", // src/adapters/shared/commands/reviewer-watch.ts (reviewer-bot login default)
-  "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
-  "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
-  "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
-  "MINSKY_ACK_CODE_MECHANISM_ASSERTION", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
-  "MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
-  "MINSKY_SKIP_SPEC_CRITERION_CLAIM", // .claude/hooks/spec-criterion-claim-detector.ts (mt#4153) — override for the spec-criterion unverified-assertion / invented-precondition detector
-  "MINSKY_ACK_ASK_ROUTING_DEFERRAL", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
-  "MINSKY_SKIP_SPEC_READ_CHECK", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
+  MINSKY_DEV_CHROMIUM_USER_DATA_DIR: "tunable", // src/cockpit/dev-chromium.ts (dev Chromium profile dir override)
+  MINSKY_DEV_CHROMIUM_EXECUTABLE: "tunable", // src/cockpit/dev-chromium.ts (dev Chromium binary path override)
+  MINSKY_REVIEWER_WATCH_OWNER: "tunable", // src/adapters/shared/commands/reviewer-watch.ts (watch-target owner override; mt#2455)
+  MINSKY_REVIEWER_WATCH_REPO: "tunable", // src/adapters/shared/commands/reviewer-watch.ts (watch-target repo override; mt#2455)
+  MINSKY_REVIEWER_WATCH_BOT_LOGIN: "tunable", // src/adapters/shared/commands/reviewer-watch.ts (reviewer-bot login default)
+  MINSKY_REVIEWER_WATCH_THRESHOLD: "tunable", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
+  MINSKY_REVIEWER_WATCH_INTERVAL_MS: "tunable", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
+  MINSKY_ACK_CAUSAL_PREMISE: "operator-override", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
+  MINSKY_ACK_CODE_MECHANISM_ASSERTION: "operator-override", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#2486) — override for code-mechanism-assertion warning injection
+  MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM: "operator-override", // .claude/hooks/negative-existence-claim-detector.ts (mt#3918) — override for the thin-search negative-existence-claim detector
+  MINSKY_SKIP_SPEC_CRITERION_CLAIM: "operator-override", // .claude/hooks/spec-criterion-claim-detector.ts (mt#4153) — override for the spec-criterion unverified-assertion / invented-precondition detector
+  MINSKY_ACK_ASK_ROUTING_DEFERRAL: "operator-override", // .claude/hooks/ask-routing-deferral-detector.ts (mt#2471) — override for chat-deferral warning injection
+  MINSKY_SKIP_SPEC_READ_CHECK: "operator-override", // .claude/hooks/check-task-spec-read.ts (mt#2515) — override for the unread-task-spec bind/advance guard
   // The two evidence-record provenance guards (mem#966's family). Both were
   // documented as overrides before being registered here; measured behaviour of
   // the gap is a spurious `Unrecognized top-level config key: skip` warning on
   // every CLI invocation while the var is set — the auto-mapping fallback routes
   // `MINSKY_SKIP_*` to a top-level `skip` key. Not a crash, but it makes the
   // documented escape hatch noisy enough to look broken.
-  "MINSKY_SKIP_SEARCH_PROVENANCE", // .claude/hooks/duplicate-check-search-provenance.ts (mt#4004) — duplicate-check record claiming a search that never ran
-  "MINSKY_SKIP_CANDIDATE_READ_PROVENANCE", // .claude/hooks/duplicate-check-candidate-read.ts (mt#4167) — duplicate-check record distinguishing candidates whose specs were never opened
-  "MINSKY_SKIP_CLAIM_PROVENANCE", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
-  "MINSKY_SKIP_EVIDENCE_PROVENANCE", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
-  "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
+  MINSKY_SKIP_SEARCH_PROVENANCE: "operator-override", // .claude/hooks/duplicate-check-search-provenance.ts (mt#4004) — duplicate-check record claiming a search that never ran
+  MINSKY_SKIP_CANDIDATE_READ_PROVENANCE: "operator-override", // .claude/hooks/duplicate-check-candidate-read.ts (mt#4167) — duplicate-check record distinguishing candidates whose specs were never opened
+  MINSKY_SKIP_CLAIM_PROVENANCE: "operator-override", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
+  MINSKY_SKIP_EVIDENCE_PROVENANCE: "operator-override", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
+  MINSKY_ACK_TASK_HIJACK: "operator-override", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
   // packages/domain/src/project/identity.ts at identity-resolution time (not
   // via the config-schema path). Placing it here so the env-var-to-config
   // dot-path parser skips it at boot — the auto-conversion would produce
   // "minsky.project" which is rejected as an unrecognised key.
-  "MINSKY_PROJECT", // packages/domain/src/project/identity.ts (project identity override)
+  MINSKY_PROJECT: "tunable", // packages/domain/src/project/identity.ts (project identity override)
   // mt#2452 — reviewer-service env vars consumed by services/reviewer/src/config.ts
   // via direct process.env reads (NOT via the domain config loader). Without
   // registration here, the auto-mapping fallback maps them to reviewer.* paths
@@ -402,44 +444,73 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   //
   // Enumeration of all MINSKY_REVIEWER_* vars set on the Railway reviewer service
   // (per infra/index.ts defineVariables("reviewer", ...)):
-  "MINSKY_REVIEWER_APP_ID", // services/reviewer/src/config.ts (GitHub App ID for reviewer identity)
-  "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
-  "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
-  "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
+  MINSKY_REVIEWER_APP_ID: "tunable", // services/reviewer/src/config.ts (GitHub App ID for reviewer identity)
+  MINSKY_REVIEWER_INSTALLATION_ID: "tunable", // services/reviewer/src/config.ts (GitHub App installation ID)
+  MINSKY_REVIEWER_PRIVATE_KEY: "tunable", // services/reviewer/src/config.ts (GitHub App private key — PEM)
+  MINSKY_REVIEWER_TIER2_ENABLED: "tunable", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
   // mt#2076 — cockpit reviewer-bot-status widget: URL override for the reviewer
   // /health endpoint probe. Read by src/cockpit/widgets/reviewer-bot-status.ts
   // at module-load time. Not a config-schema field; registering here so the
   // env-var-to-config dot-path parser skips it at boot.
-  "MINSKY_REVIEWER_HEALTH_URL", // src/cockpit/widgets/reviewer-bot-status.ts (health probe URL override)
-  "MINSKY_SKIP_CALIBRATION_CADENCE", // .claude/hooks/calibration-review-cadence-detector.ts (mt#2619) — skip calibration-review-due warning injection
-  "MINSKY_SKIP_MERGE_GRANT_CHECK", // .claude/hooks/block-subagent-merge-without-grant.ts (mt#2651) — override for the ADR-028 D5 subagent merge-capability-grant guard
-  "MINSKY_HOOK_OVERRIDE", // .claude/hooks/dispatcher.ts (mt#2650) — ADR-028 D3 unified guard-dispatcher override (comma-separated guard names, or "all")
-  "MINSKY_SKIP_SIZE_BUDGET", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md); also covers the mt#2874 per-rule 15K ceiling extension (one audited escape hatch, not two)
-  "MINSKY_SKIP_SILENT_STRETCH", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
-  "MINSKY_SKIP_WALL_OF_TEXT", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
-  "MINSKY_SKIP_TERMINAL_LINKIFY", // .claude/hooks/linkify-message-display.ts (mt#2565) — display every streaming delta unchanged instead of linkifying entity refs
-  "MINSKY_SILENT_STRETCH_GAP_MINUTES", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
-  "MINSKY_SILENT_STRETCH_TOOL_CALLS", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
-  "MINSKY_WALL_OF_TEXT_WORD_BUDGET", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
-  "MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface
-  "MINSKY_SKIP_OPERATOR_DEFERRAL", // .claude/hooks/operator-deferral-detector.ts (mt#2459) — skip BOTH log-only operator-deferral surfaces (capability-deferral prose + AskUserQuestion option labels)
-  "MINSKY_SKIP_SIZE_JUSTIFICATION", // .claude/hooks/require-growth-justification-before-merge.ts (mt#2874) — override for the growth-justification merge gate (rules-touching PR that grows CLAUDE.md beyond the threshold without a Size-budget justification: marker)
-  "MINSKY_ACK_BUILD_CLAIM_INJECTION", // .claude/hooks/build-claim-injection-detector.ts (mt#2923) — override for the build/deploy-claim-seam warning injection
-  "MINSKY_SKIP_USABILITY_CLAIM_CHECK", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2545 Gap A) — override for the build-surface altitude-4 usability-claim merge gate
-  "MINSKY_SKIP_AT_COVERAGE", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
-  "MINSKY_SKIP_SC_COVERAGE", // .claude/hooks/success-criteria-coverage.ts (mt#3350) — override for the calibration-first `## Success Criteria` cross-reference check (log-only; sibling of MINSKY_SKIP_AT_COVERAGE, deliberately separate so one surface can be silenced without the other)
-  "MINSKY_SKIP_TEST_FIRST_EVIDENCE", // .claude/hooks/test-first-evidence.ts (mt#3244) — override for the calibration-first test-first check (log-only): a bugfix-shaped PR modifying an existing test file must record a negative control, i.e. the test observed FAILING against the un-fixed tree. Third sibling of the two above, separate for the same reason.
-  "MINSKY_SKIP_RENDER_PATH_EVIDENCE", // .claude/hooks/render-path-evidence.ts (mt#2421) — override for the calibration-first render-path check (log-only): a PR touching a user-facing render path should carry a URL or image the principal can open. Fourth sibling, separate for the same reason. Trigger is deliberately test-INDEPENDENT (mt#3810 shipped blind WITH passing happy-dom tests).
-  "MINSKY_ACK_DESTRUCTIVE", // packages/domain/src/safety/destructive-override.ts (mt#3021) — non-interactive escape hatch for the shared destructive-action override contract (mass-deletion sanity gate, session-delete/cleanup git-state guard); value IS the required reason string, so it can't degrade into a bare-boolean override.
-  "MINSKY_ACK_KNOWLEDGE_ACQUISITION", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
-  "MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
-  "MINSKY_ACK_UNTAKEN_ACTION", // .claude/hooks/turn-end-untaken-action-scan.ts (mt#3179) — override for the turn-end announced-but-untaken-action Stop guard
-  "MINSKY_ACK_UNWALKED_TASK", // .claude/hooks/turn-end-unwalked-task-scan.ts (mt#3536) — override for the turn-end filed-but-unwalked-task Stop guard
-  "MINSKY_ACK_UNESCALATED_INCIDENT", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
-  "MINSKY_SKIP_STOP_AT_DECISION", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
-  "MINSKY_ACK_BARE_PROHIBITION", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
-  "MINSKY_ACK_BARE_ENTITY_REF", // .claude/hooks/turn-end-bare-ref-scan.ts (mt#3286) — override for the turn-end bare/malformed entity-deeplink Stop guard
-]);
+  MINSKY_REVIEWER_HEALTH_URL: "tunable", // src/cockpit/widgets/reviewer-bot-status.ts (health probe URL override)
+  MINSKY_SKIP_CALIBRATION_CADENCE: "operator-override", // .claude/hooks/calibration-review-cadence-detector.ts (mt#2619) — skip calibration-review-due warning injection
+  MINSKY_SKIP_MERGE_GRANT_CHECK: "operator-override", // .claude/hooks/block-subagent-merge-without-grant.ts (mt#2651) — override for the ADR-028 D5 subagent merge-capability-grant guard
+  MINSKY_HOOK_OVERRIDE: "operator-override", // .claude/hooks/dispatcher.ts (mt#2650) — ADR-028 D3 unified guard-dispatcher override (comma-separated guard names, or "all")
+  MINSKY_SKIP_SIZE_BUDGET: "operator-override", // src/hooks/pre-commit.ts (mt#2802) — override for the rules-compile monolithic-target size-budget check (claude.md, agents.md); also covers the mt#2874 per-rule 15K ceiling extension (one audited escape hatch, not two)
+  MINSKY_SKIP_SILENT_STRETCH: "operator-override", // .claude/hooks/silent-stretch-detector.ts (mt#2824) — override for the silent tool-only-stretch heartbeat detector
+  MINSKY_SKIP_WALL_OF_TEXT: "operator-override", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
+  MINSKY_SKIP_TERMINAL_LINKIFY: "operator-override", // .claude/hooks/linkify-message-display.ts (mt#2565) — display every streaming delta unchanged instead of linkifying entity refs
+  MINSKY_SILENT_STRETCH_GAP_MINUTES: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
+  MINSKY_SILENT_STRETCH_TOOL_CALLS: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
+  MINSKY_WALL_OF_TEXT_WORD_BUDGET: "tunable", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
+  MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER: "operator-override", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface
+  MINSKY_SKIP_OPERATOR_DEFERRAL: "operator-override", // .claude/hooks/operator-deferral-detector.ts (mt#2459) — skip BOTH log-only operator-deferral surfaces (capability-deferral prose + AskUserQuestion option labels)
+  MINSKY_SKIP_SIZE_JUSTIFICATION: "operator-override", // .claude/hooks/require-growth-justification-before-merge.ts (mt#2874) — override for the growth-justification merge gate (rules-touching PR that grows CLAUDE.md beyond the threshold without a Size-budget justification: marker)
+  MINSKY_ACK_BUILD_CLAIM_INJECTION: "operator-override", // .claude/hooks/build-claim-injection-detector.ts (mt#2923) — override for the build/deploy-claim-seam warning injection
+  MINSKY_SKIP_USABILITY_CLAIM_CHECK: "operator-override", // .claude/hooks/require-deploy-verification-before-merge.ts (mt#2545 Gap A) — override for the build-surface altitude-4 usability-claim merge gate
+  MINSKY_SKIP_AT_COVERAGE: "operator-override", // .claude/hooks/require-execution-evidence-before-merge.ts (mt#3033) — override for the calibration-first acceptance-test cross-reference check (log-only; skips both detection and calibration-log write)
+  MINSKY_SKIP_SC_COVERAGE: "operator-override", // .claude/hooks/success-criteria-coverage.ts (mt#3350) — override for the calibration-first `## Success Criteria` cross-reference check (log-only; sibling of MINSKY_SKIP_AT_COVERAGE, deliberately separate so one surface can be silenced without the other)
+  MINSKY_SKIP_TEST_FIRST_EVIDENCE: "operator-override", // .claude/hooks/test-first-evidence.ts (mt#3244) — override for the calibration-first test-first check (log-only): a bugfix-shaped PR modifying an existing test file must record a negative control, i.e. the test observed FAILING against the un-fixed tree. Third sibling of the two above, separate for the same reason.
+  MINSKY_SKIP_RENDER_PATH_EVIDENCE: "operator-override", // .claude/hooks/render-path-evidence.ts (mt#2421) — override for the calibration-first render-path check (log-only): a PR touching a user-facing render path should carry a URL or image the principal can open. Fourth sibling, separate for the same reason. Trigger is deliberately test-INDEPENDENT (mt#3810 shipped blind WITH passing happy-dom tests).
+  MINSKY_ACK_DESTRUCTIVE: "operator-override", // packages/domain/src/safety/destructive-override.ts (mt#3021) — non-interactive escape hatch for the shared destructive-action override contract (mass-deletion sanity gate, session-delete/cleanup git-state guard); value IS the required reason string, so it can't degrade into a bare-boolean override.
+  MINSKY_ACK_KNOWLEDGE_ACQUISITION: "operator-override", // .claude/hooks/knowledge-acquisition-detector.ts (mt#2708) — override for the knowledge-acquisition (research-relevant-to-loaded-skill, no propagation) calibration surface
+  MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH: "operator-override", // .claude/hooks/constructed-identifier-batch-detector.ts (mt#3125) — override for the batched id-minting + id-consuming tool-call detector
+  MINSKY_ACK_UNTAKEN_ACTION: "operator-override", // .claude/hooks/turn-end-untaken-action-scan.ts (mt#3179) — override for the turn-end announced-but-untaken-action Stop guard
+  MINSKY_ACK_UNWALKED_TASK: "operator-override", // .claude/hooks/turn-end-unwalked-task-scan.ts (mt#3536) — override for the turn-end filed-but-unwalked-task Stop guard
+  MINSKY_ACK_UNESCALATED_INCIDENT: "operator-override", // .claude/hooks/turn-end-unescalated-incident-scan.ts (mt#3593) — override for the turn-end operator-only-incident-without-severity-ask Stop guard
+  MINSKY_SKIP_STOP_AT_DECISION: "operator-override", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
+  MINSKY_ACK_BARE_PROHIBITION: "operator-override", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
+  MINSKY_ACK_BARE_ENTITY_REF: "operator-override", // .claude/hooks/turn-end-bare-ref-scan.ts (mt#3286) — override for the turn-end bare/malformed entity-deeplink Stop guard
+};
+
+/**
+ * Every registered hook-only var, regardless of category — the set the
+ * env-var-to-config dot-path parser skips. Derived, so a var cannot be
+ * registered without also being categorized.
+ */
+export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set(
+  Object.keys(HOOK_ONLY_ENV_VAR_CATEGORIES)
+);
+
+/**
+ * The operator escape hatches (mt#3882) — the fire log's
+ * `authorized_exception` oracle, and the exact set
+ * `.minsky/hooks/known-override-env-vars.ts` must equal.
+ *
+ * The hooks tree is dependency-free by design (`SPEC.md`), so it cannot import
+ * this; it carries a literal list instead. `known-override-env-vars.test.ts`
+ * asserts the two are equal in BOTH directions, which is what makes the
+ * duplication safe: an entry added here without a mirror entry fails, and a
+ * mirror entry whose canonical entry was deleted or recategorized fails too.
+ * The second direction is not hypothetical — `MINSKY_POLICY_COVERAGE_MODE`
+ * outlived its detector (retired by mt#4197) in the mirror for a day, and a
+ * superset contract cannot see that.
+ */
+export const OPERATOR_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set(
+  Object.entries(HOOK_ONLY_ENV_VAR_CATEGORIES)
+    .filter(([, category]) => category === "operator-override")
+    .map(([name]) => name)
+);
 
 /**
  * Type conversion functions for environment variables

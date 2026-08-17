@@ -1609,6 +1609,16 @@ describe("mt#4111 — single-target cleanup is not a workaround (SC9)", () => {
   test("a liveness probe is not a kill", () => {
     expect(detectActPathWorkaround(killTurn("kill -0 4821 4822"))).toHaveLength(0);
   });
+
+  test.each([
+    ["separated, stdout", "kill 4821 > /dev/null"],
+    ["separated, stderr", "kill 4821 2> /dev/null"],
+    ["attached", "kill 4821 >/dev/null 2>&1"],
+  ])("mt#4193: a redirect does not make a one-PID cleanup reportable: %s", (_label, command) => {
+    // The over-count half of mt#4193's tokenization defect: the redirect PATH was read as a
+    // second target, so the cardinality leg saw a multi-target kill.
+    expect(detectActPathWorkaround(killTurn(command))).toHaveLength(0);
+  });
 });
 
 describe("mt#4111 — the record names its own cause (SC6, SC7)", () => {

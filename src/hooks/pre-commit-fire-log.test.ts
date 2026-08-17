@@ -45,15 +45,25 @@ describe("getPreCommitFireLogStateDir / getPreCommitFireLogPath", () => {
   });
 });
 
-describe("classifyOverride (pre-commit side, real HOOK_ONLY_ENV_VARS oracle)", () => {
+describe("classifyOverride (pre-commit side, real OPERATOR_OVERRIDE_ENV_VARS oracle)", () => {
   test("a real registered pre-commit override env-var -> authorized_exception", () => {
-    // MINSKY_SKIP_NUL_CHECK is HOOK_ONLY_ENV_VARS-registered for
+    // MINSKY_SKIP_NUL_CHECK is categorized `operator-override` for
     // src/hooks/pre-commit.ts's NUL-byte check (mt#1824).
     expect(classifyOverride(SKIP_NUL_CHECK_VAR_NAME)).toBe(AUTHORIZED_EXCEPTION);
   });
 
   test("an unregistered env-var name -> unclassified", () => {
     expect(classifyOverride("MINSKY_TOTALLY_MADE_UP_VAR_NAME")).toBe("unclassified");
+  });
+
+  test("a REGISTERED but non-override env-var -> unclassified (mt#3882)", () => {
+    // MINSKY_MCP_MAX_SESSIONS is in HOOK_ONLY_ENV_VARS — it needs the
+    // dot-path parser to skip it — but it is `tunable`, not an escape hatch
+    // anyone authorized. Before mt#3882 this side answered
+    // `authorized_exception` for it, because its oracle was the full
+    // registry; that is the direction of measurement corruption the task's
+    // gate report named, and it is now closed on both sides.
+    expect(classifyOverride("MINSKY_MCP_MAX_SESSIONS")).toBe("unclassified");
   });
 
   test("no env-var involved at all -> contested", () => {
