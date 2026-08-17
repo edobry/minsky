@@ -675,6 +675,45 @@ export function elideBlocksAndQuotes(text: string): string {
  */
 const READ_CLASS_TOOL_RE = /(?:^|_)(?:Read|Grep|Glob)$|(?:read_file|grep_search|repo_search)$/i;
 
+/**
+ * Collect the KEYS of a tool's input object (mt#4084).
+ *
+ * {@link collectStrings} walks `Object.values`, so a parameter NAME never enters
+ * the corpus — which is why a claim about `expectedHeadSha`, a declared
+ * parameter of a tool the turn actually called, read as unbacked.
+ *
+ * Keys only, never values: a value is content the AGENT chose and admitting it
+ * would be the write-echo inversion mt#3489 split out of this corpus. A key is
+ * different — the MCP boundary REJECTS undeclared parameters (mt#2778), so a key
+ * present in a call that succeeded was validated against the tool's declared
+ * schema rather than typed into prose.
+ */
+function collectKeys(value: unknown, out: string[]): void {
+  if (Array.isArray(value)) {
+    for (const v of value) collectKeys(v, out);
+  } else if (value && typeof value === "object") {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      out.push(key);
+      collectKeys(nested, out);
+    }
+  }
+}
+
+/**
+ * Push a same-turn tool CALL RECORD into the verification corpus (mt#4084):
+ * the tool's name plus its input parameter keys.
+ *
+ * Backing is a substring test, so the raw MCP-prefixed name is all that is
+ * needed — `mcp__minsky__refs_status` in the corpus already backs a claim
+ * written as `refs_status`. No prefix-stripping or alias layer, and no second
+ * matching layer beside the corpus (SC1's "change the gate, not the backing"
+ * constraint, from mt#3594).
+ */
+function collectCallRecord(name: string, input: unknown, out: string[]): void {
+  if (name !== "") out.push(name);
+  collectKeys(input, out);
+}
+
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === "string") {
     out.push(value);
@@ -756,7 +795,21 @@ function buildToolNameById(turnLines: TranscriptLine[]): Map<string, string> {
  * default, since it preserves the pre-mt#3489 suppression behavior rather than
  * surfacing a claim on evidence we cannot attribute.
  */
-function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: string } {
+/**
+ * Corpus options (mt#4084). Exists for ONE consumer: the backing replay's BEFORE
+ * arm, which must reproduce pre-mt#4084 behavior from the SHIPPED builder rather
+ * than from a copy of the old logic that can drift out of sync with it.
+ */
+export interface VerificationCorpusOptions {
+  /** Include same-turn tool names + parameter keys. Defaults to true (shipped behavior). */
+  includeCallRecord?: boolean;
+}
+
+function buildCorpora(
+  turnLines: TranscriptLine[],
+  options: VerificationCorpusOptions = {}
+): { read: string; writeEcho: string } {
+  const includeCallRecord = options.includeCallRecord !== false;
   const toolNameById = buildToolNameById(turnLines);
   const readParts: string[] = [];
   const writeParts: string[] = [];
@@ -773,6 +826,12 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
           if (READ_CLASS_TOOL_RE.test(name)) {
             collectStrings(block["input"], readParts);
           }
+          // mt#4084 — the CALL RECORD backs claims about the call, for EVERY
+          // tool rather than only read-class ones. The name attests the harness
+          // ran it; the keys are schema-validated by the MCP boundary. Neither
+          // is producible by asserting, which is the test that keeps the agent's
+          // own prose out (settled mt#4157).
+          if (includeCallRecord) collectCallRecord(name, block["input"], readParts);
         }
         // tool_result CONTENT — authentic tool outputs live on USER-role lines
         // (Claude Code records tool_result as user role). Role-gating prevents an
@@ -792,6 +851,10 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
       if (READ_CLASS_TOOL_RE.test(name)) {
         collectStrings(line.input, readParts);
       }
+      // Same widening on the top-level line shape — a turn recorded this way
+      // must not produce a different verdict from the nested one (mt#3650 is
+      // the standing example of exactly that divergence).
+      if (includeCallRecord) collectCallRecord(name, line.input, readParts);
     }
   }
 
@@ -841,8 +904,11 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
  * there on per-claim backing landing first — a session-scoped read of ANYTHING
  * would otherwise back EVERYTHING. Do not widen this corpus's time window here.
  */
-export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
-  return buildCorpora(turnLines).read;
+export function buildVerificationCorpus(
+  turnLines: TranscriptLine[],
+  options?: VerificationCorpusOptions
+): string {
+  return buildCorpora(turnLines, options).read;
 }
 
 /**
