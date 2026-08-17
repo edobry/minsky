@@ -138,18 +138,49 @@ function createSetupLocalHttpCommand(): Command {
  * patches `sharedCommandRegistry` to observe the call. The mapping is where the
  * mt#4076 defect lived — a shadowed flag arrives here as `undefined` — so it is
  * the thing worth asserting, and it holds no logic beyond defaulting.
+ *
+ * Exported for that test, not as an API for other modules: nothing outside this
+ * file and its test should build these, and each shape is owned by its shared
+ * command definition rather than by this adapter.
  */
-export function buildSetupDbParams(merged: OptionValues): {
-  connectionString: unknown;
+export interface SetupDbParams {
+  connectionString: string | undefined;
   yes: boolean;
-} {
+}
+
+export interface SetupGithubAppParams {
+  name: string | undefined;
+  repo: string | undefined;
+  via: string | undefined;
+  outputDir: string | undefined;
+  force: boolean;
+  update: boolean;
+  execute: boolean;
+  permissions: string | undefined;
+  events: string | undefined;
+  webhookUrl: string | undefined;
+  inactive: boolean;
+  /** Already coerced to a number by the option's own parser. */
+  port: number | undefined;
+  apiBaseUrl: string | undefined;
+  webBaseUrl: string | undefined;
+}
+
+export interface SetupLocalHttpParams {
+  execute: boolean;
+  revert: boolean;
+  url: string | undefined;
+  repo: string | undefined;
+}
+
+export function buildSetupDbParams(merged: OptionValues): SetupDbParams {
   return {
     connectionString: merged.connectionString,
     yes: merged.yes ?? false,
   };
 }
 
-export function buildSetupGithubAppParams(merged: OptionValues): Record<string, unknown> {
+export function buildSetupGithubAppParams(merged: OptionValues): SetupGithubAppParams {
   return {
     name: merged.name,
     repo: merged.repo,
@@ -168,7 +199,7 @@ export function buildSetupGithubAppParams(merged: OptionValues): Record<string, 
   };
 }
 
-export function buildSetupLocalHttpParams(merged: OptionValues): Record<string, unknown> {
+export function buildSetupLocalHttpParams(merged: OptionValues): SetupLocalHttpParams {
   return {
     execute: merged.execute ?? false,
     revert: merged.revert ?? false,
