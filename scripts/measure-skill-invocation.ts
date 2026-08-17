@@ -181,6 +181,54 @@ export function invocationDates(lines: readonly TranscriptLine[], skill: string)
   return dates;
 }
 
+/**
+ * Every transcript in the store, grouped by the CONVERSATION it belongs to.
+ *
+ * A parent conversation is `<store>/<conversation-id>.jsonl`. Its dispatched
+ * subagents write to `<store>/<conversation-id>/subagents/agent-<id>.jsonl` —
+ * a nested directory a flat `readdirSync` of the store never reaches, which is
+ * PR #3052 R2. Measured on this store when the finding landed: **558 parent
+ * transcripts against 927 subagent transcripts**, so a top-level-only sweep
+ * reads under 38% of the files and reports a number bounded to a population it
+ * never names.
+ *
+ * Subagent files are attributed to their PARENT conversation rather than
+ * counted as conversations of their own: a subagent is work dispatched inside a
+ * conversation, so "did this conversation invoke the skill" is true when the
+ * parent or any of its subagents did.
+ */
+function collectTranscripts(dir: string): Map<string, string[]> {
+  const byConversation = new Map<string, string[]>();
+  const add = (conversation: string, path: string): void => {
+    const paths = byConversation.get(conversation);
+    if (paths === undefined) byConversation.set(conversation, [path]);
+    else paths.push(path);
+  };
+
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      add(entry.name.replace(/\.jsonl$/, ""), join(dir, entry.name));
+      continue;
+    }
+    if (!entry.isDirectory()) continue;
+    const subagents = join(dir, entry.name, "subagents");
+    if (!existsSync(subagents)) continue;
+    try {
+      // Recursive: workflow runs nest one level deeper again, at
+      // `subagents/workflows/<wf-id>/agent-*.jsonl`. Measured on this store, a
+      // one-level read finds 870 of the 927 subagent transcripts and misses 57.
+      for (const file of readdirSync(subagents, { recursive: true })) {
+        const name = String(file);
+        if (name.endsWith(".jsonl")) add(entry.name, join(subagents, name));
+      }
+    } catch {
+      // intentional-swallow: an unreadable subagents dir costs coverage for one
+      // conversation and must not abort the sweep over the other 557.
+    }
+  }
+  return byConversation;
+}
+
 function main(): void {
   const dir = resolveTranscriptDir();
   if (dir === null || !existsSync(dir)) {
@@ -191,9 +239,9 @@ function main(): void {
     return;
   }
 
-  let files: string[];
+  let byConversation: Map<string, string[]>;
   try {
-    files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+    byConversation = collectTranscripts(dir);
   } catch (err) {
     process.stderr.write(`FAIL: cannot read ${dir}: ${String(err)}\n`);
     process.exitCode = 1;
@@ -204,19 +252,24 @@ function main(): void {
   let invocations = 0;
   let conversationsWithInvocation = 0;
   let conversationsInWindow = 0;
+  let parentFiles = 0;
+  let subagentFiles = 0;
   let earliest: string | null = null;
   let latest: string | null = null;
 
-  for (const file of files) {
-    const path = join(dir, file);
-    let lines: TranscriptLine[];
-    try {
-      lines = parseTranscript(path);
-    } catch {
-      // intentional-swallow: one unreadable transcript must not abort the sweep;
-      // parseTranscript already returns [] for the ordinary read-error case, so
-      // reaching here means something rarer and the file is simply skipped.
-      continue;
+  for (const paths of byConversation.values()) {
+    const lines: TranscriptLine[] = [];
+    for (const path of paths) {
+      if (path.includes("/subagents/")) subagentFiles += 1;
+      else parentFiles += 1;
+      try {
+        lines.push(...parseTranscript(path));
+      } catch {
+        // intentional-swallow: one unreadable transcript must not abort the
+        // sweep; parseTranscript already returns [] for the ordinary read-error
+        // case, so reaching here means something rarer and the file is skipped.
+        continue;
+      }
     }
     if (lines.length === 0) continue;
 
@@ -255,7 +308,8 @@ function main(): void {
   process.stdout.write(
     `skill: /${SKILL}\n` +
       `window: ${window}\n` +
-      `transcript files scanned: ${files.length}\n` +
+      `transcript files scanned: ${parentFiles + subagentFiles} ` +
+      `(${parentFiles} parent + ${subagentFiles} subagent)\n` +
       `conversations in window: ${conversationsInWindow}\n` +
       `conversations invoking it: ${conversationsWithInvocation}  (${rate}%)\n` +
       `total invocations: ${invocations}\n` +
