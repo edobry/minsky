@@ -79,9 +79,24 @@ user a round-trip.
 Trigger: mechanism claim about third-party platform/runtime semantics
 (webview, OS, library).
 
-Falsifier: a same-turn read of FIRST-PARTY code does not verify it; read the
-installed third-party source (cargo registry / node_modules) or test
-empirically.
+Falsifier: **split by what the claim actually asserts. The two branches are
+NOT interchangeable, and reading this as an `or` list is the failure mode.**
+
+- **A BEHAVIOR claim** — "what does this code do when it runs?" Read the
+  installed third-party source (cargo registry / `node_modules`). A same-turn
+  read of FIRST-PARTY code does not verify it.
+- **A REACHABILITY claim** — "does this run, in MY configuration?" The source
+  read does NOT discharge this one. It answers a different question and returns
+  a CONFIDENT wrong answer rather than an uncertain one, which is what carries
+  it into durable artifacts. Test empirically: render it, trigger it, assert
+  the observable.
+
+The recognition signal is syntactic and sits in the code you just read: **a
+nullable guard on the very dependency your claim rests on** — `x?.y()`,
+`if (ref.current)`, an early return. The library author wrote that guard
+because the thing is sometimes absent, so a mechanism behind it cannot be
+assumed to fire. Find what POPULATES the dependency and confirm your
+configuration populates it.
 
 _Origin:_ `b0b294ab` R11 (mt#2688, 2026-07-08) — a same-turn read of
 `menu.rs`'s reload call would have (falsely) satisfied mt#2486's
@@ -90,6 +105,19 @@ dead-window detection was designed on `WebviewWindow::url()` liveness while
 flagging WKWebView's failed-load URL semantics as uncertain and proceeding
 anyway — the falsifier (reading wry's `url_from_webview` in the cargo
 registry, one grep) was run only after live verification failed.
+
+_Second origin (the reachability branch):_ mem#1018 (mt#3694 / PR #2942 R2,
+2026-08-13) — building the cockpit side peek on Radix Dialog, the agent read
+the installed `@radix-ui/react-dialog@1.1.15` and found
+`context.triggerRef.current?.focus()` in `DialogContentNonModal`'s
+`onCloseAutoFocus`, then asserted focus-return was inherited for free — into
+the PR body AND a `sheet.tsx` doc comment. False: `triggerRef` is populated by
+a `Dialog.Trigger`, the peek's panes are controlled and render none, so the
+optional chain no-opped and focus landed on `document.body` every close.
+Nothing threw, nothing warned, no test asserted it; the reviewer caught it as
+BLOCKING. The falsifier was three lines — open the pane, press Esc, assert
+`document.activeElement`. The source read satisfied this cue's old `or` list
+exactly as written, which is why the list is now a split.
 
 ### (c) A/B-observation confound
 
@@ -165,19 +193,37 @@ measured 0.2ms against a true marginal cost of 20.7ms, and
 reached a PR body and a task spec before the reviewer caught the ordering. See
 memory mem#698.
 
-### (f) Derived-metric semantics
+### (f) Derived-field semantics — metrics AND status flags
 
-Trigger: about to cite a **computed** metric — a tier delta, a layer
-decomposition, a ratio, a percentage — as evidence for the thing its label
-names.
+Trigger: about to cite a **derived field** as evidence for the thing its label
+names. Two sub-classes, same failure:
 
-Falsifier: a derived metric's label is a CLAIM ABOUT ITS PROBE. Read what the
+- a **computed metric** — a tier delta, a layer decomposition, a ratio, a
+  percentage;
+- a **boolean / status / enum field in a tool result** — `pushTimedOut`,
+  `pushUnconfirmed`, `success`, `applied`, `matched`, `ok`.
+
+Falsifier: a derived field's label is a CLAIM ABOUT ITS PROBE. Read what the
 probe actually executes and confirm it exercises the path the label names,
-before citing the number. Cross-check with a second probe on the same path; a
-confounded metric's tell is that no one has stated, in one sentence, what the
-probe does. This matters most for numbers that are about to enter a durable
-artifact, because a metric keeps looking authoritative while every downstream
-consumer silently inherits the error.
+before citing it. Cross-check with a second probe on the same path; a
+confounded field's tell is that no one has stated, in one sentence, what the
+probe does.
+
+**When a tool returns BOTH a summary field and a raw error/output field, the
+raw field is the authoritative one.** And when the raw field is ABSENT from the
+result, that absence is itself the signal to go get it — retry with a debug
+flag, read the underlying log — BEFORE asserting a cause. "The tool reported
+status X" and "X is what happened" are two claims; only the raw evidence
+licenses the second.
+
+**Stakes: this fires hardest on a claim about to be written into a task spec,
+memory, PR body, or commit message**, where a wrong root cause outlives the
+turn and misdirects the next agent — the field keeps looking authoritative
+while every downstream consumer silently inherits the error.
+
+Same principle `claim-confidence.mdc` states for parameters — _"the tool
+accepted the param is not evidence the param took effect"_ — applied to result
+fields rather than inputs.
 
 _Origin:_ `b0b294ab` R14 (mt#3090, 2026-07-23) —
 `scripts/benchmark-cold-boot.ts` defines its "bundle load + runtime/DI/config
@@ -190,6 +236,14 @@ inflated figure hardened into three durable artifacts in sequence: mt#2968's
 founding premise — a task created to attack a lever that did not exist at that
 size. Timing one narrow no-DB invocation (`completion` → ~365ms vs `--version`
 → ~820ms) falsified it. See memory mem#698.
+
+_Origin (the boolean sub-class):_ mt#3266 (2026-07-26) — `session_commit`
+returned `pushTimedOut: true`, and that summary field was cited as the root
+cause of a failed push. The real cause was a missing GitHub App `workflows`
+permission; the tool's raw `pushError` was never surfaced on the timeout path,
+so the only field in hand described the SYMPTOM its probe could see. The wrong
+cause reached a durable artifact before the raw evidence was obtained.
+mt#3264 owns the complementary tool-side fix.
 
 ### (g) A claim relayed from an intermediary
 
