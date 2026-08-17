@@ -181,8 +181,10 @@ export const environmentMappings = {
  * consistent — diagnostics that consume `metadata.loadedVariables` see the
  * same view of "what env vars affected configuration" that the loader used.
  *
- * Keep in sync with `.claude/hooks/*.ts` as new hook-only `MINSKY_*` env
- * vars are introduced.
+ * Register a new hook-only `MINSKY_*` var by adding it to
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES` below WITH a category — the set exported here
+ * is derived from that record's keys (mt#3882), so there is nothing to keep in
+ * sync by hand and nothing to edit directly.
  */
 // Exported so the lint rule `eslint-rules/no-unregistered-minsky-env-var.js`
 // (mt#1788) can grep this file for the canonical allowlist. The rule does

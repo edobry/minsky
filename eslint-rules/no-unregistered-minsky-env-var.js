@@ -116,7 +116,7 @@ export default {
     docs: {
       description:
         "Require every `process.env.MINSKY_*` read in src/ and .claude/hooks/ " +
-        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VARS` to " +
+        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VAR_CATEGORIES` to " +
         "prevent env-var-namespace conflicts with the config-loader's dot-path " +
         "parser (mt#1610, mt#1624, mt#1785). Catches all statically-resolvable " +
         "access forms (mt#2324): bare-identifier (process.env.MINSKY_FOO), " +
@@ -131,7 +131,7 @@ export default {
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VARS\` (hook-only) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788.`,
+      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882.`,
     },
   },
 
