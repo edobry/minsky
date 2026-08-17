@@ -138,6 +138,15 @@ export interface EvaluationRecord {
   [key: string]: unknown;
 }
 
+/**
+ * Rejects, counted rather than swallowed (PR #3053 R1).
+ *
+ * A silently-dropped row shrinks the denominator without saying so, which is
+ * the shape that turns a data-quality problem into a confident rate. These are
+ * printed with every run.
+ */
+const rejects = { jsonlUnparseable: 0, transcriptUnreadable: 0, turnEvaluationThrew: 0 };
+
 function readJsonl(path: string): EvaluationRecord[] {
   if (!existsSync(path)) return [];
   const out: EvaluationRecord[] = [];
@@ -146,7 +155,9 @@ function readJsonl(path: string): EvaluationRecord[] {
     try {
       out.push(JSON.parse(line) as EvaluationRecord);
     } catch {
-      // intentional-swallow: a torn final line is expected in a live-appended log.
+      // A torn final line is expected in a live-appended log; counted so an
+      // unexpected VOLUME of them is visible rather than inferred.
+      rejects.jsonlUnparseable += 1;
       continue;
     }
   }
@@ -187,7 +198,10 @@ async function recoverTurns(dir: string): Promise<RecoveredTurn[]> {
     try {
       lines = parseTranscript(join(dir, file));
     } catch {
-      // intentional-swallow: one unreadable transcript must not abort the sweep.
+      // One unreadable transcript must not abort the sweep — but it is counted,
+      // because a store that silently stops being readable would otherwise show
+      // up only as a smaller, still-plausible denominator.
+      rejects.transcriptUnreadable += 1;
       continue;
     }
     if (lines.length === 0) continue;
@@ -203,14 +217,21 @@ async function recoverTurns(dir: string): Promise<RecoveredTurn[]> {
       try {
         evaluated = await evaluateTurn(turn, noLookup);
       } catch {
-        // intentional-swallow: a malformed turn is not a measurement failure;
-        // it simply produces no comparable record, and the unjoined count below
-        // reports how many such turns there were.
+        // A malformed turn produces no comparable record. Counted, so "the
+        // detector threw on N turns" is reportable rather than inferred from a
+        // gap between the store and the join count.
+        rejects.turnEvaluationThrew += 1;
         continue;
       }
       if (evaluated === null) continue;
 
       const evaluation = evaluated.evaluation;
+      // The turn's last line of ANY kind — measured, not assumed.
+      //
+      // Anchoring on the last ASSISTANT line instead was tried and is WORSE:
+      // median record-to-turn gap 472s vs 8s. The hook writes its record after
+      // the harness's own trailing entries for the turn, so the final line is
+      // what the record timestamp actually follows.
       const endedAt = [...turn].reverse().find((l) => l.timestamp !== undefined)?.timestamp;
       if (endedAt === undefined) continue;
 
@@ -233,7 +254,33 @@ async function recoverTurns(dir: string): Promise<RecoveredTurn[]> {
 export interface Joined {
   record: EvaluationRecord;
   turn: RecoveredTurn | undefined;
+  /** |record.timestamp - turn.endedAt| for the accepted join, for the bound audit. */
+  gapMs?: number;
 }
+
+/**
+ * How far apart a stored row's timestamp and its turn's last line may be.
+ *
+ * Derived from the measured distribution, which `--validate` prints so it can be
+ * re-derived rather than trusted. Unbounded, over this corpus: **min 2.0s, p50
+ * 8.0s, p95 17h, max 2.8 days.** The bulk sits in single-digit seconds and there
+ * is a long tail — and critically **no knee**: join counts climb smoothly
+ * (117 / 118 / 122 / 131 / 139 / 148 / 171 / 220 at 15s / 30s / 60s / 2m / 5m /
+ * 15m / 1h / unbounded), so gap alone does not cleanly separate a real join from
+ * a same-length coincidence.
+ *
+ * 15 minutes therefore excludes the multi-hour tail PR #3053 R1 flagged while
+ * keeping the whole dense region, and is deliberately generous rather than
+ * tuned: a bound with no knee behind it should not pretend to precision.
+ *
+ * **What licenses it is not the gap, it is the verdict.** Recovery agreement is
+ * 100% on BOTH strata at every bound tried, including unbounded — so the bound
+ * is a defensive narrowing that provably does not change the measurement, and
+ * `--validate` reports the rejected count so the narrowing is visible.
+ *
+ * A rejected join is reported as unjoined, never silently resolved.
+ */
+const MAX_JOIN_GAP_MS = Number(process.env["MT4162_MAX_JOIN_GAP_MS"] ?? 900_000);
 
 /**
  * Join each stored row to a recovered turn on `(session_id, proseChars)`.
@@ -255,19 +302,42 @@ export function joinRecords(records: EvaluationRecord[], turns: RecoveredTurn[])
     const candidates = bySession.get(String(record.session_id ?? "")) ?? [];
     const sameLength = candidates.filter((t) => t.proseChars === record.proseChars);
     if (sameLength.length === 0) return { record, turn: undefined };
-    if (sameLength.length === 1) return { record, turn: sameLength[0] };
+    if (sameLength.length === 1) {
+      // A unique length match still has to clear the bound — a lone same-length
+      // turn from hours away is the same coincidence as a tie-broken one.
+      const only = sameLength[0] as RecoveredTurn;
+      const at1 = new Date(String(record.timestamp ?? "")).getTime();
+      const ended1 = new Date(only.endedAt).getTime();
+      if (Number.isNaN(at1) || Number.isNaN(ended1)) return { record, turn: undefined };
+      const gap1 = Math.abs(ended1 - at1);
+      return gap1 > MAX_JOIN_GAP_MS
+        ? { record, turn: undefined }
+        : { record, turn: only, gapMs: gap1 };
+    }
 
+    // A record with no usable timestamp cannot be tie-broken, so it is left
+    // UNJOINED rather than resolved to an arbitrary same-length turn (PR #3053
+    // R1). `Math.abs(x - NaN)` is NaN and every `NaN < best` comparison is
+    // false, so the old loop silently kept `sameLength[0]` — a guess that would
+    // have entered the rate looking like a join.
     const at = new Date(String(record.timestamp ?? "")).getTime();
-    let best = sameLength[0] as RecoveredTurn;
+    if (Number.isNaN(at)) return { record, turn: undefined };
+
+    let best: RecoveredTurn | undefined;
     let bestGap = Number.POSITIVE_INFINITY;
     for (const t of sameLength) {
-      const gap = Math.abs(new Date(t.endedAt).getTime() - at);
+      const ended = new Date(t.endedAt).getTime();
+      if (Number.isNaN(ended)) continue;
+      const gap = Math.abs(ended - at);
       if (gap < bestGap) {
         bestGap = gap;
         best = t;
       }
     }
-    return { record, turn: best };
+    // Beyond the bound, a same-length turn is a coincidence rather than the
+    // record's own turn. See MAX_JOIN_GAP_MS for how the number was chosen.
+    if (best === undefined || bestGap > MAX_JOIN_GAP_MS) return { record, turn: undefined };
+    return { record, turn: best, gapMs: bestGap };
   });
 }
 
@@ -308,7 +378,10 @@ async function main(): Promise<void> {
   process.stdout.write(
     `log records: ${all.length}   in window (--until ${UNTIL ?? "none"}): ${records.length}\n` +
       `turns recovered from store: ${turns.length}\n` +
-      `joined on (session_id, proseChars): ${withTurn.length}   unjoined: ${unjoined}\n\n` +
+      `joined on (session_id, proseChars): ${withTurn.length}   unjoined: ${unjoined}\n` +
+      `rejects — jsonl unparseable: ${rejects.jsonlUnparseable}, ` +
+      `transcript unreadable: ${rejects.transcriptUnreadable}, ` +
+      `turn evaluation threw: ${rejects.turnEvaluationThrew}\n\n` +
       `## Recovery agreement — re-running the detector's own evaluateTurn\n\n` +
       `claimPresent=true  stratum: ${agreeOn(agrees, claimTrue)}/${claimTrue.length} ` +
       `(${pct(agreeOn(agrees, claimTrue), claimTrue.length)})\n` +
@@ -319,7 +392,22 @@ async function main(): Promise<void> {
       ` score 100% on the false stratum and 0% on the true one.)\n`
   );
 
-  if (ARGV.includes("--validate")) return;
+  if (ARGV.includes("--validate")) {
+    // The bound's own audit: print the distribution MAX_JOIN_GAP_MS was derived
+    // from, so a reader can re-derive it instead of trusting the constant.
+    const gaps = withTurn
+      .map((j) => j.gapMs ?? 0)
+      .slice()
+      .sort((a, b) => a - b);
+    const at = (q: number): number =>
+      gaps[Math.min(gaps.length - 1, Math.floor(q * gaps.length))] ?? 0;
+    process.stdout.write(
+      `\n## Join-gap distribution (bound = ${MAX_JOIN_GAP_MS} ms)\n\n` +
+        `accepted joins: ${gaps.length}\n` +
+        `min ${gaps[0] ?? 0} ms   p50 ${at(0.5)} ms   p95 ${at(0.95)} ms   max ${gaps[gaps.length - 1] ?? 0} ms\n`
+    );
+    return;
+  }
 
   /**
    * The population a claim-shape fix could actually change.
@@ -336,8 +424,8 @@ async function main(): Promise<void> {
    */
   const actionable = claimFalse.filter((j) => j.record["thinSearchPresent"] === true);
   process.stdout.write(
-    `\n## Labeling population\n\n` +
-      `claimPresent=false                     : ${claimFalse.length}\n` +
+    `\n## Labeling population (JOINED rows only — ${withTurn.length} of ${records.length} in window)\n\n` +
+      `claimPresent=false, joined             : ${claimFalse.length}\n` +
       `  ... AND thinSearchPresent=true       : ${actionable.length}  <- a claim-shape fix could flip these\n` +
       `  ... AND thinSearchPresent=false      : ${claimFalse.length - actionable.length}  <- cannot fire regardless; conjunct 2 fails\n`
   );

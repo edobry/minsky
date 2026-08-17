@@ -61,6 +61,46 @@ describe("joinRecords", () => {
     expect(joined[0]?.turn?.endedAt).toBe("2026-08-16T00:00:09Z");
   });
 
+  describe("PR #3053 R1 — the join refuses rather than guesses", () => {
+    test("a record with NO timestamp is left unjoined, not resolved arbitrarily", () => {
+      // `Math.abs(x - NaN)` is NaN and every `NaN < best` is false, so the old
+      // loop silently kept the first same-length turn — a guess that entered the
+      // rate looking like a join.
+      const joined = joinRecords(
+        [{ session_id: "s1", proseChars: 100, claimPresent: false }],
+        [turn("s1", 100, "2026-08-16T00:00:00Z"), turn("s1", 100, "2026-08-16T00:00:05Z")]
+      );
+      expect(joined[0]?.turn).toBeUndefined();
+    });
+
+    test("a record with an UNPARSEABLE timestamp is left unjoined", () => {
+      const joined = joinRecords(
+        [{ session_id: "s1", proseChars: 100, timestamp: "not-a-date", claimPresent: false }],
+        [turn("s1", 100, "2026-08-16T00:00:00Z")]
+      );
+      expect(joined[0]?.turn).toBeUndefined();
+    });
+
+    test("a same-length turn beyond the gap bound does not join, even when unique", () => {
+      // The coincidence the review flagged: unbounded, this corpus joined records
+      // to same-length turns up to 2.8 days away.
+      const joined = joinRecords(
+        [record("s1", 100, "2026-08-16T00:00:00Z")],
+        [turn("s1", 100, "2026-08-17T00:00:00Z")]
+      );
+      expect(joined[0]?.turn).toBeUndefined();
+    });
+
+    test("a turn inside the bound still joins, and reports its gap", () => {
+      const joined = joinRecords(
+        [record("s1", 100, "2026-08-16T00:00:30Z")],
+        [turn("s1", 100, "2026-08-16T00:00:00Z")]
+      );
+      expect(joined[0]?.turn).toBeDefined();
+      expect(joined[0]?.gapMs).toBe(30_000);
+    });
+  });
+
   test("every record appears in the output, joined or not", () => {
     // The unjoined count is reported rather than dropped, so a shrinking
     // denominator can never masquerade as agreement.
