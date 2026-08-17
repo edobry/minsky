@@ -68,10 +68,22 @@ interface FireLogEntry {
 
 ## Override classification
 
-Per the RFC's explicit three-way split, computed against the same oracle every
-override env-var must already be registered in (`HOOK_ONLY_ENV_VARS`,
-`packages/domain/src/configuration/sources/environment.ts` — the mt#1788
-registry that also gates the CLI's env-var-to-config dot-path parser):
+Per the RFC's explicit three-way split, computed against
+`OPERATOR_OVERRIDE_ENV_VARS` in
+`packages/domain/src/configuration/sources/environment.ts` — the
+`operator-override` slice of the mt#1788 registry that also gates the CLI's
+env-var-to-config dot-path parser:
+
+> **Corrected 2026-08-17 (mt#3882).** This paragraph used to name
+> `HOOK_ONLY_ENV_VARS` — the FULL registry — as the oracle, which was wrong and
+> known to be wrong at two definition sites that documented specific vars as
+> "deliberately NOT in `known-override-env-vars.ts` — it is not an operator
+> escape hatch." The full registry holds every `MINSKY_*` var with no
+> config-schema home: reviewer credentials, MCP server config, test fixtures,
+> timeout knobs. Classifying those `authorized_exception` would report an
+> operator authorization that never happened. The oracle is the categorized
+> slice, and `known-override-env-vars.test.ts` now holds the hooks-tree copy
+> equal to it in both directions.
 
 - **`authorized_exception`** — the override env-var IS a documented, registered
   legitimate-use escape-hatch (present in the oracle).
@@ -110,14 +122,26 @@ misclassification, not a design choice. The fix
 **Dependency boundary.** `.minsky/hooks/` is dependency-free (`SPEC.md`'s
 invariant — no `packages/domain` imports, so the hooks tree keeps working even
 when the main codebase has type errors). It therefore cannot import
-`HOOK_ONLY_ENV_VARS` directly; `.minsky/hooks/known-override-env-vars.ts` is a
-hand-maintained mirror, matching the established duplication-over-cross-import
+`OPERATOR_OVERRIDE_ENV_VARS` directly; `.minsky/hooks/known-override-env-vars.ts`
+carries a literal copy, matching the established duplication-over-cross-import
 precedent (`guard-health.ts` / `mcp-daemon-staleness-detector.ts` each duplicate a
-src-side reader rather than importing it, for the same reason). Staleness there is
-soft-failing by design — a missing entry only downgrades a classification from
-`authorized_exception` to `unclassified`, never changes a guard's actual decision.
+src-side reader rather than importing it, for the same reason).
 `src/hooks/pre-commit-fire-log.ts` has no such constraint (it's part of the root
-tsconfig program) and imports the real `HOOK_ONLY_ENV_VARS` directly.
+tsconfig program) and imports `OPERATOR_OVERRIDE_ENV_VARS` directly, so both
+sides now read the same oracle.
+
+**The copy is CHECKED, not hand-maintained (mt#3882).** This paragraph used to
+call the drift "soft-failing by design — a missing entry only downgrades a
+classification." True of any single guard's allow/deny decision, and false about
+the measurement the log exists to produce: by 2026-08-17 the copy was 63 entries
+behind, carried 45 entries that were never escape hatches, and held one
+(`MINSKY_POLICY_COVERAGE_MODE`) whose detector mt#4197 had retired — at which
+point `unclassified` mostly meant "a registered override nobody mirrored" rather
+than "an unregistered var was used." Six hand-syncs failed to hold it. A test
+file is not bound by the hooks tree's dependency-free constraint (that invariant
+is about the tree staying RUNNABLE), so
+`.minsky/hooks/known-override-env-vars.test.ts` imports both sides and asserts
+equality in both directions.
 
 ## Overhead measurement
 
@@ -539,7 +563,10 @@ fire-log JSONL record itself).
 - `src/hooks/pre-commit.ts` — `runInstrumentedStep` (R1 fix: override attribution
   via the step's own `HookResult.overridden` flag).
 - `packages/domain/src/configuration/sources/environment.ts` —
-  `HOOK_ONLY_ENV_VARS`, the override-classification oracle.
+  `HOOK_ONLY_ENV_VAR_CATEGORIES` and its derived `OPERATOR_OVERRIDE_ENV_VARS`,
+  the override-classification oracle (mt#3882).
+- `.minsky/hooks/known-override-env-vars.test.ts` — the equality check holding
+  the hooks-tree copy to that oracle in both directions (mt#3882).
 - mt#3078 — invocation-path audit that classified the merge-gate fire-log absence as by-design
   (not a wiring bug) and named the alternative evidence sources (see the dedicated section
   above); mt#3084 — the Phase-3 build-out task this classification filed.
