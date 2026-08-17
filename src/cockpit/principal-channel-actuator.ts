@@ -120,7 +120,7 @@ export const PRINCIPAL_CHANNEL_LOCAL_ID = "principal-channel-standing";
  * takes minutes of tool work. The timeout exists so the principal always gets
  * SOMETHING back — never so it can cut a working turn short at a useful moment.
  */
-const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
+export const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * How long a freshly spawned conversation gets to become ready (mt#3234).
@@ -132,7 +132,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
  * cleanly separating it from the failure mode this bounds, where the child sat
  * for twenty minutes and never came up at all.
  */
-const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
+export const DEFAULT_READY_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
  * Poll interval while waiting for a spawn to become ready.

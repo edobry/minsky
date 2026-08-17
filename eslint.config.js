@@ -34,6 +34,7 @@ import noRawColorsInCockpit from "./eslint-rules/no-raw-colors-in-cockpit.js";
 import requireHookDomainBootstrap from "./eslint-rules/require-hook-domain-bootstrap.js";
 import requireGuardOutcomeInFireLog from "./eslint-rules/require-guard-outcome-in-fire-log.js";
 import noNodeImportInCockpitWeb from "./eslint-rules/no-node-import-in-cockpit-web.js";
+import requireRegisteredCockpitLoop from "./eslint-rules/require-registered-cockpit-loop.js";
 import noSilentCatch from "./eslint-rules/no-silent-catch.js";
 import requireSubprocessNetworkTimeout from "./eslint-rules/require-subprocess-network-timeout.js";
 import noSpyPatching from "./eslint-rules/no-spy-patching.js";
@@ -299,6 +300,7 @@ export default [
           "require-hook-domain-bootstrap": requireHookDomainBootstrap,
           "require-guard-outcome-in-fire-log": requireGuardOutcomeInFireLog,
           "no-node-import-in-cockpit-web": noNodeImportInCockpitWeb,
+          "require-registered-cockpit-loop": requireRegisteredCockpitLoop,
           "no-silent-catch": noSilentCatch,
           "require-subprocess-network-timeout": requireSubprocessNetworkTimeout,
           "no-spy-patching": noSpyPatching,
@@ -1153,6 +1155,20 @@ export default [
   // tweak" rationale. This `.ts` block needs no separate plugin registration:
   // `no-raw-colors-in-cockpit` is already in the main `**/*.ts` block's
   // `custom` plugin object above.
+  // mt#4185 — a long-lived cockpit-DAEMON loop must join the sweep-liveness
+  // registry, or the meta-watchdog built to catch exactly its failure cannot
+  // see it. COVERAGE IS DECLARED HERE: `src/cockpit/**/*.ts` minus
+  // `src/cockpit/web/**` (browser code has no daemon loops and no registry to
+  // join) and minus tests (a fixture loop is the point of the rule's own
+  // test). No separate plugin registration is needed — the rule is already in
+  // the main `**/*.ts` block's `custom` plugin object above.
+  {
+    files: ["src/cockpit/**/*.ts"],
+    ignores: ["src/cockpit/web/**", "**/*.test.ts"],
+    rules: {
+      "custom/require-registered-cockpit-loop": "error",
+    },
+  },
   {
     files: ["src/cockpit/web/**/*.ts"],
     ignores: ["**/*.test.ts"],

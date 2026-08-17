@@ -574,13 +574,41 @@ its own `setInterval`, since the failure class it recovers from implicates
 the shared interval-scheduling layer; sharing that primitive for the
 watchdog itself would risk it dying alongside the thing it watches.
 
+**The reach of all of this is exactly the REGISTRANT SET (mt#4185).** The
+meta-watchdog iterates the liveness registry, so a loop that is not in the
+registry is not merely unrecovered — it is unobserved: absent from
+`/api/sweeps`, never scanned, never restarted. Membership is therefore the
+first question to ask of any long-lived loop in this daemon, ahead of any
+question about its failure modes.
+
+Two ways in, and no third: `createIntervalSweeper`, which registers as a side
+effect of scheduling the tick; and `registerSelfSchedulingSweep`, for a loop
+that schedules itself and hands back only the RECORDING half — it calls
+`noteProgress()` where it demonstrably advanced, supplies its own `restart`,
+and declares a PROGRESS BUDGET in place of a cadence (`selfScheduled: true` in
+the payload says which of the two `intervalMs` means). `custom/require-registered-cockpit-loop`
+fails the build on a new `start*` export that runs a flag-shaped `await` loop
+through neither.
+
+This paragraph exists because its absence was load-bearing. Until mt#4185 the
+enumeration below listed only failure modes, so a NON-REGISTRANT loop was in
+neither the covered nor the not-covered set — outside the enumeration
+entirely, which is why repeated `Does NOT cover` audits never surfaced it
+while `startPrincipalChannelPoller` sat parked for ~44 hours (mt#4183). When
+writing a `Does NOT cover`, state the mechanism's MEMBERSHIP boundary, not
+only the failures it handles.
+
 **What this does NOT cover:** the daemon process dying (tray supervision,
 mt#2786, owns that) or the meta-watchdog's own `setTimeout` chain dying
 (total timer death) — that residual is detectable via `/api/sweeps`
 going stale plus the consumer-side staleness banners
 (`inject-prod-state.ts` / `inject-dispatch-watchdog.ts`), with recovery
-falling to tray/operator supervision. See mt#2894's spec for the full
-Covers/Does NOT cover enumeration.
+falling to tray/operator supervision. For a self-scheduling registrant it
+also does not clear a park in an await that ignores the abort signal: the
+stall is detected, logged and counted, but only the participant's own
+per-await bounds can settle it (mt#4183 owns the poller's). See mt#2894's
+spec for the full Covers/Does NOT cover enumeration, and mt#4185's for the
+self-scheduling seam's.
 
 **Daemon rotating file log.** Investigating the 2026-07-16 incident found
 that `log.warn` — the exact call the factory above uses for every tick
