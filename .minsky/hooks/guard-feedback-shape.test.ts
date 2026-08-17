@@ -301,6 +301,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "retrospective-trigger-scanner",
         "silent-stretch-detector",
         "skill-staleness-detector",
+        "spec-criterion-claim-detector",
         "substrate-bypass-detector",
         "turn-end-bare-ref-scan",
         "turn-end-retro-scan",
@@ -416,6 +417,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)
   "silent-stretch-detector": "fixed",
   "skill-staleness-detector": "capped", // MAX_FILES_LISTED
+  // One block per flagged criterion and a spec may carry many, so the
+  // finding-count axis is UNBOUNDED — the criterion EXCERPT is capped (160 chars
+  // in the matcher) but the number of them is not. A saturated sample, not a
+  // proved ceiling; an `…and N more` cap is owed before injection is enabled.
+  "spec-criterion-claim-detector": RENDER_PROBE_SAMPLE,
   "substrate-bypass-detector": "fixed", // excerpts, slice(0, 200)
   // mt#3286: one line per finding, and a closing status report can name many
   // entities — so the ordinary canary measures the floor. The declared

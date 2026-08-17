@@ -6,9 +6,9 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 103,
+  "population": 104,
   "divergence": {
-    "declaredButNotDescribed": [],
+    "declaredButNotDescribed": ["spec-criterion-claim-detector"],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -2462,6 +2462,28 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "spec-criterion-claim-detector",
+      "description": null,
+      "failureClasses": [],
+      "provenance": [],
+      "stratum": null,
+      "subject": "trajectory",
+      "provenanceStatus": "none",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": true,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
       "deliberatelyUnauthored": false
     },
     {

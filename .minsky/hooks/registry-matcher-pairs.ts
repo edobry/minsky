@@ -89,6 +89,24 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["claim-provenance-scan", "duplicate-signature-scan"],
   ["claim-provenance-scan", "duplicate-check-search-provenance"],
   ["claim-provenance-scan", "flakiness-control-detector"],
+  // Sixth question about the same spec text (mt#4153), and the first to read
+  // `## Success Criteria` as a CLAIM. Every sibling reads a different section or a
+  // different claim class: whether the duplicate-check record is present, whether
+  // its verdicts are true, whether its search ran, whether a failure-MODE claim
+  // carries its control, whether a collision or ownership claim carries provenance.
+  // None reads the criteria — which is the gap this exists for, because a criterion
+  // is not a claim that drives a decision but the claim the work is measured
+  // AGAINST, so a wrong one certifies the wrong thing as done or blocks work that
+  // was already authorized. Not foldable into any of them: its Class B half
+  // resolves the authorizing ask, which no sibling touches, and its Class A half is
+  // silenced by evidence — an inline verifying command — that means nothing to the
+  // others. It also spans two more matchers than they do, since Class B is only
+  // reachable on an edit. Independent overrides; running all six is the point.
+  ["spec-criterion-claim-detector", "require-duplicate-check-record"],
+  ["spec-criterion-claim-detector", "duplicate-signature-scan"],
+  ["spec-criterion-claim-detector", "duplicate-check-search-provenance"],
+  ["spec-criterion-claim-detector", "flakiness-control-detector"],
+  ["spec-criterion-claim-detector", "claim-provenance-scan"],
   // Fourth guard on the Bash/session_exec command string (mt#4055), and the
   // first that asks about the WORLD rather than the string: its three siblings
   // decide entirely from the text (a constructed path, a secret-bearing read,
