@@ -70,6 +70,22 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["flakiness-control-detector", "require-duplicate-check-record"],
   ["flakiness-control-detector", "duplicate-signature-scan"],
   ["flakiness-control-detector", "duplicate-check-search-provenance"],
+  // Fourth tier on the duplicate-check record (mt#4167), asking the one question
+  // the other three leave open: were the candidates the record NAMES actually
+  // read? Present / true / searched are each satisfiable while the reconciliation
+  // itself is invented, which is how mt#4158 distinguished mt#3053 on a property
+  // mt#3053's own spec contradicts and passed all three.
+  //
+  // Not folded into the search-provenance sibling despite both reading session
+  // state: that one asks whether ANY search ran, a single membership test over
+  // tool NAMES, while this asks whether a SPECIFIC id was surfaced, which needs
+  // tool ARGUMENTS and an id-extraction heuristic with its own false-positive
+  // surface. One calibration log cannot size two different heuristics, and
+  // merging them would put this one's id-parsing behind the other's canary.
+  ["require-duplicate-check-record", "duplicate-check-candidate-read"],
+  ["duplicate-signature-scan", "duplicate-check-candidate-read"],
+  ["duplicate-check-search-provenance", "duplicate-check-candidate-read"],
+  ["flakiness-control-detector", "duplicate-check-candidate-read"],
   // Fourth guard on the Bash/session_exec command string (mt#4055), and the
   // first that asks about the WORLD rather than the string: its three siblings
   // decide entirely from the text (a constructed path, a secret-bearing read,

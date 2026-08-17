@@ -283,6 +283,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "cli-mcp-substitution",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
+        "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
         "inject-current-time",
@@ -389,6 +390,12 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // posed by a `worstCaseCanary` that saturates both at once, including the
   // longer (denial) directive branch (mt#3658).
   "flakiness-control-detector": WORST_CASE_CANARY,
+  // mt#4167: MAX_RENDERED_IDS with an `... and N more` line, and each id bounded
+  // by its own form (a two-letter prefix, a separator, digits). Both axes are
+  // saturated by the PRIMARY canary — which supplies `transcriptLines` so it
+  // reaches the injecting path — so no second canary and no `renderProbe`: this
+  // guard injects on real turns and belongs in the budget bucket.
+  "duplicate-check-candidate-read": "capped",
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
   // mt#4096: two interpolations, both bounded — the command is the pipeline stage
   // (itself bounded by the shell) and the filter is one of two literal tokens.

@@ -418,6 +418,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
   ],
   [
+    "duplicate-check-candidate-read",
+    {
+      interventions: [injectAgent, recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same session-state question as `duplicate-check-search-provenance`, one step further along: that one asks whether ANY search ran (a membership test over tool NAMES), this asks whether a SPECIFIC candidate's spec was surfaced (tool ARGUMENTS, via `specWasSurfaced`). Scoped to candidates the record NAMES, so it is defeated by omission — that axis is `duplicate-signature-scan`'s, which reaches tasks the record never mentions.",
+    },
+  ],
+  [
     "evidence-record-provenance",
     {
       interventions: [recordReview],
