@@ -1564,6 +1564,29 @@ describe("mt#4111 — a denied invocation is the guard working, not a workaround
     expect(matches).toHaveLength(1);
     expect(matches[0]?.matchedPhrase).toBe("kill");
   });
+
+  test("PR #3051 R1: a denial followed by an identical PERMITTED retry still records", () => {
+    // The ordinary override shape. A text-keyed filter drops the retry too,
+    // which suppresses the one execution this surface exists to see.
+    const matches = detectActPathWorkaround([
+      bashCall("toolu_denied", BULK),
+      denialResult("toolu_denied"),
+      bashCall("toolu_retry", BULK),
+      toolResult(""),
+    ]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.matchedPhrase).toBe("kill");
+  });
+
+  test("PR #3051 R1: a LATER denial does not retire an EARLIER identical execution", () => {
+    const matches = detectActPathWorkaround([
+      bashCall("toolu_ran", BULK),
+      toolResult(""),
+      bashCall("toolu_denied", BULK),
+      denialResult("toolu_denied"),
+    ]);
+    expect(matches).toHaveLength(1);
+  });
 });
 
 describe("mt#4111 — single-target cleanup is not a workaround (SC9)", () => {

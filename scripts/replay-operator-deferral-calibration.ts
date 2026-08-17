@@ -106,6 +106,7 @@ function main(): void {
 
   let total = 0;
   let unreplayable = 0;
+  let actPathSeen = 0;
   const phraseTruncated: Array<{ ts: string; phrase: string; context: string }> = [];
   const stillFires: Array<{ ts: string; phrase: string; context: string }> = [];
   const nowQuiet: Array<{ ts: string; phrase: string; context: string }> = [];
@@ -120,6 +121,7 @@ function main(): void {
     }
     for (const match of record.matches ?? []) {
       total += 1;
+      if (match.category === ACT_PATH) actPathSeen += 1;
       const context = match.context?.trim();
       const ts = record.timestamp ?? "(no timestamp)";
       const phrase = match.phrase ?? "(no phrase)";
@@ -136,6 +138,19 @@ function main(): void {
 
   const rateable = stillFires.length + nowQuiet.length;
   console.log(`records with a match:            ${total}`);
+  if (actPathSeen > 0) {
+    // Naming each arm's BEFORE explicitly (PR #3051 R1). The two arms answer the
+    // same before/after question against different matchers, and a reader who
+    // assumes one applies to both will misread the delta.
+    console.log(`  act-path arm (${actPathSeen} record(s)):`);
+    console.log(`    before = any kill verb visible  (the pre-mt#4111 trigger)`);
+    console.log(`    after  = findReportableKill     (non-denied + multi-target)`);
+    console.log(`    NOT replayable: both TURN-STATE legs — the denial, and the absence of`);
+    console.log(`    a capability search. A record carries neither, so a call the guard`);
+    console.log(`    REFUSED (or one the turn searched before making) still reads as firing`);
+    console.log(`    here. Both sides of this arm are therefore upper bounds on the real`);
+    console.log(`    trigger, and the unit tests cover what the replay cannot.`);
+  }
   console.log(`  no context at all:             ${unreplayable}   <- pre-captureSchema; mt#3649`);
   console.log(`  phrase truncated out of window: ${phraseTruncated.length}   <- silent for a`);
   console.log(`                                       reason this change did not cause`);

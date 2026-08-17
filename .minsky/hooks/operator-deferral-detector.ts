@@ -854,20 +854,23 @@ export function detectActPathWorkaround(turnLines: TranscriptLine[]): DeferralMa
   // (mt#4111 SC1). Recording it inverts the signal: the act path is about what
   // the turn DID, and a denied call did nothing. It also pollutes this log with
   // the deliberate exercises that verify `block-bulk-process-kill` denies.
-  const denied = new Set(
-    findDeniedToolCalls(turnLines)
-      .map((call) => call.command)
-      .filter((command): command is string => typeof command === "string")
-  );
-
-  const commands = COMMAND_TOOL_NAMES.flatMap((toolName) => findToolUseInputs(turnLines, toolName))
-    .map((input) => input["command"])
-    .filter((command): command is string => typeof command === "string")
-    .filter((command) => !denied.has(command));
+  //
+  // Keyed on the call's IDENTITY, never on its command TEXT (PR #3051 R1). A
+  // denial followed by a permitted retry is the ordinary shape — the operator
+  // overrides, the same string runs again — and a text-keyed filter drops the
+  // retry as well, which suppresses exactly the execution this surface exists
+  // to see. It would also reach backwards, retiring an earlier successful call
+  // because a later identical one was refused.
+  const deniedIds = new Set(findDeniedToolCalls(turnLines).map((call) => call.useId));
 
   let kill: KillInvocation | null = null;
   let source = "";
-  for (const command of commands) {
+  // Transcript order, so the FIRST reportable kill is the one recorded.
+  for (const call of findToolCallsWithResults(turnLines)) {
+    if (!COMMAND_TOOL_NAMES.includes(call.toolName)) continue;
+    if (call.useId !== undefined && deniedIds.has(call.useId)) continue;
+    const command = call.input["command"];
+    if (typeof command !== "string") continue;
     const found = findReportableKill(command);
     if (found) {
       kill = found;
