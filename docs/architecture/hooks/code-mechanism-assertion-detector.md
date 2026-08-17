@@ -430,3 +430,65 @@ there is no collateral. Injected fires in the classified window go **10 → 9** 
 
 The FP rate barely moves, and that is the honest result rather than a disappointing one: 7 of the 8
 belong to the corpus class this task does not own.
+
+## mt#4084 (2026-08-16) — the same-turn tool CALL RECORD is backing
+
+The corpus class mt#4157 handed on. `buildCorpora` collected read-class tool INPUT VALUES and
+`tool_result` CONTENT — so a claim whose symbol is a tool the turn actually CALLED was unbacked by
+construction, and so was a claim about one of that call's declared PARAMETERS. Two mechanisms, one
+root:
+
+- `collectStrings` walks `Object.values`, so a parameter NAME never entered the corpus. That is why
+  `expectedHeadSha` fired three times.
+- `READ_CLASS_TOOL_RE` gates input collection to `Read`/`Grep`/`Glob`-class tools, so `refs_status`,
+  `tasks_get` and `session_pr_wait-for-review` contributed nothing at all.
+
+### The admission test, and what it excludes
+
+The criterion is not "machine-recorded" — a branch diff is machine-recorded too. It is **the agent
+cannot produce it by asserting**. A tool NAME in a `tool_use` block attests the harness ran it. A
+parameter KEY is further attested by the MCP boundary, which REJECTS undeclared parameters
+(mt#2778), so a key present in a call that succeeded was schema-validated rather than typed.
+
+Excluded, deliberately, each pinned by a test:
+
+- **The agent's own prose** — settled by mt#4157 above as circular. Not reopened.
+- **Parameter VALUES of non-read-class tools** — the agent CHOOSES a value, so admitting it is the
+  write-echo inversion mt#3489 split out. Read-class input values stay admitted on the existing
+  rationale that a path or query evidences an inspection.
+- **The branch diff** — passes the authorship test, fails on cost: a `UserPromptSubmit` hook with a
+  per-invocation budget, and the read is unbounded relative to the tool calls already being parsed.
+  Unowned as of this task (`tasks_search` found no covering task); filed rather than absorbed.
+
+### SC2 needed no code
+
+Backing is a substring test (`corpusLower.includes(sym.toLowerCase())`), so `mcp__minsky__refs_status`
+in the corpus already backs a claim written as `refs_status`. No prefix-stripping or alias layer was
+built, and a test pins that so nobody adds one believing it was required.
+
+### Measured — and why the obvious harness could not measure it
+
+`scripts/replay-code-mechanism-calibration.ts` states its own bound: it replays claim EXTRACTION, not
+BACKING, and runs the detector against an **empty corpus**. A corpus-only change is invisible to it —
+it reports every record `same`, which reads as "no collateral" and means "the probe cannot see this"
+(mem#704). `scripts/replay-code-mechanism-backing.ts` closes that without taking the retention
+decision that script declined: it reconstructs each turn's tool calls from the transcript store and
+joins by EXACT hash — `hashJudgedText(elideBlocksAndQuotes(assistantText))`, the same value the
+capture records. **139 of 139 capture-bearing records joined, 0 unjoinable**, against 4,615 indexed
+turns.
+
+Result: **9 records changed, 11 claims newly backed.** Read individually, as the criterion requires:
+three `expectedHeadSha`, one `refs_status` (the originating fire), `overrideReason` ×2, `notBefore`,
+`session_pr_create` + `headSha` — all claims about a call the turn made. The two that looked like
+over-suppression are not: `tasks_create|guards` sits in a turn that was explicitly reading the
+implementation ("four `tasks_create` guards" — a noun, not a mechanism predicate), and
+`git_search|trim` is a cross-sentence predicate mis-attribution in a turn that did call the tool.
+
+### A test that could not fail, caught by its own control
+
+The first draft of AT5 invented the sentence "`expectedHeadSha` is compared against the remote head."
+Its predicate is not one the detector recognizes, so the test asserted the ABSENCE of a claim that
+was never extracted and passed identically with the change reverted. The negative-control run
+surfaced it — 3 failures where 4 were expected. The fixture is now verbatim from the record, and each
+AT that asserts backing carries a paired assertion that the same input FIRES against the pre-mt#4084
+corpus, so the vacuous form cannot come back.
