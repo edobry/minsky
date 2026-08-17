@@ -354,6 +354,41 @@ describe("resolveDrivenSessionMcpConfig", () => {
     expect(resolution.rejected.map((r) => r.name)).toEqual(["github"]);
   });
 
+  test("the spawn log leaks no credential from an inherited entry", () => {
+    // Load-bearing as of mt#4239, and newly so: before it, the payload held one
+    // entry this code wrote itself. It now carries entries copied VERBATIM out
+    // of the operator's `.mcp.json`, which is exactly where credentials live —
+    // so the redaction that was merely tidy is now the thing standing between a
+    // token and a log line that is persisted AND ingested.
+    // Not a real credential — a synthetic marker whose only job is to be
+    // searched for in the rendered log line.
+    const FAKE_TOKEN = "ghp_NOT_A_REAL_TOKEN_FIXTURE";
+
+    const resolution = resolveDrivenSessionMcpConfig(WORKSPACE, {
+      invocation: INVOCATION,
+      names: ["github"],
+      readServers: () => ({
+        servers: {
+          github: {
+            command: "docker",
+            args: ["run", "ghcr.io/github/github-mcp-server"],
+            env: { GITHUB_PERSONAL_ACCESS_TOKEN: FAKE_TOKEN },
+          },
+        },
+        error: null,
+      }),
+    });
+
+    const line = redactMcpConfigForLog(["-p", ...mcpConfigArgs(resolution.config)]);
+
+    expect(line).toBe("-p --mcp-config <config: github,minsky> --strict-mcp-config");
+    expect(line).not.toContain(FAKE_TOKEN);
+    expect(line).not.toContain("GITHUB_PERSONAL_ACCESS_TOKEN");
+    // Control: the secret really IS in the payload being redacted, so the
+    // assertions above are about the redaction and not about an empty config.
+    expect(resolution.config).toContain(FAKE_TOKEN);
+  });
+
   test("the source path handed to the reader is the daemon's, not the session's", () => {
     // The distinction this pins is load-bearing: `.mcp.json` is gitignored, so a
     // session-workspace clone never has one. Reading the session's `repoPath`
