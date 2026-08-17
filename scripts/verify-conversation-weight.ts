@@ -118,8 +118,30 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type Measurement = {
   hasThread: boolean;
-  /** Rendered height of the whole thread, in CSS px — the SC7 number. */
+  /**
+   * Rendered height of the whole thread, in CSS px. INFORMATIONAL ONLY — do
+   * NOT draw a before/after conclusion from it.
+   *
+   * Measured 2026-08-17: three consecutive runs against the SAME build and the
+   * SAME conversation returned 4051 / 4135 / 4051 px, with identical element
+   * counts (32 turns / 18 tool rows / 5 prose) every time; an earlier session
+   * on the same build read ~2465. The thread virtualises (`thread-hidden-above`),
+   * so the total depends on how much has been materialised when the settle gate
+   * trips, and the run-to-run spread is LARGER than any chrome change could
+   * produce. A before/after delta on this field is noise wearing a number's
+   * clothes — which is exactly how it was first reported, before the variance
+   * was checked.
+   */
   threadHeight: number;
+  /**
+   * Summed rendered height of the tool rows themselves — the SC7 number.
+   *
+   * This is what de-carding actually changes (border + the box it draws), it
+   * covers a fixed element set rather than a virtualised window, and
+   * `toolRowCount` is reported beside it so a drop caused by rows going missing
+   * is distinguishable from a drop caused by rows getting shorter.
+   */
+  toolRowsHeight: number;
   turnCount: number;
   toolRowCount: number;
   proseCount: number;
@@ -167,7 +189,33 @@ const MEASURE = `(() => {
   };
 
   const toolRows = Array.from(thread.querySelectorAll('[data-tool-use-id]'));
-  const proseEls = Array.from(thread.querySelectorAll('div.break-words'));
+  // ASSISTANT SPEECH only. <Prose> renders \`div.break-words\` and this module
+  // uses it for five different things — thinking bodies, injected spans, both
+  // halves of a command invocation, API-error text, and assistant speech — so a
+  // bare \`div.break-words\` can sample MUTED machinery text and invert the very
+  // comparison this script exists to make (PR #3078 R1). Assistant prose is the
+  // only one that is a DIRECT child of a turn's element stack; every other kind
+  // is nested inside its own block wrapper. Structural, not a class match on
+  // \`text-foreground\` — keying on the class under test would make the assertion
+  // circular.
+  const proseEls = Array.from(
+    thread.querySelectorAll('[data-turn-index] > div:last-child > div.break-words')
+  );
+
+  // Alpha-0 in ANY notation, not just the one literal form. getComputedStyle
+  // returns \`rgba(0, 0, 0, 0)\` for \`transparent\` on most engines, but a token
+  // resolving to \`oklch(L C H / 0)\` — which this theme's palette does use — is
+  // equally invisible and was previously counted as a painted border (PR #3078 R1).
+  const invisible = (css) => {
+    const s = String(css).trim();
+    if (s === "transparent" || s === "none") return true;
+    // Trailing alpha in either separator style: rgba(r,g,b,A) / oklch(l c h / A).
+    const m = s.match(/[/,]\\s*([\\d.]+%?)\\s*\\)\\s*$/);
+    if (!m) return false;
+    const raw = m[1];
+    const a = raw.endsWith("%") ? parseFloat(raw) / 100 : parseFloat(raw);
+    return Number.isFinite(a) && a === 0;
+  };
 
   let enclosed = 0;
   let errored = 0;
@@ -175,7 +223,7 @@ const MEASURE = `(() => {
   for (const row of toolRows) {
     const cs = getComputedStyle(row);
     const w = parseFloat(cs.borderTopWidth) || 0;
-    const transparent = /rgba\\(\\s*0\\s*,\\s*0\\s*,\\s*0\\s*,\\s*0\\s*\\)/.test(cs.borderTopColor);
+    const transparent = invisible(cs.borderTopColor) || cs.borderTopStyle === "none";
     if (w > 0 && !transparent) enclosed++;
     // An errored row is the one whose expanded body is present by default.
     const isError = row.querySelector('button[aria-expanded="true"]') !== null;
@@ -186,9 +234,14 @@ const MEASURE = `(() => {
   const proseColor = proseEls[0] ? getComputedStyle(proseEls[0]).color : "";
   const toolNameColor = firstHealthyName ? getComputedStyle(firstHealthyName).color : "";
 
+  const toolRowsHeight = Math.round(
+    toolRows.reduce((sum, r) => sum + r.getBoundingClientRect().height, 0)
+  );
+
   return JSON.stringify({
     hasThread: true,
     threadHeight: Math.round(thread.getBoundingClientRect().height),
+    toolRowsHeight,
     turnCount: thread.querySelectorAll('[data-turn-index]').length,
     toolRowCount: toolRows.length,
     proseCount: proseEls.length,
@@ -213,20 +266,36 @@ async function measureWhenStable(ws: WebSocket): Promise<Measurement> {
   const DEADLINE_MS = 30_000;
   const INTERVAL_MS = 250;
   const started = Date.now();
-  let previousHeight: number | null = null;
+  // Settle on the TOOL-ROW total, not the thread total: the thread virtualises,
+  // so its height plateaus at a different value per run and would let the gate
+  // trip on a partial render. The tool-row set is fixed once materialised, so
+  // two agreeing samples there mean the rows are actually done laying out.
+  let previousKey: string | null = null;
   let last: Measurement | null = null;
 
+  // Keep the last RAW response so a failure reports what the page actually
+  // returned. Without it, every non-mounting cause — a route that renders
+  // nothing, a selector that stopped matching, an in-page exception swallowed
+  // by the IIFE — collapses into the same "never mounted" string, which sends
+  // the reader looking at the app when the fault is in this expression.
+  let lastRaw = "";
   while (Date.now() - started < DEADLINE_MS) {
-    const m = JSON.parse(await evaluate(ws, MEASURE)) as Measurement;
+    lastRaw = await evaluate(ws, MEASURE);
+    const m = JSON.parse(lastRaw) as Measurement;
     if (m.hasThread) {
-      if (previousHeight !== null && previousHeight === m.threadHeight) return m;
-      previousHeight = m.threadHeight;
+      const key = `${m.toolRowCount}:${m.toolRowsHeight}:${m.proseCount}`;
+      if (previousKey !== null && previousKey === key) return m;
+      previousKey = key;
       last = m;
     }
     await sleep(INTERVAL_MS);
   }
-  if (last) throw new Error(`thread never settled; last height ${last.threadHeight}px`);
-  throw new Error("conversation thread never mounted");
+  if (last) {
+    throw new Error(
+      `tool rows never settled; last ${last.toolRowCount} rows totalling ${last.toolRowsHeight}px`
+    );
+  }
+  throw new Error(`conversation thread never mounted; last measurement: ${lastRaw || "(empty)"}`);
 }
 
 // --- Run -----------------------------------------------------------------
@@ -241,6 +310,15 @@ const fail = (msg: string) => {
 let ws: WebSocket | undefined;
 try {
   const url = `${COCKPIT}/conversation/${CONVERSATION_ID}`;
+  // PUT, not GET — and this is the direction that WORKS, not a typo for GET
+  // (flagged as a defect in PR #3078 R1; refuted here so the next reader has the
+  // evidence at the call site). Chrome added a DNS-rebinding mitigation that
+  // refuses the unsafe verb outright: `GET /json/new?…` answers
+  // `405 Using unsafe HTTP verb GET to invoke /json/new. This action supports
+  // only PUT verb.` Measured independently by two sibling scripts —
+  // `verify-session-film-camera.ts` and `verify-terminal-ask-render.ts` (the
+  // latter records `GET -> 405, PUT -> 200` on 2026-08-13) — and all 13 CDP
+  // scripts in this directory use PUT.
   const newRes = await fetch(`${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" });
   const target = (await newRes.json()) as { id: string; webSocketDebuggerUrl: string };
   teardown.push(() => fetch(`${CDP}/json/close/${target.id}`));
@@ -298,10 +376,11 @@ try {
 
   if (failures === 0) {
     console.log(
-      `PASS: ${m.turnCount} turns / ${m.toolRowCount} tool rows / ${m.proseCount} prose blocks ` +
-        `render in ${m.threadHeight}px; prose luma ${m.proseLuminance.toFixed(3)} > ` +
-        `tool-name luma ${m.toolNameLuminance.toFixed(3)}; ${m.enclosedToolRows} enclosed rows ` +
-        `(${m.erroredToolRows} errored).`
+      `PASS: ${m.turnCount} turns / ${m.toolRowCount} tool rows / ${m.proseCount} prose blocks; ` +
+        `tool rows total ${m.toolRowsHeight}px (${(m.toolRowsHeight / m.toolRowCount).toFixed(1)}px each); ` +
+        `prose luma ${m.proseLuminance.toFixed(3)} > tool-name luma ${m.toolNameLuminance.toFixed(3)}; ` +
+        `${m.enclosedToolRows} enclosed rows (${m.erroredToolRows} errored). ` +
+        `[threadHeight ${m.threadHeight}px is informational — it virtualises, see the type docs]`
     );
   }
 } finally {

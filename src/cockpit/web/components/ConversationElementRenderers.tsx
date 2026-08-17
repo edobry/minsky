@@ -78,6 +78,21 @@ const SPAWN_BADGE_CLASS =
   "mr-2 shrink-0 rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300";
 
 /**
+ * Focus ring for this module's disclosure controls (mt#4220, PR #3078 R1).
+ *
+ * `src/cockpit/CLAUDE.md` §"Accessibility-first primitives" requires a visible
+ * focus state on every interactive element, and these four — the tool-row
+ * toggle, the injected-span toggle, the command toggle, and the thinking
+ * `<summary>` — had none. That was already a gap before mt#4220 (the card
+ * border was unconditional chrome, never a focus indicator), but de-carding
+ * makes it acute: a keyboard user tabbing onto a borderless, tintless row had
+ * nothing at all to see. `ring-inset` because these rows have no border to sit
+ * outside of — an outset ring on a bare line reads as a stray box.
+ */
+const FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded";
+
+/**
  * The `→ subagent (kind)` marker on an Agent tool call.
  *
  * Links to the conversation this specific call spawned when one resolved
@@ -185,7 +200,12 @@ export function ThinkingBlock({
       className="group rounded"
       onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
+      <summary
+        className={cn(
+          "cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          FOCUS_RING
+        )}
+      >
         <span className="italic">thinking</span>
         <span className="ml-1 text-muted-foreground/60 group-open:hidden">
           ({thinking.length} chars — click to expand)
@@ -307,7 +327,10 @@ export function ToolInvocation({
           type="button"
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
-          className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs"
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-xs",
+            FOCUS_RING
+          )}
         >
           <Icon
             aria-hidden
@@ -466,7 +489,10 @@ export function InjectedContentBlock({
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground"
+        className={cn(
+          "flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground",
+          FOCUS_RING
+        )}
       >
         <span className="italic">{span.label}</span>
         <span className="text-muted-foreground/50">
@@ -545,7 +571,7 @@ export function CommandInvocation({
           aria-expanded={open}
           aria-controls={detailsId}
           aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
-          className="ml-auto shrink-0 text-xs text-muted-foreground/60"
+          className={cn("ml-auto shrink-0 text-xs text-muted-foreground/60", FOCUS_RING)}
         >
           {open ? "▾" : "▸"}
         </button>

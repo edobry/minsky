@@ -237,6 +237,28 @@ describe("ConversationView — visual weight hierarchy (mt#4220)", () => {
     expect(toggle!.className).toContain("text-xs");
   });
 
+  test("every disclosure control keeps a visible focus state after de-carding", () => {
+    // PR #3078 R1 (non-blocking). De-carding removed the only thing outlining a
+    // tool row, and these toggles never had a focus ring — so a keyboard user
+    // tabbing onto a borderless row had nothing to see. `src/cockpit/CLAUDE.md`
+    // §"Accessibility-first primitives" requires a visible focus state on every
+    // interactive element; this asserts the whole class, not one control.
+    const { container } = renderCV(
+      snapshotWithBlocks([
+        assistantTextBlock(0, PROSE_TEXT),
+        assistantToolCallBlock(1, "call-a", "Read", { file_path: "/tmp/a.ts" }),
+        userToolResultBlock(2, "call-a", "ok"),
+      ])
+    );
+
+    const controls = container.querySelectorAll<HTMLElement>("button[aria-expanded], summary");
+    expect(controls.length).toBeGreaterThanOrEqual(1);
+    for (const c of controls) {
+      expect(c.className).toContain("focus-visible:ring-2");
+      expect(c.className).toContain("focus-visible:ring-ring");
+    }
+  });
+
   test("the violet spawn badge survives — it is the one categorical hue kept", () => {
     const { container } = renderCV(
       snapshotWithBlocks([
