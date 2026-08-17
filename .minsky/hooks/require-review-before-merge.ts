@@ -25,6 +25,7 @@ import {
   fetchReviewsRaw,
   fetchCheckRunsRaw,
   fetchBranchProtectionRaw,
+  fetchPullRequestMergeStateRaw,
   type CheckRunsFetchResult,
 } from "./pr-context";
 import {
@@ -117,6 +118,141 @@ export function parseCheckRunsResponse(result: {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Zero-check-runs cause discrimination (mt#2312) — exported for tests
+// ---------------------------------------------------------------------------
+
+/**
+ * A PR's mergeability as this gate sees it. `known: false` covers a failed
+ * fetch or an unparseable body: the gate still denies, it just cannot name
+ * which cause produced the zero.
+ */
+export type MergeState =
+  | { known: true; mergeable: boolean | null; mergeableState: string | null }
+  | { known: false; error: string };
+
+/** What produced zero check_runs on HEAD. Each cause has a DIFFERENT recovery. */
+export type ZeroCheckRunsCause = "merge-conflict" | "webhook-miss" | "inconclusive";
+
+/**
+ * Parse `gh api repos/.../pulls/<n> --jq '{mergeable, mergeable_state}'`.
+ * Never throws: an unusable response becomes `known: false` carrying the
+ * reason, which the caller renders as the inconclusive diagnosis.
+ */
+export function parseMergeStateResponse(result: {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+}): MergeState {
+  if (result.timedOut) {
+    return { known: false, error: "gh api timed out reading the PR's merge state" };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      known: false,
+      error: `gh api exited ${result.exitCode}: ${result.stderr.trim() || "(no stderr)"}`,
+    };
+  }
+  const trimmed = result.stdout.trim();
+  if (!trimmed) {
+    return { known: false, error: "gh api returned empty response" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return {
+      known: false,
+      error: `failed to parse gh api response as JSON: ${(e as Error).message}`,
+    };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { known: false, error: "gh api response is not an object" };
+  }
+  const obj = parsed as { mergeable?: unknown; mergeable_state?: unknown };
+  // `mergeable` is legitimately null while GitHub's background job runs, so
+  // null is a VALUE here rather than a missing field. Anything that is neither
+  // boolean nor null is a shape we do not understand.
+  if (typeof obj.mergeable !== "boolean" && obj.mergeable !== null) {
+    return { known: false, error: "gh api response missing a boolean/null `mergeable`" };
+  }
+  return {
+    known: true,
+    mergeable: obj.mergeable,
+    mergeableState: typeof obj.mergeable_state === "string" ? obj.mergeable_state : null,
+  };
+}
+
+/**
+ * Which cause produced zero check_runs on this PR's HEAD?
+ *
+ * **`mergeable === false` is the whole discriminator, and `mergeable_state`
+ * is deliberately NOT consulted (mt#2312).** Only a real conflict stops
+ * GitHub building `refs/pull/N/merge`, and without that ref no `pull_request`
+ * workflow can dispatch. Every other state — including `behind` — has
+ * `mergeable: true`, so the merge ref exists and CI dispatches normally.
+ *
+ * That correction is the point of this function. This task's own spec, and
+ * both memories it was written from (mem#321, mem#537), asserted that `behind`
+ * ALSO prevents dispatch. Measured 2026-08-17: PR #3042's base was main's tip
+ * at 02:24:45Z; by 02:41:52Z main was 13 commits ahead of it; the push at
+ * 02:43:36Z — with the branch 13 behind — dispatched the full 20-check set.
+ * Four other open PRs read in the same window were all `behind`, all
+ * `mergeable: true`, all carrying 13-20 check runs. Grouping `behind` with
+ * `dirty` would send an agent to `session_update` for a webhook miss, which
+ * is the same class of wrong answer this gate exists to stop.
+ *
+ * `blocked` is the trap in the other direction: with required checks
+ * configured, a genuine webhook miss presents as `blocked` PRECISELY BECAUSE
+ * the required checks are missing. It is a symptom of the zero, not a cause.
+ *
+ * `null` means GitHub has not finished computing mergeability — the caller
+ * re-reads once before landing here, and an unresolved second read is
+ * reported as inconclusive rather than guessed at.
+ *
+ * Corroboration: `mergeable_state` is an undocumented field; the community
+ * reference (github/community discussion #24299) defines `behind` as "head
+ * branch is behind the base branch ... merging will be blocked" — a
+ * merge-BUTTON blocker under branch protection, not a merge-ref-formation
+ * blocker. This matches what mt#4182 shipped for `session_pr_checks`
+ * (`eabb96d2b`), which branches on `mergeable === false` for the same reason;
+ * the two surfaces must not disagree about which state means "CI could not
+ * have dispatched".
+ */
+export function classifyZeroCheckRuns(state: MergeState): ZeroCheckRunsCause {
+  if (!state.known) return "inconclusive";
+  if (state.mergeable === false) return "merge-conflict";
+  if (state.mergeable === true) return "webhook-miss";
+  return "inconclusive";
+}
+
+/**
+ * How long to wait before the single re-read below. GitHub's mergeability job
+ * is fast; this only has to outlast it, and it is paid at most once, on a path
+ * that is already denying the merge.
+ */
+const MERGE_STATE_RECHECK_DELAY_MS = 2_000;
+
+/**
+ * Read the PR's mergeability, re-reading ONCE if GitHub has not computed it.
+ *
+ * The first GET is what STARTS the background job, so `mergeable: null` on it
+ * is the ordinary response for a PR nobody has asked about recently — not an
+ * error, and not evidence of anything. Failing to re-read here would report
+ * `inconclusive` for the common case and make the whole discriminator useless.
+ * An unresolved SECOND read stays inconclusive rather than being guessed at.
+ *
+ * The IO half of `classifyZeroCheckRuns`; kept separate so the classifier is
+ * pure and directly testable.
+ */
+export function readMergeState(repo: string, prNumber: string, cwd?: string): MergeState {
+  const first = parseMergeStateResponse(fetchPullRequestMergeStateRaw(repo, prNumber, { cwd }));
+  if (!first.known || first.mergeable !== null) return first;
+  Bun.sleepSync(MERGE_STATE_RECHECK_DELAY_MS);
+  return parseMergeStateResponse(fetchPullRequestMergeStateRaw(repo, prNumber, { cwd }));
+}
+
 // mt#1309: detect the GitHub Actions webhook-miss class (PR #763 lineage).
 // Workflows are configured to fire on every PR, but rare GitHub-side webhook
 // drops produce a PR with zero check_runs. Without this gate, such PRs can
@@ -126,10 +262,16 @@ export function parseCheckRunsResponse(result: {
 // API/parse failures are kept distinct from the webhook-miss case so the
 // denial reason is actionable: a transport error needs investigation, not the
 // empty-commit recovery.
+//
+// mt#2312: zero check_runs no longer emits the webhook-miss message
+// unconditionally. `getMergeState` is a THUNK so the extra PR read is taken
+// only on the zero path — the one place the answer changes anything, and
+// already a deny path, so it costs nothing on an ordinary merge.
 export function evaluateCheckRunsPresence(
   parseResult: CheckRunsParseResult,
   prNumber: string,
-  headSha: string
+  headSha: string,
+  getMergeState: () => MergeState
 ): CheckRunsPresenceResult {
   if (!parseResult.ok) {
     return {
@@ -144,15 +286,50 @@ export function evaluateCheckRunsPresence(
   if (parseResult.count > 0) {
     return { deny: false };
   }
-  return {
-    deny: true,
-    reason:
-      `No CI check_runs found for PR #${prNumber} HEAD ${headSha.slice(0, 7)}. ` +
-      `This is the GitHub Actions webhook-miss class (mt#1309 / PR #763 lineage). ` +
-      `Recovery: push an empty commit to wake the webhook ` +
-      `(session_commit with noFiles:true, noStage:true), wait ~30s, then retry the merge. ` +
-      `If still 0 check_runs, escalate via the bypass-merge path documented in /merge-coordination step 7a.`,
-  };
+
+  const where = `for PR #${prNumber} HEAD ${headSha.slice(0, 7)}`;
+  const escalate = `escalate via the bypass-merge path documented in /merge-coordination step 7a.`;
+  const state = getMergeState();
+
+  switch (classifyZeroCheckRuns(state)) {
+    case "merge-conflict":
+      return {
+        deny: true,
+        reason:
+          `No CI check_runs found ${where}, and the PR is NOT mergeable ` +
+          `(mergeable: false${state.known && state.mergeableState ? `, mergeable_state: ${state.mergeableState}` : ""}). ` +
+          `This is the unmergeable-branch class (mt#2312), NOT the webhook-miss class: GitHub cannot build ` +
+          `refs/pull/${prNumber}/merge for a conflicted PR, so it never dispatched any pull_request workflow. ` +
+          `Recovery: run session_update to merge main and resolve the conflict, then retry the merge. ` +
+          `Do NOT push an empty commit — it cannot wake a webhook that was never missed, and it changes HEAD, ` +
+          `invalidating any existing reviewer APPROVE and costing another review round.`,
+      };
+    case "webhook-miss":
+      return {
+        deny: true,
+        reason:
+          `No CI check_runs found ${where}, and the PR IS mergeable` +
+          `${state.known && state.mergeableState ? ` (mergeable_state: ${state.mergeableState})` : ""}, ` +
+          `so CI could have dispatched and did not. ` +
+          `This is the GitHub Actions webhook-miss class (mt#1309 / PR #763 lineage). ` +
+          `Recovery: push an empty commit to wake the webhook ` +
+          `(session_commit with noFiles:true, noStage:true), wait ~30s, then retry the merge. ` +
+          `If still 0 check_runs, ${escalate}`,
+      };
+    case "inconclusive":
+      return {
+        deny: true,
+        reason:
+          `No CI check_runs found ${where}, and the PR's mergeability could not be resolved ` +
+          `(${state.known ? "GitHub is still computing it" : state.error}). ` +
+          `Zero check_runs has TWO causes with opposite recoveries and this gate cannot tell them apart here (mt#2312): ` +
+          `(1) the branch has merge conflicts, so GitHub never built refs/pull/${prNumber}/merge and dispatched nothing — ` +
+          `recovery is session_update + resolve; or (2) a GitHub Actions webhook miss on a mergeable HEAD — ` +
+          `recovery is an empty commit (session_commit with noFiles:true, noStage:true). ` +
+          `Read the PR's mergeable field before choosing: gh api repos/<owner>/<repo>/pulls/${prNumber} --jq '.mergeable'. ` +
+          `If it stays unresolved, ${escalate}`,
+      };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1328,7 +1505,12 @@ async function main(): Promise<void> {
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
   if (headSha) {
     const parseResult = parseCheckRunsResponse(checkRunsResp);
-    const checkRunsResult = evaluateCheckRunsPresence(parseResult, pr, headSha);
+    // mt#2312: passed as a thunk, so the extra single-PR read happens ONLY on
+    // the zero-check_runs path — which is already a denial, so an ordinary
+    // merge pays nothing for it.
+    const checkRunsResult = evaluateCheckRunsPresence(parseResult, pr, headSha, () =>
+      readMergeState(repo, pr, input.cwd)
+    );
     if (checkRunsResult.deny && checkRunsResult.reason) {
       writeOutput({
         hookSpecificOutput: {
