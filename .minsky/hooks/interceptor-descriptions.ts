@@ -322,6 +322,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "claim-provenance-scan",
+    {
+      description:
+        'Records when a task spec asserts a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim ("unowned", "no task covers this"), and no call in the session could have established it — a `pull_request_read` for the cited PR, a path-filtered `git_log`, or a `tasks_search` preceding the write. Fires at the spec-WRITE seam, where both originating incidents wrote and where no PreToolUse guard existed before. Record-only: measured at one true positive in 16 fires (mt#4190 tunes it).',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("claim-provenance-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
