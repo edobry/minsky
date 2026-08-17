@@ -156,6 +156,30 @@ tester.run("require-registered-cockpit-loop", rule, {
         }
       `,
     },
+    // PR #3056 R1 — a specifier-exported start* that DOES register is still valid.
+    {
+      filename: FILE,
+      code: `
+        function startSpecifier() {
+          const h = registerSelfSchedulingSweep({ name: "s", progressBudgetMs: 1, restart: () => {} });
+          const run = async () => { while (true) { await tick(); h.noteProgress(); } };
+          void run();
+        }
+        export { startSpecifier };
+      `,
+    },
+    // PR #3056 R1 — a specifier export where NEITHER name begins with `start` is not an entry
+    // point this rule polices, exactly like a non-exported helper.
+    {
+      filename: FILE,
+      code: `
+        function pumpForever() {
+          const run = async () => { while (true) { await tick(); } };
+          void run();
+        }
+        export { pumpForever };
+      `,
+    },
   ],
 
   invalid: [
@@ -214,6 +238,77 @@ tester.run("require-registered-cockpit-loop", rule, {
       code: `
         const other = registerSelfSchedulingSweep({ name: "x", progressBudgetMs: 1, restart: () => {} });
         export function startUnregistered() {
+          const run = async () => { while (true) { await tick(); } };
+          void run();
+        }
+      `,
+      errors: [{ messageId: UNREGISTERED_LOOP }],
+    },
+    // PR #3056 R1 — the four evasions the reviewer found. Each is the same defect wearing a
+    // different export spelling, and each was invisible to the first version of this rule.
+    {
+      filename: FILE,
+      code: `
+        export default function startDefaultExport() {
+          const run = async () => { while (true) { await tick(); } };
+          void run();
+        }
+      `,
+      errors: [{ messageId: UNREGISTERED_LOOP }],
+    },
+    {
+      filename: FILE,
+      code: `
+        function startSpecifierExport() {
+          const run = async () => { while (!stopped) { await tick(); } };
+          void run();
+        }
+        export { startSpecifierExport };
+      `,
+      errors: [{ messageId: UNREGISTERED_LOOP }],
+    },
+    // Renamed ON EXPORT to a start* name — the local name would not have matched.
+    {
+      filename: FILE,
+      code: `
+        function pump() {
+          const run = async () => { while (true) { await tick(); } };
+          void run();
+        }
+        export { pump as startRenamed };
+      `,
+      errors: [{ messageId: UNREGISTERED_LOOP }],
+    },
+    // Renamed AWAY from a start* name on export — the exported name would not have matched.
+    {
+      filename: FILE,
+      code: `
+        function startRenamedAway() {
+          const run = async () => { while (true) { await tick(); } };
+          void run();
+        }
+        export { startRenamedAway as pump };
+      `,
+      errors: [{ messageId: UNREGISTERED_LOOP }],
+    },
+    // `export default <identifier>` resolves to the declaration, which may precede it.
+    {
+      filename: FILE,
+      code: `
+        function startDefaultIdentifier() {
+          const run = async () => { while (true) { await tick(); } };
+          void run();
+        }
+        export default startDefaultIdentifier;
+      `,
+      errors: [{ messageId: UNREGISTERED_LOOP }],
+    },
+    // The export precedes the declaration — resolution happens at Program:exit for this reason.
+    {
+      filename: FILE,
+      code: `
+        export { startHoisted };
+        function startHoisted() {
           const run = async () => { while (true) { await tick(); } };
           void run();
         }

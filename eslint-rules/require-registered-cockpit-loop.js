@@ -26,6 +26,23 @@
  * 2. A `setInterval` at MODULE scope — unambiguously daemon-lifetime, and outside the factory
  *    that would have registered it.
  *
+ * ## Export forms recognized (PR #3056 R1)
+ *
+ * A rule that exists to prevent an evasion must not be evadable by how the entry point is
+ * spelled. All four forms are recognized: `export function startX()`, `export const startX =`,
+ * `export default function startX()`, and a specifier export (`function startX(){} … export
+ * { startX }`, including `export { pump as startX }` and `export default startX`). Specifiers
+ * resolve at `Program:exit` against every named declaration in the file, so an export may
+ * precede its declaration. For a renamed specifier EITHER side beginning with `start` counts —
+ * keying on the exported name alone would let `export { startFoo as foo }` through, and on the
+ * local name alone would miss `export { pump as startFoo }`.
+ *
+ * **Stated honestly, not implied:** an ANONYMOUS default export (`export default function () {
+ * while (true) { await … } }`) is NOT caught, because there is no name to test against `start`
+ * and this rule's entry-point signal is the name. That form is not present in `src/cockpit`
+ * today and would be an odd way to write a daemon entry point, but it is a real gap rather
+ * than one this rule closes.
+ *
  * ## What it deliberately does NOT flag
  *
  * A `setInterval` inside a function. A census of `src/cockpit` (excluding `web/` and tests) at
@@ -117,6 +134,14 @@ export default {
     const functionRanges = [];
     /** Ranges of exported `start*` functions, with their names. */
     const startExports = [];
+    /**
+     * Every named function-ish declaration in the file, by LOCAL name, whether or not it is
+     * exported inline. `export { startX }` names a binding declared elsewhere in the file, so
+     * the specifier alone carries no range — this is what it resolves against.
+     */
+    const declaredByName = new Map();
+    /** `export { local as exported }` pairs, resolved at Program:exit against `declaredByName`. */
+    const exportSpecifiers = [];
     /** Ranges of calls that count as registering. */
     const registrationRanges = [];
     /** Ranges of every `await` expression. */
@@ -126,22 +151,45 @@ export default {
     /** Module-scope `setInterval` calls, resolved at Program:exit once every function is known. */
     const intervalCalls = [];
 
+    /** A public entry point this rule polices is any binding whose name begins with `start`. */
+    function isStartName(name) {
+      return typeof name === "string" && name.startsWith("start");
+    }
+
     /** Record an exported `start*` binding, however it is spelled. */
     function noteStartExport(name, node) {
-      if (typeof name === "string" && name.startsWith("start")) {
+      if (isStartName(name)) {
         startExports.push({ name, range: node.range });
       }
+    }
+
+    /** True when a variable's initializer makes it a function-ish binding. */
+    function isFunctionish(init) {
+      return (
+        init != null &&
+        (init.type === "ArrowFunctionExpression" ||
+          init.type === "FunctionExpression" ||
+          init.type === "CallExpression")
+      );
     }
 
     return {
       FunctionDeclaration(node) {
         functionRanges.push(node.range);
+        // Recorded whether or not it is exported here: `export { startX }` may appear anywhere
+        // in the file, including before this declaration.
+        if (node.id?.name) declaredByName.set(node.id.name, node.range);
       },
       FunctionExpression(node) {
         functionRanges.push(node.range);
       },
       ArrowFunctionExpression(node) {
         functionRanges.push(node.range);
+      },
+      VariableDeclarator(node) {
+        if (node.id?.type === "Identifier" && isFunctionish(node.init)) {
+          declaredByName.set(node.id.name, node.range);
+        }
       },
 
       // `export function startX() {}`
@@ -150,16 +198,38 @@ export default {
       },
       // `export const startX = () => {}` / `= function () {}`
       "ExportNamedDeclaration > VariableDeclaration > VariableDeclarator"(node) {
-        const init = node.init;
-        if (!init) return;
-        if (
-          init.type !== "ArrowFunctionExpression" &&
-          init.type !== "FunctionExpression" &&
-          init.type !== "CallExpression"
-        ) {
+        if (!isFunctionish(node.init)) return;
+        noteStartExport(node.id?.name, node);
+      },
+      // `export default function startX() {}` and `export default startX`.
+      ExportDefaultDeclaration(node) {
+        const declaration = node.declaration;
+        if (!declaration) return;
+        if (declaration.type === "FunctionDeclaration") {
+          noteStartExport(declaration.id?.name, declaration);
           return;
         }
-        noteStartExport(node.id?.name, node);
+        if (declaration.type === "Identifier") {
+          // Resolved at Program:exit — the declaration may appear later in the file.
+          exportSpecifiers.push({ local: declaration.name, exported: declaration.name });
+        }
+      },
+      // `function startX() {} … export { startX }` / `export { pump as startX }`.
+      //
+      // EITHER side beginning with `start` counts. Keying on the exported name alone would let
+      // `export { startFoo as foo }` slip through, and on the local name alone would miss
+      // `export { pump as startFoo }` — and a rule whose whole job is preventing an evasion
+      // should not itself be evadable by a rename.
+      ExportNamedDeclaration(node) {
+        if (!Array.isArray(node.specifiers)) return;
+        for (const specifier of node.specifiers) {
+          if (specifier.type !== "ExportSpecifier") continue;
+          const local = specifier.local?.name;
+          const exported = specifier.exported?.name;
+          if (isStartName(local) || isStartName(exported)) {
+            exportSpecifiers.push({ local, exported: exported ?? local });
+          }
+        }
       },
 
       AwaitExpression(node) {
@@ -191,6 +261,14 @@ export default {
       },
 
       "Program:exit"() {
+        // Resolve specifier and `export default <identifier>` exports now that every
+        // declaration in the file has been seen — an export may precede its declaration.
+        for (const { local, exported } of exportSpecifiers) {
+          if (!isStartName(local) && !isStartName(exported)) continue;
+          const range = declaredByName.get(local);
+          if (range) startExports.push({ name: exported ?? local, range });
+        }
+
         for (const loop of loops) {
           const hasAwait = awaitRanges.some((range) => contains(loop.range, range));
           if (!hasAwait) continue;
