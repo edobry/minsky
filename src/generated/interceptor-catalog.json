@@ -3325,6 +3325,36 @@
       "deliberatelyUnauthored": false
     },
     {
+      "guardName": "turn-end-stale-state-assertion-scan",
+      "description": "Records a closing message that tells the principal an ask or task is awaiting them when the substrate says it is already terminal. Log-only.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/turn-end-stale-state-assertion-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["attentionCost"],
+      "registered": true,
+      "undescribed": false,
+      "point": "Stop",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
       "guardName": "turn-end-unescalated-incident-scan",
       "description": "Injects when the final message reports an incident and names the remediation as the principal's, with no ask carrying `severity: \"incident\"`.",
       "failureClasses": ["lost-signal"],

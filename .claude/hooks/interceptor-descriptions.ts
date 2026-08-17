@@ -770,6 +770,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "turn-end-stale-state-assertion-scan",
+    {
+      description:
+        "Records a closing message that tells the principal an ask or task is awaiting them when the substrate says it is already terminal. Log-only.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("turn-end-stale-state-assertion-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "knowledge-acquisition-detector",
     {
       description:

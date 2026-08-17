@@ -489,4 +489,65 @@ export const TURN_END_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4199 — LOG-ONLY sixth Stop-event sibling. The trigger shape closest to
+  // `unescalated-incident`: a phrase-gated claim in the closing message, with a
+  // structural check on the ABSENCE half. What differs is where the check
+  // looks — not at this turn's tool calls, but at the SUBSTRATE, because the
+  // question is whether what the message says about an entity is still true.
+  //
+  // Why a guard and not a cue: `/check-premise` cue (i) already names this
+  // exact assertion, shipped as mt#3216, and the assertion recurred twice
+  // (mem#669 R17/R18). mt#4191 then measured why — the skill has never been
+  // invoked, across 558 conversations. The cue tier is inert here; Stop is the
+  // only interception point that runs while the closing message is composed.
+  //
+  // Calibration-first: never emits `additionalContext`, so no attentionCost
+  // (the stop-at-decision / knowledge-acquisition precedent — a nominal value
+  // would distort the merged-context budget, which sums these annotations).
+  // -------------------------------------------------------------------------
+  {
+    name: "turn-end-stale-state-assertion-scan",
+    effects: [recorderEffect()],
+    tuningOwnership: "advisory",
+    event: "Stop",
+    module: () => import("./turn-end-stale-state-assertion-scan").then((m) => ({ run: m.run })),
+    // 8s rather than the phrase-only siblings' 5s: on a gate HIT this guard
+    // resolves entity state against Postgres, and a cold hook bootstrap +
+    // connect measures 3.3–5.5s (mt#2430). Its own LOOKUP_TIMEOUT_MS (6s)
+    // bounds that read — sized to fit a cold bootstrap rather than to look
+    // tight — and this 8s leaves margin above it so a slow read is attributed
+    // to the guard's own bound rather than killed by the dispatcher's. The gate
+    // is regex-only, so the common turn approaches neither.
+    timeoutMs: 8000,
+    calibrationLog: "stale-state-assertion",
+    denyCapable: false,
+    // FALSE: both halves come from `last_assistant_message` and the substrate.
+    // Unlike every other member of this family, nothing here reads the turn's
+    // tool calls — the claim being checked is about the WORLD, not about what
+    // this turn did.
+    needsTranscript: false,
+    canary: {
+      // The mem#669 R17 shape verbatim: an ask asserted as still pending in a
+      // closing message. Asserts `calibration` rather than `warn` — this guard
+      // is record-only, so a record IS its whole observable output. The canary
+      // holds whether or not the substrate is reachable: a failed lookup is
+      // recorded as a suppression reason, not swallowed.
+      input: {
+        session_id: "mt4199-stale-state-assertion-canary",
+        transcript_path: "/nonexistent/mt4199-canary.jsonl",
+        last_assistant_message:
+          "mt#3711 is merged and live. Nothing else outstanding.\n\n" +
+          "Still with you: ask#8467 — what mt#2430 should deliver now that the RFC option was declined.",
+      },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "anything left for me?" } },
+      ],
+      expects: "calibration",
+      setup: async () => {
+        const store = await import("./turn-end-scan-store");
+        store.clearFlagged("mt4199-stale-state-assertion-canary");
+      },
+    },
+  },
 ];

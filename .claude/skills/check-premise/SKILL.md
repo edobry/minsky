@@ -342,6 +342,31 @@ on a real read — but nothing in the turn required re-reading before
 asserting, and the invalidating event was the agent's OWN prior action, not
 an external one.
 
+**A RESUMED CONVERSATION invalidates every read it carries, and announces
+nothing.** R16 is a 26-minute window inside one working stretch, with the
+agent's own action as the invalidating event — a shape you can in principle
+notice. R17 (`b0b294ab`, 2026-08-16) is the same assertion across a
+**three-day gap spanning a conversation boundary**: the agent read ask#8467 as
+`suspended` on 08-13, the principal answered it on 08-14, the conversation
+resumed on 08-16, and the closing message said "Still with you: ask#8467."
+Neither distinguishing feature of R16 was present — the invalidating actor was
+the principal, and nothing the agent did caused it.
+
+So the question is not only "did I probe?" but **"how long ago, and has this
+conversation been idle since?"** From inside a resumed turn the context looks
+continuous; nothing marks the reads it carries as stale. When a turn resumes
+after any substantial gap, treat EVERY entity status carried from before it as
+`inferred` until re-read — the per-turn current-time injection is what makes
+the gap visible, so read it.
+
+_Tier note, stated because it bounds what this cue can do:_ this is prose in an
+on-demand skill, and it cannot fire at the moment the closing message is
+composed — which is where its own trigger lands. mt#4191 measured the
+consequence: this skill has never been invoked, across 558 conversations.
+**mt#4199** carries the structural companion, a Stop-side scan comparing a
+pending-on-principal assertion against the entity's live state. Read this cue
+as the reasoning; that guard is what actually runs.
+
 ### (j) A diagnostic conclusion from a non-discriminating signal
 
 Trigger: mid-diagnosis, about to assert a state conclusion — "the push didn't
