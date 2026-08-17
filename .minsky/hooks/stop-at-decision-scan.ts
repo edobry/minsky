@@ -114,7 +114,7 @@ const WORKING_TURN_PREFIX = "mcp__minsky__session_pr_";
  * trigger — suppressing here keeps one turn from writing two families'
  * records for the same sentence.
  */
-export const RECOMMENDATION_MARKERS: readonly RegExp[] = [
+export const RECOMMENDATION_MARKERS_BASELINE: readonly RegExp[] = [
   /\brecommend/i,
   /\bnext (?:step|move|session)/i,
   /\bI (?:suggest|propose|plan|intend)\b/i,
@@ -125,6 +125,53 @@ export const RECOMMENDATION_MARKERS: readonly RegExp[] = [
   /\byour call\b/i,
   /\bup to you\b/i,
   /\bdecision (?:needed|required|is yours)\b/i,
+];
+
+/**
+ * The natural-prose decision handoff (mt#4085).
+ *
+ * Derived from the corpus, not invented: each pattern below is the minimal
+ * generalization of a phrase that appears verbatim in a record the 2026-08-13
+ * calibration pass classified FALSE (records 12-22 of
+ * `.minsky/stop-at-decision-calibration.jsonl`). The three shapes the baseline
+ * list above cannot spell:
+ *
+ *  - **Possessive-inversion** — "detector enforcement posture is yours to set"
+ *    (2026-08-10T15:24:57Z), "Confirming whether that peer is done is yours to
+ *    call" (2026-08-10T17:40:01Z). The baseline carries `decision … is yours`
+ *    and `your call`, and misses every inflection that fronts the noun.
+ *  - **Nominalized framing** — "The decision reduces to which strain you'd
+ *    rather live with" (2026-08-11T20:29:00Z), "the choice it has to make:
+ *    absorb the interlock page, or state a division of labor"
+ *    (2026-08-12T00:20:22Z). The decision is NAMED as a noun rather than asked
+ *    as a question, so `should (?:we|I)` cannot see it.
+ *  - **Position-stating** — "my three positions — …" (2026-08-12T21:51:50Z).
+ *
+ * **Deliberately NOT widened to the other four records in that window**
+ * (2026-08-09T03:54:06Z, 2026-08-10T10:05:00Z, 2026-08-10T10:23:39Z,
+ * 2026-08-12T22:08:54Z). They carry no decision-handoff phrase of any shape —
+ * they narrate the evidence-write itself ("Two corrections recorded", "I've
+ * recorded that and withdrawn the gap"). A marker for THAT shape would match
+ * nearly every turn this detector evaluates, since evidence-writing is its
+ * trigger condition; that is the nullification mt#3861's criterion 3 rejected
+ * two regex candidates for. Those four are a separate class and are recorded as
+ * such in mt#4085's `## Implementation finding`, not silenced here.
+ *
+ * Split from the baseline as its own exported array so the replay harness
+ * (`scripts/replay-stop-at-decision-markers.ts`) computes its before/after arms
+ * from the SHIPPED list rather than a copy that can drift out of sync with it.
+ */
+export const RECOMMENDATION_MARKERS_MT4085: readonly RegExp[] = [
+  /\byours to \w+/i,
+  /\b(?:decision|choice|question|call)\s+(?:reduces|comes down|boils down)\s+to\b/i,
+  /\b(?:choice|decision|call)\s+(?:it|they|we|you|I)\s+(?:has|have|needs?)\s+to\s+make\b/i,
+  /\bmy\s+(?:\w+\s+)?positions?\b/i,
+];
+
+/** The list the detector actually matches against. */
+export const RECOMMENDATION_MARKERS: readonly RegExp[] = [
+  ...RECOMMENDATION_MARKERS_BASELINE,
+  ...RECOMMENDATION_MARKERS_MT4085,
 ];
 
 /** Task statuses in which a decision is still "ripe" — the spec's {TODO, PLANNING}. */
