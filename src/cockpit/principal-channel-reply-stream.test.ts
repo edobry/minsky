@@ -437,4 +437,67 @@ describe("createReplyStream — semantic blocks (mt#3711)", () => {
 
     expect(sends).toEqual(["before the tool call", "and after it"]);
   });
+
+  /**
+   * SC4, invariant 3 — the one the spec warns gets HARDER here.
+   *
+   * Under edit-in-place a flush produced one write, so the throttle alone kept
+   * the cadence legal. A flush can now find several blocks queued and would
+   * emit a SEND for each, back to back, inside a single window — and a send is
+   * far more likely than an edit to count against Telegram's ~1/sec ceiling.
+   *
+   * Eight blocks are queued here BEFORE any flush runs, which is the shape a
+   * fast alternation of prose and tool calls produces. Unpaced, the first flush
+   * would send all eight.
+   */
+  test("SC4 — blocks queued in one window do not burst as one send each", async () => {
+    const { stream, sends } = harness({ throttleMs: 60 });
+
+    let accumulated = "";
+    for (let i = 0; i < 8; i += 1) {
+      accumulated += `block ${i}. `;
+      stream.push(accumulated);
+      stream.sealBlock();
+    }
+    // Exactly one window, so at most one message may have been opened in it
+    // beyond the placeholder that goes out immediately.
+    await settle(70);
+
+    expect(sends.length).toBeGreaterThan(0);
+    expect(sends.length).toBeLessThanOrEqual(2);
+
+    // The deferred blocks are not dropped — they arrive over later windows.
+    await settle(700);
+    expect(sends.length).toBe(8);
+  });
+
+  /**
+   * The bug pacing introduced, and the reason `finish` flushes before it
+   * settles.
+   *
+   * Pacing defers queued blocks to the next window; `finish` cancels that
+   * window. The settle's append branch advances `offset` to `pending.length`
+   * on the premise that everything before it is already on screen — which
+   * pacing makes false, so a deferred block was silently skipped and the
+   * principal never saw it.
+   */
+  test("finish delivers blocks the pacing deferred rather than skipping them", async () => {
+    const { stream, sends } = harness({ throttleMs: 40 });
+
+    stream.push("first block");
+    stream.sealBlock();
+    stream.push("first blocksecond block");
+    stream.sealBlock();
+    stream.push("first blocksecond blockthird block");
+    // One window only: the later blocks are still queued when finish lands.
+    await settle(50);
+
+    await stream.finish("an unrelated resolved answer");
+
+    const delivered = sends.join("|");
+    expect(delivered).toContain("first block");
+    expect(delivered).toContain("second block");
+    expect(delivered).toContain("third block");
+    expect(delivered).toContain("an unrelated resolved answer");
+  });
 });

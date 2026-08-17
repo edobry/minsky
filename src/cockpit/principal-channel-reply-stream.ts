@@ -289,9 +289,22 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
    * The two reasons to close a message are deliberately handled in the same
    * loop but kept distinct: a SEAL is a boundary the turn declared, and a
    * SPLIT is one the char budget forced. Only the first is a block.
+   *
+   * **`paced` is invariant 3 (SC4), and it is new pressure.** Under
+   * edit-in-place a flush produced ONE write, so the throttle alone kept the
+   * cadence legal. Now a flush can find several blocks waiting and would emit a
+   * SEND for each, back to back, inside one window — and a send is far more
+   * likely than an edit to count against Telegram's ~1/sec ceiling. So a paced
+   * pass opens at most one NEW message and re-arms for the rest, which spreads
+   * queued blocks across throttle windows instead of bursting them.
+   *
+   * `finish` drains UNPACED: invariant 2 outranks invariant 3, and deferring
+   * there would mean returning from a settle with text still undelivered.
    */
-  async function drain(): Promise<void> {
+  async function drain(paced = false): Promise<void> {
     if (degraded) return;
+
+    let opened = 0;
 
     // Loop rather than split once: a burst can push past the budget by more
     // than one message's worth between flushes, and several blocks can be
@@ -304,6 +317,14 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
 
       const blockEnd = sealPoints[0] ?? pending.length;
       const remainder = pending.slice(offset, blockEnd);
+
+      // About to open a NEW message, and this pass already opened one: hand the
+      // rest to the next window rather than sending twice in a row.
+      if (paced && opened > 0 && currentMessageId === undefined && remainder.length > 0) {
+        schedule();
+        return;
+      }
+      if (currentMessageId === undefined && remainder.length > 0) opened += 1;
 
       if (remainder.length > maxChars) {
         const cut = findChunkBreak(remainder, maxChars);
@@ -343,13 +364,15 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
     timer = setTimeout(() => {
       timer = null;
       lastFlushAt = now();
-      inFlight = inFlight.then(drain).catch((err: unknown) => {
-        // Never let a streaming failure escape into the turn.
-        degraded = true;
-        log.warn("[principal-channel] streaming flush threw; settling with a plain send", {
-          error: err instanceof Error ? err.message : String(err),
+      inFlight = inFlight
+        .then(() => drain(true))
+        .catch((err: unknown) => {
+          // Never let a streaming failure escape into the turn.
+          degraded = true;
+          log.warn("[principal-channel] streaming flush threw; settling with a plain send", {
+            error: err instanceof Error ? err.message : String(err),
+          });
         });
-      });
     }, wait);
   }
 
@@ -398,6 +421,19 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
 
       // Nothing was ever put in the chat — the caller sends normally.
       if (currentMessageId === undefined && offset === 0) return undefined;
+
+      // FLUSH WHAT THE STREAM STILL OWES, FIRST.
+      //
+      // The settle below reasons about "what is on screen", and pacing means
+      // that is not the same as "what was streamed": a paced flush defers
+      // queued blocks to the next window, and `finished` above just cancelled
+      // that window. Reasoning about the settle before this ran would compare
+      // the resolved text against text the reader never received, and the
+      // append branch — which advances `offset` to `pending.length` — would
+      // then skip straight past it. Unpaced, because invariant 2 (delivery
+      // never regresses) outranks invariant 3 (cadence).
+      await drain();
+      if (degraded) return undefined;
 
       // THE SETTLE MAY ONLY ADD (SC5; the principal's second report, mt#3711
       // R2: *"when you were done you overwrote everything you previously wrote
