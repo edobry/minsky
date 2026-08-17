@@ -91,6 +91,7 @@ const INTERCEPTOR_ENTRY: InterceptorEntry = {
   description: "Denies a kill naming three or more PIDs.",
   failureClasses: [],
   provenance: [],
+  sourceFile: null,
   stratum: null,
   subject: "trajectory",
   provenanceStatus: "implementation",

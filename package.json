@@ -74,7 +74,7 @@
     "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 --path-ignore-patterns='services/**' src/cockpit/web/widgets src/cockpit/web/lib src/cockpit/web/components src/cockpit/web/pages src/cockpit/web/hooks",
     "test:hooks": "bun test --preload ./tests/setup.ts --timeout=15000 ./.minsky/hooks",
     "test:eslint-rules": "bun test --timeout=15000 eslint-rules/",
-    "audit:interceptors": "bun scripts/audit-settings-hook-coverage.ts",
+    "audit:interceptors": "bun scripts/audit-settings-hook-coverage.ts && bun scripts/audit-interceptor-source-join.ts",
     "audit:interceptors:corpus": "bun scripts/audit-interceptor-descriptions.ts && bun scripts/audit-interceptor-coordinates.ts",
     "test:reviewer": "cd services/reviewer && bun run test",
     "smoke:gh-timeout": "bun scripts/smoke-mt2245-github-timeout.ts",
