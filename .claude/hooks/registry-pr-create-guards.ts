@@ -209,4 +209,60 @@ export const PR_CREATE_GUARDS: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4124 — the OTHER half of mt#2421's question.
+  //
+  // `render-path-evidence` (at merge) asks whether an artifact EXISTS. This asks
+  // whether anyone JUDGED the surface, because those come apart: PR #2942 shipped
+  // two screenshots of a pane with no padding, and the artifact check passed on
+  // it. The discriminator is a `Skill` tool_use in the authoring conversation,
+  // which is a thing the agent cannot satisfy by writing prose about itself.
+  //
+  // Registers HERE and at THIS seam for a reason worth stating (the planning
+  // pass's resolution 1): the input is a skill call in the conversation that WROTE
+  // the code, and at merge time that conversation is not at hand — the merge gate
+  // holds only the merging conversation's `transcript_path`, and reaching the
+  // authoring one would need the `pr_author` link plus DB access from a merge
+  // gate, which no merge gate performs. At `session_pr_create` the hook's own
+  // transcript IS the authoring conversation.
+  // -------------------------------------------------------------------------
+  {
+    name: "new-surface-design-pass",
+    // RECORDER ONLY. The fire rate against real render-path PRs has not been
+    // measured yet, and the narrowing that makes it plausible — ADDED files only —
+    // is itself the thing calibration has to size. Injecting before that is the
+    // mem#719 failure mode.
+    effects: [recorderEffect()],
+    // `advisory`: "does adding this file mean designing a new surface?" is a
+    // judgment the mechanical proxy (git status `A` on a render-path path) stands
+    // in for, and the proxy will flag additions that render nothing of their own.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./new-surface-design-pass").then((m) => ({ run: m.run })),
+    // One `git diff --name-status` (itself capped at 10s) plus a pass over
+    // transcript lines the dispatcher already parsed. No DB round trip, which is
+    // why this matches its diff-only sibling's 12s rather than the sweep's 18s.
+    timeoutMs: 12000,
+    calibrationLog: "new-surface-design-pass",
+    // NEVER denies — an unjudged surface is a prompt to go look, not a defect.
+    denyCapable: false,
+    // MAX_REPORTED_SURFACES (6) short path lines plus a ~700-char frame.
+    attentionCost: { denialMessageSizeChars: 1400, optionCount: 1 },
+    // LOAD-BEARING (PR #2886 R1 on the sibling): `ctx.transcriptLines` is
+    // populated ONLY for a registration that declares this (D6), and the session's
+    // skill calls are this guard's ENTIRE discriminating half. Without it the
+    // guard records `skipped` on every live run — present, tested, green, inert.
+    needsTranscript: true,
+    // Needs both a git working tree and a transcript, neither guaranteed to the
+    // canary process, so the healthy canary outcome is a RECORDED skip
+    // (mt#3824 R2) short-circuited before either is read.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary new-surface design pass", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
 ];

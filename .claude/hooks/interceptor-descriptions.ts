@@ -316,6 +316,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "new-surface-design-pass",
+    {
+      description:
+        "Records when a PR ADDS a user-facing render-path surface and no design skill ran in the conversation that wrote it. The judgment half of mt#2421, whose check asks whether an artifact EXISTS and returns the same answer either way on whether anyone LOOKED: PR #2942 shipped two browser screenshots, a served branch with asserted health identity, and a reproduce recipe, and the pane had no padding. The screenshots were checked against the spec's criteria, and its only aesthetic criterion was conformance-shaped, which is satisfiable by reading class names. Keys on a `Skill` tool_use rather than on self-reported diligence, because the agent authoring the spec is the agent verifying it.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("new-surface-design-pass"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
