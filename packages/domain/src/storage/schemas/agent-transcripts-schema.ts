@@ -53,6 +53,44 @@ export const agentTranscriptsTable = pgTable(
      */
     title: text("title"),
 
+    /**
+     * When titling was last ATTEMPTED, and why it produced nothing (mt#4179).
+     *
+     * `title IS NULL` alone cannot distinguish "not yet tried" from "tried and
+     * cannot succeed", so the titling pipeline re-selected every permanently
+     * untitleable row on every tick. At ~29 such rows against a batch size of
+     * 25 the newest-first candidate window was fully occupied by them and could
+     * never reach the 1,289 older untitled rows beneath — measured as 15
+     * consecutive sweeps reporting 25 candidates, ~25 skipped, 0 errored.
+     *
+     * This is the same bookkeeping the ingest path already carries above
+     * (`ingest_failure_count` / `ingest_quarantined_at`, mt#3278) for the same
+     * shape: a doomed row re-attempted forever because nothing recorded that it
+     * had been attempted.
+     *
+     * Retry posture: a stamped row is reconsidered only when new content has
+     * arrived since the attempt — `last_ingested_jsonl_timestamp >
+     * title_attempted_at`. An in-progress conversation therefore gets another
+     * chance as it grows, while a finished one that genuinely has no subject is
+     * asked about exactly once.
+     *
+     * A PROVIDER ERROR deliberately leaves both columns untouched, so a failed
+     * model call retries on a later tick rather than being recorded as a
+     * verdict about the conversation.
+     */
+    titleAttemptedAt: timestamp("title_attempted_at", { withTimezone: true }),
+    /**
+     * `no-turns` | `no-content` | `no-subject` — why the MOST RECENT attempt
+     * produced no title; NULL when that attempt produced one.
+     *
+     * Count the permanently-untitleable population as
+     * `title IS NULL AND title_skip_reason IS NOT NULL`, never on the reason
+     * alone: a `force` re-title run over a row that already has a title can
+     * leave a reason set beside a surviving title, since force deliberately
+     * does not clear a good title on a failed re-ask.
+     */
+    titleSkipReason: text("title_skip_reason"),
+
     // Regex-extracted references from transcript content
     relatedTaskIds: text("related_task_ids")
       .array()
