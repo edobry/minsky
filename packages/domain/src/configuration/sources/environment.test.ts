@@ -44,6 +44,29 @@ import {
 // Do NOT remove this as incidental setup. Without it this file asserts the
 // machine it runs on as much as the registry it is about (mem#912: assert what
 // the change owns, not the ambient state that reveals it).
+//
+// WHY A GLOBAL MUTATION IS SAFE HERE (PR #3081 R1). These hooks delete real
+// variables — including the MINSKY_STATE_DIR / MINSKY_LOG_LEVEL / MINSKY_LOG_MODE
+// that `tests/setup.ts` sets — for the duration of each test body. That would be
+// a cross-file race if anything else could observe `process.env` during that
+// window. Nothing can, under either concurrency mode bun offers:
+//
+//   - `--parallel` runs test FILES in worker processes and, per `bun test
+//     --help`, "Implies --isolate". Separate processes have separate
+//     environments, so a sibling file cannot see this file's mutation at all.
+//   - `--concurrent` / `test.concurrent()` is what would interleave test bodies
+//     inside ONE process. It is enabled nowhere: no `--concurrent`,
+//     `--parallel`, `--isolate` or `--shard` flag appears in `scripts/*.ts`,
+//     `package.json` or `bunfig.toml`; `bunfig.toml` sets `randomize = false`;
+//     and the repo contains zero `test.concurrent` / `describe.concurrent`
+//     call sites.
+//
+// So files and tests both run serially today, and the one mode that could break
+// this isolates by process rather than sharing one. If someone ever turns
+// `--concurrent` on, this file is not the only thing that breaks: the five
+// describes below already delete and restore `process.env` keys in their own
+// beforeEach/afterEach, as does much of the suite. Re-verify the two bullets
+// above before assuming this block is the problem.
 // ---------------------------------------------------------------------------
 
 let ambientMinskyEnv: Array<[string, string]> = [];
