@@ -541,3 +541,30 @@ describe("applyMergeStateToChecks (mt#4182)", () => {
     expect(result.checks).toEqual(failing.checks);
   });
 });
+
+describe("trimChecksResult carries mergeBlocked (mt#4182, PR #3042 R1)", () => {
+  test("the trim drops the per-check breakdown but NOT the reason", () => {
+    // Without this the drive path sees allPassed:false, an empty failingChecks
+    // and zero counts — "nothing is wrong and nothing ran" — for a conflicted
+    // PR. The trim is about volume, not about discarding the explanation.
+    const trimmed = trimChecksResult({
+      allPassed: false,
+      mergeBlocked: "PR has merge conflicts, so GitHub could not build the merge ref",
+      summary: { total: 1, passed: 1, failed: 0, pending: 0 },
+      checks: [
+        { name: "minsky-reviewer/findings", status: "completed", conclusion: "success", url: null },
+      ],
+    });
+    expect(trimmed.mergeBlocked).toContain("merge conflicts");
+    expect(trimmed.allPassed).toBe(false);
+  });
+
+  test("a green trim carries no mergeBlocked", () => {
+    const trimmed = trimChecksResult({
+      allPassed: true,
+      summary: { total: 8, passed: 8, failed: 0, pending: 0 },
+      checks: [],
+    });
+    expect(trimmed.mergeBlocked).toBeUndefined();
+  });
+});

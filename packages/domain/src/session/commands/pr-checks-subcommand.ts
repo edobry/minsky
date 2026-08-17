@@ -36,6 +36,13 @@ export interface TrimmedChecksResult {
   summary: ChecksResult["summary"];
   /** Present (possibly empty) only when `allPassed` is false. */
   failingChecks?: CheckRunResult[];
+  /**
+   * Carried through from {@link ChecksResult} (mt#4182 / PR #3042 R1). The trim
+   * drops the per-check breakdown, not the REASON: without this, the drive
+   * path sees `allPassed: false` with an empty `failingChecks` and zero counts,
+   * which reads as "nothing is wrong and nothing ran" for a conflicted PR.
+   */
+  mergeBlocked?: string;
 }
 
 /** A check counts as "not passing" for the failingChecks filter below. */
@@ -59,6 +66,7 @@ export function trimChecksResult(result: ChecksResult): TrimmedChecksResult {
   return {
     allPassed: false,
     ...(result.timedOut ? { timedOut: true as const } : {}),
+    ...(result.mergeBlocked ? { mergeBlocked: result.mergeBlocked } : {}),
     summary: result.summary,
     failingChecks: result.checks.filter(isFailingOrPending),
   };
