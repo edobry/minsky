@@ -99,6 +99,38 @@ describe("handleLine — served-tool-count record (mt#4128)", () => {
     expect(stderr.written.join("")).not.toContain("tools/list served");
   });
 
+  test("a failing stderr write neither fabricates an error response nor drops the real one", async () => {
+    // Regression test for PR #3038 R1 (BLOCKING). The record is written inside
+    // the same `try` that converts a throw into a "daemon request failed"
+    // JSON-RPC error frame. Unguarded, an EPIPE on stderr — which says nothing
+    // about the daemon — was reported to the client as a daemon failure, and
+    // the response that actually succeeded was never forwarded.
+    const stdout = makeSink();
+    const throwingStderr = {
+      write: (): boolean => {
+        throw new Error("EPIPE");
+      },
+    };
+    const client = makeClient([{ jsonrpc: "2.0", id: 1, result: { tools: [{ name: "a" }] } }]);
+
+    await handleLine(TOOLS_LIST_REQUEST, {
+      client,
+      conversationAgentId: null,
+      stdout,
+      stderr: throwingStderr,
+    });
+
+    const out = stdout.written.join("").trim();
+    // The real response still reaches the client, unmodified...
+    expect(JSON.parse(out)).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { tools: [{ name: "a" }] },
+    });
+    // ...and no error frame was fabricated from a diagnostic-stream failure.
+    expect(out).not.toContain("daemon request failed");
+  });
+
   test("the record goes to stderr and never to stdout", async () => {
     // Load-bearing, not incidental: stdout IS the JSON-RPC channel. A
     // diagnostic for channel corruption that wrote to stdout would be a cause

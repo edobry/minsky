@@ -165,9 +165,22 @@ export async function handleLine(
       // logger would let a diagnostic for channel corruption become a cause of
       // it. The shim already writes its other diagnostics to stderr for the
       // same reason.
-      const servedCount = toolsListCount(resp);
-      if (servedCount !== null) {
-        ctx.stderr.write(`[shim] tools/list served: ${servedCount} tool(s)\n`);
+      // Guarded, and the guard is the load-bearing part (PR #3038 R1). This
+      // write sits INSIDE the same `try` that converts a throw into a
+      // "daemon request failed" JSON-RPC error frame below. Unguarded, an
+      // EPIPE on stderr — a closed diagnostic stream, which says nothing about
+      // the daemon — would be reported to the client as a daemon failure AND
+      // would skip forwarding a response that actually succeeded. A diagnostic
+      // must never be able to change what the client receives.
+      try {
+        const servedCount = toolsListCount(resp);
+        if (servedCount !== null) {
+          ctx.stderr.write(`[shim] tools/list served: ${servedCount} tool(s)\n`);
+        }
+      } catch {
+        // intentional-swallow: the served-count record is diagnostic only, and
+        // there is nowhere to report a failure to write a diagnostic except the
+        // stream that just failed.
       }
       ctx.stdout.write(`${JSON.stringify(resp)}\n`);
     }

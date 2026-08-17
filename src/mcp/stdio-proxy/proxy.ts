@@ -974,9 +974,23 @@ export class MinskyStdioProxy {
           // (packages/shared/src/logger.ts:136). stdout here IS the JSON-RPC
           // channel this proxy pipes, so routing this record through the logger
           // would let a diagnostic for channel corruption become a cause of it.
-          const servedCount = toolsListCount(msg);
-          if (servedCount !== null) {
-            proc.stderr.write(`[proxy] tools/list served: ${servedCount} tool(s)\n`);
+          // Guarded for the same reason the stdout write in `runReadyProbe` is
+          // (PR #3038 R1). This sits inside the JSON-parse `try` below, whose
+          // `catch` means "not valid JSON — pass through as-is". Unguarded, an
+          // EPIPE on stderr would be swallowed by THAT handler: the line would
+          // still be forwarded, but augmentation would be skipped — silently
+          // dropping `__proxy_restart_server` from the response — and the
+          // failure would be misattributed to a parse error. A diagnostic must
+          // not be able to alter the frame it is describing.
+          try {
+            const servedCount = toolsListCount(msg);
+            if (servedCount !== null) {
+              proc.stderr.write(`[proxy] tools/list served: ${servedCount} tool(s)\n`);
+            }
+          } catch {
+            // intentional-swallow: the served-count record is diagnostic only,
+            // and the only channel available to report its own failure is the
+            // stream that just failed.
           }
           const augmented = augmentToolsListResponse(msg);
           if (augmented !== msg) {
