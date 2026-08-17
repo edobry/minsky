@@ -22,6 +22,7 @@ import {
   readInterceptionPointUnions,
   readPointsGate,
   readValidPoints,
+  readDocPoints,
 } from "../../scripts/interception-point-sources";
 
 /** The six mt#4129 added; named so deleting them from all three still fails. */
@@ -70,6 +71,13 @@ describe("InterceptionPoint stays identical across its three declarations", () =
     // union member missing here is a point the resolver can never produce — the
     // exact shape that hid six events until mt#4129.
     expect(readPointsGate()).toEqual(reference);
+  });
+
+  test("the ontology doc's axis-1 list matches the union (PR #3057 R1)", () => {
+    // The sixth copy, and the only one in prose. It went stale in this very PR
+    // — the reviewer caught it, nothing else could have. Fenced in
+    // `axis-1-points` markers so it is parsed rather than trusted.
+    expect(readDocPoints()).toEqual(reference);
   });
 
   test("the runtime VALID_POINTS validator matches the union", () => {

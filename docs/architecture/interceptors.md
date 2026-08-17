@@ -94,13 +94,34 @@ words.
 Where in the trajectory it sits. Current values are the Claude Code harness lifecycle events plus
 the repo/delivery gates:
 
+<!-- axis-1-points:start — parsed by tests/unit/interceptor-points.test.ts; every name backticked -->
+
 `PreToolUse` · `PostToolUse` · `Stop` · `SubagentStop` · `UserPromptSubmit` · `SessionEnd` ·
-`MessageDisplay` · pre-commit · merge-time
+`MessageDisplay` · `SessionStart` · `StopFailure` · `Notification` · `PermissionRequest` ·
+`PreCompact` · `PostCompact` · `pre-commit` · `merge-time`
+
+<!-- axis-1-points:end -->
 
 The agent-runtime values are _literal copies_ of the harness's own event names, so this is
 identity with the field, not convergence — keep them verbatim. AspectJ's "join point", Kubernetes'
 admission phases and OWASP's "control point" are the same concept in other lineages, and are
 useful as glosses only.
+
+The six from `SessionStart` onward were added by mt#4129. Hooks were registered at each of them in
+`.claude/settings.json` while the model had no value to represent them, so the point resolver
+dropped them and the catalog carried neither the hook nor a gap — this list was one of the places
+that made the omission look intentional. It is a SIXTH copy of these names: the other five are
+three type unions (the hook tree cannot import from `src/`, and cockpit-web cannot import from
+`.minsky/hooks/**`, so the duplication is forced), the runtime `POINTS` gate, and `VALID_POINTS`.
+`tests/unit/interceptor-points.test.ts` pins all six to each other — including this one, via the
+`axis-1-points` HTML comment markers around the list above. A prose list is exactly the copy that
+would otherwise rot silently, which is why it is fenced and parsed rather than trusted; keep every
+name backticked so the parser sees it.
+
+Not every point has a place on the spine: `INTERCEPTION_POINT_ORDER` is deliberately a subset,
+because ordering `Notification` or `PreCompact` against a turn's phases is a spine-design decision
+nobody has made. An entry at such a point lands in `spinePopulation`'s `stationless` bucket, which
+reports it rather than dropping it.
 
 ### Axis 2 — intervention type
 

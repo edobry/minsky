@@ -113,3 +113,20 @@ export function readPointsGate(): string[] {
 export function readValidPoints(): string[] {
   return parseValidPoints(readSource("src/cockpit/widgets/interceptors.ts"));
 }
+
+/**
+ * The axis-1 point list in the ontology doc, between its `axis-1-points` markers.
+ *
+ * A SIXTH copy, and the only one in prose — so the only one that would rot with
+ * nothing failing (PR #3057 R1 caught exactly that). Fencing it in HTML comments
+ * and parsing it turns the caveat into an assertion. Every name in the list must
+ * be backticked; the markers say so at the site.
+ */
+export function readDocPoints(): string[] {
+  const source = readSource("docs/architecture/interceptors.md");
+  const block = /<!-- axis-1-points:start[\s\S]*?-->([\s\S]*?)<!-- axis-1-points:end -->/.exec(
+    source
+  );
+  if (!block?.[1]) throw new Error("no `axis-1-points` marker block found");
+  return [...block[1].matchAll(/`([^`]+)`/g)].map((m) => m[1] ?? "").sort();
+}
