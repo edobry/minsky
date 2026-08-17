@@ -94,6 +94,49 @@ const UNTIL = flag("--until");
  * a labeler who cannot settle a record must be able to say so rather than be
  * forced into a bucket, or the rate absorbs the labeler's uncertainty silently.
  */
+/**
+ * The labeling pass's candidate predicate, deliberately WIDER than
+ * `NEGATIVE_EXISTENCE_PATTERNS`.
+ *
+ * It proposes sentences for judgment; it does not decide. A sentence is counted
+ * only after the SHIPPED `extractNegativeExistenceClaims` is confirmed to return
+ * zero claims for it, so this can never mark something the detector already
+ * catches.
+ *
+ * Exported and tested rather than left as an ad-hoc regex in a scratch file,
+ * because SC1 requires the labeling METHOD to be recorded and SC3 requires a
+ * fixture to be verified against it (PR #3053 R2). A method that exists only in
+ * the labeler's shell is not recorded.
+ *
+ * **Its recall bound, stated:** a claim carrying none of these tokens is
+ * invisible to this predicate exactly as it is to the detector, which is why the
+ * reported rate is a LOWER bound. `RECURRENCE_B` below is precisely that case.
+ */
+export const LABELING_CANDIDATE_RE =
+  /\b(never (?:committed|reads?|reached?|ran|runs?|fires?|executes?)|is absent|are absent|has no|have no|there (?:is|are|was|were) no|does not (?:import|exist|touch)|no such|nothing (?:for|handles|matches))\b/i;
+
+/** Does the labeling pass propose this sentence as a candidate miss? */
+export function isCandidateMiss(sentence: string): boolean {
+  return LABELING_CANDIDATE_RE.test(sentence) && sentence.length > 30;
+}
+
+/**
+ * mt#4121's two recorded recurrences, verbatim, pinned as fixtures (SC3).
+ *
+ * They are NOT symmetric, and the asymmetry is the finding rather than a gap in
+ * the measurement:
+ *
+ * - **A** is a negative-existence claim in the simple past. The corpus's
+ *   `never`-family pattern is present-tense only, so it misses — and the
+ *   labeling predicate proposes it, which is what makes it a usable fixture.
+ * - **B** asserts a mechanism is PRESENT. It is a derived-view failure but not a
+ *   negative-existence claim at all, so no negation-keyed corpus can reach it
+ *   and neither can the labeling predicate. It is pinned as a NEGATIVE fixture:
+ *   the thing this detector is not the mechanism for.
+ */
+export const RECURRENCE_A = "the handler's own catch never ran";
+export const RECURRENCE_B = "this test fails on a `waitFor` timeout";
+
 export type Label =
   /** The artifact prose volunteers no negative-existence claim. Correctly quiet. */
   | "no-claim"

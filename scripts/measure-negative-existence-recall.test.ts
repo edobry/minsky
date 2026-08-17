@@ -9,9 +9,13 @@
 import { describe, test, expect } from "bun:test";
 import {
   joinRecords,
+  isCandidateMiss,
+  RECURRENCE_A,
+  RECURRENCE_B,
   type EvaluationRecord,
   type RecoveredTurn,
 } from "./measure-negative-existence-recall";
+import { extractNegativeExistenceClaims } from "../packages/domain/src/detectors/negative-existence-claim";
 
 function turn(sessionId: string, proseChars: number, endedAt: string): RecoveredTurn {
   return { sessionId, proseChars, endedAt, claimPresent: false, prose: "" };
@@ -20,6 +24,45 @@ function turn(sessionId: string, proseChars: number, endedAt: string): Recovered
 function record(sessionId: string, proseChars: number, timestamp: string): EvaluationRecord {
   return { session_id: sessionId, proseChars, timestamp, claimPresent: false };
 }
+
+describe("SC3 — mt#4121's recurrences, pinned and VERIFIED against the labeling pass", () => {
+  // "A fixture asserted to match is not evidence it matches" (mt#4114) — so each
+  // of these runs both the shipped matcher and the labeling predicate rather
+  // than declaring the outcome in prose.
+
+  describe("recurrence A — a past-tense negative-existence claim", () => {
+    test("the shipped corpus MISSES it", () => {
+      expect(extractNegativeExistenceClaims(RECURRENCE_A)).toHaveLength(0);
+    });
+
+    test("its present-tense twin is CAUGHT — so the gap is tense, not the claim", () => {
+      // The discriminating half: without it, the miss above is consistent with
+      // the detector simply not covering this claim at all.
+      expect(
+        extractNegativeExistenceClaims("the handler's own catch never runs").length
+      ).toBeGreaterThan(0);
+    });
+
+    test("the labeling pass proposes it — this is what makes it classify as (b)", () => {
+      expect(isCandidateMiss(`In the spec: ${RECURRENCE_A}, so the branch is dead.`)).toBe(true);
+    });
+  });
+
+  describe("recurrence B — NOT a negative-existence claim, pinned as the negative fixture", () => {
+    test("the shipped corpus misses it, as it must", () => {
+      expect(extractNegativeExistenceClaims(RECURRENCE_B)).toHaveLength(0);
+    });
+
+    test("the labeling pass ALSO does not propose it", () => {
+      // Recorded as a property rather than an omission: B asserts a mechanism is
+      // PRESENT, so no negation-keyed corpus reaches it and no widening of this
+      // detector ever will. SC3 cannot be satisfied for B, and this test is why.
+      expect(isCandidateMiss(`In the spec: ${RECURRENCE_B}, which is the wrong cause.`)).toBe(
+        false
+      );
+    });
+  });
+});
 
 describe("joinRecords", () => {
   test("joins on (session_id, proseChars)", () => {
