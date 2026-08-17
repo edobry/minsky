@@ -1208,8 +1208,12 @@ describe("runPollCycle — receipt acks", () => {
  */
 describe("runPollCycle — streamed replies (mt#3542)", () => {
   const EDIT = "editMessageText";
+  /** A resolved answer that is NOT a continuation of anything streamed (mt#3711). */
+  const DIVERGENT_FINAL = "an unrelated final answer";
 
-  function streamHarness(opts: { threadId?: number } = {}): {
+  function streamHarness(
+    opts: { threadId?: number; sealAfterPartial?: boolean; finalText?: string } = {}
+  ): {
     h: Harness;
     edits: Array<Record<string, unknown>>;
     sends: Array<Record<string, unknown>>;
@@ -1247,9 +1251,17 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
             onPartialSeen = true;
             converseOpts.onPartial("partial ");
             converseOpts.onPartial("partial answer");
+            if (opts.sealAfterPartial === true) {
+              converseOpts.onBlockEnd?.();
+              converseOpts.onPartial("partial answerand a second block");
+            }
           }
           await new Promise((resolve) => setTimeout(resolve, 5));
-          return "the final answer";
+          // Defaults to a text that EXTENDS what streamed, which is the
+          // ordinary case: the deltas and the resolved result agree, and the
+          // settle is an edit. A caller that wants the DIVERGING case — the
+          // tool-heavy turn where `result` is not a continuation — passes it.
+          return opts.finalText ?? "partial answer, settled";
         },
       },
     });
@@ -1269,7 +1281,7 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
     return { h, edits, sends, sawOnPartial: () => onPartialSeen };
   }
 
-  test("hands the actuator an onPartial and settles on the resolved text", async () => {
+  test("settles additively — a resolved text that continues the stream is an EDIT", async () => {
     const { h, edits, sawOnPartial } = streamHarness();
 
     const outcome = await runPollCycle(h.deps);
@@ -1278,9 +1290,45 @@ describe("runPollCycle — streamed replies (mt#3542)", () => {
     expect(sawOnPartial()).toBe(true);
     // The placeholder carries the streamed progress...
     expect(h.sentTexts[0]).toContain("partial");
-    // ...and the message settles on the turn's authoritative answer, which is
-    // NOT simply the last streamed value.
-    expect(String(edits.at(-1)?.["text"])).toContain("the final answer");
+    // ...and the resolved answer, which continues it, is edited in rather than
+    // sent as a second message.
+    expect(String(edits.at(-1)?.["text"])).toContain("settled");
+  });
+
+  /**
+   * mt#3711 R2. The resolved text on a tool-heavy turn is NOT a continuation
+   * of what streamed — `result` carries the final answer while the deltas
+   * carried interstitial prose. Overwriting the open message with it is what
+   * made the reply visibly shrink at the end of a turn, so it now arrives as
+   * its own message and the streamed prose is left standing.
+   */
+  test("a resolved text that continues nothing on screen is a NEW message, not an overwrite", async () => {
+    const { h, edits, sends } = streamHarness({ finalText: DIVERGENT_FINAL });
+
+    await runPollCycle(h.deps);
+
+    expect(sends.some((p) => String(p["text"]).includes(DIVERGENT_FINAL))).toBe(true);
+    // Nothing was rewritten to it — the streamed text is still what it was.
+    for (const edit of edits) {
+      expect(String(edit["text"])).not.toBe(DIVERGENT_FINAL);
+    }
+    expect(h.sentTexts[0]).toContain("partial");
+  });
+
+  test("a tool call splits the turn into a second message, and only the first notifies", async () => {
+    const { h, sends } = streamHarness({ sealAfterPartial: true });
+
+    await runPollCycle(h.deps);
+
+    const first = sends.find((p) => String(p["text"]).includes("partial answer"));
+    const second = sends.find((p) => String(p["text"]).includes("and a second block"));
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    // SC2, at the poller seam: the phone buzzes once per turn however many
+    // blocks the turn has. Telegram omits the field entirely when it is not
+    // asked for, so the first message carries no `disable_notification` key.
+    expect("disable_notification" in (first ?? {})).toBe(false);
+    expect(second?.["disable_notification"]).toBe(true);
   });
 
   test("AT5 — the placeholder lands in the topic the message came from", async () => {

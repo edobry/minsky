@@ -9,6 +9,9 @@ import {
   run,
   EVIDENCE_TOOL,
   EVIDENCE_COMPANION_TOOL,
+  RECOMMENDATION_MARKERS_BASELINE,
+  RECOMMENDATION_MARKERS_MT4085,
+  RECOMMENDATION_MARKER_REASON,
 } from "./stop-at-decision-scan";
 import type { RunDeps } from "./stop-at-decision-scan";
 import type { TranscriptLine } from "./transcript";
@@ -20,6 +23,8 @@ const BOUND_TASK = "mt#3639";
 const TARGET_TASK = "mt#3521";
 const SESSION_START_TOOL = "mcp__minsky__session_start";
 const BOUND_TARGET_REASON = "bound-task-target";
+/** Aliased from the hook's export — one source of truth for the reason string. */
+const MARKER_REASON = RECOMMENDATION_MARKER_REASON;
 
 /** The R5 closing message — a factual bound, no commitment phrase, no recommendation. */
 const R5_FINAL_MESSAGE =
@@ -191,7 +196,7 @@ describe("detectDecisionStop (pure core)", () => {
       full,
       "Evidence recorded. My recommendation: escalate to Rung 3."
     );
-    expect(detection?.suppressionReasons).toContain("recommendation-marker");
+    expect(detection?.suppressionReasons).toContain(MARKER_REASON);
   });
 
   test("counts memory_create as evidence, not as discharge", () => {
@@ -296,5 +301,161 @@ describe("run — status filter, dedup, evaluation stream (AT1-AT3 end-to-end)",
     const outcome = run(inputWith("done"), ctxFor(full), depsWith({}));
     expect(outcome).toBeNull();
     expect(evaluations).toHaveLength(0);
+  });
+});
+
+describe("mt#4085 — the natural-prose decision handoff", () => {
+  /**
+   * Verbatim tails of records the 2026-08-13 calibration pass classified FALSE.
+   * Sampled from `.minsky/stop-at-decision-calibration.jsonl`, not paraphrased:
+   * a detector fixture is an input drawn from the matcher's domain, and
+   * paraphrasing silently moves it out (mem#1020).
+   */
+  const CORPUS_HANDOFFS: ReadonlyArray<readonly [string, string]> = [
+    [
+      "possessive-inversion / yours to set (2026-08-10T15:24:57Z)",
+      "I didn't start mt#3897, even though its blocker cleared — a pending option on " +
+        "ask#7639 could reverse it, and detector enforcement posture is yours to set.",
+    ],
+    [
+      "possessive-inversion / yours to call (2026-08-10T17:40:01Z)",
+      "Confirming whether that peer is done is yours to call.",
+    ],
+    [
+      "nominalized / the decision reduces to (2026-08-11T20:29:00Z)",
+      "The decision reduces to which strain you'd rather live with: family-spanning " +
+        "entities, a nameless column header, an over-claiming guard, or a bet on a Draft.",
+    ],
+    [
+      "nominalized / the choice it has to make (2026-08-12T00:20:22Z)",
+      "Both findings are now written into mt#4010's spec, including the choice it has " +
+        "to make: absorb the interlock page, or state a division of labor.",
+    ],
+    [
+      "position-stating / my three positions (2026-08-12T21:51:50Z)",
+      "Still open from last turn, and unchanged by the interruption: my three positions " +
+        "— the pending request should be held by the task rather than the conversation.",
+    ],
+  ];
+
+  /**
+   * The two records the pass could not classify. Both stored tails are UNDER the
+   * 600-char cutoff (232 and 213 chars), so these are the COMPLETE messages the
+   * detector judged — which is what makes them usable as a negative control at
+   * all. A truncated control would prove nothing: a candidate could match text
+   * outside the stored window and silence it while the replay reported it firing.
+   */
+  const CORPUS_CONTROLS: ReadonlyArray<readonly [string, string]> = [
+    [
+      "uncertain (2026-08-08T23:46:04Z)",
+      "The task I've been working in is mt#3514 — the scope note above refers to its four " +
+        "original criteria, which remain open; only the orphan-removal criterion is " +
+        "implemented and waiting on that commit command.",
+    ],
+    [
+      "uncertain (2026-08-10T11:24:38Z)",
+      "Not a new retrospective case — that sentence is reporting the R4 analysis I just " +
+        "completed and recorded in mem#612 and mt#2447, not surfacing a fresh failure.\n\n" +
+        "Waiting on your token; nothing else is blocked on me.",
+    ],
+  ];
+
+  const suppressionFor = (message: string): string[] => {
+    const full = incidentTranscript();
+    return detectDecisionStop(finalTurnOf(full), full, message)?.suppressionReasons ?? [];
+  };
+
+  describe("negative control on the FIXTURES themselves — these must have failed before", () => {
+    // Without this, every AT1 assertion below would pass on a marker the BASELINE
+    // already carried, and the test would be green whether or not mt#4085 shipped.
+    // That is the non-discriminating-acceptance-test class of mt#4114.
+    test.each(CORPUS_HANDOFFS)("%s is NOT matched by the pre-mt#4085 baseline", (_label, text) => {
+      expect(RECOMMENDATION_MARKERS_BASELINE.some((re) => re.test(text))).toBe(false);
+    });
+
+    test.each(CORPUS_HANDOFFS)("%s IS matched by the mt#4085 additions", (_label, text) => {
+      expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(true);
+    });
+  });
+
+  describe("AT1 — each corpus phrase suppresses the fire", () => {
+    test.each(CORPUS_HANDOFFS)("%s", (_label, text) => {
+      expect(suppressionFor(text)).toContain(MARKER_REASON);
+    });
+  });
+
+  describe("AT2 — the two uncertain records still fire (negative control)", () => {
+    test.each(CORPUS_CONTROLS)("%s is not silenced", (_label, text) => {
+      expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(false);
+      expect(suppressionFor(text)).not.toContain(MARKER_REASON);
+    });
+  });
+
+  test("AT3 — an evidence-write closing with a bare status recap still fires", () => {
+    const recap =
+      "Both detector misses are now documented in the task record, and the measurement " +
+      "premise was false: a Rung-1 miss wrote no record at all.";
+    const reasons = suppressionFor(recap);
+    expect(reasons).not.toContain(MARKER_REASON);
+    expect(reasons).toEqual([]);
+  });
+
+  describe("PR #3037 R1 — bounding the breadth of /\\byours to \\w+/", () => {
+    /**
+     * The review asked whether the open `\w+` should be narrowed to a verb set
+     * like `set|call|decide|choose`. Measured against the recovered corpus (533
+     * evaluated turns) before answering: every verb that actually follows
+     * "yours to" is a decision verb —
+     *
+     *   authorize 4, decide 3, resolve 2, route 1, clear 1, pick 1,
+     *   write 1, set 1, make 1, call 1, reverse 1, certify 1
+     *
+     * — 12 distinct verbs, and the suggested allowlist would have caught 4 of
+     * them. Narrowing would reintroduce exactly the recall failure this task
+     * exists to fix, so the pattern stays open and these tests bound it instead,
+     * which is the alternative the review itself offered.
+     */
+    test.each([
+      "authorize",
+      "decide",
+      "resolve",
+      "route",
+      "clear",
+      "pick",
+      "write",
+      "set",
+      "make",
+      "call",
+      "reverse",
+      "certify",
+    ])("a decision verb observed in the corpus matches: yours to %s", (verb) => {
+      expect(
+        RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(`that one is yours to ${verb}`))
+      ).toBe(true);
+    });
+
+    test("the possessive-inversion pattern requires the 'yours to' construction", () => {
+      // Bounds the pattern from the other side: "yours" alone, or a possessive
+      // without the infinitive, is not a decision handoff.
+      for (const text of [
+        "the remaining budget is yours",
+        "yours truly",
+        "this workspace is yours and mine",
+      ]) {
+        expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(false);
+      }
+    });
+  });
+
+  test("the addition does not silence the residual class it deliberately excludes", () => {
+    // Four records in the same window were classified false and are NOT addressed
+    // here: they narrate the evidence-write rather than handing a decision over.
+    // Pinned so a later widening that swallows them breaks a test rather than
+    // drifting — suppressing this shape would match nearly every evaluated turn,
+    // since an evidence-write IS this detector's trigger condition.
+    const narratesTheWrite =
+      "Two corrections recorded: the rewrite trigger I'd captured was wrong, and the Rust " +
+      "spike isn't a drop-in reference. I've recorded that and withdrawn the gap.";
+    expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(narratesTheWrite))).toBe(false);
   });
 });

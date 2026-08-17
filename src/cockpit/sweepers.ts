@@ -1675,6 +1675,10 @@ export interface ConversationTitleSweepDeps {
     candidates: number;
     titled: number;
     skipped: number;
+    /** mt#4179 — why the skips happened; `skipped` alone cannot say. */
+    skippedNoTurns?: number;
+    skippedNoContent?: number;
+    skippedNoSubject?: number;
     errored: number;
   }>;
 }
@@ -1768,6 +1772,12 @@ export function startConversationTitleSweeper(options?: ConversationTitleSweepOp
             candidates: result.candidates,
             titled: result.titled,
             skipped: result.skipped,
+            // mt#4179 — a full batch of skips is the head-of-line signature, and
+            // `skipped` alone reads identically to a healthy quiet tick. The
+            // breakdown says which kind of nothing happened.
+            skippedNoTurns: result.skippedNoTurns ?? 0,
+            skippedNoContent: result.skippedNoContent ?? 0,
+            skippedNoSubject: result.skippedNoSubject ?? 0,
             errored: result.errored,
           });
         }
