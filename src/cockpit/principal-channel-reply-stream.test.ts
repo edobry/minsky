@@ -23,6 +23,8 @@ interface Harness {
   stream: ReplyStream;
   /** Text of every NEW message sent, in order. */
   sends: string[];
+  /** Whether each corresponding {@link sends} entry asked to be silent (mt#3711). */
+  sendSilent: boolean[];
   /** Every editMessageText body, in order. */
   edits: Array<{ messageId: number; text: string }>;
 }
@@ -36,6 +38,7 @@ function harness(
   } = {}
 ): Harness {
   const sends: string[] = [];
+  const sendSilent: boolean[] = [];
   const edits: Array<{ messageId: number; text: string }> = [];
   let nextMessageId = 100;
 
@@ -69,8 +72,12 @@ function harness(
     fetchFn: fetchFn as unknown as typeof fetch,
     ...(opts.throttleMs === undefined ? {} : { throttleMs: opts.throttleMs }),
     transport: {
-      send: async (text: string) => {
+      send: async (text: string, sendOpts?: { silent?: boolean }) => {
         sends.push(text);
+        // Parallel to `sends` rather than folded into it: the existing cases
+        // assert on `sends` by value, and widening its element type would
+        // rewrite tests that have nothing to do with notifications.
+        sendSilent.push(sendOpts?.silent === true);
         if (opts.sendFails) return undefined;
         nextMessageId += 1;
         return nextMessageId;
@@ -78,7 +85,7 @@ function harness(
     },
   });
 
-  return { stream, sends, edits };
+  return { stream, sends, sendSilent, edits };
 }
 
 /** Let the stream's timer fire and its in-flight write settle. */
@@ -269,40 +276,58 @@ describe("createReplyStream", () => {
     expect(sends).toEqual(["partial"]);
   });
 
-  test("settles on the resolved text, which can differ from what streamed", async () => {
+  test("the settle EXTENDS what streamed rather than replacing it", async () => {
     const { stream, edits } = harness({ throttleMs: 5 });
 
-    stream.push("thinking out loud");
+    stream.push("the answer is");
     await settle();
-    await stream.finish("the actual answer");
+    await stream.finish("the answer is 42");
 
-    // The turn's resolved value is authoritative — a tool-use round streams
-    // text that is not part of the final reply.
-    expect(edits.at(-1)?.text).toBe("the actual answer");
+    // Pure growth: the resolved text continues what the reader already sees,
+    // so it is written straight into the open message.
+    expect(edits.at(-1)?.text).toBe("the answer is 42");
   });
 
-  test("a turn that never streams leaves the chat untouched", async () => {
+  /**
+   * mt#3711 R2, in the principal's own words: *"you were streaming output and
+   * you were editing your message and then when you were done you overwrote
+   * everything you previously wrote and the message shrank back down."*
+   *
+   * This is the exact shape of a tool-heavy turn: the deltas carry
+   * interstitial prose around each tool round, and `result` carries only the
+   * final answer, which is SHORTER. The old `finish` set `pending = finalText`
+   * and rewrote the open message to it, so text the principal had already read
+   * disappeared at the moment the turn completed.
+   */
+  test("the settle never takes back text the reader has already seen", async () => {
     const { stream, sends, edits } = harness({ throttleMs: 5 });
 
-    const settled = await stream.finish("the whole reply");
+    stream.push("Looking at the auth module now. Nothing obviously wrong there.");
+    await settle();
 
-    // `undefined` is the caller's signal to send normally — no placeholder was
-    // ever created, so there is nothing to edit and nothing to clean up.
-    expect(settled).toBeUndefined();
-    expect(sends).toEqual([]);
-    expect(edits).toEqual([]);
+    await stream.finish("Nothing obviously wrong there.");
+
+    // The resolved answer is already on screen — it is a suffix of what
+    // streamed — so nothing is written and, crucially, nothing is removed.
+    const delivered = [...sends, ...edits.map((e) => e.text)];
+    expect(delivered.some((t) => t.includes("Looking at the auth module now."))).toBe(true);
+    expect(delivered.at(-1)).not.toBe("Nothing obviously wrong there.");
   });
 
-  test("a placeholder that never lands degrades to an ordinary send", async () => {
-    const { stream, edits } = harness({ throttleMs: 5, sendFails: true });
+  test("a resolved text that continues nothing on screen arrives as its OWN message", async () => {
+    const { stream, sends } = harness({ throttleMs: 5 });
 
-    stream.push("some progress");
+    stream.push("still working on it");
     await settle();
-    const settled = await stream.finish("the whole reply");
 
-    expect(settled).toBeUndefined();
-    // No edit is attempted against a message id that does not exist.
-    expect(edits).toEqual([]);
+    // The timeout notice: authoritative, and not a continuation of anything
+    // streamed. Appending it keeps the streamed prose AND delivers the answer.
+    await stream.finish("Still working on that — it is taking longer than expected.");
+    await settle();
+
+    expect(sends).toHaveLength(2);
+    expect(sends[0]).toBe("still working on it");
+    expect(sends[1]).toBe("Still working on that — it is taking longer than expected.");
   });
 
   test("push after finish is ignored", async () => {
@@ -317,5 +342,99 @@ describe("createReplyStream", () => {
     await settle();
 
     expect(edits.length).toBe(afterFinish);
+  });
+});
+
+/**
+ * Semantic-block segmentation (mt#3711).
+ *
+ * The unit of a message is a run of prose between tool calls, not a char-budget
+ * overflow. `sealBlock()` is the boundary the actuator reports when a tool call
+ * starts.
+ */
+describe("createReplyStream — semantic blocks (mt#3711)", () => {
+  test("three prose blocks separated by tool calls produce three messages, and only the first notifies", async () => {
+    const { stream, sendSilent, sends } = harness({ throttleMs: 5 });
+
+    stream.push("first, I will look at the config.");
+    await settle();
+    stream.sealBlock();
+    stream.push("first, I will look at the config.now reading the handler.");
+    await settle();
+    stream.sealBlock();
+    stream.push("first, I will look at the config.now reading the handler.here is what I found.");
+    await settle();
+
+    expect(sends).toEqual([
+      "first, I will look at the config.",
+      "now reading the handler.",
+      "here is what I found.",
+    ]);
+    // SC2: one notification per turn regardless of block count.
+    expect(sendSilent).toEqual([false, true, true]);
+  });
+
+  test("a single-block turn is still ONE message, edited rather than re-sent", async () => {
+    const { stream, sends, edits } = harness({ throttleMs: 5 });
+
+    stream.push("thinking");
+    await settle();
+    stream.push("thinking about it");
+    await settle();
+    stream.push("thinking about it carefully");
+    await settle();
+
+    // SC3: within-block streaming is unchanged — mt#3542's property must not
+    // regress just because block boundaries now exist.
+    expect(sends).toEqual(["thinking"]);
+    expect(edits.length).toBeGreaterThan(0);
+    expect(edits.at(-1)?.text).toBe("thinking about it carefully");
+  });
+
+  test("back-to-back tool calls with nothing said between them open no empty message", async () => {
+    const { stream, sends } = harness({ throttleMs: 5 });
+
+    stream.push("checking a few things");
+    await settle();
+    stream.sealBlock();
+    stream.sealBlock();
+    stream.sealBlock();
+    await settle();
+    stream.push("checking a few thingsdone.");
+    await settle();
+
+    expect(sends).toEqual(["checking a few things", "done."]);
+  });
+
+  test("a block longer than the char budget still splits within itself at a line break", async () => {
+    const { stream, sends, sendSilent } = harness({ throttleMs: 5 });
+
+    // One block, no seal — the split below is the char budget's doing, not a
+    // semantic boundary, and both mechanisms have to keep working together.
+    const firstLine = "x".repeat(MAX - 10);
+    stream.push(`${firstLine}\nand the tail that overflows`);
+    await settle();
+
+    expect(sends.length).toBeGreaterThan(1);
+    // `findChunkBreak` returns an index PAST the separator, so the newline
+    // stays on the first chunk and the second does not open with a blank line.
+    expect(sends[0]).toBe(`${firstLine}\n`);
+    expect(sends[1]).toBe("and the tail that overflows");
+    // Still exactly one notification, even though this split was not semantic:
+    // a budget overflow must not cost the principal an extra buzz either.
+    expect(sendSilent).toEqual([false, true]);
+  });
+
+  test("a seal recorded mid-flight keeps later text out of the block before it", async () => {
+    const { stream, sends } = harness({ throttleMs: 1_000 });
+
+    // Nothing has flushed yet: the seal must bind to the text seen NOW, not to
+    // whatever `pending` holds when the timer eventually fires.
+    stream.push("before the tool call");
+    stream.sealBlock();
+    stream.push("before the tool calland after it");
+    await settle(1_200);
+
+    expect(sends).toEqual(["before the tool call", "and after it"]);
   });
 });
