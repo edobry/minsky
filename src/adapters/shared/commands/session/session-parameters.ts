@@ -877,8 +877,12 @@ export const sessionPrWaitForReviewCommandParams = {
   expectedHeadSha: {
     schema: z.string(),
     description:
-      "The commit you expect the REMOTE to be serving — pass the commitHash session_commit " +
-      "just returned (mt#3877). While the remote head differs from it, NO review is " +
+      "The commit you expect the REMOTE to be serving — read it off whichever call LAST " +
+      "PUSHED: session_pr_create's headSha for the first wait on a new PR, session_commit's " +
+      "commitHash for every wait after a fix-push (mt#3877, mt#4046). Passing the preceding " +
+      "session_commit's hash on the FIRST wait is wrong and silent: PR creation pushes a head " +
+      "of its own, so the sha you hold is already superseded and the wait burns its whole " +
+      "timeout suppressing a real review. While the remote head differs from it, NO review is " +
       "considered and the wait keeps polling, so arming the watcher before a push lands no " +
       "longer returns a review of the pre-fix tree. requireCurrentHead cannot cover this: in " +
       "that window the superseded commit IS the current head, so it is admitted by exactly " +

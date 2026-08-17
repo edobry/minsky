@@ -89,7 +89,7 @@ function ChangesetPeekBody({ id }: { id: string }) {
   if (query.isPending) return <LoadingState message="Loading changeset…" />;
   if (query.isError) return <ErrorState message={query.error.message} />;
   if (!query.data) {
-    return <p className="p-3 text-sm text-muted-foreground">Changeset {id} not found.</p>;
+    return <p className="text-sm text-muted-foreground">Changeset {id} not found.</p>;
   }
   return <ChangesetDetail changeset={query.data} />;
 }
@@ -143,24 +143,30 @@ function RunOverviewPeekBody({ id, keySpace }: { id: string; keySpace: RunKeySpa
     enabled: keySpace === "conversation",
   });
 
+  // No padding wrapper: `SheetBody` supplies the pane's gutters for every body
+  // (mt#4123). This `p-3` predated that and would now double up.
   return (
-    <div className="p-3">
-      <OverviewTab
-        keySpace={keySpace}
-        id={id}
-        workspaceData={workspaceQuery.data}
-        workspaceQuery={workspaceQuery}
-        conversationData={conversationQuery.data}
-        conversationQuery={conversationQuery}
-      />
-    </div>
+    <OverviewTab
+      keySpace={keySpace}
+      id={id}
+      workspaceData={workspaceQuery.data}
+      workspaceQuery={workspaceQuery}
+      conversationData={conversationQuery.data}
+      conversationQuery={conversationQuery}
+    />
   );
 }
 
 export function PeekBody({ type, id }: { type: RoutableEntityType; id: string }) {
   switch (type) {
     case "task":
-      return <TaskDetail taskId={id} variant="page-body" />;
+      // `variant="peek"`, not `"page-body"` (mt#4123). `page-body` is a body
+      // built to sit inside a route wrapper — `TaskDetailPage` supplies
+      // `p-4 w-full max-w-4xl` around this exact component — and the pane
+      // supplies no such wrapper, so composing it here rendered a page-density
+      // layout with the page deleted from around it. That one composition error
+      // is the shared cause of every defect mt#4123 was filed for.
+      return <TaskDetail taskId={id} variant="peek" />;
     case "memory":
       return <MemoryDetailBody memoryId={id} />;
     case "changeset":
@@ -173,10 +179,7 @@ export function PeekBody({ type, id }: { type: RoutableEntityType; id: string })
       return <RunOverviewPeekBody id={id} keySpace="conversation" />;
     case "interceptor":
       // The peek id IS the guardName — `/interceptors/:name` is keyed by it.
-      return (
-        <div className="p-3">
-          <InterceptorDetail name={id} />
-        </div>
-      );
+      // Padding comes from `SheetBody` (mt#4123), not from a wrapper here.
+      return <InterceptorDetail name={id} />;
   }
 }

@@ -85,20 +85,31 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `verify-conversation-renderer.ts`        | conversation-element parser against a real session snapshot (mt#2374)                         |
 | `verify-driven-session-scrollport.ts`    | driven page owns its scrollport, keeping the composer on screen, in a real browser (mt#3737)  |
 | `verify-mt1510-identity-routing.ts`      | `identity` parameter on `session_pr_review_submit` (mt#1510)                                  |
+| `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)              |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
 | `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
 
 ### Running the browser-driving scripts
 
-Twelve scripts here drive a real browser and share one preflight
+These scripts drive a real browser and share one preflight
 (`lib/verify-preflight.ts`, mt#4149): `verify-cockpit-navigation-latency.ts`,
 `verify-cockpit-shell-scroll.ts`, `verify-conversation-footer-stack.ts`,
 `verify-conversation-live-tail.ts`, `verify-conversation-orientation.ts`,
 `verify-conversation-switcher-pinned.ts`, `verify-conversation-turn-target.ts`,
 `verify-driven-session-scrollport.ts`, `verify-interceptors-axes-render.ts`,
-`verify-session-film-camera.ts`, `verify-session-film-panes.ts`, and
-`verify-terminal-ask-render.ts`. Their shared prerequisites are worth stating (everything below is
-checked at startup — an ABSENT precondition exits 0 with a `SKIP:` line rather than failing).
+`verify-peek-pane-layout.ts`, `verify-session-film-camera.ts`,
+`verify-session-film-panes.ts`, and `verify-terminal-ask-render.ts`. Their shared prerequisites are
+worth stating (everything below is checked at startup — an ABSENT precondition exits 0 with a
+`SKIP:` line rather than failing).
+
+**Poll in-page conditions from OUTSIDE, one `Runtime.evaluate` per attempt (mt#4123).** A
+`Runtime.evaluate` binds to ONE execution context, and a context belongs to ONE document — so an
+async expression that loops internally stays pinned to whichever document existed when it started.
+A tab opened via `PUT /json/new` is typically still on the pre-navigation document at that moment,
+so an in-page wait loop polls a document the SPA never mounts into: it burns its full deadline and
+reports the element as missing, which reads exactly like a broken fixture rather than a timing bug.
+`verify-cockpit-shell-scroll.ts`'s `waitForShellMounted` and `verify-peek-pane-layout.ts`'s
+`pollUntil` are both shaped this way for that reason; copy the shape rather than the convenience.
 
 They exist because the component suite runs under happy-dom, which has **no layout engine**: every
 `clientHeight` / `scrollHeight` / `getBoundingClientRect()` reads 0 there, so no geometry assertion
@@ -146,7 +157,7 @@ is a `SKIP`, not a failure. It also prints the served build's `commit` from `/ap
 machine running several sessions' cockpits at once, the service identity alone cannot tell you
 WHICH worktree's build answered.
 
-All twelve read the cockpit's identity from **`/api/health`**, not `/health` — the latter falls
+All of them read the cockpit's identity from **`/api/health`**, not `/health` — the latter falls
 through to the SPA's `index.html` and answers 200 with HTML, which would satisfy a bare
 reachability check and then fail to parse as JSON. Two of them probed `/health` and asserted no
 identity at all until mt#4149 routed every one through the shared preflight.
@@ -219,10 +230,10 @@ reproducibility if the same class of drift recurs — not part of any ongoing pi
 
 Shared utilities used by scripts above.
 
-| Module                    | Description                                                                                                                                                                               |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lib/pem-utils.ts`        | PEM key parsing/formatting helpers.                                                                                                                                                       |
-| `lib/verify-preflight.ts` | Shared preflight for the twelve browser-driving `verify-*.ts` scripts (mt#4149): reachability, health-body read, service-identity assertion, and the ABSENT / SLOW / WRONG-SERVICE split. |
+| Module                    | Description                                                                                                                                                                        |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lib/pem-utils.ts`        | PEM key parsing/formatting helpers.                                                                                                                                                |
+| `lib/verify-preflight.ts` | Shared preflight for the browser-driving `verify-*.ts` scripts (mt#4149): reachability, health-body read, service-identity assertion, and the ABSENT / SLOW / WRONG-SERVICE split. |
 
 ## supabase/
 

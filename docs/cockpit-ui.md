@@ -110,6 +110,34 @@ there still holds: a peek renders the same component the entity's full page
 renders, never a separate compact copy that could quietly drift out of agreement
 with it.
 
+### The pane is a glance column, not a narrow page (mt#4123)
+
+Same component, different render context — and the pane supplies the context:
+
+- **The pane owns the gutters.** `SheetBody` and `SheetHeader` carry matching
+  horizontal padding, so no body has to remember to pad itself and none of them
+  can disagree about where the column's left edge is.
+- **One scrollport per pane.** The pane scrolls; bodies do not scroll inside it.
+  A body that caps its own height and adds its own scrollbar produces a scrollbar
+  inside a scrollbar, with the outer one left almost nothing to move.
+- **The pane is the frame.** A body drops its card border and background tint
+  here — a second frame drawn a gutter's width inside the first reads as a
+  mistake, and the pane already says where the content begins and ends.
+- **Width is proportional below ~924px.** The pane is 26rem wherever there is
+  room, and yields to 45% of the viewport below that, so the page behind keeps
+  the majority column at every window size. A peek that takes two-thirds of a
+  narrow window has defeated its own purpose.
+
+Bodies find out which context they are in from their `WidgetVariant`: `peek`
+rather than `page-body`. `page-body` means "inside a route wrapper", and every
+route that uses it supplies padding and a measure the pane does not — composing it
+in a pane renders a page-density layout with the page removed from around it,
+which is what mt#4123 was filed for.
+
+The geometry is verified in a real browser by
+`scripts/verify-peek-pane-layout.ts`, because none of it can be asserted under
+happy-dom (no layout engine — every measurement reads 0).
+
 ## Plant Board (`/plant`)
 
 A single whole-system view: all of Minsky on one board, laid out on the VSM

@@ -1,0 +1,252 @@
+// Registry entries for the task-creation guard family (mt#3673, mt#3658, mt#3722,
+// mt#4004).
+//
+// ## The family boundary
+//
+// Every guard here fires on `mcp__minsky__tasks_create` — the seam where a task
+// is MINTED. They interrogate the spec being written at the one moment it is
+// cheap to fix: before the row exists. They ask four different questions of it,
+// which is why they are four guards and not one:
+//
+//   - `require-duplicate-check-record` — is there a duplicate-check record at
+//     all? A presence check, not a similarity judgment.
+//   - `duplicate-signature-scan` — do the spec's signature tokens already appear
+//     in an active task the record does not concede?
+//   - `duplicate-check-search-provenance` — did the search the record CLAIMS
+//     actually run this session?
+//   - `flakiness-control-detector` — does a claimed failure mode carry an
+//     isolation control?
+//
+// The first three are three tiers on one artifact (present / true / searched);
+// the fourth is independent and rides the same seam.
+//
+// ## Why a family module
+//
+// `registry.ts` was AT the 1500-line `max-lines` ERROR ceiling, and the rule
+// sets `skipComments`/`skipBlankLines`, so comments cannot buy room. mt#4115
+// generalized the per-family split that `registry-pr-create-guards.ts` and
+// `registry-command-string-guards.ts` had each done ad hoc for the one family
+// that forced them. Exporting an ARRAY means `registry.ts` pays one import and
+// one spread for the whole family, so every further `tasks_create` guard costs
+// it zero lines.
+//
+// The imports are safe in both directions: `GuardRegistration` is imported as a
+// TYPE, which TypeScript erases, so `registry.ts` importing this module back is
+// not a runtime cycle.
+
+import { enforcementEffect, advisoryEffect, recorderEffect } from "./registry-effects";
+import type { GuardRegistration } from "./registry";
+
+export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
+  // -------------------------------------------------------------------------
+  // mt#3673 — the duplicate-check record, enforced at the tool boundary.
+  //
+  // mt#3585 put the requirement in `/create-task` Step 1a and its exit gate; a
+  // direct `tasks_create` call never enters the skill, so neither ran. That is
+  // the bypass shape `hook-observers.mdc §Turn-end-unwalked-task` already
+  // records for mt#2689. The similarity sibling (parallel-work-guard-standalone,
+  // mt#2813) stays advisory and unchanged — it provably cannot discriminate at
+  // the distances real duplicates sit at (mem#819), so this guard checks that
+  // the agent LOOKED, not whether a duplicate exists.
+  // -------------------------------------------------------------------------
+  {
+    name: "require-duplicate-check-record",
+    effects: [enforcementEffect()],
+    // `invariant`: whether a create records its duplicate check is not a
+    // threshold to tune — the record is either present or it is not.
+    tuningOwnership: "invariant",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./require-duplicate-check-record").then((m) => ({ run: m.run })),
+    timeoutMs: 5000,
+    denyCapable: true,
+    // MEASURED, not estimated (PR #2612 R1 corrected an invented "~780"):
+    // `buildDenialReason().length` is exactly 644. The body is wholly static —
+    // no per-hit interpolation — so 644 is the rendered size, not a sample, and
+    // the 900 ceiling leaves 256 chars (~40%) of headroom. The message needs its
+    // length: it carries BOTH accepted forms plus the
+    // read-the-titles-not-the-scores warning, because a clean similarity result
+    // is exactly what misleads here. One remediation option (the
+    // MINSKY_SKIP_DUPLICATE_RECORD override).
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // A create whose spec carries no record — purely string-driven, no
+    // filesystem or env dependency, so the canary is stable.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec: "## Summary\n\nA spec with no duplicate-check record.\n",
+        },
+      },
+      expects: "deny",
+    },
+  },
+  {
+    // mt#3658. Contract, tier rationale and the measured-ceiling derivation are
+    // in the module header; matcher in
+    // `packages/domain/src/detectors/flakiness-attribution.ts`.
+    name: "flakiness-control-detector",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every matched path AND an `additionalContext` injection (SC2's WARN —
+    // `flakiness-control-detector.ts` sets `outcome.additionalContext` under
+    // `INJECTION_ENABLED`). Declaring recorder-only under-described what ships
+    // and took the recorder's spool/spool posture for an injector that should
+    // fail OPEN (`registry-effects.ts`). Same finding as PR #2886 R1 on the
+    // sibling at `duplicate-check-search-provenance`; PR #2909 R4 here.
+    effects: [recorderEffect(), advisoryEffect()],
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./flakiness-control-detector").then((m) => ({ run: m.run })),
+    // No `renderProbe`: this guard INJECTS (log-only means a WARN plus a
+    // record, per the spec's SC2), so its text is measurable from the canary
+    // like any other injecting guard — and a probe would exclude it from the
+    // `MERGED_CONTEXT_BUDGET_CHARS` bucket it genuinely contributes to
+    // (mt#4002). `worstCaseCanary` below poses the ceiling instead.
+    timeoutMs: 5000,
+    calibrationLog: "flakiness-control",
+    denyCapable: false,
+    // MEASURED via `worstCaseCanary` below with both axes saturated — a proved
+    // ceiling, not a sample. (Not `renderProbe`: this guard injects, so it has
+    // none — see the note above.) Derivation in the module header.
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec: "## Summary\n\nThe suite fails intermittently under load; it looks flaky.\n",
+        },
+      },
+      expects: "calibration",
+    },
+    // Saturates BOTH rendered axes at once: more claims than MAX_RENDERED_CLAIMS
+    // (so the `...and N more` line renders too) AND a denial among them (the
+    // longer of the two directive branches). Posing only the claim count would
+    // measure the shorter branch and understate the ceiling — the under-posing
+    // mt#3767 hit.
+    worstCaseCanary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary task",
+          spec:
+            "It is not load-dependent and not timing-dependent; it fails deterministically. " +
+            "The suite is flaky, intermittent, load-sensitive, and only under parallelism; " +
+            "it passes in isolation and looks timing-dependent, a race-condition.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  {
+    name: "duplicate-signature-scan",
+    effects: [recorderEffect()],
+    // `advisory`: unlike its sibling above — where the record is either present
+    // or it is not — this guard's token SELECTION is a heuristic with a real
+    // false-positive surface, and the calibration log exists to size it.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-signature-scan").then((m) => ({ run: m.run })),
+    // MUST stay above the module's SCAN_TIMEOUT_MS (15s), so the guard's OWN
+    // deadline is what fires: that path returns a recorded `skipped` calibration
+    // outcome, whereas a dispatcher kill records nothing and a sustained infra
+    // outage would then read as a clean pass. This was 8000 against a 5s scan
+    // and stayed 8000 when the scan's deadline was re-based to 15s on
+    // measurement — inverting the ordering the comment claimed. 18s keeps ~3s of
+    // margin over the scan and sits under the DERIVED (mt#3981, absorbing
+    // mt#3675) per-hook-entry cap that `.claude/settings.json` sets for
+    // `mcp__minsky__tasks_create` — see `.minsky/hooks/dispatch-timeout-budget.ts`.
+    timeoutMs: 18000,
+    calibrationLog: "duplicate-signature-scan",
+    // NEVER denies — the deny half of this concern is the sibling above, which
+    // is deliberately zero-false-positive. See this module's `run()` doc.
+    denyCapable: false,
+    // MEASURED against the worst-case canary below, not estimated: the message
+    // is bounded by MAX_REPORTED_MATCHES (5) x one 200-char excerpt plus a
+    // ~380-char header/footer, which renders at ~1.7KB. 2000 leaves headroom
+    // without widening the merged-context budget more than the shape needs.
+    attentionCost: { denialMessageSizeChars: 2000, optionCount: 1 },
+    // The scan needs a live database, which a canary process does not have, so
+    // the healthy canary outcome is a RECORDED skip — `calibration`, not
+    // `warn`. That is the honest assertion for this guard: it verifies the
+    // module loads, reads its input, and reports rather than throwing.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "GET /api/canary signature scan",
+          spec: "## Summary\n\nA spec citing `src/cockpit/routes/sweeps.test.ts`.\n\nDuplicate check: no candidates found.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+  // -------------------------------------------------------------------------
+  // mt#4004 — the duplicate-check record claims a search that never ran.
+  //
+  // Third guard on the same record, and the one that closes the gap between the
+  // other two: `require-duplicate-check-record` checks the line is PRESENT,
+  // `duplicate-signature-scan` checks its VERDICTS are true, neither asks
+  // whether the search RAN. Originating incident mt#4003 — a fabricated search
+  // narrative filed against four tasks that already owned the work; the
+  // signature scan caught it only because the false provenance happened to
+  // coincide with wrong verdicts.
+  //
+  // Unusually mechanizable for its family (`assertion-without-verification`,
+  // anchor mt#2544), which has repeatedly chosen "no detector, deliberately"
+  // because its members turn on whether a claim about the WORLD is true. This
+  // one is about the SESSION: the call is in the transcript's tool list or it is
+  // not. A phrase the pattern misses is a false NEGATIVE, never a false
+  // positive, which is what keeps it off ADR-024's regex arms-race.
+  // -------------------------------------------------------------------------
+  {
+    name: "duplicate-check-search-provenance",
+    // BOTH effects, because this guard produces both: a calibration record on
+    // every path, and an `additionalContext` injection on the matched one
+    // (PR #2886 R1 — the injector declaration was missing while the module
+    // returned `additionalContext`, so the declaration under-described what
+    // ships).
+    effects: [recorderEffect(), advisoryEffect()],
+    // `advisory`: which prose counts as CLAIMING a search is a heuristic, and
+    // the calibration log exists to size it. The session-state half it gates on
+    // is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-check-search-provenance").then((m) => ({ run: m.run })),
+    // A regex over one paragraph plus a membership test over lines the
+    // dispatcher already parsed — no IO of its own, so this is generous.
+    timeoutMs: 5000,
+    calibrationLog: "duplicate-check-search-provenance",
+    // LOAD-BEARING (PR #2886 R1). `ctx.transcriptLines` is populated ONLY for a
+    // registration that declares this (D6), and the session's tool-call list is
+    // this guard's entire discriminating half. Without it the guard records
+    // `skipped` on every live run — present, tested, green, and inert. The unit
+    // tests could not catch that: they construct the context directly, so they
+    // exercise the module and say nothing about whether the dispatcher will
+    // hand it anything. `registry.test.ts` now asserts the coupling for every
+    // guard whose source reads `transcriptLines`.
+    needsTranscript: true,
+    // Calibration-first per ADR-024 and ask#6982. The module asserts this in a
+    // test rather than only intending it.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // The canary carries a record claiming a search, in a canary process whose
+    // transcript is empty — so the healthy outcome is a RECORDED skip, which is
+    // this guard's honest answer to a claim it cannot adjudicate. Asserting
+    // `matched` here would bake in the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary provenance task",
+          spec: "## Context\n\nDuplicate check: searched `tasks_search` for canary; no candidates.\n",
+        },
+      },
+      expects: "calibration",
+    },
+  },
+];
