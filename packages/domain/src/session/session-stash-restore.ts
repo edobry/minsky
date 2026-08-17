@@ -59,6 +59,53 @@ export type StashRestoreGitDeps = Pick<GitServiceInterface, "popStash" | "execIn
 const DEFAULT_STASH_REF = "stash@{0}";
 
 /**
+ * The message `session_update` labels its pre-merge stash with
+ * (`git stash push -m ...` in `git-core-operations.ts`). Matching on it is how a
+ * LATER call — one that did not create the stash and so holds no SHA for it —
+ * recognizes work parked by an update rather than by the operator.
+ */
+export const SESSION_UPDATE_STASH_MESSAGE = "minsky session update";
+
+/** One `git stash list` entry: its ref, commit SHA, and reflog subject. */
+interface StashEntry {
+  ref: string;
+  sha: string;
+  subject: string;
+}
+
+/**
+ * Read `git stash list` as structured entries, newest first.
+ *
+ * The format string MUST stay single-quoted. Unquoted, the shell splits
+ * `--format=%gd %H` into two arguments, git reads `%H` as a revision and exits
+ * `fatal: bad revision '%H'` with empty stdout — which `execInRepository` turns
+ * into a throw. Every SHA-keyed protection in this module was therefore inert
+ * from mt#2325 until mt#3660 found it: the throw was swallowed by a bare catch,
+ * so `resolveOwnStashRef` always returned undefined and every restore silently
+ * fell back to a positional `stash@{0}` pop.
+ */
+async function listStashEntries(workdir: string, git: StashRestoreGitDeps): Promise<StashEntry[]> {
+  // `%gd` = reflog selector (stash@{n}); `%H` = full commit SHA; `%gs` = reflog subject.
+  const out = await git.execInRepository(workdir, "git stash list --format='%gd %H %gs'");
+  const entries: StashEntry[] = [];
+  for (const line of out.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const firstSep = trimmed.indexOf(" ");
+    if (firstSep === -1) continue;
+    const secondSep = trimmed.indexOf(" ", firstSep + 1);
+    const ref = trimmed.slice(0, firstSep).trim();
+    const sha = (
+      secondSep === -1 ? trimmed.slice(firstSep + 1) : trimmed.slice(firstSep + 1, secondSep)
+    ).trim();
+    const subject = secondSep === -1 ? "" : trimmed.slice(secondSep + 1).trim();
+    if (!ref || !sha) continue;
+    entries.push({ ref, sha, subject });
+  }
+  return entries;
+}
+
+/**
  * Locate OUR stash entry by the commit SHA captured at creation time, defending
  * against another stash being pushed on top between create and restore. Returns
  * the entry's current ref and whether it is on top of the stack (`stash@{0}`).
@@ -72,25 +119,18 @@ async function resolveOwnStashRef(
 ): Promise<{ ref: string; isOnTop: boolean } | undefined> {
   if (!expectedStashSha) return undefined;
   try {
-    // `%gd` = reflog selector (stash@{n}); `%H` = full commit SHA.
-    const out = await git.execInRepository(workdir, "git stash list --format=%gd %H");
-    const lines = out
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      const sep = line.indexOf(" ");
-      if (sep === -1) continue;
-      const ref = line.slice(0, sep).trim();
-      const sha = line.slice(sep + 1).trim();
-      if (sha === expectedStashSha) {
-        return { ref, isOnTop: i === 0 };
-      }
-    }
-  } catch {
-    // best-effort — fall back to positional
+    const entries = await listStashEntries(workdir, git);
+    const index = entries.findIndex((entry) => entry.sha === expectedStashSha);
+    const match = index === -1 ? undefined : entries[index];
+    if (!match) return undefined;
+    return { ref: match.ref, isOnTop: index === 0 };
+  } catch (listError) {
+    // Report rather than swallow. A bare catch here is what kept the broken
+    // format string above invisible for two months (mt#3660).
+    log.debug("Could not resolve own stash ref; falling back to positional pop", {
+      workdir,
+      error: getErrorMessage(listError),
+    });
   }
   return undefined;
 }
@@ -105,7 +145,16 @@ async function listStashedFiles(
   stashRef: string
 ): Promise<string[]> {
   try {
-    const out = await git.execInRepository(workdir, `git stash show --name-only ${stashRef}`);
+    // `stashRef` is shell-quoted (PR #3076 R1). It comes from git's own `%gd`
+    // output rather than operator input, but it IS interpolated into a shell
+    // command string — and mt#3660 is what made the parsed value actually reach
+    // here: beforehand `resolveOwnStashRef` always failed, so this only ever saw
+    // the hardcoded `stash@{0}`. Quoting also makes this consistent with the
+    // `safeShellQuote(file)` call below, which was already quoted.
+    const out = await git.execInRepository(
+      workdir,
+      `git stash show --name-only ${safeShellQuote(stashRef)}`
+    );
     return out
       .split("\n")
       .map((s) => s.trim())
@@ -113,6 +162,84 @@ async function listStashedFiles(
   } catch {
     return [];
   }
+}
+
+/**
+ * Describe the stash parked by this update WITHOUT touching it — the ref it
+ * currently sits at and the files it holds.
+ *
+ * This is what lets `session_update`'s CONFLICT path name the stash in its error
+ * message. That path cannot restore the work: `git stash pop` documents that "the
+ * working directory must match the index", which a conflicted merge violates. So
+ * naming the stash is the only thing the conflict path can do — and until mt#3660
+ * it did not, leaving the work parked and unmentioned.
+ */
+export async function describeParkedStash(
+  workdir: string,
+  git: StashRestoreGitDeps,
+  expectedStashSha?: string
+): Promise<{ stashRef: string; parkedFiles: string[] }> {
+  const own = await resolveOwnStashRef(workdir, git, expectedStashSha);
+  const stashRef = own?.ref ?? DEFAULT_STASH_REF;
+  const parkedFiles = await listStashedFiles(workdir, git, stashRef);
+  return { stashRef, parkedFiles };
+}
+
+/**
+ * Find a stash entry created by `session_update`, matching on the message it
+ * stamps rather than on a SHA.
+ *
+ * A later call — `session_commit` completing the merge that update left
+ * conflicted — did not create the stash and so has no SHA for it. Matching the
+ * message is what makes update-parked work distinguishable from a stash the
+ * operator pushed by hand, which must never be popped automatically. Returns the
+ * NEWEST matching entry, or undefined when there is none (the normal case).
+ */
+export async function findSessionUpdateStash(
+  workdir: string,
+  git: StashRestoreGitDeps
+): Promise<{ ref: string; sha: string; files: string[] } | undefined> {
+  let entries: StashEntry[];
+  try {
+    entries = await listStashEntries(workdir, git);
+  } catch (listError) {
+    log.debug("Could not list stashes while checking for update-parked work", {
+      workdir,
+      error: getErrorMessage(listError),
+    });
+    return undefined;
+  }
+  const match = entries.find((entry) => entry.subject.includes(SESSION_UPDATE_STASH_MESSAGE));
+  if (!match) return undefined;
+  const files = await listStashedFiles(workdir, git, match.ref);
+  return { ref: match.ref, sha: match.sha, files };
+}
+
+/**
+ * Give back work that a CONFLICTED `session_update` parked, once the merge it
+ * left behind has been committed.
+ *
+ * Call this immediately AFTER the merge commit lands: `MERGE_HEAD` is gone and the
+ * working tree is clean, which is precisely the state `git stash pop` requires
+ * ("the working directory must match the index"). It is also the last moment
+ * before a push would publish a merge commit that silently lacks the work — the
+ * mt#3660 failure, four times over.
+ *
+ * Returns undefined when there is nothing parked, which is the normal case and
+ * must stay cheap: one `git stash list`.
+ */
+export async function restoreUpdateStashAfterCommit(
+  workdir: string,
+  git: StashRestoreGitDeps
+): Promise<StashRestoreOutcome | undefined> {
+  const parked = await findSessionUpdateStash(workdir, git);
+  if (!parked) return undefined;
+  log.debug("Restoring work parked by an earlier session_update", {
+    workdir,
+    stashRef: parked.ref,
+    parkedFiles: parked.files,
+  });
+  return restoreSessionStash(workdir, git, parked.sha);
 }
 
 /**

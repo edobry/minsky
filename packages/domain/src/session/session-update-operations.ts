@@ -15,6 +15,7 @@ import { gitFetchWithTimeout } from "../utils/git-exec";
 import { assertSessionMutable } from "./session-mutability";
 import { taskIdToBranchName } from "../tasks/task-id";
 import {
+  describeParkedStash,
   restoreSessionStash,
   type SessionUpdateResult,
   type StashRestoreOutcome,
@@ -609,6 +610,57 @@ export async function updateSessionImpl(
             // Signal that a merge is now in-progress so the catch block skips popStash.
             // git stash pop during an active merge is refused or corrupts the working tree.
             mergeInProgress = true;
+
+            // The stash created above cannot be popped here, and that part is
+            // correct: `git stash pop` documents that "the working directory must
+            // match the index", which a conflicted merge violates. What was wrong
+            // until mt#3660 is that this message said nothing about it — so the
+            // operator's next move (resolve, then session_commit) produced a merge
+            // commit whose message described work still sitting in the stash. Four
+            // recurrences, three of them in one day.
+            //
+            // Best-effort: failing to describe the stash must never replace the
+            // conflict error the caller actually needs.
+            if (didStash) {
+              try {
+                const parked = await describeParkedStash(workdir, deps.gitService, stashSha);
+                // `describeParkedStash` degrades to an empty list rather than
+                // throwing, so an empty list means "could not enumerate" — never
+                // "the stash is empty". Promising a list and printing nothing is
+                // its own small version of this bug, so say how to look instead.
+                const parkedList =
+                  parked.parkedFiles.length > 0
+                    ? `:\n${parked.parkedFiles.map((f) => `  - ${f}`).join("\n")}`
+                    : ` (its file list could not be read — run \`git stash list\` and ` +
+                      `\`git stash show --name-only ${parked.stashRef}\` to see what it holds)`;
+                conflictMessage +=
+                  `\n\nIMPORTANT — your uncommitted changes are NOT in the working tree. ` +
+                  `They were stashed before this merge and are parked in ${parked.stashRef}` +
+                  `${parkedList}\n\n` +
+                  `Resolving the conflict is not finished until they are restored. ` +
+                  `session_commit restores them automatically once the merge commit lands. ` +
+                  `If you complete the merge some other way, run ` +
+                  `\`git stash pop ${parked.stashRef}\` yourself and confirm the files above ` +
+                  `are present before trusting any commit that claims to carry them.`;
+
+                log.cli(
+                  `\n⚠️  Your uncommitted changes are parked in ${parked.stashRef} and are NOT in the working tree.`
+                );
+                parked.parkedFiles.forEach((f) => log.cli(`   ${f}`));
+              } catch (describeError) {
+                log.debug("Could not describe the parked stash for the conflict message", {
+                  workdir,
+                  error: getErrorMessage(describeError),
+                });
+                // Still name the stash — an unenumerated warning beats silence,
+                // which is the defect this whole branch exists to fix.
+                conflictMessage +=
+                  `\n\nIMPORTANT — your uncommitted changes were stashed before this merge ` +
+                  `and are NOT in the working tree. Run \`git stash list\` in the session ` +
+                  `workspace and restore them before trusting any commit that claims to ` +
+                  `carry them.`;
+              }
+            }
           }
 
           throw new MinskyError(conflictMessage);

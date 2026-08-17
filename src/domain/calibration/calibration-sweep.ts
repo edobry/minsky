@@ -132,6 +132,20 @@ export interface CalibrationLogEntry {
    *     captureSchema, prTitle, judgedPrBody, judgedSpec, modifiedTestFiles, ...}
    *     (mt#3244 `test-first-evidence.ts`) — same capture-shape family as
    *     execution-evidence-at-coverage; no `matches` array.
+   *   "execution-evidence-render-path" → {timestamp, task, prNumber, surface,
+   *     captureSchema, judgedPrBody, renderPathFiles: string[], hasTests}
+   *     (mt#2421 `render-path-evidence.ts`) — same capture-shape family; no
+   *     `matches` array. Declared here by mt#4064, which found it undeclared on
+   *     every surface: the log existed with 14 fires in 7d and no sweep visited it.
+   *   "execution-evidence-sc-coverage" → {timestamp, task, prNumber, surface,
+   *     captureSchema, judgedPrBody, judgedSpec, judgedEvidenceText,
+   *     executableCriterionCount, unaddressedCriteria: {number, text}[],
+   *     presentElsewhereCriteria: {number, text}[], ...} (mt#3350
+   *     `success-criteria-coverage.ts`) — same family; no `matches` array. Also
+   *     declared by mt#4064, and the harder half to notice: nothing has written
+   *     this log yet, so it was absent from disk and therefore invisible to both
+   *     the coverage-receipt check and the sweep-coverage check, which discover
+   *     their inputs by globbing `.minsky/*-calibration.jsonl`.
    *   "ask-form-lint"                 → {timestamp, askId?, kind, matches:
    *     {class, phrase}[], acknowledged?} (mt#2798
    *     `ask-form-lint-calibration.ts`) — already matches-shaped (`class` is a
@@ -199,6 +213,8 @@ export interface CalibrationLogEntry {
     | "bare-prohibition"
     | "execution-evidence-at-coverage"
     | "execution-evidence-test-first"
+    | "execution-evidence-render-path"
+    | "execution-evidence-sc-coverage"
     | "ask-form-lint"
     | "unwalked-task"
     | "unescalated-incident"
@@ -1909,6 +1925,8 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "bare-prohibition": true,
   "execution-evidence-at-coverage": true,
   "execution-evidence-test-first": true,
+  "execution-evidence-render-path": true,
+  "execution-evidence-sc-coverage": true,
   "ask-form-lint": true,
   "unwalked-task": true,
   "unescalated-incident": true,

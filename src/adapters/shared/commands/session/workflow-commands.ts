@@ -404,6 +404,12 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             files: result.files,
             pushed: result.pushed,
             credentialPath: result.credentialPath,
+            // mt#3660: work parked by an earlier CONFLICTED session_update. An MCP
+            // caller has no other way to learn this commit does not carry it — the
+            // domain layer's log.cli line is invisible over the wire, which is
+            // exactly how four recurrences produced a commit whose message
+            // described work still sitting in a stash.
+            stashRestore: result.stashRestore,
             // mt#3210: set when an App-token push was denied (403) and
             // pushSessionCommitWithFallback retried via keychain — preserved
             // for the caller even when the retry succeeded, so a

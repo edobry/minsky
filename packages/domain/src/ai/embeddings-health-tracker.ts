@@ -172,6 +172,8 @@ export class EmbeddingsHealthTracker {
   }
 
   getSummary(): EmbeddingsHealthSummary {
+    this.decayStaleDegradation();
+
     const lastEvent = this.events.length > 0 ? this.events[this.events.length - 1] : null;
 
     return {
@@ -183,6 +185,45 @@ export class EmbeddingsHealthTracker {
       fallbackActive: this.fallbackActive,
       fallbackProvider: this.fallbackProviderName,
     };
+  }
+
+  /**
+   * Clear a `degraded` status whose cause has provably expired (mt#4212).
+   *
+   * `recordRecovery()` is the only other way out of `degraded`, and it needs a
+   * SUCCESSFUL embedding call in this process. Nothing guarantees one ever
+   * happens: on 2026-08-17 a degradation at 09:08 was still on the cockpit's
+   * banner at 15:14 because no consumer in that process embedded anything for
+   * six hours. The operator was shown a resolved condition as current, with the
+   * contradiction visible in the payload — `status: "degraded"` beside
+   * `errorCountLastHour: 0`.
+   *
+   * An empty error window is sound evidence for BOTH degraded reasons, which is
+   * why no new threshold is introduced here:
+   *
+   *   - `repeated_rate_limit` is DEFINED as "N errors in the last hour". At
+   *     N = 0 the reason is not stale, it is false.
+   *   - `circuit_breaker_open` cannot outlive `IntelligentRetryService`'s
+   *     60s `circuitBreakerTimeout`, after which the breaker self-transitions
+   *     to half-open and admits the next call. An hour without an error is two
+   *     orders of magnitude past that.
+   *
+   * `exhausted` is deliberately NOT decayed. Quota exhaustion is a billing state
+   * that persists until someone tops up the account; silence is not evidence it
+   * ended, and the fallback provider it activates should stay active.
+   *
+   * Mirrors `IntelligentRetryService.isCircuitOpen`, which likewise performs its
+   * time-based transition on read rather than on a timer.
+   */
+  private decayStaleDegradation(): void {
+    if (this.currentStatus !== "degraded") return;
+    if (this.countErrorsInWindow(ONE_HOUR_MS) > 0) return;
+
+    log.debug("Embeddings degradation decayed — no errors within the reporting window", {
+      provider: this.provider,
+      previousReason: this.currentReason,
+    });
+    this.recordRecovery();
   }
 
   private countErrorsInWindow(windowMs: number): number {

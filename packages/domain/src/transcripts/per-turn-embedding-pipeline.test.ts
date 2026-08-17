@@ -16,8 +16,12 @@
 
 import { describe, test, expect } from "bun:test";
 
-import { PerTurnEmbeddingPipeline } from "./per-turn-embedding-pipeline";
+import {
+  PerTurnEmbeddingPipeline,
+  DEFAULT_MAX_CANDIDATES_PER_RUN,
+} from "./per-turn-embedding-pipeline";
 import type { EmbeddingService } from "../ai/embeddings/types";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
 
@@ -78,25 +82,35 @@ function makeDb(seed: SeedTurn[]) {
   let selectOrder: string[] = [];
   let ptr = 0;
 
+  // Records the row cap the pipeline asked the DB for, so a test can assert the
+  // bound is pushed into the QUERY rather than applied after loading everything
+  // (mt#4212 — loading everything is the defect).
+  let requestedLimit: number | null = null;
+
   const db = {
     select(_fields?: Record<string, unknown>) {
       return {
         from: (_table: unknown) => ({
-          where: (_cond: unknown) => {
-            const cands = [...store.values()].filter(
-              (r) => r.embedding === null && (r.userText !== null || r.assistantText !== null)
-            );
-            selectOrder = cands.map((r) => key(r.agentSessionId, r.turnIndex));
-            ptr = 0;
-            return Promise.resolve(
-              cands.map((r) => ({
-                agentSessionId: r.agentSessionId,
-                turnIndex: r.turnIndex,
-                userText: r.userText,
-                assistantText: r.assistantText,
-              }))
-            );
-          },
+          where: (_cond: unknown) => ({
+            limit: (n: number) => {
+              requestedLimit = n;
+              const cands = [...store.values()]
+                .filter(
+                  (r) => r.embedding === null && (r.userText !== null || r.assistantText !== null)
+                )
+                .slice(0, n);
+              selectOrder = cands.map((r) => key(r.agentSessionId, r.turnIndex));
+              ptr = 0;
+              return Promise.resolve(
+                cands.map((r) => ({
+                  agentSessionId: r.agentSessionId,
+                  turnIndex: r.turnIndex,
+                  userText: r.userText,
+                  assistantText: r.assistantText,
+                }))
+              );
+            },
+          }),
         }),
       };
     },
@@ -118,16 +132,12 @@ function makeDb(seed: SeedTurn[]) {
     },
   };
 
-  return { db, store };
+  return { db, store, getRequestedLimit: () => requestedLimit };
 }
 
 type FakeDb = ReturnType<typeof makeDb>["db"];
 function makePipeline(db: FakeDb, svc: EmbeddingService, batchSize = 10): PerTurnEmbeddingPipeline {
-  return new PerTurnEmbeddingPipeline(
-    db as unknown as import("drizzle-orm/postgres-js").PostgresJsDatabase,
-    svc,
-    { batchSize }
-  );
+  return new PerTurnEmbeddingPipeline(db as unknown as PostgresJsDatabase, svc, { batchSize });
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -256,5 +266,57 @@ describe("PerTurnEmbeddingPipeline (vector-only backfill)", () => {
     expect(result.turnsEmbedded).toBe(3);
     // 3 candidates, batchSize 2 → 2 generateEmbeddings calls (batches of 2 + 1).
     expect(result.embeddingCallsMade).toBe(2);
+  });
+});
+
+describe("candidate-load bound (mt#4212)", () => {
+  function seedTurns(n: number): SeedTurn[] {
+    return Array.from({ length: n }, (_, i) => ({
+      agentSessionId: SESSION_A,
+      turnIndex: i,
+      userText: `turn ${i}`,
+      assistantText: null,
+      embedding: null,
+    }));
+  }
+
+  test("the row cap is pushed into the query, not applied after loading", async () => {
+    const { db, getRequestedLimit } = makeDb(seedTurns(50));
+    const svc = makeFakeEmbeddingService();
+    const pipeline = new PerTurnEmbeddingPipeline(db as unknown as PostgresJsDatabase, svc, {
+      batchSize: 10,
+      maxCandidatesPerRun: 12,
+    });
+
+    const result = await pipeline.run();
+
+    // The unbounded SELECT loaded every unembedded turn's full text — 208,715
+    // rows / ~159 MB on 2026-08-17 — and the pooler dropped the connection
+    // before the pipeline embedded anything.
+    expect(getRequestedLimit()).toBe(12);
+    expect(result.turnsScanned).toBe(12);
+    expect(result.turnsEmbedded).toBe(12);
+  });
+
+  test("defaults to DEFAULT_MAX_CANDIDATES_PER_RUN when unset", async () => {
+    const { db, getRequestedLimit } = makeDb(seedTurns(3));
+    await makePipeline(db, makeFakeEmbeddingService()).run();
+    expect(getRequestedLimit()).toBe(DEFAULT_MAX_CANDIDATES_PER_RUN);
+  });
+
+  test("successive runs drain a backlog larger than one run's bound", async () => {
+    const { db, store } = makeDb(seedTurns(25));
+    const svc = makeFakeEmbeddingService();
+    const pipeline = new PerTurnEmbeddingPipeline(db as unknown as PostgresJsDatabase, svc, {
+      batchSize: 10,
+      maxCandidatesPerRun: 10,
+    });
+
+    // Progress without an ORDER BY: each embedded turn leaves the candidate set
+    // permanently, so the backlog drains regardless of which rows a run draws.
+    for (let i = 0; i < 3; i++) await pipeline.run();
+
+    const remaining = [...store.values()].filter((r) => r.embedding === null);
+    expect(remaining).toHaveLength(0);
   });
 });
