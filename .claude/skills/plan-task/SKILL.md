@@ -1283,6 +1283,26 @@ this one.)
      no action needed from you." Handing this wait to the operator is the anti-pattern, and
      ending here with "re-run the gate once #N merges" IS handing it over, however impersonally
      it is phrased.
+
+     **Arm the watch AND a mechanism that re-invokes unconditionally — belt-and-braces, not a
+     fallback (mt#4194).** `pr_watch_create` does not push. When a watch fires it writes a
+     `wake_pending` row keyed to the REGISTERING session, and `enrichWakeResponse`
+     (`src/mcp/middleware/wake-enrichment.ts`) drains it only when your next tool call satisfies
+     BOTH halves of a conjunction: the tool is one of the five on `WAKE_ENRICHMENT_ALLOWLIST`
+     (`tasks.get`, `pr.watch.list`, `tasks.status.get`, `session.pr.get`, `session.pr.list`)
+     AND its args carry a `session`/`sessionId`/`task`/`taskId` that resolves to that session.
+     `/plan-task` runs in the MAIN workspace with no session bound, where neither half reliably
+     holds. This is NOT a claim that the watch is broken — registering and firing work; what is
+     conditional is DELIVERY to the conversation that armed it.
+
+     **The pairing is the recommendation rather than a recovery, because the miss is silent.** A
+     call outside those five returns before the `wake.enrichment.no_session_id` telemetry is
+     reached, so an undelivered wake leaves you no signal to notice — there is nothing to fall
+     back FROM. So arm both: a backgrounded `Bash` poll per `work-completion.mdc §External
+     self-resolving waits`, or `session_pr_wait-for-review` when a session exists. Let the
+     closing sentence promise only what the unconditional mechanism delivers — and note that a
+     watch is invisible to the principal from the moment it is armed (`pr_watch_list` is its
+     only reader), so "I've armed a watch" asks them to trust something they cannot see.
    - **Any gap operator-actionable → the turn ends on the human, as above** — but say which half
      is which, so the principal is not left tracking the self-resolving ones. Arm the watcher for
      those anyway.
