@@ -127,6 +127,14 @@ import {
   CAPTURE_SCHEMA_VERSION,
   captureArtifact,
 } from "./judged-input-capture";
+import { ensureHookDomainBootstrap } from "./domain-bootstrap";
+import { nominate } from "../../packages/domain/src/detectors/embedding-nomination";
+import type {
+  ExemplarSet,
+  NominationDeps,
+} from "../../packages/domain/src/detectors/embedding-nomination";
+import { resolveNominationDeps } from "../../packages/domain/src/detectors/embedding-nomination-factory";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Calibration gate — v1 is log-only, no injection
@@ -1445,6 +1453,271 @@ export function detectCodeMechanismAssertion(
 }
 
 // ---------------------------------------------------------------------------
+// Rung 2: identity/equivalence claims (mt#4155)
+// ---------------------------------------------------------------------------
+
+/**
+ * Why this is Rung 2 and not another `PREDICATE_PATTERNS` entry.
+ *
+ * Every entry in `PREDICATE_PATTERNS` is a BEHAVIOR verb (`clamps`, `returns`,
+ * `throws`) or one of mt#3050's five SOURCING verbs. A claim that asserts a
+ * symbol's IDENTITY or EQUIVALENCE — "`X` is the single reader", "`X` is
+ * converted to it" — names neither, so `symbolsNear` extracts the symbol
+ * perfectly and no predicate anchors it. mt#4106 measured four such claims:
+ * `extracted: true`, `matched: false`, `claims: []` on all four, each with a
+ * passing positive control.
+ *
+ * ADR-024 assigns this to Rung 2. Its Rung 1 is a quotation/citation-aware
+ * elision PREFILTER aimed at the PRECISION axis — eliding quoted spans cannot
+ * make an identity sentence match a behavior verb, so Rung 1 is structurally
+ * incapable of covering this class. Adding identity verbs to the pattern list
+ * is neither rung: it is the pre-ladder move ADR-024 Context names as the arms
+ * race ("each miss has historically been answered by adding another regex
+ * family (R1 -> R5)"). The recall-miss rate the Rung-2 evidence gate asks for
+ * is exactly what mt#4106 supplies.
+ */
+export const IDENTITY_CLAIM_FAMILY = "identity-claim";
+
+/**
+ * How much of a nominated segment is kept as the claim's `predicate`. Matches
+ * the lexical path's 40-char predicate budget so both rungs' calibration
+ * records read the same width.
+ */
+const IDENTITY_PREDICATE_MAX_CHARS = 40;
+
+/**
+ * Curated exemplars for the identity/equivalence family.
+ *
+ * Drawn from the four mt#4106 fixtures plus the sibling surface forms they
+ * generalize. Deliberately phrased WITHOUT a concrete symbol name: the
+ * embedding scores the claim's GRAMMAR, and seeding a real identifier would
+ * bias every score toward turns that happen to discuss that identifier.
+ */
+export const IDENTITY_CLAIM_EXEMPLARS: readonly string[] = [
+  "this function is the single reader of that value",
+  "the field is converted to it before the comparison",
+  "both are expressed in the same unit against the same reading",
+  "that module is the only consumer of this interface",
+  "the two share the same underlying reader",
+  "this constant is equivalent to the one the caller passes",
+];
+
+/** The exemplar set handed to `nominate`. */
+export const IDENTITY_CLAIM_EXEMPLAR_SET: ExemplarSet = {
+  family: IDENTITY_CLAIM_FAMILY,
+  exemplars: [...IDENTITY_CLAIM_EXEMPLARS],
+};
+
+/**
+ * Opt-in for the Rung-2 nomination path.
+ *
+ * Ships DISABLED, matching mt#3408's precedent for the sibling family and
+ * mt#4155 SC5: the mechanism lands, and the threshold that decides it is
+ * measured against the calibration log before it is allowed to change a
+ * verdict. `DEFAULT_SIMILARITY_THRESHOLD` (0.455) was derived from the
+ * retrospective-trigger exemplar band; nothing has measured where
+ * identity-claim cosines actually live in THIS corpus.
+ *
+ * Registered in `HOOK_ONLY_ENV_VAR_CATEGORIES`.
+ */
+export const RUNG2_NOMINATION_ENV_VAR = "MINSKY_CMA_RUNG2_NOMINATION";
+
+/** True when the operator has opted into the Rung-2 nomination path. */
+export function isRung2NominationEnabled(): boolean {
+  const raw = process.env[RUNG2_NOMINATION_ENV_VAR];
+  return raw === "1" || raw?.toLowerCase() === "true" || raw?.toLowerCase() === "yes";
+}
+
+/** What a nomination attempt produced for one turn's prose. */
+export type IdentityNominationOutcome =
+  | { kind: "nominated"; segments: string[] }
+  | { kind: "none" }
+  | { kind: "degraded"; reason: string };
+
+/**
+ * Injected seam. Takes the ELIDED prose and returns the segments whose
+ * similarity to the identity-claim exemplars cleared the threshold.
+ */
+export type IdentityClaimNominator = (prose: string) => Promise<IdentityNominationOutcome>;
+
+/** A detection result plus which rung produced it. */
+export interface IdentityAugmentedResult extends CodeMechanismDetectionResult {
+  /** `"1-lexical"` when nomination did not contribute claims, `"2-embedding"` when it did. */
+  detectionRung: "1-lexical" | "2-embedding";
+  /** Set when a nomination attempt degraded; the turn then reports Rung 1. */
+  nominationDegradedReason?: string;
+}
+
+/**
+ * Turn nominated segments into (symbol, predicate) claims.
+ *
+ * Pure, and applies the SAME backing rules the lexical path applies: a symbol
+ * present in the verification corpus was inspected this turn and is excluded at
+ * claim level rather than reported. Without this the Rung-2 path would report
+ * claims the Rung-1 path suppresses, and the two rungs would disagree about the
+ * same turn.
+ */
+export function identityClaimsFromSegments(
+  segments: string[],
+  verificationCorpus: string,
+  writeEchoCorpus = ""
+): {
+  claims: Array<{ symbol: string; predicate: string }>;
+  backedCount: number;
+  hadWriteEcho: boolean;
+} {
+  const corpusLower = verificationCorpus.toLowerCase();
+  const writeEchoLower = writeEchoCorpus.toLowerCase();
+  const claims: Array<{ symbol: string; predicate: string }> = [];
+  const seen = new Set<string>();
+  const backedSeen = new Set<string>();
+  let hadWriteEcho = false;
+
+  for (const segment of segments) {
+    // Anchor at the segment's midpoint with a window wide enough to span it:
+    // unlike the lexical path there is no predicate match to anchor on, so the
+    // whole segment is the neighborhood.
+    const symbols = symbolsNear(segment, Math.floor(segment.length / 2), segment.length);
+    // `safeTruncate`, not `slice`: unlike the lexical path — whose predicate is
+    // a regex match over known-ASCII verbs — this slices arbitrary prose, which
+    // routinely carries em dashes and can carry astral characters.
+    const predicate = safeTruncate(segment.trim(), IDENTITY_PREDICATE_MAX_CHARS, "head");
+    for (const sym of symbols) {
+      const key = `${sym}::${predicate.toLowerCase()}`;
+      if (corpusLower.includes(sym.toLowerCase())) {
+        backedSeen.add(key);
+        continue;
+      }
+      if (writeEchoLower.length > 0 && writeEchoLower.includes(sym.toLowerCase())) {
+        hadWriteEcho = true;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      claims.push({ symbol: sym, predicate });
+    }
+  }
+
+  return { claims, backedCount: backedSeen.size, hadWriteEcho };
+}
+
+/**
+ * Run the Rung-2 pass over a turn and merge whatever it nominates into `base`.
+ *
+ * Merges rather than replaces: a turn can carry a behavior claim AND an
+ * identity claim, and reporting only the lexical half would reintroduce the
+ * miss on the very turns where both shapes appear.
+ *
+ * Never throws and never rejects — a degraded nomination returns `base`
+ * unchanged with the reason recorded, which is ADR-024's fail-to-Rung-1
+ * invariant rather than a silent skip.
+ */
+export async function augmentWithIdentityNomination(
+  base: CodeMechanismDetectionResult,
+  assistantText: string,
+  verificationCorpus: string,
+  writeEchoCorpus = "",
+  nominator?: IdentityClaimNominator
+): Promise<IdentityAugmentedResult> {
+  const rung1: IdentityAugmentedResult = { ...base, detectionRung: "1-lexical" };
+  if (nominator === undefined || !assistantText) return rung1;
+
+  const prose = elideBlocksAndQuotes(assistantText);
+  // Eligibility gate before spending a provider round-trip: a turn with no
+  // extractable symbol has nothing for an identity claim to be ABOUT, so
+  // nomination could only score prose that this detector would discard anyway.
+  if (symbolsNear(prose, Math.floor(prose.length / 2), prose.length).length === 0) return rung1;
+
+  let outcome: IdentityNominationOutcome;
+  try {
+    outcome = await nominator(prose);
+  } catch (err) {
+    return {
+      ...rung1,
+      nominationDegradedReason: `nominator-threw: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    };
+  }
+
+  if (outcome.kind === "degraded") {
+    return { ...rung1, nominationDegradedReason: outcome.reason };
+  }
+  if (outcome.kind === "none") return rung1;
+
+  const nominated = identityClaimsFromSegments(
+    outcome.segments,
+    verificationCorpus,
+    writeEchoCorpus
+  );
+  const existing = new Set(base.claims.map((c) => `${c.symbol}::${c.predicate.toLowerCase()}`));
+  const fresh = nominated.claims.filter(
+    (c) => !existing.has(`${c.symbol}::${c.predicate.toLowerCase()}`)
+  );
+  if (fresh.length === 0) return rung1;
+
+  const claims = [...base.claims, ...fresh];
+  return {
+    matched: true,
+    claims,
+    hadSameTurnRead: base.hadSameTurnRead || nominated.backedCount > 0,
+    backedClaimCount: base.backedClaimCount + nominated.backedCount,
+    hadWriteEchoBacking: base.hadWriteEchoBacking || nominated.hadWriteEcho,
+    detectionRung: "2-embedding",
+  };
+}
+
+/**
+ * Build the real-wired nominator.
+ *
+ * Deps resolve lazily and a failure LATCHES: once degraded, later calls return
+ * degraded without re-attempting, so one wedged provider costs one round-trip
+ * per process rather than one per turn.
+ *
+ * The try/catch is load-bearing, not defensive habit. A hook is its own entry
+ * point: it inherits neither the reflect polyfill nor the process-global
+ * configuration, and `resolveNominationDeps` reaches the embedding factory
+ * which needs both. An escaping throw here would take out the whole detector
+ * verdict — the silent skip ADR-024 forbids — instead of degrading visibly.
+ */
+export function createIdentityClaimNominator(): IdentityClaimNominator {
+  let deps: NominationDeps | null | undefined;
+  let latchedFailure: string | undefined;
+
+  return async (prose: string): Promise<IdentityNominationOutcome> => {
+    if (latchedFailure !== undefined) return { kind: "degraded", reason: latchedFailure };
+
+    if (deps === undefined) {
+      try {
+        const bootstrap = await ensureHookDomainBootstrap();
+        if (!bootstrap.ok) {
+          latchedFailure = "bootstrap-failed";
+          return { kind: "degraded", reason: latchedFailure };
+        }
+        deps = await resolveNominationDeps();
+      } catch (err) {
+        latchedFailure = `resolve-threw: ${err instanceof Error ? err.message : String(err)}`;
+        return { kind: "degraded", reason: latchedFailure };
+      }
+    }
+    if (deps === null) {
+      latchedFailure = "provider-unconfigured";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+
+    const result = await nominate(prose, [IDENTITY_CLAIM_EXEMPLAR_SET], deps);
+    if (result.degraded) {
+      latchedFailure = result.degradedReason ?? "unknown";
+      return { kind: "degraded", reason: latchedFailure };
+    }
+    const segments = result.nominations
+      .filter((n) => n.family === IDENTITY_CLAIM_FAMILY)
+      .map((n) => n.segment);
+    if (segments.length === 0) return { kind: "none" };
+    return { kind: "nominated", segments };
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Calibration logging
 // ---------------------------------------------------------------------------
 
@@ -1516,6 +1789,13 @@ function buildInjectionReminder(
 export interface RunDeps {
   /** Defaults to the real `shouldInjectClaimSet` (code-mechanism-assertion-dedup-store.ts). */
   shouldInjectClaimSetFn?: typeof shouldInjectClaimSet;
+  /**
+   * Rung-2 nominator (mt#4155). Injected rather than reached for, so the wiring
+   * is observable without a provider. Defaults to the real one when
+   * `MINSKY_CMA_RUNG2_NOMINATION` is set, and to `undefined` otherwise — which
+   * is what keeps Rung 2 off by default.
+   */
+  identityNominator?: IdentityClaimNominator;
 }
 
 /**
@@ -1650,11 +1930,11 @@ export function computeSuppressionReasons(
  * shared context resolves the budget once per invocation, before any guard
  * runs — see the same note in `causal-premise-detector.ts`'s `run()`).
  */
-export function run(
+export async function run(
   input: ClaudeHookInput,
   ctx: DispatchContext,
   deps: RunDeps = {}
-): GuardOutcome | null {
+): Promise<GuardOutcome | null> {
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -1685,6 +1965,12 @@ export function run(
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#4155 — which rung produced this turn's claims, and why nomination
+  // degraded if it did. Recorded on every calibration entry: a Rung-2 pass that
+  // silently never runs is indistinguishable from one that runs and finds
+  // nothing, and the calibration log is the only place that is diagnosable.
+  let identityRung: "1-lexical" | "2-embedding" = "1-lexical";
+  let identityDegradedReason: string | undefined;
   // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
   // can capture it — without it a record carries claims but nothing to re-run a
   // changed detector against. ELIDED, never raw (PR #2926 R1): per
@@ -1719,6 +2005,52 @@ export function run(
       corpus,
       buildWriteEchoCorpus(turnLines)
     );
+
+    // mt#4155 — Rung 2. The nominator is built ONLY when the operator has opted
+    // in, so with the flag unset every surface returns exactly what it returned
+    // before this shipped: `augmentWithIdentityNomination` short-circuits on an
+    // undefined nominator. All three surfaces get the pass because the blind
+    // spot is in the shared matcher, not in any one surface's corpus.
+    const nominator =
+      deps.identityNominator ??
+      (isRung2NominationEnabled() ? createIdentityClaimNominator() : undefined);
+    if (nominator !== undefined) {
+      const writeEcho = buildWriteEchoCorpus(turnLines);
+      const chat = await augmentWithIdentityNomination(
+        result,
+        assistantText,
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const comment = await augmentWithIdentityNomination(
+        commentResult,
+        buildAddedCommentCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const artifact = await augmentWithIdentityNomination(
+        artifactResult,
+        buildArtifactProseCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      result = chat;
+      commentResult = comment;
+      artifactResult = artifact;
+      identityRung =
+        chat.detectionRung === "2-embedding" ||
+        comment.detectionRung === "2-embedding" ||
+        artifact.detectionRung === "2-embedding"
+          ? "2-embedding"
+          : "1-lexical";
+      identityDegradedReason =
+        chat.nominationDegradedReason ??
+        comment.nominationDegradedReason ??
+        artifact.nominationDegradedReason;
+    }
   } catch (err) {
     process.stderr.write(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -1764,6 +2096,12 @@ export function run(
     calibration: {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
+      // mt#4155 — which rung produced this record, and why nomination degraded
+      // if it did. Without these a Rung-2 pass that never ran looks exactly
+      // like one that ran and nominated nothing, which is the distinction the
+      // promotion decision turns on.
+      identityDetectionRung: identityRung,
+      identityNominationDegradedReason: identityDegradedReason,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
       backedClaimCount: result.backedClaimCount,

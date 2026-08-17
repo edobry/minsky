@@ -492,3 +492,73 @@ was never extracted and passed identically with the change reverted. The negativ
 surfaced it — 3 failures where 4 were expected. The fixture is now verbatim from the record, and each
 AT that asserts backing carries a paired assertion that the same input FIRES against the pre-mt#4084
 corpus, so the vacuous form cannot come back.
+
+## mt#4155 (2026-08-17) — identity claims routed to ADR-024 Rung 2
+
+mt#4106 measured the gap; this closes it. The class is a claim asserting a symbol's IDENTITY or
+EQUIVALENCE — "`X` is the single reader", "`X` is converted to it", "expressed in the same unit
+against the same reading". `symbolsNear` extracts the symbol perfectly and no predicate anchors it,
+so `detectCodeMechanismAssertion` returns `claims: []` on all four measured fixtures.
+
+### Why not another predicate pattern
+
+ADR-024 governs this decision, and the obvious fix is the one it exists to prevent.
+
+- **Rung 1 cannot cover this class.** ADR-024's Rung 1 is a quotation/citation-aware elision
+  PREFILTER targeting the PRECISION axis. Eliding quoted spans does not make an identity sentence
+  match a behavior verb; there is no precision problem here to fix.
+- **Adding identity verbs to `PREDICATE_PATTERNS` is neither rung.** It is the pre-ladder move
+  ADR-024 §Context names as the anti-pattern: "each miss has historically been answered by adding
+  another regex family (R1 -> R5) — an arms race."
+- **Rung 2 is the ladder's only recall mechanism**, and its evidence gate is "a measured recall-miss
+  rate", which mt#4106 supplies (4 of 4 fixtures `MISS-AT-MATCHER`, each with a passing positive
+  control).
+
+The Rung-2 precondition mt#4155's spec carried — mt#3862's finding that 85% of nominations degrade
+to `timeout` — was re-measured at planning time and does NOT hold at current conditions: 6 of the
+last 200 `retrospective-trigger` nomination attempts degraded (3%), with 193 of 200 producing a
+non-empty `nominated_families`. The full measurement is in mt#4155's `## Planning Audit (READY)`.
+
+### Shape
+
+`detectCodeMechanismAssertion` stays SYNCHRONOUS and unchanged — every existing test of it passes
+untouched. The Rung-2 pass is a separate, injected seam beside it:
+
+- `IDENTITY_CLAIM_EXEMPLAR_SET` — six exemplars phrased WITHOUT a concrete symbol, so the embedding
+  scores the claim's grammar rather than biasing toward turns that mention one identifier.
+- `identityClaimsFromSegments(segments, verificationCorpus, writeEchoCorpus)` — pure. Applies the
+  SAME backing rules as the lexical path, so a symbol read this turn is excluded at claim level and
+  the two rungs cannot disagree about the same turn.
+- `augmentWithIdentityNomination(base, text, corpus, writeEcho, nominator?)` — merges rather than
+  replaces, because a turn can carry a behavior claim AND an identity claim. Never throws: a
+  degraded or throwing nominator returns the Rung-1 result with `nominationDegradedReason` set,
+  which is ADR-024's fail-to-Rung-1 invariant rather than a silent skip.
+- `createIdentityClaimNominator()` — the real-wired one, mirroring `createSkillNominator`
+  (mt#3772): lazy deps behind `ensureHookDomainBootstrap`, and a LATCHED failure so one wedged
+  provider costs one round-trip per process rather than one per turn.
+
+`run()` is now `async`. The dispatcher already did `await mod.run(...)`, so this is
+backward-compatible; the change to callers was mechanical (`await` at 14 test call sites).
+
+### Enforcement posture
+
+Ships DISABLED. The nominator is constructed only when `MINSKY_CMA_RUNG2_NOMINATION` is set
+(registered `tunable`, mirroring `MINSKY_KA_RUNG2_NOMINATION`), and
+`augmentWithIdentityNomination` short-circuits on an undefined nominator — so with the flag unset
+every surface returns byte-identically what it returned before.
+
+Two reasons, not caution-in-general: `DEFAULT_SIMILARITY_THRESHOLD` (0.455) was derived from the
+retrospective-trigger exemplar band and nothing has measured where identity-claim cosines live in
+THIS corpus; and enabled, each turn costs a provider round-trip per surface.
+
+Every calibration record now carries `identityDetectionRung` and
+`identityNominationDegradedReason`. Without them a Rung-2 pass that never ran is indistinguishable
+from one that ran and nominated nothing — which is exactly the distinction the promotion decision
+turns on.
+
+### What the tests do NOT establish
+
+The regression fixtures exercise the PURE seam with an injected nominator, so they prove the
+segment-to-claim mapping and the fail-to-Rung-1 behavior. They say nothing about whether the real
+embedding actually scores these four segments above threshold — that is the live run, and it is a
+separate claim with separate evidence.
