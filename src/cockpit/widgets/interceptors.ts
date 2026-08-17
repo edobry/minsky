@@ -42,7 +42,15 @@ export type InterceptorStratum = "registry" | "standalone" | "precommit" | "reti
 
 export type InterceptorCoverageGap = "tuningOwnership" | "attentionCost" | "canary";
 
-/** Axis 1 — where in the trajectory an interceptor sits (ontology §2). */
+/**
+ * Axis 1 — where in the trajectory an interceptor sits (ontology §2).
+ *
+ * The six events below `MessageDisplay` were added by mt#4129, additively. Hooks
+ * were registered at each of them in `.claude/settings.json` while the model had
+ * no value to represent them, so the point resolver dropped them and the catalog
+ * carried neither the hook nor a gap — the corpus under-reported itself in a way
+ * its own divergence check could not see.
+ */
 export type InterceptionPoint =
   | "PreToolUse"
   | "PostToolUse"
@@ -51,6 +59,12 @@ export type InterceptionPoint =
   | "UserPromptSubmit"
   | "SessionEnd"
   | "MessageDisplay"
+  | "SessionStart"
+  | "StopFailure"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
   | "pre-commit"
   | "merge-time";
 
@@ -176,6 +190,15 @@ const VALID_STRATA: readonly string[] = [
 
 const VALID_PROVENANCE_STATUS: readonly string[] = ["implementation", "declaration-only", "none"];
 
+/**
+ * Runtime validation list for `InterceptionPoint` — a FIFTH site carrying these
+ * names, and the one that rejects a catalog entry outright.
+ *
+ * `parseCatalog` throws on a point absent here, so this list going stale does
+ * not degrade quietly: it fails the whole parse. mt#4129 added six points to the
+ * type union and this list was missed; the pre-commit related-test gate caught
+ * it. `tests/unit/interceptor-points.test.ts` now pins it with the rest.
+ */
 const VALID_POINTS: readonly string[] = [
   "PreToolUse",
   "PostToolUse",
@@ -184,6 +207,12 @@ const VALID_POINTS: readonly string[] = [
   "UserPromptSubmit",
   "SessionEnd",
   "MessageDisplay",
+  "SessionStart",
+  "StopFailure",
+  "Notification",
+  "PermissionRequest",
+  "PreCompact",
+  "PostCompact",
   "pre-commit",
   "merge-time",
 ];

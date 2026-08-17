@@ -42,7 +42,14 @@ export interface SpineStation {
   readonly gapNote?: string;
 }
 
-/** Phase labels beside the verbatim point names. */
+/**
+ * Phase labels beside the verbatim point names.
+ *
+ * `Record<InterceptionPoint, string>` is deliberately exhaustive: a point added
+ * to the union without a label here is a type error, which is what forces this
+ * file to be considered when the model grows. mt#4129 added six points and this
+ * is where that widening became visible.
+ */
 const POINT_LABELS: Record<InterceptionPoint, string> = {
   UserPromptSubmit: "prompt",
   PreToolUse: "tool call · pre",
@@ -51,6 +58,12 @@ const POINT_LABELS: Record<InterceptionPoint, string> = {
   SubagentStop: "subagent stop",
   SessionEnd: "session end",
   MessageDisplay: "display",
+  SessionStart: "session start",
+  StopFailure: "stop · failed",
+  Notification: "notification",
+  PermissionRequest: "permission request",
+  PreCompact: "compact · pre",
+  PostCompact: "compact · post",
   "pre-commit": "commit",
   "merge-time": "merge",
 };
@@ -121,6 +134,20 @@ export interface SpinePopulation {
   /** Entries with no station: point undeclared and no authored trajectory. */
   readonly unplaced: readonly InterceptorEntry[];
   /**
+   * Entries whose point IS declared but which the spine has no station for
+   * (mt#4129).
+   *
+   * A distinct bucket from `unplaced`, deliberately. mt#4129 added six points to
+   * the model without placing them on the trajectory — ordering `Notification`
+   * or `PreCompact` against a turn's phases is a spine-design decision, not a
+   * population one. Folding these into `unplaced` would report "point
+   * undeclared" about entries whose point is declared and correct, and dropping
+   * them into `placed` under a station id `SPINE_STATIONS` does not contain
+   * renders them nowhere at all: an entry silently absent from the visual, which
+   * is the exact defect class mt#4129 exists to remove, reproduced one layer up.
+   */
+  readonly stationless: readonly InterceptorEntry[];
+  /**
    * Fixture and retired names, excluded by stratum: they exist because the
    * fire log is append-only history, and nothing intercepts a live turn
    * through them.
@@ -128,9 +155,13 @@ export interface SpinePopulation {
   readonly excluded: readonly InterceptorEntry[];
 }
 
+/** Station ids the spine actually renders — the lookup `placed` keys must hit. */
+const RENDERED_STATION_IDS: ReadonlySet<SpineStationId> = new Set(SPINE_STATIONS.map((s) => s.id));
+
 export function spinePopulation(entries: readonly InterceptorEntry[]): SpinePopulation {
   const placed = new Map<SpineStationId, InterceptorEntry[]>();
   const unplaced: InterceptorEntry[] = [];
+  const stationless: InterceptorEntry[] = [];
   const excluded: InterceptorEntry[] = [];
 
   for (const e of entries) {
@@ -143,12 +174,18 @@ export function spinePopulation(entries: readonly InterceptorEntry[]): SpinePopu
       unplaced.push(e);
       continue;
     }
+    // A declared point with no rendered station is reported, not filed under a
+    // key nothing reads (mt#4129).
+    if (!RENDERED_STATION_IDS.has(station)) {
+      stationless.push(e);
+      continue;
+    }
     const list = placed.get(station);
     if (list) list.push(e);
     else placed.set(station, [e]);
   }
 
-  return { placed, unplaced, excluded };
+  return { placed, unplaced, stationless, excluded };
 }
 
 /** Dot-diameter bounds, exported so the component and its tests share them. */

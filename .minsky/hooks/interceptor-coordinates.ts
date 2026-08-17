@@ -75,6 +75,18 @@ export type InterceptionPoint =
   | "UserPromptSubmit"
   | "SessionEnd"
   | "MessageDisplay"
+  // Added by mt#4129 — hooks were registered at each of these in
+  // `.claude/settings.json` while the model had no value for them, so
+  // `derivePoint`'s `POINTS` gate dropped them and the catalog carried neither
+  // the hook nor a gap. One of THREE copies of this union; see the header on
+  // `src/cockpit/web/hooks/useInterceptors.ts` for why the duplication is forced
+  // and which test pins the three together.
+  | "SessionStart"
+  | "StopFailure"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
   | "pre-commit"
   | "merge-time";
 
@@ -718,6 +730,16 @@ export interface ResolvedCoordinates {
   readonly gaps: readonly CoordinateGap[];
 }
 
+/**
+ * The representable interception points — kept in lockstep with the
+ * `InterceptionPoint` union in `src/cockpit/widgets/interceptors.ts`, which
+ * `interceptor-points.test.ts` pins.
+ *
+ * This set is a GATE, not a filter: `derivePoint` drops a settings-registered
+ * event that is absent here, so a missing value renders as no point at all
+ * rather than as an unrepresentable one. Six events sat outside it until
+ * mt#4129 — the hooks registered at them were dropped silently.
+ */
 const POINTS = new Set<string>([
   "PreToolUse",
   "PostToolUse",
@@ -726,6 +748,12 @@ const POINTS = new Set<string>([
   "UserPromptSubmit",
   "SessionEnd",
   "MessageDisplay",
+  "SessionStart",
+  "StopFailure",
+  "Notification",
+  "PermissionRequest",
+  "PreCompact",
+  "PostCompact",
   "pre-commit",
   "merge-time",
 ]);
