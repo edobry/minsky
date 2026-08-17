@@ -43,11 +43,17 @@ import {
   describeServerPersistenceUnavailability,
 } from "./db-providers";
 import {
+  getSweepLivenessSnapshot,
+  META_WATCHDOG_STALL_MULTIPLIER,
+  type SweepLivenessSnapshot,
+} from "./sweepers";
+import {
   createDrivenSessionActuator,
   createTopicActuatorRegistry,
 } from "./principal-channel-actuator";
 import {
   startPrincipalChannelPoller,
+  PRINCIPAL_CHANNEL_SWEEP_NAME,
   type BindTopicOutcome,
   type ChannelActuator,
   type InboundEventRecorder,
@@ -493,7 +499,41 @@ export async function logTopicModeCapability(
 export type PrincipalChannelStatus =
   | { state: "disabled" }
   | { state: "starting" }
-  | { state: "running"; chatId: string }
+  | {
+      state: "running";
+      chatId: string;
+      /** ISO timestamp of the moment the poller was launched. */
+      since: string;
+      /**
+       * ISO timestamp of the poll loop's most recent PROGRESS (mt#4183),
+       * projected from the sweep-liveness registry — not written here.
+       *
+       * Null means the loop has reported nothing since `since`. That is normal
+       * for the first second of a channel's life and a fault after that, which
+       * is why staleness below is measured against `lastProgressAt ?? since`
+       * rather than treating null as "no opinion".
+       */
+      lastProgressAt: string | null;
+    }
+  | {
+      /**
+       * The poller was launched and has stopped making progress (mt#4183).
+       *
+       * This is the state whose absence let a wedged poller report `running`
+       * for ~44 hours. It is a PROJECTION, computed on read from the registry
+       * entry mt#4185 registers — there is no write site for it, which is the
+       * point: a latch is what failed here, so the honest surface is one that
+       * cannot go stale because nothing has to remember to update it.
+       */
+      state: "stalled";
+      chatId: string;
+      since: string;
+      lastProgressAt: string | null;
+      /** How long progress has been absent — "stalled 4 minutes" vs "stalled 4 days". */
+      staleForMs: number;
+      /** The threshold crossed, so the reading is interpretable without knowing the budget. */
+      thresholdMs: number;
+    }
   | { state: "unconfigured"; reason: string }
   | {
       state: "retrying";
@@ -516,13 +556,69 @@ let channelStatus: PrincipalChannelStatus = { state: "disabled" };
  * Last-known channel status. Read-only; never triggers work. Safe to call from
  * a health endpoint on every request.
  */
-export function getPrincipalChannelStatus(): PrincipalChannelStatus {
-  return channelStatus;
+export function getPrincipalChannelStatus(
+  deps: {
+    now?: () => number;
+    snapshot?: () => SweepLivenessSnapshot[];
+  } = {}
+): PrincipalChannelStatus {
+  // Only the running latch needs projecting. Every other state is written by a
+  // path that is still executing when it writes, so it cannot outlive its
+  // subject the way `running` did.
+  if (channelStatus.state !== "running") return channelStatus;
+
+  const now = deps.now?.() ?? Date.now();
+  const snapshot = (deps.snapshot ?? getSweepLivenessSnapshot)();
+  const entry = snapshot.find((e) => e.name === PRINCIPAL_CHANNEL_SWEEP_NAME);
+
+  // No registrant: the poller is not reporting into the registry at all. Say
+  // nothing rather than guess — inventing a staleness from `since` alone would
+  // report a healthy channel as stalled on any build where registration moved.
+  if (!entry) return channelStatus;
+
+  const lastProgressAt = entry.lastAttemptAt;
+  // The threshold is the REGISTRY's, read off the entry — not a second constant
+  // maintained here. ADR-035 rule 4 asks subsystems to converge on one status
+  // shape; two thresholds for one liveness question is the same divergence one
+  // level down, and it would drift the first time either side was tuned.
+  const thresholdMs = entry.intervalMs * META_WATCHDOG_STALL_MULTIPLIER;
+  // `?? since` is what closes the first-cycle case: a loop that parks before
+  // its first progress call leaves `lastAttemptAt` null forever, and measuring
+  // against launch time is what makes that visible instead of permanently
+  // unevaluated. (The registry-side half of the same gap is mt#4206.)
+  const referenceMs = Date.parse(lastProgressAt ?? channelStatus.since);
+  if (Number.isNaN(referenceMs)) return { ...channelStatus, lastProgressAt };
+
+  const staleForMs = now - referenceMs;
+  if (staleForMs <= thresholdMs) return { ...channelStatus, lastProgressAt };
+
+  return {
+    state: "stalled",
+    chatId: channelStatus.chatId,
+    since: channelStatus.since,
+    lastProgressAt,
+    staleForMs,
+    thresholdMs,
+  };
 }
 
 /** Reset to the pre-start state. For tests. */
 export function resetPrincipalChannelStatus(): void {
   channelStatus = { state: "disabled" };
+}
+
+/**
+ * TEST-ONLY: put the latch into a chosen state without running the whole
+ * credential-resolution and poller-construction path (mt#4183).
+ *
+ * The projection in {@link getPrincipalChannelStatus} is the unit under test
+ * for SC1, and reaching `running` legitimately requires live credentials, a
+ * spawned actuator and a real poller. Seeding the latch is what lets the
+ * projection be tested on its own terms; the projection itself reads the
+ * registry through its injected `snapshot` seam, so nothing here is patched.
+ */
+export function _setPrincipalChannelStatusForTest(status: PrincipalChannelStatus): void {
+  channelStatus = status;
 }
 
 /**
@@ -849,7 +945,15 @@ async function startResolvedChannel(args: {
     permissionMode: config.permissionMode,
     senderAllowlistSize: allowedUserIds.length,
   });
-  channelStatus = { state: "running", chatId };
+  // `since` is written here and never again; `lastProgressAt` is a placeholder
+  // the getter recomputes from the registry on every read (mt#4183). Storing a
+  // progress timestamp HERE would rebuild the latch this task exists to remove.
+  channelStatus = {
+    state: "running",
+    chatId,
+    since: new Date().toISOString(),
+    lastProgressAt: null,
+  };
   opts.onStarted?.(chatId);
 
   return startPrincipalChannelPoller({

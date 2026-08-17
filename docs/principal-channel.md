@@ -55,21 +55,49 @@ agent with nothing to say. That is not hypothetical: on 2026-08-03 a transient
 DNS failure against the Pulumi backend stopped the channel from starting **five
 times**, and each was noticed only when a message went unanswered (mt#3608).
 
-`GET /api/health` therefore reports the channel's own state, independent of the
-poller:
+`GET /api/health` therefore reports the channel's own state:
 
 ```json
-{ "principalChannel": { "state": "running", "chatId": "167346572" } }
+{
+  "principalChannel": {
+    "state": "running",
+    "chatId": "167346572",
+    "since": "2026-08-17T03:48:02.000Z",
+    "lastProgressAt": "2026-08-17T03:49:17.000Z"
+  }
+}
 ```
 
-| `state`        | Means                                                                                                         |
-| -------------- | ------------------------------------------------------------------------------------------------------------- |
-| `running`      | The poller is up and consuming updates. Carries the `chatId`.                                                 |
-| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                 |
-| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                        |
-| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                  |
-| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.** |
-| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                      |
+| `state`        | Means                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`.                                         |
+| `stalled`      | The poller was launched and has stopped making progress. Carries `staleForMs` and `thresholdMs`. **Messages are not being consumed.** |
+| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                         |
+| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                |
+| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                                          |
+| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.**                         |
+| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                              |
+
+**`running` used to be a latch, and this section used to say so wrongly.** Until
+mt#4183 the sentence above read "reports the channel's own state, **independent
+of the poller**" — which was false when written. `running` was assigned once, at
+the moment the poller was launched, and no code path ever wrote it again. It
+therefore reported the state the channel reached at STARTUP, not its state now.
+On 2026-08-16 the poll loop parked on an unsettled await and this field said
+`running` for ~44 hours while Telegram held undelivered updates and the daemon
+had zero connections to `api.telegram.org`.
+
+What makes it true now is that `running` and `stalled` are **projected on read**
+rather than stored: `lastProgressAt` comes from the poll loop's own progress
+reports into the sweep-liveness registry (mt#4185 registers the poller as
+`principal-channel poll`; see `GET /api/sweeps`), and `stalled` is computed when
+that stamp — or, before the first one lands, `since` — is older than the
+registry's own stall threshold. There is no write site for `stalled`, which is
+the point: nothing has to remember to update it, so it cannot go stale the way
+the latch did.
+
+Read `staleForMs` rather than just the state: "stalled 4 minutes" and "stalled 4
+days" call for different responses, and only the number distinguishes them.
 
 **`failed` and `unconfigured` are deliberately different states.** The first
 means the credentials probably exist but could not be READ — a fault, usually
