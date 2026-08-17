@@ -93,14 +93,19 @@ export const FLAKINESS_DENIAL_PATTERNS: readonly RegExp[] = [
 export const UNVERIFIED_MARKER = "UNVERIFIED";
 
 /**
- * The literal label that discharges a DENIAL (mt#4166).
+ * The heading of the record that discharges a DENIAL (mt#4166).
+ *
+ * **This label is NOT itself sufficient, and never reads as evidence on its own
+ * — {@link hasLoadControl} is the check, and it requires the RECORD.** The label
+ * only marks where the record starts. `Load control: was never run` and a bare
+ * `## Load control` both carry this string and silence nothing.
  *
  * A denial — "not load-dependent", "fails deterministically" — is a claim about
  * behavior ACROSS load conditions, so the only evidence that bears on it is a
  * measurement from more than one. Recorded counts do not carry that: they say
  * what happened, not that the confound was held constant.
  *
- * ## Why this is a label and not an inference
+ * ## Why the RECORD is authored rather than inferred
  *
  * Inferring the straddle from prose was prototyped against the real mt#4158
  * text and MEASURED not to discriminate: counts sit near `idle machine` AND
@@ -110,10 +115,10 @@ export const UNVERIFIED_MARKER = "UNVERIFIED";
  * suite as the broken thing. The difference between measuring two conditions
  * and mentioning two conditions is not in the text, so no pattern reaches it.
  *
- * So the author states it and owns the claim, exactly as `Negative control:`
- * (mt#3244) and `Execution evidence:` (mt#1459) do for the same kind of
- * unknowable. A false label is a lie, and catching lies is not this guard's
- * job — making the OMISSION visible is.
+ * So the author writes the two runs down and owns the claim, exactly as
+ * `Negative control:` (mt#3244) and `Execution evidence:` (mt#1459) do for the
+ * same kind of unknowable. A record whose two runs were never observed is a lie,
+ * and catching lies is not this guard's job — making the OMISSION visible is.
  */
 export const LOAD_CONTROL_LABEL = "Load control";
 
