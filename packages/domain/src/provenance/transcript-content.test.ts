@@ -60,6 +60,46 @@ describe("resolveTranscriptMessageContent", () => {
     const msg: TranscriptMessage = { type: "user", role: "user", content: undefined };
     expect(resolveTranscriptMessageContent(msg)).toBeUndefined();
   });
+
+  /** The flat value each fallback case must recover — shared so the three cases cannot drift. */
+  const FLAT_TEXT = "flat text that must not be lost";
+
+  // PR #3085 R1 (BLOCKING). The guard was `"content" in nested`, which is TRUE for
+  // `{ content: undefined }` — so a present-but-empty nested key suppressed the flat
+  // fallback in the one function whose job is to try both shapes. Gating on the VALUE
+  // fixes it. Both cases below FAIL against the key-existence guard.
+  it("falls back to the flat field when nested content is undefined", () => {
+    const msg: TranscriptMessage = {
+      type: "user",
+      role: "user",
+      content: FLAT_TEXT,
+      message: { content: undefined },
+    };
+    expect(resolveTranscriptMessageContent(msg)).toBe(FLAT_TEXT);
+  });
+
+  it("falls back to the flat field when nested content is null", () => {
+    // JSON has no `undefined`, so `null` is the shape this actually takes on a parsed row.
+    const msg: TranscriptMessage = {
+      type: "user",
+      role: "user",
+      content: FLAT_TEXT,
+      message: { content: null },
+    };
+    expect(resolveTranscriptMessageContent(msg)).toBe(FLAT_TEXT);
+  });
+
+  it("still resolves an empty-string nested payload rather than falling back", () => {
+    // `""` CARRIES a value — the harness wrote an empty message. Falling back here would
+    // substitute a stale flat value for what the harness actually recorded.
+    const msg: TranscriptMessage = {
+      type: "user",
+      role: "user",
+      content: "stale flat value",
+      message: { content: "" },
+    };
+    expect(resolveTranscriptMessageContent(msg)).toBe("");
+  });
 });
 
 describe("extractTextFromContent", () => {

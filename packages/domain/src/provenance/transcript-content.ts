@@ -53,15 +53,24 @@ export const NON_TEXT_MARKER = "[non-text content]";
 /**
  * Resolve a message's actual content payload, nested shape first.
  *
- * Reads `message.content` (the live stored shape) when present, and falls back to the
- * flat `.content` field (the seam's declared type, this repo's older fixtures, and any
- * restored legacy archive). Order matters: a row carrying BOTH should be read as the
- * harness wrote it.
+ * Reads `message.content` (the live stored shape) when it actually CARRIES a value, and
+ * falls back to the flat `.content` field (the seam's declared type, this repo's older
+ * fixtures, and any restored legacy archive) otherwise. Order matters: a row carrying BOTH
+ * should be read as the harness wrote it.
+ *
+ * "Carries a value" rather than "has the key": a nested `content` that is `undefined` or
+ * `null` yields nothing to read, so treating its mere presence as authoritative would
+ * suppress the fallback and return nothing from a message that had text one field over.
  */
 export function resolveTranscriptMessageContent(msg: TranscriptMessage): unknown {
   const nested = msg.message;
-  if (nested !== null && typeof nested === "object" && "content" in nested) {
-    return nested.content;
+  if (nested !== null && typeof nested === "object") {
+    const nestedContent = nested.content;
+    // Gate on the VALUE, not on key existence. `"content" in nested` is true for
+    // `{ content: undefined }`, which would return undefined and skip the flat fallback —
+    // in the one function whose job is to try both shapes. Carried over from the helper
+    // this was hoisted from (mt#3157); caught in review on PR #3085.
+    if (nestedContent !== undefined && nestedContent !== null) return nestedContent;
   }
   return msg.content;
 }
