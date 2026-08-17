@@ -444,7 +444,15 @@ broken-vs-dormant story (RFC mt#2263 Phase 1, SC#5):
   `NON_GUARD_CALIBRATION_PRODUCERS` map naming the producer, reports those logs on a
   `[NON-GUARD]` line, and EXCLUDES them from the coverage results entirely — `FLAGGED`
   asserts "no evidence the entry point ran", which for a log with no entry point to
-  instrument is a false claim rather than a weak one. Recording fire-log entries from the
+  instrument is a false claim rather than a weak one. **A RETIRED producer gets the same
+  treatment on the same reasoning (mt#4204):** `RETIRED_CALIBRATION_PRODUCERS` names logs
+  whose producer was deleted on purpose while the log itself was kept as history, reported
+  on a `[RETIRED]` line and likewise excluded. Without it, retiring a detector and keeping
+  its log — which is what you want when the log is the evidence the retirement rested on —
+  moves that log from `[DORMANT]` to `[FLAGGED]` permanently, because deleting the producer
+  also deletes its only invocation-evidence join (mt#4197 is the originating case). This is
+  NOT a mute for a detector that has gone quiet: a live producer with zero fires and zero
+  invocations is the "shipped is not firing" defect, and still flags. Recording fire-log entries from the
   command path was rejected: the fire log is the GUARD invocation log (`guardName` is its
   identity field), and `src/` is bundled into the deployed MCP server, which must not import
   `.minsky/hooks/`.

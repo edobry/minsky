@@ -72,6 +72,44 @@ export const NON_GUARD_CALIBRATION_PRODUCERS: Record<string, string> = {
 };
 
 /**
+ * Logs whose producer was RETIRED — deleted on purpose, as of a date.
+ *
+ * The fourth declaration surface, and the one the model was missing. The other three all answer
+ * "who writes this log?" with a producer that exists; none could say "nobody, deliberately." So
+ * when a detector is retired and its log is deliberately KEPT as evidence, the log falls off
+ * every declaration surface at once and `check-coverage-receipts.ts` reports it as FLAGGED —
+ * "no live fires AND no invocation evidence," which reads as a dead entry point somebody must
+ * investigate. That is a false anomaly, permanently, on every run.
+ *
+ * A log listed here is EXCLUDED from the coverage results for the same reason
+ * `NON_GUARD_CALIBRATION_PRODUCERS` is, stated in that check's own words: `FLAGGED` asserts "no
+ * evidence the entry point ran", and for a log with no entry point to instrument that is a FALSE
+ * claim, not a weak one. It is reported in its own category instead, so the exclusion is visible
+ * rather than a silent drop.
+ *
+ * This is NOT a mute for a detector that has merely gone quiet. A live detector with zero fires
+ * and zero invocations is exactly the "shipped is not firing" defect the check exists to catch,
+ * and it must still be FLAGGED. The entry here is a claim that the producer is GONE from the
+ * tree — verifiable by its absence, not by its silence.
+ *
+ * Originating incident: mt#4197 retired the policy-coverage detector (Surface 1) and correctly
+ * kept its 1,760-record log as the evidence the retirement rested on. Removing the standalone
+ * canary took away the log's only invocation-evidence join, moving it from `[DORMANT]` (benign,
+ * with 6,108 invocations behind it) to `[FLAGGED]` — worse than the state mt#4197's own criterion
+ * was written to prevent. Found by running the check post-merge, which is also why mt#4197's PR
+ * body carried the opposite prediction: the check cannot run from a session workspace (no
+ * calibration logs in a fresh clone), so the claim was reasoned rather than observed.
+ *
+ * @see mt#4204 — this fix
+ * @see mt#4197 — the retirement that surfaced the gap
+ * @see scripts/check-coverage-receipts.ts — the consumer
+ */
+export const RETIRED_CALIBRATION_PRODUCERS: Record<string, string> = {
+  "policy-coverage":
+    "policy-coverage-detector (Surface 1), retired 2026-08-16 by mt#4197 — hook, domain modules and canary deleted; the 1,760-record log is retained on disk as the retirement's evidence",
+};
+
+/**
  * Map each calibration-log name to the guard name(s) that write it (mt#3502, moved from
  * `check-coverage-receipts.ts` by mt#3716 to be the one shared accessor).
  *
@@ -130,6 +168,13 @@ export function getDeclaredCalibrationLogNames(): string[] {
     }
   }
   for (const name of Object.keys(NON_GUARD_CALIBRATION_PRODUCERS)) {
+    names.add(name);
+  }
+  // mt#4204: a retired producer is still a DECLARATION — it answers "who writes this log?" with
+  // "nobody, as of a date", which is an answer rather than a gap. Including it keeps this the
+  // complete set of logs the repo knows about, so a consumer asking "is this log declared?"
+  // gets `true` for a deliberately-retained one instead of treating it as an unexplained orphan.
+  for (const name of Object.keys(RETIRED_CALIBRATION_PRODUCERS)) {
     names.add(name);
   }
   return [...names].sort();
