@@ -18,6 +18,20 @@ preload = ["./tests/setup.ts"]
 #
 # Do NOT treat this as licence to write order-dependent tests.
 randomize = false
+# CONCURRENCY (PR #3081 R1): the suite runs SERIALLY — files in order, tests
+# within a file in order. Nothing here or in scripts/*.ts or package.json passes
+# --concurrent, --parallel, --isolate or --shard, and the repo has zero
+# test.concurrent / describe.concurrent call sites.
+#
+# Tests rely on that. A number of them mutate shared process state for the
+# duration of a test body and restore it after — env vars in
+# packages/domain/src/configuration/sources/environment.test.ts, module globals
+# elsewhere. Serial execution is what makes that safe.
+#
+# Before enabling --concurrent (which interleaves test bodies inside ONE
+# process, so those mutations become races), audit that population first.
+# --parallel is the safer knob: per `bun test --help` it implies --isolate, so
+# files get separate worker processes and separate environments.
 # Standalone deployables under services/ are independent packages with their
 # own node_modules and test commands. Exclude them from the main test runner
 # so the repo-root `bun test` doesn't try to load their dependencies, which
