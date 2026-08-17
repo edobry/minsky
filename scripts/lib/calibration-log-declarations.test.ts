@@ -7,6 +7,10 @@ import {
 } from "./calibration-log-declarations";
 import { GUARD_REGISTRY } from "../../.minsky/hooks/registry";
 import { STANDALONE_GUARD_CANARIES } from "./standalone-guard-canaries";
+import { AT_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/require-execution-evidence-before-merge";
+import { TEST_FIRST_CALIBRATION_LOG } from "../../.minsky/hooks/test-first-evidence";
+import { RENDER_PATH_CALIBRATION_LOG } from "../../.minsky/hooks/render-path-evidence";
+import { SC_COVERAGE_CALIBRATION_LOG } from "../../.minsky/hooks/success-criteria-coverage";
 
 describe("getDeclaredCalibrationLogNames", () => {
   test("includes every GUARD_REGISTRY.calibrationLog name", () => {
@@ -116,6 +120,54 @@ describe("buildCalibrationLogToGuards", () => {
         expect(map.get(log)).toContain(canary.guardName);
       }
     }
+  });
+});
+
+describe("the execution-evidence merge gate's four calibration logs (mt#4064)", () => {
+  // Keyed off the WRITER CONSTANTS rather than hand-copied strings, because this one guard's
+  // declaration has now been incomplete twice in the same way: mt#3519 widened `calibrationLog`
+  // to accept a list precisely because the gate writes more than one log, and enumerated two of
+  // the four. Binding to the constants means renaming a log breaks this at the rename.
+  const GATE_LOGS: readonly (readonly [string, string])[] = [
+    ["AT_COVERAGE_CALIBRATION_LOG", AT_COVERAGE_CALIBRATION_LOG],
+    ["TEST_FIRST_CALIBRATION_LOG", TEST_FIRST_CALIBRATION_LOG],
+    ["RENDER_PATH_CALIBRATION_LOG", RENDER_PATH_CALIBRATION_LOG],
+    ["SC_COVERAGE_CALIBRATION_LOG", SC_COVERAGE_CALIBRATION_LOG],
+  ];
+
+  const stem = (logPath: string): string =>
+    logPath.replace(/^\.minsky\//, "").replace(/-calibration\.jsonl$/, "");
+
+  test("every log the gate writes is declared", () => {
+    const declared = new Set(getDeclaredCalibrationLogNames());
+    for (const [constant, logPath] of GATE_LOGS) {
+      expect(declared.has(stem(logPath)), constant).toBe(true);
+    }
+  });
+
+  test("every log the gate writes resolves back to the gate", () => {
+    // The mem#812 axis: a declaration widened from one-to-N leaves the old cardinality alive in
+    // whatever map INVERTS it, silently and with no type error. Two-to-four is the same widening,
+    // so assert each log resolves to the guard individually rather than trusting a list length.
+    const map = buildCalibrationLogToGuards();
+    for (const [constant, logPath] of GATE_LOGS) {
+      expect(map.get(stem(logPath)), constant).toContain("require-execution-evidence-before-merge");
+    }
+  });
+
+  test("the four log names are pinned, so a rename cannot pass silently", () => {
+    // Also the scope statement for the two tests above: they bind the four constants that exist
+    // today, so a FIFTH surface added to this gate would pass them. For a log that lands on disk
+    // the backstop is `scripts/check-calibration-sweep-coverage.ts`, which fails when an existing
+    // `.minsky/*-calibration.jsonl` is visited by no sweep — that is how mt#4064's render-path gap
+    // was surfaced. The case with no backstop is a log declared nowhere AND never yet written, as
+    // `-sc-coverage` was: absent from disk, so invisible to every glob-driven check until it fires.
+    expect(GATE_LOGS.map(([, logPath]) => stem(logPath))).toEqual([
+      "execution-evidence-at-coverage",
+      "execution-evidence-test-first",
+      "execution-evidence-render-path",
+      "execution-evidence-sc-coverage",
+    ]);
   });
 });
 
