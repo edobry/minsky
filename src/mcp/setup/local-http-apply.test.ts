@@ -213,6 +213,30 @@ describe("ensureDaemonRunning", () => {
     expect(spawned).toEqual([ARGV]);
   });
 
+  test("a daemon this call started is not described as one that was already up", async () => {
+    // `classifyDaemonProbe`'s detail is phrased for the pre-spawn probe, where
+    // adopting an existing daemon is the news. Reusing it after a spawn made the
+    // caller print "Started the local MCP daemon (a minsky-mcp daemon is already
+    // serving the port)" -- both outcomes asserted in one line, observed against
+    // the real command while verifying AT1.
+    const adopted = await ensureDaemonRunning(ARGV, {
+      healthUrl: HEALTH_URL,
+      deps: deps([healthy], []),
+    });
+    const started = await ensureDaemonRunning(ARGV, {
+      healthUrl: HEALTH_URL,
+      deps: deps([down, healthy], []),
+    });
+
+    expect(adopted.spawned).toBe(false);
+    expect(adopted.status.detail).toContain("already serving");
+
+    expect(started.spawned).toBe(true);
+    expect(started.status.detail).not.toContain("already");
+    // Still confirms health, so the line is not merely emptied out.
+    expect(started.status.detail).toContain("/health");
+  });
+
   test("refuses to spawn over a foreign holder of the port", async () => {
     const spawned: string[][] = [];
     const foreign: HealthProbeOutcome = { kind: "body", body: { service: "minsky-cockpit" } };

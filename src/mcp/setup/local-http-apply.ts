@@ -300,7 +300,15 @@ export async function ensureDaemonRunning(
   for (let i = 0; i < attempts; i++) {
     await sleep(intervalMs);
     last = classifyDaemonProbe(await probe(healthUrl));
-    if (last.state === "running") return { spawned: true, status: last };
+    if (last.state === "running") {
+      // `classifyDaemonProbe`'s "already serving" wording is written for the
+      // PRE-spawn probe above, where adopting someone else's daemon is the
+      // news. Reused verbatim here it describes the daemon we just started as
+      // one that was already up — the caller renders "Started the local MCP
+      // daemon (a minsky-mcp daemon is already serving the port)", which
+      // states both outcomes at once and tells the operator neither.
+      return { spawned: true, status: { ...last, detail: "it is answering /health" } };
+    }
     if (last.state === "foreign") break;
   }
 
