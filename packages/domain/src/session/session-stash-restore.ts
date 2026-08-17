@@ -145,7 +145,16 @@ async function listStashedFiles(
   stashRef: string
 ): Promise<string[]> {
   try {
-    const out = await git.execInRepository(workdir, `git stash show --name-only ${stashRef}`);
+    // `stashRef` is shell-quoted (PR #3076 R1). It comes from git's own `%gd`
+    // output rather than operator input, but it IS interpolated into a shell
+    // command string — and mt#3660 is what made the parsed value actually reach
+    // here: beforehand `resolveOwnStashRef` always failed, so this only ever saw
+    // the hardcoded `stash@{0}`. Quoting also makes this consistent with the
+    // `safeShellQuote(file)` call below, which was already quoted.
+    const out = await git.execInRepository(
+      workdir,
+      `git stash show --name-only ${safeShellQuote(stashRef)}`
+    );
     return out
       .split("\n")
       .map((s) => s.trim())

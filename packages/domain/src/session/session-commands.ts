@@ -1004,10 +1004,14 @@ export async function sessionCommit(
               `   ${stashRestore.recovery ?? ""}`
           );
         } else if (stashRestore?.restored) {
+          // One line, not three (PR #3076 R1). This is NOT the ordinary success
+          // path — `stashRestore` is undefined unless an update-parked stash was
+          // actually found, so an ordinary commit prints nothing here. When it
+          // does fire, the operator has uncommitted work they did not put back
+          // themselves, and saying so is the entire point of the task.
           log.cli(
-            `   (Restored work parked by an earlier session_update from ` +
-              `${stashRestore.stashRef}. It is in the working tree, UNCOMMITTED — commit it ` +
-              `separately; this commit does not carry it.)`
+            `   (Restored work parked by an earlier session_update from ${stashRestore.stashRef} — ` +
+              `now uncommitted in the working tree, NOT in this commit.)`
           );
         }
       } catch (restoreError) {
