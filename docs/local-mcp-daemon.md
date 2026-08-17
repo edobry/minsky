@@ -70,6 +70,29 @@ introducing an entry elsewhere would silently change which definition wins.
 
 An entry that is neither proxy nor shim form (a bare `mcp start`, say) is reported and left alone.
 
+### Entries that cannot be migrated
+
+`mcp shim` is routed by the `minsky` bin wrapper, not by the CLI: `scripts/cli-entry.ts` intercepts
+it from argv and loads a separate, deliberately thin build artifact, never entering the full CLI
+(mt#3812 — the shim's memory floor is the whole point of the shared-daemon topology). So only an
+invocation that goes _through_ that wrapper can run the shim:
+
+| Entry's `command`           | Can run `mcp shim`? |
+| --------------------------- | ------------------- |
+| `minsky` (installed binary) | yes                 |
+| `bunx` / `npx` + `minsky`   | yes                 |
+| `bun <path>/src/cli.ts`     | no                  |
+| `bun <path>/dist/minsky.js` | no                  |
+
+The rewrite preserves whatever preceded `mcp`, so migrating one of the bottom two would produce
+`bun <path>/src/cli.ts mcp shim --url …` — a command that exits with `error: unknown command
+'shim'`. That is strictly worse than not migrating, because the proxy entry that did work is gone.
+
+Such entries are therefore **reported and left on the proxy**, which keeps working. The command does
+not substitute the installed `minsky` binary for you: that would silently change which binary — and
+which version — your entry runs. To move one onto the shim, point its `command` at an installed
+`minsky` and re-run.
+
 ### Flags
 
 | Flag            | Effect                                                                                      |
