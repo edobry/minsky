@@ -20,7 +20,7 @@
 import { resolveConversationAgentId, injectAgentIdMeta } from "./identity";
 import { readAuthToken, DEFAULT_TOKEN_PATH } from "./token";
 import { DaemonClient } from "./client";
-import { makeErrorResponse, type JsonRpcMessage } from "./protocol";
+import { makeErrorResponse, toolsListCount, type JsonRpcMessage } from "./protocol";
 
 /** Fixed default daemon port per ADR-038 §Question 4. */
 export const DEFAULT_DAEMON_URL = "http://127.0.0.1:48765/mcp";
@@ -145,6 +145,30 @@ export async function handleLine(
   try {
     const responses = await ctx.client.send(outgoing);
     for (const resp of responses) {
+      // mt#4128: record the tool list this conversation was actually served.
+      //
+      // The condition this exists for: a conversation can hold ZERO
+      // `mcp__minsky__*` tools for its entire life while every process stays
+      // healthy and `claude mcp list` reports the server Connected. The client
+      // caches whatever `tools/list` it first receives and does not refresh on
+      // `notifications/tools/list_changed` (mt#2030,
+      // anthropics/claude-code#4118), so one bad list is permanent for that
+      // conversation. Without this line there is no record, anywhere, of
+      // whether a list was served or how big it was — which is why the
+      // 2026-08-13 occurrence could not be diagnosed after the fact.
+      //
+      // stderr, NOT `log.*`, and that is the point rather than a style choice:
+      // `resolveDiagnosticSink` returns the `agent` sink — structured JSON on
+      // STDOUT — whenever `MINSKY_LOG_MODE=STRUCTURED` or
+      // `ENABLE_AGENT_LOGS=true` is set (packages/shared/src/logger.ts:136).
+      // stdout here IS the JSON-RPC channel, so routing this record through the
+      // logger would let a diagnostic for channel corruption become a cause of
+      // it. The shim already writes its other diagnostics to stderr for the
+      // same reason.
+      const servedCount = toolsListCount(resp);
+      if (servedCount !== null) {
+        ctx.stderr.write(`[shim] tools/list served: ${servedCount} tool(s)\n`);
+      }
       ctx.stdout.write(`${JSON.stringify(resp)}\n`);
     }
   } catch (err) {
