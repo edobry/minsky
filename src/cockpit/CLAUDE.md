@@ -157,15 +157,20 @@ restart needed.
   and confirm the changed field is present/absent. Killing a healthy daemon before reading its served
   state destroys the evidence of whether the restart was even needed. (Premise-verification family:
   memory `da2b73ea`; merged≠usable altitude: `427cdf15`.)
-- **Residual gap — `packages/domain`-only changes.** `watcher_backend` watches `src/cockpit` only. A
-  change confined to `packages/domain` (which the daemon imports at runtime) with NO `src/cockpit`
-  edit will NOT trigger an auto-restart. The running daemon holds the module cached in memory — Bun
-  caches ES modules, so even a dynamically-`import()`ed domain module is not re-read from disk on
-  change (eager-vs-lazy import makes no difference) — so a restart is required to pick up ANY
-  domain-only change. It stays stale until the next `src/cockpit` change or a manual restart. Probe
-  to distinguish; that is the one case a manual restart is genuinely warranted.
+- **`packages/**` changes auto-restart too, as of mt#4230.** The daemon spawns from source
+  (`bun run src/cli.ts`), so its import closure is `src/**` plus `packages/**`. `watcher_backend`
+  watched `src/cockpit` alone until mt#4230, which made a `packages/domain`-only change invisible to
+  all three mechanisms that read that root — the auto-restart, the adoption-staleness check, and the
+  `(src @ …)` uptime hint — so the daemon served stale code while the hint read as current. Bun
+  caches ES modules, so a domain change genuinely needs a process restart (eager-vs-lazy import makes
+  no difference); what changed is that the restart now fires on its own.
+  `cockpit_backend_roots()` (`cockpit-tray/src-tauri/src/watcher_backend.rs`) is the single list all
+  three read — add a root there, not at a call site. **Remember the tray binary is NOT auto-rebuilt**
+  (`cockpit-tray-dev`): a checkout that predates mt#4230's tray release still has the old
+  single-root watcher, so probe before assuming this applies to the tray you are running.
 - When a restart IS needed, prefer the clean primitive `restartDaemon()` (`src/cockpit/launchd.ts`)
-  over a hand `kill`/respawn.
+  over a hand `kill`/respawn — but note it requires a launchd plist, so it does NOT work under the
+  tray-supervised default (mt#4232 tracks making `cockpit restart` supervision-independent).
 
 **Dev mode (recommended for active UI work):**
 
