@@ -26,6 +26,7 @@ import type { AuthorizingSource } from "../../packages/domain/src/detectors/spec
 
 const CREATE_TOOL = "mcp__minsky__tasks_create";
 const PATCH_TOOL = "mcp__minsky__tasks_spec_patch";
+const EDIT_TOOL = "mcp__minsky__tasks_edit";
 const SC_SECTION = "Success Criteria";
 const SC_HEADING = `## ${SC_SECTION}`;
 /** A criterion that asserts nothing about corpus state — the quiet control. */
@@ -116,16 +117,89 @@ describe("SC8 — the elision actually fires (real elideMarkdownNonProse)", () =
 
 describe("spec-text and task-id extraction per tool (mt#4153)", () => {
   test("reads the spec body under each tool's own key", () => {
-    expect(readSpecText(CREATE_TOOL, { spec: "body" })).toBe("body");
-    expect(readSpecText(PATCH_TOOL, { content: "body" })).toBe("body");
-    expect(readSpecText("mcp__minsky__tasks_edit", { specContent: "body" })).toBe("body");
+    expect(readSpecText(CREATE_TOOL, { spec: "body" }).text).toBe("body");
+    expect(readSpecText(PATCH_TOOL, { content: "body" }).text).toBe("body");
+    expect(readSpecText(EDIT_TOOL, { specContent: "body" }).text).toBe("body");
   });
 
   test("an unrelated tool, or a call with no spec body, yields null", () => {
-    expect(readSpecText("Bash", { command: "ls" })).toBeNull();
-    expect(readSpecText(CREATE_TOOL, {})).toBeNull();
-    expect(readSpecText(CREATE_TOOL, { spec: "   " })).toBeNull();
-    expect(readSpecText(undefined, undefined)).toBeNull();
+    expect(readSpecText("Bash", { command: "ls" }).text).toBeNull();
+    expect(readSpecText(CREATE_TOOL, {}).text).toBeNull();
+    expect(readSpecText(CREATE_TOOL, { spec: "   " }).text).toBeNull();
+    expect(readSpecText(undefined, undefined).text).toBeNull();
+  });
+
+  // --- `specFile` on tasks_edit (PR #3063 R1, BLOCKING) ------------------------
+  //
+  // `tasks_edit` takes the new spec EITHER inline as `specContent` OR as a path in
+  // `specFile`; only the inline form was read, so an edit using the path was scanned
+  // as if it carried no spec. The reader is injected here rather than writing a temp
+  // file, per `testing-standards.mdc §Testable Design`.
+
+  test("a tasks_edit specFile path is read as the spec body", () => {
+    const read = readSpecText(EDIT_TOOL, { specFile: "/tmp/spec.md" }, (p) =>
+      p === "/tmp/spec.md" ? "## Success Criteria\n\n- [ ] one" : null
+    );
+
+    expect(read.text).toBe("## Success Criteria\n\n- [ ] one");
+    expect(read.specFileUnreadable).toBe(false);
+  });
+
+  test("an inline specContent wins over a specFile, without reading the file", () => {
+    let reads = 0;
+    const read = readSpecText(
+      EDIT_TOOL,
+      { specContent: "inline", specFile: "/tmp/spec.md" },
+      () => {
+        reads++;
+        return "from disk";
+      }
+    );
+
+    expect(read.text).toBe("inline");
+    expect(reads).toBe(0);
+  });
+
+  test("an unreadable specFile reports a MISS rather than 'no spec'", () => {
+    // The distinction the evaluation stream needs: a hole it cannot see is a hole
+    // nothing will measure.
+    const read = readSpecText(EDIT_TOOL, { specFile: "/tmp/gone.md" }, () => null);
+
+    expect(read.text).toBeNull();
+    expect(read.specFileUnreadable).toBe(true);
+  });
+
+  test("tasks_create has no specFile parameter, so a stray one is not read", () => {
+    // Verified against the tool's own schema: `tasks_create` takes the body inline
+    // only. Reading a key the tool does not accept would invent coverage.
+    const read = readSpecText(CREATE_TOOL, { specFile: "/tmp/spec.md" }, () => "from disk");
+
+    expect(read.text).toBeNull();
+    expect(read.specFileUnreadable).toBe(false);
+  });
+
+  test("tasks_edit's own `spec` is a BOOLEAN flag, not a spec body", () => {
+    // PR #3063 R1 read `tasks_edit`'s `spec` as a missing body key. Its schema types
+    // it `boolean` (default false) — `tasks_create`'s `spec` is the string one. A
+    // boolean must not be coerced into scannable text.
+    const read = readSpecText(EDIT_TOOL, { spec: true }, () => null);
+
+    expect(read.text).toBeNull();
+    expect(read.specFileUnreadable).toBe(false);
+  });
+
+  test("an evaluation record is still written for an unreadable specFile", async () => {
+    const evaluated = await evaluateCall(
+      EDIT_TOOL,
+      { taskId: "mt#4153", specFile: "/tmp/gone.md" },
+      noSource,
+      () => null
+    );
+
+    expect(evaluated).not.toBeNull();
+    expect(evaluated?.evaluation.specFileUnreadable).toBe(true);
+    expect(evaluated?.evaluation.fired).toBe(false);
+    expect(evaluated?.result.matched).toBe(false);
   });
 
   test("the task id is present on an edit and absent on a create", () => {

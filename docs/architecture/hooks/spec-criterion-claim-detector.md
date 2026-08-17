@@ -155,8 +155,17 @@ Measured before shipping, over real spec bodies read from `task_specs`, both arm
 
 | corpus                    | criteria | phrase-only | + corpus referent |
 | ------------------------- | -------- | ----------- | ----------------- |
-| 120 most-recently-updated | 1,102    | 83 (69.2%)  | **47 (39.2%)**    |
+| 120 most-recently-updated | 1,105    | 83 (69.2%)  | **61 (50.8%)**    |
 | 120 oldest by task id     | 1,254    | 39 (32.5%)  | 32 (26.7%)        |
+
+**Correction to an earlier figure in this file.** The referent column first measured 47 (39.2%) on
+the recent corpus. That was a BUG in the conjunct, not a property of the corpus: the same-sentence
+window treated a newline as a sentence end, so a criterion wrapped between its trigger and its
+referent was a false negative — and this repo wraps prose at 100 characters, so that is the ordinary
+case rather than an edge one. Caught in review (PR #3063 R1, BLOCKING). About a quarter of the
+apparent improvement was the conjunct suppressing true positives, so **the referent requirement helps
+less than the first measurement claimed** — it removes roughly a quarter of the phrase-only fires,
+not two thirds. The conclusions below are unchanged in direction and stronger in degree.
 
 Three things follow, and the first two are why the conjunct exists at all.
 
@@ -176,15 +185,41 @@ double-quoted prose) and `already-filed` used as a compound adjective.
 **The deeper limit is structural, not lexical.** An acceptance criterion describes the END STATE
 the PR creates, and "`X` is registered in `Y`" is grammatically identical whether it asserts a
 pre-existing corpus fact or specifies the deliverable. Class A's premise is that a trigger plus a
-referent separates those two; at 39.2% on the operative corpus, it does not separate them well.
+referent separates those two; at 50.8% on the operative corpus, it does not separate them well.
 That is a claim about the premise, not a tuning gap, so the answer is not another phrase-list
 revision — widening or re-wording the list is the ADR-024 §Context arms race, and narrowing it
 further by hand on the same corpus that justified the narrowing is the same move in reverse.
 
-So Class A ships **log-only** with `INJECTION_ENABLED = false`, and the 39.2% figure is the input
+So Class A ships **log-only** with `INJECTION_ENABLED = false`, and the 50.8% figure is the input
 to the calibration review that decides whether it earns a Rung-2 flip, gets restricted to its
 highest-precision phrases, or is retired. The evaluation stream above supplies the miss
 denominator that decision needs.
+
+## The dispatcher timeout in `.claude/settings.json`, derived
+
+`.claude/settings.json` gives `dispatch-pretooluse.ts` a per-matcher timeout, and nothing checks it
+against the registry — so the number is only as good as the derivation recorded beside it (PR #3063
+R1 flagged the risk of settings↔registry drift). Sum of the declared `timeoutMs` for every registry
+guard on `mcp__minsky__tasks_create`, read from `bun scripts/check-guard-posture-coverage.ts`:
+
+| guard                               | declared      |
+| ----------------------------------- | ------------- |
+| `duplicate-signature-scan`          | 18,000 ms     |
+| `spec-criterion-claim-detector`     | 10,000 ms     |
+| `require-duplicate-check-record`    | 5,000 ms      |
+| `duplicate-check-search-provenance` | 5,000 ms      |
+| `duplicate-check-candidate-read`    | 5,000 ms      |
+| `flakiness-control-detector`        | 5,000 ms      |
+| `claim-provenance-scan`             | 5,000 ms      |
+| **sum**                             | **53,000 ms** |
+
+The setting is **58s** — the 53s sum plus the 5s headroom the file already used at its previous
+values (43s against a 38s sum). Two guards landed on this matcher within hours: mt#4167's added 5s
+(43 → 48 on main) and this one added 10s (43 → 53 in this branch), off a shared base. Both edits were
+correct and each was blind to the other, so the merge conflict resolved to the **union**, 58 — `max()`
+would have funded one guard and not the other. Re-derive with the command above rather than adjusting
+this by feel; the group matcher for `tasks_spec_patch` / `tasks_edit` /
+`tasks_spec_search_replace` is sized separately (20s) because only two guards reach it.
 
 ## Feedback shape
 

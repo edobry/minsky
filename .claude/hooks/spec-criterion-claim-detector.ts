@@ -52,7 +52,7 @@ import {
   type AuthorizingSource,
   type SpecCriterionClaimResult,
 } from "../../packages/domain/src/detectors/spec-criterion-claim";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
 
@@ -90,26 +90,109 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SPEC_CRITERION_CLAIM";
  */
 export const EVALUATION_LOG = ".minsky/spec-criterion-claim-evaluations.jsonl";
 
-/** Tool-input key carrying the spec body, per tool. */
+/**
+ * Tool-input key carrying the spec body INLINE, per tool.
+ *
+ * Read off each tool's parameter schema, not inferred from the name — the keys differ
+ * by tool and one of them is a trap. `tasks_create` carries the body in `spec` (a
+ * string); `tasks_edit` carries it in `specContent`, and its OWN `spec` parameter is
+ * a **boolean flag**, not a body (PR #3063 R1 read the two as the same key). A
+ * boolean is not scannable, so there is nothing to add for it.
+ */
 const SPEC_KEY_BY_TOOL: Readonly<Record<string, string>> = {
   mcp__minsky__tasks_create: "spec",
   mcp__minsky__tasks_spec_patch: "content",
   mcp__minsky__tasks_edit: "specContent",
 };
 
+/**
+ * Tool-input key naming a FILE whose contents become the spec (PR #3063 R1).
+ *
+ * `tasks_edit` accepts `specFile` as an alternative to `specContent`, and an edit
+ * that uses it was scanned as if it carried no spec at all — a silent coverage hole
+ * in SC1's "reads a task's spec at `tasks_create` / `tasks_edit` time", not a
+ * calibration question. Only `tasks_edit` has this parameter; `tasks_create` takes
+ * the body inline only.
+ */
+const SPEC_FILE_KEY_BY_TOOL: Readonly<Record<string, string>> = {
+  mcp__minsky__tasks_edit: "specFile",
+};
+
+/**
+ * Size ceiling for a `specFile` read. A spec is prose — the largest in this repo is
+ * comfortably under 100 KB — so anything past this is not a spec, and the hook
+ * declines rather than pulling an arbitrarily large file into a PreToolUse budget.
+ */
+const MAX_SPEC_FILE_BYTES = 512 * 1024;
+
+/**
+ * Read a `specFile` from disk, or null if it cannot be read as a spec.
+ *
+ * Every failure is a null rather than a throw: this is an observer that must not
+ * turn a valid `tasks_edit` into an error. A null is not silent — the caller records
+ * `specFileUnreadable` on the evaluation record, so the miss stays measurable (SC5)
+ * instead of looking like a call that carried no spec.
+ */
+export function readSpecFileFromDisk(path: string): string | null {
+  try {
+    if (!existsSync(path)) return null;
+    if (statSync(path).size > MAX_SPEC_FILE_BYTES) return null;
+    const text = readFileSync(path, "utf8");
+    return text.trim() === "" ? null : text;
+  } catch {
+    // intentional-swallow: an unreadable spec file is a coverage miss, recorded by
+    // the caller on the evaluation record — never a reason to fail the tool call.
+    return null;
+  }
+}
+
 /** Max chars of a criterion carried into a calibration record. */
 const MAX_EXCERPT_CHARS = 200;
 
-/** Read the spec body out of a tool call, or null when this call carries none. */
+/** What a spec-body read produced, and — when it produced nothing — why. */
+export interface SpecTextRead {
+  text: string | null;
+  /** A `specFile` was named and could not be read. Distinguishes a MISS from "no spec here". */
+  specFileUnreadable: boolean;
+}
+
+/**
+ * Read the spec body out of a tool call, or null when this call carries none.
+ *
+ * The file reader is a parameter so the `specFile` branch is testable without
+ * touching a real filesystem (`testing-standards.mdc §Testable Design` — inject the
+ * collaborator rather than patching it).
+ */
 export function readSpecText(
   toolName: string | undefined,
-  toolInput: Record<string, unknown> | undefined
-): string | null {
-  if (!toolName || !toolInput) return null;
+  toolInput: Record<string, unknown> | undefined,
+  readFile: (path: string) => string | null = readSpecFileFromDisk
+): SpecTextRead {
+  const miss = { text: null, specFileUnreadable: false };
+  if (!toolName || !toolInput) return miss;
+
   const key = SPEC_KEY_BY_TOOL[toolName];
-  if (key === undefined) return null;
-  const value = toolInput[key];
-  return typeof value === "string" && value.trim() !== "" ? value : null;
+  if (key !== undefined) {
+    const value = toolInput[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      return { text: value, specFileUnreadable: false };
+    }
+  }
+
+  // Only after the inline body is absent: `specContent` and `specFile` are
+  // alternatives, and the inline form is both cheaper and the common case.
+  const fileKey = SPEC_FILE_KEY_BY_TOOL[toolName];
+  if (fileKey !== undefined) {
+    const path = toolInput[fileKey];
+    if (typeof path === "string" && path.trim() !== "") {
+      const text = readFile(path);
+      return text === null
+        ? { text: null, specFileUnreadable: true }
+        : { text, specFileUnreadable: false };
+    }
+  }
+
+  return miss;
 }
 
 /**
@@ -342,11 +425,35 @@ function appendJsonl(cwd: string, relPath: string, record: Record<string, unknow
 export async function evaluateCall(
   toolName: string | undefined,
   toolInput: Record<string, unknown> | undefined,
-  resolveSource: ResolveAuthorizingSource
+  resolveSource: ResolveAuthorizingSource,
+  readFile: (path: string) => string | null = readSpecFileFromDisk
 ): Promise<{ result: SpecCriterionClaimResult; evaluation: Record<string, unknown> } | null> {
-  const spec = readSpecText(toolName, toolInput);
-  if (spec === null) return null;
+  const read = readSpecText(toolName, toolInput, readFile);
 
+  // A named-but-unreadable `specFile` is a MISS, not a call that carried no spec, so
+  // it gets an evaluation record rather than a silent `null` (SC5 — the stream is the
+  // miss denominator, and a hole it cannot see is a hole nothing will measure).
+  if (read.text === null) {
+    if (!read.specFileUnreadable) return null;
+    const empty = detectSpecCriterionClaims("", null, SPEC_ELIDER);
+    return {
+      result: empty,
+      evaluation: {
+        timestamp: new Date().toISOString(),
+        tool: toolName,
+        fired: false,
+        criteriaExamined: 0,
+        authorizingSourceAvailable: false,
+        taskIdPresent: readTaskId(toolInput) !== null,
+        classACount: 0,
+        classBCount: 0,
+        specChars: 0,
+        specFileUnreadable: true,
+      },
+    };
+  }
+
+  const spec = read.text;
   const taskId = readTaskId(toolInput);
   // Class B needs an authorization to compare against; absent a task id there can
   // be no linked ask, so the lookup is not even attempted.
@@ -441,8 +548,21 @@ export async function run(
   return outcome;
 }
 
-// No standalone `main()` and no shebang, deliberately: this guard is DISPATCHED
-// only. The registry supplies `module: () => import(...).then((m) => ({ run }))`,
+// No standalone `main()`, deliberately: this guard is DISPATCHED only.
+//
+// It says nothing about a shebang, because this file HAS one — line 1, written here,
+// and carried into the generated copy ahead of the compile banner. An earlier version
+// of this comment claimed "and no shebang, deliberately", which contradicted its own
+// line 1 (PR #3063 R1). The first attempt to explain that away was also wrong: the
+// compiler does not add the shebang, it preserves the one the source already has.
+//
+// Keeping it matches the siblings (`claim-provenance-scan`,
+// `flakiness-control-detector` and `negative-existence-claim-detector` all carry one;
+// `duplicate-signature-scan` does not, so both forms exist here). It is harmless
+// either way — what makes this guard dispatch-only is the absent entry point below,
+// not the interpreter line above.
+//
+// The registry supplies `module: () => import(...).then((m) => ({ run }))`,
 // so the dispatcher is the entry point and a second one would be dead weight —
 // plus it would need a synthetic `DispatchContext` this guard never reads, which is
 // an `as unknown` cast standing in for a contract that does not apply. Guards that

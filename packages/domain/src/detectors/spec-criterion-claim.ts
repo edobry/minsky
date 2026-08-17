@@ -119,7 +119,15 @@ export const VERIFY_COMMAND_LEADERS: readonly string[] = [
  * **83 of 120 (69.2%)**, because `still`, `already` and `remains` are ordinary
  * English adverbs. Samples from that run: "it **still** reaches PASS with…", "a
  * deviation justified by a claim about a consumer… **already**". None asserts
- * anything about the repo. Adding this conjunct takes it to **47 (39.2%)**.
+ * anything about the repo. Adding this conjunct takes it to **61 (50.8%)**.
+ *
+ * That figure was first measured at 47 (39.2%) and the difference was a BUG in this
+ * conjunct, not a property of the corpus: {@link hasCorpusReferentNear} treated a
+ * newline as a sentence end, so every criterion wrapped between its trigger and its
+ * referent was a false negative (PR #3063 R1). A quarter of the apparent improvement
+ * was the conjunct silently suppressing true positives. Worth stating plainly,
+ * because the honest reading is that the referent requirement helps LESS than the
+ * first measurement suggested.
  *
  * Sample the RECENT specs, not the oldest — the same run measured the 120 oldest by
  * id at 32.5% phrase-only, half the recent rate, because the dense-prose spec style
@@ -367,10 +375,26 @@ export function hasInlineVerifyingCommand(rawCriterion: string): boolean {
  * A `.` counts as a sentence boundary only when whitespace or the string end
  * follows it, so `CLAUDE.md` is not split down the middle — which would drop the
  * `md` and defeat the referent pattern that is looking for exactly that filename.
+ *
+ * A NEWLINE IS NOT A BOUNDARY, and that is the whole subtlety here (PR #3063 R1,
+ * BLOCKING). {@link extractCriteria} joins a bullet's continuation lines with `\n`,
+ * and this repo wraps prose at 100 characters — so the single most ordinary shape
+ * this detector exists for puts the trigger on one line and its referent on the
+ * next:
+ *
+ * ```
+ * - [ ] `MINSKY_ACK_UNTAKEN_ACTION` remains functional and remains documented
+ *       in `CLAUDE.md` §Hook Files.
+ * ```
+ *
+ * Treating `\n` as a sentence end split exactly that criterion in two and made the
+ * referent unreachable from the trigger — a false negative on the AT1 shape itself,
+ * silently suppressing the class rather than the noise. Wrapping is a typographic
+ * accident of the line width; it carries no sentence structure.
  */
 function hasCorpusReferentNear(criterion: ExtractedCriterion, matchIndex: number): boolean {
   const { elided, raw } = criterion;
-  const boundary = /[.;!?](?=\s|$)|\n/g;
+  const boundary = /[.;!?](?=\s|$)/g;
 
   let start = 0;
   let end = elided.length;

@@ -78,9 +78,9 @@ describe("Class A — unverified corpus-state assertion (mt#4153)", () => {
   // thing standing between the referent requirement and a silent revert: every one
   // of the fixtures above happens to carry a backticked identifier, so all 37 tests
   // passed both before and after the conjunct was added. Measured over the 120
-  // most-recently-updated specs / 1,102 criteria, trigger-phrase-only matching fired
-  // on 69.2%; requiring a referent in the same sentence took that to 39.2%. Both
-  // cases below are verbatim shapes from that run's own false positives.
+  // most-recently-updated specs, trigger-phrase-only matching fired on 69.2%;
+  // requiring a referent in the same sentence took that to 50.8%. Both cases below
+  // are verbatim shapes from that run's own false positives.
   //
   // Verified as negative controls rather than assumed (mt#3244): with the conjunct
   // disabled, exactly these two fail — 17 pass / 2 fail. The third is a POSITIVE
@@ -105,6 +105,27 @@ describe("Class A — unverified corpus-state assertion (mt#4153)", () => {
       "- [ ] The handler still returns early. A separate pass rewrites `CLAUDE.md`."
     );
     expect(detectSpecCriterionClaims(spec, null, passthrough).matched).toBe(false);
+  });
+
+  test("a trigger and its referent on WRAPPED lines are one sentence", () => {
+    // PR #3063 R1 (BLOCKING) + its non-blocking sibling: `\n` used to end the
+    // sentence window, so the most ordinary shape in this repo — a bullet wrapped at
+    // 100 chars, trigger on one line and referent on the next — was a false
+    // negative.
+    //
+    // The referent must be on the SECOND line and nowhere on the first, or the test
+    // cannot see the bug: the AT1 criterion carries `MINSKY_ACK_UNTAKEN_ACTION`
+    // alongside its trigger, so it fires with or without the newline boundary.
+    // Measured — that first draft passed 20/20 against the buggy regex.
+    const spec = specWith(
+      SC_HEADING,
+      ["- [ ] The override remains documented", "      in `CLAUDE.md` §Hook Files."].join("\n")
+    );
+
+    const result = detectSpecCriterionClaims(spec, null, passthrough);
+
+    expect(result.matched).toBe(true);
+    expect(result.findings[0]?.klass).toBe("A");
   });
 
   test("a filename referent survives sentence splitting", () => {
