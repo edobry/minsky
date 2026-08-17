@@ -180,10 +180,22 @@ describe("ConversationView — visual weight hierarchy (mt#4220)", () => {
     // makes it MORE readable rather than less: with the tool rows no longer
     // sky, sky now means "assistant" and nothing else. A future de-carding pass
     // should not sweep it up as leftover accent.
+    //
+    // The rail moved one level UP in mt#3845, from the per-turn wrapper to the
+    // per-RUN wrapper: consecutive same-actor turns now share one header and one
+    // continuous rail, so the hue belongs to the run rather than to each block.
+    // mt#4220's invariant is unchanged and this test still asserts it — the
+    // assistant rail is still `border-l-sky-500/40` and still the only sky on
+    // the surface. Only the element carrying it changed, which is why the
+    // selector is the run wrapper (the `[data-turn-index]` element's PARENT)
+    // rather than the block. Asserted structurally so a future pass that
+    // strips the hue still fails here.
     const { container } = renderCV(snapshotWithBlocks([assistantTextBlock(0, PROSE_TEXT)]));
     const turn = container.querySelector<HTMLElement>("[data-turn-index]");
     expect(turn).not.toBeNull();
-    expect(turn!.className).toContain("border-l-sky-500/40");
+    const run = turn!.closest<HTMLElement>(".border-l-2");
+    expect(run).not.toBeNull();
+    expect(run!.className).toContain("border-l-sky-500/40");
   });
 
   test("a failure keeps its card and stays expanded — the loudest tier is unchanged", () => {
