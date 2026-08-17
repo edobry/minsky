@@ -442,10 +442,25 @@ export function isOverrideBoilerplateMention(tok: string, window: string): boole
  */
 const URL_QUERY_SPAN_RE = /[^\s`'"<>()[\]]*[?&][A-Za-z0-9_.~-]+=[^\s`'"<>()[\]]*/g;
 
-/** Does the part before the first `?`/`&` look like a host or a path? */
+/**
+ * Does the part before the first `?`/`&` look like a URL?
+ *
+ * A SCHEME, or a dotted host — not merely a slash. PR #3031 R1 flagged that an
+ * earlier `head.includes("/")` branch would accept `src/foo?x=1`, so an
+ * identifier mentioned once in a path-shaped fragment could be suppressed. The
+ * slash branch is gone; a head now needs `http(s)://` (which also admits
+ * dotless hosts like `localhost:3000`) or a `name.tld`-shaped host.
+ *
+ * Residual bound, stated rather than papered over: a dotted filename followed by
+ * a query — `foo.ts?x=1` — still reads as a host, because distinguishing a TLD
+ * from a file extension needs a TLD list, and a stale list is a worse failure
+ * than this one. It costs a suppression only when the token appears NOWHERE else
+ * in the slice, since the caller requires every occurrence to be inside a span.
+ */
+const URL_HEAD_RE = /^(?:https?:\/\/\S+|[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}(?:\/|$))/;
+
 function hasUrlishHead(span: string): boolean {
-  const head = span.split(/[?&]/)[0] ?? "";
-  return head.includes("/") || /[A-Za-z0-9-]\.[A-Za-z]{2,}/.test(head);
+  return URL_HEAD_RE.test(span.split(/[?&]/)[0] ?? "");
 }
 
 export function isUrlQueryParameterMention(tok: string, window: string): boolean {

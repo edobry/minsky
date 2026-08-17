@@ -306,6 +306,24 @@ That regrouping matters more than the count. **Seven of eight share one root cau
 one defect at three sources rather than four independent classes — recorded on mt#4084, which owns
 the tool-input case and is the natural home for the widening question.
 
+#### Where the tool-input case went, and why it was not implemented here
+
+Recorded in-repo rather than only on the task, so a reader of this file can check the disposition
+without querying the task store (PR #3031 R1).
+
+mt#4084 already owns it, and **no rescope was required**: that task's `## Scope` names corpus
+construction and says it "adds a backing SOURCE", which covers a tool's declared PARAMETER as
+naturally as its NAME — only its title is narrower than its scope. `expectedHeadSha` fails for
+exactly the reason a tool name does: the corpus carries `tool_result` bodies and read-class inputs,
+and a parameter lives in the tool INPUT, which it does not collect.
+
+So this task added a finding to mt#4084 naming the parameter case explicitly inside that existing
+scope, together with the branch-diff and prose cases and the argument that separates them: a tool
+input and a branch diff are MACHINE-RECORDED, so admitting them cannot be gamed by an agent
+asserting confidently, while the agent's own prose can be — which is why the first two are safe to
+widen toward and the third is not. Rescoping another task unilaterally was declined; its own
+planning pass settles the widening.
+
 ### Round 6 — the URL-query-parameter exclusion
 
 `cc_cli_limit_message` was extracted from Claude Code's own spend-limit banner, pasted into the
