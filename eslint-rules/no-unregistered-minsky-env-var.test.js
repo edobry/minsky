@@ -155,6 +155,11 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
       code: "function f(env) { delete env.MINSKY_NEVER_REGISTERED_SCRUB; }",
       filename: srcFile("mcp", "scrub.ts"),
     },
+    // PR #3077 R1: the same carve-out on the BRACKET form of a bare `env`.
+    {
+      code: 'function f(env) { delete env["MINSKY_NEVER_REGISTERED_SCRUB_BRACKET"]; }',
+      filename: srcFile("mcp", "scrub.ts"),
+    },
     // mt#4217: the widening deliberately does NOT reach a nested `x.env.MINSKY_*`
     // shape. No such site exists in the repo, and matching it would widen the
     // false-positive surface with no evidence to justify it.
@@ -335,6 +340,27 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
           data: {
             name: "MINSKY_BARE_BRACKET_UNREGISTERED",
             configPath: "bare.bracket.unregistered",
+          },
+        },
+      ],
+    },
+    // PR #3077 R1 regression anchor: `delete process.env.MINSKY_FOO` STILL fires.
+    //
+    // The `delete` carve-out mt#4217 added is scoped to the bare-`env` path. The
+    // first revision of that change placed the check after the shared
+    // process-env/bare-env gate, which silently stopped flagging this shape — a
+    // behavior change to a path this rule has always covered, invisible to the
+    // negative control because no case pinned it. The reviewer caught it; this
+    // case is why it cannot recur.
+    {
+      code: "delete process.env.MINSKY_DELETE_ON_PROCESS_ENV;",
+      filename: srcFile("utils", "reset.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_DELETE_ON_PROCESS_ENV",
+            configPath: "delete.on.process.env",
           },
         },
       ],

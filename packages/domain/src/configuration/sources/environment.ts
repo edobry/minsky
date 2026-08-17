@@ -220,6 +220,18 @@ export type HookOnlyEnvVarCategory = "operator-override" | "test-fixture" | "tun
  * The canonical registry, keyed by var name so each entry's category sits
  * beside the comment its author was already writing.
  *
+ * **An entry does NOT require a read site, and a test asserting otherwise would
+ * be wrong (PR #3077 R1).** This registry's job is to make the dot-path parser
+ * SKIP a name, which depends on whether an operator might SET the var — not on
+ * whether any code reads it. `MINSKY_SESSIONDB_POSTGRES_URL` is the worked
+ * example: no `.ts` file reads it (sessiondb was retired in mt#1610), and its
+ * entry is load-bearing precisely for that reason, because
+ * `services/reviewer/DEPLOY.md` and `docs/supabase-pooler-switch.md` still show
+ * operators setting it. Drop the entry and the parser starts mapping
+ * `sessiondb.postgres.url`, which strict validation rejects at boot — the exact
+ * mt#1785 crash. The reverse direction (an access with no entry) IS mechanically
+ * enforced, by `custom/no-unregistered-minsky-env-var`.
+ *
  * **The record shape is load-bearing, not a style choice.**
  * `eslint-rules/no-unregistered-minsky-env-var.js` cannot import this file
  * (ESLint runs under Node, which will not load TypeScript), so it extracts

@@ -91,7 +91,7 @@ export function buildRegisteredSet() {
     console.warn(
       `[no-unregistered-minsky-env-var] could not read ${REGISTRATION_FILE_POSIX}: ` +
         `${e instanceof Error ? e.message : String(e)}. ` +
-        `Rule will flag every process.env.MINSKY_* read until the file is readable.`
+        `Rule will flag every MINSKY_* env-var access until the file is readable.`
     );
     return registered;
   }
@@ -123,23 +123,26 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Require every `process.env.MINSKY_*` read in src/ and .claude/hooks/ " +
-        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VAR_CATEGORIES` to " +
-        "prevent env-var-namespace conflicts with the config-loader's dot-path " +
-        "parser (mt#1610, mt#1624, mt#1785). Catches all statically-resolvable " +
-        "access forms (mt#2324): bare-identifier (process.env.MINSKY_FOO), " +
-        'string-literal bracket (process.env["MINSKY_FOO"]), and ' +
-        "non-interpolated template-literal bracket (process.env[`MINSKY_FOO`]). " +
+        "Require every `MINSKY_*` env-var access in src/ and the hook trees to " +
+        "be registered in `environmentMappings` or `HOOK_ONLY_ENV_VAR_CATEGORIES` " +
+        "to prevent env-var-namespace conflicts with the config-loader's dot-path " +
+        "parser (mt#1610, mt#1624, mt#1785). Matches accesses on `process.env` " +
+        "AND on a bare object named `env` (the dependency-injected style in " +
+        "src/mcp/**, mt#4217), in all statically-resolvable forms (mt#2324): " +
+        'bare-identifier (env.MINSKY_FOO), string-literal bracket (env["MINSKY_FOO"]), ' +
+        "and non-interpolated template-literal bracket (env[`MINSKY_FOO`]). " +
         "Dynamic computed access (variable key, interpolated template literal) " +
-        "is not statically resolvable and is skipped. The services/* tree is " +
-        "excluded (independent deploy packages with their own config loaders).",
+        "is not statically resolvable and is skipped, as is `delete env.MINSKY_FOO` " +
+        "on a bare env (a scrub, not an introduction — `delete process.env.MINSKY_FOO` " +
+        "still reports). The services/* tree is excluded (independent deploy " +
+        "packages with their own config loaders); scripts/ is not yet scanned (mt#4223).",
       category: "Best Practices",
       recommended: true,
     },
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882.`,
+      unregistered: `{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882, mt#4217.`,
     },
   },
 
@@ -259,7 +262,19 @@ export default {
         // name and no registration is implied. Two smoke scripts do exactly
         // this with MINSKY_PERSISTENCE_POSTGRES_CONNECTIONSTRING, which is why
         // that name is absent from the registrations this rule change forced.
+        //
+        // Scoped to the BARE-`env` path on purpose (PR #3077 R1). Applying it to
+        // `process.env` too — which is what the first revision did, by placing
+        // this check after the shared gate — would have silently stopped flagging
+        // `delete process.env.MINSKY_FOO`, a shape this rule has always reported.
+        // That is a behavior change to the pre-existing path with no evidence
+        // behind it: the only `delete` sites measured in this repo are on an env
+        // object destined for a CHILD process, and deleting from the CURRENT
+        // process's own `process.env` is a different act this task never studied.
+        // Preserving prior behavior is the conservative default; widening it, if
+        // ever wanted, belongs in a change that measures those sites.
         if (
+          isBareEnv &&
           node.parent &&
           node.parent.type === "UnaryExpression" &&
           node.parent.operator === "delete"
