@@ -67,8 +67,14 @@ const AFFIRMATIVE_VALUES = ["running", "ok", "connected", "healthy", "active", "
  *
  * Closed and short on purpose. "Any boolean" would drag in unrelated flags — a
  * `hasPendingWork: true` is not a liveness claim and must not demand a timestamp.
+ *
+ * **`enabled` is deliberately NOT here (PR #3080 R1).** It describes CONFIGURATION, not
+ * operation: a subsystem can be enabled and dead, which is this task's entire failure
+ * mode rather than an instance of health. Treating it as a liveness assertion would
+ * demand a timestamp from a config flag while saying nothing about whether the thing
+ * runs. The three that remain are verdicts about current operation.
  */
-const BOOLEAN_LIVENESS_KEYS = ["running", "healthy", "ok", "enabled"];
+const BOOLEAN_LIVENESS_KEYS = ["running", "healthy", "ok"];
 
 /**
  * Non-`At` field names that nonetheless date an assertion.
@@ -125,9 +131,17 @@ export interface UndatedLivenessAssertion {
   assertion: string;
 }
 
-/** True when `key` names a field that dates an assertion. */
+/**
+ * True when `key` names a field that dates an assertion.
+ *
+ * The `Ms` suffix is accepted (PR #3080 R1) because the payload already spells epoch
+ * stamps that way — `processStartedAtMs` is the in-tree precedent — and a subsystem
+ * adding `lastAttemptAtMs` is dating its claim exactly as well as one adding
+ * `lastAttemptAt`. Rejecting it would have failed an honest subsystem for its choice of
+ * units, which is the opposite of what this rule is for.
+ */
 function isDatingKey(key: string): boolean {
-  return /At$/.test(key) || EXTRA_DATING_KEYS.includes(key);
+  return /At(Ms)?$/.test(key) || EXTRA_DATING_KEYS.includes(key);
 }
 
 /**
@@ -137,9 +151,15 @@ function isDatingKey(key: string): boolean {
  * `null` COUNTS. A field that is present-but-null still lets a reader distinguish
  * "never reported" from "reported at T", which is the whole point; requiring a
  * non-null would fail every subsystem during its first seconds of life.
+ *
+ * A finite NUMBER counts too (PR #3080 R1) — an epoch-ms stamp dates an assertion as
+ * well as an ISO string does, and `processStartedAtMs` shows the payload already uses
+ * that spelling. Non-finite values (`NaN`, `Infinity`) are rejected: they date nothing,
+ * and accepting them would let a broken computation satisfy the rule.
  */
 function isDatingValue(value: unknown): boolean {
-  return value === null || typeof value === "string";
+  if (value === null || typeof value === "string") return true;
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 /**

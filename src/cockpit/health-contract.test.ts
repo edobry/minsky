@@ -310,10 +310,22 @@ describe("/api/health while the database is wedged (mt#3563)", () => {
 describe("/api/health liveness-dating invariant (mt#4186)", () => {
   const closeList: Array<() => Promise<void>> = [];
 
+  // AT2 drives the process-global TranscriptWatcherTracker into `running: true`, so it
+  // must be put back — both directions. This file already carries the scar: mt#3951's
+  // note on the mt#3563 block below records that a process-global left dirty by an
+  // EARLIER file made a later test's premise unreachable, green in isolation and red
+  // only in the pre-push changed-file subset where a different file runs first. An
+  // afterEach alone protects later files but not this block's own starting point, so
+  // the reset runs on both edges.
+  beforeEach(() => {
+    TranscriptWatcherTracker.resetForTest();
+  });
+
   afterEach(async () => {
     for (const close of closeList.splice(0)) {
       await close();
     }
+    TranscriptWatcherTracker.resetForTest();
   });
 
   /** The pre-mt#4183 `principalChannel`, verbatim: a healthy claim nothing can date. */
@@ -452,5 +464,35 @@ describe("/api/health liveness-dating invariant (mt#4186)", () => {
     expect(findUndatedLivenessAssertions({ queue: { hasPendingWork: true, depth: 3 } })).toEqual(
       []
     );
+  });
+
+  // PR #3080 R1 — the reviewer's two non-blocking findings, pinned so neither reverts.
+  test("R1: `enabled` is configuration, not liveness, and asserts nothing datable", () => {
+    // A subsystem can be enabled and dead — that is this task's failure mode, not an
+    // instance of health. Demanding a timestamp from a config flag would say nothing
+    // about whether the thing runs.
+    expect(findUndatedLivenessAssertions({ feature: { enabled: true, mode2: "x" } })).toEqual([]);
+    // ...while the three real verdicts still fire.
+    for (const key of ["running", "healthy", "ok"]) {
+      expect(findUndatedLivenessAssertions({ sub: { [key]: true } })).toEqual([
+        { field: "sub", assertion: `${key}=true` },
+      ]);
+    }
+  });
+
+  test("R1: an epoch-ms stamp dates an assertion as well as an ISO string", () => {
+    // `processStartedAtMs` is the in-tree precedent for this spelling. Failing an honest
+    // subsystem over its choice of units is the opposite of what the rule is for.
+    expect(
+      findUndatedLivenessAssertions({
+        pump: { state: "running", lastAttemptAtMs: 1_700_000_000_000 },
+      })
+    ).toEqual([]);
+
+    // But a non-finite number dates nothing — a broken computation must not satisfy the
+    // rule just by occupying the field.
+    expect(
+      findUndatedLivenessAssertions({ pump: { state: "running", lastAttemptAtMs: NaN } })
+    ).toEqual([{ field: "pump", assertion: 'state="running"' }]);
   });
 });
