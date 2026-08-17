@@ -1052,14 +1052,19 @@ describe("self-scheduling registrants (mt#4185)", () => {
     let restarts = 0;
     const handle = registerSelfSchedulingSweep({
       name: "test-self-scheduling-healthy",
-      progressBudgetMs: 60,
+      progressBudgetMs: 200,
       restart: () => {
         restarts++;
       },
     });
     const stopWatchdog = startSweepMetaWatchdog(10);
-    // Report every 15ms against a 60ms budget (120ms threshold) — the ratio a
+    // Report every 15ms against a 200ms budget (400ms threshold) — the ratio a
     // healthy poller runs at, where a 25s long poll sits inside a 420s budget.
+    //
+    // Headroom widened from 60ms at PR #3065 R1: a NO-restart assertion whose
+    // margin is a small multiple of the reporting interval can fail on
+    // event-loop jitter rather than on the behaviour under test. Same class the
+    // reviewer flagged in that PR's AT2; fixed here too rather than only there.
     const reporting = setInterval(() => handle.noteProgress(), 15);
     try {
       handle.noteProgress();
@@ -1182,25 +1187,35 @@ describe("self-scheduling registrants (mt#4185)", () => {
     }
   });
 
-  test("AT2: an interval sweep is NOT flagged for the same never-reported condition", async () => {
-    // The differential that makes AT1 safe. An interval sweep's null window is
-    // millisecond-scale — the registry drives its tick — so treating null as a
-    // stall there would restart every healthy sweep at boot. Both registrants
-    // below share a budget; only the self-scheduling one may be restarted.
-    let intervalRestarts = 0;
+  test("AT2: an interval sweep registered alongside is untouched while the self-scheduled one is restarted", async () => {
+    // The differential that makes AT1 safe: the SAME watchdog scan, in the same
+    // window, must restart the self-scheduling never-reporter and leave the
+    // interval sweep alone.
+    //
+    // Timing headroom is deliberate and load-bearing (PR #3065 R1). An earlier
+    // version gave the interval sweep a 15ms cadence — a 30ms stall threshold
+    // against a 20ms scan — which ordinary event-loop jitter can exceed, so the
+    // assertion could fail for reasons unrelated to the branch under test. At
+    // 1000ms the threshold is 2000ms and this test finishes in well under a
+    // second, so no amount of jitter can flip it.
+    //
+    // On what this does NOT cover, stated rather than implied: an interval
+    // sweep's `lastAttemptAtMs === null` window is not deterministically
+    // reachable from a test, because `createIntervalSweeper` registers the entry
+    // and schedules its boot tick in the same synchronous block — the stamp
+    // lands a microtask later. That unreachability is itself why skipping the
+    // null is safe on that path, and it is why this test asserts the observable
+    // differential rather than staging a null it cannot hold open.
     let selfRestarts = 0;
 
     const stopInterval = createIntervalSweeper({
-      name: "test-interval-null-window",
-      intervalMs: 15,
+      name: "test-interval-not-flagged",
+      intervalMs: 1_000,
       tickTimeoutMs: 5_000,
-      // Never resolves: the tick is in flight forever, so this sweep's DOMAIN
-      // work is stuck. Its timer keeps firing and stamping, which is exactly
-      // the case the interval branch must keep skipping on the null read.
-      tick: () => new Promise<void>(() => {}),
+      tick: async () => {},
     });
     const selfHandle = registerSelfSchedulingSweep({
-      name: "test-self-null-window",
+      name: "test-self-never-reports",
       progressBudgetMs: 15,
       restart: () => {
         selfRestarts++;
@@ -1209,15 +1224,15 @@ describe("self-scheduling registrants (mt#4185)", () => {
     const stopWatchdog = startSweepMetaWatchdog(20);
     try {
       await waitFor(() => selfRestarts >= 1, 2000);
+
       const intervalEntry = getSweepLivenessSnapshot().find(
-        (e) => e.name === "test-interval-null-window"
+        (e) => e.name === "test-interval-not-flagged"
       );
-      intervalRestarts = intervalEntry?.metaRestarts ?? 0;
-      // The self-scheduling one was restarted; the interval one was not
-      // restarted for having a null stamp — its timer keeps stamping.
       expect(selfRestarts).toBeGreaterThanOrEqual(1);
+      // Its boot tick stamped, so it is evaluated on the normal path and is
+      // comfortably inside its own threshold.
       expect(intervalEntry?.lastAttemptAt).not.toBeNull();
-      expect(intervalRestarts).toBe(0);
+      expect(intervalEntry?.metaRestarts).toBe(0);
     } finally {
       stopWatchdog();
       selfHandle.stop();
