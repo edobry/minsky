@@ -174,6 +174,14 @@ export const RECOMMENDATION_MARKERS: readonly RegExp[] = [
   ...RECOMMENDATION_MARKERS_MT4085,
 ];
 
+/**
+ * The suppression reason a marker match records. Exported as the single source
+ * of truth: the replay harness and the tests both key off this string, and a
+ * rename that missed either would silently miscount rather than fail (PR #3037
+ * R1, NON-BLOCKING).
+ */
+export const RECOMMENDATION_MARKER_REASON = "recommendation-marker";
+
 /** Task statuses in which a decision is still "ripe" — the spec's {TODO, PLANNING}. */
 export const OPEN_STATUSES: readonly string[] = ["TODO", "PLANNING"];
 
@@ -340,7 +348,7 @@ export function detectDecisionStop(
     suppressionReasons.push(`discharged:${dischargeToolsSeen.join(",")}`);
   }
   if (workingTurn) suppressionReasons.push("working-turn");
-  if (hasMarker) suppressionReasons.push("recommendation-marker");
+  if (hasMarker) suppressionReasons.push(RECOMMENDATION_MARKER_REASON);
 
   return {
     candidateTaskIds,

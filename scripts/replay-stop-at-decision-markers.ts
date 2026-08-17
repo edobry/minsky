@@ -42,13 +42,14 @@
  * store is absent, e.g. in CI); non-zero only on an unexpected failure.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   RECOMMENDATION_MARKERS_BASELINE,
   RECOMMENDATION_MARKERS_MT4085,
+  RECOMMENDATION_MARKER_REASON,
 } from "../.minsky/hooks/stop-at-decision-scan.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
@@ -68,7 +69,53 @@ function resolveLogDir(argv: readonly string[]): string {
 const LOG_DIR = resolveLogDir(process.argv.slice(2));
 const CALIBRATION_LOG = join(LOG_DIR, "stop-at-decision-calibration.jsonl");
 const EVALUATION_LOG = join(LOG_DIR, "stop-at-decision-evaluations.jsonl");
-const TRANSCRIPT_DIR = join(homedir(), ".claude", "projects", "-Users-edobry-Projects-minsky");
+
+/**
+ * Where Claude Code keeps this project's transcripts.
+ *
+ * Claude Code derives its per-project directory name from the checkout's
+ * absolute path with the separators replaced by `-`, so the key is DERIVABLE
+ * rather than something to hardcode — an earlier version of this file pinned one
+ * developer's key, which would have made every other machine silently take the
+ * "transcript store absent" SKIP branch and report no measurements at all
+ * (PR #3037 R1, BLOCKING).
+ *
+ * Precedence: `--transcripts <dir>`, then `MINSKY_TRANSCRIPTS_DIR`, then the key
+ * derived from the checkout that owns the logs being read (`--logs`'s parent —
+ * the right basis, because that checkout is the one whose turns produced them),
+ * then this checkout's own path, then a scan of `~/.claude/projects` for a
+ * `minsky` entry.
+ */
+function resolveTranscriptDir(argv: readonly string[]): string | null {
+  const at = argv.indexOf("--transcripts");
+  const explicit = at >= 0 ? argv[at + 1] : undefined;
+  if (explicit !== undefined && explicit !== "") return explicit;
+
+  const fromEnv = process.env["MINSKY_TRANSCRIPTS_DIR"];
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv;
+
+  const projects = join(homedir(), ".claude", "projects");
+  const keyFor = (checkout: string): string => checkout.replace(/\//g, "-");
+
+  for (const checkout of [dirname(LOG_DIR), REPO_ROOT]) {
+    const candidate = join(projects, keyFor(checkout));
+    if (existsSync(candidate)) return candidate;
+  }
+
+  if (!existsSync(projects)) return null;
+  try {
+    const matches = readdirSync(projects).filter((name) => name.endsWith("-minsky"));
+    // Only unambiguous when exactly one candidate exists; two would be a guess.
+    if (matches.length === 1) return join(projects, matches[0] as string);
+  } catch {
+    // intentional-swallow: an unreadable projects dir is the same as an absent
+    // one for this purpose — the caller reports a SKIP.
+    return null;
+  }
+  return null;
+}
+
+const TRANSCRIPT_DIR = resolveTranscriptDir(process.argv.slice(2));
 
 /**
  * The 2026-08-13 calibration pass's window and hand-classification.
@@ -140,6 +187,7 @@ const matchesAny = (text: string): boolean => matchesBaseline(text) || matchesAd
 const transcriptCache = new Map<string, JsonRecord[] | null>();
 
 function transcriptFor(sessionId: string): JsonRecord[] | null {
+  if (TRANSCRIPT_DIR === null) return null;
   const cached = transcriptCache.get(sessionId);
   if (cached !== undefined) return cached;
   const file = join(TRANSCRIPT_DIR, `${sessionId}.jsonl`);
@@ -223,6 +271,75 @@ function replayCalibration(): CalibrationVerdict[] {
   });
 }
 
+interface RecoveryValidation {
+  /** Fired records whose calibration tail could be joined to an evaluation record. */
+  checked: number;
+  /** Recovered text whose last 600 chars are byte-identical to the stored tail. */
+  exact: number;
+  /** Recovered text that differs — a wrong-window recovery. */
+  mismatched: number;
+  /** No transcript, or no evaluation record to supply session_id/turnKey. */
+  unjoinable: number;
+}
+
+/**
+ * Ground-truth check on the recovery: does it reproduce the exact bytes the
+ * detector judged?
+ *
+ * For every turn that FIRED, the calibration log stored
+ * `last_assistant_message.slice(-600)` — the literal text the matcher ran on. So
+ * re-deriving the tail from the recovered message and requiring byte equality
+ * tests the recovery DIRECTLY.
+ *
+ * This replaces what `--validate` used to report. That was a weaker proxy — it
+ * compared a fresh baseline-regex match against the recorded
+ * `recommendation-marker` reason — which is real evidence (a wrong window
+ * usually flips the verdict) but is a CORRELATION, not the ground truth the
+ * label claimed: a wrong message that happens to share the same binary verdict
+ * counts as agreement (PR #3037 R1, BLOCKING). Both are reported now, labelled
+ * for what each one is.
+ */
+function validateRecovery(): RecoveryValidation {
+  const calibration = readJsonl(CALIBRATION_LOG);
+  const fired = readJsonl(EVALUATION_LOG).filter((r) => r["fired"] === true);
+  const out: RecoveryValidation = { checked: 0, exact: 0, mismatched: 0, unjoinable: 0 };
+
+  for (const record of calibration) {
+    const stamp = String(record["timestamp"] ?? "");
+    const tail = String(record["final_message_tail"] ?? "");
+    const at = new Date(stamp).getTime();
+    // The two logs are written by the same run microseconds apart, so join on
+    // proximity rather than equality.
+    const evaluation = fired.find(
+      (e) => Math.abs(new Date(String(e["timestamp"] ?? "")).getTime() - at) < 3000
+    );
+    if (evaluation === undefined) {
+      out.unjoinable += 1;
+      continue;
+    }
+    const text = recoverTurnFinalMessage(
+      String(evaluation["session_id"] ?? ""),
+      String(evaluation["turnKey"] ?? ""),
+      String(evaluation["timestamp"] ?? "")
+    );
+    if (text === null) {
+      out.unjoinable += 1;
+      continue;
+    }
+    out.checked += 1;
+
+    // This must reproduce the detector's own truncation EXACTLY —
+    // `last_assistant_message.slice(-600)` in stop-at-decision-scan.ts — surrogate-splitting
+    // included. A "safer" truncation would produce a different string than the one stored and
+    // turn this ground-truth check into a mismatch generator, so the unsafe form is the
+    // correct one here.
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- must match the detector byte-for-byte
+    if (text.slice(-600) === tail) out.exact += 1;
+    else out.mismatched += 1;
+  }
+  return out;
+}
+
 interface CorpusResult {
   evaluated: number;
   recovered: number;
@@ -270,7 +387,7 @@ function measureCorpus(): CorpusResult {
       ? (record["suppressionReasons"] as string[])
       : [];
     const before = matchesBaseline(text);
-    if (before === reasons.includes("recommendation-marker")) result.agreed += 1;
+    if (before === reasons.includes(RECOMMENDATION_MARKER_REASON)) result.agreed += 1;
 
     const after = matchesAny(text);
     if (before) result.markedBefore += 1;
@@ -289,6 +406,24 @@ function pct(n: number, of: number): string {
   return of === 0 ? "n/a" : `${((n / of) * 100).toFixed(1)}%`;
 }
 
+/**
+ * Two checks, each labelled for what it actually is. The byte-exact one is the
+ * ground truth; the verdict one is a weaker corroborating signal and must not be
+ * described as validating recovery on its own.
+ */
+function formatValidation(v: RecoveryValidation, corpus: CorpusResult): string {
+  return (
+    `ground truth — recovered text vs the tail the detector STORED (byte-exact):\n` +
+    `  exact      : ${v.exact}/${v.checked} (${pct(v.exact, v.checked)})\n` +
+    `  mismatched : ${v.mismatched}   <- a wrong recovery window\n` +
+    `  unjoinable : ${v.unjoinable}   <- no transcript or no evaluation record to join on\n\n` +
+    `corroborating — baseline re-match vs the recorded '${RECOMMENDATION_MARKER_REASON}' reason:\n` +
+    `  agrees     : ${corpus.agreed}/${corpus.recovered} (${pct(corpus.agreed, corpus.recovered)})\n` +
+    `  (a correlation, not ground truth: a wrong window sharing the same binary\n` +
+    `   verdict would still count as agreement, which is why it is reported second)\n`
+  );
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const asJson = args.includes("--json");
@@ -298,9 +433,11 @@ function main(): void {
     process.stdout.write("SKIP: no stop-at-decision logs in this checkout.\n");
     return;
   }
-  if (!existsSync(TRANSCRIPT_DIR)) {
+  if (TRANSCRIPT_DIR === null || !existsSync(TRANSCRIPT_DIR)) {
     process.stdout.write(
-      "SKIP: local transcript store absent — corpus and fire-rate measurements need it.\n"
+      "SKIP: local transcript store not found — corpus and fire-rate measurements need it.\n" +
+        "Pass --transcripts <dir> or set MINSKY_TRANSCRIPTS_DIR to point at this project's\n" +
+        "directory under ~/.claude/projects.\n"
     );
     if (!validateOnly) {
       const calibration = replayCalibration();
@@ -312,13 +449,11 @@ function main(): void {
   const corpus = measureCorpus();
 
   if (validateOnly) {
-    process.stdout.write(
-      `recovery agreement with the detector's RECORDED verdict: ` +
-        `${corpus.agreed}/${corpus.recovered} (${pct(corpus.agreed, corpus.recovered)})\n`
-    );
+    process.stdout.write(formatValidation(validateRecovery(), corpus));
     return;
   }
 
+  const validation = validateRecovery();
   const calibration = replayCalibration();
   const cohort = (name: CalibrationVerdict["cohort"]) =>
     calibration.filter((c) => c.cohort === name);
@@ -331,6 +466,7 @@ function main(): void {
         {
           calibration: calibration.map((c) => ({ ...c })),
           corpus,
+          recoveryValidation: validation,
         },
         null,
         2
@@ -359,8 +495,9 @@ function main(): void {
     `\n## Nullification (SC5) — candidate-turn corpus\n\n` +
       `evaluated turns    : ${corpus.evaluated}\n` +
       `recovered          : ${corpus.recovered}  unrecoverable: ${corpus.unrecoverable}\n` +
-      `recovery agreement : ${corpus.agreed}/${corpus.recovered} (${pct(corpus.agreed, corpus.recovered)}) ` +
-      `against the detector's recorded verdict\n` +
+      `recovery byte-exact: ${validation.exact}/${validation.checked} ` +
+      `(${pct(validation.exact, validation.checked)}) vs the tails the detector stored\n` +
+      `verdict corroborates: ${corpus.agreed}/${corpus.recovered} (${pct(corpus.agreed, corpus.recovered)})\n` +
       `marked BEFORE      : ${corpus.markedBefore} (${pct(corpus.markedBefore, corpus.recovered)})\n` +
       `marked AFTER       : ${corpus.markedAfter} (${pct(corpus.markedAfter, corpus.recovered)})\n` +
       `newly marked       : ${corpus.newlyMarked} (${pct(corpus.newlyMarked, corpus.recovered)})\n`

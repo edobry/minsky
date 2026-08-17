@@ -11,6 +11,7 @@ import {
   EVIDENCE_COMPANION_TOOL,
   RECOMMENDATION_MARKERS_BASELINE,
   RECOMMENDATION_MARKERS_MT4085,
+  RECOMMENDATION_MARKER_REASON,
 } from "./stop-at-decision-scan";
 import type { RunDeps } from "./stop-at-decision-scan";
 import type { TranscriptLine } from "./transcript";
@@ -22,7 +23,8 @@ const BOUND_TASK = "mt#3639";
 const TARGET_TASK = "mt#3521";
 const SESSION_START_TOOL = "mcp__minsky__session_start";
 const BOUND_TARGET_REASON = "bound-task-target";
-const MARKER_REASON = "recommendation-marker";
+/** Aliased from the hook's export — one source of truth for the reason string. */
+const MARKER_REASON = RECOMMENDATION_MARKER_REASON;
 
 /** The R5 closing message — a factual bound, no commitment phrase, no recommendation. */
 const R5_FINAL_MESSAGE =
@@ -396,6 +398,53 @@ describe("mt#4085 — the natural-prose decision handoff", () => {
     const reasons = suppressionFor(recap);
     expect(reasons).not.toContain(MARKER_REASON);
     expect(reasons).toEqual([]);
+  });
+
+  describe("PR #3037 R1 — bounding the breadth of /\\byours to \\w+/", () => {
+    /**
+     * The review asked whether the open `\w+` should be narrowed to a verb set
+     * like `set|call|decide|choose`. Measured against the recovered corpus (533
+     * evaluated turns) before answering: every verb that actually follows
+     * "yours to" is a decision verb —
+     *
+     *   authorize 4, decide 3, resolve 2, route 1, clear 1, pick 1,
+     *   write 1, set 1, make 1, call 1, reverse 1, certify 1
+     *
+     * — 12 distinct verbs, and the suggested allowlist would have caught 4 of
+     * them. Narrowing would reintroduce exactly the recall failure this task
+     * exists to fix, so the pattern stays open and these tests bound it instead,
+     * which is the alternative the review itself offered.
+     */
+    test.each([
+      "authorize",
+      "decide",
+      "resolve",
+      "route",
+      "clear",
+      "pick",
+      "write",
+      "set",
+      "make",
+      "call",
+      "reverse",
+      "certify",
+    ])("a decision verb observed in the corpus matches: yours to %s", (verb) => {
+      expect(
+        RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(`that one is yours to ${verb}`))
+      ).toBe(true);
+    });
+
+    test("the possessive-inversion pattern requires the 'yours to' construction", () => {
+      // Bounds the pattern from the other side: "yours" alone, or a possessive
+      // without the infinitive, is not a decision handoff.
+      for (const text of [
+        "the remaining budget is yours",
+        "yours truly",
+        "this workspace is yours and mine",
+      ]) {
+        expect(RECOMMENDATION_MARKERS_MT4085.some((re) => re.test(text))).toBe(false);
+      }
+    });
   });
 
   test("the addition does not silence the residual class it deliberately excludes", () => {
