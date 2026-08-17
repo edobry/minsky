@@ -26,8 +26,8 @@
  * gate).
  *
  * `--json` output shape (mt#3519 added `nonGuard` and changed what `results`
- * covers — documented here because there is no schema version and the textual
- * `Checked:` count is derived from the same set):
+ * covers; mt#4204 added `retired` — documented here because there is no schema
+ * version and the textual `Checked:` count is derived from the same set):
  *
  *   {
  *     results: CoverageReceiptResult[],  // one per CHECKED detector
@@ -35,11 +35,12 @@
  *     dormantCount: number,
  *     allCovered: boolean,
  *     unmapped: string[],   // logs no guard declares — a defect to fix
- *     nonGuard: string[]    // logs with a declared NON-guard producer
+ *     nonGuard: string[],   // logs with a declared NON-guard producer
+ *     retired: string[]     // logs whose producer was deleted on purpose
  *   }
  *
  * `results` covers the UNION of the DECLARED detectors and the calibration
- * logs discovered on disk, MINUS `nonGuard` (mt#3742 widened this from
+ * logs discovered on disk, MINUS `nonGuard` and `retired` (mt#3742 widened this from
  * discovered-only; see `resolveDetectorsToCheck`) — a
  * non-guard producer has no entry point to instrument, so a coverage verdict
  * on it would be a claim about something that does not exist. `Checked:` in
@@ -84,6 +85,31 @@ const {
 import type { InvocationEvidence } from "../.minsky/hooks/coverage-receipt";
 
 const CALIBRATION_SUFFIX = "-calibration.jsonl";
+
+/**
+ * The `--json` payload, as ONE type both emission paths satisfy.
+ *
+ * There are two exits that write JSON — the empty-telemetry short-circuit and the normal path —
+ * and a consumer must not see a different schema depending on which fired. That was a comment
+ * before mt#4204 and is a type now: adding a field to the payload without adding it to BOTH
+ * call sites is a compile error rather than a divergence somebody notices in review.
+ */
+interface CoverageJsonPayload {
+  readonly results: readonly unknown[];
+  readonly flaggedCount: number;
+  readonly dormantCount: number;
+  readonly allCovered: boolean;
+  /** Logs no producer declares — a real defect to fix. */
+  readonly unmapped: readonly string[];
+  /** Logs with a declared NON-guard producer (mt#3519). */
+  readonly nonGuard: readonly string[];
+  /** Logs whose producer was retired on purpose (mt#4204). */
+  readonly retired: readonly string[];
+}
+
+function renderJson(payload: CoverageJsonPayload): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // `NON_GUARD_CALIBRATION_PRODUCERS` and `buildCalibrationLogToGuards` are imported above from
@@ -167,19 +193,19 @@ async function main(): Promise<void> {
     if (json) {
       // Same key set as the populated path below — a JSON consumer must not
       // see a different schema just because the repo has no calibration logs.
+      // Both paths go through `renderJson` so that invariant is structural
+      // rather than remembered: mt#4204 added `retired` to the populated path
+      // only, and the two schemas silently diverged until review caught it.
       process.stdout.write(
-        `${JSON.stringify(
-          {
-            results: [],
-            flaggedCount: 0,
-            dormantCount: 0,
-            allCovered: true,
-            unmapped: [],
-            nonGuard: [],
-          },
-          null,
-          2
-        )}\n`
+        renderJson({
+          results: [],
+          flaggedCount: 0,
+          dormantCount: 0,
+          allCovered: true,
+          unmapped: [],
+          nonGuard: [],
+          retired: [],
+        })
       );
     } else {
       console.log("No calibration logs found under .minsky/ — nothing to check.");
@@ -231,9 +257,7 @@ async function main(): Promise<void> {
   const report = summarizeCoverage(results);
 
   if (json) {
-    process.stdout.write(
-      `${JSON.stringify({ ...report, unmapped, nonGuard, retired }, null, 2)}\n`
-    );
+    process.stdout.write(renderJson({ ...report, unmapped, nonGuard, retired }));
   } else {
     for (const r of report.results) {
       console.log(formatCoverageResult(r));
