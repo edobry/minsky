@@ -130,7 +130,6 @@ export const STANDALONE_GUARD_NAMES: readonly string[] = [
   "check-generated-file-edit",
   "check-task-spec-read",
   "dispatch-intent-write-gate",
-  "policy-coverage",
   "rationalization-review",
   "require-checks-on-bypass-merge",
   "require-deploy-verification-before-merge",
@@ -174,6 +173,13 @@ export const RETIRED_GUARD_NAMES: ReadonlyMap<string, { lastSeen: string; note: 
       {
         lastSeen: "2026-07-29",
         note: "pre-commit step, split into migration-guard-check + duplicate-generated-content-check",
+      },
+    ],
+    [
+      "policy-coverage",
+      {
+        lastSeen: "2026-08-17",
+        note: "`lastSeen` is the last date records APPEAR IN THE LOG, which is one day after the 2026-08-16 retirement decision and is not a contradiction: the detector kept firing from the main workspace's settings.json until this change merged, and the final observed record was 2026-08-17T03:05Z. Read this field as an observation of the log, never as an inactivity watermark or a decision date. Surface 1 policy-coverage detector, retired by mt#4197 (hook + module deleted). 12,135 fire-log records under this name — RETIRED rather than deleted from KNOWN_GUARD_NAMES precisely so that history does not read as an anomaly.",
       },
     ],
   ]
