@@ -890,8 +890,18 @@ pub(crate) fn parse_footprint_bytes(stdout: &str) -> Option<u64> {
 /// anonymous private pages". RSS alone is the blind spot this task exists to
 /// close: mt#4099's specimen read ~900 MB RSS against a 48.2 GB footprint.
 ///
-/// `None` unless BOTH fields are present — a partial read would silently
-/// under-report by exactly the swapped-out amount that matters here.
+/// **`VmRSS` is required; a missing `VmSwap` counts as zero swap, not as a
+/// failed measurement.** This mirrors the TypeScript side verbatim
+/// (`packages/shared/src/process-memory.ts:176-179`: "VmSwap has been present
+/// since Linux 2.6.34; treat its absence as zero swap rather than as a failed
+/// measurement, since VmRSS alone is still a real [measurement]").
+///
+/// Requiring both looks like the conservative choice and is the opposite of one
+/// (PR #3045 R1). A kernel built without `CONFIG_SWAP` emits no `VmSwap` line at
+/// all, so on that host every read would return `None`, every `None` is a
+/// non-breach by [`breaches_ceiling`], and the ceiling would silently never fire
+/// — a guardrail that is off rather than safe. The fail-safe direction is right
+/// for a TRANSIENT failure and wrong for a STRUCTURAL absence.
 pub(crate) fn parse_proc_status_bytes(contents: &str) -> Option<u64> {
     let mut rss_kb: Option<u64> = None;
     let mut swap_kb: Option<u64> = None;
@@ -906,7 +916,7 @@ pub(crate) fn parse_proc_status_bytes(contents: &str) -> Option<u64> {
         };
         *slot = rest.split_whitespace().next().and_then(|n| n.parse().ok());
     }
-    Some((rss_kb? + swap_kb?) * 1024)
+    Some((rss_kb? + swap_kb.unwrap_or(0)) * 1024)
 }
 
 /// Swap-inclusive memory for `pid`, or `None` when it could not be measured.
@@ -1045,6 +1055,12 @@ pub(crate) struct SupervisedDaemon {
     /// ONLY thing that can tell "we removed it" from "it died". Cleared at spawn,
     /// so it can never carry across into a later child's exit.
     pub(crate) killed_for_ceiling: bool,
+    /// Last time a ceiling-kill toast was shown; `None` until the first one
+    /// (PR #3045 R1). Gated on [`ALERT_COOLDOWN`] like every other alert in this
+    /// module: a daemon that balloons, is killed, respawns and balloons again
+    /// would otherwise toast the operator on every cycle, and an alert arriving
+    /// that often stops being read.
+    pub(crate) last_ceiling_alert: Option<Instant>,
 }
 
 impl SupervisedDaemon {
@@ -1072,6 +1088,7 @@ impl SupervisedDaemon {
             consecutive_http_failed: 0,
             last_http_alert: None,
             killed_for_ceiling: false,
+            last_ceiling_alert: None,
         }
     }
 }
@@ -2073,15 +2090,27 @@ mod tests {
         assert_eq!(parse_proc_status_bytes(status), Some(1000 * 1024));
     }
 
-    /// The whole point of the Linux path is that RSS alone under-reports by the
-    /// swapped-out amount — the 48.2 GB specimen read ~900 MB RSS. Returning the
-    /// RSS half when VmSwap is missing would reintroduce exactly that blind spot
-    /// while looking like a successful measurement.
+    /// PR #3045 R1. A kernel without `CONFIG_SWAP` prints no `VmSwap` line, so
+    /// requiring both fields would return `None` on every read on that host —
+    /// and since an unmeasurable process never breaches, the ceiling would be
+    /// silently OFF there rather than safe. Zero swap is the true value on a
+    /// swapless kernel, so RSS alone is a real measurement.
     #[test]
-    fn a_proc_status_missing_vmswap_is_not_measured_at_all() {
-        assert_eq!(parse_proc_status_bytes("VmRSS:\t900 kB\n"), None);
+    fn a_missing_vmswap_is_zero_swap_rather_than_a_failed_measurement() {
+        assert_eq!(
+            parse_proc_status_bytes("VmRSS:\t900 kB\n"),
+            Some(900 * 1024)
+        );
+    }
+
+    /// `VmRSS` is the other direction and IS required: without it there is no
+    /// measurement to fall back on, and inventing one from VmSwap alone would
+    /// report a number that is not the process's memory.
+    #[test]
+    fn a_proc_status_without_vmrss_is_not_measured() {
         assert_eq!(parse_proc_status_bytes("VmSwap:\t100 kB\n"), None);
         assert_eq!(parse_proc_status_bytes(""), None);
+        assert_eq!(parse_proc_status_bytes("Name:\tbun\n"), None);
     }
 
     /// Fail-safe direction. An unmeasurable process is not evidence of an

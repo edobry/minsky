@@ -1024,14 +1024,28 @@ async fn poll_entry(
             // raced the flag would be counted against the restart throttle.
             sup.daemon.killed_for_ceiling = true;
             kill_pid_force(pid);
-            notify_daemon_unhealthy(
-                app,
-                &format!(
-                    "{} exceeded its {} MB memory ceiling and was terminated; restarting it.",
-                    sup.daemon.labels.display_name,
-                    MEMORY_CEILING_BYTES / (1024 * 1024),
-                ),
-            );
+            // Cooldown-gated like every other alert here (PR #3045 R1): a daemon
+            // that balloons, is killed, respawns and balloons again would
+            // otherwise toast on every cycle. The kill itself is NOT gated —
+            // only the notification is.
+            let cooldown_elapsed = sup
+                .daemon
+                .last_ceiling_alert
+                .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                .unwrap_or(true);
+            if cooldown_elapsed {
+                notify_daemon_unhealthy(
+                    app,
+                    &format!(
+                        "{} exceeded its {} MB memory ceiling and was terminated. It is being \
+                         restarted automatically — no action needed unless this repeats. Logs: {}",
+                        sup.daemon.labels.display_name,
+                        MEMORY_CEILING_BYTES / (1024 * 1024),
+                        sup.daemon.labels.stderr_log_hint,
+                    ),
+                );
+                sup.daemon.last_ceiling_alert = Some(poll_now);
+            }
             // Let the next tick observe the exit through the normal path rather
             // than reaping here: `handle_child_exit` owns respawn, throttling and
             // status, and duplicating any of that is how the two disagree.
