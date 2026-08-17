@@ -322,6 +322,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "claim-provenance-scan",
+    {
+      description:
+        'Records when a task spec asserts a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim ("unowned", "no task covers this"), and the session contains no call that could have established it — a `pull_request_read` (`get_files`/`get_diff`) for the cited PR, a path-filtered `git_log` for a merge, or a `tasks_search` preceding the write. Fires at the spec-WRITE seam, which matters more than it sounds: `tasks_spec_patch`, `tasks_edit` and `tasks_spec_search_replace` carried no PreToolUse guard of any kind before this one, and both originating incidents wrote into an EXISTING spec, so a guard on `tasks_create` alone would have missed them. Ordering is free here — at PreToolUse the transcript IS the prefix, so a search two minutes too late (mt#3682) is simply not in it.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("claim-provenance-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:

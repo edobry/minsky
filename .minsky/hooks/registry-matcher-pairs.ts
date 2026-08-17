@@ -70,6 +70,25 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["flakiness-control-detector", "require-duplicate-check-record"],
   ["flakiness-control-detector", "duplicate-signature-scan"],
   ["flakiness-control-detector", "duplicate-check-search-provenance"],
+  // FIFTH question about the same `tasks_create` spec (mt#4168), and the first
+  // whose matcher is WIDER than that one tool: it also fires on
+  // `tasks_spec_patch` / `tasks_edit` / `tasks_spec_search_replace`, where none
+  // of the four above reach. The shared token is `tasks_create` alone, and the
+  // question is a third kind again — not the duplicate check (tiers 1-3) and not
+  // a flakiness claim (tier 4), but whether the spec's file-COLLISION and
+  // negative-OWNERSHIP claims each have a discharging call behind them.
+  //
+  // Not foldable into `duplicate-check-search-provenance` despite the shared
+  // "did the call run?" shape: that guard reads ONE bounded paragraph (the
+  // duplicate-check record) and joins against one tool list, while this reads the
+  // whole authored body and joins a PR NUMBER against a specific
+  // `pull_request_read`. Same family of question, different extractor, different
+  // join, different false-positive surface — so they need separate calibration
+  // logs to be sized at all.
+  ["claim-provenance-scan", "require-duplicate-check-record"],
+  ["claim-provenance-scan", "duplicate-signature-scan"],
+  ["claim-provenance-scan", "duplicate-check-search-provenance"],
+  ["claim-provenance-scan", "flakiness-control-detector"],
   // Fourth guard on the Bash/session_exec command string (mt#4055), and the
   // first that asks about the WORLD rather than the string: its three siblings
   // decide entirely from the text (a constructed path, a secret-bearing read,
