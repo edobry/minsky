@@ -106,6 +106,17 @@ export interface InterceptorEntry {
   coverageGaps: InterceptorCoverageGap[];
   registered: boolean;
   undescribed: boolean;
+  /**
+   * The implementing hook file's basename, or null when there is none BY
+   * CONSTRUCTION (a pre-commit step, a retired or fixture name). The join key to
+   * the install provenance the detail view renders (mt#4229).
+   *
+   * One of the fields this type duplicates from `src/cockpit/widgets/interceptors.ts`
+   * — cockpit-web cannot import the widget module, which is why both copies exist
+   * and why adding a field means adding it twice. The generator derives it; the
+   * duplication is only of the SHAPE.
+   */
+  sourceFile: string | null;
   point: InterceptionPoint | null;
   pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
   /**

@@ -82,7 +82,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "ask-permission-bridge",
@@ -111,7 +112,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "ask-permission-bridge"
     },
     {
       "guardName": "ask-routing-deferral-detector",
@@ -145,7 +147,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "ask-routing-deferral-detector"
     },
     {
       "guardName": "auto-session-title",
@@ -173,7 +176,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "auto-session-title"
     },
     {
       "guardName": "bare-prohibition",
@@ -208,7 +212,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "warn-bare-prohibition-dispatch"
     },
     {
       "guardName": "block-bulk-process-kill",
@@ -234,7 +239,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-bulk-process-kill"
     },
     {
       "guardName": "block-concurrent-bulk-mutation",
@@ -263,7 +269,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-concurrent-bulk-mutation"
     },
     {
       "guardName": "block-git-gh-cli",
@@ -289,7 +296,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-git-gh-cli"
     },
     {
       "guardName": "block-github-mcp-pr-writes",
@@ -315,7 +323,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-github-mcp-pr-writes"
     },
     {
       "guardName": "block-nested-fork-dispatch",
@@ -341,7 +350,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-nested-fork-dispatch"
     },
     {
       "guardName": "block-out-of-band-merge",
@@ -367,7 +377,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-out-of-band-merge"
     },
     {
       "guardName": "block-secret-file-read",
@@ -393,7 +404,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-secret-file-read"
     },
     {
       "guardName": "block-subagent-bypass-merge",
@@ -422,7 +434,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-subagent-bypass-merge"
     },
     {
       "guardName": "block-subagent-merge-without-grant",
@@ -451,7 +464,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "block-subagent-merge-without-grant"
     },
     {
       "guardName": "bridge-memory-retirement",
@@ -478,7 +492,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "bridge-memory-retirement"
     },
     {
       "guardName": "build-claim-injection-detector",
@@ -505,7 +520,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "build-claim-injection-detector"
     },
     {
       "guardName": "bun-build-sync-check",
@@ -531,7 +547,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "calibration-review-cadence-detector",
@@ -562,7 +579,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "calibration-review-cadence-detector"
     },
     {
       "guardName": "causal-premise-detector",
@@ -592,7 +610,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "causal-premise-detector"
     },
     {
       "guardName": "chained-verification-commands",
@@ -622,7 +641,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "chained-verification-commands-detector"
     },
     {
       "guardName": "check-branch-fresh",
@@ -648,7 +668,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-branch-fresh"
     },
     {
       "guardName": "check-generated-file-edit",
@@ -674,7 +695,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-generated-file-edit"
     },
     {
       "guardName": "check-guessed-session-path",
@@ -700,7 +722,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-guessed-session-path"
     },
     {
       "guardName": "check-prompt-watermark",
@@ -726,7 +749,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-prompt-watermark"
     },
     {
       "guardName": "check-task-spec-read",
@@ -752,7 +776,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "check-task-spec-read"
     },
     {
       "guardName": "claim-provenance-scan",
@@ -779,7 +804,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "claim-provenance-scan"
     },
     {
       "guardName": "claude-hooks-compile-regen",
@@ -805,7 +831,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "cli-mcp-substitution",
@@ -835,7 +862,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "detect-cli-mcp-substitution"
     },
     {
       "guardName": "code-formatting",
@@ -861,7 +889,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "code-mechanism-assertion-detector",
@@ -895,7 +924,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "code-mechanism-assertion-detector"
     },
     {
       "guardName": "compile-check",
@@ -921,7 +951,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "completion-manifest-regen",
@@ -947,7 +978,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "constructed-identifier-batch-detector",
@@ -977,7 +1009,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "constructed-identifier-batch-detector"
     },
     {
       "guardName": "denier",
@@ -1000,7 +1033,8 @@
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "deploy-domain-check",
@@ -1026,7 +1060,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "deploy-verification-after-merge",
@@ -1053,7 +1088,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "deploy-verification-after-merge"
     },
     {
       "guardName": "dispatch-intent-write-gate",
@@ -1079,7 +1115,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-intent-write-gate"
     },
     {
       "guardName": "dispatch-pretooluse",
@@ -1110,7 +1147,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-pretooluse"
     },
     {
       "guardName": "dispatch-stop",
@@ -1140,7 +1178,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-stop"
     },
     {
       "guardName": "dispatch-userpromptsubmit",
@@ -1170,7 +1209,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "dispatch-userpromptsubmit"
     },
     {
       "guardName": "dockerfile-bun-build-regen",
@@ -1196,7 +1236,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "dockerfile-workspace-copy-regen",
@@ -1222,7 +1263,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "drive-pr-to-convergence",
@@ -1249,7 +1291,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "drive-pr-to-convergence"
     },
     {
       "guardName": "drive-ready-to-implementation",
@@ -1276,7 +1319,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "drive-ready-to-implementation"
     },
     {
       "guardName": "duplicate-check-candidate-read",
@@ -1307,7 +1351,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "duplicate-check-candidate-read"
     },
     {
       "guardName": "duplicate-check-search-provenance",
@@ -1338,7 +1383,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "duplicate-check-search-provenance"
     },
     {
       "guardName": "duplicate-generated-content-check",
@@ -1367,7 +1413,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "duplicate-signature-scan",
@@ -1394,7 +1441,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "duplicate-signature-scan"
     },
     {
       "guardName": "eslint-rule-tests",
@@ -1420,7 +1468,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "eslint-validation",
@@ -1446,7 +1495,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "evidence-record-provenance",
@@ -1476,7 +1526,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "evidence-record-provenance"
     },
     {
       "guardName": "fast-related-tests",
@@ -1502,7 +1553,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "first-guard",
@@ -1525,7 +1577,8 @@
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "flakiness-control-detector",
@@ -1559,7 +1612,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "flakiness-control-detector"
     },
     {
       "guardName": "guard-events-ingest-on-session-end",
@@ -1586,7 +1640,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "guard-events-ingest-on-session-end"
     },
     {
       "guardName": "guard-health-escalation-detector",
@@ -1617,7 +1672,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "guard-health-escalation-detector"
     },
     {
       "guardName": "hook-permission-check",
@@ -1643,7 +1699,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "immutable-migration-check",
@@ -1669,7 +1726,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "inject-current-time",
@@ -1696,7 +1754,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-current-time"
     },
     {
       "guardName": "inject-dispatch-watchdog",
@@ -1723,7 +1782,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-dispatch-watchdog"
     },
     {
       "guardName": "inject-git-state",
@@ -1750,7 +1810,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-git-state"
     },
     {
       "guardName": "inject-memory-capture",
@@ -1777,7 +1838,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-memory-capture"
     },
     {
       "guardName": "inject-prod-state",
@@ -1804,7 +1866,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-prod-state"
     },
     {
       "guardName": "inject-success-criteria",
@@ -1831,7 +1894,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "inject-success-criteria"
     },
     {
       "guardName": "interceptor-catalog-regen",
@@ -1857,7 +1921,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "knowledge-acquisition-detector",
@@ -1887,7 +1952,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "knowledge-acquisition-detector"
     },
     {
       "guardName": "linkify-message-display",
@@ -1916,7 +1982,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "linkify-message-display"
     },
     {
       "guardName": "loop-preflight-pr-merge-check",
@@ -1942,7 +2009,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "loop-preflight-pr-merge-check"
     },
     {
       "guardName": "mcp-daemon-staleness-detector",
@@ -1970,7 +2038,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "mcp-daemon-staleness-detector"
     },
     {
       "guardName": "memory-search",
@@ -1997,7 +2066,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "memory-search"
     },
     {
       "guardName": "migration-collision-check",
@@ -2023,7 +2093,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "migration-guard-and-duplicate-content-check",
@@ -2050,7 +2121,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "migration-guard-check",
@@ -2076,7 +2148,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "migration-journal-check",
@@ -2102,7 +2175,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "mt3612-live-rewrite",
@@ -2125,7 +2199,8 @@
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "negative-existence-claim-detector",
@@ -2155,7 +2230,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "negative-existence-claim-detector"
     },
     {
       "guardName": "new-surface-design-pass",
@@ -2185,7 +2261,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "new-surface-design-pass"
     },
     {
       "guardName": "node-shim-check",
@@ -2211,7 +2288,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "nul-byte-check",
@@ -2237,7 +2315,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "operator-deferral-ask-surface",
@@ -2264,7 +2343,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "operator-deferral-detector"
     },
     {
       "guardName": "operator-deferral-detector",
@@ -2294,7 +2374,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "operator-deferral-detector"
     },
     {
       "guardName": "overridden-guard",
@@ -2317,7 +2398,8 @@
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "parallel-work-guard",
@@ -2343,7 +2425,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "parallel-work-guard"
     },
     {
       "guardName": "policy-coverage",
@@ -2378,7 +2461,8 @@
       "coordinateGaps": [],
       "families": ["guard", "detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "post-merge-pull",
@@ -2404,7 +2488,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "post-merge-pull"
     },
     {
       "guardName": "post-merge-unasked-direction-scan",
@@ -2432,7 +2517,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "post-merge-unasked-direction-scan"
     },
     {
       "guardName": "post-session-start",
@@ -2462,7 +2548,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "post-session-start"
     },
     {
       "guardName": "pre-narration-detector",
@@ -2493,7 +2580,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "pre-narration-detector"
     },
     {
       "guardName": "rationalization-review",
@@ -2516,7 +2604,8 @@
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "record-agent-dispatch",
@@ -2550,7 +2639,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-agent-dispatch"
     },
     {
       "guardName": "record-conversation-run-state",
@@ -2578,7 +2668,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-conversation-run-state"
     },
     {
       "guardName": "record-subagent-invocation",
@@ -2605,7 +2696,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-subagent-invocation"
     },
     {
       "guardName": "record-turn-anchor",
@@ -2633,7 +2725,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "record-turn-anchor"
     },
     {
       "guardName": "require-checks-on-bypass-merge",
@@ -2662,7 +2755,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-checks-on-bypass-merge"
     },
     {
       "guardName": "require-deploy-verification-before-merge",
@@ -2691,7 +2785,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-deploy-verification-before-merge"
     },
     {
       "guardName": "require-duplicate-check-record",
@@ -2720,7 +2815,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-duplicate-check-record"
     },
     {
       "guardName": "require-execution-evidence-before-merge",
@@ -2753,7 +2849,8 @@
       "coordinateGaps": [],
       "families": ["guard", "detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-execution-evidence-before-merge"
     },
     {
       "guardName": "require-growth-justification-before-merge",
@@ -2782,7 +2879,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-growth-justification-before-merge"
     },
     {
       "guardName": "require-review-before-merge",
@@ -2811,7 +2909,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-review-before-merge"
     },
     {
       "guardName": "require-session-for-main-workspace-edits",
@@ -2840,7 +2939,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "require-session-for-main-workspace-edits"
     },
     {
       "guardName": "retrospective-completeness-detector",
@@ -2870,7 +2970,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "retrospective-completeness-detector"
     },
     {
       "guardName": "retrospective-trigger-scanner",
@@ -2904,7 +3005,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "retrospective-trigger-scanner"
     },
     {
       "guardName": "rules-compile-check",
@@ -2930,7 +3032,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "second-guard",
@@ -2953,7 +3056,8 @@
       "coordinateGaps": ["point", "interventions", "mechanism", "role"],
       "families": [],
       "familyState": "unclassified",
-      "deliberatelyUnauthored": true
+      "deliberatelyUnauthored": true,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "secret-scanning",
@@ -2979,7 +3083,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "session-start",
@@ -3009,7 +3114,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "session-start"
     },
     {
       "guardName": "silent-stretch-detector",
@@ -3043,7 +3149,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "silent-stretch-detector"
     },
     {
       "guardName": "skill-staleness-detector",
@@ -3074,7 +3181,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "skill-staleness-detector"
     },
     {
       "guardName": "spec-criterion-claim-detector",
@@ -3108,7 +3216,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "spec-criterion-claim-detector"
     },
     {
       "guardName": "stale-signal-sweep",
@@ -3135,7 +3244,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stale-signal-sweep"
     },
     {
       "guardName": "stamp-pr-author-link",
@@ -3162,7 +3272,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stamp-pr-author-link"
     },
     {
       "guardName": "stamp-session-creator-link",
@@ -3189,7 +3300,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stamp-session-creator-link"
     },
     {
       "guardName": "standalone-duplicate-matcher",
@@ -3220,7 +3332,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "parallel-work-guard-standalone"
     },
     {
       "guardName": "stop-at-decision-scan",
@@ -3247,7 +3360,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "stop-at-decision-scan"
     },
     {
       "guardName": "substrate-bypass-detector",
@@ -3281,7 +3395,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "substrate-bypass-detector"
     },
     {
       "guardName": "tasks-status-set-guard",
@@ -3307,7 +3422,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "tasks-status-set-guard"
     },
     {
       "guardName": "transcript-ingest-on-session-end",
@@ -3334,7 +3450,8 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "transcript-ingest-on-session-end"
     },
     {
       "guardName": "truncated-outcome-read",
@@ -3364,7 +3481,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "truncated-outcome-read-detector"
     },
     {
       "guardName": "turn-end-bare-ref-scan",
@@ -3399,7 +3517,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-bare-ref-scan"
     },
     {
       "guardName": "turn-end-retro-scan",
@@ -3430,7 +3549,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-retro-scan"
     },
     {
       "guardName": "turn-end-stale-state-assertion-scan",
@@ -3460,7 +3580,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-stale-state-assertion-scan"
     },
     {
       "guardName": "turn-end-unescalated-incident-scan",
@@ -3494,7 +3615,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-unescalated-incident-scan"
     },
     {
       "guardName": "turn-end-untaken-action-scan",
@@ -3528,7 +3650,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-untaken-action-scan"
     },
     {
       "guardName": "turn-end-unwalked-task-scan",
@@ -3562,7 +3685,8 @@
       "coordinateGaps": [],
       "families": ["detector", "injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "turn-end-unwalked-task-scan"
     },
     {
       "guardName": "two-strikes-record",
@@ -3589,7 +3713,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "two-strikes-record"
     },
     {
       "guardName": "type-check",
@@ -3615,7 +3740,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "typecheck-on-edit",
@@ -3646,7 +3772,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "typecheck-on-edit"
     },
     {
       "guardName": "typecheck-on-stop",
@@ -3672,7 +3799,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "typecheck-on-stop"
     },
     {
       "guardName": "unit-tests",
@@ -3699,7 +3827,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "known-guard-names"
     },
     {
       "guardName": "unrendered-result-field-scan",
@@ -3729,7 +3858,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "unrendered-result-field-scan"
     },
     {
       "guardName": "validate-task-spec",
@@ -3755,7 +3885,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "validate-task-spec"
     },
     {
       "guardName": "variable-naming-check",
@@ -3781,7 +3912,8 @@
       "coordinateGaps": [],
       "families": ["guard"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "verify-subagent-model",
@@ -3808,7 +3940,8 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "verify-subagent-model"
     },
     {
       "guardName": "wall-of-text-detector",
@@ -3835,7 +3968,8 @@
       "coordinateGaps": [],
       "families": ["detector"],
       "familyState": "classified",
-      "deliberatelyUnauthored": false
+      "deliberatelyUnauthored": false,
+      "sourceFile": "wall-of-text-detector"
     }
   ]
 }

@@ -36,6 +36,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     description: "Blocks the example failure.",
     failureClasses: ["broken-main"],
     provenance: [".minsky/hooks/example-guard.ts"],
+    sourceFile: null,
     stratum: "registry",
     subject: "trajectory",
     provenanceStatus: "implementation",

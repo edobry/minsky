@@ -156,7 +156,39 @@ export interface CatalogEntryCoordinates {
   readonly deliberatelyUnauthored: boolean;
 }
 
-export type CatalogEntryWithCoordinates = CatalogEntry & CatalogEntryCoordinates;
+/** The build-time join key between the catalog and any file-keyed view of the corpus. */
+export interface CatalogEntrySourceFile {
+  /**
+   * The hook FILE that implements this entry, as a bare basename — the join key
+   * between the catalog (keyed by `guardName`) and any file-keyed view of the
+   * same corpus, `/plant/interlock-history`'s git-derived install provenance
+   * being the one that matters (mt#4229).
+   *
+   * Derived, not authored, and the derivation is already exact: the description
+   * store's contract makes `provenance[0]` the module that IMPLEMENTS the
+   * behavior, so it resolves the cases where the file name and the guard name
+   * differ — `bare-prohibition` implements as `warn-bare-prohibition-dispatch.ts`
+   * — without a second hand-maintained alias map to drift.
+   *
+   * `null` means NO HOOK FILE BY CONSTRUCTION, which is a different answer from
+   * "we could not find one": a pre-commit step's provenance is
+   * `src/hooks/pre-commit.ts`, and a retired or fixture name resolves to the
+   * oracle that declares it. Neither has install provenance to join to, so a
+   * null here is correct rather than a gap. Measured at introduction: 109 of 134
+   * non-null.
+   *
+   * This field exists because NEITHER consumer may import the hook tree —
+   * `tests/unit/hook-tree-import-boundary.test.ts` pins "`src/**` must not
+   * import `.minsky/hooks/**`", which covers the cockpit widget and the web page
+   * alike. The generator runs in `scripts/`, where the import is legal, so the
+   * join is resolved once at build time instead of duplicated on both sides.
+   */
+  readonly sourceFile: string | null;
+}
+
+export type CatalogEntryWithCoordinates = CatalogEntry &
+  CatalogEntryCoordinates &
+  CatalogEntrySourceFile;
 
 /**
  * Names known to one source and not the other.
@@ -187,6 +219,25 @@ export interface InterceptorCatalog {
 }
 
 const DELIBERATELY_UNAUTHORED = new Set(DELIBERATELY_UNAUTHORED_NAMES);
+
+/** The one provenance prefix that denotes an implementing hook file. */
+const HOOK_SOURCE_PREFIX = ".minsky/hooks/";
+
+/**
+ * The implementing hook file's basename, or `null` when the entry has none.
+ *
+ * Reads `provenance[0]` ONLY. The description store's contract is that the
+ * first pointer is the implementing module — a later pointer is a rule or a
+ * registry, and treating one as a source file would invent a join that does not
+ * exist. So a non-`.minsky/hooks/` first pointer returns null rather than
+ * scanning for a hook path further down the list.
+ */
+export function deriveSourceFile(provenance: readonly string[]): string | null {
+  const first = provenance[0];
+  if (first === undefined || !first.startsWith(HOOK_SOURCE_PREFIX)) return null;
+  const basename = first.slice(HOOK_SOURCE_PREFIX.length);
+  return basename.endsWith(".ts") ? basename.slice(0, -".ts".length) : basename;
+}
 
 /**
  * Resolve one name's axis coordinates and computed families.
@@ -244,10 +295,14 @@ export function buildCatalog(sources: CatalogSources): InterceptorCatalog {
     population: names.length,
     divergence: { declaredButNotDescribed, describedButNotDeclared },
     failureClasses: FAILURE_CLASSES,
-    entries: names.map((name) => ({
-      ...resolveCatalogEntry(name, sources.input),
-      ...resolveEntryCoordinates(name, sources.coordinateInput),
-    })),
+    entries: names.map((name) => {
+      const described = resolveCatalogEntry(name, sources.input);
+      return {
+        ...described,
+        ...resolveEntryCoordinates(name, sources.coordinateInput),
+        sourceFile: deriveSourceFile(described.provenance),
+      };
+    }),
   };
 }
 

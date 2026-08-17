@@ -49,6 +49,10 @@ import {
   deriveInterceptorCost,
   deriveInterceptorState,
 } from "@minsky/domain/guard-events/interceptor-state";
+// The install-provenance half, absorbed from `/plant/interlock-history` (mt#4229).
+// Same hook the plant board's valve-inventory badge reads — one query, two consumers.
+import { useSlowTopology, type WeldEntryPayload } from "../hooks/useSlowTopology";
+import { relativeTime } from "../lib/format";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -234,6 +238,140 @@ function ProvenanceField({ entry }: { entry: InterceptorEntry }) {
   );
 }
 
+/*
+ * The three provenance cells, moved here verbatim from `WeldHistoryPage` when
+ * mt#4229 absorbed that route. Their "unknown" rendering is load-bearing and
+ * predates this move (mt#2602 SC4): an interlock with no derivable install date
+ * or retrospective says so, rather than showing a guessed date or an invented
+ * failure story.
+ */
+
+function InstallCell({ entry }: { entry: WeldEntryPayload }) {
+  if (!entry.installDate) {
+    return <span className="text-muted-foreground/60">unknown</span>;
+  }
+  const date = new Date(entry.installDate);
+  const dateLabel = Number.isNaN(date.getTime()) ? entry.installDate : date.toLocaleDateString();
+  return (
+    <span title={entry.installDate}>
+      {dateLabel} <span className="text-muted-foreground/70">({relativeTime(entry.installDate)})</span>
+    </span>
+  );
+}
+
+function CommitCell({ entry }: { entry: WeldEntryPayload }) {
+  if (!entry.commitSha) return <span className="text-muted-foreground/60">unknown</span>;
+  const shortSha = entry.commitSha.slice(0, 7);
+  if (!entry.commitUrl) return <span className="font-mono">{shortSha}</span>;
+  return (
+    <a
+      href={entry.commitUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="font-mono text-primary hover:underline"
+    >
+      {shortSha}
+    </a>
+  );
+}
+
+function RetrospectiveCell({ entry }: { entry: WeldEntryPayload }) {
+  const r = entry.retrospective;
+  if (!r) return <span className="text-muted-foreground/60">unknown</span>;
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px]">{r.note ?? "(no note)"}</span>
+      <span className="text-[9px] text-muted-foreground">
+        {r.taskId ?? "—"} ·{" "}
+        {r.matchType === "task-ref" ? "matched by task ref" : "matched by time proximity"}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Install provenance — absorbed from `/plant/interlock-history` (mt#4229).
+ *
+ * Answers "when did this land, from which commit, and out of what retrospective"
+ * — the one question the catalog could not answer and the interlock-history page
+ * existed for. Joined on `sourceFile`, the generator-derived hook-file basename,
+ * because the catalog is keyed by `guardName` and this data is keyed by FILE;
+ * the two differ wherever a guard's file is named for what it does rather than
+ * what it is called (`bare-prohibition` implements as
+ * `warn-bare-prohibition-dispatch.ts`).
+ *
+ * Three distinct absences, rendered as three distinct things rather than one
+ * blank — the absence-vs-declaration discipline the rest of this page follows:
+ *
+ *   - `sourceFile === null` — no hook file BY CONSTRUCTION (a pre-commit step, a
+ *     retired or fixture name). There is nothing to join to, and that is the
+ *     correct answer, not a gap.
+ *   - joined, field null — the file exists, git had no answer for that field.
+ *   - `sourceFile` set, no matching row — a real gap: the catalog names a file
+ *     the topology walk did not see. Measured 0 of 100 at absorption; it renders
+ *     loudly rather than silently because a non-zero here means the two sources
+ *     have drifted.
+ */
+function InstallProvenanceField({ entry }: { entry: InterceptorEntry }) {
+  const { data, isLoading } = useSlowTopology();
+
+  if (entry.sourceFile === null) {
+    return (
+      <Field label="Install provenance">
+        <span className="text-muted-foreground/60" data-testid="interceptor-install-not-a-file">
+          Not a hook file — this entry is a pre-commit step or a declared name, so it has no install
+          commit to trace.
+        </span>
+      </Field>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <Field label="Install provenance">
+        <span className="text-muted-foreground/60">loading…</span>
+      </Field>
+    );
+  }
+
+  const row = data?.entries.find((e) => e.name === entry.sourceFile);
+  if (!row) {
+    return (
+      <Field label="Install provenance">
+        <span className="text-warn-amber" data-testid="interceptor-install-unresolved">
+          Unresolved — the catalog names <span className="font-mono">{entry.sourceFile}.ts</span>,
+          but the hook-file walk did not find it. The two sources have drifted.
+        </span>
+      </Field>
+    );
+  }
+
+  return (
+    <Field label="Install provenance">
+      <ul
+        className="list-none p-0 m-0 flex flex-col gap-1"
+        data-testid="interceptor-install-provenance"
+      >
+        <li>
+          <span className="text-muted-foreground/70">installed </span>
+          <InstallCell entry={row} />
+        </li>
+        <li>
+          <span className="text-muted-foreground/70">commit </span>
+          <CommitCell entry={row} />
+        </li>
+        <li className="flex flex-col gap-0.5">
+          <span className="text-muted-foreground/70">from retrospective</span>
+          <RetrospectiveCell entry={row} />
+        </li>
+        <li className="font-mono text-[10px] text-muted-foreground/70">
+          {row.sourceDir}/{row.name}.ts
+        </li>
+      </ul>
+    </Field>
+  );
+}
+
 /**
  * The interceptor detail body, without page chrome (mt#4069).
  *
@@ -398,6 +536,7 @@ export function InterceptorDetail({ name }: { name: string }) {
             </Field>
 
             <ProvenanceField entry={entry} />
+            <InstallProvenanceField entry={entry} />
 
             <Field label="Missing metadata">
               {entry.coverageGaps.length === 0 ? (

@@ -76,6 +76,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Share2,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
@@ -128,6 +129,14 @@ const BROWSE: NavItem[] = [
   // has to be able to find without already knowing the page exists.
   { to: "/shares", label: "Shared links", icon: Share2 },
   { to: "/plant", label: "Plant", icon: Layers },
+  // mt#4229 — the enforcement corpus: what intercepts, where on the turn, and
+  // what each one costs. Same reasoning as `/shares` above: it answers a
+  // standing question ("what is enforcing right now, and is it healthy") that
+  // the operator cannot ask if they have to already know the page exists. It
+  // shipped in mt#4010 reachable only by typing the URL, while `/plant`'s
+  // drill-down — the older, file-walk view of the same corpus — WAS in the
+  // rail. Sits beside Plant because that drill-down now redirects here.
+  { to: "/interceptors", label: "Interceptors", icon: ShieldCheck },
   { to: "/vitals", label: "Vitals", icon: Activity },
 ];
 

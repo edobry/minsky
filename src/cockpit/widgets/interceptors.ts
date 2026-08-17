@@ -124,6 +124,16 @@ export interface InterceptorEntry {
   registered: boolean;
   /** True when no authored description exists — the explicit gap marker. */
   undescribed: boolean;
+  /**
+   * The implementing hook file's basename, or null when the entry has none BY
+   * CONSTRUCTION (a pre-commit step, a retired or fixture name). The join key to
+   * the file-keyed install provenance the detail view renders (mt#4229).
+   *
+   * Derived by the generator from `provenance[0]`, because neither this module
+   * nor the web bundle may import `.minsky/hooks/**` to resolve it themselves —
+   * see `tests/unit/hook-tree-import-boundary.test.ts`.
+   */
+  sourceFile: string | null;
 
   // --- The three axes + computed families (mt#4056 slice 1b) ---
   /** Null exactly when `coordinateGaps` contains `"point"`. */
@@ -399,6 +409,12 @@ function validateEntry(entry: unknown, index: number): InterceptorEntry {
   }
   if (typeof e.registered !== "boolean") {
     throw new Error(where("missing `registered`"));
+  }
+  // Validated rather than trusted, for the same reason as the fields above: a
+  // silently-absent `sourceFile` would render every entry's install provenance
+  // as "unknown" — indistinguishable from a hook that genuinely has none.
+  if (e.sourceFile !== null && typeof e.sourceFile !== "string") {
+    throw new Error(where("`sourceFile` is neither a string nor null"));
   }
   if (e.stratum !== null && !VALID_STRATA.includes(e.stratum as string)) {
     throw new Error(where(`unknown stratum "${String(e.stratum)}"`));
