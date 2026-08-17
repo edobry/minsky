@@ -47,6 +47,9 @@ const read = (relPath: string): string => readFileSync(join(REPO_ROOT, relPath),
 // below, and a typo'd path would silently read a different file.
 const SKILL_SOURCE = ".minsky/skills/plan-task/skill.ts";
 const RULE_SOURCE = ".minsky/rules/key-workflows.mdc";
+// The plan-task skill's COMPILED output. Named because three separate guards below read it:
+// the presence list, the mt#3855 prose list, and the drift guard (PR #3071 R1).
+const PLAN_TASK_GENERATED = ".claude/skills/plan-task/SKILL.md";
 
 // mt#4141: the THIRD surface carrying the citation test, added after R7 of the
 // confabulated-strategic-frame family. The two surfaces above are both scoped to a
@@ -78,9 +81,11 @@ const CLASSIFY_GENERATED = ".claude/skills/classify-before-deferring/SKILL.md";
 // CLOSE_MARKER's phrase in the classify source: 12 pass, 1 fail, the one failure being that
 // surface's own drift test.
 //
-// FOUR surfaces depend on these anchors as of mt#4141, so each anchor is load-bearing for a
-// real test: the plan-task skill source, `key-workflows.mdc`, and the classify skill's
-// source AND its compiled output.
+// FIVE surfaces depend on these anchors as of PR #3071 R1, so each anchor is load-bearing for
+// a real test: the plan-task skill's source AND its compiled output, `key-workflows.mdc`, and
+// the classify skill's source AND its compiled output. (mt#4141 brought this to four; the
+// plan-task compiled copy was the asymmetry R1 caught — `SURFACES` already read that file
+// while the drift guard did not.)
 
 // Opens the window on both classify surfaces AND on the plan-task skill — they deliberately
 // share the phrase, so the drift guard reads the same construction everywhere it appears.
@@ -102,7 +107,7 @@ const DEMOTION_MARKER = "illustrative, NOT the test";
 // four generated artifacts — a source-only assertion passes on a stale compile.
 const SURFACES = [
   RULE_SOURCE,
-  ".claude/skills/plan-task/SKILL.md",
+  PLAN_TASK_GENERATED,
   "CLAUDE.md",
   "AGENTS.md",
   ".cursor/rules/key-workflows.mdc",
@@ -134,6 +139,114 @@ describe("halt-on-principal-decision requires naming the reserved category (mt#3
       const content = read(surface);
       expect(content).toContain(CITATION_MARKER);
       expect(content).toContain(SOURCE_MARKER);
+    });
+  }
+});
+
+// --- mt#3855: both halt conditions need a citation, and the quote must support it ----
+//
+// mt#3596 (above) pins that condition 3 names a reserved CATEGORY. Two later recurrences
+// showed that is necessary and not sufficient, in two different directions:
+//
+//   R6 (2026-08-08) — the agent wrote "Principal approves the final hero headline before
+//   merge" into the spec itself, then halted an APPROVED, checks-green PR citing that
+//   criterion plus "naming". A real category, so everything above PASSED. The fabrication
+//   had moved upstream out of the RATIONALE and into the RESERVATION.
+//
+//   R8 (2026-08-16) — the agent cited condition 1 instead ("the principal deferred"),
+//   which carried no verification requirement on any surface. It quoted a genuine "Hold
+//   on, help me understand…" and called that an explicit pause on implementation. Every
+//   fix in this family was inapplicable by construction, each being scoped to condition 3.
+//
+// So: condition 3 additionally needs the reserving ACT with principal provenance,
+// condition 1 needs a quote that names the step it defers, and BOTH need the quote to say
+// what the citation claims it says.
+
+/**
+ * Whitespace-normalized read, used only by the mt#3855 assertions.
+ *
+ * These markers are full sentences rather than the short noun phrases above, so they wrap
+ * — and where a line break falls is a function of prettier and the 100-char width, not of
+ * the policy. A raw `toContain` would fail on a REWRAP, which is a false positive that
+ * teaches the next author to delete the test. Normalizing collapses that axis while
+ * leaving the wording itself pinned exactly as brittle as the guards above.
+ */
+const readFlat = (relPath: string): string => read(relPath).replace(/\s+/g, " ");
+const flat = (text: string): string => text.replace(/\s+/g, " ");
+
+// Condition 3 (R6): naming the category is not enough — cite the act, and agent-authored
+// artifact text is explicitly not provenance.
+const PROVENANCE_MARKER = "principal provenance";
+const NON_PROVENANCE_MARKER = "Agent-authored artifact text is NOT provenance";
+// Condition 1 (R8): quote the principal AND name the step the quote defers.
+const CONDITION1_MARKER = "name which step the quote defers";
+// Both conditions (R8 refinement): a genuine quote that does not say what you claim.
+const QUOTE_SUPPORT_MARKER = "A quote must SUPPORT the claim";
+
+// The PROSE surfaces carry the full discipline. Same source-plus-generated split as
+// SURFACES above, for the same reason: a source-only assertion passes on a stale compile.
+const PROSE_SURFACES = [
+  RULE_SOURCE,
+  PLAN_TASK_GENERATED,
+  "CLAUDE.md",
+  "AGENTS.md",
+  ".cursor/rules/key-workflows.mdc",
+];
+
+describe("both halt conditions require a supporting citation (mt#3855)", () => {
+  test("the plan-task skill SOURCE states both conditions' citation tests", () => {
+    const content = flat(planTaskSkill.content as string);
+    expect(content).toContain(PROVENANCE_MARKER);
+    expect(content).toContain(NON_PROVENANCE_MARKER);
+    expect(content).toContain(CONDITION1_MARKER);
+    expect(content).toContain(QUOTE_SUPPORT_MARKER);
+  });
+
+  for (const surface of PROSE_SURFACES) {
+    test(`${surface} states both conditions' citation tests`, () => {
+      const content = readFlat(surface);
+      expect(content).toContain(PROVENANCE_MARKER);
+      expect(content).toContain(NON_PROVENANCE_MARKER);
+      expect(content).toContain(CONDITION1_MARKER);
+      expect(content).toContain(QUOTE_SUPPORT_MARKER);
+    });
+  }
+
+  // The hook that INJECTS the halt enumeration at the moment of the READY transition.
+  //
+  // This surface is why R8 happened rather than merely where it is described: the hook
+  // fired correctly, listed three legitimate halts, and the agent picked the one with no
+  // test attached. An enumeration whose members are unevenly verified routes traffic to
+  // the unverified ones, so the two condition-specific tests have to travel WITH the
+  // enumeration, not merely exist in a rule the agent may not re-read.
+  //
+  // It is asserted on a narrower marker set than the prose surfaces on purpose: this is a
+  // bounded injected message with an attention budget, so it carries the two operative
+  // per-condition requirements and leaves the R6/R8 narrative and the quote-support
+  // refinement to the prose it cites.
+  for (const surface of [
+    ".minsky/hooks/drive-ready-to-implementation.ts",
+    ".claude/hooks/drive-ready-to-implementation.ts",
+  ]) {
+    test(`${surface} injects both conditions' citation tests`, () => {
+      const content = readFlat(surface);
+      expect(content).toContain(CONDITION1_MARKER);
+      expect(content).toContain(NON_PROVENANCE_MARKER);
+    });
+  }
+
+  // The upstream half (SC4). The consumption-side fix above stops a fabricated
+  // reservation from being CITED; this stops one class of it being WRITTEN, at the
+  // cheapest moment. Recorded choice: /create-task, because §2a-§2c already carry
+  // exactly this "cite it or mark it" shape there and Step 4's gate enumerates them.
+  for (const surface of [
+    ".minsky/skills/create-task/SKILL.md",
+    ".claude/skills/create-task/SKILL.md",
+  ]) {
+    test(`${surface} requires the reserving act at spec-authoring time`, () => {
+      const content = readFlat(surface);
+      expect(content).toContain("reserves a decision to the principal");
+      expect(content).toContain("Selecting an option endorses its LABEL");
     });
   }
 });
@@ -200,6 +313,16 @@ const RESTATEMENTS: Array<{ name: string; content: () => string; openMarker: str
     content: () => read(name),
     openMarker: CLOSED_LIST_MARKER,
   })),
+  // PR #3071 R1 (non-blocking, PRE-EXISTING): the generated plan-task SKILL restatement was
+  // missing here while `SURFACES` above already checked that same file. The asymmetry is the
+  // bug — mt#4141 added the source-AND-generated pair for /classify-before-deferring and did
+  // not backfill it for /plan-task, so a category added canonically could diverge in the copy
+  // an agent actually reads and only the classify surfaces would have caught it.
+  {
+    name: PLAN_TASK_GENERATED,
+    content: () => read(PLAN_TASK_GENERATED),
+    openMarker: CLOSED_LIST_MARKER,
+  },
 ];
 
 describe("restated reserved-category lists track principal-context.mdc (mt#3596)", () => {
