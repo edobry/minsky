@@ -21,10 +21,19 @@
  * events sat outside `POINTS` that way. So the check is: every registered hook
  * has an entry, and that entry has a resolved point.
  *
- * An unauthored DESCRIPTION is deliberately NOT a failure here — that is the
- * `declaredButNotDescribed` list's job, it is already reported by the generator,
- * and the 28 currently on it are mt#4198's work. This audit would otherwise
- * duplicate a live signal and fail for a reason someone is already acting on.
+ * An unauthored DESCRIPTION or coordinate set IS a failure here, as of mt#4198.
+ * It deliberately was not until then, and the reason was temporal rather than
+ * principled: the 28 names on `declaredButNotDescribed` were mt#4198's own
+ * queued work, so failing on them would have duplicated a live signal and
+ * blocked CI for a reason someone was already acting on. That queue is now
+ * empty, and the exclusion would otherwise have become permanent by default —
+ * leaving the authoring pass verified exactly once, at the moment it landed,
+ * with nothing to stop the NEXT settings-registered hook arriving blank.
+ *
+ * `deliberatelyUnauthored` entries are exempt, because for them the absence is
+ * the authored answer (see `DELIBERATELY_UNAUTHORED_NAMES`) — a fire-log test
+ * fixture and a name with no source module would both take fabricated
+ * coordinates, which is what the coverage-gap posture exists to prevent.
  *
  * **Exits non-zero when the derivation itself fails**, rather than reporting a
  * clean sweep it did not perform — the mt#4196 shape (472 of 472 runs blind) is
@@ -44,6 +53,9 @@ const CATALOG_PATH = join(REPO_ROOT, "src", "generated", "interceptor-catalog.js
 interface CatalogEntry {
   guardName: string;
   point: string | null;
+  undescribed?: boolean;
+  coordinateGaps?: string[];
+  deliberatelyUnauthored?: boolean;
 }
 
 function readCatalogEntries(): CatalogEntry[] | null {
@@ -71,7 +83,7 @@ function main(): void {
   if (!entries) {
     console.error(
       `FAIL: could not read the catalog at ${CATALOG_PATH}.\n` +
-        "  Run `bun scripts/build-interceptor-catalog.ts` first."
+        "  Run `bun run build:interceptor-catalog` first."
     );
     process.exit(1);
     return;
@@ -80,6 +92,8 @@ function main(): void {
   const byName = new Map(entries.map((e) => [e.guardName, e]));
   const missing: string[] = [];
   const unplaced: string[] = [];
+  const undescribed: string[] = [];
+  const uncoordinated: string[] = [];
 
   for (const name of registered) {
     const entry = byName.get(name);
@@ -88,11 +102,22 @@ function main(): void {
       continue;
     }
     if (entry.point === null) unplaced.push(name);
+    if (entry.deliberatelyUnauthored === true) continue;
+    if (entry.undescribed === true) undescribed.push(name);
+    if ((entry.coordinateGaps ?? []).length > 0) {
+      uncoordinated.push(`${name} (${(entry.coordinateGaps ?? []).join(", ")})`);
+    }
   }
 
-  if (missing.length === 0 && unplaced.length === 0) {
+  if (
+    missing.length === 0 &&
+    unplaced.length === 0 &&
+    undescribed.length === 0 &&
+    uncoordinated.length === 0
+  ) {
     console.log(
-      `OK: all ${registered.length} settings-registered hook(s) have a catalog entry with a resolved point.`
+      `OK: all ${registered.length} settings-registered hook(s) have a catalog entry ` +
+        `with a resolved point, an authored description, and a full coordinate set.`
     );
     return;
   }
@@ -111,6 +136,26 @@ function main(): void {
         `  does not list, so the point is dropped and the hook disappears from every\n` +
         `  point-faceted view while the divergence lists stay empty. Add the event to\n` +
         `  \`POINTS\` and to all three \`InterceptionPoint\` unions, or author the coordinate.`
+    );
+  }
+  if (undescribed.length > 0) {
+    const lines = undescribed.map((n) => `  UNDESCRIBED: ${n}`).join("\n");
+    console.error(
+      `FAIL: ${undescribed.length} registered hook(s) have a catalog entry but NO ` +
+        `authored description:\n${lines}\n\n` +
+        `  Add an entry to .minsky/hooks/interceptor-descriptions-settings.ts, then\n` +
+        `  re-run \`bun run build:interceptor-catalog\`. A registered hook nobody can\n` +
+        `  read a description for is present in the catalog and useless in it.`
+    );
+  }
+  if (uncoordinated.length > 0) {
+    const lines = uncoordinated.map((n) => `  UNCOORDINATED: ${n}`).join("\n");
+    console.error(
+      `FAIL: ${uncoordinated.length} registered hook(s) are missing coordinates:\n${lines}\n\n` +
+        `  Add an entry to .minsky/hooks/interceptor-coordinates.ts, then re-run\n` +
+        `  \`bun run build:interceptor-catalog\`. An entry with no intervention type\n` +
+        `  lands in no computed family, which renders identically to a hook that\n` +
+        `  declares no capability at all.`
     );
   }
   process.exit(1);

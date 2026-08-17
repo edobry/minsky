@@ -239,14 +239,18 @@ export interface InterceptorDescription {
   readonly note?: string;
 }
 
-const REGISTRY = ".minsky/hooks/registry.ts";
-const HOOK_FILES_RULE = ".minsky/rules/hook-files.mdc";
-const HOOK_OBSERVERS_RULE = ".minsky/rules/hook-observers.mdc";
-const PRECOMMIT = "src/hooks/pre-commit.ts";
-const KNOWN_NAMES = ".minsky/hooks/known-guard-names.ts";
-
-/** `.minsky/hooks/<name>.ts` — the SOURCE tree; `.claude/hooks/*` is generated. */
-const hook = (file: string): string => `.minsky/hooks/${file}.ts`;
+// The provenance paths live in their own leaf (mt#4198) so the settings-registered
+// cohort below can cite the same values without importing them back out of this
+// module mid-initialization.
+import {
+  HOOK_FILES_RULE,
+  HOOK_OBSERVERS_RULE,
+  KNOWN_NAMES,
+  PRECOMMIT,
+  REGISTRY,
+  hook,
+} from "./interceptor-provenance-paths";
+import { SETTINGS_REGISTERED_DESCRIPTIONS } from "./interceptor-descriptions-settings";
 
 export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescription> = new Map<
   string,
@@ -804,7 +808,15 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
   ],
 
   // -------------------------------------------------------------------------
-  // Standalone stratum (21) — `.claude/settings.json` hooks, no registry entry
+  // Standalone stratum (49) — `.claude/settings.json` hooks, no registry entry
+  //
+  // The 28 authored by mt#4198 sit in their own block at the end of this
+  // section. They are the population mt#4129 admitted: registered in
+  // `.claude/settings.json`, but absent from the fire log, so the pre-mt#4129
+  // oracle could not see them at all. Their provenance is the source module
+  // ALONE for all but three — `hook-files.mdc` and `hook-observers.mdc`
+  // describe most of them under prose labels rather than by module name, so a
+  // rule pointer would be a claim the grep does not support.
   // -------------------------------------------------------------------------
   [
     "block-git-gh-cli",
@@ -1325,6 +1337,11 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
       note: "No source module exists — a fixture name corresponds to no enforcement point, so the oracle's declaration is the only honest pointer. mt#3756 incident, 2026-08-03. The contained replacement is `scripts/run-dispatcher-scenario.ts`, which runs the real dispatcher against synthetic registrations inside an isolated state dir. These records skew override counts and deny-rate distributions until they are purged.",
     },
   ]),
+
+  // The settings-registered cohort, authored in mt#4198 and held in a sibling
+  // module so this file stays under the `max-lines` ceiling. Spread here so
+  // there is still ONE map: every consumer keeps a single lookup.
+  ...SETTINGS_REGISTERED_DESCRIPTIONS,
 ]);
 
 // ---------------------------------------------------------------------------
