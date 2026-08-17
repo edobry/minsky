@@ -91,7 +91,9 @@ categorization for a naming problem that a doc paragraph already resolves.
 
 ### Guard/interlock vocabulary (mt#2626)
 
-"Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, the `/plant/interlock-history` page); "weld" survives at most as a verb ("welding an interlock").
+"Hook" names the Claude Code registration mechanics only (`.claude/hooks/`, `.minsky/hooks/`); **"interlock" is the domain noun** for the guard mechanism everywhere else in docs and UI copy (the Plant Board's S2 valves, its "interlock history →" drill-down link); "weld" survives at most as a verb ("welding an interlock").
+
+The `/plant/interlock-history` PAGE was this rule's other standing example until mt#4229 absorbed it into `/interceptors`. The rule is unchanged by that move, and the move is a worked example of it: the destination became an `/interceptors` route while the plant board's link kept saying "interlock history", because the link is plant UI copy and the genus noun below governs the catalog, not the board.
 
 **The genus noun is `interceptor` (ask#7119, closed 2026-08-11).** The ~90-entity enforcement corpus — merge gates, PreToolUse denials, Stop scanners, per-turn injections, calibration recorders, pre-commit checks — is named **interceptors**; **guard**, **detector**, and **injector** are COMPUTED family words (filters over intervention type: deny/allow, calibration-first record, and inject respectively), not assigned labels. The activity noun is "interception"; the catalog route is `/interceptors`, and a catalog deeplink type follows the same noun. Describe an individual entity by its coordinates — `<interception point> + <intervention type(s)> + <decision mechanism>` — when precision matters.
 
