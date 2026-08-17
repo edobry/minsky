@@ -110,6 +110,71 @@ export interface TitlePipelineOptions {
   batchSize?: number;
 }
 
+/**
+ * WHERE conditions selecting titling candidates — the ONE definition.
+ *
+ * Exported, and a free function rather than a method, because it has a SECOND
+ * caller: `scripts/smoke-conversation-titles.ts` previews the candidate set the
+ * sweeper would pick. That script used to restate the filter, and a restated
+ * filter drifts — it drifted twice inside mt#4179 alone (it still carried
+ * `transcript IS NOT NULL AND title IS NULL` after the pipeline had moved on,
+ * and then still lacked the `no-turns` clause after the pipeline gained it, which
+ * is what PR #3040 R1 caught). An acceptance instrument that previews a
+ * different query than the one it exists to check is worse than no instrument,
+ * so there is now nothing to keep in sync.
+ *
+ * Built as an explicit array rather than passing a conditional `undefined`
+ * into `and(...)` (PR #2408 R1). Drizzle does drop `undefined` arguments —
+ * verified against 0.44.2: `and(cond, undefined)` yields a valid
+ * single-condition expression and `and(undefined)` yields `undefined` — but
+ * relying on that makes the force branch's SQL depend on an implicit library
+ * behavior a reader has to know to check. The array form states the intent
+ * directly and is testable via {@link TitlePipeline.candidateConditionCount}.
+ *
+ * The `transcript IS NOT NULL` condition this used to carry is gone with the
+ * blob read (mt#4179). A contentless row is no longer excluded up front — it
+ * is attempted once, stamped, and leaves the candidate set, which costs one
+ * slot exactly once instead of a permanent filter on a column ADR-025 removes.
+ *
+ * **The third clause closes a two-channel race.** Content now comes from
+ * `agent_transcript_turns`, but the re-ask trigger is
+ * `last_ingested_jsonl_timestamp` — the BLOB-ingest high-water mark. Those are
+ * different channels: ingest writes the transcript row and its HWM BEFORE the
+ * turn rows, turn writes are tolerated-partial by design (mt#2457/mt#3514),
+ * and the embeddings-path re-materialization deliberately does not bump the
+ * HWM. So an attempt landing in that window sees zero turns for a conversation
+ * that has content, and the HWM clause alone would never re-open it. A
+ * `no-turns` row therefore also re-enters once a text-bearing turn row EXISTS.
+ *
+ * That clause is scoped to `no-turns` precisely so it terminates: the re-ask
+ * either produces a title or lands on `no-content` / `no-subject`, neither of
+ * which the clause matches. Widening it to every skip reason would re-create
+ * the permanent-candidate defect this task exists to fix, one reason over.
+ *
+ * The EXISTS is written as raw SQL rather than drizzle's `exists()` helper
+ * because that helper needs a `db`-built subquery, and this function is the
+ * seam {@link TitlePipeline.candidateConditionCount} exercises with a fake
+ * `db` — building the subquery here would make the shape assertion depend on
+ * the fake.
+ */
+export function titleCandidateConditions(): SQLWrapper[] {
+  return [
+    isNull(agentTranscriptsTable.title),
+    // Not yet asked; or asked before content that has since arrived; or asked
+    // when no turn row was visible and one has since landed. The middle
+    // comparison is NULL-safe by construction: when
+    // `last_ingested_jsonl_timestamp` is NULL it yields NULL rather than true,
+    // so a stamped row with no new content stays out of the candidate set.
+    sql`(${agentTranscriptsTable.titleAttemptedAt} IS NULL
+         OR ${agentTranscriptsTable.lastIngestedJsonlTimestamp} > ${agentTranscriptsTable.titleAttemptedAt}
+         OR (${agentTranscriptsTable.titleSkipReason} = 'no-turns' AND EXISTS (
+               SELECT 1 FROM ${agentTranscriptTurnsTable} turns_probe
+                WHERE turns_probe.agent_session_id = ${agentTranscriptsTable.agentSessionId}
+                  AND (turns_probe.user_text IS NOT NULL
+                       OR turns_probe.assistant_text IS NOT NULL))))`,
+  ];
+}
+
 export class TitlePipeline {
   private readonly generator: TitleGenerator;
 
@@ -121,62 +186,11 @@ export class TitlePipeline {
     this.generator = new TitleGenerator(cognitionProvider);
   }
 
-  /**
-   * WHERE conditions selecting titling candidates.
-   *
-   * Built as an explicit array rather than passing a conditional `undefined`
-   * into `and(...)` (PR #2408 R1). Drizzle does drop `undefined` arguments —
-   * verified against 0.44.2: `and(cond, undefined)` yields a valid
-   * single-condition expression and `and(undefined)` yields `undefined` — but
-   * relying on that makes the force branch's SQL depend on an implicit library
-   * behavior a reader has to know to check. The array form states the intent
-   * directly and is testable via {@link candidateConditionCount}.
-   *
-   * The `transcript IS NOT NULL` condition this used to carry is gone with the
-   * blob read (mt#4179). A contentless row is no longer excluded up front — it
-   * is attempted once, stamped, and leaves the candidate set, which costs one
-   * slot exactly once instead of a permanent filter on a column ADR-025
-   * removes.
-   *
-   * **The third clause closes a two-channel race.** Content now comes from
-   * `agent_transcript_turns`, but the re-ask trigger is
-   * `last_ingested_jsonl_timestamp` — the BLOB-ingest high-water mark. Those are
-   * different channels: ingest writes the transcript row and its HWM BEFORE the
-   * turn rows, turn writes are tolerated-partial by design (mt#2457/mt#3514),
-   * and the embeddings-path re-materialization deliberately does not bump the
-   * HWM. So an attempt landing in that window sees zero turns for a
-   * conversation that has content, and the HWM clause alone would never re-open
-   * it. A `no-turns` row therefore also re-enters once a text-bearing turn row
-   * EXISTS.
-   *
-   * That clause is scoped to `no-turns` precisely so it terminates: the re-ask
-   * either produces a title or lands on `no-content` / `no-subject`, neither of
-   * which the clause matches. Widening it to every skip reason would re-create
-   * the permanent-candidate defect this task exists to fix, one reason over.
-   *
-   * The EXISTS is written as raw SQL rather than drizzle's `exists()` helper
-   * because that helper needs a `db`-built subquery, and this method is the
-   * seam {@link candidateConditionCount} exercises with a fake `db` — building
-   * the subquery here would make the shape assertion depend on the fake.
-   */
+  /** {@link titleCandidateConditions}, or none at all under `force`. */
   private candidateConditions(): SQLWrapper[] {
     // force re-titles every row — both filters are omitted rather than negated.
     if (this.options.force) return [];
-    return [
-      isNull(agentTranscriptsTable.title),
-      // Not yet asked; or asked before content that has since arrived; or asked
-      // when no turn row was visible and one has since landed. The middle
-      // comparison is NULL-safe by construction: when
-      // `last_ingested_jsonl_timestamp` is NULL it yields NULL rather than true,
-      // so a stamped row with no new content stays out of the candidate set.
-      sql`(${agentTranscriptsTable.titleAttemptedAt} IS NULL
-           OR ${agentTranscriptsTable.lastIngestedJsonlTimestamp} > ${agentTranscriptsTable.titleAttemptedAt}
-           OR (${agentTranscriptsTable.titleSkipReason} = 'no-turns' AND EXISTS (
-                 SELECT 1 FROM ${agentTranscriptTurnsTable} turns_probe
-                  WHERE turns_probe.agent_session_id = ${agentTranscriptsTable.agentSessionId}
-                    AND (turns_probe.user_text IS NOT NULL
-                         OR turns_probe.assistant_text IS NOT NULL))))`,
-    ];
+    return titleCandidateConditions();
   }
 
   /**

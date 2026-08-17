@@ -127,14 +127,13 @@ async function main(): Promise<void> {
   const { TitleGenerator, selectTitleTurns, TURN_SCAN_LIMIT } = await import(
     "@minsky/domain/transcripts/title-generator"
   );
-  const { and, asc, eq, or, sql, isNull, isNotNull, desc } = await import("drizzle-orm");
+  const { titleCandidateConditions } = await import("@minsky/domain/transcripts/title-pipeline");
+  const { and, asc, eq, or, sql, isNotNull, desc } = await import("drizzle-orm");
 
-  // mt#4179 — mirrors TitlePipeline's candidate filter, INCLUDING the
-  // not-already-asked clause. Before mt#4179 this preview replicated only
-  // `transcript IS NOT NULL AND title IS NULL`, so once the real pipeline
-  // gained attempt-tracking the smoke would have previewed a candidate set the
-  // pipeline no longer selects — an acceptance instrument measuring a
-  // different query than the one it exists to check.
+  // mt#4179 / PR #3040 R1 — the candidate filter is IMPORTED, never restated.
+  // This preview drifted from the pipeline twice in one task while it carried
+  // its own copy, and an acceptance instrument that previews a different query
+  // than the one it exists to check is worse than no instrument.
   const rows = await db
     .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
     .from(agentTranscriptsTable)
@@ -144,11 +143,7 @@ async function main(): Promise<void> {
           // string argument does not satisfy `eq`'s type; the sql template
           // binds it as a parameter the same way TitlePipeline does.
           sql`${agentTranscriptsTable.agentSessionId} = ${SESSION}`
-        : and(
-            isNull(agentTranscriptsTable.title),
-            sql`(${agentTranscriptsTable.titleAttemptedAt} IS NULL
-                 OR ${agentTranscriptsTable.lastIngestedJsonlTimestamp} > ${agentTranscriptsTable.titleAttemptedAt})`
-          )
+        : and(...titleCandidateConditions())
     )
     .orderBy(desc(agentTranscriptsTable.startedAt))
     .limit(LIMIT);

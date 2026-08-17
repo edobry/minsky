@@ -367,6 +367,21 @@ describe("TitlePipeline", () => {
       ).toBe(0);
     });
 
+    test("the smoke script IMPORTS the filter rather than restating it", async () => {
+      // PR #3040 R1: the smoke script's preview drifted from the pipeline twice
+      // inside this task while it kept its own copy of the filter — first
+      // missing the attempt clause, then missing the `no-turns` re-ask clause.
+      // A structural pin is the only thing that survives the next change to
+      // the filter, since a behavioral test of the script needs a live DB.
+      const source = await Bun.file(
+        new URL("../../../../scripts/smoke-conversation-titles.ts", import.meta.url)
+      ).text();
+
+      expect(source).toContain("titleCandidateConditions");
+      // The tell of a restated copy: the script naming the filter's own columns.
+      expect(source).not.toContain("titleAttemptedAt");
+    });
+
     test("force still issues a working query with no WHERE at all", async () => {
       // The behavioral half of the assertion above: with zero conditions the
       // pipeline must call `.orderBy()` directly off `.from()` rather than
