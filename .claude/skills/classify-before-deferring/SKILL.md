@@ -129,6 +129,13 @@ attached to it ("…so that's your call"), at which point the citation test abov
 decision. Watch for a courtesy caveat that acquires a decision clause: the informational half can be
 correct while the halt it grew is confabulated (mem#367 R7, 2026-08-14).
 
+**Orthogonal to both shipped deferral detectors, and narrowing neither (mt#4146):**
+`ask-routing-deferral` (LIVE) matches a DECISION handed to the principal in chat prose and
+`operator-deferral` (calibration-first, log-only) matches an ACTION handed over without a capability
+probe, so a pure heads-up is outside both and the paragraph above adds no phrase to either matcher
+and exempts none from it — which means a fire from either one is the signal that you DID hand over a
+decision or an action, never a false positive this paragraph excuses.
+
 **Action: ASK, with proper escalation packaging.** Walk the five-item checklist from `humility.mdc §Escalation packaging`:
 
 1. State the question in plain language, not by referent.

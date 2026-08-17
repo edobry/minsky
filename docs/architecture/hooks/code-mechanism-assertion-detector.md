@@ -284,6 +284,54 @@ block nested in an assistant message's `content`, matching `extractToolUseNames`
 the nested shape made top-level-recorded turns invisible (PR #2584 R1). **The comment pass still
 has that gap — tracked as mt#3650.**
 
+### mt#4106 — measured: an identity claim reaches the matcher and matches nothing
+
+The artifact surface was asked the direct question — did it fire on two spec claims with known
+ground truth? — and the answer is no, for a reason that turns out not to be about the artifact
+surface at all.
+
+On 2026-08-13 two specs asserted `readResidentBytes` in `src/mcp/orphan-exit.ts`, a symbol that has
+never existed in this repo (the real reader was `getCurrentProcessResidentBytes`), and asserted that
+`src/mcp/memory-capture.ts` reads the same quantity, when that module reads nothing and takes
+`getResidentBytes` as an injected dependency. Both were written through `tasks_create` /
+`tasks_spec_patch`, both on `ARTIFACT_TOOL_RE`. `/plan-task`'s gates (e) and (h) caught both.
+
+**What the log says.** `.minsky/code-mechanism-assertion-calibration.jsonl` holds exactly one record
+containing the string `readResidentBytes` (2026-08-13T17:15:27Z), and it carries the string only in
+`judgedInput` — the chat text. No record in the log carries the symbol in `artifactSurfaceClaims` or
+any other claim list. The hook was live throughout: the same session wrote records at 16:35, 16:39
+and 17:15, and the artifact surface fired on 20+ turns across that day.
+
+**What the replay says.** `scripts/replay-artifact-surface-claims.ts` runs four reconstructed bodies
+through `buildArtifactProseCorpus` → `detectCodeMechanismAssertion`. Every one:
+`extracted: true, matched: false, claims: []`. Every positive control — the same sentence with
+`returns` or `reads from` spliced in, naming the same symbol — matches. So the corpus is fine, the
+symbol extraction is fine, and the absence is real rather than a broken harness.
+
+**The mechanism.** All 21 `PREDICATE_PATTERNS` entries are behavior verbs (`clamps`, `returns`,
+`throws`, `enforces`, `ignores`, …) or mt#3050's five sourcing verbs (`sourced from`, `comes from`,
+`supplies`, `backed by`, `reads/pulls/derives from`). The instances assert **identity or
+equivalence** — "`X` is the single reader", "`X` is converted to it", "`X` is expressed in the same
+unit against the same reading" — which name neither a behavior nor a source. `symbolsNear` only ever
+runs within ±100 chars of a predicate match, so with no predicate there is no anchor and no claim.
+
+Three consequences worth carrying:
+
+1. **This is not an artifact-surface property.** All three surfaces call the same
+   `detectCodeMechanismAssertion`, so the class is invisible in chat and in added comments too.
+2. **It is a fourth blind spot, not one of the three known ones.** mt#3775 and mt#3726 are
+   symbol-FREE claims and mt#4084 is a verification-corpus gap; here the symbol is present and
+   extracted, and the predicate is what is missing.
+3. **The enforcement-posture question does not arise on this evidence.** Promoting the artifact
+   surface from log-only to injecting would have changed nothing here — a surface that produced no
+   claim has nothing to enforce. Tracked as mt#4155, which places the class on ADR-024's ladder.
+
+**Absence in this log is weak on its own.** A record is written only when at least one of the three
+surfaces matches, so a turn where nothing matched leaves no row — and mt#3649's `judgedInput`
+captures only the chat surface's elided text, so even an existing row does not preserve the artifact
+corpus that was judged. That is why the replay above exists and why it ships as a script: the log
+alone cannot distinguish "never extracted" from "extracted and matched nothing."
+
 ## mt#4157 (2026-08-16) — the 80% pass: round 6, and a decision not to widen backing
 
 The 2026-08-14 calibration pass hand-classified all 10 injected fires in its window: **8 false, 1

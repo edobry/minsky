@@ -568,7 +568,7 @@ function isPlausibleSymbol(tok: string): boolean {
  * `cfg.maxBuffer`) are still captured independently by CAMEL_CASE_RE/SNAKE_CASE_RE
  * scanning the slice, so no real symbol is lost.
  */
-function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
+export function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
   let start = Math.max(0, anchorIndex - window);
   let end = Math.min(text.length, anchorIndex + window);
 
