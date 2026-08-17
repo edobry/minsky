@@ -55,12 +55,14 @@ pub(crate) use registry::DaemonId;
 // `resolve_program`, `open_log`, `teardown` and `SpawnedPgid` all keep working
 // at their old paths.
 pub(crate) use daemon_core::{
-    classify_exit, daemon_start_time, decide_action, format_duration, handle_health_down_no_child,
-    kill_group, kill_pid, log_tail_last_line, open_log, path_env, pid_on_port, port_holder,
-    port_in_use, probe_health, record_spawned, resolve_program, spawn_daemon, take_spawned,
-    teardown, throttle_ok, DaemonAction, DaemonLabels, DaemonSpawnSpec, ExitClass, NoChildCounters,
-    NoChildEffect, SpawnedPgids, SupervisedDaemon, ALERT_COOLDOWN, HTTP_FAILURE_POLL_THRESHOLD,
-    POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD, RESTART_STORM_WINDOW,
+    breaches_ceiling, classify_exit, daemon_memory_bytes, daemon_start_time, decide_action,
+    format_duration, handle_health_down_no_child, kill_group, kill_pid, kill_pid_force,
+    log_tail_last_line, open_log, path_env, pid_on_port, port_holder, port_in_use, probe_health,
+    record_spawned, resolve_program, spawn_daemon, take_spawned, teardown, throttle_ok,
+    DaemonAction, DaemonLabels, DaemonSpawnSpec, ExitClass, NoChildCounters, NoChildEffect,
+    SpawnedPgids, SupervisedDaemon, ALERT_COOLDOWN, HTTP_FAILURE_POLL_THRESHOLD,
+    MEMORY_CEILING_BYTES, POLL_INTERVAL, RESPAWN_THROTTLE, RESTART_STORM_THRESHOLD,
+    RESTART_STORM_WINDOW,
 };
 
 /// The cockpit daemon's health endpoint and the identity its body must carry.
@@ -539,6 +541,10 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgids, path: &str) 
         extra_env,
     }) {
         Ok((child, pid)) => {
+            // A fresh child has not breached anything (mt#4105). Clearing here
+            // rather than only on the exit path means no route into a new child
+            // can inherit the previous one's verdict.
+            sup.daemon.killed_for_ceiling = false;
             sup.daemon.child = Some(child);
             sup.daemon.last_spawn = Some(Instant::now());
             // mt#2299: a fresh tray-spawn is current as of now; record the
@@ -814,7 +820,7 @@ async fn handle_child_exit(
             report_conflict(app, sup, path);
             clear_uptime(app, sup);
         }
-        ExitClass::CleanStop | ExitClass::Crash => {
+        ExitClass::CleanStop | ExitClass::Crash | ExitClass::CeilingKill => {
             // The crash-exit path (restart-storm) owns the alerting for this
             // case; reset the HTTP-failure counter so the two paths don't
             // double-alert.
@@ -834,8 +840,13 @@ async fn handle_child_exit(
                     sup.daemon.restart_timestamps.len()
                 );
             } else {
+                let why = if class == ExitClass::CeilingKill {
+                    "was terminated for breaching its memory ceiling"
+                } else {
+                    "exited cleanly"
+                };
                 eprintln!(
-                    "[cockpit-tray] {} child exited cleanly — restoring it without counting a crash",
+                    "[cockpit-tray] {} child {why} — restoring it without counting a crash",
                     sup.daemon.labels.display_name
                 );
             }
@@ -987,6 +998,61 @@ async fn poll_entry(
         sup.daemon.last_restart_alert = None;
     }
 
+    // --- Memory ceiling: enforced from OUT of process (mt#4105) ---
+    //
+    // Deliberately ahead of the `if ours` branch, which returns early on a
+    // healthy daemon. A wedged event loop fails the health probe and would be
+    // reached either way, but a daemon that is ballooning while STILL serving
+    // would never be — and the ceiling is about size, not liveness.
+    //
+    // `child.id()` rather than the discovery record's pid: this arm governs a
+    // child THIS supervisor spawned, so the pid is one it owns. An adopted
+    // daemon is another process's to police (see the spec's Out of scope).
+    if let Some(pid) = sup.daemon.child.as_ref().map(|c| c.id()) {
+        let measured = daemon_memory_bytes(pid);
+        if breaches_ceiling(measured, MEMORY_CEILING_BYTES) {
+            let bytes = measured.unwrap_or(0);
+            eprintln!(
+                "[cockpit-tray] {} pid {pid} at {} MB exceeds the {} MB ceiling — SIGKILL \
+                 (its in-process watcher cannot fire if its event loop is wedged)",
+                sup.daemon.labels.display_name,
+                bytes / (1024 * 1024),
+                MEMORY_CEILING_BYTES / (1024 * 1024),
+            );
+            // Record BEFORE killing: the flag is what the next poll's
+            // `classify_exit` reads to tell this from a crash, and a kill that
+            // raced the flag would be counted against the restart throttle.
+            sup.daemon.killed_for_ceiling = true;
+            kill_pid_force(pid);
+            // Cooldown-gated like every other alert here (PR #3045 R1): a daemon
+            // that balloons, is killed, respawns and balloons again would
+            // otherwise toast on every cycle. The kill itself is NOT gated —
+            // only the notification is.
+            let cooldown_elapsed = sup
+                .daemon
+                .last_ceiling_alert
+                .map(|t| poll_now.duration_since(t) >= ALERT_COOLDOWN)
+                .unwrap_or(true);
+            if cooldown_elapsed {
+                notify_daemon_unhealthy(
+                    app,
+                    &format!(
+                        "{} exceeded its {} MB memory ceiling and was terminated. It is being \
+                         restarted automatically — no action needed unless this repeats. Logs: {}",
+                        sup.daemon.labels.display_name,
+                        MEMORY_CEILING_BYTES / (1024 * 1024),
+                        sup.daemon.labels.stderr_log_hint,
+                    ),
+                );
+                sup.daemon.last_ceiling_alert = Some(poll_now);
+            }
+            // Let the next tick observe the exit through the normal path rather
+            // than reaping here: `handle_child_exit` owns respawn, throttling and
+            // status, and duplicating any of that is how the two disagree.
+            return;
+        }
+    }
+
     if ours {
         // Reap a child that died while an incumbent of ours took the port.
         //
@@ -1075,7 +1141,10 @@ async fn poll_entry(
             // line. An exit-0 that lost a benign bind race leaves an incumbent
             // of ours serving; an exit-0 self-termination leaves nothing.
             let reprobe_is_ours = entry_is_ours(client, sup).await;
-            let class = classify_exit(code, reprobe_is_ours, port_in_use(port));
+            // Take the ceiling flag: it describes THIS child's death and must
+            // not survive into the next one's classification.
+            let killed_for_ceiling = std::mem::take(&mut sup.daemon.killed_for_ceiling);
+            let class = classify_exit(code, reprobe_is_ours, port_in_use(port), killed_for_ceiling);
             handle_child_exit(app, sup, spawned, path, class, poll_now).await;
         }
         ChildState::Alive => {

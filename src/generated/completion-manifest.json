@@ -7319,7 +7319,7 @@
       "subcommands": [
         {
           "name": "status",
-          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids or uuids) to their current status in one call, with not-found explicit per ref",
+          "description": "Cross-reference mixed entity refs (task ids, PR numbers, ask/memory/workspace short ids or uuids) to their current status in one call. Each ref carries an `outcome`: found, absent (it does not exist), unavailable (the lookup did not complete — existence is UNKNOWN, retry), or unparseable (bad ref format — retrying never helps). Read `outcome`, not `found`, before concluding a ref does not exist",
           "options": [
             {
               "flags": ["--repo"],
