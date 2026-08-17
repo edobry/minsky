@@ -19,6 +19,7 @@ import { join } from "node:path";
 import {
   extractPathLiterals,
   buildDataReadGraph,
+  toRepoRelative,
   findRelatedTestFiles,
   type FsLike,
 } from "./find-related-tests";
@@ -29,6 +30,9 @@ const REPO = "/repo";
 // would silently change what the assertion is about.
 const SKILL = ".minsky/skills/thing/SKILL.md";
 const RULE = ".minsky/rules/r.mdc";
+// The real rule this selector must reach — asserted in two places (the normalizer unit
+// test and the real-corpus pin), so it is named once here.
+const REAL_RULE = ".minsky/rules/key-workflows.mdc";
 
 /**
  * An `FsLike` over a flat path->content map.
@@ -100,7 +104,44 @@ describe("extractPathLiterals (mt#4224)", () => {
   });
 });
 
+describe("toRepoRelative (PR #3079 R1 BLOCKING)", () => {
+  test("rejects a traversal EMBEDDED mid-path, not just a leading one", () => {
+    // The exact escape the reviewer found. The first guard tested
+    // `candidate.startsWith("..")` on an UN-normalized candidate, so this passed it —
+    // and `join(repoRoot, "a/../../b.md")` normalizes to `/b.md`, above the repo.
+    expect(toRepoRelative("a/../../b.md")).toBeNull();
+    expect(toRepoRelative("../x.md")).toBeNull();
+    expect(toRepoRelative("tests/../../escape.md")).toBeNull();
+  });
+
+  test("rejects absolute paths and URLs", () => {
+    // An absolute literal is not an escape — `join` confines it under repoRoot — but it
+    // becomes a bogus in-repo probe, so it is dropped rather than silently reinterpreted.
+    expect(toRepoRelative("/etc/passwd.md")).toBeNull();
+    expect(toRepoRelative("https://example.com/x.png")).toBeNull();
+  });
+
+  test("normalizes a legitimate repo-relative path", () => {
+    expect(toRepoRelative("./docs/a.md")).toBe("docs/a.md");
+    expect(toRepoRelative("tests/domain/../domain/a.md")).toBe("tests/domain/a.md");
+    expect(toRepoRelative(REAL_RULE)).toBe(REAL_RULE);
+  });
+});
+
 describe("buildDataReadGraph (mt#4224)", () => {
+  test("a mid-path traversal creates no edge (PR #3079 R1 BLOCKING)", () => {
+    // End-to-end form of the unit test above: the escape must not reach the graph even
+    // when the escaped target genuinely exists.
+    const fs = fakeFs({
+      "tests/domain/evil.test.ts": `readFileSync("tests/../../outside.md")`,
+      "outside.md": "# above the repo, reachable only via traversal",
+    });
+
+    const graph = buildDataReadGraph(["tests/domain/evil.test.ts"], REPO, fs);
+
+    expect(graph.size).toBe(0);
+  });
+
   test("maps a subject to the test that names it, for BOTH path idioms", () => {
     const fs = fakeFs({
       "tests/domain/manifest.test.ts": `readFileSync(join(import.meta.dir, "../../.minsky/skills/thing/SKILL.md"))`,
@@ -196,7 +237,7 @@ describe("real-corpus selection (mt#4224 SC2/SC3)", () => {
   });
 
   test("editing key-workflows.mdc selects the halt-citation drift test", () => {
-    const related = findRelatedTestFiles([".minsky/rules/key-workflows.mdc"], REPO_ROOT);
+    const related = findRelatedTestFiles([REAL_RULE], REPO_ROOT);
 
     expect(related).toContain("tests/domain/plan-task-halt-citation.test.ts");
   });

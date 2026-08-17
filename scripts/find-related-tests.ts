@@ -45,7 +45,7 @@
  * files/hooks.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { ROOTS, shouldExclude } from "./run-tests-main";
 
 const TS_EXT_RE = /\.tsx?$/;
@@ -379,6 +379,35 @@ export function extractPathLiterals(content: string): string[] {
 }
 
 /**
+ * Normalize a path literal to a repo-relative path, or `null` if it does not name one.
+ *
+ * This is a POSITIVE validation, and the distinction is load-bearing (PR #3079 R1,
+ * BLOCKING). The first version rejected negatively — `candidate.startsWith("..")` —
+ * against a candidate that had NOT been normalized, so a traversal embedded mid-path
+ * slipped through: `"a/../../b.md"` does not start with `..`, and
+ * `join(repoRoot, "a/../../b.md")` normalizes to `/b.md`, one level ABOVE the repo. The
+ * reviewer was right, and the failure is invisible by inspection precisely because the
+ * guard looks like it covers the case its own example covers.
+ *
+ * Normalizing FIRST collapses every traversal to a leading `..`, so one check then
+ * covers the whole class rather than the spelling in front of it. Rejected:
+ *
+ *   - anything that escapes the repo after normalization (`../x.md`)
+ *   - absolute paths (`/etc/x.md`) — `join` would confine them under `repoRoot`, which
+ *     silently turns an absolute literal into a bogus in-repo probe
+ *   - URL-ish literals (`https://host/x.png`) — R1 non-blocking; they could never match
+ *     a changed path, so probing for them is pure noise
+ */
+export function toRepoRelative(rawPath: string): string | null {
+  if (rawPath === "" || rawPath.includes("://")) return null;
+  const normalized = toPosix(normalize(rawPath));
+  if (normalized.startsWith("/") || normalized === ".." || normalized.startsWith("../")) {
+    return null;
+  }
+  return normalized.replace(/^\.\//, "");
+}
+
+/**
  * Build the data-read graph: referencedFile -> Set of TEST files naming it (mt#4224).
  *
  * Scanned over TEST files only, not every project file. Two reasons, and the second is
@@ -423,11 +452,11 @@ export function buildDataReadGraph(
     // returned only the halt-citation test.
     const testDir = dirname(testFile);
     for (const referenced of extractPathLiterals(content)) {
-      for (const candidate of [referenced, toPosix(join(testDir, referenced))]) {
+      for (const raw of [referenced, join(testDir, referenced)]) {
+        const candidate = toRepoRelative(raw);
         // The existence check is the bound. It also drops self-references and any
         // literal that happens to look path-shaped without naming a repo file.
-        if (candidate === testFile) continue;
-        if (candidate.startsWith("..")) continue; // escaped the repo — not ours
+        if (candidate === null || candidate === testFile) continue;
         if (!fs.existsSync(join(repoRoot, candidate))) continue;
         let readers = graph.get(candidate);
         if (!readers) {
