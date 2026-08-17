@@ -15,6 +15,7 @@
 // eslint-rules/no-real-fs-in-tests.js forbids the alternative.
 
 import { describe, test, expect } from "bun:test";
+import { join } from "node:path";
 import {
   extractPathLiterals,
   buildDataReadGraph,
@@ -170,5 +171,33 @@ describe("findRelatedTestFiles selects on a data-read edge (mt#4224)", () => {
     });
 
     expect(related).toContain("tests/domain/sibling.test.ts");
+  });
+});
+
+// SC2/SC3 over the REAL repository, not a fixture.
+//
+// The fixtures above prove the mechanism; they cannot prove it fires for the two pairs
+// this task exists for, because a fixture asserts against paths the fixture itself
+// invented. SC2 asks for "a test over the selector, not manual observation" — a CLI run
+// I read once is exactly the manual observation it rules out, and it would not fail if
+// someone rewrote a path idiom later.
+//
+// This is also the pair that caught the second idiom: with only repo-relative literals
+// resolved, `create-task/SKILL.md` selected the halt-citation test and NOT the manifest
+// test, and a fixture-only suite stayed green through that.
+
+describe("real-corpus selection (mt#4224 SC2/SC3)", () => {
+  const REPO_ROOT = join(import.meta.dir, "..");
+
+  test("editing the create-task skill selects its append-only manifest test", () => {
+    const related = findRelatedTestFiles([".minsky/skills/create-task/SKILL.md"], REPO_ROOT);
+
+    expect(related).toContain("tests/domain/create-task-claim-steps.test.ts");
+  });
+
+  test("editing key-workflows.mdc selects the halt-citation drift test", () => {
+    const related = findRelatedTestFiles([".minsky/rules/key-workflows.mdc"], REPO_ROOT);
+
+    expect(related).toContain("tests/domain/plan-task-halt-citation.test.ts");
   });
 });
