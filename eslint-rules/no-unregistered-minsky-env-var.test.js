@@ -127,12 +127,45 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
       code: "const v = process.env.MINSKY_TOTALLY_BOGUS_HOOK_NAME;",
       filename: claudeHookFile("legacy-hook.js"),
     },
-    // mt#1994: files outside both src/ AND .claude/hooks/ remain out of scope.
-    // (e.g., scripts/, services/, .github/workflows/ — those have their own
-    // boot lifecycles separate from the MCP config loader.)
+    // Files outside src/ AND the two hook trees remain out of scope.
+    //
+    // mt#4217 CORRECTION to this case's original rationale: it read "those have
+    // their own boot lifecycles separate from the MCP config loader," which is
+    // false for `scripts/`. `scripts/cli-entry.ts` SETS MINSKY_LOADED_COMMIT /
+    // MINSKY_RUN_MODE / MINSKY_PACKAGE_ROOT on the CLI's own environment before
+    // importing the bundle — it IS the boot path, which is why those three are
+    // registered. The assertion below is still correct about today's behavior;
+    // only the reason was wrong. Closing that gap is mt#4223 (18 unregistered
+    // vars measured in that tree), and this case flips to `invalid` there.
     {
       code: "const v = process.env.MINSKY_OUT_OF_SCOPE_FOR_SCRIPTS;",
       filename: path.join(repoRoot, "scripts", "deploy.ts"),
+    },
+    // mt#4217: a bare `env.MINSKY_FOO` member access on a REGISTERED name passes
+    // — the widened matcher keys on registration, not on the access shape.
+    {
+      code: 'function f(env) { return env.MINSKY_FORCE_PARALLEL === "1"; }',
+      filename: srcFile("mcp", "orphan-exit.ts"),
+    },
+    // mt#4217: `delete env.MINSKY_FOO` is a SCRUB, not a read or a write of a
+    // value — it removes an inherited variable before the env object is handed
+    // to a child process, so the dot-path parser never sees the name and no
+    // registration is implied. Two smoke scripts do exactly this.
+    {
+      code: "function f(env) { delete env.MINSKY_NEVER_REGISTERED_SCRUB; }",
+      filename: srcFile("mcp", "scrub.ts"),
+    },
+    // mt#4217: the widening deliberately does NOT reach a nested `x.env.MINSKY_*`
+    // shape. No such site exists in the repo, and matching it would widen the
+    // false-positive surface with no evidence to justify it.
+    {
+      code: "const v = deps.env.MINSKY_NESTED_SHAPE_UNREGISTERED;",
+      filename: srcFile("mcp", "nested.ts"),
+    },
+    // mt#4217: a bare `env` object with a non-MINSKY_ property is untouched.
+    {
+      code: "function f(env) { return env.HOME; }",
+      filename: srcFile("mcp", "paths.ts"),
     },
     // mt#2324: services/*/src/** are independent deploy packages (reviewer,
     // site) with their OWN config loaders (requireEnv / direct reads, no
@@ -268,6 +301,57 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
           data: {
             name: "MINSKY_NEWLY_INTRODUCED_HOOK_VAR",
             configPath: "newly.introduced.hook.var",
+          },
+        },
+      ],
+    },
+    // mt#4217 regression anchor — the shape that was invisible for the rule's
+    // whole life. `src/mcp/**` dependency-injects the process environment for
+    // testability, so its reads are `env.MINSKY_FOO`, not
+    // `process.env.MINSKY_FOO`. The rule scanned those files the entire time and
+    // matched nothing in them: 16 vars accumulated unregistered across `src/` and
+    // `packages/`, nine of them the memory-ceiling / orphan-exit family.
+    {
+      code: 'function wire(env) { if (env.MINSKY_BARE_ENV_UNREGISTERED === "1") return; }',
+      filename: srcFile("mcp", "orphan-exit.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_BARE_ENV_UNREGISTERED",
+            configPath: "bare.env.unregistered",
+          },
+        },
+      ],
+    },
+    // mt#4217: the bracket form on a bare `env` fires too — the same three
+    // static-resolution paths mt#2324 added for `process.env` apply here.
+    {
+      code: 'function wire(env) { return env["MINSKY_BARE_BRACKET_UNREGISTERED"]; }',
+      filename: srcFile("mcp", "bracket.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_BARE_BRACKET_UNREGISTERED",
+            configPath: "bare.bracket.unregistered",
+          },
+        },
+      ],
+    },
+    // mt#4217: a WRITE to a bare env object fires — setting a MINSKY_* name on an
+    // env destined for a child process is exactly how the child's config loader
+    // comes to parse it. Contrast the `delete` case in `valid` above, which
+    // removes rather than introduces a name.
+    {
+      code: 'function spawn(env) { env.MINSKY_BARE_ENV_WRITE = "1"; }',
+      filename: srcFile("mcp", "spawn.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_BARE_ENV_WRITE",
+            configPath: "bare.env.write",
           },
         },
       ],

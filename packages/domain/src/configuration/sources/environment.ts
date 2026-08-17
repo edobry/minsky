@@ -481,6 +481,40 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_STOP_AT_DECISION: "operator-override", // .claude/hooks/stop-at-decision-scan.ts (mt#3653) — override for the log-only turn-end stop-at-ripe-decision Stop scan
   MINSKY_ACK_BARE_PROHIBITION: "operator-override", // .claude/hooks/warn-bare-prohibition-dispatch.ts (mt#3162) — override for the bare-prohibition dispatch-prompt detector
   MINSKY_ACK_BARE_ENTITY_REF: "operator-override", // .claude/hooks/turn-end-bare-ref-scan.ts (mt#3286) — override for the turn-end bare/malformed entity-deeplink Stop guard
+  // mt#4217 — sixteen vars the mt#1788 ESLint rule could not see for as long as
+  // it existed. They are read as a bare `env.MINSKY_FOO` member access on a
+  // dependency-injected env object rather than `process.env.MINSKY_FOO`, and the
+  // rule matched only the latter; nine of them sit in `src/mcp/**`, a tree it was
+  // already scanning. Every one is `tunable` — a runtime threshold, a path, or an
+  // arming switch.
+  //
+  // The five DISABLE_/FORCE_ switches are deliberately NOT `operator-override`
+  // even though they suppress a mechanism's decision: that category is scoped to
+  // a var a hook GUARD consults as its own override, because that is the
+  // population the fire log's `authorized_exception` classification is about and
+  // `.minsky/hooks/known-override-env-vars.ts` must equal (mt#3882). These gate
+  // runtime exit watchers, which write no fire-log record, so mirroring them
+  // would add names their consumer can never see.
+  //
+  // mt#4099 (ceiling reads the wrong quantity) and mt#4211 (its polling cost)
+  // own the mechanism these configure; if either renames or retires a var, its
+  // entry here follows.
+  MINSKY_MCP_MEMORY_CEILING_MB: "tunable", // src/mcp/orphan-exit.ts (mt#3886) — resident-memory ceiling, in MB
+  MINSKY_MCP_MEMORY_CEILING_POLL_MS: "tunable", // src/mcp/orphan-exit.ts + stdio-proxy/child-memory-ceiling.ts — ceiling poll interval
+  MINSKY_MCP_FORCE_MEMORY_CEILING_EXIT: "tunable", // src/mcp/orphan-exit.ts — arm the ceiling even on the hosted entrypoint
+  MINSKY_MCP_DISABLE_MEMORY_CEILING_EXIT: "tunable", // src/mcp/orphan-exit.ts + stdio-proxy/child-memory-ceiling.ts — never arm the ceiling
+  MINSKY_MCP_PARENT_DEATH_POLL_MS: "tunable", // src/mcp/orphan-exit.ts (mt#3764) — parent-death watcher poll interval
+  MINSKY_MCP_DISABLE_PARENT_DEATH_EXIT: "tunable", // src/mcp/orphan-exit.ts — skip wiring the parent-death watcher
+  MINSKY_MCP_NEVER_CONNECTED_TIMEOUT_MS: "tunable", // src/mcp/orphan-exit.ts — never-connected exit deadline
+  MINSKY_MCP_FORCE_NEVER_CONNECTED_EXIT: "tunable", // src/mcp/orphan-exit.ts — arm regardless of the hosted signature
+  MINSKY_MCP_DISABLE_NEVER_CONNECTED_EXIT: "tunable", // src/mcp/orphan-exit.ts — never arm the never-connected exit
+  MINSKY_MCP_MEMORY_CAPTURE_MB: "tunable", // src/mcp/memory-capture.ts (mt#3973) — resident threshold that triggers a capture
+  MINSKY_MCP_MEMORY_CAPTURE_POLL_MS: "tunable", // src/mcp/memory-capture.ts — capture poll interval
+  MINSKY_MCP_DISABLE_MEMORY_CAPTURE: "tunable", // src/mcp/memory-capture.ts — disable resident-memory capture entirely
+  MINSKY_MCP_CAPTURE_HEAP_SNAPSHOT: "tunable", // src/mcp/memory-capture.ts — also write a heap snapshot with the capture
+  MINSKY_LOCAL_MCP_TOKEN_PATH: "tunable", // src/mcp/daemon/local-daemon.ts + src/mcp/shim/main.ts (ADR-038) — local-daemon token file path
+  MINSKY_SHIM_DAEMON_URL: "tunable", // src/mcp/shim/main.ts (ADR-038) — daemon URL the per-conversation shim dials
+  MINSKY_HOOK_SOURCE_DIR: "tunable", // packages/domain/src/setup/hook-provisioning.ts — hook-source dir override for provisioning
 };
 
 /**
