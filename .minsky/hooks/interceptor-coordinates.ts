@@ -280,16 +280,18 @@ export const STANDALONE_SCRIPT_ALIASES: Readonly<Record<string, string>> = {
 // ---------------------------------------------------------------------------
 
 const deny: Intervention = { type: "deny" };
-// No `allow` constant: the `"allow"` intervention TYPE stays in the union (the
-// family filter at §computed families reads it, and a future entity may declare
-// it), but `policy-coverage` was the only authored coordinate that used one, and
-// it was retired 2026-08-16 (mt#4197). Re-add the constant when something
-// declares `allow` again.
+// Re-added 2026-08-17 (mt#4198) on the terms the removal note set: `allow` lost
+// its last author when `policy-coverage` was retired (mt#4197), and
+// `ask-permission-bridge` declares one — it emits `permissionDecision: "allow"`
+// for a command covered by a verified operator-approved ask.
+const allow: Intervention = { type: "allow" };
 const mutate: Intervention = { type: "mutate" };
 const injectAgent: Intervention = { type: "inject", audience: "agent" };
 const recordReview: Intervention = { type: "record", audience: "review" };
 const recordFramework: Intervention = { type: "record", audience: "framework" };
 const recordOperator: Intervention = { type: "record", audience: "operator" };
+/** The three ADR-028 dispatcher entrypoints: they run other guards, not a check. */
+const delegate: Intervention = { type: "delegate" };
 
 /** A deny gate deciding on structured state — the corpus's most common shape. */
 const structuralGate: InterceptorCoordinates = {
@@ -578,8 +580,26 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   // -------------------------------------------------------------------------
   // Standalone stratum — registered directly in .claude/settings.json
   // -------------------------------------------------------------------------
+  [
+    "ask-permission-bridge",
+    {
+      interventions: [allow, deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "The corpus's only `allow` author: it emits the harness allow decision when a pending command matches a live grant whose ask verifies server-side as operator-approved. It DENIES on the inverse — a grant whose ask is absent, unapproved, or not operator-attributed — because that combination is a fabrication signal rather than a miss. Every unmatched path defers silently, which is why an `allow`-emitting hook is not a blanket permission widener.",
+    },
+  ],
   ["bare-prohibition", lexicalDetector],
   ["block-git-gh-cli", structuralGate],
+  [
+    "block-github-mcp-pr-writes",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Decides on the tool NAME against a fixed denial table, not on the call's content.",
+    },
+  ],
   ["block-nested-fork-dispatch", structuralGate],
   [
     "block-out-of-band-merge",
@@ -593,6 +613,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["block-subagent-bypass-merge", deliveryGate],
   ["block-subagent-merge-without-grant", deliveryGate],
+  ["bridge-memory-retirement", structuralInjector],
   ["check-branch-fresh", structuralGate],
   [
     "check-generated-file-edit",
@@ -603,8 +624,135 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Matches generated-file banner markers in the target's content.",
     },
   ],
+  [
+    "check-prompt-watermark",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Decides on the ABSENCE of the `minsky:prompt:v1` watermark in a prompt that also references a session path or a session-write tool. Fail-open: a malformed payload allows the dispatch.",
+    },
+  ],
   ["check-task-spec-read", structuralGate],
+  ["deploy-verification-after-merge", structuralInjector],
   ["dispatch-intent-write-gate", structuralGate],
+  [
+    "dispatch-pretooluse",
+    {
+      interventions: [delegate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Not a guard: the sole `.claude/settings.json` PreToolUse entry for every registry-migrated guard (ADR-028 D1). It reads stdin once, resolves shared context once, and runs each matched guard's pure function in process. Its own interventions are whatever its delegates emit — which is why the family filters must read the delegates, not this entry.",
+    },
+  ],
+  [
+    "dispatch-stop",
+    {
+      interventions: [delegate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The Stop-event sibling of `dispatch-pretooluse`. `typecheck-on-stop` is a deliberately-standalone Stop entry that predates the framework and is NOT delegated through here.",
+    },
+  ],
+  [
+    "dispatch-userpromptsubmit",
+    {
+      interventions: [delegate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The UserPromptSubmit sibling. Carries the largest delegate set — the guidance detectors plus the per-turn injectors — which is why the merged-context budget in `dispatcher.ts` is a property of THIS entrypoint rather than of any one detector.",
+    },
+  ],
+  ["drive-pr-to-convergence", conditionalFeeder],
+  ["drive-ready-to-implementation", conditionalFeeder],
+  [
+    "guard-events-ingest-on-session-end",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "A LATENCY optimization, not a correctness layer: SessionEnd does not fire on `/exit`, `/clear`, or an async kill (ADR-017, mt#2313), so completeness comes from the cockpit's periodic sweep calling the same command. Dedupe keys make the double-run a no-op.",
+    },
+  ],
+  [
+    "inject-success-criteria",
+    {
+      ...conditionalFeeder,
+      note: "Fires with the `session_pr_create` call ALREADY IN FLIGHT, so it cannot shape the body being submitted — it prompts a follow-up `session_pr_edit`. The merge-time coverage cross-reference is the backstop that makes that acceptable.",
+    },
+  ],
+  [
+    "linkify-message-display",
+    {
+      interventions: [mutate],
+      mechanism: "lexical",
+      role: "infrastructure",
+      note: "The corpus's only `MessageDisplay` entity, and its only DISPLAY-surface mutation: it rewrites bare entity refs into deeplinks in what the operator sees while the stored transcript keeps the bare ref. Every failure path is a no-op because the client falls back to the original delta.",
+    },
+  ],
+  [
+    "loop-preflight-pr-merge-check",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Reads live PR and task state before the first `/loop` iteration. Fail-open on a partial coverage failure — an unreadable ref permits rather than blocks.",
+    },
+  ],
+  [
+    "parallel-work-guard",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Guards `session_start` AND `tasks_dispatch` in existing-task mode, because that path calls `SessionService.start()` in process and would otherwise bypass the sweep entirely. Hosts the advisory `standalone-duplicate-matcher` decision path, which has no registration of its own.",
+    },
+  ],
+  [
+    "post-merge-pull",
+    {
+      interventions: [mutate],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "Mutates the MAIN working tree rather than the agent's trajectory: it stashes, fast-forwards main, and pops. The only entity here whose intervention lands on the repo checkout.",
+    },
+  ],
+  [
+    "post-merge-unasked-direction-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "model",
+      role: "judge",
+      note: "The corpus's ONLY `model`-mechanism entity — it builds a completion service and runs `UnaskedDirectionAnalyzer` over the merged session's transcript. mt#4038 measured `model: 0` across the fire-log population and read the rung-3 end of ADR-024's ladder as unexercised; that measurement was bounded to the population this hook is absent from, because it never fire-logs. Findings are observational and never block — the merge has already happened.",
+    },
+  ],
+  [
+    "post-session-start",
+    {
+      interventions: [mutate, recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Labels and colors the iTerm tab for the bound task and writes the session-label state file. The mutation's audience is the operator's terminal, not the agent — the only entity in the corpus whose effect is outside both the conversation and the repo.",
+    },
+  ],
+  [
+    "record-conversation-run-state",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "ONE script registered under every observed harness event, branching on `hook_event_name`. Fail-open is non-negotiable here (mt#3130): it is git-tracked and reaches every dispatched-subagent workspace, so a conversation whose events do not land degrades to UNKNOWN rather than failing a turn.",
+    },
+  ],
+  [
+    "record-subagent-invocation",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "Closes the dispatch row the PreToolUse `agent-dispatch-stamp` opened, recovering the parent key from the agent transcript path.",
+    },
+  ],
   ["require-checks-on-bypass-merge", deliveryGate],
   [
     "require-deploy-verification-before-merge",
@@ -630,6 +778,33 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["require-review-before-merge", deliveryGate],
   ["require-session-for-main-workspace-edits", structuralGate],
   [
+    "session-start",
+    {
+      interventions: [recordFramework, mutate],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Writes the `<harness pid> -> conversation id` mapping the MCP stdio proxy reads to attribute calls to the CURRENT conversation — without it, `/clear`, resume and fork leave the proxy stamping the pre-switch conversation onto every call, so an agent's presence claims land under a stranger's id (ADR-006 Layer 3). Also bootstraps the remote environment, but only in remote/web conversations.",
+    },
+  ],
+  [
+    "stamp-pr-author-link",
+    {
+      interventions: [recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Fires at PR-CREATE rather than merge, because the authorship-relevant conversation is the one that WROTE the code — for dispatched work an implementer subagent creates the PR and the main agent merges it.",
+    },
+  ],
+  [
+    "stamp-session-creator-link",
+    {
+      interventions: [recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "The `session_start` writer of `minsky_session_links` — the dominant creation path, which had no writer while the daemon-spawn and PR-author cases did.",
+    },
+  ],
+  [
     "standalone-duplicate-matcher",
     {
       interventions: [injectAgent],
@@ -640,7 +815,50 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["tasks-status-set-guard", structuralGate],
+  [
+    "transcript-ingest-on-session-end",
+    {
+      interventions: [recordFramework],
+      mechanism: "constant",
+      role: "infrastructure",
+      note: "The ONE ingest caller with positive evidence the conversation has terminated (the harness's own SessionEnd event), so it is the only one that may set `ended_at`. Same two-layer shape as its guard-events sibling: this is latency, the sweep is completeness.",
+    },
+  ],
+  [
+    "two-strikes-record",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Records every tool error and accumulates per-conversation streaks. Default mode is `observation`: it logs would-have-fired events without invoking the second-strike handler, so the corpus rule's 2-strikes discipline is still agent-enforced and this entity is its calibration source.",
+    },
+  ],
+  [
+    "typecheck-on-edit",
+    {
+      interventions: [injectAgent, recordFramework],
+      mechanism: "structural",
+      role: "infrastructure",
+      note: "Two effects, and the second is why the role is infrastructure rather than judge: besides surfacing filtered errors it writes the edited-project-root state file that `typecheck-on-stop` consumes at turn end. It never blocks.",
+    },
+  ],
+  [
+    "typecheck-on-stop",
+    {
+      interventions: [deny],
+      mechanism: "structural",
+      role: "judge",
+      note: "Registered on BOTH Stop and SubagentStop; exit 2 forces the turn to continue until the roots its `typecheck-on-edit` sibling recorded typecheck clean. Role is `judge` rather than the `infrastructure` mt#4129's planning pass grouped the dev-loop hooks under: it classifies (are there type errors in the tracked roots?) and then denies on the answer, which is the role vocabulary's definition of a judge. Its sibling keeps `infrastructure` because it writes the state and never intervenes.",
+    },
+  ],
   ["validate-task-spec", structuralGate],
+  [
+    "verify-subagent-model",
+    {
+      ...structuralInjector,
+      note: "Compares the dispatched subagent's `resolvedModel` against the requested tier and surfaces a mismatch. Its subject is the interception system's own provenance rather than the trajectory: it exists because trusting the REQUEST as evidence of the OUTCOME reported an entire Sonnet investigation to the operator as frontier-tier.",
+    },
+  ],
 
   // -------------------------------------------------------------------------
   // Pre-commit stratum — husky steps; bind ANY committer, agent or human
@@ -914,16 +1132,26 @@ export function classifyFamilies(resolved: {
  *
  * Ontology §4 defines exactly three family words, all filters over axis 2:
  * guard (deny/allow), detector (record for review), injector (inject). Nothing
- * filters `mutate` or `record(framework)`. Every name below is a `mutate`-only
- * regen step or a framework-state writer — precisely the "feeders and
- * infrastructure" §5 names as the entities that surfaced as falsifiers because
- * they do not judge.
+ * filters `mutate`, `record(framework)`, or `delegate`. Every name below is a
+ * `mutate`-only regen step, a framework-state writer, or a dispatcher
+ * entrypoint — precisely the "feeders and infrastructure" §5 names as the
+ * entities that surfaced as falsifiers because they do not judge.
  *
  * So this is not a coverage gap to fill by widening a capability set until
  * something matches. It is the corpus reporting that three family words do not
  * partition it. Minting a fourth is a NAMING decision and therefore
  * principal-reserved; until one is made, the catalog should render these as
  * explicitly outside the family filters rather than as blanks.
+ *
+ * mt#4198 changed the SIZE of that finding without changing its shape: the
+ * settings-registered cohort added 13, taking this class from 9 of 106 to
+ * **22 of 134** — one entry in six. It also added a THIRD unfiltered
+ * intervention type, `delegate`, which had no author at all until the three
+ * ADR-028 dispatcher entrypoints were described. The population that was
+ * missing from the catalog was disproportionately made of exactly the entities
+ * the three family words do not cover, which is what made the gap look smaller
+ * than it is: an operator filtering by guard / detector / injector still sees
+ * nothing for one entry in six.
  *
  * Asserted as an exact set by the test suite, so a future entity joining or
  * leaving this class is a visible diff rather than a silent drift.
@@ -933,11 +1161,24 @@ export const OUT_OF_MODEL_NAMES: readonly string[] = [
   "claude-hooks-compile-regen",
   "code-formatting",
   "completion-manifest-regen",
+  "dispatch-pretooluse",
+  "dispatch-stop",
+  "dispatch-userpromptsubmit",
   "dockerfile-bun-build-regen",
   "dockerfile-workspace-copy-regen",
+  "guard-events-ingest-on-session-end",
   "interceptor-catalog-regen",
+  "linkify-message-display",
+  "post-merge-pull",
+  "post-session-start",
   "record-agent-dispatch",
+  "record-conversation-run-state",
+  "record-subagent-invocation",
   "record-turn-anchor",
+  "session-start",
+  "stamp-pr-author-link",
+  "stamp-session-creator-link",
+  "transcript-ingest-on-session-end",
 ];
 
 /** Authored names landing in no family — recomputed, for drift against the constant above. */
