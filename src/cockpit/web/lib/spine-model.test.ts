@@ -29,6 +29,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
     description: "Blocks the example failure.",
     failureClasses: [],
     provenance: [],
+    sourceFile: null,
     stratum: "registry",
     subject: "trajectory",
     provenanceStatus: "implementation",

@@ -406,3 +406,47 @@ stored window / rateable — so a silence caused by truncation is never counted 
 change earned. mt#4111 added the act-path arm, which replays through the kill parse rather than
 the prose detectors. What it CANNOT replay: the denial leg, which is turn state the record does
 not carry.
+
+## Surface C also takes the offer shape (mt#3801)
+
+`PERMISSION_DEFERRAL_PATTERNS` is interrogative or imperative in all eight entries — "shall I",
+"want me to", "say the word". A **negated default** — a declarative next step with a trailing
+`unless` — matches none of them, so this surface was silent on
+_"Next step is `/plan-task mt#3799` unless you'd rather I go straight at it."_
+
+The trigger is `findOfferShape`, imported from `ask-routing-deferral-detector` rather than
+reimplemented here, because that is where its two constituents already lived. **The full narration
+— the conjunction, why `hasMenuShape` cannot be promoted unguarded, the label scheme, the known
+comma-`or` miss — lives on that detector's page**; this section records only what is specific to
+this surface.
+
+**What is specific here: the offer path shares the suppression chain, it does not sit beside it.**
+The exclusions are the load-bearing half of Surface C — the shape of a permission-ask is identical
+whether the underlying action is in-authority or genuinely reserved, and only the ACTION
+discriminates. A new way to MATCH must therefore not become a new way to BYPASS. Both the literal
+loop and the offer path now call `isPermissionAskSuppressed`, which is the mt#3865 two-window chain
+factored out unchanged: `DESTRUCTIVE_EXCLUSIONS` against the match SENTENCE, everything else
+(`PRINCIPAL_RESERVED_EXCLUSIONS`, `SETTLED_DECISION_PATTERNS`, `STANDING_INSTRUCTION_PATTERNS`,
+`PEER_COLLISION_PATTERNS`) against `sentenceWithLead`. A second copy would have drifted and silenced
+one path but not the other.
+
+**`SETTLED_DECISION_PATTERNS`' scope boundary is now discharged, in the direction it predicted.**
+That array's docblock recorded, before mt#3801 shipped, that it does NOT cover the offer shape and
+that mt#3801 "takes the opposite position." Both halves now hold simultaneously: _"I went with the
+second one unless you'd rather I switch"_ is suppressed (a completed decision of the agent's own),
+while _"Next step is X unless you'd rather Y"_ fires (a proposed next step handed over). The line
+between them is the one that docblock names.
+
+**A note on the AT5 test, worth carrying.** The destructive-exclusion case
+(_"I can force-push it, unless you'd rather review first."_) passed **vacuously** before this
+change: nothing suppressed it, because no `unless`-shaped entry existed for the exclusions to act
+on. It is now a real exclusion test, and the test file carries an explicit control asserting that
+those sentences DO produce an offer shape — so they are excluded rather than merely unmatched.
+
+**Render size is unchanged.** `buildReminder` renders `context`, not `matchedPhrase` (mt#3781), and
+this change adds no surface and no directive branch. Measured 2026-08-17: `renderWorstCase()` is
+2068 against a declared 2100, identical for any phrase length up to 400 chars. The sibling
+`ask-routing-deferral-detector` was re-measured at the same time and its declared 600 turned out to
+be understated against a reachable two-class render of 1043 — pre-existing, unrelated to this
+change (mt#3801's longest label produces the smallest of the three measured renders), and filed as
+mt#4234.

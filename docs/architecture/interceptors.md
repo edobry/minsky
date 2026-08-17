@@ -450,8 +450,11 @@ explicitly out of scope, permanently, not deferred.
   choice reinforces it: the MCP Interceptors WG charter (primary source) explicitly rules
   "client-specific hook implementation details" out of scope, i.e. the emerging protocol layer
   makes the same hook/interceptor split mt#2626 made.
-- **`interlock` remains the plant-UI deny noun** — the Plant Board's S2 valves, the
-  `/plant/interlock-history` route — per mt#2626, unchanged and shipped.
+- **`interlock` remains the plant-UI deny noun** — the Plant Board's S2 valves, and the
+  "interlock history →" drill-down link — per mt#2626, unchanged and shipped. The
+  `/plant/interlock-history` ROUTE was absorbed into `/interceptors` by mt#4229 and now
+  redirects; the vocabulary split survives the move intact, which is the point worth noting
+  here: the page changed, the noun did not.
 - **`guard` and `detector` remain correct** wherever deny/allow or calibration-first-record is
   what is meant. No rules-corpus sweep replacing them is warranted or intended.
 - **No code is renamed and no storage is migrated** by this page.

@@ -209,8 +209,9 @@ constant.
   ~48); the DONE valve instead shows a small **`N interlocks`** badge with
   the derived total. Before the first slow-clock sweep completes, the badge
   is honestly absent rather than showing a fabricated zero.
-- **Interlock history** (`/plant/interlock-history`, reached via the Learning Loop
-  node's "interlock history →" link) — a table of every derived interlock with:
+- **Interlock history** (absorbed into `/interceptors` by mt#4229; still reached
+  via the Learning Loop node's "interlock history →" link, which now lands on the
+  catalog, and per-entry on `/interceptors/:name`) — for every derived interlock:
   its **install date** (from `git log`, oldest add-commit per hook file),
   a **commit link** to GitHub, and — where derivable — the **originating
   `retrospective.fired` event** (mt#2537) that produced it. Retrospective

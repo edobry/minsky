@@ -80,9 +80,6 @@ const MemoryPage = lazy(() =>
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
 );
-const WeldHistoryPage = lazy(() =>
-  import("./pages/WeldHistoryPage").then((m) => ({ default: m.WeldHistoryPage }))
-);
 const VitalsPage = lazy(() =>
   import("./pages/VitalsPage").then((m) => ({ default: m.VitalsPage }))
 );
@@ -145,20 +142,19 @@ export const plantRoutes = (
     <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
     <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
     {/*
-     * Interlock-history drill-down (mt#2602): interlock provenance timeline.
-     * Route renamed from `/plant/weld-history` (mt#2626, guard vocabulary
-     * alignment — "interlock" is the domain noun; "weld" survives only as a
-     * verb). Accepted as a breaking rename — local-only cockpit, no external
-     * consumers/bookmarks to preserve, so no redirect route was added.
+     * Interlock-history drill-down (mt#2602, renamed from `/plant/weld-history`
+     * by mt#2626) — ABSORBED into `/interceptors` by mt#4229, and redirected
+     * rather than removed, matching how ADR-020 §Routes retired `/plant-grid`
+     * and `/plant-flow` two lines above.
+     *
+     * Why it went: two pages listed the same enforcement corpus with different
+     * memberships (160 file-walk rows against the catalog's 134), which is the
+     * conflation mt#3754 exists to end. Its git-derived install provenance —
+     * install date, commit link, originating retrospective — now renders on the
+     * interceptor detail view, joined on the catalog's `sourceFile`. The
+     * operator's answer to "when did this land" did not move; the page did.
      */}
-    <Route
-      path="/plant/interlock-history"
-      element={
-        <ErrorBoundary id="interlock-history-page">
-          <WeldHistoryPage />
-        </ErrorBoundary>
-      }
-    />
+    <Route path="/plant/interlock-history" element={<Navigate to="/interceptors" replace />} />
   </>
 );
 

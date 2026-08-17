@@ -156,7 +156,39 @@ export interface CatalogEntryCoordinates {
   readonly deliberatelyUnauthored: boolean;
 }
 
-export type CatalogEntryWithCoordinates = CatalogEntry & CatalogEntryCoordinates;
+/** The build-time join key between the catalog and any file-keyed view of the corpus. */
+export interface CatalogEntrySourceFile {
+  /**
+   * The hook FILE that implements this entry, as a bare basename — the join key
+   * between the catalog (keyed by `guardName`) and any file-keyed view of the
+   * same corpus, `/plant/interlock-history`'s git-derived install provenance
+   * being the one that matters (mt#4229).
+   *
+   * Derived, not authored, and the derivation is already exact: the description
+   * store's contract makes `provenance[0]` the module that IMPLEMENTS the
+   * behavior, so it resolves the cases where the file name and the guard name
+   * differ — `bare-prohibition` implements as `warn-bare-prohibition-dispatch.ts`
+   * — without a second hand-maintained alias map to drift.
+   *
+   * `null` means NO HOOK FILE BY CONSTRUCTION, which is a different answer from
+   * "we could not find one": a pre-commit step's provenance is
+   * `src/hooks/pre-commit.ts`, and a retired or fixture name resolves to the
+   * oracle that declares it. Neither has install provenance to join to, so a
+   * null here is correct rather than a gap. Measured at introduction: 109 of 134
+   * non-null.
+   *
+   * This field exists because NEITHER consumer may import the hook tree —
+   * `tests/unit/hook-tree-import-boundary.test.ts` pins "`src/**` must not
+   * import `.minsky/hooks/**`", which covers the cockpit widget and the web page
+   * alike. The generator runs in `scripts/`, where the import is legal, so the
+   * join is resolved once at build time instead of duplicated on both sides.
+   */
+  readonly sourceFile: string | null;
+}
+
+export type CatalogEntryWithCoordinates = CatalogEntry &
+  CatalogEntryCoordinates &
+  CatalogEntrySourceFile;
 
 /**
  * Names known to one source and not the other.
@@ -187,6 +219,50 @@ export interface InterceptorCatalog {
 }
 
 const DELIBERATELY_UNAUTHORED = new Set(DELIBERATELY_UNAUTHORED_NAMES);
+
+/**
+ * Provenance prefixes that denote a hook file.
+ *
+ * `.minsky/hooks/` is the only one any entry uses today — the description
+ * store's `hook()` helper hard-codes it, and a check over the generated catalog
+ * finds zero `.claude/hooks/` first-pointers. `.claude/hooks/` is accepted
+ * anyway because it is the generated MIRROR of the same file: the two resolve to
+ * the same basename, so accepting both costs nothing and removes a silent-null
+ * failure mode if a description is ever written against the generated tree
+ * (PR #3087 R1).
+ */
+const HOOK_SOURCE_PREFIXES = [".minsky/hooks/", ".claude/hooks/"] as const;
+
+/**
+ * The implementing hook file's basename, or `null` when the entry has none.
+ *
+ * Two independent conditions, and BOTH must hold:
+ *
+ * 1. `provenanceStatus === "implementation"`. This is the load-bearing one and
+ *    it was missing in the first cut (PR #3087 R1). A `declaration-only` entry's
+ *    `provenance[0]` is the ORACLE THAT DECLARES IT — `known-guard-names.ts` —
+ *    which is a real path under `.minsky/hooks/`, so a prefix test alone
+ *    happily derives `sourceFile: "known-guard-names"` for it. Nine entries
+ *    resolved that way, and each would have rendered the oracle's install date
+ *    and commit as its own provenance: nine wrong answers, presented as fact,
+ *    on the exact surface built to keep absence and declaration apart.
+ * 2. `provenance[0]` is under a hook directory. A later pointer is a rule or a
+ *    registry, so this reads the FIRST only rather than scanning the list for
+ *    something hook-shaped — scanning would invent a join the store never
+ *    asserted.
+ */
+export function deriveSourceFile(
+  provenance: readonly string[],
+  provenanceStatus: CatalogEntry["provenanceStatus"]
+): string | null {
+  if (provenanceStatus !== "implementation") return null;
+  const first = provenance[0];
+  if (first === undefined) return null;
+  const prefix = HOOK_SOURCE_PREFIXES.find((p) => first.startsWith(p));
+  if (prefix === undefined) return null;
+  const basename = first.slice(prefix.length);
+  return basename.endsWith(".ts") ? basename.slice(0, -".ts".length) : basename;
+}
 
 /**
  * Resolve one name's axis coordinates and computed families.
@@ -244,10 +320,14 @@ export function buildCatalog(sources: CatalogSources): InterceptorCatalog {
     population: names.length,
     divergence: { declaredButNotDescribed, describedButNotDeclared },
     failureClasses: FAILURE_CLASSES,
-    entries: names.map((name) => ({
-      ...resolveCatalogEntry(name, sources.input),
-      ...resolveEntryCoordinates(name, sources.coordinateInput),
-    })),
+    entries: names.map((name) => {
+      const described = resolveCatalogEntry(name, sources.input);
+      return {
+        ...described,
+        ...resolveEntryCoordinates(name, sources.coordinateInput),
+        sourceFile: deriveSourceFile(described.provenance, described.provenanceStatus),
+      };
+    }),
   };
 }
 

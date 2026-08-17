@@ -25,6 +25,7 @@ import {
   REPORTABLE_KILL_MIN_TARGETS,
 } from "./operator-deferral-detector";
 import { findKillVerb } from "./block-bulk-process-kill";
+import { findOfferShape } from "./ask-routing-deferral-detector";
 import type { TranscriptLine } from "./transcript";
 import type { ClaudeHookInput, ToolHookInput } from "./types";
 import type { DispatchContext } from "./registry";
@@ -172,6 +173,95 @@ describe("Surface C — permission-deferral prose (mt#3463)", () => {
     const prose = "The daemon needs a restart. Say the word and I'll do it.";
     expect(detectCapabilityDeferral([assistantText(prose)])).toEqual([]);
     expect(detectPermissionDeferral([assistantText(prose)])).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3801 — the structural offer shape reaches this surface too.
+//
+// `PERMISSION_DEFERRAL_PATTERNS` is entirely interrogative or imperative
+// ("shall I", "want me to", "say the word"). A NEGATED DEFAULT — a declarative
+// next step with a trailing `unless` — matched none of the eight and this
+// surface stayed silent on it. The trigger is the shared `findOfferShape`
+// conjunction, and the point of these cases is that it lands on the SAME
+// suppression chain the literal corpus already passes through.
+// ---------------------------------------------------------------------------
+
+/** Verbatim from the 2026-08-05 incident turn (R9 of the family, mem#831). */
+const OFFER_SHAPE_PROSE =
+  "Next step is /plan-task mt#3799 unless you'd rather I go straight at it.";
+
+describe("Surface C — the offer shape (mt#3801)", () => {
+  test("AT3: the originating sentence now fires permission-deferral-prose", () => {
+    const matches = detectPermissionDeferral([assistantText(OFFER_SHAPE_PROSE)]);
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.surface).toBe(PERMISSION_PROSE);
+  });
+
+  test("AT4: a factual `unless` with no actor stays quiet", () => {
+    const prose = "The migration ran cleanly unless a row was locked, in which case it retried.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  // AT5. The exclusions are the load-bearing half of this surface: the shape of
+  // a permission-ask is identical whether the action is in-authority or
+  // genuinely reserved, and only the ACTION discriminates. A new way to MATCH
+  // must not become a new way to bypass them — which is why both paths call one
+  // suppression chain rather than each carrying a copy.
+  test("AT5: a destructive offer is excluded, exactly as the literal corpus is", () => {
+    const prose = "I can force-push it, unless you'd rather review first.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("a principal-reserved offer is excluded", () => {
+    const prose =
+      "That is a naming call for the product surface. I can pick one unless you'd rather decide.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("a standing-instruction offer is excluded (the mt#3865 Cause C conjunction)", () => {
+    const prose = "You said file only. I can take it to READY unless you'd rather I hold.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("a settled-decision offer is excluded", () => {
+    const prose =
+      "I picked the second one, since this turn has run long — unless you'd rather I redo it.";
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  // The negative control for the exclusion tests above: without it they pass
+  // whenever the trigger simply fails to match, which is how AT5 passed
+  // VACUOUSLY before this change — no `unless`-shaped entry existed in the
+  // corpus at all, so nothing reached the exclusions to be excluded by them.
+  test("the exclusion cases DO carry an offer shape — they are excluded, not unmatched", () => {
+    expect(findOfferShape("I can force-push it, unless you'd rather review first.")).not.toBeNull();
+    expect(
+      findOfferShape("You said file only. I can take it to READY unless you'd rather I hold.")
+    ).not.toBeNull();
+  });
+
+  test("a quoted offer shape does not fire (elision parity with the literal corpus)", () => {
+    const prose = 'The detector matches shapes like "X unless you\'d rather I do Y" in prose.';
+    expect(detectPermissionDeferral([assistantText(prose)])).toEqual([]);
+  });
+
+  test("probe evidence suppresses the offer shape too", () => {
+    const lines = [
+      assistantToolUse("Bash", { command: "which railway" }),
+      toolResult("/opt/homebrew/bin/railway"),
+      assistantText("Probed: railway CLI present. I'll redeploy unless you'd rather hold."),
+    ];
+    expect(detectPermissionDeferral(lines)).toEqual([]);
+  });
+
+  // Additive: a turn matching a literal pattern keeps that pattern's phrase, so
+  // no pre-existing calibration record changes shape.
+  test("a literal match still reports its literal phrase", () => {
+    const prose =
+      "The daemon needs a restart. Say the word and I'll do it unless you'd rather not.";
+    const matches = detectPermissionDeferral([assistantText(prose)]);
+    expect(matches[0]?.matchedPhrase).toBe("Say the word and I'll");
   });
 });
 
