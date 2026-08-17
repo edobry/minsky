@@ -475,8 +475,23 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
       const resolved = finalText.trimEnd();
 
       // EXTENDS what streamed — deliver only the part they have not seen.
+      //
+      // APPENDS to `pending`; never ASSIGNS over it (PR #3091 R1 BLOCKING).
+      // Assigning `pending = finalText` looks equivalent and is not, because
+      // the guard above compares TRIMMED copies: when the two differ only by
+      // trailing whitespace the branch still fires, and the assignment then
+      // hands `drain` a value SHORTER than what is on screen, which edits the
+      // message down and takes back a character the reader was given. That is
+      // invariant 4 — the one this whole settle exists to protect — broken by
+      // the fix for invariant 2.
+      //
+      // Appending the delta makes the branch structurally unable to shrink
+      // rather than merely unlikely to: `pending` only ever grows here, so the
+      // equal-after-trim case computes an empty delta and `write` short-circuits
+      // on `text === lastWritten` with no edit issued at all. A length guard
+      // would fix the reported case; this fixes the class.
       if (resolved.startsWith(delivered)) {
-        pending = finalText;
+        pending += resolved.slice(delivered.length);
         await drain();
         return degraded ? undefined : (currentMessageId ?? lastDeliveredId);
       }

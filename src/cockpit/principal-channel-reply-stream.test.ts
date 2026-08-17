@@ -596,8 +596,8 @@ describe("createReplyStream — semantic blocks (mt#3711)", () => {
     expect(sends.length).toBeGreaterThan(2);
   });
 
-  test("a resolved text differing only by trailing whitespace is not re-sent", async () => {
-    const { stream, sends } = harness({ throttleMs: 5 });
+  test("a resolved text differing only by trailing whitespace is neither re-sent nor shrunk", async () => {
+    const { stream, sends, edits } = harness({ throttleMs: 5 });
 
     // The deltas and `result` are different fields of the same turn and drift
     // by a trailing newline routinely; an exact compare would treat that as a
@@ -605,9 +605,19 @@ describe("createReplyStream — semantic blocks (mt#3711)", () => {
     stream.push("All set.\n");
     await settle();
 
+    const editsBeforeSettle = edits.length;
     await stream.finish("All set.");
     await settle();
 
+    // Not re-sent (invariant 2).
     expect(sends).toEqual(["All set.\n"]);
+
+    // Not SHRUNK either (invariant 4) — PR #3091 R1. Asserting only `sends`
+    // leaves the settle free to EDIT the message down to the untrailing-newline
+    // value, which takes back a character the reader was already given and is
+    // invisible to a send-only assertion. The edit count is what makes the
+    // difference observable.
+    expect(edits.length).toBe(editsBeforeSettle);
+    expect([...sends, ...edits.map((e) => e.text)].at(-1)).toBe("All set.\n");
   });
 });
