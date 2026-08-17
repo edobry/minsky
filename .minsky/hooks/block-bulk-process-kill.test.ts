@@ -207,4 +207,13 @@ describe("mt#4193 — a redirection is not a target", () => {
   test("a genuine multi-target kill still counts them all", () => {
     expect(findKillInvocation("kill 4821 4822 > /dev/null")?.targets).toEqual(["4821", "4822"]);
   });
+
+  test("SC2: `&>` is correct by a DIFFERENT mechanism, and is pinned here for that reason", () => {
+    // `&` is a segment separator, so `&>` never reaches `stripRedirections` — the segment simply
+    // ends before it. The outcome matches the other forms; the route does not. Without this test
+    // a change to the segment split could break `&>` while every redirect test stayed green.
+    expect(findBulkKill("pkill -f node &> /dev/null")?.target).toBe("node");
+    expect(findBulkKill("killall node &>/dev/null")?.target).toBe("node");
+    expect(findKillInvocation("kill 4821 &> /dev/null")?.targets).toEqual(["4821"]);
+  });
 });
