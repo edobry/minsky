@@ -43,8 +43,25 @@
 import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
 import { sendTelegramMessage } from "@minsky/domain/notify/telegram-transport";
 
-/** Gap between sends, so three buzzes (or one) are distinguishable by feel. */
-const SPACING_MS = 6_000;
+/**
+ * Gap between sends.
+ *
+ * **This is the discriminating parameter, not a cosmetic one.** It was 6s, and
+ * at 6s the probe cannot tell "the field was honoured" from "Telegram or the
+ * OS coalesced the follow-ups into the first message's banner" — successive
+ * messages in one chat within a short window routinely collapse into a single
+ * notification. The 2026-08-16 run (marker `002117`) returned exactly the
+ * pattern that ambiguity produces: a notification on probe 1, which carried
+ * `disable_notification`, and none on probe 3, which did not. Read literally
+ * that says the field INVERTS the behaviour, which nothing supports; read as
+ * coalescing it says the field did nothing and the first banner swallowed the
+ * rest.
+ *
+ * 70s is chosen to sit well clear of any such window while keeping the whole
+ * run under two and a half minutes. At this spacing the run exceeds a 120s
+ * command timeout — launch it detached and read the log.
+ */
+const SPACING_MS = 70_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,9 +83,14 @@ async function main(): Promise<void> {
   // so the banner itself identifies its run.
   const runMarker = new Date().toISOString().slice(11, 19).replace(/:/g, "");
 
-  // Ordered so the expected outcome is unambiguous by FEEL, not by reading:
-  // two silent sends, then one loud one. The principal should register exactly
-  // one buzz, and it should arrive with the LAST message.
+  // SILENCED, PLAIN, SILENCED — the plain send is BRACKETED deliberately.
+  //
+  // The previous order (silent, silent, plain) put the only expected
+  // notification last, so "no notification arrived" could equally mean the
+  // field worked or that notifications had stopped reaching the phone at all
+  // mid-run. Bracketing removes that: a middle notification with silence
+  // either side is the field working AND the channel demonstrably live, which
+  // no single ordering could show before.
   const cases: { label: string; text: string; disableNotification?: boolean }[] = [
     {
       label: "silent-1",
@@ -76,13 +98,13 @@ async function main(): Promise<void> {
       disableNotification: true,
     },
     {
-      label: "silent-2",
-      text: `[run ${runMarker}] mt#3711 probe 2 of 3 — also disable_notification. This should NOT notify either.`,
-      disableNotification: true,
+      label: "plain-2",
+      text: `[run ${runMarker}] mt#3711 probe 2 of 3 — sent normally. This one SHOULD notify.`,
     },
     {
-      label: "loud-3",
-      text: `[run ${runMarker}] mt#3711 probe 3 of 3 — sent normally. This one SHOULD notify. Safe to ignore all three.`,
+      label: "silent-3",
+      text: `[run ${runMarker}] mt#3711 probe 3 of 3 — also disable_notification. This should NOT notify. Safe to ignore all three.`,
+      disableNotification: true,
     },
   ];
 
@@ -106,13 +128,10 @@ async function main(): Promise<void> {
   console.log("");
   console.log(`PROBE SENT — run marker [run ${runMarker}]. Ignore any earlier run's messages.`);
   console.log("The verdict is the operator's, not this script's.");
-  console.log("Expected: exactly ONE notification, arriving with probe 3.");
-  console.log(
-    "  1 notification on probe 3 only -> disable_notification works; mt#3711's design holds."
-  );
-  console.log(
-    "  3 notifications                -> the field is ignored here; the design does NOT hold."
-  );
+  console.log("Expected: exactly ONE notification, the MIDDLE one (probe 2).");
+  console.log("  probe 2 only -> disable_notification works; mt#3711's design holds.");
+  console.log("  all three    -> the field is ignored here; the design does NOT hold.");
+  console.log("  none at all  -> notifications are not reaching the phone; the run says nothing.");
 }
 
 await main();
