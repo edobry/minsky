@@ -35,6 +35,7 @@ import {
   PROXY_RESTART_NUDGE_TEXT,
   PROXY_READY_PROBE_ID_PREFIX,
   augmentToolsListResponse,
+  toolsListCount,
   buildReadyProbeRequest,
   buildToolsListChangedNotification,
   makeToolCallResponse,
@@ -949,6 +950,47 @@ export class MinskyStdioProxy {
               });
             }
             continue;
+          }
+          // mt#4128: record the tool list this conversation was actually
+          // served, BEFORE augmentation — so the number is the inner server's,
+          // not ours plus one.
+          //
+          // The condition this exists for: a conversation can hold ZERO
+          // `mcp__minsky__*` tools for its entire life while every process
+          // stays healthy and `claude mcp list` reports the server Connected.
+          // The client caches whatever `tools/list` it first receives and does
+          // not refresh on `notifications/tools/list_changed` (mt#2030,
+          // anthropics/claude-code#4118), so one bad list is permanent for that
+          // conversation — and `__proxy_restart_server`, appended just below,
+          // never reaches a client that never re-lists. Until this line there
+          // was no record anywhere of whether a list was served or how big it
+          // was, which is why the 2026-08-13 occurrence could not be diagnosed
+          // after the fact.
+          //
+          // stderr, NOT `log.*`, and that is the point rather than a style
+          // choice: `resolveDiagnosticSink` returns the `agent` sink —
+          // structured JSON on STDOUT — whenever `MINSKY_LOG_MODE=STRUCTURED`
+          // or `ENABLE_AGENT_LOGS=true` is set
+          // (packages/shared/src/logger.ts:136). stdout here IS the JSON-RPC
+          // channel this proxy pipes, so routing this record through the logger
+          // would let a diagnostic for channel corruption become a cause of it.
+          // Guarded for the same reason the stdout write in `runReadyProbe` is
+          // (PR #3038 R1). This sits inside the JSON-parse `try` below, whose
+          // `catch` means "not valid JSON — pass through as-is". Unguarded, an
+          // EPIPE on stderr would be swallowed by THAT handler: the line would
+          // still be forwarded, but augmentation would be skipped — silently
+          // dropping `__proxy_restart_server` from the response — and the
+          // failure would be misattributed to a parse error. A diagnostic must
+          // not be able to alter the frame it is describing.
+          try {
+            const servedCount = toolsListCount(msg);
+            if (servedCount !== null) {
+              proc.stderr.write(`[proxy] tools/list served: ${servedCount} tool(s)\n`);
+            }
+          } catch {
+            // intentional-swallow: the served-count record is diagnostic only,
+            // and the only channel available to report its own failure is the
+            // stream that just failed.
           }
           const augmented = augmentToolsListResponse(msg);
           if (augmented !== msg) {

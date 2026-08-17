@@ -302,6 +302,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   setup: "mutates",
   "setup.db": "mutates",
   "setup.github-app": "mutates",
+  "setup.local-http": "mutates",
 
   // --- tasks ----------------------------------------------------------------
   "tasks.bulk-edit": "mutates",
