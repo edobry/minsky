@@ -39,6 +39,7 @@ import {
   PersistenceInitTimeoutError,
 } from "../../cockpit/shared-persistence";
 import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
+import { registerEmbeddingsHealthEventEmitter } from "@minsky/domain/ai/embeddings-health-wiring";
 import { log } from "@minsky/shared/logger";
 import {
   classifyPortHolder,
@@ -611,6 +612,21 @@ export function createStartCommand(): Command {
       // db:"unreachable" until init completes (documented pre-init state,
       // tolerated by the tray watchdog's 24-poll threshold).
       startSseBrokerWarmup();
+      // Embeddings degradation events (mt#4218). This daemon runs the per-turn
+      // transcript embedding pipeline in-process (`sweepers.ts` →
+      // `PerTurnEmbeddingPipeline`), so `EmbeddingsHealthTracker.recordError`
+      // fires here — but until now nothing registered an emitter, so
+      // `emitDegradationEvent` resolved null and returned false on every call,
+      // before even reaching a log line. The 2026-08-17 degradation ran six
+      // hours and left no row.
+      //
+      // Registered BEFORE the sweepers below, which are what perform the
+      // embedding work. Registration itself is synchronous and stores only a
+      // closure, so it neither blocks the bind nor needs persistence to be up:
+      // `getSharedProvider` is called per emit, not now. Per-call is also what
+      // keeps this correct across a pool recycle (mt#3638/mt#3721) — a cached
+      // handle from before the recycle would raise `CONNECTION_ENDED` forever.
+      registerEmbeddingsHealthEventEmitter(() => getSharedProvider());
       // Ask advancement sweep (mt#2265): advance `detected` asks (route or
       // expire) so the /asks surface reflects reality. Boot pass + 60s loop;
       // fail-open inside the sweeper.
