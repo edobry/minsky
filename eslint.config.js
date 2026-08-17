@@ -82,11 +82,19 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // categorical message-type distinction, not a status indicator. Same
   // token-budget rationale as JsonView.tsx above.
   "src/cockpit/web/widgets/ConversationView.tsx",
-  // mt#3262 SC 2: the ToolInvocation / InjectedContentBlock renderers
-  // (carrying the SAME sky/violet categorical chips as ConversationView.tsx
-  // above) were extracted out of ConversationView.tsx into this shared
-  // module so the session-film ribbon can reuse them without forking. Same
-  // exemption rationale, same code, new file.
+  // Subagent-spawn badge (violet) — a categorical "this call spawned a child
+  // conversation" marker, not a status indicator. Same token-budget rationale
+  // as JsonView.tsx above; paired with SpawnParentBacklink.tsx below, which
+  // carries the same violet as the ascent half of the affordance.
+  //
+  // NARROWED mt#4220: this entry previously also covered a sky-hued tool-call
+  // chip (`border-sky-500/30 bg-sky-500/5`, name in `text-sky-300`). That hue
+  // is gone — a healthy tool call is now a dim `text-muted-foreground` line
+  // with no border and no tint, because spending an accent colour on the
+  // machinery is what buried assistant prose on this surface. See the module's
+  // "Weight hierarchy" docblock. Violet is the only raw palette left here, and
+  // a future sky-style categorical chip should be argued on its own merits
+  // rather than inheriting this entry.
   "src/cockpit/web/components/ConversationElementRenderers.tsx",
   // mt#3692: the "Spawned by" backlink is the ascent half of the same
   // subagent-spawn affordance the violet badge marks above, so it carries the
