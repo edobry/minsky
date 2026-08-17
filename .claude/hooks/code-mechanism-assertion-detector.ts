@@ -407,6 +407,69 @@ export function isOverrideBoilerplateMention(tok: string, window: string): boole
 }
 
 /**
+ * URL-query-parameter exclusion — ADR-034 exclusion round SIX (mt#4157).
+ *
+ * The 2026-08-14 calibration pass classified all 10 injected fires: 8 false. One
+ * of those eight is an EXTRACTION defect rather than a backing one. The agent
+ * pasted Claude Code's own spend-limit banner —
+ * `raise it at claude.ai/settings/usage?from=cc_cli_limit_message` — and
+ * `cc_cli_limit_message`, a URL query-parameter VALUE in third-party output, was
+ * extracted by `SNAKE_CASE_RE` and paired with the nearby words "limit" and
+ * "raise" as predicates. No claim about it was made by anyone.
+ *
+ * **Round 6 was checked against ADR-034's reopen conditions before being
+ * written, which that ADR's §Consequences requires** ("a sixth round is now a
+ * decision with a record behind it, not a reflex"). None fires. Condition 1 needs
+ * rounds 6 AND 7 inside 5 days; this is 6. Condition 3 needs an identifier index,
+ * which does not exist. Condition 2 — "a measured FP rate above 10% on a
+ * classified corpus" — is the one that looks triggered by the headline 80%, and
+ * is not: it asks whether the mechanism ADR-034 KEPT is failing, and the rejected
+ * allowlist would have fixed exactly this one record while ADMITTING the other
+ * seven, whose symbols (`descendantsRequiredSigkill`, `expectedHeadSha`,
+ * `get_files`) are all real. Those seven are verification-corpus defects, not
+ * symbol-identification ones. Mechanism-attributable rate: 1/10.
+ *
+ * **Scoped to query parameters, deliberately not to "quoted third-party text".**
+ * The spec described this class both ways, but only one is mechanically
+ * decidable: nothing in the text marks its author, and the fixture's banner is
+ * not quoted or fenced at all. A query parameter is decidable, so that is the
+ * predicate. Path segments are also left alone — no record has yet fired on one,
+ * and ADR-034's whole subject is that predicates written ahead of evidence are
+ * how the arms race runs.
+ *
+ * Window-aware, like {@link isOverrideBoilerplateMention}: the token is excluded
+ * only when EVERY occurrence in the slice sits inside a query span, so an agent
+ * who also names the symbol in prose still fires. Occurrence-matching is plain
+ * substring, which can over-report an occurrence inside a longer word — that
+ * fails toward KEEPING the claim, the safe direction for a precision exclusion.
+ */
+const URL_QUERY_SPAN_RE = /[^\s`'"<>()[\]]*[?&][A-Za-z0-9_.~-]+=[^\s`'"<>()[\]]*/g;
+
+/** Does the part before the first `?`/`&` look like a host or a path? */
+function hasUrlishHead(span: string): boolean {
+  const head = span.split(/[?&]/)[0] ?? "";
+  return head.includes("/") || /[A-Za-z0-9-]\.[A-Za-z]{2,}/.test(head);
+}
+
+export function isUrlQueryParameterMention(tok: string, window: string): boolean {
+  const spans: Array<readonly [number, number]> = [];
+  for (const m of window.matchAll(URL_QUERY_SPAN_RE)) {
+    if (!hasUrlishHead(m[0])) continue;
+    const s = m.index ?? 0;
+    spans.push([s, s + m[0].length] as const);
+  }
+  if (spans.length === 0) return false;
+
+  let sawOccurrence = false;
+  for (let at = window.indexOf(tok); at >= 0; at = window.indexOf(tok, at + 1)) {
+    sawOccurrence = true;
+    const inside = spans.some(([s, e]) => at >= s && at + tok.length <= e);
+    if (!inside) return false;
+  }
+  return sawOccurrence;
+}
+
+/**
  * UPPERCASE-exact SQL/DDL keyword exclusion (mt#3042). A migration/DDL
  * discussion in prose ("`ALTER` ... `DROP` ... `CREATE`") extracts SQL
  * keywords as backticked "symbols" near the `drops?` predicate — the
@@ -450,6 +513,14 @@ const SQL_KEYWORDS_UPPER: ReadonlySet<string> = new Set([
  * true positives into silent false negatives. ADR-034 also records the three
  * conditions that would reopen the question; a sixth round is a good moment to
  * check them rather than to write another predicate.
+ *
+ * **Round 6 has since been written, and it is NOT here** (mt#4157): the
+ * URL-query-parameter exclusion needs the surrounding window, so it lives with
+ * {@link isUrlQueryParameterMention} beside the other window-aware predicate
+ * rather than in this token-only list, which still holds five rounds. Its doc
+ * comment carries the reopen-condition check ADR-034 asks for; read it before
+ * writing a SEVENTH, because two rounds inside 5 days is reopen condition 1 and
+ * round 6 landed 2026-08-16.
  *
  * @see docs/architecture/adr-034-symbol-identification-in-code-mechanism-assertion.md
  */
@@ -547,6 +618,10 @@ function symbolsNear(text: string, anchorIndex: number, window: number): string[
     // documented override line is discussion-framing, not a mechanism claim.
     // Needs the slice, so it cannot live in the token-only isPlausibleSymbol.
     if (isOverrideBoilerplateMention(o.tok, slice)) continue;
+    // mt#4157 — window-aware exclusion, round 6: a token that appears ONLY as a
+    // URL query parameter is part of a link, not a claim subject. Same reason
+    // this cannot live in the token-only isPlausibleSymbol: it needs the slice.
+    if (isUrlQueryParameterMention(o.tok, slice)) continue;
     found.add(o.tok);
   }
   return [...found];
@@ -721,6 +796,38 @@ function buildCorpora(turnLines: TranscriptLine[]): { read: string; writeEcho: s
  * A symbol that appears in this corpus was inspected this turn. A symbol that
  * appears only in the write-echo corpus was AUTHORED this turn, which is not
  * the same thing and must not back a claim about it.
+ *
+ * ## The agent's own prose is NOT backing — decided 2026-08-16 (mt#4157)
+ *
+ * Settled here so the next calibration pass does not re-litigate it. Three of
+ * the 2026-08-14 pass's eight false positives arrived with their evidence in the
+ * same sentence — "Re-running against a real MCP server gave
+ * `descendantsRequiredSigkill: 1`", "the exact flagged command returns 76 matches
+ * at exit 0 on Darwin", "both failed on `CONNECT_TIMEOUT`". Each reads as
+ * maximally well-evidenced and each was recorded unbacked, because a claim the
+ * agent states in its own prose is not in this corpus.
+ *
+ * **Admitting prose was rejected.** It is circular: an agent could back any
+ * claim by asserting confidently, and suppression would land exactly on "I
+ * checked" — the sentence this detector exists to doubt. Self-authorship is an
+ * aggravating factor, not a mitigating one (mem#736), and mt#3489 already split
+ * write-echo out of this corpus for the same reason.
+ *
+ * **The narrower variant the spec floated needs no code — it is what this corpus
+ * already does.** "An observation naming a value the tool corpus ALSO contains"
+ * is precisely a symbol appearing here, and it already suppresses. The records
+ * show the mechanism working: `descendantsRequiredSigkill` fired at
+ * 2026-08-13T16:39Z with `hadSameTurnRead: false, backedClaimCount: 0`, and the
+ * SAME symbol was suppressed at 17:15Z as `same-turn-read` once a real read
+ * existed. All three class members carry `hadSameTurnRead: false` and
+ * `backedClaimCount: 0` — there was no tool evidence in the turn to admit.
+ *
+ * **What is left is a WINDOW question, not a prose question, and it is not
+ * ours.** If the read happened an earlier turn in the same session, the evidence
+ * is machine-recorded and merely out of frame. Widening same-turn to
+ * session-scope is the ask#6817 disposition that mt#3594 owns, and it is gated
+ * there on per-claim backing landing first — a session-scoped read of ANYTHING
+ * would otherwise back EVERYTHING. Do not widen this corpus's time window here.
  */
 export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
   return buildCorpora(turnLines).read;
