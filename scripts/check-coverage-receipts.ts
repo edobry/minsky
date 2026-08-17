@@ -75,9 +75,11 @@ const { readFireLogEntries } = await import("../.minsky/hooks/fire-log");
 // is the ONE shared accessor mt#3742 SC5 requires — the calibration-sweep derivation
 // (`src/domain/calibration/calibration-sweep.ts`'s `deriveCalibrationLogEntries`) consumes the
 // same functions rather than re-deriving the union a second time.
-const { buildCalibrationLogToGuards, NON_GUARD_CALIBRATION_PRODUCERS } = await import(
-  "./lib/calibration-log-declarations"
-);
+const {
+  buildCalibrationLogToGuards,
+  NON_GUARD_CALIBRATION_PRODUCERS,
+  RETIRED_CALIBRATION_PRODUCERS,
+} = await import("./lib/calibration-log-declarations");
 
 import type { InvocationEvidence } from "../.minsky/hooks/coverage-receipt";
 
@@ -196,15 +198,27 @@ async function main(): Promise<void> {
   // has no guard by construction, so it is reported in its own category rather
   // than as a missing declaration nobody can add.
   const nonGuard = detectors.filter((d) => d in NON_GUARD_CALIBRATION_PRODUCERS);
+
+  // mt#4204: a RETIRED producer is the same class as a non-guard one — there is no entry point
+  // to instrument, so `FLAGGED` ("no evidence the entry point ran") is a false claim about it
+  // rather than a weak one. Excluded and reported separately, exactly like `nonGuard`. Without
+  // this a deliberately-retained log reads as a dead detector on every run, forever (mt#4197).
+  const retired = detectors.filter((d) => d in RETIRED_CALIBRATION_PRODUCERS);
+
   const unmapped = detectors.filter(
-    (d) => !logToGuards.has(d) && !(d in NON_GUARD_CALIBRATION_PRODUCERS)
+    (d) =>
+      !logToGuards.has(d) &&
+      !(d in NON_GUARD_CALIBRATION_PRODUCERS) &&
+      !(d in RETIRED_CALIBRATION_PRODUCERS)
   );
 
   // A non-guard producer is EXCLUDED from the coverage results, not merely
   // annotated alongside them: `FLAGGED` asserts "no evidence the entry point
   // ran", which for a log with no entry point to instrument is a false claim,
   // not a weak one. It is reported in its own category below instead.
-  const checked = detectors.filter((d) => !(d in NON_GUARD_CALIBRATION_PRODUCERS));
+  const checked = detectors.filter(
+    (d) => !(d in NON_GUARD_CALIBRATION_PRODUCERS) && !(d in RETIRED_CALIBRATION_PRODUCERS)
+  );
 
   const results = checked.map((name) =>
     checkDetectorCoverage(name, {
@@ -217,7 +231,9 @@ async function main(): Promise<void> {
   const report = summarizeCoverage(results);
 
   if (json) {
-    process.stdout.write(`${JSON.stringify({ ...report, unmapped, nonGuard }, null, 2)}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ ...report, unmapped, nonGuard, retired }, null, 2)}\n`
+    );
   } else {
     for (const r of report.results) {
       console.log(formatCoverageResult(r));
@@ -231,6 +247,11 @@ async function main(): Promise<void> {
     for (const name of nonGuard) {
       console.log(
         `[NON-GUARD] ${name}: written by ${NON_GUARD_CALIBRATION_PRODUCERS[name]} — no guard invocation evidence exists by construction (mt#3519).`
+      );
+    }
+    for (const name of retired) {
+      console.log(
+        `[RETIRED] ${name}: ${RETIRED_CALIBRATION_PRODUCERS[name]} — producer deleted on purpose, so there is no entry point to have invocation evidence for; the log is kept as history (mt#4204).`
       );
     }
     const covered = results.length - report.flaggedCount - report.dormantCount;
