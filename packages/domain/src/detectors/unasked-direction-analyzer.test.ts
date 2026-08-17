@@ -24,6 +24,7 @@ import {
   type UnaskedDirectionFinding,
 } from "./unasked-direction-analyzer";
 import type { TranscriptMessage } from "../provenance/transcript-service";
+import { NON_TEXT_MARKER } from "../provenance/transcript-content";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 
 // ---------------------------------------------------------------------------
@@ -217,5 +218,70 @@ describe("summarizeMessage", () => {
     };
     const text = __TEST_ONLY.summarizeMessage(msg, 0);
     expect(text).toContain("hello");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The STORED shape (mt#4196)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every fixture above uses `makeMessage`, which builds the flat legacy shape
+ * `{ type, role, content }`. Zero prod rows have that shape. That is why this whole file
+ * passed for months while 496 of 496 real runs rendered as `[non-text content]`: the
+ * fixtures encode the same assumption the reader made, so they can never disagree with it.
+ *
+ * These fixtures match what prod actually stores — the raw harness line, text nested at
+ * `message.content` — sampled 2026-08-17 across the 40 most-recently-ingested rows.
+ */
+function makeStoredMessage(type: "user" | "assistant", content: unknown): TranscriptMessage {
+  return { type, role: type, content: undefined, message: { role: type, content } };
+}
+
+describe("summarizeMessage on the stored transcript shape (mt#4196)", () => {
+  it("AT1 — renders the text of a stored-shape string message", () => {
+    const text = __TEST_ONLY.summarizeMessage(makeStoredMessage("user", "add a queue"), 0);
+    expect(text).toContain("add a queue");
+    expect(text).not.toContain(NON_TEXT_MARKER);
+  });
+
+  it("AT2 — concatenates text blocks from a stored-shape block array", () => {
+    const msg = makeStoredMessage("assistant", [
+      { type: "text", text: "chose" },
+      { type: "tool_use", name: "Edit" },
+      { type: "text", text: "Redis" },
+    ]);
+    const text = __TEST_ONLY.summarizeMessage(msg, 0);
+    expect(text).toContain("chose Redis");
+    expect(text).not.toContain(NON_TEXT_MARKER);
+  });
+
+  it("AT3 — still renders the legacy flat shape unchanged", () => {
+    const text = __TEST_ONLY.summarizeMessage(makeMessage("user", "legacy text"), 0);
+    expect(text).toContain("legacy text");
+  });
+
+  it("AT4 — a whole prompt built from stored-shape messages carries real text", () => {
+    // The end of the chain, which no prior test reached: what the model actually receives.
+    const messages = [
+      makeStoredMessage("user", "please add caching"),
+      makeStoredMessage("assistant", "added an in-memory LRU"),
+      makeStoredMessage("user", "why LRU?"),
+    ];
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+    expect(prompt).toContain("please add caching");
+    expect(prompt).toContain("added an in-memory LRU");
+    expect(prompt).not.toContain(NON_TEXT_MARKER);
+  });
+
+  it("AT4 — the pre-fix rendering is the blindness signature, and is detectable", () => {
+    // A transcript of stored-shape rows read the OLD way (flat `.content` only) renders
+    // entirely as markers. Reading `.content` directly is what produced this.
+    const storedRows = Array.from({ length: 5 }, (_, i) => makeStoredMessage("user", `msg ${i}`));
+    const asTheOldCodeSawThem = storedRows.map((m) => m.content);
+    expect(asTheOldCodeSawThem.every((c) => c === undefined)).toBe(true);
+
+    const prompt = __TEST_ONLY.buildUserPrompt(storedRows, { sessionId: "s1" });
+    expect(prompt).not.toContain(NON_TEXT_MARKER);
   });
 });
