@@ -57,10 +57,38 @@ const RULE_SOURCE = ".minsky/rules/key-workflows.mdc";
 // categories against the canonical seven, precisely because nothing here covered it.
 const CLASSIFY_SOURCE = ".minsky/skills/classify-before-deferring/SKILL.md";
 const CLASSIFY_GENERATED = ".claude/skills/classify-before-deferring/SKILL.md";
-// Opens the restatement window on both classify surfaces AND on the plan-task skill —
-// they deliberately share the phrase, so the drift guard reads the same construction
-// everywhere it appears.
+// --- Restatement-window anchors (drift guard, `describe` #2) -------------------------
+//
+// These three phrases bound the span of a surface that restates the reserved-category list
+// (see `restatementWindow` below). They are grouped here so each phrase is defined ONCE
+// rather than once per call site, and they are hardcoded ON PURPOSE.
+//
+// Hardcoding is irreducible: the guard has to LOCATE the restatement inside prose it does
+// not control, so something must say where that span begins and ends. What WAS reducible is
+// the silence about why that is safe — the file header defends this same brittleness for
+// the PRESENCE guard (`describe` #1) and says nothing about these anchors, which is what
+// mt#4146 (PR #2998 R1, non-blocking) flagged.
+//
+// It is safe because the failure is FAIL-CLOSED, and that is measured rather than assumed
+// (mt#4146): reword an anchor on any surface and `indexOf` returns -1, so
+// `restatementWindow`'s `expect(...).toBeGreaterThanOrEqual(0)` fails loudly AND the failing
+// test names the drifted surface. It does NOT silently widen the window and keep passing —
+// that failure DIRECTION is the whole reason this is a nit rather than a defect, and it is
+// the opposite of the silent drift mt#4141 fixed one level down. Observed by rewording
+// CLOSE_MARKER's phrase in the classify source: 12 pass, 1 fail, the one failure being that
+// surface's own drift test.
+//
+// FOUR surfaces depend on these anchors as of mt#4141, so each anchor is load-bearing for a
+// real test: the plan-task skill source, `key-workflows.mdc`, and the classify skill's
+// source AND its compiled output.
+
+// Opens the window on both classify surfaces AND on the plan-task skill — they deliberately
+// share the phrase, so the drift guard reads the same construction everywhere it appears.
 const CLOSED_LIST_MARKER = "The closed list:";
+// Opens the window on the rule source, which introduces the same list in its own words.
+const RULE_OPEN_MARKER = "State the category before halting on it:";
+// Closes the window on every surface — all four restatements are followed by this sentence.
+const CLOSE_MARKER = "If you cannot name one";
 
 // The positive test itself: a halt must NAME the category.
 const CITATION_MARKER = "NAME which reserved category";
@@ -148,7 +176,7 @@ function restatementWindow(content: string, openMarker: string): string {
   const start = content.indexOf(openMarker);
   expect(start).toBeGreaterThanOrEqual(0);
   const rest = content.slice(start + openMarker.length);
-  const end = rest.indexOf("If you cannot name one");
+  const end = rest.indexOf(CLOSE_MARKER);
   expect(end).toBeGreaterThanOrEqual(0);
   return rest.slice(0, end);
 }
@@ -162,7 +190,7 @@ const RESTATEMENTS: Array<{ name: string; content: () => string; openMarker: str
   {
     name: RULE_SOURCE,
     content: () => read(RULE_SOURCE),
-    openMarker: "State the category before halting on it:",
+    openMarker: RULE_OPEN_MARKER,
   },
   // mt#4141 — both the source and its compiled output. The generated copy is included
   // because an agent reads .claude/skills/, so a source-only assertion passes on a stale
