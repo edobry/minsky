@@ -1,7 +1,7 @@
 /**
  * @fileoverview ESLint rule to catch new `process.env.MINSKY_*` reads in src/
  * that are not registered in either `environmentMappings` (config-mapped) or
- * `HOOK_ONLY_ENV_VARS` (hook-only). Closes the ADD-side gap of the
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES` (hook-only). Closes the ADD-side gap of the
  * env-var-namespace-conflict class (mt#1610, mt#1624, mt#1785).
  *
  * The Minsky env-var-to-config dot-path parser at
@@ -16,11 +16,19 @@
  * The two valid registration paths:
  *   1. `environmentMappings` — the env var routes to a config path. Add the
  *      key + the dotted config path. The config schema must accept the path.
- *   2. `HOOK_ONLY_ENV_VARS` — the env var is process/hook-only and does NOT
- *      feed config. The dot-path parser will skip it.
+ *   2. `HOOK_ONLY_ENV_VAR_CATEGORIES` — the env var is process/hook-only and
+ *      does NOT feed config. The dot-path parser will skip it. Add one line,
+ *      `MINSKY_FOO_BAR: "<category>",`, choosing `operator-override` (a guard,
+ *      gate or detector consults it as its OWN override), `test-fixture`, or
+ *      `tunable`. `HOOK_ONLY_ENV_VARS` is DERIVED from that record's keys
+ *      (mt#3882) and is not an edit target; `operator-override` additionally
+ *      obliges an entry in `.minsky/hooks/known-override-env-vars.ts`, which
+ *      `known-override-env-vars.test.ts` enforces by name.
  *
  * Tracking task: mt#1788. See bridge memory id
- * `0b361d17-cc83-41dc-a485-0002d7e41e94`.
+ * `0b361d17-cc83-41dc-a485-0002d7e41e94` — whose own "add the var to the
+ * `HOOK_ONLY_ENV_VARS` set" recipe predates mt#3882; this header is the
+ * current one.
  */
 
 import { readFileSync } from "node:fs";
