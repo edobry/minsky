@@ -136,6 +136,20 @@ export interface SweepLivenessSnapshot {
    * this flag is what lets a reader say which one it is looking at.
    */
   selfScheduled: boolean;
+  /**
+   * ISO timestamp of when this sweep joined the registry (mt#4206).
+   *
+   * Present so "registered, never reported" is a DATEABLE reading rather than
+   * an inference from `lastAttemptAt: null`. The two are different states with
+   * different responses — one is a sweep that has not started yet, the other is
+   * one that started and never got anywhere — and a null alone cannot say which
+   * without knowing how long it has been null.
+   *
+   * It is also the meta-watchdog's staleness reference for a self-scheduling
+   * participant that has reported nothing, which is what makes a first-cycle
+   * park visible instead of permanently skipped.
+   */
+  registeredAt: string;
 }
 
 interface SweepLivenessEntry {
@@ -153,6 +167,8 @@ interface SweepLivenessEntry {
   reportsDomainOutcome: boolean;
   /** See {@link SweepLivenessSnapshot.selfScheduled} (mt#4185). */
   selfScheduled: boolean;
+  /** See {@link SweepLivenessSnapshot.registeredAt} (mt#4206). */
+  registeredAtMs: number;
   /**
    * True once this sweep's `stop()` has been called (PR #2019 R1 BLOCKING
    * #1). The entry is deliberately kept in {@link sweepLivenessRegistry}
@@ -217,6 +233,7 @@ export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
       consecutiveDomainFailures: e.consecutiveDomainFailures,
       reportsDomainOutcome: e.reportsDomainOutcome,
       selfScheduled: e.selfScheduled,
+      registeredAt: new Date(e.registeredAtMs).toISOString(),
     }));
 }
 
@@ -352,6 +369,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     consecutiveDomainFailures: 0,
     reportsDomainOutcome: false,
     selfScheduled: false,
+    registeredAtMs: Date.now(),
     stopped: false,
     restart: () => {},
     clearUnderlyingTimer: () => {
@@ -674,6 +692,7 @@ export function registerSelfSchedulingSweep(
     consecutiveDomainFailures: 0,
     reportsDomainOutcome: false,
     selfScheduled: true,
+    registeredAtMs: Date.now(),
     stopped: false,
     restart: (reason: SweepRestartReason): void => {
       if (stopped) return;
@@ -786,11 +805,18 @@ export function startSweepMetaWatchdog(
       // also refuses once stopped; this explicit skip keeps the intent
       // legible at the call site the finding named.
       if (entry.stopped) continue;
-      // No tick has fired yet (e.g. the sweep just registered and its boot
-      // tick's microtask hasn't run) — nothing to evaluate yet.
-      if (entry.lastAttemptAtMs === null) continue;
+      // Nothing reported yet. For an INTERVAL sweep that is a millisecond-scale
+      // window — the registry drives the tick, so a stamp is imminent by
+      // construction — and skipping is correct. For a SELF-SCHEDULING
+      // participant nothing guarantees the stamp ever arrives: the registry does
+      // not drive its loop, so a park before the first `noteProgress()` would
+      // leave this null forever and the entry permanently unevaluated (mt#4206).
+      // Measuring from REGISTRATION is what closes that, and it is the same
+      // fallback mt#4183's health projection uses (`lastProgressAt ?? since`).
+      if (entry.lastAttemptAtMs === null && !entry.selfScheduled) continue;
       const threshold = entry.intervalMs * META_WATCHDOG_STALL_MULTIPLIER;
-      const staleMs = now - entry.lastAttemptAtMs;
+      const referenceMs = entry.lastAttemptAtMs ?? entry.registeredAtMs;
+      const staleMs = now - referenceMs;
       if (staleMs > threshold) {
         // A self-scheduling participant (mt#4185) has no timer of ours to
         // have stopped firing and no cadence to be a multiple of — the same

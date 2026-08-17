@@ -862,6 +862,7 @@ describe("running-status projection over the liveness registry (mt#4183)", () =>
         consecutiveDomainFailures: 0,
         reportsDomainOutcome: false,
         selfScheduled: true,
+        registeredAt: SINCE,
       },
     ];
   }
