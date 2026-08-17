@@ -150,12 +150,20 @@ const MEASURE = `(() => {
   if (!thread) return JSON.stringify({ hasThread: false });
 
   const lum = (css) => {
-    const m = String(css).match(/-?[\\d.]+/g);
+    const s = String(css);
+    const m = s.match(/-?[\\d.]+/g);
     if (!m || m.length < 3) return -1;
-    const [r, g, b] = m.slice(0, 3).map(Number);
-    // Rec. 709 luma, normalised. Alpha is deliberately ignored: both samples
-    // sit on the same background, so it shifts them together.
-    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+    const n = m.slice(0, 3).map(Number);
+    // The cockpit's semantic tokens resolve to oklch(), whose FIRST component
+    // is perceptual lightness on 0..1 — read it directly. Feeding oklch through
+    // the rgb branch below would divide an already-normalised L by 255 and
+    // report every colour as ~0.001, which orders correctly by accident and
+    // prints as though nothing were measured.
+    if (/^oklch/i.test(s)) return n[0];
+    if (/^oklab/i.test(s)) return n[0];
+    // rgb()/rgba(): Rec. 709 luma, normalised. Alpha is deliberately ignored —
+    // both samples sit on the same background, so it shifts them together.
+    return (0.2126 * n[0] + 0.7152 * n[1] + 0.0722 * n[2]) / 255;
   };
 
   const toolRows = Array.from(thread.querySelectorAll('[data-tool-use-id]'));
