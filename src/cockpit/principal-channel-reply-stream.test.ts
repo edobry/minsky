@@ -500,4 +500,32 @@ describe("createReplyStream — semantic blocks (mt#3711)", () => {
     expect(delivered).toContain("third block");
     expect(delivered).toContain("an unrelated resolved answer");
   });
+
+  /**
+   * PR #3039 review, NON-BLOCKING finding: the "already on screen" check
+   * matched against the whole accumulation.
+   *
+   * A short resolved answer can appear in an EARLIER block by coincidence —
+   * "Done." is the obvious one — and matching the whole turn would then
+   * conclude the reader has already seen the final answer and deliver nothing
+   * at all. The check is scoped to the open message instead. The failure
+   * directions are asymmetric: matching too widely loses the answer, matching
+   * too narrowly repeats a line, and only one of those is a lost reply.
+   */
+  test("a short resolved answer echoing an EARLIER block is still delivered", async () => {
+    const { stream, sends } = harness({ throttleMs: 5 });
+
+    stream.push("Done. Now checking the handler.");
+    await settle();
+    stream.sealBlock();
+    stream.push("Done. Now checking the handler.The handler looks fine.");
+    await settle();
+
+    // "Done." is in block ONE, not in the open message. Suppressing on that
+    // basis would mean the turn's answer never reaches the chat.
+    await stream.finish("Done.");
+    await settle();
+
+    expect(sends.at(-1)).toBe("Done.");
+  });
 });

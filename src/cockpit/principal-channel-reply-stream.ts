@@ -459,8 +459,21 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
         return degraded ? undefined : (currentMessageId ?? lastDeliveredId);
       }
 
-      // Already read — the deltas carried it. Leave every message as it stands.
-      if (pending.includes(finalText)) return lastDeliveredId;
+      // ALREADY READ — the deltas carried it, so leave every message as it
+      // stands.
+      //
+      // Scoped to the OPEN message, not the whole accumulation (PR #3039
+      // review). `pending` is the entire turn; a short resolved answer —
+      // "Done.", "Yes." — can appear in some earlier block by coincidence,
+      // and matching against all of it would then suppress the final answer
+      // entirely on the reasoning that the reader "has seen it". The tail is
+      // what is actually on screen at the point the settle runs.
+      //
+      // The two failure directions are not symmetric, which is what settles
+      // the scope. Matching too WIDELY loses the answer. Matching too NARROWLY
+      // repeats a line the reader already has — the same trade the degraded
+      // path takes deliberately, and the lesser harm under invariant 2.
+      if (streamedTail.length > 0 && streamedTail.includes(finalText)) return lastDeliveredId;
 
       // Genuinely new text that does not continue what is on screen: the
       // timeout notice, the mid-turn-swap notice, or a `result` that diverged.
