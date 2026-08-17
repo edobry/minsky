@@ -1390,8 +1390,11 @@ Check for Minsky's own answer before a generic (SE) default. Full detail:
 - **Security-surface**: spec changes a CI/CD security surface → security + community-practice
   search + ≥1 citation. SE: "docs suffice." mt#1477; `/plan-task` gate (l).
 
-**Enforcement:** human-consulted; policy-coverage detector (mt#2755) will block uncovered
-actions once shipped.
+**Enforcement:** human-consulted. No mechanism blocks an uncovered action, and none is planned.
+This line promised one from 2026-05 until 2026-08-16: the policy-coverage detector, which ran
+log-only for its whole life, blocked nothing, and was retired by mt#4197 — it classified 97.7%
+of actions "covered" by matching an authority word and a category word in the same paragraph of
+this very corpus, which incidental prose satisfies almost everywhere.
 
 # Error Investigation
 

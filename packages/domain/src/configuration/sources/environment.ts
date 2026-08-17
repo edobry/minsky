@@ -305,7 +305,6 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SKILL_STALENESS", // .claude/hooks/skill-staleness-detector.ts (mt#1622)
   "MINSKY_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts + src/mcp/daemon-state.ts (state-dir override)
   "MINSKY_FORCE_LOOP_TERMINAL", // .claude/hooks/loop-preflight-pr-merge-check.ts
-  "MINSKY_POLICY_COVERAGE_MODE", // .claude/hooks/policy-coverage-detector.ts (mt#1541)
   "MINSKY_SKIP_DAEMON_STALENESS", // .claude/hooks/mcp-daemon-staleness-detector.ts
   "MINSKY_CANARY_MODE", // .claude/hooks/types.ts (mt#3004, PR #2145 R1) — canary-mode gate set only by scripts/run-guard-canaries.ts + tests; the two seams below are honored only while it is "1"
   "MINSKY_DAEMON_TRACKER_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts (mt#3004) — canary-gated tracker-home override for the guard-canary suite

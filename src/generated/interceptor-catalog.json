@@ -1874,25 +1874,22 @@
     },
     {
       "guardName": "policy-coverage",
-      "description": "Runs before every Edit/Write/NotebookEdit: when a tool call encodes a preference-bound choice that no policy source covers, it emits a `direction.decide` ask and blocks the action with the question surfaced as the denial reason.",
-      "failureClasses": ["lost-signal", "blind-enforcement"],
-      "provenance": [".minsky/hooks/policy-coverage-detector.ts", ".minsky/rules/hook-files.mdc"],
-      "stratum": "standalone",
+      "description": "Retired PreToolUse detector (Surface 1 of the System 3* detector) that ran before every Edit/Write and decided whether existing policy prose already authorized a preference-bound choice — a new file, dependency, config default, user-facing string, or top-level export.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/known-guard-names.ts"],
+      "stratum": "retired",
       "subject": "trajectory",
-      "note": "Ontology amendment (a): its declared type is a capability SET — it selects deny, warn, or allow per fire — so it is legitimately both a guard and a detector.",
-      "provenanceStatus": "implementation",
+      "note": "Retired 2026-08-16 by mt#4197 (ask#8752). Ran log-only for its entire life and blocked nothing; measured over its 1,760-record log it classified 97.7% of actions 'covered' on incidental keyword matches, and its target problem was postulated from LLM training dynamics rather than observed (mt#1035 cites zero incidents). No source module exists — the oracle's declaration is the only honest pointer. The fire log is append-only history, so its 12,135 records persist under this name permanently.",
+      "provenanceStatus": "declaration-only",
       "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
       "registered": false,
       "undescribed": false,
       "point": "PreToolUse",
-      "pointSource": "settings",
+      "pointSource": "authored",
       "trajectory": null,
       "interventions": [
         {
           "type": "deny"
-        },
-        {
-          "type": "allow"
         },
         {
           "type": "inject",
