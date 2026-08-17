@@ -149,6 +149,43 @@ rate. This stream is the denominator: how many specs carried criteria at all, ho
 authorizing ask, how often Class B was reachable. Without it "what is this detector not seeing?" has
 no data behind it.
 
+## Measured fire rate, and why Class A is not yet injection-ready
+
+Measured before shipping, over real spec bodies read from `task_specs`, both arms in one run:
+
+| corpus                    | criteria | phrase-only | + corpus referent |
+| ------------------------- | -------- | ----------- | ----------------- |
+| 120 most-recently-updated | 1,102    | 83 (69.2%)  | **47 (39.2%)**    |
+| 120 oldest by task id     | 1,254    | 39 (32.5%)  | 32 (26.7%)        |
+
+Three things follow, and the first two are why the conjunct exists at all.
+
+**Sample the RECENT specs.** The two corpora differ by 2x on the same code. The dense-prose spec
+style that leans on _still_ / _already_ / _remains_ is recent, and this hook fires on
+`tasks_create` / `tasks_spec_patch` — so newly-written specs are the population it actually faces
+and an id-ordered corpus understates its load by half. A measurement over the oldest specs would
+have made the phrase-only matcher look shippable.
+
+**The trigger vocabulary alone does not discriminate.** At 69.2% the matcher is not a detector, it
+is a tax on writing a spec. The residual after the conjunct is still concentrated in two ordinary
+adverbs — per-finding counts on the recent corpus: `still` 41, `already` 18, `remain` 3,
+`is registered` 2, `continues to` 1. Sampled fires include `"still with you: ask#N"` (quoted
+EXAMPLE text inside a criterion — `elideMarkdownNonProse` blanks code spans and blockquotes, not
+double-quoted prose) and `already-filed` used as a compound adjective.
+
+**The deeper limit is structural, not lexical.** An acceptance criterion describes the END STATE
+the PR creates, and "`X` is registered in `Y`" is grammatically identical whether it asserts a
+pre-existing corpus fact or specifies the deliverable. Class A's premise is that a trigger plus a
+referent separates those two; at 39.2% on the operative corpus, it does not separate them well.
+That is a claim about the premise, not a tuning gap, so the answer is not another phrase-list
+revision — widening or re-wording the list is the ADR-024 §Context arms race, and narrowing it
+further by hand on the same corpus that justified the narrowing is the same move in reverse.
+
+So Class A ships **log-only** with `INJECTION_ENABLED = false`, and the 39.2% figure is the input
+to the calibration review that decides whether it earns a Rung-2 flip, gets restricted to its
+highest-precision phrases, or is retired. The evaluation stream above supplies the miss
+denominator that decision needs.
+
 ## Feedback shape
 
 Built even while injection is off, so the registry's `renderProbe` measures a real ceiling (mt#4002)

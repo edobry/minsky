@@ -263,6 +263,76 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
   },
 
   // -------------------------------------------------------------------------
+  // Fourth tier on the same record (mt#4167): were the candidates it names
+  // actually READ? The three above establish that the record is PRESENT, that
+  // its verdicts are not CONTRADICTED by the corpus, and that the search RAN —
+  // none of them that the author opened the task they distinguished. mt#4158
+  // named mt#3053, distinguished it on a property mt#3053's own spec
+  // contradicts, and passed all three.
+  //
+  // Scoped to NAMED candidates, which mem#819 R4 shows is defeasible by
+  // omission — that axis belongs to `duplicate-signature-scan`, which reaches
+  // tasks the record never mentions for exactly this reason. Complementary
+  // layers; this is the weaker one.
+  // -------------------------------------------------------------------------
+  {
+    name: "duplicate-check-candidate-read",
+    // Both, for the same reason as the two siblings above: a calibration record
+    // on every path, an `additionalContext` injection on the matched one.
+    effects: [recorderEffect(), advisoryEffect()],
+    // `advisory`: which token in a record counts as a candidate id is a
+    // heuristic the calibration log exists to size. The session-state half —
+    // did a spec-surfacing call for that id appear — is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__tasks_create",
+    module: () => import("./duplicate-check-candidate-read").then((m) => ({ run: m.run })),
+    // A regex over one paragraph plus `specWasSurfaced` over lines the
+    // dispatcher already parsed — no IO of its own.
+    timeoutMs: 5000,
+    calibrationLog: "duplicate-check-candidate-read",
+    // LOAD-BEARING, same as the search sibling: `ctx.transcriptLines` is
+    // populated ONLY for a registration declaring this (D6), and it is this
+    // guard's entire discriminating half. Without it the guard records
+    // `skipped` on every live run — present, tested, green, and inert.
+    needsTranscript: true,
+    denyCapable: false,
+    // MEASURED against the saturated canary below, which supplies
+    // `transcriptLines` so it reaches the INJECTING path rather than the
+    // no-transcript `skipped` branch — the ceiling is checked against a real
+    // render, not an empty string (mt#4002). No `renderProbe`: this guard
+    // injects on real turns and so belongs in the budget bucket.
+    attentionCost: { denialMessageSizeChars: 900, optionCount: 1 },
+    // Posed SATURATED on both axes at once: the id list at its
+    // MAX_RENDERED_IDS cap AND the `…and N more` overflow suffix present.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_create",
+        tool_input: {
+          title: "canary candidate-read task",
+          spec:
+            "## Context\n\nDuplicate check: reviewed mt#4001, mt#4002, mt#4003, mt#4004, " +
+            "mt#4005, mt#4006 and mt#4007; all confirm-orthogonal.\n",
+        },
+      },
+      // One unrelated tool_use, so the transcript is non-empty (the guard can
+      // adjudicate) but surfaces no candidate's spec (every id reads unread).
+      transcriptLines: [
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "tool_use", name: "mcp__minsky__tasks_search", input: { query: "canary" } },
+            ],
+          },
+        },
+      ],
+      expects: "calibration",
+    },
+  },
+
+  // -------------------------------------------------------------------------
   // mt#4168 — the two entries mt#3806 re-homed into the shared table, at the
   // spec-WRITE seam.
   //

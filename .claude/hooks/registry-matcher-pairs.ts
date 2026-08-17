@@ -74,6 +74,22 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["flakiness-control-detector", "require-duplicate-check-record"],
   ["flakiness-control-detector", "duplicate-signature-scan"],
   ["flakiness-control-detector", "duplicate-check-search-provenance"],
+  // Fourth tier on the duplicate-check record (mt#4167), asking the one question
+  // the other three leave open: were the candidates the record NAMES actually
+  // read? Present / true / searched are each satisfiable while the reconciliation
+  // itself is invented, which is how mt#4158 distinguished mt#3053 on a property
+  // mt#3053's own spec contradicts and passed all three.
+  //
+  // Not folded into the search-provenance sibling despite both reading session
+  // state: that one asks whether ANY search ran, a single membership test over
+  // tool NAMES, while this asks whether a SPECIFIC id was surfaced, which needs
+  // tool ARGUMENTS and an id-extraction heuristic with its own false-positive
+  // surface. One calibration log cannot size two different heuristics, and
+  // merging them would put this one's id-parsing behind the other's canary.
+  ["require-duplicate-check-record", "duplicate-check-candidate-read"],
+  ["duplicate-signature-scan", "duplicate-check-candidate-read"],
+  ["duplicate-check-search-provenance", "duplicate-check-candidate-read"],
+  ["flakiness-control-detector", "duplicate-check-candidate-read"],
   // FIFTH question about the same `tasks_create` spec (mt#4168), and the first
   // whose matcher is WIDER than that one tool: it also fires on
   // `tasks_spec_patch` / `tasks_edit` / `tasks_spec_search_replace`, where none
@@ -93,7 +109,7 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["claim-provenance-scan", "duplicate-signature-scan"],
   ["claim-provenance-scan", "duplicate-check-search-provenance"],
   ["claim-provenance-scan", "flakiness-control-detector"],
-  // Sixth question about the same spec text (mt#4153), and the first to read
+  // Seventh question about the same spec text (mt#4153), and the first to read
   // `## Success Criteria` as a CLAIM. Every sibling reads a different section or a
   // different claim class: whether the duplicate-check record is present, whether
   // its verdicts are true, whether its search ran, whether a failure-MODE claim
@@ -105,12 +121,34 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // resolves the authorizing ask, which no sibling touches, and its Class A half is
   // silenced by evidence — an inline verifying command — that means nothing to the
   // others. It also spans two more matchers than they do, since Class B is only
-  // reachable on an edit. Independent overrides; running all six is the point.
+  // reachable on an edit. Independent overrides; running all seven is the point.
+  //
+  // The sixth pair below was added while resolving a merge, not authored with the
+  // other five: `duplicate-check-candidate-read` (mt#4167) landed on this same
+  // matcher after they were written, so the list was complete against the siblings
+  // it could see and silent about that one — the identical shape mt#4167's own note
+  // describes one hunk down, now hit a third time. It is orthogonal for the reason
+  // the whole comment gives: that guard asks whether a named candidate's spec was
+  // opened, which is a question about the duplicate-check record, not about whether
+  // a criterion asserts something unverified.
   ["spec-criterion-claim-detector", "require-duplicate-check-record"],
   ["spec-criterion-claim-detector", "duplicate-signature-scan"],
   ["spec-criterion-claim-detector", "duplicate-check-search-provenance"],
   ["spec-criterion-claim-detector", "flakiness-control-detector"],
   ["spec-criterion-claim-detector", "claim-provenance-scan"],
+  ["spec-criterion-claim-detector", "duplicate-check-candidate-read"],
+
+  // The pair NEITHER side could declare alone: mt#4167 and mt#4168 landed within
+  // an hour of each other, each adding a `tasks_create` guard while the other was
+  // in review, so each one's own list is complete against the four it could see
+  // and silent about the other. Both read session tool-call state, and they are
+  // still orthogonal — this one asks whether a NAMED CANDIDATE's spec was
+  // surfaced (an id join against `tasks_spec_get`/`tasks_get`), that one whether
+  // a file-COLLISION or negative-OWNERSHIP claim has a discharging call (a PR
+  // number joined against `pull_request_read`, over the whole authored body
+  // rather than one paragraph). Different extractor, different join, separate
+  // calibration logs.
+  ["claim-provenance-scan", "duplicate-check-candidate-read"],
   // Fourth guard on the Bash/session_exec command string (mt#4055), and the
   // first that asks about the WORLD rather than the string: its three siblings
   // decide entirely from the text (a constructed path, a secret-bearing read,

@@ -82,6 +82,36 @@ describe("SC8 — the elision actually fires (real elideMarkdownNonProse)", () =
     expect(evaluated?.result.matched).toBe(true);
     expect(evaluated?.result.findings[0]?.klass).toBe("A");
   });
+
+  test("a trigger inside a PROSE-QUOTED span produces no finding", async () => {
+    // SC7's fourth context, and the half `elideMarkdownNonProse` does not cover —
+    // hence the composed SPEC_ELIDER. Verbatim shape of a real corpus false
+    // positive (mt#4199): the trigger sits in a quoted sample message, so it is
+    // example text rather than an assertion about the repo.
+    const spec = [
+      SC_HEADING,
+      "",
+      PLAIN_CRITERION,
+      '- [ ] A closing message saying "still with you: ask#N" produces a fire record in `CLAUDE.md`.',
+    ].join("\n");
+
+    const evaluated = await evaluateCall(CREATE_TOOL, { spec }, noSource);
+    expect(evaluated?.result.matched).toBe(false);
+  });
+
+  test("an apostrophe does not blank the rest of the line", async () => {
+    // Why single quotes are excluded from the quoted-span pass: an apostrophe opens
+    // a span that never closes, and blanking to end-of-line would silently swallow
+    // a real assertion sitting after it.
+    const spec = [
+      SC_HEADING,
+      "",
+      "- [ ] The agent's override `MINSKY_ACK_FOO` remains documented in CLAUDE.md",
+    ].join("\n");
+
+    const evaluated = await evaluateCall(CREATE_TOOL, { spec }, noSource);
+    expect(evaluated?.result.matched).toBe(true);
+  });
 });
 
 describe("spec-text and task-id extraction per tool (mt#4153)", () => {

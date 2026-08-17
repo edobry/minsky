@@ -111,6 +111,40 @@ export const VERIFY_COMMAND_LEADERS: readonly string[] = [
   "git",
 ];
 
+/**
+ * A CORPUS REFERENT — the second conjunct Class A needs, added after measurement.
+ *
+ * The trigger vocabulary alone does not discriminate. Measured over the 120
+ * most-recently-updated real specs (1,102 criteria): phrase-only matching fired on
+ * **83 of 120 (69.2%)**, because `still`, `already` and `remains` are ordinary
+ * English adverbs. Samples from that run: "it **still** reaches PASS with…", "a
+ * deviation justified by a claim about a consumer… **already**". None asserts
+ * anything about the repo. Adding this conjunct takes it to **47 (39.2%)**.
+ *
+ * Sample the RECENT specs, not the oldest — the same run measured the 120 oldest by
+ * id at 32.5% phrase-only, half the recent rate, because the dense-prose spec style
+ * that uses these adverbs is recent. This hook fires on `tasks_create` /
+ * `tasks_spec_patch`, so newly-written specs are the population it actually faces
+ * and an id-ordered corpus understates its load by 2x.
+ *
+ * What every real instance has and those do not is a thing IN THE CORPUS that the
+ * assertion is about: `` `OVERRIDE_ENV_VAR` remains documented in `CLAUDE.md` ``.
+ * So Class A now requires a referent in the SAME SENTENCE as the trigger — a
+ * backticked span, or a corpus-file name / path-shaped token.
+ *
+ * Read from the RAW sentence, like {@link hasInlineVerifyingCommand} and for the
+ * same reason: a backticked identifier is a code span, which elision blanks.
+ *
+ * This is a NARROWING driven by a measurement, not a widening chasing recall — the
+ * arms race ADR-024 §Context exists to end runs the other way.
+ */
+const CORPUS_REFERENT_PATTERNS: readonly RegExp[] = [
+  /`[^`\n]+`/, // a backticked identifier, path, or env var
+  /\b[A-Z][A-Za-z0-9_-]*\.(?:md|mdc|ts|tsx|json|ya?ml)\b/, // CLAUDE.md, AGENTS.md
+  /\b[a-z0-9_.-]+\/[a-z0-9_./-]+\.[a-z]+\b/i, // a path with a directory
+  /\b[A-Z][A-Z0-9_]{4,}\b/, // a SCREAMING_SNAKE identifier
+];
+
 /** Tokens too common to discriminate a Class B object against a short option text. */
 const OBJECT_STOPWORDS = new Set([
   "the",
@@ -267,6 +301,33 @@ export function extractCriteria(
 }
 
 /**
+ * Blank PROSE-QUOTED spans with same-length whitespace.
+ *
+ * SC7 requires elision of "markdown code spans, fenced blocks and blockquote lines
+ * … plus prose-quoted spans". `elideMarkdownNonProse` covers the first three and
+ * NOT this one, so this is the missing half rather than an extra: a criterion that
+ * quotes the message it is about is example text, not an assertion about the repo.
+ *
+ * Measured need, not a hypothetical — a real Class A fire on the corpus run was
+ * mt#4199's `A closing message saying "still with you: ask#N"`, where the trigger
+ * sits inside a quoted sample string.
+ *
+ * Kept OUT of `elideMarkdownNonProse`: that function is shared by other guards
+ * (`block-out-of-band-merge` scans PR bodies with it), and widening a shared elider
+ * to serve this detector would silently change what those guards can see. The hook
+ * composes the two instead.
+ *
+ * Straight and curly DOUBLE quotes only. Single quotes are excluded because an
+ * apostrophe (`doesn't`, `agent's`) opens a span that never closes, which would
+ * blank the rest of the line. Spans do not cross a newline for the same reason.
+ * Same-length replacement preserves the offset alignment {@link
+ * hasCorpusReferentNear} depends on.
+ */
+export function elideProseQuotedSpans(text: string): string {
+  return text.replace(/"[^"\n]*"|“[^”\n]*”/g, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/**
  * Whether a criterion ships its own falsifier.
  *
  * Read from the RAW criterion on purpose: a verifying command lives inside a code
@@ -289,6 +350,42 @@ export function hasInlineVerifyingCommand(rawCriterion: string): boolean {
     if (VERIFY_COMMAND_LEADERS.includes(leader)) return true;
   }
   return false;
+}
+
+/**
+ * Whether a corpus referent sits in the same sentence as a Class A trigger.
+ *
+ * Offsets come from a match against `criterion.elided` and are sliced out of
+ * `criterion.raw`. That is sound, not a coincidence: `elideMarkdownNonProse`
+ * replaces elided spans with SAME-LENGTH whitespace (its own doc comment states
+ * offsets into the original stay valid), and {@link extractCriteria} builds both
+ * forms from one `indices` list, so the two strings are aligned character for
+ * character. The raw side is what gets tested, because a backticked referent is
+ * blanked in the elided form — the same raw/elided split
+ * {@link hasInlineVerifyingCommand} relies on.
+ *
+ * A `.` counts as a sentence boundary only when whitespace or the string end
+ * follows it, so `CLAUDE.md` is not split down the middle — which would drop the
+ * `md` and defeat the referent pattern that is looking for exactly that filename.
+ */
+function hasCorpusReferentNear(criterion: ExtractedCriterion, matchIndex: number): boolean {
+  const { elided, raw } = criterion;
+  const boundary = /[.;!?](?=\s|$)|\n/g;
+
+  let start = 0;
+  let end = elided.length;
+  let m: RegExpExecArray | null;
+  while ((m = boundary.exec(elided)) !== null) {
+    if (m.index < matchIndex) {
+      start = m.index + m[0].length;
+    } else {
+      end = m.index;
+      break;
+    }
+  }
+
+  const sentence = raw.slice(start, end);
+  return CORPUS_REFERENT_PATTERNS.some((p) => p.test(sentence));
 }
 
 /** Case-insensitive exact-substring presence — no similarity metric (mem#819). */
@@ -324,7 +421,9 @@ export function detectSpecCriterionClaims(
     if (!hasInlineVerifyingCommand(criterion.raw)) {
       for (const pattern of CLASS_A_PATTERNS) {
         const m = pattern.exec(criterion.elided);
-        if (m !== null) {
+        // Both conjuncts, or nothing: the trigger vocabulary alone measured a
+        // 69.2% fire rate over 120 recent specs. See CORPUS_REFERENT_PATTERNS.
+        if (m !== null && hasCorpusReferentNear(criterion, m.index)) {
           findings.push({
             section: criterion.section,
             criterion: excerpt(criterion.elided),

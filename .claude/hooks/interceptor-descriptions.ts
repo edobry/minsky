@@ -356,6 +356,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "duplicate-check-candidate-read",
+    {
+      description:
+        "Records whether the candidate tasks a `Duplicate check:` line names were actually opened in the turn, and injects when a reconciliation was written without reading the task it distinguishes.",
+      failureClasses: ["duplicate-work", "unfounded-claim"],
+      provenance: [hook("duplicate-check-candidate-read")],
+      stratum: "registry",
+    },
+  ],
+  [
     "evidence-record-provenance",
     {
       description:

@@ -48,12 +48,29 @@ import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
 import {
   detectSpecCriterionClaims,
+  elideProseQuotedSpans,
   type AuthorizingSource,
   type SpecCriterionClaimResult,
 } from "../../packages/domain/src/detectors/spec-criterion-claim";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
+
+/**
+ * The full elision pass SC7 specifies: markdown non-prose (code spans, fenced
+ * blocks, blockquote lines) AND prose-quoted spans.
+ *
+ * Composed here rather than folded into either half. `elideMarkdownNonProse` is
+ * shared with `block-out-of-band-merge`, so widening it to blank quoted prose would
+ * change what an unrelated guard sees; and the domain matcher takes its elider as a
+ * parameter precisely so the hooks tree owns this wiring (see the matcher's own note
+ * on why the elider is injected rather than imported).
+ *
+ * Both halves pad with same-length whitespace, so composing them preserves the
+ * character-for-character raw/elided alignment the referent check reads offsets
+ * against.
+ */
+const SPEC_ELIDER = (text: string): string => elideProseQuotedSpans(elideMarkdownNonProse(text));
 
 /**
  * Injection is OFF during calibration (ADR-024). The flip follows a
@@ -335,7 +352,7 @@ export async function evaluateCall(
   // be no linked ask, so the lookup is not even attempted.
   const source = taskId === null ? null : await resolveSource(taskId);
 
-  const result = detectSpecCriterionClaims(spec, source, elideMarkdownNonProse);
+  const result = detectSpecCriterionClaims(spec, source, SPEC_ELIDER);
 
   const evaluation: Record<string, unknown> = {
     timestamp: new Date().toISOString(),

@@ -72,6 +72,48 @@ describe("Class A — unverified corpus-state assertion (mt#4153)", () => {
     expect(detectSpecCriterionClaims(spec, null, passthrough).matched).toBe(false);
   });
 
+  // --- The corpus-referent conjunct -------------------------------------------
+  //
+  // These pin a NARROWING that a corpus measurement forced, and they are the only
+  // thing standing between the referent requirement and a silent revert: every one
+  // of the fixtures above happens to carry a backticked identifier, so all 37 tests
+  // passed both before and after the conjunct was added. Measured over the 120
+  // most-recently-updated specs / 1,102 criteria, trigger-phrase-only matching fired
+  // on 69.2%; requiring a referent in the same sentence took that to 39.2%. Both
+  // cases below are verbatim shapes from that run's own false positives.
+  //
+  // Verified as negative controls rather than assumed (mt#3244): with the conjunct
+  // disabled, exactly these two fail — 17 pass / 2 fail. The third is a POSITIVE
+  // test and keeps passing when disabled, because it guards the sentence-splitting
+  // that only binds while the conjunct is on.
+
+  test("a trigger phrase with no corpus referent does NOT fire", () => {
+    // Real FP (mt#4202): "still" as an ordinary adverb. Nothing here asserts
+    // anything about the repo, so the sentence names nothing to go look at.
+    const spec = specWith(
+      SC_HEADING,
+      "- [ ] Run the script against a cockpit with ingested conversations; it still reaches PASS."
+    );
+    expect(detectSpecCriterionClaims(spec, null, passthrough).matched).toBe(false);
+  });
+
+  test("a referent in a DIFFERENT sentence does not license the trigger", () => {
+    // The conjunct is same-sentence on purpose: a referent anywhere in the criterion
+    // would be satisfied by almost any real criterion, which is no conjunct at all.
+    const spec = specWith(
+      SC_HEADING,
+      "- [ ] The handler still returns early. A separate pass rewrites `CLAUDE.md`."
+    );
+    expect(detectSpecCriterionClaims(spec, null, passthrough).matched).toBe(false);
+  });
+
+  test("a filename referent survives sentence splitting", () => {
+    // `CLAUDE.md` carries a period, and splitting sentences on any `.` would cut it
+    // in half — dropping the `md` and defeating the very pattern looking for it.
+    const spec = specWith(SC_HEADING, "- [ ] The override remains documented in CLAUDE.md");
+    expect(detectSpecCriterionClaims(spec, null, passthrough).matched).toBe(true);
+  });
+
   test("Acceptance Tests are scanned too, not just Success Criteria", () => {
     const spec = specWith(
       AT_HEADING,
