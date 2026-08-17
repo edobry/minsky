@@ -65,14 +65,22 @@ export {
   SEARCH_COMMAND_LEADERS,
 } from "./negative-existence-claim";
 
-export type { FlakinessClaim, FlakinessAttributionResult } from "./flakiness-attribution";
+export type {
+  FlakinessClaim,
+  // `FlakinessAttributionResult.claims` is typed as this, so a consumer reading
+  // the result through the barrel needs to be able to name it here too.
+  ResolvedFlakinessClaim,
+  FlakinessAttributionResult,
+} from "./flakiness-attribution";
 export {
   detectFlakinessAttribution,
   extractFlakinessClaims,
   hasIsolationControl,
+  hasLoadControl,
   hasUnverifiedMarkerNearClaim,
   FLAKINESS_ATTRIBUTION_PATTERNS,
   FLAKINESS_DENIAL_PATTERNS,
+  LOAD_CONTROL_LABEL,
   UNVERIFIED_MARKER,
 } from "./flakiness-attribution";
 

@@ -96,8 +96,13 @@ describe("flakiness-control-detector — advisory shape", () => {
     const denial = buildAdvisory(detectFlakinessAttribution("It is not load-dependent."));
     const attribution = buildAdvisory(detectFlakinessAttribution("The suite is flaky."));
 
-    expect(denial).toContain("FALSIFY");
-    expect(attribution).not.toContain("FALSIFY");
+    // The denial directive names the evidence a denial actually takes — two
+    // conditions, recorded under the literal label (mt#4166). Naming the label
+    // is the load-bearing part: it is now the ONLY thing that silences a denial,
+    // so an advisory that omitted it would leave the reader no way to comply.
+    expect(denial).toContain("Load control:");
+    expect(denial).toContain("TWO load conditions");
+    expect(attribution).not.toContain("Load control:");
     expect(attribution).toContain("Run the file alone");
   });
 

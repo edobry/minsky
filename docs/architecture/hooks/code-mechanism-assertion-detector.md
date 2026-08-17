@@ -331,3 +331,102 @@ surfaces matches, so a turn where nothing matched leaves no row — and mt#3649'
 captures only the chat surface's elided text, so even an existing row does not preserve the artifact
 corpus that was judged. That is why the replay above exists and why it ships as a script: the log
 alone cannot distinguish "never extracted" from "extracted and matched nothing."
+
+## mt#4157 (2026-08-16) — the 80% pass: round 6, and a decision not to widen backing
+
+The 2026-08-14 calibration pass hand-classified all 10 injected fires in its window: **8 false, 1
+real, 1 uncertain**. Two things came out of it, and the more useful one is the half that shipped no
+code.
+
+### What the 8 false positives actually were
+
+Only ONE is a symbol-identification defect. The other seven are the verification corpus not reading
+evidence that exists:
+
+| Class                                  | Count | The backing that exists, and where                                      |
+| -------------------------------------- | ----- | ----------------------------------------------------------------------- |
+| Agent's own same-turn prose            | 3     | the sentence itself — "re-running gave `descendantsRequiredSigkill: 1`" |
+| Tool INPUT rather than its result      | 2     | `expectedHeadSha`, a parameter of a tool the turn called                |
+| The branch diff                        | 2     | the PR being reported had just shipped the mechanism                    |
+| **Extraction — a URL query parameter** | **1** | nothing; no claim was made                                              |
+
+That regrouping matters more than the count. **Seven of eight share one root cause**, so they are
+one defect at three sources rather than four independent classes — recorded on mt#4084, which owns
+the tool-input case and is the natural home for the widening question.
+
+#### Where the tool-input case went, and why it was not implemented here
+
+Recorded in-repo rather than only on the task, so a reader of this file can check the disposition
+without querying the task store (PR #3031 R1).
+
+mt#4084 already owns it, and **no rescope was required**: that task's `## Scope` names corpus
+construction and says it "adds a backing SOURCE", which covers a tool's declared PARAMETER as
+naturally as its NAME — only its title is narrower than its scope. `expectedHeadSha` fails for
+exactly the reason a tool name does: the corpus carries `tool_result` bodies and read-class inputs,
+and a parameter lives in the tool INPUT, which it does not collect.
+
+So this task added a finding to mt#4084 naming the parameter case explicitly inside that existing
+scope, together with the branch-diff and prose cases and the argument that separates them: a tool
+input and a branch diff are MACHINE-RECORDED, so admitting them cannot be gamed by an agent
+asserting confidently, while the agent's own prose can be — which is why the first two are safe to
+widen toward and the third is not. Rescoping another task unilaterally was declined; its own
+planning pass settles the widening.
+
+### Round 6 — the URL-query-parameter exclusion
+
+`cc_cli_limit_message` was extracted from Claude Code's own spend-limit banner, pasted into the
+transcript: `raise it at claude.ai/settings/usage?from=cc_cli_limit_message`. `SNAKE_CASE_RE`
+matched the query-parameter value and paired it with the nearby words "limit" and "raise".
+
+The exclusion is **window-aware**, like mt#3540's override-boilerplate predicate and for the same
+reason — it needs the surrounding slice, so it cannot live in the token-only `isPlausibleSymbol`.
+A token is dropped only when EVERY occurrence in the slice sits inside a URL query span, so an agent
+who also names the identifier in prose still fires.
+
+Scoped to query parameters and NOT to "quoted third-party text", which the originating spec also
+named: nothing in the text marks its author, and the fixture's banner is not quoted or fenced at
+all. Path segments are likewise left alone — no record has fired on one, and a predicate written
+ahead of evidence is the arms race ADR-034 is about. A test pins that scope limit so a later
+widening breaks a test rather than drifting.
+
+**ADR-034's reopen conditions were checked before the predicate was written**, which its
+§Consequences requires. None fires. The one that looks triggered by the headline 80% is condition 2
+("a measured FP rate above 10% on a classified corpus"), and it is not: it asks whether the
+mechanism ADR-034 KEPT is failing, and the rejected allowlist would have fixed this single record
+while ADMITTING the other seven — their symbols are all real. Mechanism-attributable rate: 1/10.
+Condition 1 needs rounds 6 AND 7 inside 5 days; **round 6 landed 2026-08-16, so a round 7 before
+2026-08-21 reopens ADR-034.**
+
+### The agent's own prose is NOT backing — decided, no code
+
+Three of the eight arrived with their evidence in the same sentence, which is why they look like the
+detector's worst misses. Admitting prose was rejected as circular: an agent could back any claim by
+asserting confidently, and suppression would land exactly on "I checked".
+
+The narrower variant — "an observation naming a value the tool corpus ALSO contains" — needs no code
+because it is already what the corpus does. The records show it working: `descendantsRequiredSigkill`
+fired 2026-08-13T16:39Z with `hadSameTurnRead: false, backedClaimCount: 0`, and the SAME symbol was
+suppressed at 17:15Z once a real read existed. All three class members carry
+`backedClaimCount: 0` — there was no tool evidence in the turn to admit.
+
+What remains is a WINDOW question, not a prose one: if the read happened an earlier turn in the same
+session, the evidence is machine-recorded and merely out of frame. That is ask#6817's session-scope
+disposition, owned by **mt#3594** and gated there on per-claim backing landing first. Full reasoning
+sits in `buildVerificationCorpus`'s doc comment so the next calibration pass does not re-litigate it.
+
+### Measured effect
+
+Replayed with `scripts/replay-code-mechanism-calibration.ts` over all 846 records, before and after:
+
+|        | same | changed |
+| ------ | ---- | ------- |
+| before | 68   | 43      |
+| after  | 67   | 44      |
+
+**Exactly one record moved**, and it is the intended one (`2026-08-13T20:33:23.738Z`,
+claims `cc_cli_limit_message|limit` + `cc_cli_limit_message|raise`). Nothing stopped changing, so
+there is no collateral. Injected fires in the classified window go **10 → 9** and false positives
+**8 → 7**.
+
+The FP rate barely moves, and that is the honest result rather than a disappointing one: 7 of the 8
+belong to the corpus class this task does not own.

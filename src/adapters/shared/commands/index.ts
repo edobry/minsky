@@ -18,6 +18,7 @@ import { registerInitCommands } from "./init";
 import { registerSetupCommands } from "./setup";
 import { registerSetupGithubAppCommand } from "./setup-github-app";
 import { registerSetupDbCommand } from "./setup-db";
+import { registerSetupLocalHttpCommand } from "./setup-local-http";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -85,6 +86,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register `setup db` onboarding wizard (mt#2429)
   registerSetupDbCommand();
+  registerSetupLocalHttpCommand();
 
   // Register config commands
   registerConfigCommands();
@@ -204,6 +206,7 @@ export {
   registerSetupCommands,
   registerSetupGithubAppCommand,
   registerSetupDbCommand,
+  registerSetupLocalHttpCommand,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,
