@@ -26,6 +26,7 @@ import {
   isValidDestructiveOverride,
   recordDestructiveOverride,
 } from "../safety/destructive-override";
+import { restoreUpdateStashAfterCommit, type StashRestoreOutcome } from "./session-stash-restore";
 
 /**
  * Error thrown when the branch-freshness CAS check (mt#1522) detects that
@@ -455,6 +456,16 @@ export interface SessionCommitResult {
   files?: Array<{ path: string; status: string }>;
   pushed: boolean;
   credentialPath?: PushCredentialPath;
+  /**
+   * mt#3660: present only when this commit found work parked by an earlier
+   * CONFLICTED `session_update` and acted on it. `restored: true` means the work
+   * is back in the working tree — UNCOMMITTED, and deliberately not part of this
+   * commit. `restored: false` means it is still parked, and `stashRef` /
+   * `parkedFiles` name where; a caller must not read this commit as carrying it.
+   *
+   * Absent is the normal case (nothing was parked).
+   */
+  stashRestore?: StashRestoreOutcome;
   /**
    * mt#3049: set (with `pushed: false`) when the commit itself succeeded but
    * the push phase failed with a thrown error — the underlying error's
@@ -967,6 +978,46 @@ export async function sessionCommit(
         log.debug("Failed to update session activity state", { error: e });
       }
 
+      // mt#3660: a CONFLICTED `session_update` parks the operator's uncommitted
+      // work in a stash and cannot restore it — a pop during an active merge is
+      // refused, because `git stash pop` requires the working directory to match
+      // the index. The merge commit has just landed, so MERGE_HEAD is gone and the
+      // tree is clean: this is the first moment the pop is legal, and the last one
+      // before the push below would publish a commit that silently lacks the work.
+      //
+      // Restoring here deliberately leaves the recovered work UNCOMMITTED. It
+      // belongs in its own commit, not folded into a merge resolution — and the
+      // report below says so, because a caller that assumed otherwise is how this
+      // failed four times.
+      //
+      // A failed pop is non-destructive by git's own guarantee ("Applying the state
+      // can fail with conflicts; in this case, it is not removed from the stash
+      // list"), so the worst case is work still parked WITH a named report.
+      let stashRestore: StashRestoreOutcome | undefined;
+      try {
+        stashRestore = await restoreUpdateStashAfterCommit(workdir, gitService);
+        if (stashRestore && !stashRestore.restored) {
+          const parked = (stashRestore.parkedFiles ?? []).map((f) => `\n     - ${f}`).join("");
+          log.cli(
+            `⚠️  Work stashed by an earlier session_update was NOT restored and remains ` +
+              `parked in ${stashRestore.stashRef}. This commit does NOT contain it.${parked}\n` +
+              `   ${stashRestore.recovery ?? ""}`
+          );
+        } else if (stashRestore?.restored) {
+          log.cli(
+            `   (Restored work parked by an earlier session_update from ` +
+              `${stashRestore.stashRef}. It is in the working tree, UNCOMMITTED — commit it ` +
+              `separately; this commit does not carry it.)`
+          );
+        }
+      } catch (restoreError) {
+        // Never fail a landed commit over the stash check, but never hide it either.
+        log.warn("Failed to restore update-parked stash after commit", {
+          session: params.session,
+          error: restoreError instanceof Error ? restoreError.message : String(restoreError),
+        });
+      }
+
       // Always push changes in session context - commit and push should be atomic
       // mt#1477: when a token provider is available, use the App installation
       // token for push authentication so pull_request workflows trigger.
@@ -1035,6 +1086,7 @@ export async function sessionCommit(
           ...metadata,
           message: commitResult.message,
           pushed: false,
+          ...(stashRestore ? { stashRestore } : {}),
           ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
           ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
           ...(pushOutcome.pushUnconfirmed ? { pushUnconfirmed: true } : {}),
@@ -1062,6 +1114,7 @@ export async function sessionCommit(
         ...metadata,
         message: commitResult.message,
         pushed: true,
+        ...(stashRestore ? { stashRestore } : {}),
         ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),
         ...(pushOutcome.pushConfirmedVia ? { pushConfirmedVia: pushOutcome.pushConfirmedVia } : {}),
         ...(pushOutcome.appTokenPushError !== undefined
