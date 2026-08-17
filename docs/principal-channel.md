@@ -68,15 +68,32 @@ times**, and each was noticed only when a message went unanswered (mt#3608).
 }
 ```
 
-| `state`        | Means                                                                                                                                 |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`.                                         |
-| `stalled`      | The poller was launched and has stopped making progress. Carries `staleForMs` and `thresholdMs`. **Messages are not being consumed.** |
-| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                         |
-| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                |
-| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason` and `attempts`.                                          |
-| `failed`       | Credentials could not be read after retries. Carries `reason` and `attempts`. **The channel is not running.**                         |
-| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                              |
+| `state`        | Means                                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`.                                                 |
+| `stalled`      | Launched, then stopped making progress. Carries `chatId`, `since`, `lastProgressAt`, `staleForMs`, `thresholdMs`. **Not consuming messages.** |
+| `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                                 |
+| `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                        |
+| `retrying`     | A credential read FAILED and is being retried with backoff. Carries `reason`, `attempts`, `lastAttemptAt`, `nextAttemptAt`.                   |
+| `failed`       | An exception AFTER credentials resolved (poller/actuator construction). Carries `reason` only. **The channel is not running.**                |
+| `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                                      |
+
+Field lists above are exhaustive per variant and match `PrincipalChannelStatus`
+in `src/cockpit/principal-channel-launch.ts`. Two rows were wrong before mt#4183
+and are corrected rather than carried forward:
+
+- **`failed` never carried `attempts`.** mt#3689 removed it: there it was always
+  the literal `1` and counted nothing, since that failure happens once, after
+  credentials have already resolved — so one field was carrying two meanings
+  across two fault classes. `state` already separates them.
+- **`failed` is no longer reachable from a credential-read failure.** mt#3683
+  removed that path's retry ceiling, so a failing read keeps retrying instead of
+  settling here. The row's old wording ("could not be read after retries")
+  described behaviour that no longer exists.
+
+`retrying`'s row was incomplete in the other direction — it omitted
+`nextAttemptAt`, which is the field that actually discriminates "still working
+the problem" from "stuck".
 
 **`running` used to be a latch, and this section used to say so wrongly.** Until
 mt#4183 the sentence above read "reports the channel's own state, **independent
@@ -99,12 +116,18 @@ the latch did.
 Read `staleForMs` rather than just the state: "stalled 4 minutes" and "stalled 4
 days" call for different responses, and only the number distinguishes them.
 
-**`failed` and `unconfigured` are deliberately different states.** The first
+**`retrying` and `unconfigured` are deliberately different states.** The first
 means the credentials probably exist but could not be READ — a fault, usually
 transient, and retrying is the right response. The second means they were never
 set — an operator has to act. Before mt#3608 both reported the same
 "not configured" message, which reads as an operator oversight and is why five
 faults in one day went unexamined.
+
+This contrast used to name `failed` rather than `retrying`, and that stopped
+being true at mt#3683: an unreadable credential no longer exhausts into
+`failed`, it keeps retrying. `failed` now means something narrower and later —
+construction of the poller or actuator threw AFTER credentials had already
+resolved — so it is not the counterpart to `unconfigured` any more.
 
 The tray does not parse this field (it reads only `db` and
 `processStartedAtMs`), so it is for operators and the cockpit UI.
