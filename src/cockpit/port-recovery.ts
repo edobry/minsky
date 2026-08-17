@@ -274,6 +274,31 @@ export function decideIncumbentDisposition(evidence: IncumbentEvidence): Incumbe
   return { kind: "displace" };
 }
 
+/**
+ * Parse `ps -o etime=` into whole elapsed seconds; null when it does not match.
+ *
+ * `etime` renders as `[[DD-]HH:]MM:SS` — the last two fields are ALWAYS
+ * minutes and seconds, so `00:03` is three seconds, not three minutes.
+ *
+ * Exported because this is the one part of `processStartedAtMs` that can be
+ * checked without a live process, and because its predecessor shipped broken:
+ * the first version asked `ps` for `etimes` (whole seconds, no parsing needed)
+ * — a procps keyword that macOS's `ps` rejects with "keyword not found". Every
+ * unit test passed, because they all inject the probe. The live consequence was
+ * silent and total: an unreadable start time preserves, so the displacement
+ * this task exists to enable would never once have fired on the platform the
+ * daemon actually runs on. `etime` is the portable spelling; the parsing is the
+ * price of that portability.
+ */
+export function parseElapsedSeconds(raw: string): number | null {
+  const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(raw.trim());
+  if (!match) return null;
+  const [, days, hours, minutes, seconds] = match;
+  return (
+    Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes) * 60 + Number(seconds)
+  );
+}
+
 export const realIncumbentProbes: IncumbentProbes = {
   health: async (port) => {
     let resp: Response;
@@ -300,20 +325,14 @@ export const realIncumbentProbes: IncumbentProbes = {
   },
 
   processStartedAtMs: (pid) => {
-    // `etimes` is elapsed whole seconds since start — a plain integer on both
-    // macOS and Linux. Chosen over `lstart`, whose formatted date has to be
-    // parsed back through the local timezone and locale.
     try {
-      const raw = execSync(`ps -p ${pid} -o etimes=`, {
+      const raw = execSync(`ps -p ${pid} -o etime=`, {
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 3000,
         encoding: "utf-8",
-      })
-        .toString()
-        .trim();
-      const elapsedSec = parseInt(raw, 10);
-      if (!Number.isFinite(elapsedSec) || elapsedSec < 0) return null;
-      return Date.now() - elapsedSec * 1000;
+      }).toString();
+      const elapsedSec = parseElapsedSeconds(raw);
+      return elapsedSec === null ? null : Date.now() - elapsedSec * 1000;
     } catch {
       // Process gone, or `ps` unavailable.
       return null;
@@ -352,6 +371,15 @@ export interface KillZombieOptions {
   pollMs?: number;
 }
 
+async function waitForExit(pid: number, timeoutMs: number, pollMs: number): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, pollMs));
+    if (!isProcessAlive(pid)) return true;
+  }
+  return false;
+}
+
 export async function killZombie(pid: number, opts: KillZombieOptions = {}): Promise<void> {
   const timeout = opts.timeoutMs ?? 2000;
   const poll = opts.pollMs ?? 100;
@@ -364,16 +392,24 @@ export async function killZombie(pid: number, opts: KillZombieOptions = {}): Pro
     throw err;
   }
 
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    await new Promise((r) => setTimeout(r, poll));
-    if (!isProcessAlive(pid)) return;
-  }
+  if (await waitForExit(pid, timeout, poll)) return;
+
   try {
     proc.kill(pid, "SIGKILL");
   } catch {
     // Race: died between checks. Ignore.
+    return;
   }
+
+  // SIGKILL is not synchronous. The kernel still has to tear the process down
+  // and release its LISTENING socket, and returning before that lets the
+  // caller's re-bind race the teardown and take EADDRINUSE on a port whose
+  // holder is already dead. Observed 2026-08-17 against a SIGSTOPped daemon
+  // (mt#4205): the displacement succeeded, the re-bind failed, and the command
+  // exited having killed the incumbent WITHOUT replacing it — strictly worse
+  // than the refusal it replaced. A stopped process is exactly the case that
+  // reaches here, because it cannot handle the SIGTERM above.
+  await waitForExit(pid, timeout, poll);
 }
 
 // ---------------------------------------------------------------------------

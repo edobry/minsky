@@ -14,6 +14,7 @@ import {
   decideIncumbentDisposition,
   resolveIncumbentDisposition,
   realIncumbentProbes,
+  parseElapsedSeconds,
   COCKPIT_SERVICE_IDENTITY,
   PID_REUSE_SKEW_MS,
   type IncumbentEvidence,
@@ -126,6 +127,54 @@ describe("decideIncumbentDisposition — only a silent incumbent is displaced", 
       recordedStartedAtMs: 1_000_000 - (PID_REUSE_SKEW_MS + 1),
     });
     expect(d.kind).toBe("preserve");
+  });
+});
+
+describe("parseElapsedSeconds — ps -o etime=", () => {
+  // The first implementation asked ps for `etimes`, which macOS does not have;
+  // it returned null for every live process, and because an unreadable start
+  // time preserves, the displacement path was silently unreachable. Every test
+  // above passed throughout — they inject the probe. These cases pin the
+  // portable spelling's actual output format.
+  test.each([
+    ["00:03", 3],
+    ["00:59", 59],
+    ["01:00", 60],
+    ["59:59", 3599],
+    ["01:02:03", 3723],
+    ["2-01:02:03", 176_523],
+    ["  00:07  ", 7],
+  ])("parses %p as %p seconds", (raw, expected) => {
+    expect(parseElapsedSeconds(raw as string)).toBe(expected as number);
+  });
+
+  test.each([[""], ["keyword not found"], ["abc"], ["12"]])(
+    "returns null for unparseable %p",
+    (raw) => {
+      expect(parseElapsedSeconds(raw as string)).toBeNull();
+    }
+  );
+
+  test("a live process yields a plausible start time, and a dead pid yields null", () => {
+    // The end-to-end shell-out — the exact check that caught the `etimes` bug.
+    const child = Bun.spawn(["sleep", "30"]);
+    try {
+      const startedAt = realIncumbentProbes.processStartedAtMs(child.pid);
+      expect(startedAt).not.toBeNull();
+      // `no-real-fs-in-tests` guards against Date.now()-derived FILE PATHS
+      // colliding across parallel tests. Nothing here touches the filesystem:
+      // the clock IS the quantity under test, because the probe's entire job is
+      // converting `ps` elapsed time into an absolute start time.
+      // eslint-disable-next-line custom/no-real-fs-in-tests -- clock under test, no paths
+      const ageMs = Date.now() - (startedAt as number);
+      // Generous bound: `etime` has whole-second granularity, so a process
+      // started moments ago can read as up to ~1s old.
+      expect(ageMs).toBeGreaterThanOrEqual(0);
+      expect(ageMs).toBeLessThan(60_000);
+    } finally {
+      child.kill();
+    }
+    expect(realIncumbentProbes.processStartedAtMs(4_194_302)).toBeNull();
   });
 });
 

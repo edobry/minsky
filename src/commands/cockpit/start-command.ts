@@ -492,7 +492,17 @@ export function createStartCommand(): Command {
               command: classification.command,
               forced: disposition.kind === "preserve",
             };
+            // Retry the bind rather than attempting it once. `killZombie` now
+            // waits for the process to exit, but process death and socket
+            // release are separate events and the second is not observable from
+            // here. A single attempt makes the whole recovery lose a race it
+            // wins moments later — and losing it means the incumbent was killed
+            // and NOT replaced, which is worse than never having tried.
             attempt = await attemptListen(app, port, host);
+            for (let i = 0; attempt.kind === "in-use" && i < 10; i++) {
+              await new Promise((r) => setTimeout(r, 200));
+              attempt = await attemptListen(app, port, host);
+            }
             break;
           }
           case "unrecognized":
