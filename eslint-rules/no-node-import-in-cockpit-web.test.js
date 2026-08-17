@@ -51,6 +51,13 @@ function repoRelative(file) {
  * Depth-first AST walk. Skips the non-computed `property` of a member expression and the
  * non-computed `key` of a property, so `foo.process` and `{ process: 1 }` are not mistaken for
  * a reference to the Node global.
+ *
+ * Detection is by NAME, not by scope: a module that declares its own local `process` or
+ * `require` would be flagged (PR #3035 R1). That is deliberate rather than unnoticed. The
+ * error is one-directional — it fails CLOSED, naming the file and line, on a module that
+ * shadows a Node global while claiming to be browser-safe — and the alternative is scope
+ * analysis over every allowlisted module to spare a shape that appears nowhere in this
+ * corpus. If that false positive ever fires, the entry deserves the second look anyway.
  */
 function walk(node, visit) {
   if (!node || typeof node !== "object") return;
@@ -75,7 +82,16 @@ function walk(node, visit) {
 
 /** The runtime import edges and Node-global references of one file. */
 function analyze(file) {
-  const ast = tsParser.parse(readFileSync(file, "utf8"), { sourceType: "module", loc: true });
+  const ast = tsParser.parse(readFileSync(file, "utf8"), {
+    sourceType: "module",
+    loc: true,
+    // Per-extension, not global: `.tsx` needs the JSX flag, and setting it for `.ts` would
+    // misparse the type-assertion form `<T>expr`. Without it a `.tsx` module — which
+    // `resolveRelativeSpecifier` will happily resolve — throws a parse error instead of
+    // reporting a finding (PR #3035 R1). No `project` option: this is syntax-only analysis,
+    // and type-aware parsing would cost a full program build for nothing.
+    ecmaFeatures: { jsx: file.endsWith(".tsx") },
+  });
   const imports = [];
   const nodeGlobals = [];
 
