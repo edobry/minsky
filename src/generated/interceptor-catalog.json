@@ -1248,6 +1248,37 @@
       "deliberatelyUnauthored": false
     },
     {
+      "guardName": "duplicate-check-candidate-read",
+      "description": "Records whether the candidate tasks a `Duplicate check:` line names were actually opened in the turn, and injects when a reconciliation was written without reading the task it distinguishes.",
+      "failureClasses": ["duplicate-work", "unfounded-claim"],
+      "provenance": [".minsky/hooks/duplicate-check-candidate-read.ts"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "inject",
+          "audience": "agent"
+        },
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector", "injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
       "guardName": "duplicate-check-search-provenance",
       "description": "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
       "failureClasses": ["duplicate-work", "unfounded-claim"],
