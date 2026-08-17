@@ -11,6 +11,7 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import {
   createIntervalSweeper,
+  registerSelfSchedulingSweep,
   getSweepLivenessSnapshot,
   startSweepMetaWatchdog,
   _simulateDroppedTimerForTest,
@@ -1007,5 +1008,175 @@ describe("runAskStateRefreshTick (mt#3744)", () => {
 
     expect(result).toEqual({ ok: true });
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("self-scheduling registrants (mt#4185)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  test("AT1: a registrant that stops reporting progress is flagged stalled and restarted", async () => {
+    let restarts = 0;
+    // Budget 15ms -> the meta-watchdog's stall threshold is 2x = 30ms, and it
+    // scans every 20ms. Same shape as the dropped-timer test above.
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-stall",
+      progressBudgetMs: 15,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      handle.noteProgress();
+
+      const first = getSweepLivenessSnapshot().find((e) => e.name === "test-self-scheduling-stall");
+      expect(first?.selfScheduled).toBe(true);
+      expect(first?.intervalMs).toBe(15);
+      expect(first?.lastAttemptAt).not.toBeNull();
+
+      // Report nothing further: `lastAttemptAt` stops advancing, which is the
+      // only signal the wedged poller gave off during the 44-hour incident.
+      await waitFor(() => restarts >= 1, 2000);
+
+      const after = getSweepLivenessSnapshot().find((e) => e.name === "test-self-scheduling-stall");
+      expect(after?.metaRestarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("AT3: a registrant reporting progress inside its budget is never restarted", async () => {
+    let restarts = 0;
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-healthy",
+      progressBudgetMs: 60,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(10);
+    // Report every 15ms against a 60ms budget (120ms threshold) — the ratio a
+    // healthy poller runs at, where a 25s long poll sits inside a 420s budget.
+    const reporting = setInterval(() => handle.noteProgress(), 15);
+    try {
+      handle.noteProgress();
+      await new Promise((r) => setTimeout(r, 250));
+      expect(restarts).toBe(0);
+      const entry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-self-scheduling-healthy"
+      );
+      expect(entry?.metaRestarts).toBe(0);
+    } finally {
+      clearInterval(reporting);
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("a restart resets staleness itself, so one stall cannot become a restart storm", async () => {
+    // mt#3060's lesson applied to this seam: a restart that does not stamp
+    // progress is re-triggered on every subsequent scan, because nothing the
+    // watchdog reads has changed. Assert the counter stays near 1 while the
+    // participant reports nothing at all.
+    let restarts = 0;
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-no-storm",
+      progressBudgetMs: 40,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(5);
+    try {
+      handle.noteProgress();
+      await waitFor(() => restarts >= 1, 2000);
+      const afterFirst = restarts;
+      // 100ms at a 5ms scan cadence is ~20 scans. Without the stamp inside
+      // `restart`, every one of them would fire again.
+      await new Promise((r) => setTimeout(r, 100));
+      expect(restarts - afterFirst).toBeLessThanOrEqual(2);
+    } finally {
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("a failed cycle still counts as progress — erroring-but-alive is not wedged", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-failure",
+      progressBudgetMs: 1000,
+      restart: () => {},
+    });
+    try {
+      handle.noteFailure("telegram 502");
+      const entry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-self-scheduling-failure"
+      );
+      expect(entry?.consecutiveFailures).toBe(1);
+      expect(entry?.lastErrorAt).not.toBeNull();
+      // The distinction the meta-watchdog exists to draw: a loop that is
+      // failing is still cycling, so it must not be force-restarted.
+      expect(entry?.lastAttemptAt).not.toBeNull();
+    } finally {
+      handle.stop();
+    }
+  });
+
+  test("stop() removes the registrant from the public snapshot", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-stop",
+      progressBudgetMs: 1000,
+      restart: () => {},
+    });
+    handle.noteProgress();
+    expect(getSweepLivenessSnapshot().some((e) => e.name === "test-self-scheduling-stop")).toBe(
+      true
+    );
+    handle.stop();
+    expect(getSweepLivenessSnapshot().some((e) => e.name === "test-self-scheduling-stop")).toBe(
+      false
+    );
+  });
+
+  test("a duplicate ACTIVE registration throws rather than silently untracking the first", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-self-scheduling-dupe",
+      progressBudgetMs: 1000,
+      restart: () => {},
+    });
+    try {
+      expect(() =>
+        registerSelfSchedulingSweep({
+          name: "test-self-scheduling-dupe",
+          progressBudgetMs: 1000,
+          restart: () => {},
+        })
+      ).toThrow(/duplicate active sweep registration/);
+    } finally {
+      handle.stop();
+    }
+  });
+
+  test("an interval sweep is reported as NOT self-scheduled, so intervalMs still reads as a cadence", async () => {
+    const stop = createIntervalSweeper({
+      name: "test-self-scheduling-discriminator",
+      intervalMs: 60_000,
+      tickTimeoutMs: 5_000,
+      tick: async () => {},
+    });
+    try {
+      await waitFor(() =>
+        getSweepLivenessSnapshot().some((e) => e.name === "test-self-scheduling-discriminator")
+      );
+      const entry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-self-scheduling-discriminator"
+      );
+      expect(entry?.selfScheduled).toBe(false);
+    } finally {
+      stop();
+    }
   });
 });
