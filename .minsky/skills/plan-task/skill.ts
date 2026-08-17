@@ -1173,6 +1173,40 @@ conversations, all of them this skill's gate reports).
    Only when a category IS nameable does the halt stand — and then it routes through
    \`asks_create\` per the Ask-or-cite-ask paragraph below, never through chat prose.
 
+   **Naming the category is necessary and NOT sufficient — cite the reserving ACT (mt#3855, R6).**
+   A reservation needs **principal provenance**, which is exactly one of three things: a quoted
+   principal message, an ask response, or the LABEL of an option the principal explicitly selected.
+   **Agent-authored artifact text is NOT provenance** — not a spec criterion, not an option's
+   description or preview, not a PR body, not a memory. Citing your own prose as a decision record
+   is self-citation (\`claim-confidence.mdc §The corpus is agent-authored\`).
+
+   R6 (2026-08-08) is how a halt passes the category test and is still fabricated. The agent wrote
+   *"Principal approves the final hero headline before merge"* into the spec itself, shipped its own
+   headline anyway, then halted a reviewer-APPROVED, checks-green PR citing that criterion plus
+   "naming" — a real category, so mt#3596's test had nothing to catch. The fabrication had moved
+   upstream out of the RATIONALE and into the RESERVATION. The principal's answer: *"it was you who
+   decided that, i didnt 'keep it for [myself]'. you then made your own choices and went ahead with
+   them. did you want my input or not?"*
+
+   **Selecting an option endorses its LABEL, not a side-commitment buried in its preview.** You
+   wrote the description and preview text, so a clause riding along inside one is agent-authored no
+   matter which option the principal chose. To make it binding, confirm it on its own before
+   encoding it as a principal decision.
+
+   **The first condition is a positive citation test too (mt#3855, R8).** Quote the principal's
+   words AND name which step the quote defers. Condition 1's own three examples each name the step
+   outright — "don't implement yet", "just plan it", "I'll handle the impl". **A request to EXPLAIN
+   is not a deferral of the work being explained**: *"Hold on, help me understand the session film
+   stuff. What's going on here?"* names no step, so condition 1 does not hold and the chain walks.
+   R8 (2026-08-16) quoted precisely that and recast it as "an explicit pause on implementation";
+   the principal's next message was *"Why didn't you keep going? Help me understand."* — the same
+   shape as R5's *"sorry, what's my decision?"*.
+
+   **A quote must SUPPORT the claim — this binds on both conditions.** R8's quote was genuine and
+   still did not say what the citation asserted it said, which is the failure a bare "quote the
+   principal" requirement cannot catch. Read the quote back and ask whether it states the thing you
+   are about to attribute to it.
+
    **Worked example — the 2026-08-03 halt (R5).** Asked to proceed on mt#3592, an ordinary
    READY-able TODO with a spec, the agent halted: *"blocked on a principal decision: mt#3592
    re-attempts the change that took production down an hour ago … re-attempting it unprompted is

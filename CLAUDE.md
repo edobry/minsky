@@ -808,6 +808,34 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 
 **The third condition is a positive citation test (mt#3596).** State the category before halting on it: naming; architectural moves affecting customer experience or product surface; authorization for shared/production state changes; scope changes to in-flight work; vendor commitments; framework choices at principal-level stakes; preferences that set a durable default (a one-off preference call is yours to make). (Canonical source: `principal-context.mdc §Decisions Eugene reserves` — edit there first; this is a copy, and a test fails on divergence.) **If you cannot name one, it is not a principal decision and the chain walks.** Do not settle the question against the illustrative list below — an enumeration of bad reasons is defeated by a novel bad reason, which is how R5 passed it (mem#367). A rationale naming no category is low confidence, missing information, or a decision that is simply yours: say the first plainly and work more carefully, run the lookup for the second (`/classify-before-deferring`), make the third. **Low confidence is not a delegation boundary** — after a failure, "this is your call" is the failure talking.
 
+**Naming a category is necessary and NOT sufficient — cite the reserving ACT (mt#3855, R6).** A
+reservation needs **principal provenance**: a quoted principal message, an ask response, or the
+LABEL of an option the principal explicitly selected. **Agent-authored artifact text is NOT
+provenance** — not a spec criterion, not an option's description or preview, not a PR body, not a
+memory. Citing your own prose as a decision record is self-citation
+(`claim-confidence.mdc §The corpus is agent-authored`), and it is how R6 (2026-08-08) passed the
+category test: the agent wrote "Principal approves the final hero headline before merge" into a
+spec, shipped its own headline anyway, then halted a reviewer-APPROVED, checks-green PR citing that
+criterion plus "naming". The fabrication had moved upstream from the RATIONALE into the
+RESERVATION, where nothing was looking. The principal's answer: *"it was you who decided that, i
+didnt 'keep it for [myself]'."*
+
+**Selecting an option endorses its LABEL, not side-commitments buried in its preview.** The
+description/preview text is yours, so a clause riding along inside it is agent-authored no matter
+which option the principal picked. Want it to bind? Confirm it on its own before encoding it.
+
+**The first condition is a positive citation test too (mt#3855, R8).** Quote the principal's words
+AND name which step the quote defers. Its own three examples each name the step outright — "don't
+implement yet", "just plan it", "I'll handle the impl". **A request to EXPLAIN is not a deferral of
+the work being explained**: *"Hold on, help me understand the session film stuff"* names no step, so
+condition 1 does not hold and the chain walks. R8 (2026-08-16) quoted exactly that and called it
+"an explicit pause on implementation"; the principal's next message was *"Why didn't you keep going?"*
+
+**A quote must SUPPORT the claim — for either condition.** R8's quote was genuine and still did not
+say what the citation asserted it said, which is the failure a bare quoting requirement cannot
+catch. Before halting on a quote, read it back and ask whether it states the thing you are about to
+attribute to it.
+
 **Confabulated halt rationales** (illustrative, NOT the test — each names no category):
 
 - "Planning is the skill's scope; implementation is a separate skill."
