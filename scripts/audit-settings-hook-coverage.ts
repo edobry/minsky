@@ -83,7 +83,7 @@ function main(): void {
   if (!entries) {
     console.error(
       `FAIL: could not read the catalog at ${CATALOG_PATH}.\n` +
-        "  Run `bun scripts/build-interceptor-catalog.ts` first."
+        "  Run `bun run build:interceptor-catalog` first."
     );
     process.exit(1);
     return;
