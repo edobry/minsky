@@ -175,7 +175,7 @@ export const RETIRED_GUARD_NAMES: ReadonlyMap<string, { lastSeen: string; note: 
       "policy-coverage",
       {
         lastSeen: "2026-08-17",
-        note: "Surface 1 policy-coverage detector, retired by mt#4197 (hook + module deleted). 12,135 fire-log records under this name — RETIRED rather than deleted from KNOWN_GUARD_NAMES precisely so that history does not read as an anomaly. `lastSeen` is the retirement date, not a quiet date: the detector was still firing from the main workspace's settings.json until this change merged, so a handful of records may carry a slightly later timestamp without meaning it came back.",
+        note: "`lastSeen` is the last date records APPEAR IN THE LOG, which is one day after the 2026-08-16 retirement decision and is not a contradiction: the detector kept firing from the main workspace's settings.json until this change merged, and the final observed record was 2026-08-17T03:05Z. Read this field as an observation of the log, never as an inactivity watermark or a decision date. Surface 1 policy-coverage detector, retired by mt#4197 (hook + module deleted). 12,135 fire-log records under this name — RETIRED rather than deleted from KNOWN_GUARD_NAMES precisely so that history does not read as an anomaly.",
       },
     ],
   ]
