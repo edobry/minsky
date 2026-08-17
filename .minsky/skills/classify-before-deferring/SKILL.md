@@ -78,8 +78,19 @@ Examples:
 - "Does library `<Y>` still exist?" → `npm view Y` or fetch its repo.
 - "Is file `<Z>` still in the codebase?" → `Glob` / `Read`.
 - "What version of dep `<W>` are we on?" → read `package.json`.
+- **"The principal already decided / deferred `<X>`"** → **re-read what the principal actually
+  wrote.** The transcript is the lookup (mt#3855).
 
 **Action: DO THE LOOKUP.** Don't ask. Present findings, continue.
+
+**That last one does not look like the others, which is why it is listed.** Every other example
+resolves against a tool — `npm view`, `Glob`, `package.json` — so a claim about what the principal
+said reads as outside all three classes and gets treated as self-evident. It is not: it is a claim
+about a text you can re-read, and the failure mode is quoting something real that does not say what
+you are about to attribute to it. R8 (2026-08-16) quoted a genuine _"Hold on, help me understand…"_
+and cited it as an explicit pause on implementation; the principal's next message was _"Why didn't
+you keep going?"_ The lookup is: find the words, and check that they name the thing you are
+claiming. See `key-workflows.mdc §Skill-chain semantics` for the halt-path form of this test.
 
 ### Class B — Default Already Clear
 
