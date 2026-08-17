@@ -521,11 +521,93 @@ describe("createReplyStream — semantic blocks (mt#3711)", () => {
     stream.push("Done. Now checking the handler.The handler looks fine.");
     await settle();
 
-    // "Done." is in block ONE, not in the open message. Suppressing on that
-    // basis would mean the turn's answer never reaches the chat.
+    // "Done." sits in the MIDDLE of what was delivered, not at its end.
+    // Suppressing on a bare `includes` would mean the turn's answer never
+    // reaches the chat.
     await stream.finish("Done.");
     await settle();
 
     expect(sends.at(-1)).toBe("Done.");
+  });
+
+  /**
+   * mt#4240 — the settle must not re-send text that is already on screen just
+   * because the message carrying it was CLOSED.
+   *
+   * `finish` used to ask "is the resolved text inside `pending.slice(offset)`?"
+   * — the OPEN message's share of the accumulation. Both tests below construct
+   * a turn where the answer is fully delivered and that slice cannot see it, so
+   * the check fell through to the new-message branch and sent the whole answer
+   * a second time. Measured on 12 of 41 real turns across the channel's seven
+   * conversations before the fix.
+   */
+  test("a turn ENDING on a tool call does not re-send its final prose", async () => {
+    const { stream, sends } = harness({ throttleMs: 5 });
+
+    const b1 = "Reading the config. ";
+    const b2 = "Checking the wiring. ";
+    const b3 = "Notion MCP is connected.";
+
+    stream.push(b1);
+    await settle();
+    stream.sealBlock();
+    stream.push(b1 + b2);
+    await settle();
+    stream.sealBlock();
+    stream.push(b1 + b2 + b3);
+    await settle();
+    // The turn's LAST event is a tool call, so the block carrying the answer is
+    // sealed shut and `offset` lands exactly at `pending.length`.
+    stream.sealBlock();
+    await settle();
+
+    await stream.finish(b3);
+    await settle();
+
+    expect(sends).toEqual([b1, b2, b3]);
+  });
+
+  test("a final answer longer than the per-message budget is delivered once, not twice", async () => {
+    const { stream, sends } = harness({ throttleMs: 5 });
+
+    const intro = "Looking into it. ";
+    // Comfortably past MAX (200), so `drain` splits it across messages and
+    // advances `offset` into the MIDDLE of the answer.
+    const answer = `ANSWERSTART ${"filler ".repeat(60)}ANSWEREND`;
+
+    stream.push(intro);
+    await settle();
+    stream.sealBlock();
+    stream.push(intro + answer);
+    await settle(120);
+
+    await stream.finish(answer);
+    await settle(120);
+
+    // Sentinels rather than a length comparison: a split consumes the
+    // whitespace it cuts on, so the delivered text does not concatenate back
+    // byte-for-byte and an exact total would be brittle. Each sentinel appearing
+    // once is the precise statement of "delivered once".
+    const all = sends.join(" ");
+    expect(all.split("ANSWERSTART").length - 1).toBe(1);
+    expect(all.split("ANSWEREND").length - 1).toBe(1);
+    // Control: it was delivered at all, and it did split — so the assertions
+    // above are about de-duplication and not about an empty stream.
+    expect(sends.length).toBeGreaterThan(2);
+  });
+
+  test("a resolved text differing only by trailing whitespace is not re-sent", async () => {
+    const { stream, sends } = harness({ throttleMs: 5 });
+
+    // The deltas and `result` are different fields of the same turn and drift
+    // by a trailing newline routinely; an exact compare would treat that as a
+    // divergence and re-send the whole answer.
+    stream.push("All set.\n");
+    await settle();
+
+    await stream.finish("All set.");
+    await settle();
+
+    expect(sends).toEqual(["All set.\n"]);
   });
 });

@@ -450,10 +450,32 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
       // So: extend when the resolved text extends what streamed, do nothing
       // when it is already on screen, and otherwise deliver it as a NEW
       // message rather than in place of anything.
-      const streamedTail = pending.slice(offset);
-      const finalTail = finalText.slice(offset);
+      // BOTH COMPARISONS BELOW ARE AGAINST `pending`, NEVER AGAINST `offset`
+      // (mt#4240). The `drain` above has just written everything `pending`
+      // holds, so at this point the chat shows exactly `pending`: the closed
+      // messages carry `[0, offset)` and the open one carries the rest. That
+      // makes `pending` the record of what was DELIVERED, and `offset` only
+      // the record of where messages were CUT.
+      //
+      // Reasoning about delivery from `offset` conflated the two, and was
+      // wrong in exactly the cases where a message had just been closed.
+      // `pending.slice(offset)` is EMPTY when a block seal ended the turn, and
+      // it is only the trailing CHUNK when a long answer was split across
+      // messages. Both left the already-on-screen check unable to see text
+      // that was plainly on screen, so the settle fell through to the
+      // new-message branch and sent the whole answer a second time — the
+      // principal's report of the channel answering twice with identical text,
+      // on 12 of 41 measured turns.
+      //
+      // Compared with trailing whitespace trimmed on both sides. The deltas
+      // and the resolved text come from different fields of the same turn and
+      // drift by a trailing newline often enough that an exact compare would
+      // re-open the duplicate path for the most ordinary reason there is.
+      const delivered = pending.trimEnd();
+      const resolved = finalText.trimEnd();
 
-      if (finalText.length > offset && finalTail.startsWith(streamedTail)) {
+      // EXTENDS what streamed — deliver only the part they have not seen.
+      if (resolved.startsWith(delivered)) {
         pending = finalText;
         await drain();
         return degraded ? undefined : (currentMessageId ?? lastDeliveredId);
@@ -462,18 +484,19 @@ export function createReplyStream(opts: ReplyStreamOptions): ReplyStream {
       // ALREADY READ — the deltas carried it, so leave every message as it
       // stands.
       //
-      // Scoped to the OPEN message, not the whole accumulation (PR #3039
-      // review). `pending` is the entire turn; a short resolved answer —
-      // "Done.", "Yes." — can appear in some earlier block by coincidence,
-      // and matching against all of it would then suppress the final answer
-      // entirely on the reasoning that the reader "has seen it". The tail is
-      // what is actually on screen at the point the settle runs.
+      // Anchored at the END rather than searched for anywhere in `pending`,
+      // which keeps PR #3039's protection intact: a short resolved answer —
+      // "Done.", "Yes." — can appear in some earlier block by coincidence, and
+      // a bare `includes` would suppress the final answer entirely on the
+      // reasoning that the reader "has seen it". `endsWith` cannot make that
+      // mistake, because the final answer is the LAST thing streamed or it was
+      // never delivered at all; a coincidental earlier occurrence never matches.
       //
-      // The two failure directions are not symmetric, which is what settles
-      // the scope. Matching too WIDELY loses the answer. Matching too NARROWLY
-      // repeats a line the reader already has — the same trade the degraded
-      // path takes deliberately, and the lesser harm under invariant 2.
-      if (streamedTail.length > 0 && streamedTail.includes(finalText)) return lastDeliveredId;
+      // So PR #3039 narrowed the right check on the wrong axis. WHERE the text
+      // sits is what separates the two failure directions; WHICH MESSAGE it
+      // happened to land in never did, and scoping by message is what made the
+      // check blind to a closed one.
+      if (delivered.endsWith(resolved)) return lastDeliveredId;
 
       // Genuinely new text that does not continue what is on screen: the
       // timeout notice, the mid-turn-swap notice, or a `result` that diverged.
