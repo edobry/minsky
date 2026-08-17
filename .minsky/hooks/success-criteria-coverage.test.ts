@@ -31,6 +31,7 @@ import {
   extractAssertedCount,
   extractReportedCount,
   resolveEvidenceRegion,
+  extractReferencedCriterionNumbers,
 } from "./success-criteria-coverage";
 import { buildSuccessCriteriaContext } from "./inject-success-criteria";
 
@@ -535,6 +536,33 @@ describe("mt#4214: attribution is bounded, and keyword association is not a basi
     const region = resolveEvidenceRegion(criterion, "", evidence);
     expect(region).not.toContain("99");
     expect(extractReportedCount(region ?? "")).toBe(4);
+  });
+
+  // PR #3082 R1 (BLOCKING), and the finding was correct: the region STARTER accepted all four
+  // reference forms while the TERMINATOR matched only `SC<N>`. An adjacent line written in any
+  // of the other three, with no blank line before it, bled into the previous criterion's region
+  // — mis-attributing evidence and risking exactly the false `disagrees` this surface exists to
+  // avoid. Both sides now derive from one list, and every form is pinned here rather than the
+  // single form that happened to be reported.
+  test.each([
+    ["SC<N>", "SC2: second"],
+    ["success criterion <N>", "success criterion 2: second"],
+    ["criterion <N>", "Criterion 2: second"],
+    ["sc-<N>", "sc-2: second"],
+  ])("a following %s reference terminates the region", (_form, followingLine) => {
+    const evidence = `SC1: first\n4\n${followingLine}\n99`;
+    const region = resolveEvidenceRegion(criterion, "", evidence);
+    expect(region).not.toContain("99");
+    expect(extractReportedCount(region ?? "")).toBe(4);
+  });
+
+  test("every accepted form is readable by the shared number extractor", () => {
+    // The symmetry the R1 defect broke, asserted directly rather than only through its effect.
+    expect(extractReferencedCriterionNumbers("SC2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("success criterion 2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("Criterion 2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("sc-2: x")).toEqual([2]);
+    expect(extractReferencedCriterionNumbers("no reference here")).toEqual([]);
   });
 
   test("keyword-only association yields NO region — the loosest presence test is not attribution", () => {

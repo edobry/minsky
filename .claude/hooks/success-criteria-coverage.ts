@@ -238,18 +238,44 @@ function extractSignificantKeywords(text: string): string[] {
     .filter((word) => word.length >= 5 && !CRITERION_STOPWORDS.has(word));
 }
 
+/**
+ * The accepted written forms of a criterion-number reference, as ONE list.
+ *
+ * Both users derive from it: {@link isCriterionReferencedByNumber} instantiates each form with a
+ * specific number, and {@link extractReferencedCriterionNumbers} instantiates the same forms with
+ * a capture group to read whatever number a line carries.
+ *
+ * They were two hand-mirrored lists for one round of PR #3082 and it produced exactly the defect
+ * that shape produces: the region STARTER accepted all four forms while the region TERMINATOR
+ * matched only `SC<N>`, so an adjacent `Criterion 2:` or `sc-2:` line with no blank line before
+ * it bled into the previous criterion's region — mis-attributing evidence and risking a false
+ * `disagrees`, which is the outcome this whole surface is built to avoid.
+ */
+const CRITERION_NUMBER_REFERENCE_FORMS: readonly ((n: string) => RegExp)[] = [
+  (n) => new RegExp(`\\bSC\\s*#?${n}\\b`, "i"),
+  (n) => new RegExp(`\\bsuccess criterion\\s*#?${n}\\b`, "i"),
+  (n) => new RegExp(`\\bcriterion\\s*#?${n}\\b`, "i"),
+  (n) => new RegExp(`\\bsc-${n}\\b`, "i"),
+];
+
 /** True when the evidence text references this criterion by number, in any common form. */
 export function isCriterionReferencedByNumber(
   criterion: SuccessCriterionItem,
   evidenceText: string
 ): boolean {
-  const n = criterion.number;
-  return [
-    new RegExp(`\\bSC\\s*#?${n}\\b`, "i"),
-    new RegExp(`\\bsuccess criterion\\s*#?${n}\\b`, "i"),
-    new RegExp(`\\bcriterion\\s*#?${n}\\b`, "i"),
-    new RegExp(`\\bsc-${n}\\b`, "i"),
-  ].some((p) => p.test(evidenceText));
+  return CRITERION_NUMBER_REFERENCE_FORMS.some((form) =>
+    form(String(criterion.number)).test(evidenceText)
+  );
+}
+
+/** Every criterion number a line references, in any of the accepted forms. */
+export function extractReferencedCriterionNumbers(line: string): number[] {
+  const found: number[] = [];
+  for (const form of CRITERION_NUMBER_REFERENCE_FORMS) {
+    const n = parseInt(line.match(form("(\\d+)"))?.[1] ?? "", 10);
+    if (Number.isFinite(n) && !found.includes(n)) found.push(n);
+  }
+  return found;
 }
 
 /** True when the evidence text shares a distinctive keyword with the criterion's own text. */
@@ -349,12 +375,14 @@ export function extractReportedCount(region: string): number | null {
   return bare.length === 1 ? parseInt(bare[0] ?? "", 10) : null;
 }
 
-/** True when a line names an `SC<N>` OTHER than this criterion's number. */
+/**
+ * True when a line names a criterion OTHER than this one, in ANY accepted reference form.
+ *
+ * Uses the same {@link CRITERION_NUMBER_REFERENCE_FORMS} the region starter uses — see that
+ * constant for why symmetry here is load-bearing rather than tidy.
+ */
 function referencesADifferentCriterion(line: string, ownNumber: number): boolean {
-  const m = line.match(/\bSC\s*#?(\d+)\b/i);
-  if (!m) return false;
-  const n = parseInt(m[1] ?? "", 10);
-  return Number.isFinite(n) && n !== ownNumber;
+  return extractReferencedCriterionNumbers(line).some((n) => n !== ownNumber);
 }
 
 /**
