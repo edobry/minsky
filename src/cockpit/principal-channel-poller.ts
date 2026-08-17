@@ -128,14 +128,25 @@ export interface ConverseOptions {
   images?: ChannelImage[];
   /**
    * Called with the assistant text accumulated SO FAR as the turn produces it
-   * (mt#3542), for rendering progress into an edited placeholder.
+   * (mt#3542), for rendering progress into the chat.
    *
    * Advisory, and not every actuator emits it. The resolved value — not the
    * last `onPartial` argument — is the turn's authoritative answer: a turn with
    * tool-use rounds streams text around each round, while the resolved result
-   * carries the final reply. Callers settle on the resolved value.
+   * carries the final reply. Callers settle on the resolved value, but only
+   * ADDITIVELY — see `principal-channel-reply-stream.ts`'s `finish`.
    */
   onPartial?: (accumulated: string) => void;
+  /**
+   * Called when a tool call interrupts the assistant's prose (mt#3711).
+   *
+   * The prose before a tool call is a finished thought, so this is where a
+   * streamed reply closes one message and opens the next — the difference
+   * between a turn that reads like chat and one paragraph that keeps growing.
+   * Advisory in exactly the same way `onPartial` is: an actuator that does not
+   * emit it degrades to one message per turn, which is the previous behaviour.
+   */
+  onBlockEnd?: () => void;
 }
 
 export interface ChannelActuator {
@@ -640,7 +651,11 @@ function createStreamFor(deps: PollCycleDeps, message: InboundTelegramMessage): 
     maxRenderedChars: TELEGRAM_MAX_MESSAGE_CHARS,
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
     transport: {
-      send: (text: string) => sendReply(deps, message, text),
+      // `silent` rides through to Telegram's `disable_notification` (mt#3711),
+      // which is what lets a turn be several messages and still cost the
+      // principal one notification.
+      send: (text: string, opts?: { silent?: boolean }) =>
+        sendReply(deps, message, text, opts?.silent === true ? { silent: true } : {}),
     },
   });
 }
@@ -671,7 +686,12 @@ function runActuator(
       return actuator.converse(withChannelNotes(route.text, notes), {
         ...(route.replyToText === undefined ? {} : { replyToText: route.replyToText }),
         ...(images.length > 0 ? { images } : {}),
-        ...(stream ? { onPartial: (accumulated: string) => stream.push(accumulated) } : {}),
+        ...(stream
+          ? {
+              onPartial: (accumulated: string) => stream.push(accumulated),
+              onBlockEnd: () => stream.sealBlock(),
+            }
+          : {}),
       });
   }
 }
@@ -864,7 +884,8 @@ async function resolveAttachments(
 async function sendReply(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
-  reply: string
+  reply: string,
+  opts: { silent?: boolean } = {}
 ): Promise<number | undefined> {
   const text = reply.trim().length > 0 ? reply.trim() : "(no output)";
 
@@ -893,6 +914,11 @@ async function sendReply(
     text: payload.text,
     ...(formatted ? { parseMode: "HTML" as const, plainFallback: plain } : {}),
     replyToMessageId: message.messageId,
+    // Deliver without a notification when the caller asks (mt#3711). Only the
+    // streaming path sets it, and only for the second and later messages of a
+    // turn — an ordinary reply, and the FIRST message of a streamed turn, must
+    // still reach the phone.
+    ...(opts.silent === true ? { disableNotification: true } : {}),
     // Post the reply INTO the topic it answers (mt#3505) — otherwise a reply
     // to a topic-routed conversation would land in General even though the
     // turn itself ran against that topic's conversation.
