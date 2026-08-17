@@ -143,9 +143,21 @@ export async function refineBasisWithNomination(
     });
 
     if (result.degraded) {
-      // Record the FIRST degradation and stop: a provider that is down for one
-      // finding is down for the rest, and retrying per-finding would multiply
-      // the latency budget the guard declared.
+      // Stop, and DISCARD any positives found before this point (PR #3033 R1
+      // asked whether those are lost — they are, deliberately). Two reasons,
+      // and the second is the stronger one:
+      //
+      //  1. ADR-024's fail-to-Rung-1 invariant. This predicate SUPPRESSES, so
+      //     applying a partial result would suppress some fires on incomplete
+      //     evidence. Degrading must cost precision, never a missed trigger.
+      //  2. Determinism. Applying whatever happened to be scored before the
+      //     provider died makes the verdict depend on WHERE the failure landed
+      //     — the same prompt would get different verdicts across runs. A
+      //     detector whose output varies with a transient is worse than one
+      //     that degrades cleanly to its deterministic rung.
+      //
+      // Breaking rather than continuing also keeps the round-trips within the
+      // 10s budget the consuming guards declare in `registry.ts`.
       degraded = true;
       degradedReason = result.degradedReason;
       break;

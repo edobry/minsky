@@ -139,6 +139,49 @@ describe("AT5 — every failure path falls back to the Rung-1 verdict, which fir
   });
 });
 
+describe("PR #3033 R1 — a mid-sweep degradation discards partial positives", () => {
+  test("a positive found before the provider dies is NOT applied", async () => {
+    // Two bare prohibitions; the provider answers the first window and throws on
+    // the second. Applying the first would suppress one fire on incomplete
+    // evidence AND make the verdict depend on where the failure landed.
+    const text = [
+      "The endpoint returns 403 for every caller we tried.",
+      "Do not attempt it.",
+      "",
+      "Some unrelated prose sits here to push the second match out of the first window.",
+      "x".repeat(600),
+      "",
+      "Do not pursue the polling approach.",
+    ].join("\n");
+
+    const rung1 = analyzeNegativeConstraints(text);
+    // Liveness first: this fixture must actually produce two bare findings, or
+    // the assertion below passes vacuously (mem#1020).
+    expect(rung1.bare.length).toBe(2);
+
+    let call = 0;
+    const deps = {
+      semantic: true,
+      embeddingService: {
+        generateEmbedding: async () => [1, 0],
+        generateEmbeddings: async (contents: string[]) => {
+          call += 1;
+          if (call > 1) throw new Error("provider died mid-sweep");
+          return contents.map(() => [1, 0]);
+        },
+      },
+    };
+
+    const result = await refineBasisWithNomination(rung1, text, deps);
+
+    expect(result.degraded).toBe(true);
+    expect(result.refinedCount).toBe(0);
+    // Both still bare — including the one the provider DID answer positively.
+    expect(result.report.bare.length).toBe(2);
+    expect(result.report).toBe(rung1);
+  });
+});
+
 describe("the stage does no work when Rung 1 left nothing bare", () => {
   test("a report with no bare findings returns unchanged and NOT degraded", async () => {
     // A basis-bearing prohibition: the causal connective is a Rung-1 marker.

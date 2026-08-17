@@ -23,13 +23,32 @@
  *   regex candidates rejected. A usable threshold separates the two populations;
  *   if it cannot, that is the finding and no threshold should be pinned.
  *
- * Emits AGGREGATE COUNTS AND SCORES ONLY — never prompt text. The corpus is the
- * operator's own transcripts.
+ * ## What leaves this machine (PR #3033 R1)
+ *
+ * Scoring requires embedding the text, so `--execute` SENDS prohibition windows
+ * from the operator's own transcripts to the configured embedding provider.
+ * An earlier header said "aggregate counts and scores only, never prompt text",
+ * which was true of STDOUT and misleading about the network — the reviewer was
+ * right to block on it. Both statements are now made separately:
+ *
+ * - **stdout** carries aggregate counts and scores only, never prompt text.
+ * - **the provider** receives raw ±240-char windows, under `--execute` only.
+ *
+ * This is the same data flow the repo already sanctions elsewhere —
+ * `transcripts/per-turn-embedding-pipeline.ts` and the `transcripts
+ * index-embeddings` command embed transcript turn text through the same
+ * configured provider — so the concern is not a novel exposure class but an
+ * ad-hoc script performing it without saying so. Hence the gate: this script is
+ * DRY-RUN BY DEFAULT (`operational-safety-dry-run-first.mdc`), reporting corpus
+ * shape and exactly how many windows it WOULD transmit, and makes no network
+ * call at all until `--execute` is passed.
  *
  * Usage:
- *   bun scripts/calibrate-basis-nomination.ts               # full corpus
- *   bun scripts/calibrate-basis-nomination.ts --limit 50    # bound the batch
- *   bun scripts/calibrate-basis-nomination.ts --json
+ *   bun scripts/calibrate-basis-nomination.ts               # dry run — no network
+ *   bun scripts/calibrate-basis-nomination.ts --execute     # embeds; sends windows
+ *   bun scripts/calibrate-basis-nomination.ts --execute --limit 50
+ *   bun scripts/calibrate-basis-nomination.ts --execute --json
+ *   bun scripts/calibrate-basis-nomination.ts --transcript-dir <path>
  *
  * Exits 0 when it completes, 2 when no embedding provider is available (a SKIP,
  * not a failure — the same shape §7a prescribes for env-gated artifacts).
@@ -51,12 +70,17 @@ import {
   splitCandidateSegments,
 } from "@minsky/domain/detectors/embedding-nomination";
 
-const TRANSCRIPT_DIR = path.join(
-  os.homedir(),
-  ".claude",
-  "projects",
-  "-Users-edobry-Projects-minsky"
-);
+/**
+ * Claude Code stores a project's transcripts under a directory named by
+ * flattening the project's absolute path (`/` and `.` -> `-`). Deriving it from
+ * `cwd` rather than hardcoding one operator's path (PR #3033 R1) is what makes
+ * this reproducible on another machine; `--transcript-dir` overrides for the
+ * case where the corpus lives somewhere else.
+ */
+function defaultTranscriptDir(): string {
+  const flattened = process.cwd().replace(/[/.]/g, "-");
+  return path.join(os.homedir(), ".claude", "projects", flattened);
+}
 
 interface Window {
   text: string;
@@ -65,13 +89,13 @@ interface Window {
 }
 
 /** Extract every dispatch prompt from the local transcripts. */
-function collectDispatchPrompts(limit?: number): string[] {
+function collectDispatchPrompts(transcriptDir: string, limit?: number): string[] {
   let files: string[];
   try {
     files = fs
-      .readdirSync(TRANSCRIPT_DIR)
+      .readdirSync(transcriptDir)
       .filter((f) => f.endsWith(".jsonl"))
-      .map((f) => path.join(TRANSCRIPT_DIR, f));
+      .map((f) => path.join(transcriptDir, f));
   } catch {
     // intentional-swallow: an absent transcript dir means an empty corpus, which
     // the caller reports as a SKIP rather than a failure.
@@ -134,8 +158,40 @@ function quantile(sorted: number[], q: number): number {
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const json = args.includes("--json");
+  const execute = args.includes("--execute");
   const limitArg = args.indexOf("--limit");
   const limit = limitArg >= 0 ? Number(args[limitArg + 1]) : undefined;
+  const dirArg = args.indexOf("--transcript-dir");
+  const transcriptDir = dirArg >= 0 ? String(args[dirArg + 1]) : defaultTranscriptDir();
+
+  const prompts = collectDispatchPrompts(transcriptDir, limit);
+  const windows = collectWindows(prompts);
+  const bare = windows.filter((w) => !w.rung1HasBasis);
+  const bearing = windows.filter((w) => w.rung1HasBasis);
+
+  process.stdout.write(
+    `corpus: ${prompts.length} dispatch prompts, ${windows.length} prohibition matches ` +
+      `(${bare.length} bare under Rung 1, ${bearing.length} basis-bearing)\n`
+  );
+  if (windows.length === 0) {
+    process.stdout.write("SKIP: no prohibition matches in corpus.\n");
+    process.exit(2);
+  }
+
+  if (!execute) {
+    // Dry run: name exactly what --execute would transmit, and to whom, before
+    // any of it leaves the machine (PR #3033 R1). Everything above this point is
+    // local — transcript reads and the synchronous Rung-1 matcher — which is
+    // what lets the volume be reported before it is authorized.
+    process.stdout.write(
+      `\nDRY RUN — no network calls made.\n` +
+        `  --execute would send ${windows.length} prohibition windows ` +
+        `(up to ${BASIS_WINDOW_CHARS * 2} chars each, drawn from your own transcripts)\n` +
+        `  plus ${BASIS_EXEMPLARS.length} exemplars, to the configured embedding provider.\n` +
+        `  Re-run with --execute to perform the calibration.\n`
+    );
+    process.exit(0);
+  }
 
   const { initializeConfiguration, CustomConfigFactory } = await import(
     "@minsky/domain/configuration"
@@ -150,20 +206,6 @@ async function main(): Promise<void> {
     process.stdout.write(
       "SKIP: no semantic embedding provider available — calibration needs live embeddings.\n"
     );
-    process.exit(2);
-  }
-
-  const prompts = collectDispatchPrompts(limit);
-  const windows = collectWindows(prompts);
-  const bare = windows.filter((w) => !w.rung1HasBasis);
-  const bearing = windows.filter((w) => w.rung1HasBasis);
-
-  process.stdout.write(
-    `corpus: ${prompts.length} dispatch prompts, ${windows.length} prohibition matches ` +
-      `(${bare.length} bare under Rung 1, ${bearing.length} basis-bearing)\n`
-  );
-  if (windows.length === 0) {
-    process.stdout.write("SKIP: no prohibition matches in corpus.\n");
     process.exit(2);
   }
 
@@ -226,11 +268,16 @@ async function main(): Promise<void> {
   if (json) {
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   } else {
+    // An empty population must read as "(none)", not as `min undefined p50 NaN`
+    // — a report that prints NaN invites it being read as a measured value.
+    const band = (s: { min?: number; p50: number; max?: number }, n: number): string =>
+      n === 0
+        ? "(none in this sample)"
+        : `min ${s.min?.toFixed(3)} p50 ${s.p50.toFixed(3)} max ${s.max?.toFixed(3)}`;
+
     process.stdout.write(
-      `\nbare-window scores      : min ${summary.bareScores.min?.toFixed(3)} ` +
-        `p50 ${summary.bareScores.p50?.toFixed(3)} max ${summary.bareScores.max?.toFixed(3)}\n` +
-        `basis-bearing scores    : min ${summary.bearingScores.min?.toFixed(3)} ` +
-        `p50 ${summary.bearingScores.p50?.toFixed(3)} max ${summary.bearingScores.max?.toFixed(3)}\n\n` +
+      `\nbare-window scores      : ${band(summary.bareScores, bare.length)}\n` +
+        `basis-bearing scores    : ${band(summary.bearingScores, bearing.length)}\n\n` +
         `threshold  bare-flipped  basis-bearing-also-marked\n`
     );
     for (const row of sweep) {
