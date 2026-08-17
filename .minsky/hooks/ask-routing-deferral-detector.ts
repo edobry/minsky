@@ -201,6 +201,29 @@ export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [PAUSE_STOP_SELF_
  */
 
 /**
+ * The four constituents of a menu shape, declared ONCE so {@link hasMenuShape}
+ * and {@link findOfferShape} cannot drift apart (mt#3801) — the same
+ * declare-once discipline {@link PAUSE_STOP_SELF_REPORT} carries above, for the
+ * same reason.
+ *
+ * Each leg carries a stable LABEL instead of reporting its own matched text.
+ * That is a calibration-log constraint, not cosmetics: the sweep's diversity
+ * axis keys on `matches[].phrase` (see {@link DeferralMatch.context}), and the
+ * disjunction leg's match — `"mt3799 or I"` — is near-unique per turn.
+ * Reporting it would make every record distinct and destroy the count that
+ * decides when this log gets reviewed.
+ */
+const MENU_SHAPE_LEGS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
+  { label: "offer-shape:question", pattern: /\?/ },
+  { label: "offer-shape:or", pattern: /\b\w+\s+or\s+\w+/i },
+  { label: "offer-shape:unless", pattern: /\bunless\b/i },
+  {
+    label: "offer-shape:if-you-rather",
+    pattern: /\bif\s+you(['’]d|\s+would)?\s+(rather|prefer|want)\b/i,
+  },
+];
+
+/**
  * A menu shape: an explicit question, or any construction offering the reader
  * an alternative. Scoped to ONE LINE so a question elsewhere in a long report
  * cannot license a pause phrase that stands alone.
@@ -208,14 +231,123 @@ export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [PAUSE_STOP_SELF_
  * `unless` / `if you'd rather` are included because they offer a choice without
  * a question mark or a disjunction — `"I'll stop here unless you want more"`
  * hands the continue/stop decision over just as squarely as asking would.
+ *
+ * KNOWN MISS, recorded rather than closed (mt#3801): the disjunction leg needs
+ * a bare space before `or`, so `"Next step is mt#3799, or I can go straight at
+ * it."` is not recognized — a comma breaks the `\s+`. Widening it is not a free
+ * recall win, because this predicate is ALSO the suppression gate for
+ * {@link MENU_SHAPE_REQUIRED_PATTERNS}, where a wider menu shape suppresses
+ * LESS and therefore fires MORE. That is the false-positive direction on a
+ * live-injecting guard (see {@link lineAt}, which records the same asymmetry),
+ * so it needs its own evidence rather than riding along with a recall change.
  */
 export function hasMenuShape(paragraph: string): boolean {
-  return (
-    /\?/.test(paragraph) ||
-    /\b\w+\s+or\s+\w+/i.test(paragraph) ||
-    /\bunless\b/i.test(paragraph) ||
-    /\bif\s+you(['’]d|\s+would)?\s+(rather|prefer|want)\b/i.test(paragraph)
-  );
+  return MENU_SHAPE_LEGS.some(({ pattern }) => pattern.test(paragraph));
+}
+
+/**
+ * A first-person clause proposing an action the AGENT would take.
+ *
+ * The second constituent of the offer shape, and the reason
+ * {@link hasMenuShape} cannot be promoted to a trigger on its own: it is TRUE
+ * for `"The migration ran cleanly unless a row was locked, in which case it
+ * retried."` — a factual qualifier with no offer in it and no actor at all.
+ * Measured against the live matcher on 2026-08-17, not reasoned about.
+ *
+ * Every form here is NON-PAST by construction, which is what separates an offer
+ * from a report: `"I fixed it unless a row was locked"` names a first-person
+ * action, offers nothing, and matches none of them.
+ */
+const AGENT_ACTION_PATTERNS: readonly RegExp[] = [
+  // Contracted modal — `I'll`, `I'd`.
+  /\bI\s*['’](?:ll|d)\b/i,
+  // Explicit modal.
+  /\bI\s+(?:can|could|will|would|should|shall)\b/i,
+  // Bare verb governed by a preference token, which is where English drops the
+  // modal: `"you'd rather I go straight at it"`, `"unless you prefer I hold"`.
+  /\b(?:rather|prefer)\s+I\s+\w+/i,
+  // The object form of the same construction. `for` is deliberately NOT in this
+  // alternation (PR #3088 R1): `"for me to"` is the DESCRIPTIVE form, not an
+  // offer — `"It would be unusual for me to change that"` proposes nothing, and
+  // `"there is no need for me to rerun this"` is its negation. Every member
+  // here takes `me` as a direct object of a volition verb, which `for` does not.
+  /\b(?:want|need|prefer|like)\s+me\s+to\s+\w+/i,
+];
+
+/**
+ * Negation immediately LEADING an agent-action clause (PR #3088 R1).
+ *
+ * Bounded to a few words because the negation has to govern the clause: in
+ * `"there is no need for me to rerun"` it does, while a `not` two sentences
+ * back does not. Same shape and the same reasoning as
+ * `operator-deferral-detector`'s `NEGATION_LEAD_PATTERN`, declared locally
+ * rather than imported because that module imports THIS one — sharing it would
+ * close the cycle.
+ */
+const AGENT_ACTION_NEGATED_LEAD = /\b(?:no|not|never|nothing|unable|hardly)\s+(?:\w+\s+){0,2}$/i;
+
+/** How far back {@link namesAgentAction} reads for a governing negation. */
+const AGENT_ACTION_LOOKBACK_CHARS = 24;
+
+/**
+ * True when `line` proposes an action the agent itself would perform.
+ *
+ * **Polarity is checked, not assumed (PR #3088 R1).** The patterns above match
+ * the SHAPE of a first-person action clause, and that shape is identical
+ * whether the agent is offering to act or saying it will not — `"I can take
+ * it"` and `"I can't reproduce it"` differ by two characters, and `\b` sits
+ * between `can` and `'t`, so the modal leg matches both. A negated clause is
+ * not an offer, and firing on one would put noise into a LIVE-injecting guard.
+ *
+ * Three forms, all measured against the live matcher rather than reasoned
+ * about: a contraction directly after the match (`I can't`), an explicit `not`
+ * directly after it (`I would not`), and a governing negator just before it
+ * (`no need ... me to`).
+ */
+export function namesAgentAction(line: string): boolean {
+  for (const pattern of AGENT_ACTION_PATTERNS) {
+    const m = pattern.exec(line);
+    if (!m) continue;
+    const start = m.index ?? 0;
+    const trailing = line.slice(start + m[0].length);
+    if (/^['’]t\b/.test(trailing)) continue;
+    if (/^\s+not\b/i.test(trailing)) continue;
+    const lead = line.slice(Math.max(0, start - AGENT_ACTION_LOOKBACK_CHARS), start);
+    if (AGENT_ACTION_NEGATED_LEAD.test(lead)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The OFFER shape: a menu handing the principal a choice about what the AGENT
+ * does next (mt#3801) — `"Next step is X unless you'd rather I do Y"`.
+ *
+ * The CONJUNCTION is the whole mechanism, and it is deliberately not a ninth
+ * entry in {@link DEFERRAL_MENU_PATTERNS}. The offer class has open-ended
+ * surface forms; five sibling tasks against this file each adding one phrase is
+ * the arms race ADR-024 exists to end. Both constituents already existed in
+ * this file — what was missing was the relation between them, which is why this
+ * is a wiring change rather than a corpus addition.
+ *
+ * Line-scoped for the reason {@link lineAt} records: a menu token three
+ * paragraphs away from an agent-action clause was never said in one breath.
+ * Returns the FIRST line satisfying both, reporting the leg's stable label.
+ */
+export function findOfferShape(
+  text: string
+): { index: number; length: number; label: string } | null {
+  let offset = 0;
+  for (const line of text.split("\n")) {
+    if (namesAgentAction(line)) {
+      for (const { label, pattern } of MENU_SHAPE_LEGS) {
+        const m = pattern.exec(line);
+        if (m) return { index: offset + (m.index ?? 0), length: m[0].length, label };
+      }
+    }
+    offset += line.length + 1;
+  }
+  return null;
 }
 
 /**
@@ -295,6 +427,20 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
         context: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 1 }),
       });
       break;
+    }
+  }
+  // The structural offer trigger (mt#3801), run AFTER the literal corpus and
+  // only when the menu class produced nothing. Ordering it second is what keeps
+  // this change purely additive: a turn that already matches a literal pattern
+  // keeps that pattern's phrase, so no existing record changes shape.
+  if (!matches.some((m) => m.cls === "deferral-menu")) {
+    const offer = findOfferShape(scanned);
+    if (offer) {
+      matches.push({
+        cls: "deferral-menu",
+        matchedPhrase: offer.label,
+        context: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 1 }),
+      });
     }
   }
   return matches;
