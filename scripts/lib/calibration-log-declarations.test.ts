@@ -1,6 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   NON_GUARD_CALIBRATION_PRODUCERS,
+  RETIRED_CALIBRATION_PRODUCERS,
   buildCalibrationLogToGuards,
   getDeclaredCalibrationLogNames,
 } from "./calibration-log-declarations";
@@ -36,6 +37,43 @@ describe("getDeclaredCalibrationLogNames", () => {
     const declared = new Set(getDeclaredCalibrationLogNames());
     for (const name of Object.keys(NON_GUARD_CALIBRATION_PRODUCERS)) {
       expect(declared.has(name)).toBe(true);
+    }
+  });
+
+  test("includes the enumerated retired producers (mt#4204)", () => {
+    const declared = new Set(getDeclaredCalibrationLogNames());
+    for (const name of Object.keys(RETIRED_CALIBRATION_PRODUCERS)) {
+      expect(declared.has(name)).toBe(true);
+    }
+  });
+});
+
+describe("RETIRED_CALIBRATION_PRODUCERS (mt#4204)", () => {
+  test("a retired producer's log has no live guard declaring it", () => {
+    // The defining property: the producer is GONE from the tree. If a guard or canary still
+    // declared this log, the entry would be wrong — the log would have real invocation evidence
+    // and belongs in the ordinary coverage path, not the retired category. This is what keeps
+    // the map from becoming a mute for a detector that has merely gone quiet.
+    const map = buildCalibrationLogToGuards();
+    for (const name of Object.keys(RETIRED_CALIBRATION_PRODUCERS)) {
+      expect(map.has(name)).toBe(false);
+    }
+  });
+
+  test("a retired producer is not also declared non-guard", () => {
+    // The two categories are exclusive by construction: non-guard means "written by something
+    // that is not a hook", retired means "written by nothing at all". A name in both would make
+    // the consumer's exclusion order load-bearing, which it should never be.
+    for (const name of Object.keys(RETIRED_CALIBRATION_PRODUCERS)) {
+      expect(name in NON_GUARD_CALIBRATION_PRODUCERS).toBe(false);
+    }
+  });
+
+  test("every entry names its retiring task, so the claim is auditable", () => {
+    // A bare "retired" with no provenance is indistinguishable from a mute someone added to
+    // silence an inconvenient FLAGGED row. The task id is what makes it checkable.
+    for (const [name, producer] of Object.entries(RETIRED_CALIBRATION_PRODUCERS)) {
+      expect(producer, name).toMatch(/mt#\d+/);
     }
   });
 
