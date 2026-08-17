@@ -45,7 +45,7 @@
  * files/hooks.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, normalize } from "node:path";
 import { ROOTS, shouldExclude } from "./run-tests-main";
 
 const TS_EXT_RE = /\.tsx?$/;
@@ -346,6 +346,131 @@ export function buildReverseDependencyGraph(
 }
 
 /**
+ * A repo-relative path written as a string literal — the DATA-READ edge (mt#4224).
+ *
+ * The import graph above can only see a test that IMPORTS its subject. A test that
+ * reaches its subject with `readFileSync` has no import edge, so editing that subject
+ * selects nothing. Since markdown cannot be imported, that made every
+ * markdown-sourced skill and every `.minsky/rules/*.mdc` invisible to this selector —
+ * and those are exactly the files whose tests are append-only manifests and drift
+ * guards, where a silent omission is most likely.
+ *
+ * Requires a `/` and a dotted extension, so a bare word or a lone identifier is not a
+ * candidate. The literal is only turned into an edge if it resolves to a file that
+ * actually EXISTS (see {@link buildDataReadGraph}) — that existence check, not the
+ * pattern, is what bounds this: a fragment, a glob, or a URL matches nothing on disk
+ * and produces no edge.
+ */
+const PATH_LITERAL_RE = /["'`]([^"'`\n]*\/[^"'`\n]*\.[A-Za-z0-9]+)["'`]/g;
+
+/** Repo-relative path literals appearing anywhere in `content`, deduped, in order. */
+export function extractPathLiterals(content: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of content.matchAll(PATH_LITERAL_RE)) {
+    const raw = m[1];
+    if (raw === undefined) continue;
+    const normalized = toPosix(raw).replace(/^\.\//, "");
+    if (normalized === "" || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(normalized);
+  }
+  return out;
+}
+
+/**
+ * Normalize a path literal to a repo-relative path, or `null` if it does not name one.
+ *
+ * This is a POSITIVE validation, and the distinction is load-bearing (PR #3079 R1,
+ * BLOCKING). The first version rejected negatively — `candidate.startsWith("..")` —
+ * against a candidate that had NOT been normalized, so a traversal embedded mid-path
+ * slipped through: `"a/../../b.md"` does not start with `..`, and
+ * `join(repoRoot, "a/../../b.md")` normalizes to `/b.md`, one level ABOVE the repo. The
+ * reviewer was right, and the failure is invisible by inspection precisely because the
+ * guard looks like it covers the case its own example covers.
+ *
+ * Normalizing FIRST collapses every traversal to a leading `..`, so one check then
+ * covers the whole class rather than the spelling in front of it. Rejected:
+ *
+ *   - anything that escapes the repo after normalization (`../x.md`)
+ *   - absolute paths (`/etc/x.md`) — `join` would confine them under `repoRoot`, which
+ *     silently turns an absolute literal into a bogus in-repo probe
+ *   - URL-ish literals (`https://host/x.png`) — R1 non-blocking; they could never match
+ *     a changed path, so probing for them is pure noise
+ */
+export function toRepoRelative(rawPath: string): string | null {
+  if (rawPath === "" || rawPath.includes("://")) return null;
+  const normalized = toPosix(normalize(rawPath));
+  if (normalized.startsWith("/") || normalized === ".." || normalized.startsWith("../")) {
+    return null;
+  }
+  return normalized.replace(/^\.\//, "");
+}
+
+/**
+ * Build the data-read graph: referencedFile -> Set of TEST files naming it (mt#4224).
+ *
+ * Scanned over TEST files only, not every project file. Two reasons, and the second is
+ * the load-bearing one: it is far less I/O than the import graph already does, and the
+ * edge only means something in this direction — this selector returns TESTS, so a
+ * non-test file naming a path is not a result it could ever emit.
+ *
+ * A literal becomes an edge only when it resolves to an existing file. That is the
+ * bound (SC4): it is what keeps a partial path, a glob, a URL, or a `join(...)`
+ * fragment from creating edges, and it means the graph can never be larger than the
+ * set of real files the tests actually name.
+ *
+ * Fragment-assembled paths are OUT of scope by construction (SC5) — a `join(REPO_ROOT,
+ * relPath)` whose `relPath` is a named constant works because the CONSTANT's own
+ * declaration carries the literal, and this scans the whole file rather than the call
+ * site. A path computed at runtime from a variable is not recoverable statically and
+ * is not attempted.
+ */
+export function buildDataReadGraph(
+  testFiles: string[],
+  repoRoot: string,
+  fs: FsLike = realFs
+): Map<string, Set<string>> {
+  const graph = new Map<string, Set<string>>();
+  for (const testFile of testFiles) {
+    let content: string;
+    try {
+      content = readTextFile(fs, join(repoRoot, testFile));
+    } catch {
+      continue;
+    }
+    // TWO idioms appear in this corpus, and both are fully static — the difference is
+    // only what the literal is relative TO:
+    //
+    //   join(REPO_ROOT, RULE_SOURCE)                       // repo-relative literal
+    //   join(import.meta.dir, "../../.minsky/skills/...")  // test-dir-relative literal
+    //
+    // Resolving only the first was not enough: `plan-task-halt-citation.test.ts` uses it
+    // and matched, while `create-task-claim-steps.test.ts` — the manifest test whose miss
+    // motivated this whole task — uses the second and did NOT. Measured, not assumed:
+    // before this branch, `find-related-tests .minsky/skills/create-task/SKILL.md`
+    // returned only the halt-citation test.
+    const testDir = dirname(testFile);
+    for (const referenced of extractPathLiterals(content)) {
+      for (const raw of [referenced, join(testDir, referenced)]) {
+        const candidate = toRepoRelative(raw);
+        // The existence check is the bound. It also drops self-references and any
+        // literal that happens to look path-shaped without naming a repo file.
+        if (candidate === null || candidate === testFile) continue;
+        if (!fs.existsSync(join(repoRoot, candidate))) continue;
+        let readers = graph.get(candidate);
+        if (!readers) {
+          readers = new Set<string>();
+          graph.set(candidate, readers);
+        }
+        readers.add(testFile);
+      }
+    }
+  }
+  return graph;
+}
+
+/**
  * Default BFS hops over the reverse-dependency graph.
  *
  * Lowered 6 -> 3 by mt#3765. The header above states that over-inclusion "only
@@ -386,14 +511,33 @@ export function findRelatedTestFiles(
   const maxDepth = opts.maxDepth ?? DEFAULT_MAX_DEPTH;
   const fs = opts.fs ?? realFs;
 
-  const normalizedChanged = changedFiles
-    .map(toPosix)
-    .filter((f) => TS_EXT_RE.test(f))
-    .filter((f) => fs.existsSync(join(repoRoot, f)));
+  // EVERY existing changed path, not only TS (mt#4224). The TS filter used to live
+  // here, which discarded a changed `.md`/`.mdc` before any graph work and returned
+  // `[]` outright — a gate in front of the data-read edge below, so adding that edge
+  // alone would have been inert for exactly the markdown subjects it exists for. The
+  // TS restriction still applies where it is meaningful, on the two TS-only passes
+  // (sibling-test heuristic, import-graph seeds), just not to admission.
+  const allChanged = changedFiles.map(toPosix).filter((f) => fs.existsSync(join(repoRoot, f)));
 
-  if (normalizedChanged.length === 0) return [];
+  if (allChanged.length === 0) return [];
+
+  const normalizedChanged = allChanged.filter((f) => TS_EXT_RE.test(f));
 
   const related = new Set<string>();
+
+  // 0. Data-read edges (mt#4224): a test that NAMES this path as a string literal.
+  //    Runs over `allChanged`, so it is the one pass a markdown subject can reach.
+  //    Built lazily — a commit whose changed files no test names pays one tree walk
+  //    and no more, and a commit that touches nothing existing returned above.
+  {
+    const testFiles = collectAllProjectFiles(repoRoot, fs).filter((f) => TEST_SUFFIX_RE.test(f));
+    const dataReadGraph = buildDataReadGraph(testFiles, repoRoot, fs);
+    for (const file of allChanged) {
+      const readers = dataReadGraph.get(file);
+      if (!readers) continue;
+      for (const reader of readers) related.add(reader);
+    }
+  }
 
   // 1. Self / sibling-test heuristic -- no graph required. Applies even to
   //    files under an EXCLUDE_DIR_PREFIXES-excluded dir (e.g. src/mcp) since
