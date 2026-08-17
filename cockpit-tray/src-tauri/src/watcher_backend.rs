@@ -160,21 +160,38 @@ pub(crate) fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
 /// kept serving the pre-merge commit for ~70 minutes while the bug recurred
 /// live, and only an unrelated later commit that happened to touch
 /// `src/cockpit` restarted it.
-const EXTRA_BACKEND_ROOTS: [&str; 2] = ["packages/domain/src", "packages/shared/src"];
+const WORKSPACE_PACKAGES_DIR: &str = "packages";
 
 /// Every source root whose change should restart the daemon.
 ///
-/// Always includes {@link cockpit_backend_src}; adds each of
-/// {@link EXTRA_BACKEND_ROOTS} that actually exists, so a packaged or partial
-/// checkout degrades to the pre-mt#4230 behavior instead of failing.
+/// Always includes {@link cockpit_backend_src}, then DISCOVERS `packages/*/src`
+/// rather than naming packages (mt#4230, PR #3083 R2). The first cut hardcoded
+/// `packages/domain/src` + `packages/shared/src` — currently an exhaustive list
+/// (`packages/` holds exactly those two, and `src/cli.ts` imports exactly those
+/// two) — but a hardcoded set reproduces THIS TASK'S OWN BUG one level up: the
+/// watched set drifts from the real import closure, silently, and the tell is a
+/// daemon serving stale code with nothing to notice. Discovery cannot drift.
+///
+/// Results are sorted so the root order is deterministic across runs (directory
+/// iteration order is not guaranteed), which keeps the watch order and any
+/// order-sensitive test stable.
+///
+/// A missing or unreadable `packages/` yields just the cockpit root, so a
+/// packaged or partial checkout degrades to the pre-mt#4230 behavior rather
+/// than failing.
 pub(crate) fn cockpit_backend_roots(repo_root: &Path) -> Vec<PathBuf> {
     let mut roots = vec![cockpit_backend_src(repo_root)];
-    for extra in EXTRA_BACKEND_ROOTS {
-        let candidate = repo_root.join(extra);
-        if candidate.is_dir() {
-            roots.push(candidate);
-        }
+
+    if let Ok(entries) = std::fs::read_dir(repo_root.join(WORKSPACE_PACKAGES_DIR)) {
+        let mut discovered: Vec<PathBuf> = entries
+            .flatten()
+            .map(|e| e.path().join("src"))
+            .filter(|p| p.is_dir())
+            .collect();
+        discovered.sort();
+        roots.extend(discovered);
     }
+
     roots
 }
 
@@ -196,8 +213,27 @@ pub(crate) fn cockpit_backend_root(path: &str) -> Option<PathBuf> {
 
 /// Directory names excluded from the backend freshness walk AND watcher: `web`
 /// (mt#2297 owns the frontend → rebuild path; backend restart must NOT fire on
-/// web edits — acceptance test 6), plus deps/build/git internals.
-const BACKEND_WALK_EXCLUDES: [&str; 4] = ["web", "node_modules", ".git", "dist"];
+/// web edits — acceptance test 6), plus deps/build/git internals, plus the
+/// test-adjacent directory family (mt#4230, PR #3083 R1).
+///
+/// The last group arrived with the packages roots. This list was written for
+/// `src/cockpit`, whose tree carries no fixture or mock directories, so the
+/// per-file `.test.ts` suffix check was sufficient there. `packages/*/src` has
+/// four such directories, and a non-test module inside one — currently one file,
+/// `domain/src/transcripts/__fixtures__` — would restart the daemon on every
+/// edit despite never being loaded at runtime. Measured at R1: 0 `.spec.ts` and
+/// 544 `.test.ts` under the packages roots, so the suffix check already covered
+/// the bulk; this closes the directory-shaped remainder.
+const BACKEND_WALK_EXCLUDES: [&str; 8] = [
+    "web",
+    "node_modules",
+    ".git",
+    "dist",
+    "__fixtures__",
+    "__tests__",
+    "__mocks__",
+    "fixtures",
+];
 
 fn is_backend_excluded_dir(name: &std::ffi::OsStr) -> bool {
     BACKEND_WALK_EXCLUDES.iter().any(|e| name == *e)
@@ -219,7 +255,19 @@ fn backend_path_is_excluded(path: &Path) -> bool {
 /// fresh per request, so it is intentionally not part of the watched tree.
 fn is_backend_module_file(name: &str) -> bool {
     const EXTS: [&str; 3] = [".ts", ".mts", ".cts"];
-    const TEST_EXTS: [&str; 3] = [".test.ts", ".test.mts", ".test.cts"];
+    // `.spec.*` joins `.test.*` at mt#4230 R1. The packages roots carry 0 of
+    // them today, so this is pre-emptive rather than a measured miss — but the
+    // convention is live elsewhere in the ecosystem and a first `.spec.ts` under
+    // `packages/*/src` would otherwise restart the daemon on every edit, with
+    // nothing to make the cause visible.
+    const TEST_EXTS: [&str; 6] = [
+        ".test.ts",
+        ".test.mts",
+        ".test.cts",
+        ".spec.ts",
+        ".spec.mts",
+        ".spec.cts",
+    ];
     EXTS.iter().any(|e| name.ends_with(e)) && !TEST_EXTS.iter().any(|e| name.ends_with(e))
 }
 
@@ -318,11 +366,29 @@ pub(crate) fn start_backend_watcher(
     .ok()?;
     // Every root is watched by the SAME debouncer, so a burst spanning two of
     // them coalesces into one restart rather than one per root.
-    for root in backend_roots {
-        debouncer
-            .watcher()
-            .watch(root, RecursiveMode::Recursive)
-            .ok()?;
+    //
+    // Partial failure degrades rather than failing closed (mt#4230, PR #3083 R1).
+    // `.ok()?` inside this loop would abort the whole function on ONE bad root,
+    // dropping the debouncer and with it EVERY watch — so an unreadable
+    // `packages/shared/src` would silently disable auto-restart for
+    // `src/cockpit` too, which worked fine before this task widened the roots.
+    // Watching some roots strictly beats watching none; the count is returned to
+    // the caller's decision below.
+    let watched = backend_roots
+        .iter()
+        .filter(|root| {
+            debouncer
+                .watcher()
+                .watch(root, RecursiveMode::Recursive)
+                .is_ok()
+        })
+        .count();
+
+    // Zero successful watches means the debouncer would sit inert forever, which
+    // is indistinguishable from "no changes are happening" — report it as the
+    // absence it is, so the caller's `Option` still carries a truthful signal.
+    if watched == 0 {
+        return None;
     }
     Some(debouncer)
 }
@@ -364,6 +430,67 @@ mod tests {
         assert!(roots.contains(&repo.join("src/cockpit")));
         assert!(roots.contains(&repo.join("packages/domain/src")));
         assert!(roots.contains(&repo.join("packages/shared/src")));
+    }
+
+    #[test]
+    fn backend_roots_discover_a_package_nobody_named_in_code() {
+        // R2: the watched set must not need editing when a package is added —
+        // a hardcoded list is the same drift this task exists to fix, one level
+        // up. `zzz-future` appears nowhere in this crate.
+        let repo = tmp("roots-discovery");
+        for d in ["src/cockpit", "packages/zzz-future/src"] {
+            std::fs::create_dir_all(repo.join(d)).expect("mkdir");
+        }
+
+        let roots = cockpit_backend_roots(&repo);
+
+        assert!(
+            roots.contains(&repo.join("packages/zzz-future/src")),
+            "discovered roots: {roots:?}"
+        );
+    }
+
+    #[test]
+    fn backend_roots_skip_a_package_with_no_src_dir() {
+        // A package directory that is not a source tree (no `src/`) contributes
+        // nothing — discovery must not watch a path that does not exist.
+        let repo = tmp("roots-nosrc");
+        std::fs::create_dir_all(repo.join("src/cockpit")).expect("mkdir");
+        std::fs::create_dir_all(repo.join("packages/docs-only")).expect("mkdir");
+
+        let roots = cockpit_backend_roots(&repo);
+
+        assert_eq!(roots, vec![repo.join("src/cockpit")]);
+    }
+
+    #[test]
+    fn newest_mtime_across_ignores_test_adjacent_dirs_under_packages() {
+        // R1 BLOCKING: the exclusion list was written for `src/cockpit`, which
+        // has no fixture/mock dirs. `packages/*/src` has four, and a non-test
+        // module inside one would restart the daemon on every edit.
+        let repo = tmp("across-fixtures");
+        let old = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let new = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000);
+        touch(&repo.join("src/cockpit/server.ts"), old);
+        touch(
+            &repo.join("packages/domain/src/transcripts/__fixtures__/sample.ts"),
+            new,
+        );
+        touch(&repo.join("packages/domain/src/tests/__mocks__/db.ts"), new);
+        touch(&repo.join("packages/domain/src/repo/fixtures/seed.ts"), new);
+        touch(
+            &repo.join("packages/domain/src/detectors/__tests__/helper.ts"),
+            new,
+        );
+        touch(&repo.join("packages/domain/src/parser.spec.ts"), new);
+
+        let roots = cockpit_backend_roots(&repo);
+
+        assert_eq!(
+            newest_backend_mtime_across(&roots),
+            Some(old),
+            "every changed file is test-adjacent and must not count"
+        );
     }
 
     #[test]
