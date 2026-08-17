@@ -52,7 +52,26 @@ describe("recorded-deviation verification instruction (mt#3587)", () => {
     const prompt = buildCriticConstitution(true, "normal", true);
     expect(prompt).toContain("inside this SAME batched call");
     expect(prompt).toContain("no extra tool round");
-    expect(prompt).toContain("no additional `read_file`");
+    expect(prompt).toContain("obliges no `read_file` you were not already going to make");
+  });
+
+  test("the budget clause does NOT read as a prohibition on using tools (R1)", () => {
+    // R1 BLOCKING, and correct: the first wording — "no additional `read_file`" — was written as
+    // a budget statement and reads as a ban, contradicting the constitution's own Tool Access
+    // section ("Before making any claim about a file or directory that is not directly in the
+    // diff, USE THE TOOLS to verify it"). A reviewer following the ban would decline exactly the
+    // read a consumer-claim rationale most needs. The clause now names itself as a statement
+    // about what the directive REQUIRES, and points back at Tool Access for what is permitted.
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("not a restriction on what you may do");
+    expect(prompt).toContain("exactly what the Tool Access section above is for");
+    // The bare prohibition must be gone, not merely qualified elsewhere in the file.
+    expect(prompt).not.toContain("no additional `read_file`");
+  });
+
+  test("the prose variant carries the same tool-use cue, so the variants do not drift (R1)", () => {
+    const prompt = buildCriticConstitution(false);
+    expect(prompt).toContain("use the tools per the Tool Access section");
   });
 
   test("tool-emission variant preserves the mt#3919 Unverifiable contract for an uncheckable rationale", () => {
