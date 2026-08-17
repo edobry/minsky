@@ -587,6 +587,7 @@ describe("mt#4214: a disagreement is a distinct finding class from unreferenced"
     expect(record?.findingClasses).toEqual(["disagrees"]);
     const disagreements = record?.disagreeingCriteria as Array<{
       number: number;
+      text: string;
       expected: number;
       actual: number;
     }>;
