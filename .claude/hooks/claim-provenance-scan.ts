@@ -198,25 +198,47 @@ function paragraphs(text: string): string[] {
 const OVERLAP_DENIAL_RE =
   /\b(?:no|not|never|zero|none|without)\s+(?:\w+\s+){0,3}?(?:overlap|overlapping|collision|collides?|conflict)/i;
 
-/** True when the spec asserts a FILE-level collision, not mere adjacency. */
-export function claimsFileCollision(specText: string): boolean {
-  return paragraphs(stripDuplicateCheckRecords(specText)).some(
+/**
+ * The paragraphs that actually assert a file-level collision.
+ *
+ * Returned rather than a boolean because the PR join needs the SAME span
+ * (PR #3050 R1). Extracting cited PR numbers from the whole spec made an
+ * unrelated `PR #9999` in a `## Context` list a required read, so the guard
+ * fired at authors who HAD read the PR their claim was about — the dangerous
+ * direction, and a plausible cause of the three "author says `get_files` was
+ * read" misses the pre-ship replay measured.
+ */
+export function collisionParagraphs(specText: string): string[] {
+  return paragraphs(stripDuplicateCheckRecords(specText)).filter(
     (p) => COLLISION_VERB_RE.test(p) && FILE_TOKEN_RE.test(p) && !OVERLAP_DENIAL_RE.test(p)
   );
 }
 
+/** True when the spec asserts a FILE-level collision, not mere adjacency. */
+export function claimsFileCollision(specText: string): boolean {
+  return collisionParagraphs(specText).length > 0;
+}
+
 /**
- * PR numbers the claim names, so the join can require a read of THAT PR.
+ * PR numbers the collision claim names, so the join can require a read of THOSE.
  *
- * `PR #123` and `#123` both appear in this corpus. A bare `#123` is ambiguous
- * with a heading, so it is only taken when a collision verb is present — which
- * the caller has already established.
+ * `PR #N` ONLY — a bare `#123` is deliberately NOT matched, and the earlier
+ * version of this comment claimed otherwise while the code never did it
+ * (PR #3050 R1). Bare-`#N` cannot be made safe here: `\b#(\d+)` matches inside
+ * every task reference, because `mt#4168` carries a word boundary right before
+ * its `#`. Taking bare `#N` would turn each of a spec's task citations into a
+ * PR whose files must have been read — the same over-demanding join the
+ * paragraph scoping above exists to remove, reintroduced at a larger scale.
+ *
+ * Scoped to the collision paragraphs, not the whole spec.
  */
 export function citedPrNumbers(specText: string): number[] {
   const out = new Set<number>();
-  for (const m of stripDuplicateCheckRecords(specText).matchAll(/\bPR\s*#(\d+)\b/gi)) {
-    const n = Number.parseInt(m[1] ?? "", 10);
-    if (Number.isInteger(n)) out.add(n);
+  for (const para of collisionParagraphs(specText)) {
+    for (const m of para.matchAll(/\bPR\s*#(\d+)\b/gi)) {
+      const n = Number.parseInt(m[1] ?? "", 10);
+      if (Number.isInteger(n)) out.add(n);
+    }
   }
   return [...out];
 }

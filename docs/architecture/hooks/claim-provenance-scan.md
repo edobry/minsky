@@ -96,10 +96,17 @@ transcript PREFIX that preceded it — which is exactly what the live guard sees
 | discharged (silent)                           | 54     |
 | not adjudicable                               | 0      |
 
-**These are the numbers that were hand-classified** (measured 2026-08-17). The window is the 40
-MOST RECENT transcripts, so it slides: a re-run minutes later already read 354 / 73 / 18, because
-the measuring session is itself one of the 40 and still growing. Re-measure before comparing, and
-compare rates rather than counts.
+**These are the numbers that were hand-classified** (measured 2026-08-17). Two caveats a later
+reader needs:
+
+- **The window slides.** It is the 40 MOST RECENT transcripts, and the measuring session is itself
+  one of them and still growing — a re-run minutes later already read 354 / 73 / 18. Compare rates,
+  not counts, and re-measure before concluding anything moved.
+- **A later fix changed the numbers, and it has NOT been hand-classified.** PR #3050 R1 scoped PR
+  extraction to the collision paragraph (see below); a post-fix sweep reads **371 / 74 / 15, a
+  20.3% rate**. That is a rate improvement on a sliding window, not a verified precision gain — the
+  one-true-positive figure above belongs to the 16, and mt#4190 owns re-classifying after its own
+  fix.
 
 **All 16 were hand-classified. One was a true unbacked claim.** The rest:
 
@@ -122,6 +129,21 @@ exists to end, so the remaining gap goes to mt#4190 for a structural discriminat
 Injecting at this precision is the mem#719 failure mode: noise teaches the reader to discount the
 true positives, and here it would fire hardest at the authors doing the most careful gate-(g) work
 — the exact behavior mt#3806 shipped its prose half to produce.
+
+## Two more defects, found at review (PR #3050 R1)
+
+1. **PR extraction was not scoped to the collision paragraph.** `citedPrNumbers` scanned the whole
+   spec, so an unrelated `PR #9999` cited in a `## Context` list became a REQUIRED read: the guard
+   demanded that every PR the spec mentions anywhere have had its files read, and fired otherwise.
+   That fires at authors who _did_ read the PR their claim was about — the dangerous direction, and
+   a plausible cause of the three "author says `get_files` was read" misses above. Now scoped, and
+   `collisionParagraphs` is the shared span so the recognizer and the join cannot drift apart.
+2. **The comment described parsing the code did not do.** It claimed bare `#123` was taken when a
+   collision verb was present; the regex only ever matched `PR #N`. Corrected toward the code, and
+   the reason is worth keeping: `\b#(\d+)` matches INSIDE every task reference, because `mt#4168`
+   carries a word boundary right before its `#`. Taking bare `#N` would turn each of a spec's task
+   citations into a PR whose files must have been read — the same over-demanding join defect 1
+   removes, reintroduced at a larger scale.
 
 ## A defect this guard's own tests caught
 

@@ -167,6 +167,40 @@ describe("citedPrNumbers", () => {
   test("reads the PR the claim names, so the join can require THAT PR's files", () => {
     expect(citedPrNumbers(COLLISION_SPEC)).toEqual([2692]);
   });
+
+  test("PR #3050 R1: scoped to the collision paragraph, not the whole spec", () => {
+    // An unrelated PR cited elsewhere must not become a required read. It did
+    // before this fix, so the guard fired at authors who HAD read the PR their
+    // claim was actually about — the dangerous direction.
+    const withUnrelated = `${COLLISION_SPEC}
+## Context
+
+- **mt#1** — see PR #9999 for the sibling's approach, which is unrelated to any file here.
+`;
+    expect(citedPrNumbers(withUnrelated)).toEqual([2692]);
+  });
+
+  test("PR #3050 R1: a bare #123 is NOT a citation, because task refs carry one", () => {
+    // `mt#4168` has a word boundary right before its `#`, so taking bare `#N`
+    // would turn every task citation in a spec into a PR whose files must have
+    // been read. The comment used to claim bare-`#N` was supported; it never
+    // was, and it must not be.
+    const withTaskRefs = `## Context
+
+This collides with mt#4168 and mt#3806 on \`src/thing.ts\`, per issue #4242.
+`;
+    expect(citedPrNumbers(withTaskRefs)).toEqual([]);
+  });
+
+  test("PR #3050 R1 end-to-end: reading the cited PR discharges despite other PRs in the spec", () => {
+    const withUnrelated = `${COLLISION_SPEC}
+## Context
+
+- Sibling work landed in PR #9999; unrelated.
+`;
+    const out = run(patchInput(withUnrelated), ctxWith([...NOISE, PR_FILES_CALL(2692)]));
+    expect(out?.calibration?.["outcome"]).toBe("clean");
+  });
 });
 
 // ---------------------------------------------------------------------------

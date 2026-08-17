@@ -25,7 +25,7 @@
  * @see .minsky/hooks/claim-provenance-scan.ts — the guard
  * @see scripts/replay-evidence-provenance.ts — the sibling this mirrors
  */
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { parseTranscript } from "../.minsky/hooks/transcript";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
@@ -34,8 +34,34 @@ import type { DispatchContext } from "../.minsky/hooks/registry";
 import type { ToolHookInput } from "../.minsky/hooks/types";
 import { deriveBudgets } from "../.minsky/hooks/types";
 
-/** The dispatcher's host cap on this guard's matcher (`.claude/settings.json`). */
-const HOST_CAP_SEC = 10;
+/**
+ * The dispatcher's host cap on this guard's matcher, READ from
+ * `.claude/settings.json` rather than hardcoded (PR #3050 R1).
+ *
+ * A literal here would drift silently the moment the derived timeout moves —
+ * and that timeout IS derived (`dispatch-timeout-budget.ts`), so it moves
+ * whenever a guard joins the matcher. Falls back only if the file cannot be
+ * read, since a replay that refuses to run teaches less than one running on a
+ * stale budget it names.
+ */
+const FALLBACK_HOST_CAP_SEC = 10;
+
+function readHostCapSec(): number {
+  try {
+    const settings = JSON.parse(readFileSync(".claude/settings.json", "utf8")) as {
+      hooks?: { PreToolUse?: Array<{ matcher?: string; hooks?: Array<{ timeout?: number }> }> };
+    };
+    const block = settings.hooks?.PreToolUse?.find((b) =>
+      (b.matcher ?? "").includes("mcp__minsky__tasks_spec_patch")
+    );
+    const timeout = block?.hooks?.[0]?.timeout;
+    return typeof timeout === "number" && timeout > 0 ? timeout : FALLBACK_HOST_CAP_SEC;
+  } catch {
+    return FALLBACK_HOST_CAP_SEC;
+  }
+}
+
+const HOST_CAP_SEC = readHostCapSec();
 
 interface Tally {
   /** Calls carrying authored spec text at all. */
@@ -132,7 +158,7 @@ function replayOne(path: string, list: boolean): Tally {
     if (list && verdict === "matched") {
       const kinds = Array.isArray(cal?.["kinds"]) ? (cal["kinds"] as string[]).join("+") : "?";
       process.stdout.write(
-        `  FIRE  line ${target.index}  ${normalize(target.toolName)}  [${kinds}]\n`
+        `  FIRE  line ${target.index + 1}  ${normalize(target.toolName)}  [${kinds}]\n`
       );
     }
   }
@@ -169,7 +195,16 @@ const sweepAt = argv.indexOf("--sweep");
 if (sweepAt !== -1) {
   const dir = argv[sweepAt + 1];
   const limitAt = argv.indexOf("--limit");
-  const limit = limitAt === -1 ? 40 : Number.parseInt(argv[limitAt + 1] ?? "40", 10);
+  const limitRaw = limitAt === -1 ? 40 : Number.parseInt(argv[limitAt + 1] ?? "", 10);
+  // An unparseable --limit must not sweep zero transcripts and report a clean
+  // run (PR #3050 R1): a silently empty sweep is indistinguishable from a
+  // corpus with no claims, which is the one reading this script exists to rule
+  // out.
+  if (!Number.isInteger(limitRaw) || limitRaw <= 0) {
+    process.stderr.write(`--limit must be a positive integer; got "${argv[limitAt + 1] ?? ""}"\n`);
+    process.exit(2);
+  }
+  const limit = limitRaw;
   if (!dir || !existsSync(dir)) {
     process.stdout.write(`SKIP: sweep dir not found: ${dir ?? "(none)"}\n`);
     process.exit(0);
