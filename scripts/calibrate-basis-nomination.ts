@@ -78,7 +78,11 @@ import {
  * case where the corpus lives somewhere else.
  */
 function defaultTranscriptDir(): string {
-  const flattened = process.cwd().replace(/[/.]/g, "-");
+  // Normalize the separator before flattening (PR #3033 R2): on Windows `cwd()`
+  // returns `C:\Users\...`, whose backslashes the character class below would
+  // leave intact, producing a directory name that matches nothing. Folding `\`
+  // to `/` first makes the flattening platform-independent.
+  const flattened = process.cwd().replace(/\\/g, "/").replace(/[/.:]/g, "-");
   return path.join(os.homedir(), ".claude", "projects", flattened);
 }
 
