@@ -89,6 +89,23 @@ adjacent to the question makes the inference feel checked.** Ask what the view C
 treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
 response body, not the run log you filtered.
 
+**The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
+Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
+CODE, made in its source: *"emits aggregate counts and scores only — never prompt text"*, in a
+script's header. True of stdout, false of the network — scoring required embedding, so the same
+script sent the operator's raw transcript windows to a third-party provider. Nothing contradicts it:
+the docblock and the code agree, on the channel the docblock is about, and a careful re-read confirms
+the sentence — which is what makes it this section's shape rather than an ordinary wrong comment.
+**The scope of a data-flow claim silently equals the channel you were actively designing**, because
+that is where the privacy thought arose; the other channel was never in the frame the claim formed
+in. So **"emits", "only", "never", "no X leaves" are channel-scoped words in artifact-scoped
+clothing**: before writing one, enumerate the egress channels — stdout/stderr, files written, network
+calls, subprocess argv, anything handed to a third-party SDK — and either name the channel or cover
+them all. **A third-party SDK call is an egress even when its purpose reads as computation**:
+`generateEmbeddings(text)` is a data flow, `cosineSimilarity(a, b)` is not, and the difference is
+invisible at the call site. For a script that reads operator data, GATE the transmission rather than
+describing it. Incident: mem#1056 (PR #3033 R1, reviewer-caught, BLOCKING).
+
 **Your own recent output is a derived view too (mt#3904).** "That's a false positive — the quoted
 phrase isn't in my message" is a data-existence negative about text you wrote; recollection is the
 accessor, the transcript is the source. It presents as introspection rather than a lookup, and is
