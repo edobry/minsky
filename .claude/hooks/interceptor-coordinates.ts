@@ -427,6 +427,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "claim-provenance-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same claim shape as `duplicate-check-search-provenance`, at the spec-WRITE seam rather than only at task creation. `structural` because the discriminating half is a join against session tool-call state — a PR number against a `pull_request_read` for THAT PR, a `tasks_search` against the transcript prefix — with no paraphrase axis. `recordReview` only, like `evidence-record-provenance` and for the same measured reason: a 40-transcript replay put it at 16 fires over 70 claims with one true positive, the dominant false class being prose that DISCUSSES a collision (gate reports, reconciliations) rather than asserting one. The join is exact; the RECOGNITION half is what is unsized, and injecting on it would fire hardest at the most careful gate-(g) work. mt#4190 owns the tune and the graduation.",
+    },
+  ],
+  [
     "evidence-record-provenance",
     {
       interventions: [recordReview],

@@ -7,10 +7,16 @@
 //
 // ## The family boundary
 //
-// Every guard here fires on `mcp__minsky__tasks_create` — the seam where a task
-// is MINTED. They interrogate the spec being written at the one moment it is
-// cheap to fix: before the row exists. They ask four different questions of it,
-// which is why they are four guards and not one:
+// The seam is **a task spec being AUTHORED**, and as of mt#4168 that is wider
+// than the module's name: four guards fire on `mcp__minsky__tasks_create` (the
+// moment a task is MINTED) and one also on `tasks_spec_patch` / `tasks_edit` /
+// `tasks_spec_search_replace` (the moment an EXISTING spec is rewritten). The
+// same widening `registry-pr-create-guards.ts` did when its own boundary grew
+// past `session_pr_create`; `registry.ts`'s array comment states the principle —
+// a family is named for the seam, not for one tool name.
+//
+// They interrogate the spec at the one moment it is cheap to fix. They ask five
+// different questions of it, which is why they are five guards and not one:
 //
 //   - `require-duplicate-check-record` — is there a duplicate-check record at
 //     all? A presence check, not a similarity judgment.
@@ -20,9 +26,11 @@
 //     actually run this session?
 //   - `flakiness-control-detector` — does a claimed failure mode carry an
 //     isolation control?
+//   - `claim-provenance-scan` — do the spec's file-COLLISION and negative
+//     OWNERSHIP claims each have a call behind them?
 //
 // The first three are three tiers on one artifact (present / true / searched);
-// the fourth is independent and rides the same seam.
+// the last two are independent and ride the same seam.
 //
 // ## Why a family module
 //
@@ -320,6 +328,74 @@ export const TASK_CREATE_GUARDS: readonly GuardRegistration[] = [
           },
         },
       ],
+      expects: "calibration",
+    },
+  },
+
+  // -------------------------------------------------------------------------
+  // mt#4168 — the two entries mt#3806 re-homed into the shared table, at the
+  // spec-WRITE seam.
+  //
+  // THIS IS THE REGISTRATION THAT WIDENS THE FAMILY past `tasks_create`, the
+  // same way `registry-pr-create-guards.ts` widened past `session_pr_create`.
+  // The seam is "a task spec is being authored", and three of its four tools —
+  // `tasks_spec_patch`, `tasks_edit`, `tasks_spec_search_replace` — carried NO
+  // PreToolUse guard of any kind before this one.
+  //
+  // That gap is the point rather than an incidental find: BOTH originating
+  // incidents wrote their claim into an EXISTING spec, which cannot go through
+  // `tasks_create` (`/implement-task` §0a gates an already-READY task;
+  // `/plan-task` operates on an already-filed one). A guard bound to
+  // `tasks_create` alone would have missed the surface that produced the class.
+  //
+  // Matchers are per-REGISTRATION, so widening here changes nothing for the
+  // four guards above — they keep their own narrow `tasks_create` matcher.
+  // -------------------------------------------------------------------------
+  {
+    name: "claim-provenance-scan",
+    // RECORDER ONLY — no advisory, unlike the mt#4004 sibling above, and the
+    // difference is measured rather than stylistic. `scripts/replay-claim-
+    // provenance.ts --sweep` over 40 transcripts: 16 fires across 70 claims,
+    // and hand-classifying ALL 16 found one true unbacked claim. The rest split
+    // into prose that DISCUSSES a collision (gate reports, duplicate-signature
+    // reconciliations) and claims whose author says in the same paragraph that
+    // `get_files` was read. Injecting at that precision is mem#719's failure
+    // mode, and it would fire hardest at the most careful gate-(g) work. Armed
+    // evidence stream and nothing else; the tune and the graduation are mt#4190.
+    effects: [recorderEffect()],
+    // `advisory`: which prose counts as ASSERTING a collision or an absence is
+    // the heuristic half, and the calibration log exists to size it. The
+    // session-state half — was that PR's file list read, did a search precede
+    // this write — is exact.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher:
+      "mcp__minsky__tasks_create|mcp__minsky__tasks_spec_patch|mcp__minsky__tasks_edit|mcp__minsky__tasks_spec_search_replace",
+    module: () => import("./claim-provenance-scan").then((m) => ({ run: m.run })),
+    // Two regexes over the authored text plus a membership test over lines the
+    // dispatcher already parsed. No IO of its own.
+    timeoutMs: 5000,
+    calibrationLog: "claim-provenance-scan",
+    // LOAD-BEARING, exactly as on the sibling: `ctx.transcriptLines` is
+    // populated ONLY for a registration that declares this (D6), and the
+    // session's calls are this guard's entire discriminating half. Without it
+    // it records `skipped` on every live run — present, tested, green, inert.
+    needsTranscript: true,
+    // Calibration-first per ADR-024; asserted in the module's tests.
+    denyCapable: false,
+    attentionCost: { denialMessageSizeChars: 1000, optionCount: 1 },
+    // The canary carries a collision claim in a process whose transcript is
+    // empty, so the healthy outcome is a RECORDED skip — this guard's honest
+    // answer to a claim it cannot adjudicate. Asserting `matched` would bake in
+    // the wrong reading of an absent transcript.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__tasks_spec_patch",
+        tool_input: {
+          taskId: "mt#1",
+          content: "## Context\n\nThis collides with PR #1 on `src/canary.ts`.\n",
+        },
+      },
       expects: "calibration",
     },
   },

@@ -378,6 +378,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // documented escape hatch noisy enough to look broken.
   "MINSKY_SKIP_SEARCH_PROVENANCE", // .claude/hooks/duplicate-check-search-provenance.ts (mt#4004) — duplicate-check record claiming a search that never ran
   "MINSKY_SKIP_CANDIDATE_READ_PROVENANCE", // .claude/hooks/duplicate-check-candidate-read.ts (mt#4167) — duplicate-check record distinguishing candidates whose specs were never opened
+  "MINSKY_SKIP_CLAIM_PROVENANCE", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
   "MINSKY_SKIP_EVIDENCE_PROVENANCE", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
   "MINSKY_ACK_TASK_HIJACK", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by

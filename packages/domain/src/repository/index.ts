@@ -309,6 +309,17 @@ export interface PullRequestOperations {
     createdAt?: string;
     updatedAt?: string;
     mergedAt?: string;
+    /**
+     * Whether the forge can merge this PR — `false` means conflicts, `null`
+     * means it is still computing (a GET itself triggers the computation), and
+     * `undefined` means the backend does not report it (mt#4182). Additive and
+     * optional: existing consumers ignore it.
+     *
+     * The `null` case is NOT a conflict. `computeNonApprovalMergeBlockers`
+     * already made that distinction for the approval path (mt#2890); readers
+     * here owe the same care.
+     */
+    mergeable?: boolean | null;
   }>;
   getDiff(options: { prIdentifier?: string | number; session?: string }): Promise<{
     diff: string;
