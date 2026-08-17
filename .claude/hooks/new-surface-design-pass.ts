@@ -98,7 +98,6 @@
 
 import { isRenderPathFile } from "./render-path-evidence";
 import { normalizeToolName } from "./evidence-provenance-table";
-import { findToolUseInputs } from "./transcript";
 import type { TranscriptLine } from "./transcript";
 import { CANARY_MODE_ENV, findRepoRoot, DEFAULT_FS, execWithPath } from "./types";
 import type { ToolHookInput } from "./types";
@@ -156,27 +155,88 @@ export function findDesignSkillsInvoked(skillNames: readonly string[]): string[]
   return [...seen];
 }
 
+/** True when a tool name is the harness `Skill` tool, however spelled. */
+export function isSkillToolName(raw: string): boolean {
+  return normalizeToolName(raw) === "skill";
+}
+
 /**
  * Every skill name invoked in a transcript.
  *
- * The tool name is compared through the SHARED `normalizeToolName` rather than a
- * local `toLowerCase()` — `Skill` is harness-native and carries no MCP prefix
- * today, but a second normalizer is the rival implementation the planning pass
- * ruled out, and the shared one is already the corpus's answer to "is this the
- * same tool spelled differently?"
+ * The tool name is compared through {@link isSkillToolName} — i.e. through the
+ * SHARED `normalizeToolName` — rather than by string equality.
+ *
+ * **This walks the lines itself instead of calling `findToolUseInputs` (PR #3030
+ * R1).** That helper matches the tool name with `===`, so the first version of
+ * this function recognized the literal `"Skill"` and nothing else: a lowercased
+ * or MCP-qualified spelling was invisible, and an invisible skill call reads as
+ * "no design pass" — a FALSE FIRE, the direction that costs a detector its
+ * credibility. The normalizer existed and was exported from this very module;
+ * it simply was not on the path that matters, which is the shape the corpus
+ * calls a helper with green tests and no production call site.
+ *
+ * The two transcript shapes handled here mirror `extractToolUseNames`: a
+ * top-level `tool_use` line, and a `tool_use` block inside an assistant
+ * message's `content` array. Handling only the nested one made top-level-recorded
+ * turns invisible in a sibling detector (PR #2584 R1).
  */
 export function extractSkillNames(lines: TranscriptLine[]): string[] {
   const names: string[] = [];
-  for (const input of findToolUseInputs(lines, "Skill")) {
-    const skill = input["skill"];
+  const take = (raw: unknown): void => {
+    if (!raw || typeof raw !== "object") return;
+    const skill = (raw as Record<string, unknown>)["skill"];
     if (typeof skill === "string" && skill.trim().length > 0) names.push(skill);
+  };
+
+  for (const line of lines) {
+    if (line.type === "tool_use") {
+      const n = line.name ?? line.tool_name;
+      if (typeof n === "string" && isSkillToolName(n)) take(line.input);
+    }
+    const content = line.message?.content;
+    if (Array.isArray(content)) {
+      for (const block of content as Array<Record<string, unknown>>) {
+        if (!block || block["type"] !== "tool_use") continue;
+        const n = block["name"];
+        if (typeof n === "string" && isSkillToolName(n)) take(block["input"]);
+      }
+    }
   }
   return names;
 }
 
-/** True when a tool name is the harness `Skill` tool, however spelled. */
-export function isSkillToolName(raw: string): boolean {
-  return normalizeToolName(raw) === "skill";
+/**
+ * What the guard concludes, given everything the shell managed to read.
+ *
+ * Extracted from `run()` (PR #3030 R1) so every branch is reachable without a
+ * git tree, a transcript file, or a patched module import — the functional
+ * core / imperative shell split `testing-standards.mdc §Testable Design`
+ * prescribes. The absent-transcript rule in particular is the one behavior this
+ * module most needs pinned, and it was previously only assertable by mocking IO.
+ */
+export type DesignPassOutcome =
+  | { kind: "clean"; reason?: string }
+  | { kind: "skipped"; reason: string }
+  | { kind: "matched" };
+
+export function decideOutcome(
+  result: NewSurfaceDesignPassResult,
+  hasTranscript: boolean
+): DesignPassOutcome {
+  if (!result.applicable) return { kind: "clean", reason: "no added surface" };
+
+  // LOAD-BEARING ORDER: the transcript check comes AFTER applicability but BEFORE
+  // the verdict. An empty transcript means this module could not see whether a
+  // design skill ran, and "I could not look" is not "it did not happen" — the
+  // whole point of the discriminator is that it reads session state, so with no
+  // session state there is no finding to report. Concluding `matched` here would
+  // fire on every invocation that reached the guard without a transcript.
+  if (!hasTranscript) {
+    return { kind: "skipped", reason: "no transcript — skill calls unreadable" };
+  }
+
+  if (result.designSkillsInvoked.length > 0) return { kind: "clean" };
+  return { kind: "matched" };
 }
 
 /** Result of the new-surface design-pass check. */
@@ -320,44 +380,23 @@ export async function run(
   }
 
   const result = checkNewSurfaceDesignPass(added.files, extractSkillNames(ctx.transcriptLines));
+  const outcome = decideOutcome(result, ctx.transcriptLines.length > 0);
 
   // Every evaluation is recorded, fired or not, so the MISS rate is measurable
   // rather than only the fire count — a fire-only log cannot support a rung
   // decision (`hook-observers.mdc`).
-  if (!result.applicable) {
-    return {
-      calibration: { ...base, addedSurfaces: [], outcome: "clean", reason: "no added surface" },
-    };
-  }
-
   const record = {
     ...base,
     addedSurfaces: result.addedSurfaces,
     designSkillsInvoked: result.designSkillsInvoked,
+    outcome: outcome.kind,
+    ...(outcome.kind !== "matched" && outcome.reason ? { reason: outcome.reason } : {}),
   };
 
-  // LOAD-BEARING ORDER: the transcript check comes AFTER applicability but BEFORE
-  // the verdict. An empty transcript means this module could not see whether a
-  // design skill ran, and "I could not look" is not "it did not happen" — the
-  // whole point of the discriminator is that it reads session state, so with no
-  // session state there is no finding to report. Recording `matched` here would
-  // fire on every invocation that reached the guard without a transcript.
-  if (ctx.transcriptLines.length === 0) {
-    return {
-      calibration: {
-        ...record,
-        outcome: "skipped",
-        reason: "no transcript — skill calls unreadable",
-      },
-    };
-  }
-
-  if (result.designSkillsInvoked.length > 0) {
-    return { calibration: { ...record, outcome: "clean" } };
-  }
+  if (outcome.kind !== "matched") return { calibration: record };
 
   return {
     additionalContext: buildDesignPassWarning(result.addedSurfaces),
-    calibration: { ...record, outcome: "matched" },
+    calibration: record,
   };
 }

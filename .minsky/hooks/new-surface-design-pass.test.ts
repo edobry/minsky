@@ -13,14 +13,18 @@
 import { describe, test, expect } from "bun:test";
 import {
   checkNewSurfaceDesignPass,
+  decideOutcome,
   findDesignSkillsInvoked,
   normalizeSkillName,
   extractSkillNames,
   isSkillToolName,
   buildDesignPassWarning,
+  run,
   DESIGN_SKILLS,
   MAX_REPORTED_SURFACES,
+  OVERRIDE_ENV_VAR,
 } from "./new-surface-design-pass";
+import { CANARY_MODE_ENV } from "./types";
 import type { TranscriptLine } from "./transcript";
 
 /**
@@ -161,6 +165,124 @@ describe("transcript extraction (mt#4124)", () => {
     expect(isSkillToolName("skill")).toBe(true);
     expect(isSkillToolName("mcp__minsky__skill")).toBe(true);
     expect(isSkillToolName("Task")).toBe(false);
+  });
+
+  test("EXTRACTION applies the normalizer too, not just the exported predicate", () => {
+    // PR #3030 R1 (BLOCKING). The first version called `findToolUseInputs(lines,
+    // "Skill")`, which compares the tool name with `===` — so `isSkillToolName`
+    // existed, was exported, was tested, and was not on the path that decides
+    // anything. A skill call spelled any other way was invisible, and an
+    // invisible skill call reads as "no design pass": a FALSE FIRE.
+    const spellings = ["Skill", "skill", "mcp__minsky__Skill"];
+    for (const toolName of spellings) {
+      const line = {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", name: toolName, input: { skill: "cockpit-design" } }],
+        },
+      } as TranscriptLine;
+      expect(extractSkillNames([line])).toEqual(["cockpit-design"]);
+    }
+  });
+
+  test("reads the TOP-LEVEL tool_use line shape as well as the nested one", () => {
+    // Handling only the nested shape made top-level-recorded turns invisible in a
+    // sibling detector (PR #2584 R1). Same corpus, same hazard.
+    const topLevel = {
+      type: "tool_use",
+      name: "Skill",
+      input: { skill: "impeccable" },
+    } as unknown as TranscriptLine;
+    expect(extractSkillNames([topLevel])).toEqual(["impeccable"]);
+  });
+
+  test("a non-Skill tool carrying a `skill` field is not counted", () => {
+    // The discriminating direction: without the tool-name check, any tool whose
+    // input happened to have a `skill` key would discharge the guard.
+    const line = {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", name: "Task", input: { skill: "impeccable" } }],
+      },
+    } as TranscriptLine;
+    expect(extractSkillNames([line])).toEqual([]);
+  });
+});
+
+describe("decideOutcome — the shell's branches (mt#4124, PR #3030 R1)", () => {
+  const applicable = {
+    applicable: true as const,
+    addedSurfaces: [PEEK_HOST],
+    designSkillsInvoked: [],
+  };
+
+  test("an ABSENT transcript is `skipped`, never `matched`", () => {
+    // The load-bearing rule of the whole module, and previously assertable only
+    // by mocking IO. "I could not look" is not "it did not happen": this guard's
+    // entire discriminator is session state, so with no session state there is
+    // no finding — and concluding otherwise would fire on every transcript-less
+    // invocation.
+    const outcome = decideOutcome(applicable, false);
+    expect(outcome.kind).toBe("skipped");
+    expect(outcome.kind === "skipped" && outcome.reason).toContain("no transcript");
+  });
+
+  test("applicable + transcript + no design skill is `matched`", () => {
+    expect(decideOutcome(applicable, true).kind).toBe("matched");
+  });
+
+  test("applicable + a design skill is `clean`", () => {
+    expect(
+      decideOutcome({ ...applicable, designSkillsInvoked: ["cockpit-design"] }, true).kind
+    ).toBe("clean");
+  });
+
+  test("not applicable is `clean`, and stays clean with no transcript", () => {
+    // Order matters: applicability is checked BEFORE the transcript, so a PR that
+    // adds no surface is a clean pass rather than an unmeasurable skip. Recording
+    // it as `skipped` would inflate the unmeasurable rate with cases the guard
+    // answered perfectly well.
+    const notApplicable = {
+      applicable: false as const,
+      addedSurfaces: [],
+      designSkillsInvoked: [],
+    };
+    expect(decideOutcome(notApplicable, true).kind).toBe("clean");
+    expect(decideOutcome(notApplicable, false).kind).toBe("clean");
+  });
+});
+
+describe("run() — the short-circuit paths (mt#4124, PR #3030 R1)", () => {
+  const input = { session_id: "s1", tool_name: "mcp__minsky__session_pr_create" } as never;
+  const ctx = { transcriptLines: [] } as never;
+
+  test("the override returns null — a silent allow, not a recorded skip", () => {
+    // An overridden guard must produce NO calibration record: a record would
+    // pollute the fire-rate denominator with runs the operator turned off.
+    process.env[OVERRIDE_ENV_VAR] = "1";
+    try {
+      expect(run(input, ctx)).resolves.toBeNull();
+    } finally {
+      delete process.env[OVERRIDE_ENV_VAR];
+    }
+  });
+
+  test("canary mode records a SKIP without touching the tree or the transcript", async () => {
+    // mt#3824 R2: a canary must never depend on the state of a real working tree,
+    // and whether the canary process has one is environment state this module
+    // does not control. The healthy canary outcome is therefore a RECORDED skip.
+    process.env[CANARY_MODE_ENV] = "1";
+    try {
+      const outcome = await run(input, ctx);
+      expect(outcome?.calibration?.["outcome"]).toBe("skipped");
+      expect(String(outcome?.calibration?.["reason"])).toContain("canary");
+      // Never denies, never advises — the posture, asserted rather than intended.
+      expect(outcome?.additionalContext).toBeUndefined();
+    } finally {
+      delete process.env[CANARY_MODE_ENV];
+    }
   });
 });
 
