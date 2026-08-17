@@ -56,23 +56,33 @@ async function main(): Promise<void> {
   }
   const { token, chatId } = resolution.config;
 
+  // Every message this script sends is worded identically across runs, so a
+  // second run leaves the chat holding two indistinguishable batches and the
+  // operator cannot say which one a notification belonged to. That is not a
+  // cosmetic problem: it makes the probe UNREADABLE, which is exactly what
+  // happened on the 2026-08-13 run — the batch was still sitting in the chat
+  // three days later when the next one arrived. The marker rides in the
+  // message TEXT specifically because the notification banner shows the text,
+  // so the banner itself identifies its run.
+  const runMarker = new Date().toISOString().slice(11, 19).replace(/:/g, "");
+
   // Ordered so the expected outcome is unambiguous by FEEL, not by reading:
   // two silent sends, then one loud one. The principal should register exactly
   // one buzz, and it should arrive with the LAST message.
   const cases: { label: string; text: string; disableNotification?: boolean }[] = [
     {
       label: "silent-1",
-      text: "mt#3711 probe 1 of 3 — sent with disable_notification. This should NOT buzz.",
+      text: `[run ${runMarker}] mt#3711 probe 1 of 3 — sent with disable_notification. This should NOT notify.`,
       disableNotification: true,
     },
     {
       label: "silent-2",
-      text: "mt#3711 probe 2 of 3 — also disable_notification. This should NOT buzz either.",
+      text: `[run ${runMarker}] mt#3711 probe 2 of 3 — also disable_notification. This should NOT notify either.`,
       disableNotification: true,
     },
     {
       label: "loud-3",
-      text: "mt#3711 probe 3 of 3 — sent normally. This one SHOULD buzz. Safe to ignore all three.",
+      text: `[run ${runMarker}] mt#3711 probe 3 of 3 — sent normally. This one SHOULD notify. Safe to ignore all three.`,
     },
   ];
 
@@ -94,10 +104,15 @@ async function main(): Promise<void> {
   }
 
   console.log("");
-  console.log("PROBE SENT — the verdict is the operator's, not this script's.");
+  console.log(`PROBE SENT — run marker [run ${runMarker}]. Ignore any earlier run's messages.`);
+  console.log("The verdict is the operator's, not this script's.");
   console.log("Expected: exactly ONE notification, arriving with probe 3.");
-  console.log("  1 buzz on probe 3 only  -> disable_notification works; mt#3711's design holds.");
-  console.log("  3 buzzes                -> the field is ignored here; the design does NOT hold.");
+  console.log(
+    "  1 notification on probe 3 only -> disable_notification works; mt#3711's design holds."
+  );
+  console.log(
+    "  3 notifications                -> the field is ignored here; the design does NOT hold."
+  );
 }
 
 await main();
