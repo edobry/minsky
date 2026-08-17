@@ -365,6 +365,24 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
         },
       ],
     },
+    // PR #3077 R2: the BRACKET form of the same anchor. Worth its own case rather
+    // than assumed-covered — the bracket form is precisely the shape whose
+    // absence made this task's own measurements wrong twice, so "the dot form is
+    // pinned, the bracket form must be too" is the one inference this file should
+    // not be making on trust.
+    {
+      code: 'delete process.env["MINSKY_DELETE_ON_PROCESS_ENV_BRACKET"];',
+      filename: srcFile("utils", "reset.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_DELETE_ON_PROCESS_ENV_BRACKET",
+            configPath: "delete.on.process.env.bracket",
+          },
+        },
+      ],
+    },
     // mt#4217: a WRITE to a bare env object fires — setting a MINSKY_* name on an
     // env destined for a child process is exactly how the child's config loader
     // comes to parse it. Contrast the `delete` case in `valid` above, which
