@@ -103,8 +103,76 @@ single-file run, when its evidence came from a full-suite run, is asserting a co
 run. It is recorded rather than matched on so a later pass can measure how common the shape is
 before deciding whether it earns its own matcher.
 
+## mt#4166 — the two silencers, and why the denial one is a label
+
+Two days after this detector shipped DONE, it stayed silent on mt#4158, a spec whose central
+claim — "the failure is deterministic, not flaky" — was false for exactly the reason the detector
+exists to catch. The matcher was not at fault; it found the denial. **Both silencers fired, for
+reasons unrelated to the denial.**
+
+**Silencer 1 — counts from one condition.** `hasIsolationControl` accepted the spec's recorded
+`55 pass, 12 fail, Ran 67 tests`. Those counts were real, and were taken on a machine
+simultaneously running a 900-second full suite plus several concurrent agent sessions. Counts
+establish WHAT happened; they do not establish that the confound was HELD CONSTANT. For an
+attribution that gap is tolerable — the counts at least show the failure is real. For a denial it
+is disqualifying, because a denial is a claim about behavior ACROSS load conditions and a
+single-condition measurement cannot reach it (mem#821: "to test a hypothesis about a threshold,
+you need observations that straddle it").
+
+**Silencer 2 — a marker excusing a claim it was not about.** `hasUnverifiedMarkerNearClaim`
+returned one document-wide boolean, so a marker within 600 chars of ANY claim excused EVERY claim.
+On mt#4158 an honest `UNVERIFIED` — attached to a side note about whether slow MCP calls shared a
+root cause with the slow boot — landed 255 chars from the unrelated word "intermittently" and
+thereby excused the load-bearing denial 2,146 chars away. Resolution is now per claim.
+
+### Why the denial silencer is an authored label and not an inference
+
+The obvious fix is to infer the straddle from prose: pair each observed count with a nearby
+condition word (`idle machine`, `in isolation` vs `under load`, `full suite`, `concurrently`) and
+require one of each family. That was prototyped and **measured against the real mt#4158 text. It
+does not discriminate** — mt#4158 and a genuine two-condition record both score "two conditions
+present".
+
+The reason is structural, not a tunable window. mt#4158 **claims** `idle machine` (falsely) and
+separately **discusses** the full gated suite as the thing that is broken, so both vocabularies
+are genuinely near counts. The difference between measuring two conditions and mentioning two
+conditions is not in the text — it is in what the author did. **A detector cannot catch a false
+statement about the environment.**
+
+So a denial is discharged by a literal `Load control:` record, the same shape `Negative control:`
+(mt#3244) and `Execution evidence:` (mt#1459) use for the same class of unknowable: the author
+states it and owns the claim. Accepted forms follow mt#3778's lesson — heading or plain label,
+optional `**bold**`, optional leading bullet, colon required on the plain form, optional
+dash-subject — and a FENCED label does not count (mt#3511/mt#3584), because a quoted convention is
+not an assertion of it.
+
+**The label alone is not the record (PR #3034 R1).** The reviewer caught two shapes the first
+implementation admitted, both of which carry the label while asserting the opposite of
+compliance: the disclaimer (`Load control: was never run`) and the bare heading (`## Load
+control` with nothing under it). `hasLoadControl` therefore requires the label to be backed,
+within 600 chars, by **two** test invocations and at least one observed count — two, because a
+denial is a claim across conditions and one run cannot discharge it however it is labelled.
+
+That check is deliberately structural rather than a negation vocabulary (`never run`, `pending`,
+`TODO`): "was never run" is one phrasing of unboundedly many, and chasing them is the paraphrase
+arms race ADR-024 §Context exists to end. A record with two runs in it cannot be a disclaimer.
+
+A false `Load control:` record — two invocations and counts that were never observed — is a lie,
+and catching lies is not this guard's job. Making the OMISSION visible is.
+
+### A shadow attribution inside every denial
+
+Per-claim resolution exposed a latent bug the document-wide form had hidden: `not load-dependent`
+CONTAINS `load-dependent`, so the attribution pattern matched inside the denial and recorded a
+second, contradictory claim about the same words. Harmless while one control silenced the whole
+document; under per-claim resolution it is a claim that stays lit no matter what evidence the
+author records. `extractFlakinessClaims` now skips an attribution match falling inside an
+already-recorded denial span — which is what the function's own comment always said it was doing.
+
 ## Cross-references
 
-mt#3658 (this detector) · mt#3524 (`/create-task` §2b, the prose tier) · mt#3557 / mt#3551 /
-mt#3719 (the incidents) · mt#3575 (mt#3719's actual determination) · mt#3918 (the Rung-1
+mt#3658 (this detector) · mt#4166 (the two-silencer containment) · mt#3524 (`/create-task` §2b,
+the prose tier) · mt#3557 / mt#3551 / mt#3719 (the incidents) · mt#4158 (the recurrence-after-DONE)
+· mem#1048 (the bridge memory) · mem#821 (straddle the threshold) · mem#1047 (a proxy answers a
+different question) · mt#3575 (mt#3719's actual determination) · mt#3918 (the Rung-1
 matcher-placement precedent) · ADR-024 · ADR-028 D1/D2
