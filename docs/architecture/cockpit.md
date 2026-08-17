@@ -945,6 +945,49 @@ a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
 - Out-of-process memory ceiling (mt#4105): every poll, the supervisor reads each spawned child's **swap-inclusive** memory and SIGKILLs one over 2048 MB — the same threshold `DEFAULT_MEMORY_CEILING_MB` (`src/mcp/orphan-exit.ts`) gives the in-process watcher, differing only in who runs the check. That difference is the point: mt#3886's ceiling, mt#3764's watchers and the `SIGTERM` handlers are all timers or handlers ON the loop they police, and mt#4099 measured two `mcp start` processes at 48.2 GB and 32 GB with every one of them armed and none of them running (a 3s `sample` put all 2483 main-thread samples in one unbroken JS stack, zero `kevent` process-wide). **A process that has wedged its own event loop cannot be the thing that notices.** Mechanism: `footprint -f bytes -p <pid>` on macOS and `VmRSS + VmSwap` from `/proc/<pid>/status` on Linux — the same two interfaces `packages/shared/src/process-memory.ts` reaches, and for the reason it records: `task_info(TASK_VM_INFO)` cannot read another process without `task_for_pid` (root or the debugger entitlement), so a native binding is not an option for a supervisor measuring its child. SIGKILL rather than SIGTERM because the wedged child's `SIGTERM` handler is JS that never runs. Bound: one `POLL_INTERVAL` (5s). A kill the supervisor ordered is classified `ExitClass::CeilingKill` and respawned WITHOUT counting toward the restart throttle — a SIGKILLed process reports the same exit status as any other signalled death, so the supervisor's own record is the only thing that can tell them apart. **Covers supervised children only**; the stdio-proxy population is mt#4112's, and daemons spawned directly by Claude Desktop have no Minsky supervisor at all.
 - mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
 
+### Port recovery: displacing a wedged incumbent (mt#4205)
+
+When `cockpit start` cannot bind, it classifies the port holder
+(`src/cockpit/port-recovery.ts`). A holder matching **this workspace's** recorded pid+port is a
+`recognized-zombie`; a holder that does not — including another workspace's cockpit — is
+`unrecognized` and is never terminated.
+
+A recognized holder used to be refused outright unless the operator passed `--force`. That was the
+wrong default: every known daemon-wedge mechanism (mt#3039 / mt#3051 / mt#3060 / mt#3682) leaves the
+process **alive and still holding the port**, so the refusal turned any wedge into an outage lasting
+until a human intervened. It fired on 2026-08-06 and again on 2026-08-16.
+
+The guard now probes before deciding, mirroring the predicate ADR-014's supervisor already uses
+(`daemon_core.rs`'s `is_ours`). **Displacement requires a positive finding that nothing answered;
+every other outcome preserves the incumbent:**
+
+| Probe result at `GET /api/health`                                                 | Outcome                         |
+| --------------------------------------------------------------------------------- | ------------------------------- |
+| Answers with `service: "minsky-cockpit"` — **at any status, including 503**       | preserve                        |
+| Answers without a `service`, or with a different one                              | preserve (fail-closed, mt#3148) |
+| Nothing answers, but the holder's start time contradicts the recorded `startedAt` | preserve (recycled pid)         |
+| Nothing answers, start time corroborates                                          | **displace**, then bind         |
+
+A **503 preserves deliberately**: the daemon answers 503 while persistence is unhealthy (mt#2949)
+and mt#3638's pool-recycle self-heals it, so reading a degraded answer as absence would kill a live
+process for correctly reporting a problem.
+
+The probe targets the host the bind was **attempted** on, and tries both loopback families for a
+wildcard or `localhost` bind. `localhost` alone is not safe here: `findPortHolder` identifies the
+holder with `lsof -i tcp@localhost`, chosen in mt#3787 because it reaches both families, so it can
+name a holder that a single-family probe never reaches — and that miss reads as absence, on the
+branch that kills.
+
+`--force` remains the operator override and is now meaningful in both directions: it displaces even
+a preserving disposition. It is **not** needed to clear a silent incumbent.
+
+Each displacement emits a `cockpit.port_displaced` system event carrying the displaced pid, command,
+port, and whether `--force` was used. It is emitted after the replacement binds, because the guard
+runs before this process has any persistence provider — and it is the first daemon-lifecycle event
+type in that enum, which is why mt#4154 could not reconstruct the 2026-08-06 outage from
+`system_events`: every other type is agent-triggered, so a quiet window meant "nobody was working",
+not "nothing happened to the daemon".
+
 ## Cross-references
 
 - `src/cockpit/CLAUDE.md` — design vocabulary, engineering standards, IA posture (auto-loaded)

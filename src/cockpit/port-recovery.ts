@@ -193,8 +193,12 @@ export interface IncumbentProbes {
   /**
    * `{ service }` when the port ANSWERED (at ANY status), `null` when nothing
    * answered at all. The distinction is the whole decision — see below.
+   *
+   * Takes the host the bind was ATTEMPTED on, because "nothing answered" must
+   * mean the incumbent is unreachable, not that the probe knocked on a
+   * different door than the one it is holding.
    */
-  health(port: number): Promise<{ service: string | null } | null>;
+  health(port: number, bindHost: string): Promise<{ service: string | null } | null>;
   /** The holder's real process start time, ms since epoch; null if unreadable. */
   processStartedAtMs(pid: number): number | null;
   /** `startedAt` from this workspace's cockpit state, ms since epoch; null if absent. */
@@ -299,29 +303,74 @@ export function parseElapsedSeconds(raw: string): number | null {
   );
 }
 
+/**
+ * URL authorities to try for a daemon bound to `bindHost`, in order.
+ *
+ * `localhost` is NOT usable here, and that is the whole reason this exists.
+ * `findPortHolder` identifies the holder with `lsof -i tcp@localhost:<port>`,
+ * chosen in mt#3787 precisely because it resolves through BOTH loopback
+ * families — verified there against a live IPv6-only listener that
+ * `tcp@127.0.0.1` misses. So the classifier can hand us a holder that a
+ * `http://localhost:...` fetch never reaches, because `localhost`'s resolution
+ * order varies by platform and runtime. The failure is silent and lands on the
+ * destructive side: identified as ours, read as "nothing answered", killed.
+ * A `--host` bind to a specific non-loopback interface fails the same way.
+ *
+ * A wildcard bind accepts every local address but does not tell us which family
+ * it opened, so both loopback literals are tried. Absence therefore requires
+ * EVERY candidate to fail, which keeps the fail-closed direction: an
+ * unreachable probe preserves.
+ */
+export function healthProbeAuthorities(bindHost: string): string[] {
+  const host = bindHost.trim();
+  if (host === "" || host === "*" || host === "0.0.0.0" || host === "::") {
+    return ["127.0.0.1", "[::1]"];
+  }
+  // The ambiguity itself — resolve it here rather than delegating to the
+  // resolver whose answer we cannot see.
+  if (host === "localhost") return ["127.0.0.1", "[::1]"];
+  if (host === "::1") return ["[::1]"];
+  // A bare IPv6 literal needs brackets to be a URL authority.
+  if (host.includes(":")) return [`[${host}]`];
+  return [host];
+}
+
+async function probeHealthAt(
+  port: number,
+  authority: string
+): Promise<{ service: string | null } | null> {
+  let resp: Response;
+  try {
+    resp = await fetch(`http://${authority}:${port}${HEALTH_PATH}`, {
+      signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS),
+    });
+  } catch {
+    // Connection refused, reset, or no answer within the timeout.
+    return null;
+  }
+  // Answered. Its STATUS is deliberately not consulted (see rule 1 above);
+  // only the identity in the body is.
+  try {
+    const body = (await resp.json()) as Record<string, unknown>;
+    const service = body["service"];
+    return { service: typeof service === "string" ? service : null };
+  } catch {
+    // Answered with a body we cannot parse — still an answer, still not
+    // attributable, so it preserves via rule 2.
+    return { service: null };
+  }
+}
+
 export const realIncumbentProbes: IncumbentProbes = {
-  health: async (port) => {
-    let resp: Response;
-    try {
-      resp = await fetch(`http://localhost:${port}${HEALTH_PATH}`, {
-        signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS),
-      });
-    } catch {
-      // Connection refused, reset, or no answer within the timeout. This is the
-      // ONLY branch that can lead to a displacement.
-      return null;
+  health: async (port, bindHost) => {
+    // First answer wins; only an all-candidates miss is absence. Worst case is
+    // one timeout per candidate, which is the right trade on a path whose other
+    // outcome is killing a healthy daemon.
+    for (const authority of healthProbeAuthorities(bindHost)) {
+      const answer = await probeHealthAt(port, authority);
+      if (answer !== null) return answer;
     }
-    // Answered. Its STATUS is deliberately not consulted (see rule 1 above);
-    // only the identity in the body is.
-    try {
-      const body = (await resp.json()) as Record<string, unknown>;
-      const service = body["service"];
-      return { service: typeof service === "string" ? service : null };
-    } catch {
-      // Answered with a body we cannot parse — still an answer, still not
-      // attributable, so it preserves via rule 2.
-      return { service: null };
-    }
+    return null;
   },
 
   processStartedAtMs: (pid) => {
@@ -351,10 +400,11 @@ export const realIncumbentProbes: IncumbentProbes = {
 export async function resolveIncumbentDisposition(
   port: number,
   pid: number,
+  bindHost: string,
   probes: IncumbentProbes = realIncumbentProbes
 ): Promise<IncumbentDisposition> {
   return decideIncumbentDisposition({
-    health: await probes.health(port),
+    health: await probes.health(port, bindHost),
     holderStartedAtMs: probes.processStartedAtMs(pid),
     recordedStartedAtMs: probes.recordedStartedAtMs(),
   });

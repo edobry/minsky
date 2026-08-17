@@ -473,7 +473,7 @@ export function createStartCommand(): Command {
             // as ours is a live incumbent to leave alone (even at 503), and
             // only a positive "nothing is serving" earns a displacement.
             // `--force` remains the operator's override in both directions.
-            const disposition = await resolveIncumbentDisposition(port, classification.pid);
+            const disposition = await resolveIncumbentDisposition(port, classification.pid, host);
             if (disposition.kind === "preserve" && !options.force) {
               console.error(
                 `Port ${port} is held by a previous cockpit instance ` +

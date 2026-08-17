@@ -14,12 +14,15 @@ import {
   decideIncumbentDisposition,
   resolveIncumbentDisposition,
   realIncumbentProbes,
+  healthProbeAuthorities,
   parseElapsedSeconds,
   COCKPIT_SERVICE_IDENTITY,
   PID_REUSE_SKEW_MS,
   type IncumbentEvidence,
   type IncumbentProbes,
 } from "./port-recovery";
+
+const JSON_HEADERS = { "content-type": "application/json" } as const;
 
 /** A holder whose start time corroborates the record — the displace-eligible shape. */
 const CONSISTENT_START: Pick<IncumbentEvidence, "holderStartedAtMs" | "recordedStartedAtMs"> = {
@@ -178,6 +181,65 @@ describe("parseElapsedSeconds — ps -o etime=", () => {
   });
 });
 
+describe("healthProbeAuthorities — probe the door the incumbent is holding", () => {
+  // PR #3064 R1 (BLOCKING). The probe hardcoded `localhost`, whose resolution
+  // order varies by platform and runtime — while `findPortHolder` identifies
+  // the holder with `lsof -i tcp@localhost`, chosen in mt#3787 because it
+  // reaches BOTH loopback families. So the classifier could hand back a holder
+  // the probe never reached, and the miss reads as "nothing answered", which is
+  // the branch that kills.
+  test.each([
+    ["127.0.0.1", ["127.0.0.1"]],
+    ["192.168.1.50", ["192.168.1.50"]],
+    ["::1", ["[::1]"]],
+    ["fe80::1", ["[fe80::1]"]],
+  ])("a specific bind host %p probes exactly it: %p", (host, expected) => {
+    expect(healthProbeAuthorities(host as string)).toEqual(expected as string[]);
+  });
+
+  test.each([["0.0.0.0"], ["::"], ["*"], [""], ["localhost"]])(
+    "the ambiguous/wildcard host %p probes BOTH loopback families",
+    (host) => {
+      expect(healthProbeAuthorities(host as string)).toEqual(["127.0.0.1", "[::1]"]);
+    }
+  );
+
+  test("an IPv6-only listener is reached — the case lsof was chosen for", async () => {
+    // Honest bound on what this proves: run against the pre-fix hardcoded
+    // `localhost`, this case still PASSES on a machine where `localhost`
+    // resolves ::1-first (measured here: Bun returns ::1 then 127.0.0.1). So it
+    // documents that the wildcard path reaches an IPv6 listener; it does not by
+    // itself discriminate the fix on this platform. The cases that do are the
+    // authority assertions above — all 9 go red against the old behavior — and
+    // the sharpest real-world case is a specific non-loopback `--host`, which
+    // `localhost` can never reach and which cannot be bound portably in a test.
+    const server = createServer((_req, res) => {
+      res.writeHead(200, JSON_HEADERS);
+      res.end(JSON.stringify({ service: COCKPIT_SERVICE_IDENTITY }));
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "::1", resolve);
+    }).catch(() => null);
+
+    const addr = server.address();
+    if (addr === null || typeof addr === "string") {
+      // No IPv6 loopback on this machine — nothing to assert, and skipping is
+      // honest: the case is unreachable here, not passing.
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      return;
+    }
+    try {
+      // Wildcard resolution must find it via the [::1] candidate.
+      expect(await realIncumbentProbes.health(addr.port, "0.0.0.0")).toEqual({
+        service: COCKPIT_SERVICE_IDENTITY,
+      });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});
+
 describe("realIncumbentProbes.health — what counts as an ANSWER", () => {
   // The cases above prove the DECISION preserves when something answered. These
   // prove the real probe REPORTS a degraded answer as an answer — the gap
@@ -204,11 +266,11 @@ describe("realIncumbentProbes.health — what counts as an ANSWER", () => {
   test("a 503 carrying our identity is an ANSWER, not absence", async () => {
     await withServer(
       (_req, res) => {
-        res.writeHead(503, { "content-type": "application/json" });
+        res.writeHead(503, JSON_HEADERS);
         res.end(JSON.stringify({ service: COCKPIT_SERVICE_IDENTITY, status: "degraded" }));
       },
       async (port) => {
-        expect(await realIncumbentProbes.health(port)).toEqual({
+        expect(await realIncumbentProbes.health(port, "127.0.0.1")).toEqual({
           service: COCKPIT_SERVICE_IDENTITY,
         });
       }
@@ -218,11 +280,11 @@ describe("realIncumbentProbes.health — what counts as an ANSWER", () => {
   test("a 200 with no service field answers, but carries no identity", async () => {
     await withServer(
       (_req, res) => {
-        res.writeHead(200, { "content-type": "application/json" });
+        res.writeHead(200, JSON_HEADERS);
         res.end(JSON.stringify({ status: "ok" }));
       },
       async (port) => {
-        expect(await realIncumbentProbes.health(port)).toEqual({ service: null });
+        expect(await realIncumbentProbes.health(port, "127.0.0.1")).toEqual({ service: null });
       }
     );
   });
@@ -234,7 +296,7 @@ describe("realIncumbentProbes.health — what counts as an ANSWER", () => {
         res.end("<html>not json</html>");
       },
       async (port) => {
-        expect(await realIncumbentProbes.health(port)).toEqual({ service: null });
+        expect(await realIncumbentProbes.health(port, "127.0.0.1")).toEqual({ service: null });
       }
     );
   });
@@ -248,7 +310,7 @@ describe("realIncumbentProbes.health — what counts as an ANSWER", () => {
         freed = port;
       }
     );
-    expect(await realIncumbentProbes.health(freed)).toBeNull();
+    expect(await realIncumbentProbes.health(freed, "127.0.0.1")).toBeNull();
   });
 });
 
@@ -262,14 +324,18 @@ describe("resolveIncumbentDisposition — gathers from the probe seam", () => {
     };
   }
 
-  test("passes the probed port and pid through to the probes", async () => {
-    const seen: { port?: number; pid?: number } = {};
+  test("passes the probed port, pid AND bind host through to the probes", async () => {
+    // The bind host is threaded because probing the wrong address reads as
+    // absence, which is the branch that kills (PR #3064 R1).
+    const seen: { port?: number; pid?: number; host?: string } = {};
     await resolveIncumbentDisposition(
       3737,
       4242,
+      "192.168.1.50",
       probes({
-        health: async (port) => {
+        health: async (port, bindHost) => {
           seen.port = port;
+          seen.host = bindHost;
           return null;
         },
         processStartedAtMs: (pid) => {
@@ -278,15 +344,22 @@ describe("resolveIncumbentDisposition — gathers from the probe seam", () => {
         },
       })
     );
-    expect(seen).toEqual({ port: 3737, pid: 4242 });
+    expect(seen).toEqual({ port: 3737, pid: 4242, host: "192.168.1.50" });
   });
 
   test("a serving incumbent resolves to preserve", async () => {
-    expect((await resolveIncumbentDisposition(3737, 1, probes())).kind).toBe("preserve");
+    expect((await resolveIncumbentDisposition(3737, 1, "127.0.0.1", probes())).kind).toBe(
+      "preserve"
+    );
   });
 
   test("a silent incumbent resolves to displace", async () => {
-    const d = await resolveIncumbentDisposition(3737, 1, probes({ health: async () => null }));
+    const d = await resolveIncumbentDisposition(
+      3737,
+      1,
+      "127.0.0.1",
+      probes({ health: async () => null })
+    );
     expect(d).toEqual({ kind: "displace" });
   });
 });
