@@ -96,6 +96,15 @@ function resolveTranscriptDir(): string | null {
   try {
     const matches = readdirSync(projects).filter((n) => n.endsWith("-minsky"));
     if (matches.length === 1) return join(projects, matches[0] as string);
+    if (matches.length > 1) {
+      // Never guess between checkouts (PR #3046 R1): picking the wrong one would
+      // silently measure a DIFFERENT project's turns and report a plausible
+      // number. Name the candidates and let the caller choose.
+      process.stderr.write(
+        `Ambiguous transcript store: ${matches.length} candidates under ${projects} ` +
+          `(${matches.join(", ")}). Pass --transcripts <dir> to choose.\n`
+      );
+    }
   } catch {
     // intentional-swallow: unreadable projects dir is the same as absent here.
     return null;

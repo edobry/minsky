@@ -691,12 +691,30 @@ const READ_CLASS_TOOL_RE = /(?:^|_)(?:Read|Grep|Glob)$|(?:read_file|grep_search|
  * present in a call that succeeded was validated against the tool's declared
  * schema rather than typed into prose.
  */
+/**
+ * A parameter key distinctive enough to admit as backing (PR #3046 R1).
+ *
+ * Admitting EVERY key over-suppresses: `message`, `content`, `task`, `path`,
+ * `input` and `limit` are all extracted as symbols by `isPlausibleSymbol`
+ * (verified by running it — they are not on ADR-034's generic-word exclusion
+ * list), and `message` is a parameter of `session_commit`, which an agent calls
+ * constantly. A claim like "`message` is truncated at N" would then be silently
+ * backed by an unrelated commit in the same turn.
+ *
+ * So the key must carry its own shape — an internal capital (`expectedHeadSha`,
+ * `overrideReason`, `notBefore`) or an underscore. That is not a heuristic
+ * chosen ahead of evidence: every key in the measured silencing set
+ * (`expectedHeadSha`, `overrideReason`, `notBefore`, `headSha`) is camelCase,
+ * so the narrowing preserves all of them while excluding the bare-word class.
+ */
+const DISTINCTIVE_KEY_RE = /[a-z][A-Z]|_/;
+
 function collectKeys(value: unknown, out: string[]): void {
   if (Array.isArray(value)) {
     for (const v of value) collectKeys(v, out);
   } else if (value && typeof value === "object") {
     for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-      out.push(key);
+      if (DISTINCTIVE_KEY_RE.test(key)) out.push(key);
       collectKeys(nested, out);
     }
   }

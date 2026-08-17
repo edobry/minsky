@@ -15,6 +15,7 @@ import type { TranscriptLine } from "./transcript";
 /** MCP-prefixed spellings, as production records them. */
 const REFS_STATUS = "mcp__minsky__refs_status";
 const TASKS_GET = "mcp__minsky__tasks_get";
+const SESSION_COMMIT = "mcp__minsky__session_commit";
 
 /** One assistant tool_use block, in the nested shape production records. */
 function callTurn(name: string, input: Record<string, unknown>): TranscriptLine[] {
@@ -113,6 +114,29 @@ describe("mt#4084 — the same-turn tool CALL RECORD backs claims about the call
     });
   });
 
+  describe("PR #3046 R1 — only DISTINCTIVE parameter keys are admitted", () => {
+    // `message`, `content`, `task`, `path`, `input` and `limit` are all extracted
+    // as symbols (verified by running isPlausibleSymbol — they are not on
+    // ADR-034's generic-word list), and `message` is a `session_commit`
+    // parameter. Admitting every key would silently back a claim about it from
+    // an unrelated commit in the same turn.
+    test.each(["message", "content", "task", "path", "input", "limit"])(
+      "a generic key does not back a claim: %s",
+      (key) => {
+        const turn = callTurn(SESSION_COMMIT, { [key]: "some value" });
+        expect(symbolsFor(`\`${key}\` returns null when unset.`, turn)).toContain(key);
+      }
+    );
+
+    test.each(["expectedHeadSha", "overrideReason", "notBefore", "head_sha"])(
+      "a distinctive key does back a claim: %s",
+      (key) => {
+        const turn = callTurn(SESSION_COMMIT, { [key]: "v" });
+        expect(symbolsFor(`\`${key}\` returns null when unset.`, turn)).not.toContain(key);
+      }
+    );
+  });
+
   describe("AT6 — parameter VALUES are NOT admitted beyond today's read-class behavior", () => {
     const CLAIM = "`resolveNominationDeps` returns null when unconfigured.";
 
@@ -120,7 +144,7 @@ describe("mt#4084 — the same-turn tool CALL RECORD backs claims about the call
       // The agent CHOOSES a value, so admitting it is the write-echo inversion
       // mt#3489 split out of this corpus. Pinned so a later widening to values is
       // a decision that breaks a test rather than drift.
-      const turn = callTurn("mcp__minsky__session_commit", {
+      const turn = callTurn(SESSION_COMMIT, {
         message: "touching resolveNominationDeps",
       });
       expect(symbolsFor(CLAIM, turn)).toContain("resolveNominationDeps");
