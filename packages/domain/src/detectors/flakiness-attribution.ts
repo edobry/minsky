@@ -93,6 +93,69 @@ export const FLAKINESS_DENIAL_PATTERNS: readonly RegExp[] = [
 export const UNVERIFIED_MARKER = "UNVERIFIED";
 
 /**
+ * The literal label that discharges a DENIAL (mt#4166).
+ *
+ * A denial — "not load-dependent", "fails deterministically" — is a claim about
+ * behavior ACROSS load conditions, so the only evidence that bears on it is a
+ * measurement from more than one. Recorded counts do not carry that: they say
+ * what happened, not that the confound was held constant.
+ *
+ * ## Why this is a label and not an inference
+ *
+ * Inferring the straddle from prose was prototyped against the real mt#4158
+ * text and MEASURED not to discriminate: counts sit near `idle machine` AND
+ * near `full gated suite` there, scoring identically to a genuine two-condition
+ * record. That is structural, not a thin vocabulary — mt#4158 CLAIMS the idle
+ * machine (falsely; a 900s suite was running) and separately DISCUSSES the full
+ * suite as the broken thing. The difference between measuring two conditions
+ * and mentioning two conditions is not in the text, so no pattern reaches it.
+ *
+ * So the author states it and owns the claim, exactly as `Negative control:`
+ * (mt#3244) and `Execution evidence:` (mt#1459) do for the same kind of
+ * unknowable. A false label is a lie, and catching lies is not this guard's
+ * job — making the OMISSION visible is.
+ */
+export const LOAD_CONTROL_LABEL = "Load control";
+
+/** ```-fenced lines, where a label is quoted rather than asserted (mt#3511). */
+const FENCE_RE = /^[ \t]*(?:```|~~~)/;
+
+/**
+ * Whether the spec records a two-condition load control under its literal label.
+ *
+ * Accepts the decorations authors actually write — a leading bullet, `**bold**`,
+ * any heading level — because mt#3778 measured a sibling matcher rejecting every
+ * such form and logging 42 consecutive unpassable fires. A HEADING may stand
+ * alone; a plain label must carry a colon or a dash-subject, so an incidental
+ * sentence ("Load control was never run") cannot silence anything.
+ */
+export function hasLoadControl(spec: string): boolean {
+  if (!spec) return false;
+
+  let inFence = false;
+  for (const raw of spec.split("\n")) {
+    if (FENCE_RE.test(raw)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+
+    const withoutBullet = raw.replace(/^[ \t]*(?:[-*+][ \t]+)?/, "");
+    const heading = /^#{1,6}[ \t]*(.*)$/.exec(withoutBullet);
+    const body = (heading?.[1] ?? withoutBullet).replace(/\*\*/g, "").trim();
+    if (!new RegExp(`^${LOAD_CONTROL_LABEL}\\b`, "i").test(body)) continue;
+
+    const rest = body.slice(LOAD_CONTROL_LABEL.length).trim();
+    if (heading) {
+      if (rest === "" || rest === ":") return true;
+      continue;
+    }
+    if (rest.startsWith(":") || /^[—–-]\s*\S/.test(rest)) return true;
+  }
+  return false;
+}
+
+/**
  * A test invocation, as the isolation control is actually written.
  *
  * Bun is the only runner in this repo (`CLAUDE.md`: "Always use `bun`, never
@@ -136,13 +199,52 @@ export interface FlakinessClaim {
   index: number;
 }
 
+/**
+ * A claim with its own excuse resolved (mt#4166).
+ *
+ * Resolution is PER CLAIM, not per document. The shipped detector asked both
+ * questions document-wide, and on mt#4158 that let one honest `UNVERIFIED` —
+ * attached to a side note about whether slow MCP calls shared a root cause with
+ * the slow boot — excuse a load-bearing denial 2,146 characters away, because
+ * it happened to land 255 characters from the unrelated word "intermittently".
+ * A single boolean cannot say WHICH claim was excused, so it excused all of them.
+ */
+export interface ResolvedFlakinessClaim extends FlakinessClaim {
+  /** `UNVERIFIED` sits within {@link MARKER_PROXIMITY_CHARS} of THIS claim. */
+  markedUnverified: boolean;
+  /**
+   * The evidence this claim's family actually accepts is present.
+   *
+   * The families take different evidence, which is the whole point: an
+   * ATTRIBUTION is discharged by a recorded run with counts (they show the
+   * failure is real), a DENIAL only by the {@link LOAD_CONTROL_LABEL} record
+   * (counts from one condition cannot reach a claim about behavior across
+   * conditions).
+   */
+  controlled: boolean;
+}
+
 export interface FlakinessAttributionResult {
   matched: boolean;
-  /** Every claim found, both families. */
-  claims: FlakinessClaim[];
-  /** True when the spec records a test invocation WITH observed counts. */
+  /** Every claim found, both families, each carrying its own resolution. */
+  claims: ResolvedFlakinessClaim[];
+  /**
+   * True when the spec records a test invocation WITH observed counts.
+   *
+   * Discharges an ATTRIBUTION. Since mt#4166 it does NOT discharge a denial —
+   * see {@link hasLoadControl} — but it is still reported, because a
+   * false-positive review needs to tell "no evidence at all" from "evidence
+   * present, of the wrong kind for this claim".
+   */
   hasIsolationControl: boolean;
-  /** True when `UNVERIFIED` sits within {@link MARKER_PROXIMITY_CHARS} of a claim. */
+  /** True when the spec carries the {@link LOAD_CONTROL_LABEL} record. */
+  hasLoadControl: boolean;
+  /**
+   * True when `UNVERIFIED` sits within {@link MARKER_PROXIMITY_CHARS} of ANY
+   * claim. Document-wide, and retained only as a sizing signal for the
+   * calibration record — it is no longer what silences anything. Read
+   * `claims[].markedUnverified` for the question that decides a fire.
+   */
   hasUnverifiedMarker: boolean;
   /**
    * Sizing signal for the false-positive review, NOT a trigger (mt#3658 §The
@@ -177,15 +279,32 @@ export function extractFlakinessClaims(spec: string): FlakinessClaim[] {
     ["attribution", FLAKINESS_ATTRIBUTION_PATTERNS],
   ];
 
+  // Spans already claimed by a denial. "not load-dependent" contains
+  // "load-dependent", so the attribution pattern matches INSIDE it and would
+  // otherwise record a second, contradictory claim about the same words.
+  const denialSpans: Array<[number, number]> = [];
+
   // Denials are scanned FIRST so "not load-dependent" is recorded as a denial
   // rather than being swallowed by the attribution pattern it contains.
   for (const [family, patterns] of families) {
     for (const pattern of patterns) {
       const match = pattern.exec(spec);
       if (!match) continue;
+      // Scanning order alone only settles which family LABELS the span; it does
+      // not stop the attribution pattern from matching within it. Until mt#4166
+      // that shadow claim was harmless because one control silenced the whole
+      // document — under per-claim resolution it is a denial that stays lit no
+      // matter what evidence its author records.
+      if (
+        family === "attribution" &&
+        denialSpans.some(([from, to]) => match.index >= from && match.index < to)
+      ) {
+        continue;
+      }
       const phrase = match[0].slice(0, MAX_PHRASE_CHARS);
       if (seen.has(phrase.toLowerCase())) continue;
       seen.add(phrase.toLowerCase());
+      if (family === "denial") denialSpans.push([match.index, match.index + match[0].length]);
       const start = Math.max(0, match.index - EXCERPT_CONTEXT_CHARS);
       const end = Math.min(spec.length, match.index + match[0].length + EXCERPT_CONTEXT_CHARS);
       claims.push({ phrase, excerpt: spec.slice(start, end), family, index: match.index });
@@ -249,16 +368,25 @@ function suspectsSingleFileAcceptanceTest(spec: string): boolean {
  * third conjunct needs a database.
  */
 export function detectFlakinessAttribution(spec: string): FlakinessAttributionResult {
-  const claims = extractFlakinessClaims(spec ?? "");
-  const control = hasIsolationControl(spec ?? "");
-  const marker = hasUnverifiedMarkerNearClaim(spec ?? "", claims);
+  const text = spec ?? "";
+  const control = hasIsolationControl(text);
+  const loadControl = hasLoadControl(text);
+
+  // Each claim resolves against the evidence ITS family accepts, and against a
+  // marker near ITSELF. Both were document-wide before mt#4166, and both
+  // silenced mt#4158 for reasons that had nothing to do with its denial.
+  const claims: ResolvedFlakinessClaim[] = extractFlakinessClaims(text).map((claim) => ({
+    ...claim,
+    markedUnverified: hasUnverifiedMarkerNearClaim(text, [claim]),
+    controlled: claim.family === "denial" ? loadControl : control,
+  }));
 
   return {
-    matched: claims.length > 0 && !control && !marker,
+    matched: claims.some((c) => !c.markedUnverified && !c.controlled),
     claims,
     hasIsolationControl: control,
-    hasUnverifiedMarker: marker,
-    singleFileAcceptanceTestSuspected:
-      claims.length > 0 && suspectsSingleFileAcceptanceTest(spec ?? ""),
+    hasLoadControl: loadControl,
+    hasUnverifiedMarker: claims.some((c) => c.markedUnverified),
+    singleFileAcceptanceTestSuspected: claims.length > 0 && suspectsSingleFileAcceptanceTest(text),
   };
 }
