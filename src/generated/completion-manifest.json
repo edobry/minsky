@@ -7911,6 +7911,31 @@
             }
           ],
           "commandId": "setup.db"
+        },
+        {
+          "name": "local-http",
+          "description": "Point Claude Code's Minsky MCP entries at the shared local daemon via the stdio shim (dry-run by default; --revert restores the previous config and stops the daemon)",
+          "options": [
+            {
+              "flags": ["--execute"],
+              "description": "Apply the change (without it, the plan is printed only)"
+            },
+            {
+              "flags": ["--revert"],
+              "description": "Restore the most recent backup of each config and stop the local daemon"
+            },
+            {
+              "flags": ["--url"],
+              "description": "Daemon MCP URL for the shim (default http://127.0.0.1:48765/mcp)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Project root whose .mcp.json is scanned (default: cwd)",
+              "takesValue": true
+            }
+          ],
+          "commandId": "setup.local-http"
         }
       ],
       "options": [

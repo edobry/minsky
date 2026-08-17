@@ -489,6 +489,7 @@ describe("Drift gate — the mt#3924 refusal set", () => {
     "setup.db",
     "tasks.migrate-backend",
     "forge.branch_protection_set",
+    "setup.local-http",
   ];
 
   /**

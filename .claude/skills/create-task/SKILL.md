@@ -130,10 +130,36 @@ satisfy ONE of:
   timing symptom.
 - **`UNVERIFIED`** — if the control was not actually run this turn, mark the attribution
   with the literal word `UNVERIFIED` (e.g. "UNVERIFIED as load-dependent — isolation
-  control not run") rather than asserting flakiness as settled.
+  control not run") rather than asserting flakiness as settled. **Put it beside the claim
+  it qualifies** — a marker excuses only the claim it sits next to (mt#4166), so one
+  `UNVERIFIED` on a side note does not cover a diagnosis three sections away.
 
-Checkable from the spec text alone: either a command plus its observed pass/fail counts is
-present, or the literal marker `UNVERIFIED` is. Note the asymmetry with §2a — there, the
+**A DENIAL takes different evidence, and counts are not it (mt#4166).** Denying the mode —
+_not flaky_, _not load-dependent_, _fails deterministically_ — is a claim about how the
+failure behaves **across** load conditions, so a measurement from ONE condition cannot
+reach it, however carefully the counts were recorded. Discharge a denial with a literal
+`Load control:` record naming both runs:
+
+```
+Load control:
+`bun test <file>` alone on an idle machine → 67 pass / 0 fail
+`bun test <file>` with the gated suite running → 55 pass / 12 fail
+```
+
+**The label is a heading for the record, not the record.** Both runs must actually be there:
+the check requires two test invocations and observed counts within the lines under the label,
+so `Load control: was never run` and a bare `## Load control` heading do NOT silence anything —
+they carry the label and assert the opposite of compliance.
+
+Counts alone silence an ATTRIBUTION (they at least show the failure is real) and no longer
+silence a denial. If you cannot run both conditions now, mark the denial `UNVERIFIED`
+beside itself rather than recording one run and calling the question settled — that is
+exactly what mt#4158 did, and the 52-second figure it rested on was the author's own
+background test suite.
+
+Checkable from the spec text alone: for an attribution, a command plus its observed
+pass/fail counts, or the literal marker `UNVERIFIED`; for a denial, the literal
+`Load control:` label, or `UNVERIFIED` beside the denial. Note the asymmetry with §2a — there, the
 cheap check is a file read; here it is running one command, which is why "it failed under
 load, so it's flaky" is so easy to file without ever testing it.
 

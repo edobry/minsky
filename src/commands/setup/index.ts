@@ -60,6 +60,62 @@ export function createSetupCommand(): Command {
 
   cmd.addCommand(createSetupGithubAppCommand());
   cmd.addCommand(createSetupDbCommand());
+  cmd.addCommand(createSetupLocalHttpCommand());
+
+  return cmd;
+}
+
+function createSetupLocalHttpCommand(): Command {
+  const cmd = new Command("local-http");
+  cmd.description(
+    "Point Claude Code's Minsky MCP entries at the shared local daemon via the stdio shim " +
+      "(dry-run by default; --revert restores the previous config and stops the daemon)"
+  );
+
+  cmd.option("--execute", "Apply the change (without it, the plan is printed only)", false);
+  cmd.option(
+    "--revert",
+    "Restore the most recent backup of each config and stop the local daemon",
+    false
+  );
+  cmd.option("--url <url>", "Daemon MCP URL for the shim (default http://127.0.0.1:48765/mcp)");
+  cmd.option("--repo <path>", "Project root whose .mcp.json is scanned (default: cwd)");
+
+  cmd.action(async (options, command: Command) => {
+    try {
+      // `setup` itself declares `--repo`, and commander binds a shared option
+      // name to the ANCESTOR — so `setup local-http --repo X` lands in the
+      // parent's opts and this subcommand's `options.repo` is undefined.
+      // Merging globals is what makes the flag work from either position;
+      // reading `options` alone silently scanned the current directory
+      // instead of the requested project.
+      const merged =
+        typeof command?.optsWithGlobals === "function" ? command.optsWithGlobals() : options;
+
+      const commandDef = sharedCommandRegistry.getCommand("setup.local-http");
+      if (!commandDef) {
+        console.error("Shared command 'setup.local-http' not found in registry");
+        process.exit(1);
+      }
+
+      const result = await commandDef.execute(
+        {
+          execute: merged.execute ?? false,
+          revert: merged.revert ?? false,
+          url: merged.url,
+          repo: merged.repo,
+        },
+        { interface: "cli" }
+      );
+
+      const typed = result as { success: boolean; message?: string };
+      if (typed.message) console.log(typed.message);
+      if (!typed.success) process.exit(1);
+    } catch (error: unknown) {
+      console.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
 
   return cmd;
 }
