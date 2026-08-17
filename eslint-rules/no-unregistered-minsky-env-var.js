@@ -45,18 +45,29 @@ const REGISTRATION_FILE_NATIVE = REGISTRATION_FILE_POSIX.split("/").join(pathSep
  *     `  "MINSKY_FOO_BAR": "..."` (quoted key — needed when name contains
  *       characters that aren't valid identifiers, OR when style mandates
  *       quoting)
- *   HOOK_ONLY_ENV_VARS:
+ *   HOOK_ONLY_ENV_VAR_CATEGORIES (mt#3882 — a record keyed by var name;
+ *   `HOOK_ONLY_ENV_VARS` is now derived from its keys):
+ *     `  MINSKY_FOO_BAR: "operator-override",` — matched by mappingKeyRe,
+ *       the SAME pattern that matches an environmentMappings key. The record
+ *       shape is required for exactly this reason; see that constant's
+ *       docblock in environment.ts.
+ *   HOOK_ONLY_ENV_VARS (the pre-mt#3882 `new Set([...])` literal — kept
+ *   because nothing guarantees no other Set-shaped allowlist appears here):
  *     `  "MINSKY_FOO_BAR",` (Set member as string literal, with trailing comma)
- *     `  "MINSKY_FOO_BAR", // comment` (trailing inline comment, currently
- *       used by every entry in this file)
+ *     `  "MINSKY_FOO_BAR", // comment` (trailing inline comment)
  *     `  "MINSKY_FOO_BAR"` (last entry, no trailing comma)
  *     Single OR double quotes for any of the above.
+ *
+ * Exported so `.minsky/hooks/known-override-env-vars.test.ts` can assert the
+ * REAL extractor still resolves every registry entry (mt#3882 AT5). A copy of
+ * these regexes in the test would be one more hand-maintained mirror, which is
+ * the defect that task exists to retire.
  *
  * On read failure (file missing, permission error, etc.) the function returns
  * an empty Set with a console warning — fail-soft so a misconfigured rule
  * doesn't break ESLint entirely.
  */
-function buildRegisteredSet() {
+export function buildRegisteredSet() {
   const registered = new Set();
   let text;
   try {

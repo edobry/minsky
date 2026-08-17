@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 133,
+  "population": 134,
   "divergence": {
     "declaredButNotDescribed": [
       "ask-permission-bridge",
