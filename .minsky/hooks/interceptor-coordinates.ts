@@ -451,6 +451,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "new-surface-design-pass",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads with no paraphrase axis: git status `A` on a render-path path, and a `Skill` tool_use name against a fixed six-skill list. Neither half is a matcher over prose, which is why it ships without ADR-024's ladder above rung 1. The transcript half is what makes it a judge rather than a diff scanner — and why an absent transcript records `skipped` rather than a fire.",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       interventions: [injectAgent],
