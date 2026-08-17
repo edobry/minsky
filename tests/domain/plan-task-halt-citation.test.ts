@@ -47,6 +47,9 @@ const read = (relPath: string): string => readFileSync(join(REPO_ROOT, relPath),
 // below, and a typo'd path would silently read a different file.
 const SKILL_SOURCE = ".minsky/skills/plan-task/skill.ts";
 const RULE_SOURCE = ".minsky/rules/key-workflows.mdc";
+// The plan-task skill's COMPILED output. Named because three separate guards below read it:
+// the presence list, the mt#3855 prose list, and the drift guard (PR #3071 R1).
+const PLAN_TASK_GENERATED = ".claude/skills/plan-task/SKILL.md";
 
 // mt#4141: the THIRD surface carrying the citation test, added after R7 of the
 // confabulated-strategic-frame family. The two surfaces above are both scoped to a
@@ -78,9 +81,11 @@ const CLASSIFY_GENERATED = ".claude/skills/classify-before-deferring/SKILL.md";
 // CLOSE_MARKER's phrase in the classify source: 12 pass, 1 fail, the one failure being that
 // surface's own drift test.
 //
-// FOUR surfaces depend on these anchors as of mt#4141, so each anchor is load-bearing for a
-// real test: the plan-task skill source, `key-workflows.mdc`, and the classify skill's
-// source AND its compiled output.
+// FIVE surfaces depend on these anchors as of PR #3071 R1, so each anchor is load-bearing for
+// a real test: the plan-task skill's source AND its compiled output, `key-workflows.mdc`, and
+// the classify skill's source AND its compiled output. (mt#4141 brought this to four; the
+// plan-task compiled copy was the asymmetry R1 caught — `SURFACES` already read that file
+// while the drift guard did not.)
 
 // Opens the window on both classify surfaces AND on the plan-task skill — they deliberately
 // share the phrase, so the drift guard reads the same construction everywhere it appears.
@@ -102,7 +107,7 @@ const DEMOTION_MARKER = "illustrative, NOT the test";
 // four generated artifacts — a source-only assertion passes on a stale compile.
 const SURFACES = [
   RULE_SOURCE,
-  ".claude/skills/plan-task/SKILL.md",
+  PLAN_TASK_GENERATED,
   "CLAUDE.md",
   "AGENTS.md",
   ".cursor/rules/key-workflows.mdc",
@@ -182,7 +187,7 @@ const QUOTE_SUPPORT_MARKER = "A quote must SUPPORT the claim";
 // SURFACES above, for the same reason: a source-only assertion passes on a stale compile.
 const PROSE_SURFACES = [
   RULE_SOURCE,
-  ".claude/skills/plan-task/SKILL.md",
+  PLAN_TASK_GENERATED,
   "CLAUDE.md",
   "AGENTS.md",
   ".cursor/rules/key-workflows.mdc",
@@ -308,6 +313,16 @@ const RESTATEMENTS: Array<{ name: string; content: () => string; openMarker: str
     content: () => read(name),
     openMarker: CLOSED_LIST_MARKER,
   })),
+  // PR #3071 R1 (non-blocking, PRE-EXISTING): the generated plan-task SKILL restatement was
+  // missing here while `SURFACES` above already checked that same file. The asymmetry is the
+  // bug — mt#4141 added the source-AND-generated pair for /classify-before-deferring and did
+  // not backfill it for /plan-task, so a category added canonically could diverge in the copy
+  // an agent actually reads and only the classify surfaces would have caught it.
+  {
+    name: PLAN_TASK_GENERATED,
+    content: () => read(PLAN_TASK_GENERATED),
+    openMarker: CLOSED_LIST_MARKER,
+  },
 ];
 
 describe("restated reserved-category lists track principal-context.mdc (mt#3596)", () => {
