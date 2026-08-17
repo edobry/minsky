@@ -132,6 +132,25 @@ These are guidance for the mt#2241 implementation, not part of the decision:
   single-owner-of-`:3737` invariant: whichever binds first wins; the other adopts or defers.
   Running both in "spawn" mode simultaneously is the misconfiguration to guard against.
 
+## Implementation note 2026-08-17 (mt#4205): the CLI path adopts the same predicate
+
+**Not an amendment — nothing this ADR decides changes.** It records that a SECOND implementer now
+follows the adoption rule above.
+
+The "Implementation notes and risks" section prescribes pairing an `EADDRINUSE` with a health probe
+to confirm the holder is ours, and the 2026-08-12 amendment's first bullet fixes what "ours" means
+(an identity assertion, fail-closed on a missing `service`, with a non-2xx answer still counting as
+ours). Until mt#4205 only the tray supervisor implemented that. The CLI's own guard —
+`minsky cockpit start`, the launchd and manual paths this ADR keeps as the opt-in headless mode —
+had independently arrived at a cruder answer: it classified the holder from a state file alone and
+then REFUSED to displace it, so the one holder it could identify with certainty was the one it never
+cleared.
+
+`src/cockpit/port-recovery.ts` now mirrors `daemon_core.rs`'s `is_ours` on that path. The
+single-owner invariant is unchanged; what changes is that both owners now resolve a contested port
+the same way, rather than the CLI path answering it differently from the supervisor. Operator-facing
+detail: `docs/architecture/cockpit.md` § _Port recovery: displacing a wedged incumbent_.
+
 ## Cross-references
 
 - Related tasks: mt#2241 (implements this — tray-app supervisor + adoption + login item),
