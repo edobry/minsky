@@ -27,6 +27,7 @@ import {
   type SweepLivenessSnapshot,
 } from "./sweepers";
 import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
+import { DeadlineExceededError } from "@minsky/domain/utils/deadline";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import type { FetchFn } from "@minsky/domain/notify/telegram-transport";
 import {
@@ -1589,6 +1590,74 @@ describe("poller sweep-liveness registration (mt#4185)", () => {
       expect(pollerEntry()).toBeDefined();
     } finally {
       second.stop();
+    }
+  });
+
+  test("AT3: a long poll that never resolves ends the cycle at the bound instead of parking", async () => {
+    const h = harness(updateBody([]));
+    const started = Date.now();
+    // `longPollSec: 0.05` → a 100ms client deadline (2x the server value).
+    // Before mt#4183 there was no client deadline at all and this awaited forever.
+    await expect(
+      runPollCycle({
+        ...h.deps,
+        longPollSec: 0.05,
+        fetchFn: () => new Promise<Response>(() => {}),
+      })
+    ).rejects.toThrow(DeadlineExceededError);
+    // Bounded, not merely eventually — the whole point is a wall-clock guarantee.
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() measures elapsed time, not path creation; no filesystem interaction here
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  test("AT4: an audit write that never resolves ends the cycle at the bound too", async () => {
+    const h = harness(updateBody([{ updateId: 9, text: "hello" }]));
+    const started = Date.now();
+    await expect(
+      runPollCycle({
+        ...h.deps,
+        dbStepDeadlineMs: 100,
+        recordEvent: () => new Promise<"recorded">(() => {}),
+      })
+    ).rejects.toThrow(DeadlineExceededError);
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- same: elapsed-time measurement, not path creation
+    expect(Date.now() - started).toBeLessThan(2_000);
+    // The cursor never advanced, so the batch is re-fetched next cycle rather
+    // than skipped — the property that makes aborting mid-batch safe.
+    expect(h.cursorWrites).toEqual([]);
+  });
+
+  test("a cursor read that never resolves ends the cycle at the bound", async () => {
+    const h = harness(updateBody([]));
+    await expect(
+      runPollCycle({
+        ...h.deps,
+        dbStepDeadlineMs: 100,
+        cursor: { read: () => new Promise<number>(() => {}), write: async () => {} },
+      })
+    ).rejects.toThrow(DeadlineExceededError);
+  });
+
+  test("the loop SURVIVES a wedged long poll — it backs off and cycles again", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      {
+        ...h.deps,
+        longPollSec: 0.05,
+        fetchFn: () => new Promise<Response>(() => {}),
+      },
+      { errorBackoffMs: 5, progressBudgetMs: 60_000 }
+    );
+    try {
+      // Progress must keep advancing: each cycle deadlines, the catch converts
+      // it to an error outcome, the loop backs off and starts another. Before
+      // mt#4183 the first cycle parked and nothing ever advanced again.
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt != null);
+      const first = pollerEntry()?.lastAttemptAt;
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt !== first, 4000);
+      expect(pollerEntry()?.consecutiveFailures).toBeGreaterThanOrEqual(1);
+    } finally {
+      poller.stop();
     }
   });
 

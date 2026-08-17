@@ -590,6 +590,16 @@ the payload says which of the two `intervalMs` means). `custom/require-registere
 fails the build on a new `start*` export that runs a flag-shaped `await` loop
 through neither.
 
+**A registrant that has reported NOTHING is still evaluated (mt#4206).** Every
+entry carries `registeredAt`, and for a self-scheduling participant the stall
+predicate falls back to it when `lastAttemptAt` is still null — so a loop that
+parks BEFORE its first progress call is flagged rather than skipped forever. The
+skip is retained for an interval sweep, where the null window is
+millisecond-scale because the registry drives the tick; treating it as a stall
+there would restart every healthy sweep at boot. `registeredAt` also makes
+"registered, never reported" a dateable reading on `/api/sweeps` instead of an
+inference from a bare null.
+
 This paragraph exists because its absence was load-bearing. Until mt#4185 the
 enumeration below listed only failure modes, so a NON-REGISTRANT loop was in
 neither the covered nor the not-covered set — outside the enumeration

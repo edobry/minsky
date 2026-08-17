@@ -67,6 +67,7 @@ import {
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
 import { registerSelfSchedulingSweep } from "./sweepers";
+import { withDeadline } from "@minsky/domain/utils/deadline";
 // Value import, not a cycle: this module's only edge back from the actuator is
 // `import type` (erased at runtime), so nothing loads twice.
 import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
@@ -80,6 +81,44 @@ const DEFAULT_LONG_POLL_SEC = 25;
 
 /** Backoff after a failed poll, so a Telegram outage is not hammered. */
 const ERROR_BACKOFF_MS = 30_000;
+
+/**
+ * Wall-clock bound on a single DB step inside a poll cycle (mt#4183 SC2) —
+ * the cursor read, the cursor write, and the per-message audit write.
+ *
+ * None of these carried ANY bound before: they receive no `AbortSignal` and
+ * the driver imposes no deadline, so a connection that goes away without
+ * settling its promise parks the cycle forever with nothing thrown and nothing
+ * logged. That is the shape of the 2026-08-16 incident, where the loop sat on
+ * an empty cycle for ~44 hours (mt#4183 `## SC3 falsifier result`).
+ *
+ * 30s is deliberately far above a healthy statement (sub-second against the
+ * Supabase pooler) and far below anything an operator would wait through. The
+ * point is not to tune latency — it is that the worst case becomes an error
+ * the loop's existing catch already handles, instead of silence.
+ */
+const DB_STEP_DEADLINE_MS = 30_000;
+
+/**
+ * Wall-clock bound on the long poll, as a function of the SERVER-side
+ * long-poll parameter (mt#4183 SC2).
+ *
+ * Telegram's Bot API `getUpdates` takes `timeout` — "Timeout in seconds for
+ * long polling" — which asks the SERVER to hold the request open that long and
+ * return an empty result if nothing arrives. It is not a client deadline, and
+ * `getTelegramUpdates` sets none of its own: it forwards the caller's signal
+ * and otherwise uses a bare `fetch`. So a healthy poll legitimately takes up
+ * to `longPollSec`, and any client bound below that would abort every healthy
+ * poll and convert a working channel into a permanent error-backoff loop.
+ *
+ * Match/extend/deviate vs. the vendor's documented model: **extend.** The
+ * server-side `timeout` is used exactly as documented; this adds the
+ * client-side deadline the API does not provide, at 2x the server value so the
+ * response body has generous room to transfer before the bound trips.
+ */
+function longPollDeadlineMs(longPollSec: number): number {
+  return longPollSec * 2 * 1000;
+}
 
 /** The name this poller registers under in the sweep-liveness registry (mt#4185). */
 export const PRINCIPAL_CHANNEL_SWEEP_NAME = "principal-channel poll";
@@ -274,6 +313,14 @@ export interface PollCycleDeps {
    * throw and must not block — it stamps a timestamp.
    */
   onProgress?: () => void;
+  /**
+   * Override the wall-clock bounds a cycle applies to its DB steps (mt#4183).
+   *
+   * Present so a test can exercise the deadline branch in milliseconds rather
+   * than waiting out {@link DB_STEP_DEADLINE_MS}. Production never sets it —
+   * the default IS the bound, so omitting this changes nothing.
+   */
+  dbStepDeadlineMs?: number;
 }
 
 export interface PollCycleOutcome {
@@ -317,15 +364,21 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   // answers the first one.
   const noteProgress = deps.onProgress ?? ((): void => {});
 
-  const offset = await deps.cursor.read();
+  const longPollSec = deps.longPollSec ?? DEFAULT_LONG_POLL_SEC;
+  const dbStepDeadlineMs = deps.dbStepDeadlineMs ?? DB_STEP_DEADLINE_MS;
+
+  const offset = await withDeadline(deps.cursor.read(), dbStepDeadlineMs);
   noteProgress();
-  const result = await getTelegramUpdates({
-    token: deps.token,
-    ...(offset === undefined ? {} : { offset: offset + 1 }),
-    timeoutSec: deps.longPollSec ?? DEFAULT_LONG_POLL_SEC,
-    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
-    ...(deps.signal ? { signal: deps.signal } : {}),
-  });
+  const result = await withDeadline(
+    getTelegramUpdates({
+      token: deps.token,
+      ...(offset === undefined ? {} : { offset: offset + 1 }),
+      timeoutSec: longPollSec,
+      ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    }),
+    longPollDeadlineMs(longPollSec)
+  );
   noteProgress();
 
   if (!result.ok) {
@@ -358,7 +411,12 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
 
     // Audit BEFORE acting. An RCE-adjacent surface must leave a record of what
     // it was asked to do even if carrying it out then fails or hangs.
-    const recorded = await recordSafely(deps, message, route);
+    // Bounded (mt#4183 SC2). A deadline here aborts the whole cycle rather
+    // than skipping one message, which is the safe direction: the throw
+    // happens BEFORE `cursor.write`, so the cursor does not advance and the
+    // next cycle re-fetches the same batch. Anything already recorded comes
+    // back as a duplicate and is skipped, so the retry is idempotent.
+    const recorded = await withDeadline(recordSafely(deps, message, route), dbStepDeadlineMs);
     noteProgress();
 
     // A replay of an update a previous run already recorded. Skipping is the
@@ -405,7 +463,7 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   // that failed to parse — otherwise an unparseable update is re-fetched
   // forever and the channel wedges behind it.
   if (result.highestUpdateId !== undefined) {
-    await deps.cursor.write(result.highestUpdateId);
+    await withDeadline(deps.cursor.write(result.highestUpdateId), dbStepDeadlineMs);
     noteProgress();
   }
 

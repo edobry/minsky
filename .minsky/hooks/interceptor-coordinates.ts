@@ -465,6 +465,10 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["flakiness-control-detector", lexicalDetector],
+  // Same shape as the sibling above: a lexical pass over the spec prose an agent
+  // just authored. Class B adds an exact-substring lookup against the authorizing
+  // ask, which sharpens the verdict without changing the mechanism class.
+  ["spec-criterion-claim-detector", lexicalDetector],
   [
     "stale-signal-sweep",
     {
@@ -551,6 +555,13 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["substrate-bypass-detector", lexicalDetector],
   ["turn-end-bare-ref-scan", lexicalDetector],
   ["turn-end-retro-scan", lexicalDetector],
+  // Hybrid, and classified by the half that can be WRONG. The decision is
+  // structural (an entity's live state contradicts the message, or it does
+  // not — that half cannot false-positive), but the trigger is a prose gate,
+  // so the paraphrase exposure this coordinate is meant to flag lives on the
+  // lexical side. Same call as `turn-end-unescalated-incident-scan`, the
+  // family's other hybrid.
+  ["turn-end-stale-state-assertion-scan", lexicalRecorder],
   ["turn-end-unescalated-incident-scan", lexicalDetector],
   ["turn-end-untaken-action-scan", lexicalDetector],
   [

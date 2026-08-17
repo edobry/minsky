@@ -292,6 +292,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "spec-criterion-claim-detector",
+    {
+      description:
+        'Records when a task spec\'s success criterion or acceptance test asserts something unchecked: that the repo ALREADY contains something ("remains documented", "is registered") with no verifying command beside it, or that the work is gated on a precondition the task\'s authorizing ask never contained. A criterion is not a claim that drives a decision — it is the claim the work is measured AGAINST — so a wrong one certifies the wrong thing as done, or blocks work that was already authorized.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("spec-criterion-claim-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "stale-signal-sweep",
     {
       description:
@@ -752,6 +762,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records the silent stop at a ripe decision: a turn whose mutations are all evidence-writes, ending having minted nothing and said nothing. Log-only.",
       failureClasses: ["lost-signal"],
       provenance: [hook("stop-at-decision-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "turn-end-stale-state-assertion-scan",
+    {
+      description:
+        "Records a closing message that tells the principal an ask or task is awaiting them when the substrate says it is already terminal. Log-only.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("turn-end-stale-state-assertion-scan"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
