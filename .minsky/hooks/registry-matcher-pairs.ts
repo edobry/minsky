@@ -142,6 +142,21 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   // turned a single registration into a pair needing a declaration.
   ["stale-signal-sweep", "evidence-record-provenance"],
   ["unrendered-result-field-scan", "evidence-record-provenance"],
+  // mt#4124's `new-surface-design-pass` is the fourth guard on this seam, and it
+  // reads a THIRD thing: the branch's added-file STATUS plus the session's skill
+  // invocations. The two diff guards above read the diff's CONTENT and never its
+  // status; `evidence-record-provenance` reads the transcript but for a prose
+  // record's discharge, not for which skills ran.
+  //
+  // Non-subsumption is easiest to see from the failure each admits. A PR can add
+  // a new pane with no design pass while emitting every label it used to
+  // (`stale-signal-sweep` quiet), rendering every field it added
+  // (`unrendered-result-field-scan` quiet), and claiming no evidence record at
+  // all (`evidence-record-provenance` quiet) — which is PR #2942, the incident
+  // this guard exists for. Same seam, disjoint inputs, disjoint failures.
+  ["stale-signal-sweep", "new-surface-design-pass"],
+  ["unrendered-result-field-scan", "new-surface-design-pass"],
+  ["evidence-record-provenance", "new-surface-design-pass"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
