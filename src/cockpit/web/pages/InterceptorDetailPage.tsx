@@ -313,7 +313,7 @@ function RetrospectiveCell({ entry }: { entry: WeldEntryPayload }) {
  *     have drifted.
  */
 function InstallProvenanceField({ entry }: { entry: InterceptorEntry }) {
-  const { data, isLoading } = useSlowTopology();
+  const { data, isLoading, isError } = useSlowTopology();
 
   if (entry.sourceFile === null) {
     return (
@@ -334,7 +334,33 @@ function InstallProvenanceField({ entry }: { entry: InterceptorEntry }) {
     );
   }
 
-  const row = data?.entries.find((e) => e.name === entry.sourceFile);
+  // Three states that are NOT drift, separated before the drift branch can claim
+  // them (PR #3087 R1). Each would otherwise arrive as "no matching row" and get
+  // reported as the two sources having diverged — a loud, wrong alarm about the
+  // corpus raised by a transport failure or a cold cache.
+  if (isError || !data) {
+    return (
+      <Field label="Install provenance">
+        <span className="text-warn-amber" data-testid="interceptor-install-unavailable">
+          Unavailable — the slow-topology widget did not answer. This says nothing about{" "}
+          <span className="font-mono">{entry.sourceFile}.ts</span>; retry before reading anything
+          into it.
+        </span>
+      </Field>
+    );
+  }
+  if (data.status === "pending") {
+    return (
+      <Field label="Install provenance">
+        <span className="text-muted-foreground/60" data-testid="interceptor-install-pending">
+          Pending — the slow-clock sweep has not completed since this cockpit started. Install
+          provenance appears once it does.
+        </span>
+      </Field>
+    );
+  }
+
+  const row = data.entries.find((e) => e.name === entry.sourceFile);
   if (!row) {
     return (
       <Field label="Install provenance">

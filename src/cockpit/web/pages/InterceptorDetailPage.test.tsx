@@ -57,7 +57,7 @@ function entry(overrides: Partial<InterceptorEntry> = {}): InterceptorEntry {
   };
 }
 
-function catalog(): InterceptorsPayload {
+function catalog(entryOverrides: Partial<InterceptorEntry> = {}): InterceptorsPayload {
   return {
     population: 1,
     divergence: { declaredButNotDescribed: [], describedButNotDeclared: [] },
@@ -67,7 +67,7 @@ function catalog(): InterceptorsPayload {
         question: "What stops me committing a tree that does not build?",
       },
     },
-    entries: [entry()],
+    entries: [entry(entryOverrides)],
   };
 }
 
@@ -103,10 +103,59 @@ function detailPayload(overrides: Partial<InterceptorDetailPayload> = {}): Inter
   };
 }
 
-function renderDetail(detail?: InterceptorDetailPayload) {
+/**
+ * A slow-topology row, the shape `/plant/interlock-history` used to render and
+ * `InstallProvenanceField` renders now (mt#4229).
+ */
+function topologyRow(overrides: Record<string, unknown> = {}) {
+  return {
+    name: "example-guard",
+    sourceDir: ".minsky/hooks",
+    installDate: "2026-05-01T00:00:00.000Z",
+    commitSha: "abcdef1234567890",
+    commitUrl: "https://github.com/edobry/minsky/commit/abcdef1234567890",
+    retrospective: {
+      eventId: "e1",
+      note: "the incident that produced it",
+      taskId: "mt#1234",
+      createdAt: "2026-04-30T00:00:00.000Z",
+      matchType: "task-ref",
+    },
+    ...overrides,
+  };
+}
+
+type TopologyResponse =
+  | { state: "ok"; payload: { status: string; computedAt: string | null; interlockCount: number; entries: unknown[] } }
+  | { state: "error" };
+
+function renderDetail(
+  detail?: InterceptorDetailPayload,
+  opts: { entry?: Partial<InterceptorEntry>; topology?: TopologyResponse } = {}
+) {
   global.fetch = mock(async (input: unknown) => {
     const url = String(input);
-    const payload = url.includes("interceptor-aggregates") ? detail : catalog();
+    // The install-provenance join's source (mt#4229). Defaults to a ready sweep
+    // carrying the one row `example-guard` joins to.
+    if (url.includes("slow-topology")) {
+      const t: TopologyResponse = opts.topology ?? {
+        state: "ok",
+        payload: {
+          status: "ready",
+          computedAt: "2026-08-17T00:00:00.000Z",
+          interlockCount: 1,
+          entries: [topologyRow()],
+        },
+      };
+      if (t.state === "error") {
+        return new Response("boom", { status: 500 });
+      }
+      return new Response(JSON.stringify(t), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    const payload = url.includes("interceptor-aggregates") ? detail : catalog(opts.entry);
     if (payload === undefined) {
       // Stands in for the widget being unreachable: the page must degrade to
       // its pending copy rather than rendering an empty health section.
@@ -284,5 +333,78 @@ describe("InterceptorDetailPage — lookalike states stay distinct", () => {
     expect(screen.getByTestId("interceptor-detail-health-pending").textContent).toContain(
       "not zero"
     );
+  });
+});
+
+/**
+ * Install provenance — the coverage `WeldHistoryPage.test.tsx` carried before
+ * mt#4229 absorbed that page (PR #3087 R1 flagged its deletion as a regression).
+ *
+ * The load-bearing property is that FOUR different reasons for "no install date"
+ * stay four different messages. Collapsing any of them into the drift warning
+ * makes the corpus look broken when the truth is a cold cache, a dead widget, or
+ * an entry that never had a hook file — which is the absence-vs-declaration
+ * conflation the whole catalog exists to prevent.
+ */
+describe("InterceptorDetailPage — install provenance (mt#4229)", () => {
+  test("renders install date, commit link and retrospective for a joined entry", async () => {
+    renderDetail(detailPayload(), { entry: { sourceFile: "example-guard" } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-install-provenance")).toBeTruthy();
+    });
+    const panel = screen.getByTestId("interceptor-install-provenance");
+    expect(panel.textContent).toContain("abcdef1");
+    expect(panel.textContent).toContain("the incident that produced it");
+    expect(panel.textContent).toContain("mt#1234");
+    expect(panel.textContent).toContain(".minsky/hooks/example-guard.ts");
+  });
+
+  test("an entry with no hook file says so, rather than reporting drift", async () => {
+    renderDetail(detailPayload(), { entry: { sourceFile: null } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-install-not-a-file")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("interceptor-install-unresolved")).toBeNull();
+  });
+
+  test("a named file the walk did not find IS reported as drift", async () => {
+    renderDetail(detailPayload(), {
+      entry: { sourceFile: "a-file-the-walk-never-saw" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-install-unresolved")).toBeTruthy();
+    });
+  });
+
+  test("a failed topology fetch is 'unavailable', NOT drift", async () => {
+    renderDetail(detailPayload(), {
+      entry: { sourceFile: "example-guard" },
+      topology: { state: "error" },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-install-unavailable")).toBeTruthy();
+    });
+    // The distinction this test exists for: a dead widget must not be reported
+    // as the catalog and the file walk having diverged.
+    expect(screen.queryByTestId("interceptor-install-unresolved")).toBeNull();
+  });
+
+  test("a sweep that has not completed is 'pending', NOT drift", async () => {
+    renderDetail(detailPayload(), {
+      entry: { sourceFile: "example-guard" },
+      topology: {
+        state: "ok",
+        payload: { status: "pending", computedAt: null, interlockCount: 0, entries: [] },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("interceptor-install-pending")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("interceptor-install-unresolved")).toBeNull();
   });
 });

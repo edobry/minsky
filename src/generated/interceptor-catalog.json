@@ -1034,7 +1034,7 @@
       "families": [],
       "familyState": "unclassified",
       "deliberatelyUnauthored": true,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "deploy-domain-check",
@@ -1578,7 +1578,7 @@
       "families": [],
       "familyState": "unclassified",
       "deliberatelyUnauthored": true,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "flakiness-control-detector",
@@ -2122,7 +2122,7 @@
       "families": ["guard"],
       "familyState": "classified",
       "deliberatelyUnauthored": false,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "migration-guard-check",
@@ -2200,7 +2200,7 @@
       "families": [],
       "familyState": "unclassified",
       "deliberatelyUnauthored": true,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "negative-existence-claim-detector",
@@ -2399,7 +2399,7 @@
       "families": [],
       "familyState": "unclassified",
       "deliberatelyUnauthored": true,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "parallel-work-guard",
@@ -2462,7 +2462,7 @@
       "families": ["guard", "detector", "injector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "post-merge-pull",
@@ -2605,7 +2605,7 @@
       "families": [],
       "familyState": "unclassified",
       "deliberatelyUnauthored": true,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "record-agent-dispatch",
@@ -3057,7 +3057,7 @@
       "families": [],
       "familyState": "unclassified",
       "deliberatelyUnauthored": true,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "secret-scanning",
@@ -3828,7 +3828,7 @@
       "families": ["guard"],
       "familyState": "classified",
       "deliberatelyUnauthored": false,
-      "sourceFile": "known-guard-names"
+      "sourceFile": null
     },
     {
       "guardName": "unrendered-result-field-scan",

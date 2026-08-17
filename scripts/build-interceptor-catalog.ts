@@ -220,22 +220,47 @@ export interface InterceptorCatalog {
 
 const DELIBERATELY_UNAUTHORED = new Set(DELIBERATELY_UNAUTHORED_NAMES);
 
-/** The one provenance prefix that denotes an implementing hook file. */
-const HOOK_SOURCE_PREFIX = ".minsky/hooks/";
+/**
+ * Provenance prefixes that denote a hook file.
+ *
+ * `.minsky/hooks/` is the only one any entry uses today — the description
+ * store's `hook()` helper hard-codes it, and a check over the generated catalog
+ * finds zero `.claude/hooks/` first-pointers. `.claude/hooks/` is accepted
+ * anyway because it is the generated MIRROR of the same file: the two resolve to
+ * the same basename, so accepting both costs nothing and removes a silent-null
+ * failure mode if a description is ever written against the generated tree
+ * (PR #3087 R1).
+ */
+const HOOK_SOURCE_PREFIXES = [".minsky/hooks/", ".claude/hooks/"] as const;
 
 /**
  * The implementing hook file's basename, or `null` when the entry has none.
  *
- * Reads `provenance[0]` ONLY. The description store's contract is that the
- * first pointer is the implementing module — a later pointer is a rule or a
- * registry, and treating one as a source file would invent a join that does not
- * exist. So a non-`.minsky/hooks/` first pointer returns null rather than
- * scanning for a hook path further down the list.
+ * Two independent conditions, and BOTH must hold:
+ *
+ * 1. `provenanceStatus === "implementation"`. This is the load-bearing one and
+ *    it was missing in the first cut (PR #3087 R1). A `declaration-only` entry's
+ *    `provenance[0]` is the ORACLE THAT DECLARES IT — `known-guard-names.ts` —
+ *    which is a real path under `.minsky/hooks/`, so a prefix test alone
+ *    happily derives `sourceFile: "known-guard-names"` for it. Nine entries
+ *    resolved that way, and each would have rendered the oracle's install date
+ *    and commit as its own provenance: nine wrong answers, presented as fact,
+ *    on the exact surface built to keep absence and declaration apart.
+ * 2. `provenance[0]` is under a hook directory. A later pointer is a rule or a
+ *    registry, so this reads the FIRST only rather than scanning the list for
+ *    something hook-shaped — scanning would invent a join the store never
+ *    asserted.
  */
-export function deriveSourceFile(provenance: readonly string[]): string | null {
+export function deriveSourceFile(
+  provenance: readonly string[],
+  provenanceStatus: CatalogEntry["provenanceStatus"]
+): string | null {
+  if (provenanceStatus !== "implementation") return null;
   const first = provenance[0];
-  if (first === undefined || !first.startsWith(HOOK_SOURCE_PREFIX)) return null;
-  const basename = first.slice(HOOK_SOURCE_PREFIX.length);
+  if (first === undefined) return null;
+  const prefix = HOOK_SOURCE_PREFIXES.find((p) => first.startsWith(p));
+  if (prefix === undefined) return null;
+  const basename = first.slice(prefix.length);
   return basename.endsWith(".ts") ? basename.slice(0, -".ts".length) : basename;
 }
 
@@ -300,7 +325,7 @@ export function buildCatalog(sources: CatalogSources): InterceptorCatalog {
       return {
         ...described,
         ...resolveEntryCoordinates(name, sources.coordinateInput),
-        sourceFile: deriveSourceFile(described.provenance),
+        sourceFile: deriveSourceFile(described.provenance, described.provenanceStatus),
       };
     }),
   };

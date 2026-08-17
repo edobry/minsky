@@ -416,6 +416,7 @@ function validateEntry(entry: unknown, index: number): InterceptorEntry {
   if (e.sourceFile !== null && typeof e.sourceFile !== "string") {
     throw new Error(where("`sourceFile` is neither a string nor null"));
   }
+
   if (e.stratum !== null && !VALID_STRATA.includes(e.stratum as string)) {
     throw new Error(where(`unknown stratum "${String(e.stratum)}"`));
   }
@@ -424,6 +425,27 @@ function validateEntry(entry: unknown, index: number): InterceptorEntry {
   }
   if (!VALID_PROVENANCE_STATUS.includes(e.provenanceStatus as string)) {
     throw new Error(where(`unknown provenanceStatus "${String(e.provenanceStatus)}"`));
+  }
+  // The invariant the join's honesty rests on, and the one the generator got
+  // wrong first (PR #3087 R1): only an entry whose provenance points at an
+  // IMPLEMENTATION may name a source file. A `declaration-only` entry's first
+  // pointer is the oracle that declares it — a real path under `.minsky/hooks/`
+  // — so a prefix test alone derives the oracle's own basename and the detail
+  // view then renders that file's install date as the entry's.
+  //
+  // Ordered AFTER the status check above, deliberately: this constrains
+  // `sourceFile` USING `provenanceStatus`, so validating the status first is
+  // what keeps a bad status reported as a bad status. Placed before it, this
+  // check shadowed the status error for any row carrying both problems — caught
+  // by the pre-commit related-test gate, not by review.
+  if (e.provenanceStatus !== "implementation" && e.sourceFile !== null) {
+    throw new Error(
+      where(
+        `\`sourceFile\` is "${String(e.sourceFile)}" on a ${String(
+          e.provenanceStatus
+        )} entry — only an implementation-backed entry may name a source file`
+      )
+    );
   }
 
   validateEntryCoordinates(e, where);
