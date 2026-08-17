@@ -6,7 +6,6 @@ import {
   SessionFilmError,
   fetchSessionFilmContent,
   fetchSessionFilmEvents,
-  fetchSessionFilmSessions,
   resolveEventContent,
   sessionFilmRetry,
 } from "./session-film-client";
@@ -65,25 +64,6 @@ describe("fetchSessionFilmEvents", () => {
     expect(capturedUrl).toContain("/api/cockpit/session-film/events");
     expect(new URL(capturedUrl, "http://localhost").searchParams.get("conversationId")).toBe("abc");
     expect(capturedUrl).not.toContain("verifiedRescrubbed");
-  });
-});
-
-describe("fetchSessionFilmSessions", () => {
-  test("returns the sessions array", async () => {
-    mockFetch(200, {
-      sessions: [
-        {
-          agentSessionId: "abc",
-          label: "test",
-          startedAt: null,
-          cwd: null,
-          ingestedAt: null,
-        },
-      ],
-    });
-    const rows = await fetchSessionFilmSessions();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.agentSessionId).toBe("abc");
   });
 });
 
