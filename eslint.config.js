@@ -463,6 +463,10 @@ export default [
             "HOSTED_SAFE_SESSION_COMMANDS",
             "KNOWN_TOP_LEVEL_KEYS",
             "HOOK_ONLY_ENV_VARS",
+            // mt#3882 — the `operator-override` slice of the same registry,
+            // derived from HOOK_ONLY_ENV_VAR_CATEGORIES. Same kind of thing as
+            // the entry above it: a constant lookup table, not a service.
+            "OPERATOR_OVERRIDE_ENV_VARS",
           ],
         },
       ], // Prevent singleton exports in domain code — use @injectable() and the DI container (mt#916)
