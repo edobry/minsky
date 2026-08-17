@@ -238,8 +238,12 @@ task proposing (k) or (m) should argue the cost, not the feasibility. A row's ev
 evidence; posture stays operator-reserved and calibration-first;
 and any future gate added to the battery gets classified here before a detector is specced for it.
 
-**Open.** ask#8752 decides the policy-coverage detector's fate. Nothing above depends on the
-answer — that independence is deliberate and is the correction to mt#2755's framing, not a gap.
+**Resolved 2026-08-16.** ask#8752 answered **retire**: the policy-coverage detector is deleted by
+mt#4197, and mt#1698 / mt#2036 are closed as subsumed. Nothing above changed, which is what this
+ADR's independence from that answer was for. One consequence lands on a row: mt#4172's spec had
+priced extending `corpus-loader.ts` before writing its own grep, and that module no longer exists
+— this ADR's existing guidance to "prefer a standalone corpus read" is now the only option, not a
+preference.
 
 ## Cross-references
 

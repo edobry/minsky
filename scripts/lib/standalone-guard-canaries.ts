@@ -171,81 +171,6 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     },
   },
   {
-    // Detector, not a blocking guard: in its default `log-only` mode an
-    // uncovered action emits additionalContext rather than a denial, so the
-    // additionalContext-shaped `warn` expectation is the right one.
-    //
-    // mt#3393 added this. Until then `policy-coverage` had NEITHER half of the
-    // two-part coverage story — no canary (synthetic) and, because its records
-    // were landing outside the repo, no live receipt either. So when the
-    // coverage-receipt check flagged it, nothing could distinguish a broken
-    // detector from a dormant one, and the investigation started from the
-    // wrong hypothesis.
-    guardName: "policy-coverage",
-    effects: [advisoryEffect(), recorderEffect()],
-    expects: "warn",
-    // mt#3502: the join key the coverage-receipt check uses to find this
-    // guard's invocations in the fire log. Without it the check has no
-    // liveness evidence for the detector and can only ever flag it.
-    calibrationLog: "policy-coverage",
-    check: async () => {
-      const { applyActionFilter } = await import(
-        "../../packages/domain/src/detectors/policy-coverage/action-filter"
-      );
-      const { decideCoverage } = await import(
-        "../../packages/domain/src/detectors/policy-coverage/coverage"
-      );
-
-      // Half 1: the action filter recognizes a preference-encoding write.
-      // The path below is a synthetic STRING, never read from disk — the
-      // filter only inspects the path's shape (extension) and the content
-      // string. It intentionally names no real file, so it cannot go stale if
-      // the tree is reorganized.
-      const filtered = applyActionFilter({
-        toolName: "Write",
-        filePath: "packages/domain/src/canary-sample.ts",
-        content: 'export const message = "Hello there, this is a user facing message string";',
-      });
-      if (!filtered.fires || !filtered.reason) return false;
-
-      const action = {
-        reason: filtered.reason,
-        detail: filtered.detail ?? "",
-        filePath: "packages/domain/src/canary-sample.ts",
-      };
-
-      // Half 2: the coverage decision separates a corpus that speaks to the
-      // action from one that does not. Both directions are asserted — a
-      // decision function stuck at one answer passes a one-sided check.
-      const covering = decideCoverage(action, {
-        entries: [
-          {
-            source: "canary-policy.mdc",
-            ref: "canary-policy.mdc",
-            content: "Every new exported function must carry a doc comment.",
-            category: "project-rule",
-          },
-        ],
-        loadedCount: 1,
-        unavailableCount: 0,
-      });
-      const silent = decideCoverage(action, {
-        entries: [
-          {
-            source: "canary-policy.mdc",
-            ref: "canary-policy.mdc",
-            content: "Session workspaces are cloned per task.",
-            category: "project-rule",
-          },
-        ],
-        loadedCount: 1,
-        unavailableCount: 0,
-      });
-
-      return covering.covered && !silent.covered;
-    },
-  },
-  {
     // mt#3519. This gate had fire-log invocations (488 of them) but no canary,
     // and the canary declaration is the ONLY place a standalone guard can
     // declare its calibration log — so its two logs read as `Unmapped` while
@@ -288,7 +213,7 @@ export const STANDALONE_GUARD_CANARIES: StandaloneGuardCanary[] = [
     effects: [advisoryEffect(), recorderEffect()],
     // Calibration-mode detector (mt#3167 tracks graduation): a detected bare
     // prohibition records and warns rather than denying, so `warn` is the
-    // outcome-shaped expectation, as with `policy-coverage` above.
+    // outcome-shaped expectation.
     expects: "warn",
     calibrationLog: "bare-prohibition",
     check: async () => {

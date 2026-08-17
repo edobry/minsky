@@ -602,8 +602,9 @@ This is the third-party-tool slice of the contract-propagation pattern that Gate
 addresses for first-party contracts: a claim crystallizes upstream and downstream consumers
 inherit it as a settled premise. Recurrence record: 9+ prior cases (mt#1208 ×2, mt#1224,
 mt#1262, mt#1682 ×4) plus mt#1713→mt#1714 (×2). Prior fix tier was a memory entry plus
-mt#1541's policy-coverage detector in calibration mode. Memory-only + calibration-mode
-detector is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
+mt#1541's policy-coverage detector in calibration mode — a detector since retired (mt#4197)
+for reasons that reinforce this gate's existence: it never observed this failure class at all.
+Memory-only is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
 is the right tier.
 
 **Trigger condition.** This criterion fires when the spec contains any of:
@@ -650,10 +651,10 @@ assumption inherited from upstream research or prior agent turns.
 Cross-reference: bridge memory `e296b3ee-324e-4186-9313-926dd3f9ee5b`
 (`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
 at spec-authoring time`) is the precedent memory this gate formalizes; once this gate ships,
-that memory's job becomes historical record + pointer here. Mechanization path: mt#2755
-(extending the shipped policy-coverage detector to this battery). The pointer this replaced
-named mt#1541, which is CLOSED — its deliverable shipped as mt#1575, but against a corpus that
-does not include this skill; see gate (n) below.
+that memory's job becomes historical record + pointer here. Mechanization path: ADR-042 decides
+which gates get a backstop and where each fires; mt#2755's children implement against it. Two
+earlier pointers here are retired — mt#1541 (CLOSED) and the policy-coverage detector its child
+shipped, deleted 2026-08-16 by mt#4197. See gate (n) below.
 
 #### Gate criterion (l) — Authoritative-source check for third-party-system decisions
 
@@ -915,18 +916,21 @@ this criterion makes NO claim of automated coverage. **No gate in this battery i
 enforced today** — but not because the mechanization work was abandoned, which is what this
 paragraph used to imply by naming CLOSED mt#1541 as the reason.
 
-What actually shipped: mt#1541's child **mt#1575** built a live policy-coverage detector at
-`packages/domain/src/detectors/policy-coverage/`. Its current liveness is a measurement, not a
-figure to quote here — `bun scripts/check-coverage-receipts.ts` reports it. It does not cover this
-battery, for two reasons worth knowing before you spec anything here. Its corpus
-(`corpus-loader.ts`) reads task specs, `CLAUDE.md`, `.claude/rules/*` + `.minsky/rules/*` and
-memories — **not the skills tree**, where these gates live. And it decides a different question:
-per ADR-008 §Router, whether policy names an action's category AND its authority.
+**The battery is partially enforced, at a seam that is not its own.** ADR-042 measured it:
+`validate-task-spec.ts` already DENIES at `tasks_create` when a spec lacks `## Success Criteria`
+or `## Acceptance Tests` (two of gate (a)'s five sections), and three of the four `tasks_create`
+guards are gate-(g)-shaped. Everything shipped fires at `tasks_create`; nothing fires at the
+READY transition the battery actually gates.
 
-So the gap is real and the machinery to close it exists. **mt#2755 is an EXTENSION task, not a
-greenfield one** — it and its children should be read that way. Until it ships, gate (n) is
-exactly as strong as the `/plan-task` process that runs it: no stronger, and no weaker than its
-discipline-tier peers.
+**The mechanization vehicle is ADR-042, not a detector.** This paragraph named mt#1575's
+policy-coverage detector until 2026-08-16; that detector is RETIRED (mt#4197), and ADR-042 had
+already decided the battery's enforcement shape independently of its fate — a gate criterion
+earns a mechanical backstop only when discharging it leaves a STRUCTURED trace, and each backstop
+fires where that trace first exists. Read ADR-042 before speccing any backstop for this battery;
+its per-gate table is the record, and mt#2755's children implement against it.
+
+Until those land, gate (n) is exactly as strong as the `/plan-task` process that runs it: no
+stronger, and no weaker than its discipline-tier peers.
 
 **Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
 "can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container

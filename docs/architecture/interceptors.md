@@ -160,8 +160,10 @@ four amendments, and **the amended model — not the clean three axes — is the
 ### (a) A declared type is a capability SET, not a fixed conjunction
 
 The word "composable" reads as declared-at-registration. It must read as **the set of
-interventions the entity MAY produce**. `policy-coverage-detector` selects deny, warn, or allow
-per fire at runtime; the declaration names its repertoire, not its outcome. This matches the
+interventions the entity MAY produce**. The worked example this amendment was written against,
+`policy-coverage-detector`, selected deny, warn, or allow per fire at runtime; the declaration
+named its repertoire, not its outcome. (That entity was retired 2026-08-16, mt#4197, and no
+longer appears in the catalog — the amendment it motivated stands on its own.) This matches the
 field: a Kubernetes validating webhook may allow or deny per request.
 
 Consequence for the catalog: an entity legitimately belongs to more than one computed family, and
@@ -238,8 +240,9 @@ role before the ontology existed, which is evidence the vocabulary self-organize
 and a constraint any genus had to satisfy.
 
 **A family word is a filter, so membership is not exclusive.** By amendment (a),
-`policy-coverage-detector` is both a guard and a detector. This is a property of the model, not a
-classification error to resolve.
+`policy-coverage-detector` was both a guard and a detector. This is a property of the model, not a
+classification error to resolve. (That entity was retired 2026-08-16, mt#4197; the counts below
+were measured while it was still in the catalog.)
 
 **The three words do not PARTITION the corpus (measured, mt#4038).** Computing the filters over
 the authored capability sets: guard 42 · detector 27 · injector 25 — and **8 entities land in none

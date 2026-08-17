@@ -101,11 +101,14 @@ describe("coordinate coverage over the live population", () => {
       .filter((r) => r.pointSource === "authored")
       .map((r) => r.guardName)
       .sort();
-    // The only three entities whose point no source declares: two retired
-    // pre-commit steps, and one decision path hosted inside another hook.
+    // The only four entities whose point no source declares: three retired
+    // interceptors (two pre-commit steps plus `policy-coverage`, whose
+    // settings.json registration was removed when mt#4197 deleted it), and one
+    // decision path hosted inside another hook.
     // Anything else appearing here is a point that should have been DERIVED.
     expect(authoredPoints).toEqual([
       "migration-guard-and-duplicate-content-check",
+      "policy-coverage",
       "standalone-duplicate-matcher",
       "unit-tests",
     ]);
