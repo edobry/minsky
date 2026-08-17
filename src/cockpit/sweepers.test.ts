@@ -1160,6 +1160,96 @@ describe("self-scheduling registrants (mt#4185)", () => {
     }
   });
 
+  test("AT1: a registrant that reports NOTHING is flagged stalled, measured from registration", async () => {
+    // The first-cycle park (mt#4206): `noteProgress()` is never called, so
+    // `lastAttemptAtMs` stays null. Before this fix the meta-watchdog skipped
+    // the entry outright and it was permanently unevaluated.
+    let restarts = 0;
+    const handle = registerSelfSchedulingSweep({
+      name: "test-never-reported",
+      progressBudgetMs: 15,
+      restart: () => {
+        restarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      await waitFor(() => restarts >= 1, 2000);
+      expect(restarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      handle.stop();
+    }
+  });
+
+  test("AT2: an interval sweep is NOT flagged for the same never-reported condition", async () => {
+    // The differential that makes AT1 safe. An interval sweep's null window is
+    // millisecond-scale — the registry drives its tick — so treating null as a
+    // stall there would restart every healthy sweep at boot. Both registrants
+    // below share a budget; only the self-scheduling one may be restarted.
+    let intervalRestarts = 0;
+    let selfRestarts = 0;
+
+    const stopInterval = createIntervalSweeper({
+      name: "test-interval-null-window",
+      intervalMs: 15,
+      tickTimeoutMs: 5_000,
+      // Never resolves: the tick is in flight forever, so this sweep's DOMAIN
+      // work is stuck. Its timer keeps firing and stamping, which is exactly
+      // the case the interval branch must keep skipping on the null read.
+      tick: () => new Promise<void>(() => {}),
+    });
+    const selfHandle = registerSelfSchedulingSweep({
+      name: "test-self-null-window",
+      progressBudgetMs: 15,
+      restart: () => {
+        selfRestarts++;
+      },
+    });
+    const stopWatchdog = startSweepMetaWatchdog(20);
+    try {
+      await waitFor(() => selfRestarts >= 1, 2000);
+      const intervalEntry = getSweepLivenessSnapshot().find(
+        (e) => e.name === "test-interval-null-window"
+      );
+      intervalRestarts = intervalEntry?.metaRestarts ?? 0;
+      // The self-scheduling one was restarted; the interval one was not
+      // restarted for having a null stamp — its timer keeps stamping.
+      expect(selfRestarts).toBeGreaterThanOrEqual(1);
+      expect(intervalEntry?.lastAttemptAt).not.toBeNull();
+      expect(intervalRestarts).toBe(0);
+    } finally {
+      stopWatchdog();
+      selfHandle.stop();
+      stopInterval();
+    }
+  });
+
+  test("AT3: the snapshot distinguishes never-reported from stale-reported", () => {
+    const handle = registerSelfSchedulingSweep({
+      name: "test-registered-at",
+      progressBudgetMs: 60_000,
+      restart: () => {},
+    });
+    try {
+      const before = getSweepLivenessSnapshot().find((e) => e.name === "test-registered-at");
+      // Never reported: a DATEABLE registration plus a null progress stamp —
+      // not a bare null a reader has to interpret.
+      expect(before?.registeredAt).toBeTruthy();
+      expect(Number.isNaN(Date.parse(before?.registeredAt ?? ""))).toBe(false);
+      expect(before?.lastAttemptAt).toBeNull();
+
+      handle.noteProgress();
+      const after = getSweepLivenessSnapshot().find((e) => e.name === "test-registered-at");
+      // Reported: both fields present, so the two states are distinguishable
+      // without inferring anything from a null.
+      expect(after?.lastAttemptAt).not.toBeNull();
+      expect(after?.registeredAt).toBe(before?.registeredAt as string);
+    } finally {
+      handle.stop();
+    }
+  });
+
   test("an interval sweep is reported as NOT self-scheduled, so intervalMs still reads as a cadence", async () => {
     const stop = createIntervalSweeper({
       name: "test-self-scheduling-discriminator",
