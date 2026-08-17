@@ -91,7 +91,7 @@ export function buildRegisteredSet() {
     console.warn(
       `[no-unregistered-minsky-env-var] could not read ${REGISTRATION_FILE_POSIX}: ` +
         `${e instanceof Error ? e.message : String(e)}. ` +
-        `Rule will flag every process.env.MINSKY_* read until the file is readable.`
+        `Rule will flag every MINSKY_* env-var access until the file is readable.`
     );
     return registered;
   }
@@ -123,23 +123,26 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Require every `process.env.MINSKY_*` read in src/ and .claude/hooks/ " +
-        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VAR_CATEGORIES` to " +
-        "prevent env-var-namespace conflicts with the config-loader's dot-path " +
-        "parser (mt#1610, mt#1624, mt#1785). Catches all statically-resolvable " +
-        "access forms (mt#2324): bare-identifier (process.env.MINSKY_FOO), " +
-        'string-literal bracket (process.env["MINSKY_FOO"]), and ' +
-        "non-interpolated template-literal bracket (process.env[`MINSKY_FOO`]). " +
+        "Require every `MINSKY_*` env-var access in src/ and the hook trees to " +
+        "be registered in `environmentMappings` or `HOOK_ONLY_ENV_VAR_CATEGORIES` " +
+        "to prevent env-var-namespace conflicts with the config-loader's dot-path " +
+        "parser (mt#1610, mt#1624, mt#1785). Matches accesses on `process.env` " +
+        "AND on a bare object named `env` (the dependency-injected style in " +
+        "src/mcp/**, mt#4217), in all statically-resolvable forms (mt#2324): " +
+        'bare-identifier (env.MINSKY_FOO), string-literal bracket (env["MINSKY_FOO"]), ' +
+        "and non-interpolated template-literal bracket (env[`MINSKY_FOO`]). " +
         "Dynamic computed access (variable key, interpolated template literal) " +
-        "is not statically resolvable and is skipped. The services/* tree is " +
-        "excluded (independent deploy packages with their own config loaders).",
+        "is not statically resolvable and is skipped, as is `delete env.MINSKY_FOO` " +
+        "on a bare env (a scrub, not an introduction — `delete process.env.MINSKY_FOO` " +
+        "still reports). The services/* tree is excluded (independent deploy " +
+        "packages with their own config loaders); scripts/ is not yet scanned (mt#4223).",
       category: "Best Practices",
       recommended: true,
     },
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882.`,
+      unregistered: `{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882, mt#4217.`,
     },
   },
 
@@ -173,6 +176,22 @@ export default {
     //   outputs carry the same env var reads but authors write to .minsky/hooks/.
     //   Scanning the source location catches new hook-only env vars at authoring
     //   time before compile, matching the intent of mt#1994.
+    //
+    // - scripts/**/*.ts is NOT scanned, and that is a decision rather than an
+    //   oversight (mt#4217, tracked to close in mt#4223). `scripts/` genuinely
+    //   participates in the boot path this rule guards — `scripts/cli-entry.ts`
+    //   SETS MINSKY_LOADED_COMMIT / MINSKY_RUN_MODE / MINSKY_PACKAGE_ROOT on the
+    //   CLI's own environment before importing the bundle, and those three are
+    //   registered for exactly that reason — so this tree SHOULD be scanned.
+    //   Measured 2026-08-17: adding it reports 18 further unregistered vars,
+    //   overwhelmingly dev-tooling knobs (CDP URLs, screenshot paths,
+    //   transcript-corpus dirs) plus three needing real dispositions
+    //   (MINSKY_SKIP_PACK_INSTALL_SMOKE, MINSKY_POSTGRES_CONNECTION_STRING,
+    //   MINSKY_SMOKE_PG_URL). mt#4217 shipped the matcher widening below and the
+    //   16 dispositions it forced in src/ + packages/ — the trees whose code
+    //   ships in the deploy image, where the mt#1785 boot-crash risk lives —
+    //   and left this tree to mt#4223 so 34 per-var classifications did not land
+    //   in one review. Remove this note when mt#4223 lands.
     const srcSegment = `${pathSep}src${pathSep}`;
     const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
     const minskyHooksSegment = `${pathSep}.minsky${pathSep}hooks${pathSep}`;
@@ -210,16 +229,59 @@ export default {
       // with MINSKY_).
       MemberExpression(node) {
         const obj = node.object;
+        if (!obj) return;
+
+        // `process.env.MINSKY_FOO` — the original mt#1788 shape.
+        const isProcessEnv =
+          obj.type === "MemberExpression" &&
+          obj.object.type === "Identifier" &&
+          obj.object.name === "process" &&
+          obj.property.type === "Identifier" &&
+          obj.property.name === "env";
+
+        // `env.MINSKY_FOO` — a bare member access on a parameter or local named
+        // `env` (mt#4217). This is the dominant style in `src/mcp/**`, where the
+        // process environment is dependency-injected for testability, and it was
+        // invisible to this rule for as long as the rule existed: 10 vars
+        // accumulated unregistered, nine of them the memory-ceiling /
+        // orphan-exit family, in a tree the rule was already scanning.
+        //
+        // Keyed on the OBJECT's identifier name plus the `MINSKY_` property
+        // prefix rather than on any type information — an object named `env`
+        // carrying a `MINSKY_`-prefixed key is a process-environment map in
+        // every occurrence measured in this repo. Deliberately does NOT reach
+        // `someObj.env.MINSKY_FOO`; no such site exists today, and matching a
+        // nested shape would widen the false-positive surface without evidence.
+        const isBareEnv = obj.type === "Identifier" && obj.name === "env";
+
+        if (!isProcessEnv && !isBareEnv) return;
+
+        // `delete env.MINSKY_FOO` is neither a read nor a write of a VALUE: it
+        // scrubs an inherited variable out of an env object before that object
+        // is handed to a child process, so the dot-path parser never sees the
+        // name and no registration is implied. Two smoke scripts do exactly
+        // this with MINSKY_PERSISTENCE_POSTGRES_CONNECTIONSTRING, which is why
+        // that name is absent from the registrations this rule change forced.
+        //
+        // Scoped to the BARE-`env` path on purpose (PR #3077 R1). Applying it to
+        // `process.env` too — which is what the first revision did, by placing
+        // this check after the shared gate — would have silently stopped flagging
+        // `delete process.env.MINSKY_FOO`, a shape this rule has always reported.
+        // That is a behavior change to the pre-existing path with no evidence
+        // behind it: the only `delete` sites measured in this repo are on an env
+        // object destined for a CHILD process, and deleting from the CURRENT
+        // process's own `process.env` is a different act this task never studied.
+        // Preserving prior behavior is the conservative default; widening it, if
+        // ever wanted, belongs in a change that measures those sites.
         if (
-          !obj ||
-          obj.type !== "MemberExpression" ||
-          obj.object.type !== "Identifier" ||
-          obj.object.name !== "process" ||
-          obj.property.type !== "Identifier" ||
-          obj.property.name !== "env"
+          isBareEnv &&
+          node.parent &&
+          node.parent.type === "UnaryExpression" &&
+          node.parent.operator === "delete"
         ) {
           return;
         }
+
         const prop = node.property;
         // Resolve the env-var NAME from the property node (mt#2324). All
         // STATICALLY-resolvable forms are covered:

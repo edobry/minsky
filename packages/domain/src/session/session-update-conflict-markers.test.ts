@@ -292,3 +292,123 @@ describe("updateSessionImpl — conflict marker preservation (mt#1367)", () => {
     ).resolves.toBeDefined();
   });
 });
+
+/**
+ * mt#3660: the conflict path stashes the operator's uncommitted work and cannot
+ * restore it (a pop during an active merge is refused). Until this task it also
+ * said NOTHING about the stash, so the operator's next move — resolve, then
+ * session_commit — produced a merge commit whose message described work that was
+ * still parked. Four recurrences, three of them within one day.
+ *
+ * Note every test above passes `noStash: true`, so none of them ever reached this
+ * branch: the silence was untested, not merely unnoticed.
+ */
+describe("updateSessionImpl — conflict path names the parked stash (mt#3660)", () => {
+  const OUR_STASH_SHA = "abc123def456";
+  const PARKED_FILES = ["src/review-fix.ts", "src/review-fix.test.ts"];
+  /** The conflicted file — generated, as in R2/R3, where the conflict was in generated output. */
+  const CONFLICTED_FILE = "src/generated/catalog.json";
+
+  /** Dirty tree + conflicting merge + a resolvable stash, as in R1-R4. */
+  function makeDirtyConflictingGitService(stashListOutput?: string): FakeGitService {
+    const svc = makeConflictingGitService([CONFLICTED_FILE]);
+    svc.hasUncommittedChanges = async () => true;
+    svc.setCommandResponse("rev-parse stash@{0}", `${OUR_STASH_SHA}\n`);
+    svc.setCommandResponse(
+      "stash list",
+      stashListOutput ?? `stash@{0} ${OUR_STASH_SHA} On task/mt-3660: minsky session update\n`
+    );
+    svc.setCommandResponse("stash show --name-only", `${PARKED_FILES.join("\n")}\n`);
+    return svc;
+  }
+
+  async function updateAndCaptureError(gitService: FakeGitService): Promise<string> {
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [makeSessionRecord()],
+      sessionWorkdir: WORKDIR,
+    });
+    try {
+      await updateSessionImpl(makeBaseParams({ noStash: false }), {
+        gitService,
+        sessionDB,
+        getCurrentSession: async () => undefined,
+      });
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+    throw new Error("expected updateSessionImpl to throw on a conflicted merge");
+  }
+
+  it("names the stash ref in the conflict error", async () => {
+    const msg = await updateAndCaptureError(makeDirtyConflictingGitService());
+    expect(msg).toContain("stash@{0}");
+    expect(msg).toContain("NOT in the working tree");
+  });
+
+  it("enumerates the parked files, so the operator can check them against the tree", async () => {
+    const msg = await updateAndCaptureError(makeDirtyConflictingGitService());
+    for (const file of PARKED_FILES) {
+      expect(msg).toContain(file);
+    }
+  });
+
+  it("states that resolution is not finished until the work is restored", async () => {
+    const msg = await updateAndCaptureError(makeDirtyConflictingGitService());
+    expect(msg).toContain("not finished until they are restored");
+    // The recovery route must be actionable without reading the source.
+    expect(msg).toContain("git stash pop stash@{0}");
+  });
+
+  it("still names the conflicted files — the stash notice is additive", async () => {
+    const msg = await updateAndCaptureError(makeDirtyConflictingGitService());
+    expect(msg).toContain(CONFLICTED_FILE);
+    expect(msg).toContain("session_commit");
+  });
+
+  it("resolves OUR buried stash rather than reporting stash@{0} when a newer stash is on top", async () => {
+    const msg = await updateAndCaptureError(
+      makeDirtyConflictingGitService(
+        `stash@{0} SOMEONE_ELSE On task/mt-3660: unrelated\n` +
+          `stash@{1} ${OUR_STASH_SHA} On task/mt-3660: minsky session update\n`
+      )
+    );
+    expect(msg).toContain("stash@{1}");
+  });
+
+  it("names the stash and says how to inspect it when the file list cannot be read", async () => {
+    const svc = makeConflictingGitService([CONFLICTED_FILE]);
+    svc.hasUncommittedChanges = async () => true;
+    svc.setCommandResponse("rev-parse stash@{0}", `${OUR_STASH_SHA}\n`);
+    // Both enumeration commands fail — the degraded path.
+    svc.setCommandError("stash list", new Error("git exploded"));
+    svc.setCommandError("stash show", new Error("git exploded"));
+
+    const msg = await updateAndCaptureError(svc);
+
+    expect(msg).toContain("were stashed before this merge");
+    expect(msg).toContain("git stash list");
+  });
+
+  it("says nothing about a stash when none was created (noStash)", async () => {
+    const svc = makeConflictingGitService([CONFLICTED_FILE]);
+    svc.hasUncommittedChanges = async () => true;
+    const sessionDB = new FakeSessionProvider({
+      initialSessions: [makeSessionRecord()],
+      sessionWorkdir: WORKDIR,
+    });
+
+    let msg = "";
+    try {
+      await updateSessionImpl(makeBaseParams({ noStash: true }), {
+        gitService: svc,
+        sessionDB,
+        getCurrentSession: async () => undefined,
+      });
+    } catch (err) {
+      msg = err instanceof Error ? err.message : String(err);
+    }
+
+    expect(msg).toContain(CONFLICTED_FILE);
+    expect(msg).not.toContain("stash");
+  });
+});
