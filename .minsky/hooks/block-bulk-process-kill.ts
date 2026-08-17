@@ -106,21 +106,6 @@ export interface BulkKillInvocation {
  */
 const KILL_SEGMENT = /^\s*(?:[\w.\-/]*\/)?(kill|pkill|killall)\b\s*([^;&|]*)/i;
 
-/**
- * The kill verb this command invokes, if any — the shared half of the trigger.
- *
- * Exported because `operator-deferral-detector`'s surface F needs the same parse: its own inline
- * regex was the subject of PR #2954 R1's quote-awareness finding, and two copies of this
- * reasoning is exactly how they diverge.
- */
-export function findKillVerb(command: string): string | null {
-  for (const segment of splitTopLevel(command)) {
-    const match = KILL_SEGMENT.exec(segment);
-    if (match?.[1]) return match[1].toLowerCase();
-  }
-  return null;
-}
-
 /** Parses `-9` / `-TERM` / `-s TERM` off the front of a kill's arguments. */
 function stripSignal(args: string[]): { signal: string | null; rest: string[] } {
   if (args.length === 0) return { signal: null, rest: args };
@@ -134,22 +119,86 @@ function stripSignal(args: string[]): { signal: string | null; rest: string[] } 
   return { signal: null, rest: args };
 }
 
+/** One segment of a command whose leading token is a kill verb. */
+interface KillSegment {
+  verb: string;
+  /** The segment verbatim, trimmed — the evidence a reader needs to see. */
+  segment: string;
+  signal: string | null;
+  /** Arguments after the verb, with any leading signal removed. */
+  rest: string[];
+}
+
 /**
- * The trigger decision, pure over the command string.
+ * Every kill-verb segment in the command, parsed once.
  *
- * Quote-aware segment splitting is reused from `command-shape` so a `;` inside a quoted argument
- * cannot manufacture or suppress a match — the same reasoning `block-concurrent-bulk-mutation`
- * records for its own split.
+ * The single parse both public entry points below consume. Quote-aware segment splitting is
+ * reused from `command-shape` so a `;` inside a quoted argument cannot manufacture or suppress a
+ * match — the same reasoning `block-concurrent-bulk-mutation` records for its own split.
  */
-export function findBulkKill(command: string): BulkKillInvocation | null {
+function* eachKillSegment(command: string): Generator<KillSegment> {
   for (const segment of splitTopLevel(command)) {
     const match = KILL_SEGMENT.exec(segment);
     if (!match?.[1]) continue;
-
-    const verb = match[1].toLowerCase();
     const args = (match[2] ?? "").trim().split(/\s+/).filter(Boolean);
     const { signal, rest } = stripSignal(args);
+    yield { verb: match[1].toLowerCase(), segment: segment.trim(), signal, rest };
+  }
+}
 
+/** A kill this command actually performs, with the targets it names. */
+export interface KillInvocation {
+  /** `kill`, `pkill`, or `killall`. */
+  verb: string;
+  /** The segment the verb leads, verbatim. */
+  segment: string;
+  /** Non-flag arguments after the verb — PIDs, job specs, process names, or expansions. */
+  targets: string[];
+}
+
+/**
+ * The first TERMINATING kill this command performs, if any — the shared half of the trigger.
+ *
+ * Exported because `operator-deferral-detector`'s surface F needs the same parse: its own inline
+ * regex was the subject of PR #2954 R1's quote-awareness finding, and two copies of this
+ * reasoning is exactly how they diverge. It returns the invocation rather than the bare verb
+ * (mt#4111) because a consumer that has to say WHAT fired needs the segment and the targets —
+ * reconstructing either from the command string is the second copy this export exists to avoid.
+ *
+ * A non-terminating signal (`kill -0`, a liveness probe) is skipped here as it already is in
+ * {@link findBulkKill}: it destroys nothing, so it is not a kill for either caller's purposes.
+ */
+export function findKillInvocation(command: string): KillInvocation | null {
+  for (const { verb, segment, signal, rest } of eachKillSegment(command)) {
+    if (signal !== null && NON_TERMINATING_SIGNALS.has(signal)) continue;
+    return { verb, segment, targets: rest.filter(isTargetToken) };
+  }
+  return null;
+}
+
+/**
+ * True for an argument that names something to kill, rather than a flag or a redirection.
+ *
+ * The redirection half matters because callers COUNT targets: `kill "$PID" 2>&1` names one
+ * process, and reading `2>` as a second one turns a single-process cleanup into a multi-target
+ * kill. `findBulkKill` is deliberately NOT switched to this filter — it would widen what that
+ * guard DENIES (`pkill -f node 2>/dev/null` currently misses), which is a change to a blocking
+ * surface and wants its own evidence; tracked at mt#4193.
+ */
+function isTargetToken(token: string): boolean {
+  return !token.startsWith("-") && !/[<>]/.test(token);
+}
+
+/** The verb of {@link findKillInvocation}, for callers that need nothing else. */
+export function findKillVerb(command: string): string | null {
+  return findKillInvocation(command)?.verb ?? null;
+}
+
+/**
+ * The trigger decision, pure over the command string.
+ */
+export function findBulkKill(command: string): BulkKillInvocation | null {
+  for (const { verb, signal, rest } of eachKillSegment(command)) {
     if (signal !== null && NON_TERMINATING_SIGNALS.has(signal)) continue;
 
     if (verb === "kill") {

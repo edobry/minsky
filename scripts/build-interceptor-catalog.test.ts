@@ -20,6 +20,7 @@ import {
 } from "../.minsky/hooks/interceptor-coordinates";
 import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
 import { derivePrecommitStepNames } from "./precommit-step-names";
+import { readSettingsHookNames } from "./interceptor-coordinate-input";
 
 /**
  * An EMPTY coordinate input, so a fixture name resolves to all-gaps.
@@ -130,21 +131,46 @@ describe("the real corpus", () => {
     coordinateInput: buildCoordinateResolutionInput(),
   });
 
-  test("the oracle and the descriptions agree on the population", () => {
-    // Zero divergence in EITHER direction is what lets the catalog claim to
-    // render "the declared population" rather than one source's opinion of it.
-    // If this fails, the corpus moved: author the missing description (or
-    // retire the stale one) rather than relaxing the assertion.
-    expect(real.divergence.declaredButNotDescribed).toEqual([]);
+  test("no description exists for a name outside the population", () => {
+    // `describedButNotDeclared` must stay empty in this direction: a described
+    // name the oracle does not declare is a stale description, and nothing
+    // downstream would ever surface it.
     expect(real.divergence.describedButNotDeclared).toEqual([]);
   });
 
-  test("population equals the described set — measured, not hard-coded", () => {
-    expect(real.population).toBe(INTERCEPTOR_DESCRIPTIONS.size);
+  test("the undescribed names are exactly the settings-registered ones (mt#4129)", () => {
+    // The OTHER direction is no longer required to be empty, and that is the
+    // point of mt#4129 rather than a relaxation. Until it, the oracle admitted a
+    // non-registry hook only if it FIRE-LOGGED, so a hook that decides quietly
+    // was in neither set this divergence compares — both lists stayed empty
+    // while the catalog omitted 30 registered hooks. Widening the population
+    // makes them appear, and they appear as what they are: declared, not yet
+    // described. Authoring them is mt#4198.
+    //
+    // Still pinned, tightly: every undescribed name must be settings-registered.
+    // A name undescribed for any OTHER reason is the stale-corpus case the
+    // original assertion caught, and it still fails here.
+    const registered = new Set(readSettingsHookNames() ?? []);
+    expect(registered.size).toBeGreaterThan(0);
+    for (const name of real.divergence.declaredButNotDescribed) {
+      expect(registered.has(name), `${name} is undescribed but not settings-registered`).toBe(true);
+    }
+  });
+
+  test("population covers the described set and every registered hook (mt#4129)", () => {
+    // Was `population === INTERCEPTOR_DESCRIPTIONS.size`, an equality that held
+    // only because the oracle excluded everything undescribed — it measured the
+    // descriptions against themselves.
+    expect(real.population).toBeGreaterThanOrEqual(INTERCEPTOR_DESCRIPTIONS.size);
+    const names = new Set(real.entries.map((e) => e.guardName));
+    for (const registered of readSettingsHookNames() ?? []) {
+      expect(names.has(registered), `${registered} is registered but not in the catalog`).toBe(
+        true
+      );
+    }
     // A floor rather than an exact figure: the corpus grows with every guard
-    // added, and pinning the count would make this test a chore instead of a
-    // check. The spec's measured figure at authoring time was 92.
-    expect(real.population).toBeGreaterThanOrEqual(92);
+    // added. 130 was the measured population when mt#4129 widened it (102 before).
+    expect(real.population).toBeGreaterThanOrEqual(102);
   });
 
   test("every pre-commit step the hook actually runs is in the population (mt#4071)", () => {
@@ -165,10 +191,29 @@ describe("the real corpus", () => {
     expect(real.entries.some((e) => e.guardName === "interceptor-catalog-regen")).toBe(true);
   });
 
-  test("every entry carries a stratum and at least one failure class", () => {
+  test("every DESCRIBED entry carries a stratum and at least one failure class", () => {
+    // Scoped to described entries by mt#4129. Stratum and failure classes come
+    // from the description, so an entry admitted by registration and not yet
+    // described has neither — by construction, not by defect. It carries
+    // `undescribed: true` instead, which the next assertion pins.
     for (const entry of real.entries) {
+      if (entry.undescribed) continue;
       expect(entry.stratum).not.toBeNull();
       expect(entry.failureClasses.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("an undescribed entry says so explicitly rather than defaulting (mt#4129)", () => {
+    // The gap markers are the whole reason a registration-admitted entry is
+    // honest: present in the population, and visibly missing its authored half.
+    // An entry that rendered a plausible default here would be worse than the
+    // omission mt#4129 fixed.
+    const undescribed = real.entries.filter((e) => e.undescribed);
+    expect(undescribed.length).toBeGreaterThan(0);
+    for (const entry of undescribed) {
+      expect(entry.description).toBeNull();
+      expect(entry.stratum).toBeNull();
+      expect(entry.failureClasses).toEqual([]);
     }
   });
 
@@ -219,16 +264,34 @@ describe("the real corpus", () => {
     expect(computed).toEqual([...OUT_OF_MODEL_NAMES].sort());
   });
 
-  test("the unclassified set is exactly the deliberately-unauthored names", () => {
-    // If this fails, a REAL interceptor lost its coordinates — the case the
-    // catalog must not render as an ordinary blank.
-    const computed = real.entries
-      .filter((e) => e.familyState === "unclassified")
-      .map((e) => e.guardName)
-      .sort();
-    expect(computed).toEqual([...DELIBERATELY_UNAUTHORED_NAMES].sort());
-    for (const entry of real.entries) {
-      if (entry.familyState === "unclassified") {
+  test("the unclassified set is the deliberately-unauthored plus the not-yet-authored (mt#4129)", () => {
+    // Was "exactly DELIBERATELY_UNAUTHORED_NAMES". mt#4129 admitted 28
+    // registration-declared hooks whose coordinates nobody has written yet, and
+    // `unclassified` is the model's own word for that state — its docblock
+    // distinguishes it from `out-of-model` precisely so the two are not rendered
+    // alike. Authoring them is mt#4198; until then they belong here.
+    //
+    // The invariant this preserves is the one that mattered: every unclassified
+    // name is unclassified for a KNOWN reason. A name that is neither
+    // deliberately unauthored nor settings-registered means a real interceptor
+    // lost its coordinates, which is the case the catalog must not render as an
+    // ordinary blank — and it still fails here.
+    const registered = new Set(readSettingsHookNames() ?? []);
+    const unclassified = real.entries.filter((e) => e.familyState === "unclassified");
+    expect(unclassified.length).toBeGreaterThan(0);
+
+    for (const entry of unclassified) {
+      const known = entry.deliberatelyUnauthored || registered.has(entry.guardName);
+      expect(known, `${entry.guardName} is unclassified for no declared reason`).toBe(true);
+    }
+
+    // Every deliberately-unauthored name still lands here, and still says so.
+    const names = new Set(unclassified.map((e) => e.guardName));
+    for (const name of DELIBERATELY_UNAUTHORED_NAMES) {
+      expect(names.has(name), `${name} is deliberately unauthored but not unclassified`).toBe(true);
+    }
+    for (const entry of unclassified) {
+      if (!registered.has(entry.guardName)) {
         expect(entry.deliberatelyUnauthored).toBe(true);
       }
     }

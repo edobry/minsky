@@ -297,13 +297,11 @@ export function findInvalidLiveSinceDates(
  * V2 entries (mt#2619 — calibration-review cadence closeout):
  *   - code-mechanism-assertion-calibration.jsonl (mt#2486)
  *   - pre-narration-calibration.jsonl (mt#2197)
- *   - policy-coverage-calibration.jsonl (mt#1575) — NOTE: this log is NOT a
- *     matched-phrase detector log like the other five. It is a per-tool-call
- *     coverage-decision audit trail (every Edit/Write/NotebookEdit gets a
- *     record, "covered" or "uncovered"), so its volume and semantics differ.
- *     It is registered here so the standing cadence mechanism surfaces it —
- *     see mt#2619 PR body for the disposition finding (100% "covered" outcome
- *     across 1,457 fires with evidence spans that do not match the action).
+ *   - policy-coverage-calibration.jsonl (mt#1575) — PRODUCER RETIRED 2026-08-16
+ *     (mt#4197). The detector is deleted; the entry, the parser and the
+ *     1,760-record file all stay, because this registry is what makes the
+ *     retained history interpretable (see the note at the entry itself). The
+ *     log simply stops growing.
  *
  * V3 entry (mt#2866):
  *   - silent-stretch-calibration.jsonl (mt#2824 detector) — NOTE: like
@@ -368,6 +366,16 @@ export const CALIBRATION_LOG_REGISTRY: CalibrationLogEntry[] = [
     name: "pre-narration",
     kind: "pre-narration",
   },
+  // RETIRED PRODUCER (mt#4197, 2026-08-16). The policy-coverage detector is
+  // deleted, so this log gains no new records — but the entry STAYS, for a
+  // reason worth stating because removing it was tried first and was wrong:
+  // this registry supplies the outcome -> fire-log-decision mapping
+  // (`covered`/`dismissed` -> allow, `uncovered-logged` -> warn,
+  // `uncovered-blocked` -> deny) for the 1,760 records deliberately retained on
+  // disk as the retirement's evidence. Drop the entry and that history stops
+  // being interpretable, which defeats the point of keeping it. The sweep
+  // reports nothing here because its watermark is already at 1760/1760 and
+  // nothing appends — dormancy by exhaustion, not by suppression.
   {
     path: ".minsky/policy-coverage-calibration.jsonl",
     name: "policy-coverage",

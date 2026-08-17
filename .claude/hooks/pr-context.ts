@@ -738,6 +738,44 @@ export function fetchReviewsRaw(
 }
 
 /**
+ * Fetch a PR's mergeability in ONE call. Returns the RAW exec result —
+ * callers parse it with their own parser (`parseMergeStateResponse`).
+ *
+ * **This must be a SINGLE-PR read, not `gh pr list` (mt#2312).** GitHub
+ * computes mergeability with a background job that a GET on the individual PR
+ * STARTS; the list endpoint does not run it and reports `UNKNOWN` for every
+ * row. Measured 2026-08-17 against the same PR:
+ *
+ *   gh pr list --head task/mt-4191 --json mergeable,mergeStateStatus
+ *     -> {"mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN"}
+ *   gh pr view 3052 --json mergeable,mergeStateStatus
+ *     -> {"mergeStateStatus":"BEHIND","mergeable":"MERGEABLE"}
+ *
+ * So this cannot be folded into `PR_META_JSON_FIELDS` (which feeds
+ * `gh pr list --head`) — doing so would return `UNKNOWN` on every call, a
+ * change that compiles and ships while silently classifying every PR as
+ * inconclusive. The REST field names are used rather than the GraphQL enums
+ * because `mergeable` is a plain boolean there, which is the discriminator.
+ */
+export function fetchPullRequestMergeStateRaw(
+  repo: string,
+  prNumber: string | number,
+  opts: FetchOpts = {}
+): ExecResult {
+  const { cwd, exec = execWithPath, timeout = DEFAULT_GH_TIMEOUT_MS } = opts;
+  return exec(
+    [
+      "gh",
+      "api",
+      `repos/${repo}/pulls/${prNumber}`,
+      "--jq",
+      "{mergeable: .mergeable, mergeable_state: .mergeable_state}",
+    ],
+    { cwd, timeout }
+  );
+}
+
+/**
  * Resolve the merge-base commit SHA between a PR's base branch and its head
  * SHA, via GitHub's compare API (`GET /compare/{base}...{head}`). ONE `gh`
  * call. Used by the mt#2874 growth-justification gate to isolate what THIS

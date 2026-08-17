@@ -108,16 +108,30 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
 ];
 
 /**
- * Guards that fire-log but are NOT in `GUARD_REGISTRY` — the standalone
- * `.claude/settings.json` hooks (including the `session_pr_merge` merge-gate
- * family instrumented by mt#3084) plus the rationalization-review pass.
+ * Standalone `.claude/settings.json` hooks that are NOT in `GUARD_REGISTRY` —
+ * including the `session_pr_merge` merge-gate family instrumented by mt#3084 —
+ * plus the rationalization-review pass.
  *
- * Unlike the pre-commit names above these are NOT cheaply derivable: each is a
- * string literal inside its own hook file, reached through a different call
- * shape. They become derivable for free as ADR-028 Phases 3-5 migrate these
- * hooks onto the dispatcher — at which point each name moves into
- * `GUARD_REGISTRY` and should be DELETED from this list rather than
- * duplicated. Snapshot taken 2026-08-05 from 20 days of live fire-log records.
+ * **This list is no longer what defines the standalone population (mt#4129).**
+ * It was, and its definition was "guards that FIRE-LOG but are not in
+ * `GUARD_REGISTRY`" — which made emitting a fire-log record the qualifying
+ * property of an enforcement point. It is not one. Absence from the fire log is
+ * a fact about a hook's WRITE PATH; whether something intercepts is decided by
+ * its REGISTRATION. Thirty registered hooks wrote no records, so they were in
+ * neither source the catalog's divergence check compares and the check reported
+ * zero discrepancies while the catalog omitted every one of them.
+ *
+ * The population is now derived from `.claude/settings.json` itself, by
+ * `readSettingsHookNames` in `scripts/interceptor-coordinate-input.ts`. What
+ * remains here is a snapshot of the fire-logging subset, still unioned in so a
+ * name that fire-logs under a guard name DIFFERENT from its script basename
+ * (the two `STANDALONE_SCRIPT_ALIASES` pairs) keeps resolving.
+ *
+ * ADR-028's retirement path is unchanged: as Phases 3-5 migrate these hooks onto
+ * the dispatcher each name moves into `GUARD_REGISTRY` and should be DELETED
+ * from this list rather than duplicated. mt#4129 changed only what gets a name
+ * INTO the population, not how one leaves. Snapshot taken 2026-08-05 from 20
+ * days of live fire-log records.
  */
 export const STANDALONE_GUARD_NAMES: readonly string[] = [
   "bare-prohibition",
@@ -130,7 +144,6 @@ export const STANDALONE_GUARD_NAMES: readonly string[] = [
   "check-generated-file-edit",
   "check-task-spec-read",
   "dispatch-intent-write-gate",
-  "policy-coverage",
   "rationalization-review",
   "require-checks-on-bypass-merge",
   "require-deploy-verification-before-merge",
@@ -174,6 +187,13 @@ export const RETIRED_GUARD_NAMES: ReadonlyMap<string, { lastSeen: string; note: 
       {
         lastSeen: "2026-07-29",
         note: "pre-commit step, split into migration-guard-check + duplicate-generated-content-check",
+      },
+    ],
+    [
+      "policy-coverage",
+      {
+        lastSeen: "2026-08-17",
+        note: "`lastSeen` is the last date records APPEAR IN THE LOG, which is one day after the 2026-08-16 retirement decision and is not a contradiction: the detector kept firing from the main workspace's settings.json until this change merged, and the final observed record was 2026-08-17T03:05Z. Read this field as an observation of the log, never as an inactivity watermark or a decision date. Surface 1 policy-coverage detector, retired by mt#4197 (hook + module deleted). 12,135 fire-log records under this name — RETIRED rather than deleted from KNOWN_GUARD_NAMES precisely so that history does not read as an anomaly.",
       },
     ],
   ]

@@ -34,7 +34,9 @@ import {
   PERMISSION_DEFERRAL_PATTERNS,
   detectCapabilityDeferral,
   detectPermissionDeferral,
+  findReportableKill,
 } from "../.minsky/hooks/operator-deferral-detector";
+import { findKillVerb } from "../.minsky/hooks/block-bulk-process-kill";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
 
 const LOG =
@@ -59,7 +61,20 @@ const asTurn = (text: string): TranscriptLine[] => [
   },
 ];
 
-function firesNow(context: string): string[] {
+/**
+ * The act-path surface, replayed differently from the prose ones (mt#4111).
+ *
+ * Its stored context is a COMMAND, not prose, so the prose detectors say nothing about it — and
+ * before this arm existed the surface's records fell through to `phraseTruncated` regardless of
+ * what they held, which is indistinguishable from being unreadable. The kill parse is what
+ * judged them, so the kill parse is what replays them.
+ */
+const ACT_PATH = "act-path-workaround";
+
+function firesNow(match: LoggedMatch, context: string): string[] {
+  if (match.category === ACT_PATH) {
+    return findReportableKill(context) === null ? [] : [ACT_PATH];
+  }
   return [
     ...detectCapabilityDeferral(asTurn(context)),
     ...detectPermissionDeferral(asTurn(context)),
@@ -75,7 +90,12 @@ function firesNow(context: string): string[] {
  * indistinguishable from one this change deliberately suppressed, and the
  * delta would be overstated by exactly that many records.
  */
-function phrasePresent(context: string): boolean {
+function phrasePresent(match: LoggedMatch, context: string): boolean {
+  // For the act path the equivalent question is whether the KILL is visible in the stored
+  // window at all. Pre-mt#4111 records stored the head of the command, so a kill in the tail of
+  // a compound command is absent from its own record — the same "silent for a reason this change
+  // did not cause" case the prose arm measures, on a different axis.
+  if (match.category === ACT_PATH) return findKillVerb(context) !== null;
   return [...CAPABILITY_DEFERRAL_PATTERNS, ...PERMISSION_DEFERRAL_PATTERNS].some((p) =>
     p.test(context)
   );
@@ -86,6 +106,7 @@ function main(): void {
 
   let total = 0;
   let unreplayable = 0;
+  let actPathSeen = 0;
   const phraseTruncated: Array<{ ts: string; phrase: string; context: string }> = [];
   const stillFires: Array<{ ts: string; phrase: string; context: string }> = [];
   const nowQuiet: Array<{ ts: string; phrase: string; context: string }> = [];
@@ -100,6 +121,7 @@ function main(): void {
     }
     for (const match of record.matches ?? []) {
       total += 1;
+      if (match.category === ACT_PATH) actPathSeen += 1;
       const context = match.context?.trim();
       const ts = record.timestamp ?? "(no timestamp)";
       const phrase = match.phrase ?? "(no phrase)";
@@ -108,14 +130,27 @@ function main(): void {
         continue;
       }
       const entry = { ts, phrase, context };
-      if (!phrasePresent(context)) phraseTruncated.push(entry);
-      else if (firesNow(context).length > 0) stillFires.push(entry);
+      if (!phrasePresent(match, context)) phraseTruncated.push(entry);
+      else if (firesNow(match, context).length > 0) stillFires.push(entry);
       else nowQuiet.push(entry);
     }
   }
 
   const rateable = stillFires.length + nowQuiet.length;
   console.log(`records with a match:            ${total}`);
+  if (actPathSeen > 0) {
+    // Naming each arm's BEFORE explicitly (PR #3051 R1). The two arms answer the
+    // same before/after question against different matchers, and a reader who
+    // assumes one applies to both will misread the delta.
+    console.log(`  act-path arm (${actPathSeen} record(s)):`);
+    console.log(`    before = any kill verb visible  (the pre-mt#4111 trigger)`);
+    console.log(`    after  = findReportableKill     (non-denied + multi-target)`);
+    console.log(`    NOT replayable: both TURN-STATE legs — the denial, and the absence of`);
+    console.log(`    a capability search. A record carries neither, so a call the guard`);
+    console.log(`    REFUSED (or one the turn searched before making) still reads as firing`);
+    console.log(`    here. Both sides of this arm are therefore upper bounds on the real`);
+    console.log(`    trigger, and the unit tests cover what the replay cannot.`);
+  }
   console.log(`  no context at all:             ${unreplayable}   <- pre-captureSchema; mt#3649`);
   console.log(`  phrase truncated out of window: ${phraseTruncated.length}   <- silent for a`);
   console.log(`                                       reason this change did not cause`);
