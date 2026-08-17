@@ -310,7 +310,16 @@ Single-phase tasks pass this criterion automatically.
 
 Before a task can be READY, verify no other in-flight work covers the same files, signatures,
 or symptoms. Three required checks; **any hit is a blocking gap** until resolved (the user
-chooses: wait, coordinate, reframe scope, or explicitly acknowledge).
+chooses: wait, coordinate, reframe scope, proceed on the non-overlapping surface, or explicitly
+acknowledge).
+
+**A collision is rarely total — name the files it does NOT touch (mt#4184).** Check 1 already
+obliges you to read the colliding PR's actual changed-file list, so the set of in-scope files it
+leaves CLEAR is a by-product of a check that has already run. Record that set in the gap report.
+It is what makes "proceed on the non-overlapping surface" a real option rather than a slogan, and
+without it the default is to halt the whole task on a partial overlap. That is not hypothetical:
+in mt#4184's originating run the gap report itself stated that two of four in-scope files were
+untouched by the colliding PR, and the turn stopped on all four anyway.
 
 Rationale: this gate operationalizes `feedback_check_parallel_work_before_decomposing`.
 Three recurrences in three days proved memory-only enforcement insufficient (mt#1192/mt#1199,
@@ -1221,8 +1230,8 @@ conversations, all of them this skill's gate reports).
 ## Gap Report (PLANNING — not yet READY)
 
 ### Blocking gaps
-- [criterion letter] <description of gap>
-- [criterion letter] <description of gap>
+- [criterion letter] [operator-actionable | self-resolving] <description of gap>
+- [criterion letter] [operator-actionable | self-resolving] <description of gap>
 
 ### Required actions before READY
 1. <concrete action the user or agent must take>
@@ -1247,7 +1256,40 @@ this one.)
    do, what actually blocks it (in plain words — no gate letters, no premise-audit labels),
    and a `minsky://task/mt%23<id>` deeplink to the recorded gap report. If step 4 filed an
    ask, cite the ask id (`[ask#N](minsky://ask/<uuid>)`) so the principal knows a decision
-   is queued for them. Then stop.
+   is queued for them.
+
+6. **Classify every blocking gap before you end the turn — the ending depends on it.**
+   Each gap is one of two kinds, and the gap report records which (the marker in the template
+   above):
+
+   - **operator-actionable** — a human has to act: a missing spec section, an unanswered design
+     question, a scope or naming decision. Nothing resolves this but the principal.
+   - **self-resolving** — an external condition clears it on its own, with no operator
+     involvement: an open PR merging, a CI run finishing, a deploy completing, a rate-limit
+     window resetting. Gate (g) hits are USUALLY this kind, because the usual blocker is
+     someone else's in-flight PR.
+
+   Then:
+
+   - **Every gap self-resolving → do NOT stop. Arm a watcher and say so.** Register the wait on
+     the specific unblocking event — `mcp__minsky__pr_watch_create` with `event: "merged"` for a
+     PR (production-enabled since mt#1899), or the mechanism `work-completion.mdc §External
+     self-resolving waits` names for the others — and close in the shape that rule prescribes:
+     "PR #N is what this waits on; I've armed a watch and will re-run the gate when it merges —
+     no action needed from you." Handing this wait to the operator is the anti-pattern, and
+     ending here with "re-run the gate once #N merges" IS handing it over, however impersonally
+     it is phrased.
+   - **Any gap operator-actionable → the turn ends on the human, as above** — but say which half
+     is which, so the principal is not left tracking the self-resolving ones. Arm the watcher for
+     those anyway.
+
+   **Why this step exists.** `work-completion.mdc §External self-resolving waits` already
+   required the watcher, was always-loaded, and lost anyway — because this branch used to end
+   "Then stop.", and a skill's terminal step is read AT the decision while an ambient rule is
+   not. Originating incident (2026-08-16, mt#4184): a gate-(g)-only failure on open PR #3039
+   ended with "once PR #3039 merges, re-running the gate on mt#4183 picks it up"; no watcher was
+   armed, and the operator prompted to resume ~80 minutes later with the PR still open. This is a
+   recurrence AFTER mt#2956 shipped that rule — see mem#641 R2.
 
 **Example (h) failure.** For a task that renames a config key (e.g., `sessionDbPath` →
 `sessiondb.path`) whose spec says "Sole consumer is `~/.config/minsky/config.yaml`":
