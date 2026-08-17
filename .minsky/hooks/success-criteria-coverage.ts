@@ -31,7 +31,11 @@
 // @see .minsky/hooks/markdown-sections.ts — shared fence-aware section scanning
 // @see mem#736 — "a spec you authored yourself this session is the one you're least likely to re-read"
 
-import { computeFenceInternalLines, isMarkdownHeading } from "./markdown-sections";
+import {
+  collectHeadingSections,
+  computeFenceInternalLines,
+  isMarkdownHeading,
+} from "./markdown-sections";
 import {
   captureArtifact,
   CAPTURE_SCHEMA_FIELD,
@@ -230,18 +234,44 @@ function extractSignificantKeywords(text: string): string[] {
     .filter((word) => word.length >= 5 && !CRITERION_STOPWORDS.has(word));
 }
 
+/**
+ * The accepted written forms of a criterion-number reference, as ONE list.
+ *
+ * Both users derive from it: {@link isCriterionReferencedByNumber} instantiates each form with a
+ * specific number, and {@link extractReferencedCriterionNumbers} instantiates the same forms with
+ * a capture group to read whatever number a line carries.
+ *
+ * They were two hand-mirrored lists for one round of PR #3082 and it produced exactly the defect
+ * that shape produces: the region STARTER accepted all four forms while the region TERMINATOR
+ * matched only `SC<N>`, so an adjacent `Criterion 2:` or `sc-2:` line with no blank line before
+ * it bled into the previous criterion's region — mis-attributing evidence and risking a false
+ * `disagrees`, which is the outcome this whole surface is built to avoid.
+ */
+const CRITERION_NUMBER_REFERENCE_FORMS: readonly ((n: string) => RegExp)[] = [
+  (n) => new RegExp(`\\bSC\\s*#?${n}\\b`, "i"),
+  (n) => new RegExp(`\\bsuccess criterion\\s*#?${n}\\b`, "i"),
+  (n) => new RegExp(`\\bcriterion\\s*#?${n}\\b`, "i"),
+  (n) => new RegExp(`\\bsc-${n}\\b`, "i"),
+];
+
 /** True when the evidence text references this criterion by number, in any common form. */
 export function isCriterionReferencedByNumber(
   criterion: SuccessCriterionItem,
   evidenceText: string
 ): boolean {
-  const n = criterion.number;
-  return [
-    new RegExp(`\\bSC\\s*#?${n}\\b`, "i"),
-    new RegExp(`\\bsuccess criterion\\s*#?${n}\\b`, "i"),
-    new RegExp(`\\bcriterion\\s*#?${n}\\b`, "i"),
-    new RegExp(`\\bsc-${n}\\b`, "i"),
-  ].some((p) => p.test(evidenceText));
+  return CRITERION_NUMBER_REFERENCE_FORMS.some((form) =>
+    form(String(criterion.number)).test(evidenceText)
+  );
+}
+
+/** Every criterion number a line references, in any of the accepted forms. */
+export function extractReferencedCriterionNumbers(line: string): number[] {
+  const found: number[] = [];
+  for (const form of CRITERION_NUMBER_REFERENCE_FORMS) {
+    const n = parseInt(line.match(form("(\\d+)"))?.[1] ?? "", 10);
+    if (Number.isFinite(n) && !found.includes(n)) found.push(n);
+  }
+  return found;
 }
 
 /** True when the evidence text shares a distinctive keyword with the criterion's own text. */
@@ -273,6 +303,137 @@ export function isCriterionDeferred(prBody: string, criterionNumber: number): bo
   return extractScDeferralMarker(prBody, criterionNumber) !== null;
 }
 
+/**
+ * Count-bearing expected-result shapes, with the value CAPTURED (mt#4214).
+ *
+ * Deliberately a SUBSET of {@link EXPECTED_RESULT_PATTERNS}, never a superset: this list must
+ * not widen the executable-criterion CLASSIFICATION, which decides the population the whole
+ * surface measures. Widening that set is a different change with a different blast radius.
+ *
+ * Two of the five classifier shapes are excluded because what they assert is not a count —
+ * `exit code 0` (a process status) and `is empty` (a state whose evidence side has no number to
+ * read). Both land as `not-comparable`, which is a classification, not a parse failure.
+ */
+const COUNT_CAPTURE_PATTERNS: readonly RegExp[] = [
+  /\breturns?\s+(zero|no|\d+)\s+(?:hits|matches|results|lines|rows|files)\b/i,
+  /\bthe\s+count\s+is\s+(\d+)\b/i,
+  /\b(zero|0)\s+(?:hits|matches|occurrences|results)\b/i,
+];
+
+/** `zero` / `no` / a digit string to a number; anything else to null. */
+function parseCountToken(token: string | undefined): number | null {
+  if (!token) return null;
+  const lower = token.toLowerCase();
+  if (lower === "zero" || lower === "no") return 0;
+  const n = parseInt(lower, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The count a text ASSERTS, or null when it asserts none.
+ *
+ * ONE shared extractor for the criterion side, reused by {@link extractReportedCount} for the
+ * evidence side, so the two cannot drift apart — the mt#4070 hazard, where four hand-mirrored
+ * matchers diverged on each widening.
+ *
+ * A DISTRIBUTIVE expected result (`one hit per subcommand action`) returns null by construction:
+ * resolving it needs the cardinality of the thing being distributed over, which is not in the
+ * text. That is the mt#4076 shape, and it stays out of the comparable set on purpose.
+ */
+export function extractAssertedCount(text: string): number | null {
+  for (const pattern of COUNT_CAPTURE_PATTERNS) {
+    const parsed = parseCountToken(text.match(pattern)?.[1]);
+    if (parsed !== null) return parsed;
+  }
+  return null;
+}
+
+/**
+ * The count an EVIDENCE region reports, or null when none is unambiguously readable.
+ *
+ * Two shapes, in order. First a phrase the criterion side would also recognize
+ * (`returns 3 matches`). Then a BARE integer on a line of its own — which is what `wc -l` and
+ * `grep -c` actually print, and the reason the criterion-side extractor alone cannot read an
+ * evidence block.
+ *
+ * **More than one bare integer is `null`, not the first one.** Pasted output routinely carries
+ * several numbers, and picking one would manufacture a confident wrong pairing — the failure
+ * mode this whole surface exists to avoid (mem#719: a detector whose incorrect output trains
+ * readers to discount its correct output).
+ */
+export function extractReportedCount(region: string): number | null {
+  const phrase = extractAssertedCount(region);
+  if (phrase !== null) return phrase;
+  const bare = region
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => /^\d+$/.test(l));
+  return bare.length === 1 ? parseInt(bare[0] ?? "", 10) : null;
+}
+
+/**
+ * True when a line names a criterion OTHER than this one, in ANY accepted reference form.
+ *
+ * Uses the same {@link CRITERION_NUMBER_REFERENCE_FORMS} the region starter uses — see that
+ * constant for why symmetry here is load-bearing rather than tidy.
+ */
+function referencesADifferentCriterion(line: string, ownNumber: number): boolean {
+  return extractReferencedCriterionNumbers(line).some((n) => n !== ownNumber);
+}
+
+/**
+ * The bounded region of text whose reported count belongs to THIS criterion, or null.
+ *
+ * Comparing an expected value to an actual one presupposes knowing which number in a free-form
+ * evidence block belongs to criterion N, and the module had no such mechanism. A loose rule
+ * would be worse than none, so attribution is bounded to two regions and falls through to null:
+ *
+ * 1. A dedicated `SC<N>` heading section in the PR body — bounded by construction.
+ * 2. Otherwise, the evidence lines that reference the criterion BY NUMBER, plus the block
+ *    directly beneath them, stopping at a blank line or a different criterion's number.
+ *
+ * Keyword association is deliberately NOT an attribution basis: it is the loosest of the four
+ * presence tests {@link checkSuccessCriteriaCoverage} already applies, and it is exactly where a
+ * wrong pairing would come from.
+ */
+export function resolveEvidenceRegion(
+  criterion: SuccessCriterionItem,
+  prBody: string,
+  evidenceText: string
+): string | null {
+  const stripped = prBody.replace(/<!--[\s\S]*?-->/g, "");
+  const bodyLines = stripped.split("\n");
+  const headingPattern = new RegExp(`^\\s*#{1,6}\\s+SC\\s*#?${criterion.number}\\b`, "i");
+  const section = collectHeadingSections(bodyLines, computeFenceInternalLines(bodyLines), (l) =>
+    headingPattern.test(l)
+  );
+  if (section.length > 0) return section.join("\n");
+
+  const evidenceLines = evidenceText.split("\n");
+  const region: string[] = [];
+  for (let i = 0; i < evidenceLines.length; i++) {
+    const line = evidenceLines[i];
+    if (line === undefined || !isCriterionReferencedByNumber(criterion, line)) continue;
+    region.push(line);
+    for (let j = i + 1; j < evidenceLines.length; j++) {
+      const next = evidenceLines[j];
+      if (next === undefined || next.trim() === "") break;
+      if (referencesADifferentCriterion(next, criterion.number)) break;
+      region.push(next);
+    }
+  }
+  return region.length > 0 ? region.join("\n") : null;
+}
+
+/** An executable criterion whose evidence reports a count other than the one it asks for. */
+export interface ScDisagreement {
+  criterion: SuccessCriterionItem;
+  /** The count the criterion's own text asks for. */
+  expected: number;
+  /** The count its bounded evidence region reports. */
+  actual: number;
+}
+
 /** Result of cross-referencing a task's executable success criteria against a PR body. */
 export interface ScCoverageResult {
   /** False when the task has zero executable criteria — the check does not apply. */
@@ -292,6 +453,24 @@ export interface ScCoverageResult {
    * PROSPECTIVELY. A field added after the corpus accumulates cannot retro-classify it.
    */
   presentElsewhereCriteria: SuccessCriterionItem[];
+  /**
+   * Addressed criteria whose bounded evidence region reports a count OTHER than the one the
+   * criterion asks for (mt#4214).
+   *
+   * A distinct population from `unaddressedCriteria`, not a subset of it: these criteria ARE
+   * referenced, with real output pasted — which is exactly what makes them invisible to the
+   * presence tests above. mt#4076 / PR #3047 is the worked instance.
+   */
+  disagreeingCriteria: ScDisagreement[];
+  /**
+   * Addressed criteria the comparison could not settle either way — no literal expected count,
+   * no bounded evidence region, or no unambiguously readable reported count.
+   *
+   * Recorded rather than dropped so the size of the un-comparable population is MEASURABLE. If
+   * it dominates, that is the input to deciding whether resolving distributive expectations is
+   * worth building; silently omitting it would make the comparison look more complete than it is.
+   */
+  notComparableCriteria: SuccessCriterionItem[];
 }
 
 /**
@@ -320,6 +499,8 @@ export function checkSuccessCriteriaCoverage(
       executableCriteria: [],
       unaddressedCriteria: [],
       presentElsewhereCriteria: [],
+      disagreeingCriteria: [],
+      notComparableCriteria: [],
     };
   }
 
@@ -338,11 +519,33 @@ export function checkSuccessCriteriaCoverage(
     isCriterionReferencedByNumber(c, prBody)
   );
 
+  // The agreement pass (mt#4214) runs over the ADDRESSED criteria — the ones the four presence
+  // tests above already cleared. An unaddressed criterion has no evidence to compare against, so
+  // the two populations are disjoint by construction rather than by filtering.
+  const unaddressedNumbers = new Set(unaddressedCriteria.map((c) => c.number));
+  const disagreeingCriteria: ScDisagreement[] = [];
+  const notComparableCriteria: SuccessCriterionItem[] = [];
+
+  for (const criterion of executableCriteria) {
+    if (unaddressedNumbers.has(criterion.number)) continue;
+    const expected = extractAssertedCount(criterion.text);
+    const region =
+      expected === null ? null : resolveEvidenceRegion(criterion, prBody, evidenceText);
+    const actual = region === null ? null : extractReportedCount(region);
+    if (expected === null || actual === null) {
+      notComparableCriteria.push(criterion);
+      continue;
+    }
+    if (expected !== actual) disagreeingCriteria.push({ criterion, expected, actual });
+  }
+
   return {
     applicable: true,
     executableCriteria,
     unaddressedCriteria,
     presentElsewhereCriteria,
+    disagreeingCriteria,
+    notComparableCriteria,
   };
 }
 
@@ -395,7 +598,9 @@ export function runScCoverageCalibration(
     return { ranCheck: false };
   }
 
-  if (!coverage.applicable || coverage.unaddressedCriteria.length === 0) {
+  const hasUnaddressed = coverage.unaddressedCriteria.length > 0;
+  const hasDisagreement = coverage.disagreeingCriteria.length > 0;
+  if (!coverage.applicable || (!hasUnaddressed && !hasDisagreement)) {
     return { ranCheck: true };
   }
 
@@ -403,15 +608,39 @@ export function runScCoverageCalibration(
     .map((c) => `  - SC${c.number}: ${truncateForWarning(c.text)}`)
     .join("\n");
 
+  const unaddressedPart = hasUnaddressed
+    ? `${coverage.unaddressedCriteria.length} of ${coverage.executableCriteria.length} ` +
+      `mechanically-executable success criteria for ${task} are not addressed by the ` +
+      `\`Execution evidence:\` block (no number/keyword reference, no \`SC<N>\` section, and no ` +
+      `\`[scN-deferred: mt#NNNN]\` marker):\n${list}\n\n` +
+      `These criteria name a command and an expected result — running one costs a second and is ` +
+      `the only thing that settles it.`
+    : "";
+
+  // The disagreement half (mt#4214) is a DIFFERENT finding with a different remedy: the
+  // criterion was referenced and its command was run, and the output says something other than
+  // what the criterion asks for. Naming them separately matters — telling an author to "run the
+  // command" when they already ran it is the noise that trains readers to discount the surface.
+  const disagreementList = coverage.disagreeingCriteria
+    .map(
+      (d) =>
+        `  - SC${d.criterion.number}: asks for ${d.expected}, evidence reports ${d.actual} — ` +
+        `${truncateForWarning(d.criterion.text)}`
+    )
+    .join("\n");
+
+  const disagreementPart = hasDisagreement
+    ? `${coverage.disagreeingCriteria.length} criterion(s) for ${task} were addressed with real ` +
+      `output that DISAGREES with the count the criterion states:\n${disagreementList}\n\n` +
+      `Either the implementation does not yet satisfy the criterion, or the criterion's own text ` +
+      `is stale and should be amended — recording the divergence elsewhere does not reconcile it ` +
+      `(mem#986).`
+    : "";
+
   const warning =
-    `[execution-evidence-sc-coverage] CALIBRATION (log-only, mt#3350 — would block if ` +
-    `graduated): ${coverage.unaddressedCriteria.length} of ${coverage.executableCriteria.length} ` +
-    `mechanically-executable success criteria for ${task} are not addressed by the ` +
-    `\`Execution evidence:\` block (no number/keyword reference, no \`SC<N>\` section, and no ` +
-    `\`[scN-deferred: mt#NNNN]\` marker):\n${list}\n\n` +
-    `These criteria name a command and an expected result — running one costs a second and is ` +
-    `the only thing that settles it. Merge is NOT blocked by this. Override: set ` +
-    `${SC_COVERAGE_SKIP_ENV_VAR}=1.`;
+    `[execution-evidence-sc-coverage] CALIBRATION (log-only, mt#3350/mt#4214 — would block if ` +
+    `graduated): ${[unaddressedPart, disagreementPart].filter(Boolean).join("\n\n")}\n\n` +
+    `Merge is NOT blocked by this. Override: set ${SC_COVERAGE_SKIP_ENV_VAR}=1.`;
 
   return {
     ranCheck: true,
@@ -440,6 +669,23 @@ export function runScCoverageCalibration(
         number: c.number,
         text: c.text,
       })),
+      // mt#4214: the finding CLASS, so `/calibration-review` can rate the two populations
+      // separately. A shared FP rate over "never ran it" and "ran it, the output disagrees"
+      // would be uninterpretable — the remedies differ, so a reviewer's judgment differs too.
+      findingClasses: [
+        ...(hasUnaddressed ? ["unreferenced"] : []),
+        ...(hasDisagreement ? ["disagrees"] : []),
+      ],
+      disagreeingCriteria: coverage.disagreeingCriteria.map((d) => ({
+        number: d.criterion.number,
+        text: d.criterion.text,
+        expected: d.expected,
+        actual: d.actual,
+      })),
+      // The SIZE of the un-comparable population, so its share is measurable rather than
+      // implied. If it dominates, that is the evidence for deciding whether resolving
+      // distributive expectations is worth building — see mt#4214's `## The limit this ships with`.
+      notComparableCriterionCount: coverage.notComparableCriteria.length,
     },
   };
 }
