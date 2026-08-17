@@ -36,6 +36,13 @@ export interface TrimmedChecksResult {
   summary: ChecksResult["summary"];
   /** Present (possibly empty) only when `allPassed` is false. */
   failingChecks?: CheckRunResult[];
+  /**
+   * Carried through from {@link ChecksResult} (mt#4182 / PR #3042 R1). The trim
+   * drops the per-check breakdown, not the REASON: without this, the drive
+   * path sees `allPassed: false` with an empty `failingChecks` and zero counts,
+   * which reads as "nothing is wrong and nothing ran" for a conflicted PR.
+   */
+  mergeBlocked?: string;
 }
 
 /** A check counts as "not passing" for the failingChecks filter below. */
@@ -59,8 +66,56 @@ export function trimChecksResult(result: ChecksResult): TrimmedChecksResult {
   return {
     allPassed: false,
     ...(result.timedOut ? { timedOut: true as const } : {}),
+    ...(result.mergeBlocked ? { mergeBlocked: result.mergeBlocked } : {}),
     summary: result.summary,
     failingChecks: result.checks.filter(isFailingOrPending),
+  };
+}
+
+/**
+ * Fold the PR's merge state into a checks result (mt#4182).
+ *
+ * `getChecksForPR` honestly reports the checks it found, and `allPassed`
+ * already refuses to be true on an EMPTY set (`allChecks.length > 0` in
+ * `github-pr-checks.ts`). What that floor cannot see is a set of one: a PR with
+ * merge conflicts gets no `refs/pull/N/merge`, so GitHub dispatches no
+ * `pull_request` workflow, and the single check that remains is the one that
+ * never needed the merge ref — the reviewer bot's own findings run. It passes,
+ * the floor clears, and the caller reads green for a PR whose CI never started.
+ * Observed on PR #3031 (2026-08-16): `allPassed: true`, `total: 1`, zero
+ * workflow runs; resolving the conflict dispatched all 8 immediately.
+ *
+ * **Why merge state and not a check-count threshold.** "Require more than one
+ * check" is a guess about a repo's CI shape — a repo may legitimately run one —
+ * and it carries no information about WHY the set is small. The PR's own merge
+ * state names the cause.
+ *
+ * **Why `mergeable === false` specifically**, and not the broader
+ * `hasNonApprovalMergeBlockers` that `computeNonApprovalMergeBlockers` returns:
+ * that predicate also fires on draft and not-open PRs, and a draft PR runs its
+ * workflows normally. Only a conflict prevents the merge ref from existing.
+ * `mergeable === null` — GitHub still computing, which a GET itself triggers —
+ * is deliberately NOT treated as blocked, the same call mt#2890 made for the
+ * approval path; a single read is not authoritative and failing closed on it
+ * would report an unknown as a conflict.
+ *
+ * Pure, and takes the merge state as a PARAMETER rather than fetching it, so
+ * the CI capability keeps reporting only what it observed. ADR-005 groups PR
+ * state under `backend.pr`, not `backend.ci`; composing here respects that
+ * boundary instead of reaching across it inside the fetch.
+ */
+export function applyMergeStateToChecks(
+  result: ChecksResult,
+  mergeable: boolean | null | undefined
+): ChecksResult {
+  if (mergeable !== false) return result;
+  return {
+    ...result,
+    allPassed: false,
+    mergeBlocked:
+      "PR has merge conflicts, so GitHub could not build the merge ref and " +
+      "dispatched no pull_request workflows — the checks below are not evidence " +
+      "CI ran. Resolve the conflict (session update), then re-check.",
   };
 }
 
@@ -203,7 +258,39 @@ export async function sessionPrChecks(
      */
     async function fetchChecks(): Promise<ChecksResult> {
       log.debug(`Fetching checks for PR #${prNumber}`);
-      return backend.ci.getChecksForPR(prNumber);
+      const checks = await backend.ci.getChecksForPR(prNumber);
+
+      // mt#4182: only a would-be-GREEN result can mislead, so the extra PR read
+      // is taken only on that path. A not-passing result already tells the
+      // caller to look, and in the wait loop this is also the path that ENDS the
+      // poll — so the cost is one GET per call that was about to return
+      // "everything passed", not one per poll interval.
+      if (!checks.allPassed) return checks;
+
+      // The PR read is a second network call, so it gets its own guard: a
+      // checks call that successfully fetched its checks must not fail because
+      // the PR endpoint hiccuped, or because a backend does not implement the
+      // `pr` capability at all.
+      //
+      // Bound, stated rather than assumed: on that path the verdict is left
+      // ALONE, which is the pre-mt#4182 behavior — so this fix covers the
+      // observed conflict case, not a degraded-API one. Failing CLOSED instead
+      // would report every GitHub PR-API blip as a conflict, which is a worse
+      // trade for a call whose whole job is reporting merge readiness.
+      let mergeable: boolean | null | undefined;
+      try {
+        mergeable = (await backend.pr?.get({ prIdentifier: prNumber }))?.mergeable;
+      } catch (prReadError) {
+        log.debug(
+          "mt#4182: could not read PR merge state; leaving the checks verdict as observed",
+          {
+            prNumber,
+            error: getErrorMessage(prReadError),
+          }
+        );
+        return checks;
+      }
+      return applyMergeStateToChecks(checks, mergeable);
     }
 
     // Non-wait mode: single fetch

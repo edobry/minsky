@@ -51,29 +51,10 @@ export async function fetchSessionFilmEvents(
   return (await res.json()) as SessionFilmEventsResponse;
 }
 
-export interface SessionFilmPickerRow {
-  agentSessionId: string;
-  label: string;
-  startedAt: string | null;
-  cwd: string | null;
-  ingestedAt: string | null;
-}
-
-export async function fetchSessionFilmSessions(): Promise<SessionFilmPickerRow[]> {
-  const res = await fetch("/api/cockpit/session-film/sessions");
-  if (!res.ok) await parseErrorResponse(res);
-  const body = (await res.json()) as { sessions: SessionFilmPickerRow[] };
-  return body.sessions;
-}
-
 export function sessionFilmEventsQueryKey(
   conversationId: string
 ): readonly [string, string, string] {
   return ["session-film", "events", conversationId] as const;
-}
-
-export function sessionFilmSessionsQueryKey(): readonly [string, string] {
-  return ["session-film", "sessions"] as const;
 }
 
 /** Do NOT retry a client error (4xx) — mirrors conversation-snapshot.ts's snapshotRetry rationale. */
