@@ -641,6 +641,56 @@ describe("offer-shape trigger (mt#3801)", () => {
     expect(namesAgentAction("the sweep retried it")).toBe(false);
   });
 
+  // PR #3088 R1 (BLOCKING) — the patterns match the SHAPE of a first-person
+  // action clause, and that shape is identical whether the agent is offering to
+  // act or saying it will not. Every case below satisfies `hasMenuShape` via a
+  // bare `unless`, so without the polarity check the conjunction fires on all
+  // of them — into a LIVE-injecting guard. The reviewer named two; the rest are
+  // the same class, found by scanning for it rather than waiting to be handed
+  // each one.
+  describe("polarity: a negated clause is not an offer (PR #3088 R1)", () => {
+    const NOT_OFFERS = [
+      // The reviewer's two, verbatim.
+      "There is no need for me to rerun this unless the logs show errors.",
+      "It would be unusual for me to change that, unless you prefer otherwise.",
+      // Same class, found by scanning: `\b` sits between `can` and `'t`, so the
+      // modal leg matched the contraction.
+      "I can't reproduce it unless you give me the log.",
+      "I won't touch it unless you say so.",
+      "I shouldn't merge it unless CI is green.",
+      "I would not rerun it unless the logs show errors.",
+    ];
+
+    test.each(NOT_OFFERS)("does not name an agent action: %s", (line) => {
+      // Asserted alongside the menu leg, so a future change that makes these
+      // pass by breaking `hasMenuShape` instead cannot be mistaken for a fix.
+      expect(hasMenuShape(line)).toBe(true);
+      expect(namesAgentAction(line)).toBe(false);
+      expect(findOfferShape(line)).toBeNull();
+    });
+
+    // The control that makes the block above meaningful: the near-identical
+    // POSITIVE forms must keep firing. `"I can take it"` and `"I can't
+    // reproduce it"` differ by two characters.
+    test.each([
+      "Next step is /plan-task mt#3799 unless you'd rather I go straight at it.",
+      "I can take it now unless you'd rather review first.",
+      "Do you want me to file it, or should I hold?",
+    ])("still fires on the offer it is meant to catch: %s", (line) => {
+      expect(namesAgentAction(line)).toBe(true);
+      expect(findOfferShape(line)).not.toBeNull();
+    });
+
+    // `for` is the DESCRIPTIVE object form and was dropped from the alternation
+    // outright, so it is quiet even without a negator anywhere in the sentence.
+    test("the bare `for me to` form is not an agent-action clause at all", () => {
+      expect(namesAgentAction("It is cheaper for me to batch these unless you object.")).toBe(
+        false
+      );
+      expect(namesAgentAction("want me to batch these")).toBe(true);
+    });
+  });
+
   // Line-scoped, for the reason lineAt records: a menu token and an
   // agent-action clause in different paragraphs were not said in one breath.
   test("the two constituents must land on the SAME line", () => {

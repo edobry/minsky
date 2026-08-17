@@ -266,13 +266,57 @@ const AGENT_ACTION_PATTERNS: readonly RegExp[] = [
   // Bare verb governed by a preference token, which is where English drops the
   // modal: `"you'd rather I go straight at it"`, `"unless you prefer I hold"`.
   /\b(?:rather|prefer)\s+I\s+\w+/i,
-  // The object form of the same construction.
-  /\b(?:want|need|prefer|like|for)\s+me\s+to\s+\w+/i,
+  // The object form of the same construction. `for` is deliberately NOT in this
+  // alternation (PR #3088 R1): `"for me to"` is the DESCRIPTIVE form, not an
+  // offer — `"It would be unusual for me to change that"` proposes nothing, and
+  // `"there is no need for me to rerun this"` is its negation. Every member
+  // here takes `me` as a direct object of a volition verb, which `for` does not.
+  /\b(?:want|need|prefer|like)\s+me\s+to\s+\w+/i,
 ];
 
-/** True when `line` proposes an action the agent itself would perform. */
+/**
+ * Negation immediately LEADING an agent-action clause (PR #3088 R1).
+ *
+ * Bounded to a few words because the negation has to govern the clause: in
+ * `"there is no need for me to rerun"` it does, while a `not` two sentences
+ * back does not. Same shape and the same reasoning as
+ * `operator-deferral-detector`'s `NEGATION_LEAD_PATTERN`, declared locally
+ * rather than imported because that module imports THIS one — sharing it would
+ * close the cycle.
+ */
+const AGENT_ACTION_NEGATED_LEAD = /\b(?:no|not|never|nothing|unable|hardly)\s+(?:\w+\s+){0,2}$/i;
+
+/** How far back {@link namesAgentAction} reads for a governing negation. */
+const AGENT_ACTION_LOOKBACK_CHARS = 24;
+
+/**
+ * True when `line` proposes an action the agent itself would perform.
+ *
+ * **Polarity is checked, not assumed (PR #3088 R1).** The patterns above match
+ * the SHAPE of a first-person action clause, and that shape is identical
+ * whether the agent is offering to act or saying it will not — `"I can take
+ * it"` and `"I can't reproduce it"` differ by two characters, and `\b` sits
+ * between `can` and `'t`, so the modal leg matches both. A negated clause is
+ * not an offer, and firing on one would put noise into a LIVE-injecting guard.
+ *
+ * Three forms, all measured against the live matcher rather than reasoned
+ * about: a contraction directly after the match (`I can't`), an explicit `not`
+ * directly after it (`I would not`), and a governing negator just before it
+ * (`no need ... me to`).
+ */
 export function namesAgentAction(line: string): boolean {
-  return AGENT_ACTION_PATTERNS.some((p) => p.test(line));
+  for (const pattern of AGENT_ACTION_PATTERNS) {
+    const m = pattern.exec(line);
+    if (!m) continue;
+    const start = m.index ?? 0;
+    const trailing = line.slice(start + m[0].length);
+    if (/^['’]t\b/.test(trailing)) continue;
+    if (/^\s+not\b/i.test(trailing)) continue;
+    const lead = line.slice(Math.max(0, start - AGENT_ACTION_LOOKBACK_CHARS), start);
+    if (AGENT_ACTION_NEGATED_LEAD.test(lead)) continue;
+    return true;
+  }
+  return false;
 }
 
 /**

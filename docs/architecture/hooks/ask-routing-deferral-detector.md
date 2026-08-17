@@ -126,6 +126,42 @@ Every agent-action form is **non-past by construction**, which is what separates
 an offer from a report: _"I fixed it unless a row was locked"_ names a
 first-person action and offers nothing.
 
+### Polarity is checked, not assumed
+
+Tense is not the only axis on which the shape lies. A first-person action clause
+reads identically whether the agent is offering to act or saying it will **not**
+— _"I can take it"_ and _"I can't reproduce it"_ differ by two characters, and
+`\b` sits between `can` and `'t`, so the modal leg matches both. Every such
+sentence also satisfies `hasMenuShape` through a bare `unless`, so without a
+polarity check the conjunction fires on all of them, into a live-injecting guard.
+
+`namesAgentAction` therefore rejects three forms, each measured against the live
+matcher:
+
+| Form                                   | Example                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------- |
+| A contraction directly after the match | _"I can't reproduce it unless you give me the log."_                   |
+| An explicit `not` directly after it    | _"I would not rerun it unless the logs show errors."_                  |
+| A governing negator just before it     | _"There is no need for me to rerun this unless the logs show errors."_ |
+
+The lead window is bounded to a few words because the negation has to GOVERN the
+clause — a `not` two sentences back does not. This mirrors
+`operator-deferral-detector`'s `NEGATION_LEAD_PATTERN`; it is declared locally
+rather than imported because that module imports THIS one, so sharing it would
+close an import cycle.
+
+`for` is **not** in the object-form alternation for a related reason: _"for me
+to"_ is the DESCRIPTIVE form, not an offer. _"It would be unusual for me to
+change that"_ proposes nothing, and _"there is no need for me to rerun this"_ is
+its negation. Every other member takes `me` as a direct object of a volition
+verb, which `for` does not.
+
+Origin: PR #3088 R1, where the reviewer flagged the object-form leg. The
+contraction and explicit-`not` cases came from scanning for the same class rather
+than waiting to be handed each one; all six are pinned as regression cases, each
+asserted alongside `hasMenuShape` so a future change cannot make them pass by
+breaking the menu leg instead.
+
 This is deliberately **not** a ninth entry in the phrase corpus. ADR-024 §Context
 names serial regex-family additions as the arms race it exists to end, and five
 sibling tasks against these two files were each adding or removing one phrase.
