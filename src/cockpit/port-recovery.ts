@@ -135,6 +135,213 @@ export function classifyPortHolder(port: number): PortClassification {
 }
 
 // ---------------------------------------------------------------------------
+// Incumbent disposition (mt#4205)
+//
+// `recognized-zombie` says the port-holder IS this workspace's cockpit. It does
+// NOT say whether that cockpit is still working — and until mt#4205 the command
+// refused to displace it either way, so the one holder it could identify with
+// certainty was the one it never cleared. Every known daemon-wedge mechanism
+// (mt#3039 / mt#3051 / mt#3060 / mt#3682) leaves the process ALIVE and holding
+// the port, so that refusal turned any wedge into an outage lasting until a
+// human found `--force`.
+//
+// The disposition below is ADR-014's adoption rule applied to this path: its
+// implementation notes prescribe pairing the failed bind with a health probe to
+// confirm the holder is ours, and its 2026-08-12 amendment fixes what "ours"
+// means. The tray supervisor already implements this
+// (`cockpit-tray/src-tauri/src/supervisor/daemon_core.rs`'s `is_ours`); this is
+// the same predicate on the CLI path, not a second answer to the question.
+// ---------------------------------------------------------------------------
+
+/**
+ * The identity every cockpit daemon publishes at `GET /api/health`
+ * (`src/cockpit/routes/health.ts`), pinned cross-language by
+ * `contract/cockpit-health-shape.json`.
+ */
+export const COCKPIT_SERVICE_IDENTITY = "minsky-cockpit";
+
+/** Path the health probe targets — `/api/health`, not `/health`. */
+const HEALTH_PATH = "/api/health";
+
+/**
+ * Longer than the 2s `cockpit status` uses for the same endpoint, deliberately:
+ * there, a timeout costs a blank status line; here it costs the incumbent its
+ * life. The asymmetry runs one way, so the probe is given room to answer.
+ */
+export const HEALTH_PROBE_TIMEOUT_MS = 5_000;
+
+/**
+ * Tolerance when matching the state file's `startedAt` against the holder's
+ * real start time. Absorbs `ps` second-granularity and clock jitter; a recycled
+ * PID misses by orders of magnitude more than this.
+ */
+export const PID_REUSE_SKEW_MS = 5_000;
+
+/** What `cockpit start` should do about a recognized cockpit holding the port. */
+export type IncumbentDisposition = { kind: "preserve"; reason: string } | { kind: "displace" };
+
+/**
+ * The three observations `decideIncumbentDisposition` decides from.
+ *
+ * Separated from the IO below so the decision is testable without a real port,
+ * a real state file, or an HTTP hop (ADR-036) — the same split
+ * `resolveDaemonStatus` uses in `launchd.ts`. It also keeps the new tests out of
+ * `port-recovery.test.ts`, which races on the workspace's real cockpit state
+ * file under the full suite two independent ways (mt#3543, mt#3733).
+ */
+export interface IncumbentProbes {
+  /**
+   * `{ service }` when the port ANSWERED (at ANY status), `null` when nothing
+   * answered at all. The distinction is the whole decision — see below.
+   */
+  health(port: number): Promise<{ service: string | null } | null>;
+  /** The holder's real process start time, ms since epoch; null if unreadable. */
+  processStartedAtMs(pid: number): number | null;
+  /** `startedAt` from this workspace's cockpit state, ms since epoch; null if absent. */
+  recordedStartedAtMs(): number | null;
+}
+
+/** The observations, once gathered. */
+export interface IncumbentEvidence {
+  health: { service: string | null } | null;
+  holderStartedAtMs: number | null;
+  recordedStartedAtMs: number | null;
+}
+
+/**
+ * Decide whether a recognized incumbent is a working daemon to leave alone or a
+ * wedged one to displace. Pure.
+ *
+ * Displacing requires a POSITIVE finding that nothing is serving; every other
+ * outcome preserves. Three things follow, none of them obvious:
+ *
+ * 1. **A non-2xx answer counts as ours.** The daemon answers 503 when
+ *    persistence is unhealthy (mt#2949), and restarting cannot fix what a 503
+ *    reports — killing it would destroy a live process that is correctly
+ *    reporting a problem, and mt#3638's pool-recycle would have self-healed it.
+ *    So this asks whether the port ANSWERED, never whether it answered `ok`.
+ * 2. **A missing `service` is not ours.** Fail-closed, per mt#3148: every
+ *    Minsky service is built from the same monorepo and answers 200
+ *    identically, so a bare status code cannot tell them apart. An answer we
+ *    cannot attribute means the state file no longer describes the holder —
+ *    which is a reason to keep hands off, not to kill.
+ * 3. **Silence alone is not enough.** With nothing answering there is no body
+ *    to attribute, so identity rests entirely on the state file's PID — and a
+ *    recycled PID now costs a SIGKILL rather than the harmless refusal it cost
+ *    before this change. The recorded `startedAt` must be consistent with the
+ *    holder's real start time, and an unreadable start time preserves.
+ */
+export function decideIncumbentDisposition(evidence: IncumbentEvidence): IncumbentDisposition {
+  const { health, holderStartedAtMs, recordedStartedAtMs } = evidence;
+
+  if (health !== null) {
+    return health.service === COCKPIT_SERVICE_IDENTITY
+      ? {
+          kind: "preserve",
+          reason: `it is answering ${HEALTH_PATH} as ${COCKPIT_SERVICE_IDENTITY}`,
+        }
+      : {
+          kind: "preserve",
+          reason:
+            `something is answering ${HEALTH_PATH} on this port, but it does not ` +
+            `identify as ${COCKPIT_SERVICE_IDENTITY} ` +
+            `(service: ${health.service === null ? "absent" : `"${health.service}"`})`,
+        };
+  }
+
+  if (holderStartedAtMs === null || recordedStartedAtMs === null) {
+    return {
+      kind: "preserve",
+      reason:
+        "nothing answered, but the holder's start time could not be compared " +
+        "against the recorded one, so it cannot be confirmed as the same process",
+    };
+  }
+
+  // A recycled PID belongs to a process that started LONG AFTER the state file
+  // was written, so the recorded time sits far in the past relative to it. The
+  // opposite direction (a process older than its record) is not checked: it
+  // still means the PID is ours, so it is not a kill hazard.
+  if (recordedStartedAtMs < holderStartedAtMs - PID_REUSE_SKEW_MS) {
+    return {
+      kind: "preserve",
+      reason:
+        "nothing answered, but the holder started after the recorded cockpit " +
+        "did — the PID was recycled and belongs to a different process",
+    };
+  }
+
+  return { kind: "displace" };
+}
+
+export const realIncumbentProbes: IncumbentProbes = {
+  health: async (port) => {
+    let resp: Response;
+    try {
+      resp = await fetch(`http://localhost:${port}${HEALTH_PATH}`, {
+        signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS),
+      });
+    } catch {
+      // Connection refused, reset, or no answer within the timeout. This is the
+      // ONLY branch that can lead to a displacement.
+      return null;
+    }
+    // Answered. Its STATUS is deliberately not consulted (see rule 1 above);
+    // only the identity in the body is.
+    try {
+      const body = (await resp.json()) as Record<string, unknown>;
+      const service = body["service"];
+      return { service: typeof service === "string" ? service : null };
+    } catch {
+      // Answered with a body we cannot parse — still an answer, still not
+      // attributable, so it preserves via rule 2.
+      return { service: null };
+    }
+  },
+
+  processStartedAtMs: (pid) => {
+    // `etimes` is elapsed whole seconds since start — a plain integer on both
+    // macOS and Linux. Chosen over `lstart`, whose formatted date has to be
+    // parsed back through the local timezone and locale.
+    try {
+      const raw = execSync(`ps -p ${pid} -o etimes=`, {
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 3000,
+        encoding: "utf-8",
+      })
+        .toString()
+        .trim();
+      const elapsedSec = parseInt(raw, 10);
+      if (!Number.isFinite(elapsedSec) || elapsedSec < 0) return null;
+      return Date.now() - elapsedSec * 1000;
+    } catch {
+      // Process gone, or `ps` unavailable.
+      return null;
+    }
+  },
+
+  recordedStartedAtMs: () => {
+    const state = readCurrentCockpitState();
+    if (!state) return null;
+    const parsed = Date.parse(state.startedAt);
+    return Number.isFinite(parsed) ? parsed : null;
+  },
+};
+
+/** Gather the evidence and decide. Thin IO shell over the pure decision above. */
+export async function resolveIncumbentDisposition(
+  port: number,
+  pid: number,
+  probes: IncumbentProbes = realIncumbentProbes
+): Promise<IncumbentDisposition> {
+  return decideIncumbentDisposition({
+    health: await probes.health(port),
+    holderStartedAtMs: probes.processStartedAtMs(pid),
+    recordedStartedAtMs: probes.recordedStartedAtMs(),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Kill zombie (SIGTERM → wait → SIGKILL)
 // ---------------------------------------------------------------------------
 

@@ -35,9 +35,17 @@ import { startStdioLogRotationSweeper } from "../../cockpit/stdio-log-rotation";
 import {
   markDbDegraded,
   startDbRetryBackoff,
+  getSharedProvider,
   PersistenceInitTimeoutError,
 } from "../../cockpit/shared-persistence";
-import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
+import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
+import { log } from "@minsky/shared/logger";
+import {
+  classifyPortHolder,
+  killZombie,
+  openInBrowser,
+  resolveIncumbentDisposition,
+} from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
 import { startTranscriptWatcher } from "../../cockpit/transcript-watcher";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
@@ -80,6 +88,46 @@ type ListenAttempt =
  * Bind-or-fail: race the 'listening' event against 'error'. EADDRINUSE is
  * classified separately from other errors so the caller can attempt recovery.
  */
+/**
+ * Record that a previous cockpit instance was terminated to free the port
+ * (mt#4205).
+ *
+ * Called only AFTER the replacement server has bound, because this command's
+ * port guard runs before any configuration or persistence initialization — an
+ * emit at the decision point would resolve no provider and no-op silently,
+ * which is exactly the evidence-loss mt#4154 hit when it tried to reconstruct
+ * the 2026-08-06 outage from `system_events` and found the table could not
+ * distinguish "the daemon was fine" from "nobody was working".
+ *
+ * Never throws: a failed emission must not take down a daemon that has already
+ * successfully bound its port.
+ */
+async function recordPortDisplacement(
+  port: number,
+  displaced: { pid: number; command: string; forced: boolean }
+): Promise<void> {
+  try {
+    await emitSystemEventFromProvider(await getSharedProvider(), {
+      eventType: "cockpit.port_displaced",
+      payload: {
+        port,
+        displacedPid: displaced.pid,
+        displacedCommand: displaced.command,
+        // `forced` records WHY the kill was allowed: false is the mt#4205 path
+        // (the incumbent answered nothing), true means the disposition said
+        // preserve and the operator overrode it with --force. Without it the
+        // row cannot distinguish an automatic recovery from a manual one.
+        forced: displaced.forced,
+      },
+      actor: "cockpit-start",
+    });
+  } catch (err) {
+    log.warn("cockpit.port_displaced: could not record the displacement", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 async function attemptListen(
   app: express.Express,
   port: number,
@@ -299,8 +347,9 @@ export function createStartCommand(): Command {
     .option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION)
     .option(
       "--force",
-      "If a previous cockpit instance is holding the port, terminate it and retry. " +
-        "Never terminates unrecognized processes."
+      "Terminate a previous cockpit instance holding the port even when it is still " +
+        "answering /api/health. Not needed to clear one that has stopped answering — " +
+        "that is displaced automatically. Never terminates unrecognized processes."
     )
     .option("--open", "After the server starts, open the cockpit URL in the default browser.")
     .option(
@@ -404,6 +453,12 @@ export function createStartCommand(): Command {
 
       let attempt = await attemptListen(app, port, host);
 
+      // Set when a previous instance was terminated to free the port. Recorded
+      // as a system event AFTER the replacement binds (mt#4205) — emitting at
+      // the kill would run before this process has any persistence provider and
+      // silently no-op, which is the evidence-loss shape mt#4154 found.
+      let displaced: { pid: number; command: string; forced: boolean } | null = null;
+
       // EADDRINUSE: classify and (with --force) recover.
       if (attempt.kind === "in-use") {
         const classification = classifyPortHolder(port);
@@ -412,11 +467,18 @@ export function createStartCommand(): Command {
             // Holder vanished between bind and lsof. Retry once.
             attempt = await attemptListen(app, port, host);
             break;
-          case "recognized-zombie":
-            if (!options.force) {
+          case "recognized-zombie": {
+            // mt#4205: a recognized incumbent is not automatically a zombie.
+            // Probe before deciding — a daemon that still answers /api/health
+            // as ours is a live incumbent to leave alone (even at 503), and
+            // only a positive "nothing is serving" earns a displacement.
+            // `--force` remains the operator's override in both directions.
+            const disposition = await resolveIncumbentDisposition(port, classification.pid);
+            if (disposition.kind === "preserve" && !options.force) {
               console.error(
                 `Port ${port} is held by a previous cockpit instance ` +
-                  `(PID ${classification.pid}: ${classification.command}).`
+                  `(PID ${classification.pid}: ${classification.command}), ` +
+                  `and ${disposition.reason}.`
               );
               console.error(`Run with --force to terminate it and start a new instance.`);
               process.exit(1);
@@ -425,8 +487,14 @@ export function createStartCommand(): Command {
               `Port ${port} held by previous cockpit (PID ${classification.pid}); terminating...`
             );
             await killZombie(classification.pid);
+            displaced = {
+              pid: classification.pid,
+              command: classification.command,
+              forced: disposition.kind === "preserve",
+            };
             attempt = await attemptListen(app, port, host);
             break;
+          }
           case "unrecognized":
             console.error(
               `Port ${port} is in use by PID ${classification.pid} (${classification.command}).`
@@ -453,6 +521,13 @@ export function createStartCommand(): Command {
       }
 
       const server = attempt.server;
+
+      if (displaced !== null) {
+        // Fire-and-forget: the port is already bound and the daemon must not
+        // wait on the DB to finish booting. Best-effort by contract — a failed
+        // emission leaves the console line above as the only record.
+        void recordPortDisplacement(port, displaced);
+      }
 
       // Rung 2A driven-session WebSocket channel (mt#2750) — LOCAL DAEMON
       // ONLY (this file IS the local daemon entrypoint; the Railway

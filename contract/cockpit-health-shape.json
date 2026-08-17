@@ -6,7 +6,8 @@
     "src/cockpit/web/hooks/useSystemHealth.ts",
     "src/cockpit/web/components/Rail.tsx",
     "cockpit-tray/src-tauri/src/supervisor/daemon_core.rs (probe_health — transport + the `service` identity assertion + processStartedAtMs, mt#3815)",
-    "cockpit-tray/src-tauri/src/supervisor.rs (db_status_from_body — the cockpit-only `db` field, mt#3815)"
+    "cockpit-tray/src-tauri/src/supervisor.rs (db_status_from_body — the cockpit-only `db` field, mt#3815)",
+    "src/cockpit/port-recovery.ts (realIncumbentProbes.health — the `service` identity assertion before `cockpit start` displaces a port holder, mt#4205)"
   ],
   "fields": {
     "status": "string",
