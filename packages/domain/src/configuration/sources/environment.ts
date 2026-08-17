@@ -147,6 +147,11 @@ export const environmentMappings = {
   // via `minsky config get cockpit.port` rather than this variable directly,
   // so the two cannot disagree.
   MINSKY_COCKPIT_PORT: "cockpit.port",
+  // mt#4239: which MCP servers a driven session is provisioned with. Mapped
+  // (not hook-only) because the cockpit reads it through the normal
+  // configuration tree, the same way it reads `cockpit.port`. Needs the `csv`
+  // conversion registered below — `cockpit.allowedHosts` is the precedent.
+  MINSKY_COCKPIT_DRIVEN_SESSION_MCP_SERVERS: "cockpit.drivenSession.mcpServers",
 
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
@@ -626,6 +631,10 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "principalChannel.allowedUserIds": "csv",
   // Comma-separated list (mt#3641)
   "cockpit.allowedHosts": "csv",
+  // Comma-separated list (mt#4239). Same necessary-but-not-sufficient split the
+  // `cockpit.port` comment below describes: without this entry the env layer
+  // hands the schema a raw STRING and `z.array(z.string())` rejects it.
+  "cockpit.drivenSession.mcpServers": "csv",
   // mt#3988: without this entry the env layer hands the schema the raw STRING
   // and `cockpit.port`'s `z.number()` rejects it, so setting
   // MINSKY_COCKPIT_PORT crashes config resolution instead of overriding the

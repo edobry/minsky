@@ -46,6 +46,7 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "../driven-session-host";
+import { drivenSessionMcpServerNames } from "../driven-session-mcp-servers";
 import {
   resolveTaskWorkspace as prodResolveTaskWorkspace,
   createDrivenInitLinkObserver,
@@ -235,6 +236,7 @@ export function mountDrivenSessionRoutes(
       }
 
       const { record } = startDrivenSession({
+        mcpServerNames: drivenSessionMcpServerNames(),
         cwd,
         permissionMode,
         model,
