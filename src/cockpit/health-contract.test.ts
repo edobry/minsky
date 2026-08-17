@@ -431,6 +431,21 @@ describe("/api/health liveness-dating invariant (mt#4186)", () => {
     }
   });
 
+  test("AT4: monotonic counters are out of SCOPE, not exempted (SC1's explicit question)", () => {
+    // SC1 asks whether a counter whose RISE is the signal should be exempt. The answer is
+    // that the question does not arise: neither carries a liveness discriminator, so the
+    // check never asks them for a timestamp. Asserted with their REAL shapes so this
+    // stays true if either grows a field.
+    const survivedExceptions = { lastAt: null, count: 0, distinctSignatures: 0 };
+    const dbRecycle = { lastRecycleAt: null, recycleCount: 0 };
+
+    expect(findUndatedLivenessAssertions({ survivedExceptions, dbRecycle })).toEqual([]);
+    // And they are NOT on the exemption list — being off it is the point, since listing
+    // them would imply a liveness claim was being forgiven.
+    expect(Object.keys(DECLARED_EXEMPTIONS)).not.toContain("survivedExceptions");
+    expect(Object.keys(DECLARED_EXEMPTIONS)).not.toContain("dbRecycle");
+  });
+
   test("AT4: a non-liveness boolean does not drag a sub-object into scope", () => {
     // The boolean list is closed on purpose — "any boolean" would demand a timestamp
     // from flags that assert nothing about liveness.

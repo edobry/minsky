@@ -90,6 +90,21 @@ const EXTRA_DATING_KEYS = ["since"];
  * ALREADY out of scope because it is not an object, or carries no liveness assertion.
  * It is written down so a reader can see the judgment was made rather than missed.
  */
+/**
+ * **Monotonic counters: decided, and they need no exemption entry (mt#4186 SC1).**
+ *
+ * SC1 asks explicitly whether a counter whose RISE is the signal — `survivedExceptions`,
+ * `dbRecycle` — should be exempt. **Neither is exempted, because neither is in scope in
+ * the first place:** they carry no `state`/`mode`/`status` discriminator and no boolean
+ * liveness key, so {@link findLivenessAssertion} returns `null` and the check never asks
+ * them for a timestamp. Listing them below would be misleading — it would imply they
+ * make a liveness claim that is being forgiven.
+ *
+ * Both carry a dating field anyway (`survivedExceptions.lastAt`,
+ * `dbRecycle.lastRecycleAt`), so if either ever GAINS a liveness discriminator it passes
+ * on the day it does, with no change here. That is the intended behaviour: scope is
+ * decided by shape, continuously, not by a list somebody has to remember to revisit.
+ */
 export const DECLARED_EXEMPTIONS: Record<string, string> = {
   status:
     "Top-level HTTP-liveness discriminator, not a subsystem. The response as a whole is dated by processStartedAtMs.",
