@@ -102,41 +102,76 @@ function inWindow(iso: string | undefined): boolean {
   return true;
 }
 
+/** Does this tool call name `skill`? */
+function callsThisSkill(name: unknown, input: unknown, skill: string): boolean {
+  if (name !== "Skill") return false;
+  const named = (input as Record<string, unknown> | undefined)?.["skill"];
+  return typeof named === "string" && named === skill;
+}
+
 /**
  * Invocations of `SKILL` in one conversation, as ISO dates.
  *
- * Two shapes count, because both are the skill actually running:
+ * A mention of the skill's NAME in prose does NOT count — that distinction is
+ * the whole point of reading tool calls rather than searching turn text.
  *
- * - an assistant `tool_use` block named `Skill` whose `input.skill` matches —
- *   the agent invoking it;
- * - a user line carrying `<command-name>/<skill></command-name>` — the operator
- *   typing the slash command.
+ * **Four line shapes count, and reading only one of them is how this
+ * undercounts to zero (PR #3052 R1).** The reviewer caught the agent's tool
+ * call in only its nested form; the same miss applies to the operator's slash
+ * command, so both are handled in both shapes:
  *
- * A mention of the skill's NAME in prose does NOT count, which is the whole
- * distinction this script exists to draw.
+ * | Who | Nested in `message.content` | Top-level on the line |
+ * | --- | --- | --- |
+ * | agent | `{type:"tool_use", name:"Skill"}` block | `type === "tool_use"` + `name`/`tool_name` |
+ * | operator | `{type:"text"}` block carrying the marker | string `content` carrying the marker |
+ *
+ * The top-level tool_use form is not hypothetical: `extractToolUseNames` and
+ * `findToolUseInputs` in `.minsky/hooks/transcript.ts` both handle it, and
+ * `TranscriptLine`'s own comment records it ("tool_use lines may carry
+ * name/input at top level OR inside message.content"). A counter that reads one
+ * shape is biased toward zero — the direction that would have CONFIRMED this
+ * script's headline finding, which is why it needed catching.
  */
-function invocationDates(lines: readonly TranscriptLine[]): string[] {
+export function invocationDates(lines: readonly TranscriptLine[], skill: string): string[] {
   const dates: string[] = [];
-  const commandMarker = `<command-name>/${SKILL}</command-name>`;
+  const commandMarker = `<command-name>/${skill}</command-name>`;
 
   for (const line of lines) {
     const ts = line.timestamp;
     if (ts === undefined) continue;
+
+    // Shape 1 — agent call, top-level line form.
+    if (
+      line.type === "tool_use" &&
+      callsThisSkill(line.name ?? line.tool_name, line.input, skill)
+    ) {
+      dates.push(ts);
+      continue;
+    }
 
     const content = line.message?.content;
     if (Array.isArray(content)) {
       for (const block of content) {
         if (block === null || typeof block !== "object") continue;
         const b = block as Record<string, unknown>;
-        if (b["type"] !== "tool_use") continue;
-        if (b["name"] !== "Skill") continue;
-        const input = b["input"];
-        const named = (input as Record<string, unknown> | undefined)?.["skill"];
-        if (typeof named === "string" && named === SKILL) dates.push(ts);
+        // Shape 2 — agent call, nested block form.
+        if (b["type"] === "tool_use" && callsThisSkill(b["name"], b["input"], skill))
+          dates.push(ts);
+        // Shape 3 — operator slash command, nested text-block form.
+        const text = b["text"];
+        if (
+          line.isMeta !== true &&
+          b["type"] === "text" &&
+          typeof text === "string" &&
+          text.includes(commandMarker)
+        ) {
+          dates.push(ts);
+        }
       }
     }
 
-    // The operator's own slash invocation. Claude Code records it as a user
+    // Shape 4 — operator slash command, string-content form. Claude Code
+    // records it as a user
     // line whose text carries the command marker; `isMeta` lines are the
     // harness's own echo of the skill body and would double-count.
     if (line.isMeta !== true && typeof content === "string" && content.includes(commandMarker)) {
@@ -198,7 +233,7 @@ function main(): void {
     if (!touchesWindow) continue;
     conversationsInWindow += 1;
 
-    const dates = invocationDates(lines).filter(inWindow);
+    const dates = invocationDates(lines, SKILL).filter(inWindow);
     if (dates.length === 0) continue;
 
     conversationsWithInvocation += 1;
@@ -235,4 +270,6 @@ function main(): void {
   }
 }
 
-main();
+// Guarded so the shape-matching above can be imported and tested without the
+// sweep running as a side effect of the import.
+if (import.meta.main) main();
