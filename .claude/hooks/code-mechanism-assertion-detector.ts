@@ -1500,6 +1500,9 @@ export const IDENTITY_CLAIM_EXEMPLARS: readonly string[] = [
   "that module is the only consumer of this interface",
   "the two share the same underlying reader",
   "this constant is equivalent to the one the caller passes",
+  "the value is converted to it, and the watermark that shares the same reader is converted with it",
+  "its arithmetic is expressed in the same unit against the same reading, so changing the input changes the projection",
+  "converting the one function also converts the watchers that consume it",
 ];
 
 /** The exemplar set handed to `nominate`. */
