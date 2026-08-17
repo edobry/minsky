@@ -331,27 +331,61 @@ describe("mt#4166: a denial is not discharged by single-condition counts", () =>
 });
 
 describe("hasLoadControl", () => {
-  test("accepts the forms authors write", () => {
-    expect(hasLoadControl("Load control: isolated 67/67, under load 55/67.")).toBe(true);
-    expect(hasLoadControl("## Load control")).toBe(true);
-    expect(hasLoadControl("###### Load control:")).toBe(true);
-    expect(hasLoadControl("**Load control:** isolated vs loaded")).toBe(true);
-    expect(hasLoadControl("- **Load control** — isolated vs full-suite")).toBe(true);
-    expect(hasLoadControl("  load control:  lowercase and indented")).toBe(true);
+  /** The record itself: two runs under two conditions, each with counts. */
+  const RECORD = [
+    "`bun test src/foo/bar.test.ts` alone → 67 pass / 0 fail",
+    "`bun test src/foo/bar.test.ts` under load → 55 pass / 12 fail",
+  ].join("\n");
+
+  test("accepts every label form authors write, when a record backs it", () => {
+    expect(hasLoadControl(`Load control:\n${RECORD}`)).toBe(true);
+    expect(hasLoadControl(`## Load control\n${RECORD}`)).toBe(true);
+    expect(hasLoadControl(`###### Load control:\n${RECORD}`)).toBe(true);
+    expect(hasLoadControl(`**Load control:**\n${RECORD}`)).toBe(true);
+    expect(hasLoadControl(`- **Load control** — isolated vs full-suite\n${RECORD}`)).toBe(true);
+    expect(hasLoadControl(`  load control:\n${RECORD}`)).toBe(true);
+  });
+
+  test("rejects the label with no record behind it (PR #3034 R1)", () => {
+    // The label is a heading FOR the record, not the record. Each of these
+    // carries the label and asserts the OPPOSITE of compliance, so accepting
+    // them would silence exactly the denial the guard exists to surface.
+    expect(hasLoadControl("Load control: was never run for this failure.")).toBe(false);
+    expect(hasLoadControl("## Load control")).toBe(false);
+    expect(hasLoadControl("**Load control:** pending — will run before merge.")).toBe(false);
+    expect(hasLoadControl("Load control — TODO")).toBe(false);
+  });
+
+  test("rejects a ONE-run record — a denial is a claim across conditions", () => {
+    expect(hasLoadControl("Load control:\n`bun test src/foo/bar.test.ts` → 67 pass / 0 fail")).toBe(
+      false
+    );
+  });
+
+  test("rejects two runs with no observed counts — a plan, not an observation", () => {
+    expect(
+      hasLoadControl(
+        "Load control:\n`bun test src/foo.test.ts` alone\n`bun test src/foo.test.ts` under load"
+      )
+    ).toBe(false);
+  });
+
+  test("rejects a record too far from the label to be its record", () => {
+    const gap = "x".repeat(700);
+    expect(hasLoadControl(`Load control:\n${gap}\n${RECORD}`)).toBe(false);
   });
 
   test("rejects a bare mention that asserts nothing", () => {
-    // The label is a CLAIM the author makes; a sentence merely containing the
-    // words is not that claim, and must not buy silence.
-    expect(hasLoadControl("Load control was never run for this failure.")).toBe(false);
     expect(hasLoadControl("We should add a load control here.")).toBe(false);
     expect(hasLoadControl("")).toBe(false);
   });
 
   test("rejects a fenced label — quoted, not asserted", () => {
-    expect(hasLoadControl("```\nLoad control: isolated 67/67\n```")).toBe(false);
-    expect(hasLoadControl("~~~\nLoad control: isolated 67/67\n~~~")).toBe(false);
+    expect(hasLoadControl(`\`\`\`\nLoad control:\n${RECORD}\n\`\`\``)).toBe(false);
+    expect(hasLoadControl(`~~~\nLoad control:\n${RECORD}\n~~~`)).toBe(false);
     // ...and still finds a real one after the fence closes.
-    expect(hasLoadControl("```\nLoad control: quoted\n```\n\nLoad control: real")).toBe(true);
+    expect(hasLoadControl(`\`\`\`\nLoad control: quoted\n\`\`\`\n\nLoad control:\n${RECORD}`)).toBe(
+      true
+    );
   });
 });

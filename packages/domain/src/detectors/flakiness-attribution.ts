@@ -121,19 +121,70 @@ export const LOAD_CONTROL_LABEL = "Load control";
 const FENCE_RE = /^[ \t]*(?:```|~~~)/;
 
 /**
+ * A test invocation, as the isolation control is actually written.
+ *
+ * Bun is the only runner in this repo (`CLAUDE.md`: "Always use `bun`, never
+ * `node`/`npm`/`npx`"), so this deliberately does not try to cover other
+ * ecosystems' runners — a match on `npm test` here would be evidence of a spec
+ * describing some other project.
+ *
+ * Declared here rather than beside `hasIsolationControl` below because
+ * `hasLoadControl` derives its counting form at module-evaluation time; a
+ * `const` is not hoisted, so the reader would be a TDZ error.
+ */
+const TEST_INVOCATION_RE = /\bbun\s+(?:run\s+)?test\b|\bbun\s+scripts\/run-tests/i;
+
+/** Observed pass counts — `17 pass`, `0 fail`, `3 passed`, `1533 tests`. */
+const PASS_COUNT_RE = /\b\d+\s+(?:pass(?:ed|ing)?|tests?\s+pass)/i;
+const FAIL_COUNT_RE = /\b\d+\s+(?:fail(?:ed|ing|ures?)?)\b/i;
+
+/**
+ * How far past the label the record itself is looked for.
+ *
+ * The runs sit directly under the label in every form §2b prescribes; this is
+ * wide enough for a heading, a blank line and a few command lines without
+ * reaching an unrelated section further down the spec.
+ */
+const LOAD_CONTROL_RECORD_WINDOW_CHARS = 600;
+
+/** Counting form of {@link TEST_INVOCATION_RE}; `lastIndex` is reset per use. */
+const TEST_INVOCATION_GLOBAL_RE = new RegExp(TEST_INVOCATION_RE.source, "gi");
+
+/**
  * Whether the spec records a two-condition load control under its literal label.
  *
- * Accepts the decorations authors actually write — a leading bullet, `**bold**`,
- * any heading level — because mt#3778 measured a sibling matcher rejecting every
- * such form and logging 42 consecutive unpassable fires. A HEADING may stand
- * alone; a plain label must carry a colon or a dash-subject, so an incidental
- * sentence ("Load control was never run") cannot silence anything.
+ * TWO things are required, and the label is only the first (PR #3034 R1). The
+ * label is a HEADING for the record, not the record — so it must be backed,
+ * within {@link LOAD_CONTROL_RECORD_WINDOW_CHARS}, by **two** test invocations
+ * and at least one observed count. Two invocations is the whole claim: a denial
+ * is about behavior across conditions, so one run cannot discharge it no matter
+ * how it is labelled.
+ *
+ * Requiring the record rather than the label closes two shapes that the label
+ * alone admits, both of which assert the opposite of compliance:
+ *
+ * - **The disclaimer.** `Load control: was never run` carries the label and a
+ *   colon, and says the control did not happen.
+ * - **The bare heading.** `## Load control` with nothing under it names no runs.
+ *
+ * Deliberately structural — count invocations, not vocabulary. A negation list
+ * (`never run`, `pending`, `TODO`) would be the paraphrase arms race ADR-024
+ * §Context exists to end, and "was never run" is one phrasing of unboundedly
+ * many. A record with two runs in it cannot be a disclaimer.
+ *
+ * Decoration is still accepted — leading bullet, `**bold**`, any heading level —
+ * because mt#3778 measured a sibling matcher rejecting every such form and
+ * logging 42 consecutive unpassable fires.
  */
 export function hasLoadControl(spec: string): boolean {
   if (!spec) return false;
 
+  let offset = 0;
   let inFence = false;
   for (const raw of spec.split("\n")) {
+    const lineStart = offset;
+    offset += raw.length + 1;
+
     if (FENCE_RE.test(raw)) {
       inFence = !inFence;
       continue;
@@ -145,29 +196,17 @@ export function hasLoadControl(spec: string): boolean {
     const body = (heading?.[1] ?? withoutBullet).replace(/\*\*/g, "").trim();
     if (!new RegExp(`^${LOAD_CONTROL_LABEL}\\b`, "i").test(body)) continue;
 
-    const rest = body.slice(LOAD_CONTROL_LABEL.length).trim();
-    if (heading) {
-      if (rest === "" || rest === ":") return true;
-      continue;
-    }
-    if (rest.startsWith(":") || /^[—–-]\s*\S/.test(rest)) return true;
+    // The window starts at the label's own line: a one-line form
+    // (`Load control: alone 67 pass / 0 fail, under load 55 pass / 12 fail`)
+    // carries its record on that same line.
+    const window = spec.slice(lineStart, lineStart + LOAD_CONTROL_RECORD_WINDOW_CHARS);
+    TEST_INVOCATION_GLOBAL_RE.lastIndex = 0;
+    const runs = window.match(TEST_INVOCATION_GLOBAL_RE)?.length ?? 0;
+    const counted = PASS_COUNT_RE.test(window) || FAIL_COUNT_RE.test(window);
+    if (runs >= 2 && counted) return true;
   }
   return false;
 }
-
-/**
- * A test invocation, as the isolation control is actually written.
- *
- * Bun is the only runner in this repo (`CLAUDE.md`: "Always use `bun`, never
- * `node`/`npm`/`npx`"), so this deliberately does not try to cover other
- * ecosystems' runners — a match on `npm test` here would be evidence of a spec
- * describing some other project.
- */
-const TEST_INVOCATION_RE = /\bbun\s+(?:run\s+)?test\b|\bbun\s+scripts\/run-tests/i;
-
-/** Observed pass counts — `17 pass`, `0 fail`, `3 passed`, `1533 tests`. */
-const PASS_COUNT_RE = /\b\d+\s+(?:pass(?:ed|ing)?|tests?\s+pass)/i;
-const FAIL_COUNT_RE = /\b\d+\s+(?:fail(?:ed|ing|ures?)?)\b/i;
 
 /** Longest matched phrase kept in a record; the excerpt carries the context. */
 const MAX_PHRASE_CHARS = 120;

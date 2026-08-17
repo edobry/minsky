@@ -146,8 +146,19 @@ optional `**bold**`, optional leading bullet, colon required on the plain form, 
 dash-subject — and a FENCED label does not count (mt#3511/mt#3584), because a quoted convention is
 not an assertion of it.
 
-A false `Load control:` label is a lie, and catching lies is not this guard's job. Making the
-OMISSION visible is.
+**The label alone is not the record (PR #3034 R1).** The reviewer caught two shapes the first
+implementation admitted, both of which carry the label while asserting the opposite of
+compliance: the disclaimer (`Load control: was never run`) and the bare heading (`## Load
+control` with nothing under it). `hasLoadControl` therefore requires the label to be backed,
+within 600 chars, by **two** test invocations and at least one observed count — two, because a
+denial is a claim across conditions and one run cannot discharge it however it is labelled.
+
+That check is deliberately structural rather than a negation vocabulary (`never run`, `pending`,
+`TODO`): "was never run" is one phrasing of unboundedly many, and chasing them is the paraphrase
+arms race ADR-024 §Context exists to end. A record with two runs in it cannot be a disclaimer.
+
+A false `Load control:` record — two invocations and counts that were never observed — is a lie,
+and catching lies is not this guard's job. Making the OMISSION visible is.
 
 ### A shadow attribution inside every denial
 

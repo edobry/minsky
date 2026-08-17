@@ -146,6 +146,11 @@ Load control:
 `bun test <file>` with the gated suite running → 55 pass / 12 fail
 ```
 
+**The label is a heading for the record, not the record.** Both runs must actually be there:
+the check requires two test invocations and observed counts within the lines under the label,
+so `Load control: was never run` and a bare `## Load control` heading do NOT silence anything —
+they carry the label and assert the opposite of compliance.
+
 Counts alone silence an ATTRIBUTION (they at least show the failure is real) and no longer
 silence a denial. If you cannot run both conditions now, mark the denial `UNVERIFIED`
 beside itself rather than recording one run and calling the question settled — that is
