@@ -40,10 +40,17 @@ import type { ToolCallWithResult } from "./transcript";
  * Transcripts carry both the MCP-prefixed and bare forms, and the dotted
  * canonical name and the underscore alias are both registered spellings of one
  * tool. Normalize before any membership test.
+ *
+ * The prefix strip is server-AGNOSTIC (`mcp__<server>__`), not
+ * `mcp__minsky__`-only. mt#4168 needed `mcp__github__pull_request_read`, and the
+ * minsky-only strip left it unnormalized so the collision join silently matched
+ * nothing — caught by that guard's own test, not by review. Widening is safe for
+ * the pre-existing callers because every name they test for is a minsky tool,
+ * which no other server also exposes.
  */
 export function normalizeToolName(raw: string): string {
   return raw
-    .replace(/^mcp__minsky__/, "")
+    .replace(/^mcp__.*?__/, "")
     .replace(/\./g, "_")
     .toLowerCase();
 }
@@ -69,6 +76,67 @@ export const SEARCH_TOOL_NAMES: readonly string[] = [
 /** True when any search tool was invoked in the transcript given. */
 export function sessionRanASearch(toolNames: readonly string[]): boolean {
   return toolNames.some((raw) => SEARCH_TOOL_NAMES.includes(normalizeToolName(raw)));
+}
+
+// ---------------------------------------------------------------------------
+// Discharge: a claimed FILE-LEVEL COLLISION (mt#4168, re-homed from mt#3806)
+// ---------------------------------------------------------------------------
+
+/**
+ * `pull_request_read` methods that return a PR's actual changed-file list.
+ *
+ * `get_files` is the cheap default — it returns filenames, which IS the
+ * question — and `get_diff` returns them too, inside the hunks. Every other
+ * method (`get`, `get_reviews`, `get_status`, …) returns metadata a collision
+ * claim cannot rest on, which is the whole point of mt#3806: a task's title, or
+ * an inference about where that kind of code lives, is not evidence about which
+ * files were touched.
+ */
+const PR_FILE_LIST_METHODS: readonly string[] = ["get_files", "get_diff"];
+
+/** True when this call read some PR's changed-file list. */
+export function isPrFileListCall(call: ToolCallWithResult): boolean {
+  if (normalizeToolName(call.toolName) !== "pull_request_read") return false;
+  const method = call.input["method"];
+  return typeof method === "string" && PR_FILE_LIST_METHODS.includes(method);
+}
+
+/**
+ * PR numbers whose changed-file list was actually read in this session.
+ *
+ * Returning the SET rather than a boolean is what makes the join specific: a
+ * collision claim names a PR, and reading a DIFFERENT PR's files is not
+ * evidence about this one. mem#892 is precisely that failure with the read
+ * missing entirely; accepting any file-read at all would rebuild it one step up.
+ */
+export function prNumbersWithFileListRead(calls: readonly ToolCallWithResult[]): Set<number> {
+  const out = new Set<number>();
+  for (const call of calls) {
+    if (!isPrFileListCall(call)) continue;
+    const n = call.input["pullNumber"];
+    if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+  }
+  return out;
+}
+
+/**
+ * True when this call is a path- or grep-filtered `git_log` — the evidence a
+ * collision claim about a MERGE rests on, per gate (g) check 1.
+ *
+ * Generous by the header's direction-of-error rule: an unfiltered `git_log` is
+ * excluded (it says nothing about a file), but either filter counts, because an
+ * author chasing a merge legitimately reaches for either.
+ */
+export function isPathFilteredGitLogCall(call: ToolCallWithResult): boolean {
+  if (normalizeToolName(call.toolName) !== "git_log") return false;
+  const path = call.input["path"];
+  const grep = call.input["grep"];
+  return (typeof path === "string" && path !== "") || (typeof grep === "string" && grep !== "");
+}
+
+/** True when any call in the transcript read a merge's file-level history. */
+export function sessionReadMergeHistory(calls: readonly ToolCallWithResult[]): boolean {
+  return calls.some(isPathFilteredGitLogCall);
 }
 
 // ---------------------------------------------------------------------------
