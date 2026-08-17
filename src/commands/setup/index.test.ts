@@ -32,10 +32,33 @@ const CONNECTION_STRING = "--connection-string";
 const GITHUB_APP_ID = "setup.github-app";
 const PG_URL = "postgres://x/y";
 
-const registered: string[] = [];
+/**
+ * What each capture displaced, so teardown can put it back.
+ *
+ * The registry is process-global and shared with every other test file in the
+ * run. An earlier version of this file assumed it was EMPTY — it registered
+ * captures without `allowOverwrite` and unregistered them afterwards. That
+ * passes when this file runs alone and throws `Command with ID 'setup...' is
+ * already registered` when anything else has registered the real commands
+ * first, which is what CI does and a single-file local run does not. Unregister
+ * would have been wrong in the other direction too: it would delete the real
+ * command out from under whichever file registered it.
+ */
+const displaced: Array<{
+  id: string;
+  previous: ReturnType<typeof sharedCommandRegistry.getCommand>;
+}> = [];
 
 afterEach(() => {
-  for (const id of registered.splice(0)) sharedCommandRegistry.unregisterCommand(id);
+  // Reverse: displacements stack, so they must unwind innermost-first or a
+  // nested displacement's restore would clobber the outer one's.
+  for (const { id, previous } of displaced.splice(0).reverse()) {
+    if (previous === undefined) {
+      sharedCommandRegistry.unregisterCommand(id);
+    } else {
+      sharedCommandRegistry.registerCommand(previous, { allowOverwrite: true });
+    }
+  }
 });
 
 /**
@@ -46,6 +69,7 @@ afterEach(() => {
  */
 function captureParamsFor(id: string): { params: Record<string, unknown> | undefined } {
   const box: { params: Record<string, unknown> | undefined } = { params: undefined };
+  displaced.push({ id, previous: sharedCommandRegistry.getCommand(id) });
   sharedCommandRegistry.registerCommand(
     defineCommand({
       id,
@@ -60,9 +84,9 @@ function captureParamsFor(id: string): { params: Record<string, unknown> | undef
         // kill the test runner rather than fail a test.
         return { success: true };
       },
-    })
+    }),
+    { allowOverwrite: true }
   );
-  registered.push(id);
   return box;
 }
 
@@ -163,6 +187,24 @@ describe("the parent's own invocation is undisturbed", () => {
     await runSetup(["--repo", "/w/proj", "--connection-string", "postgres://a/b"]);
     expect(captured.params?.repo).toBe("/w/proj");
     expect(captured.params?.connectionString).toBe("postgres://a/b");
+  });
+});
+
+describe("registry-state independence", () => {
+  test("a capture works when the id is ALREADY registered", async () => {
+    // The CI failure this pins (PR #3047): the shared registry is
+    // process-global, and whether some other test file registered the real
+    // `setup.*` commands before this one depends on directory-walk order —
+    // which differs between macOS and Linux. The first version of this file
+    // registered without `allowOverwrite` and threw `Command with ID
+    // 'setup.db' is already registered` in CI while passing locally. Asserting
+    // it here means the fix no longer depends on which OS runs the suite.
+    captureParamsFor("setup.db"); // stands in for whatever registered first
+    const captured = captureParamsFor("setup.db"); // the displacing capture
+
+    await runSetup(["db", CONNECTION_STRING, PG_URL]);
+
+    expect(captured.params?.connectionString).toBe(PG_URL);
   });
 });
 
