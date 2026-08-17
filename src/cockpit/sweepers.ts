@@ -123,6 +123,19 @@ export interface SweepLivenessSnapshot {
   consecutiveDomainFailures: number;
   /** False when this sweep has never reported a domain outcome — the three fields above are then meaningless rather than healthy. */
   reportsDomainOutcome: boolean;
+  /**
+   * True when this participant drives its own cadence (mt#4185) rather than
+   * having its tick fired by {@link createIntervalSweeper}'s `setInterval`.
+   *
+   * This is the discriminator for reading `intervalMs`. For an interval sweep
+   * it is a CADENCE — how often the timer fires. For a self-scheduling
+   * participant it is a PROGRESS BUDGET — the longest legitimate gap between
+   * two `noteProgress()` calls. The stall predicate is the same either way
+   * (`lastAttemptAt` staler than `intervalMs` × {@link
+   * META_WATCHDOG_STALL_MULTIPLIER}), which is why one field carries both;
+   * this flag is what lets a reader say which one it is looking at.
+   */
+  selfScheduled: boolean;
 }
 
 interface SweepLivenessEntry {
@@ -138,6 +151,8 @@ interface SweepLivenessEntry {
   lastDomainFailureAtMs: number | null;
   consecutiveDomainFailures: number;
   reportsDomainOutcome: boolean;
+  /** See {@link SweepLivenessSnapshot.selfScheduled} (mt#4185). */
+  selfScheduled: boolean;
   /**
    * True once this sweep's `stop()` has been called (PR #2019 R1 BLOCKING
    * #1). The entry is deliberately kept in {@link sweepLivenessRegistry}
@@ -201,6 +216,7 @@ export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
         e.lastDomainFailureAtMs === null ? null : new Date(e.lastDomainFailureAtMs).toISOString(),
       consecutiveDomainFailures: e.consecutiveDomainFailures,
       reportsDomainOutcome: e.reportsDomainOutcome,
+      selfScheduled: e.selfScheduled,
     }));
 }
 
@@ -335,6 +351,7 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     lastDomainFailureAtMs: null,
     consecutiveDomainFailures: 0,
     reportsDomainOutcome: false,
+    selfScheduled: false,
     stopped: false,
     restart: () => {},
     clearUnderlyingTimer: () => {
@@ -554,6 +571,170 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
 }
 
 // ---------------------------------------------------------------------------
+// Self-scheduling participants (mt#4185)
+// ---------------------------------------------------------------------------
+
+/** Options accepted by {@link registerSelfSchedulingSweep}. */
+export interface SelfSchedulingSweepOptions {
+  /**
+   * Human-readable name, unique among ACTIVE registrants — the same rule
+   * {@link createIntervalSweeper} enforces, for the same reason.
+   */
+  name: string;
+  /**
+   * The longest legitimate gap between two
+   * {@link SelfSchedulingSweepHandle.noteProgress} calls.
+   *
+   * This occupies `intervalMs` in the registry, so the meta-watchdog's stall
+   * predicate applies unchanged: a participant is stalled once it has not
+   * reported progress in {@link META_WATCHDOG_STALL_MULTIPLIER} times this
+   * value. Derive it from a bound the system actually enforces rather than
+   * picking a round number — a budget shorter than a legitimate work unit
+   * produces a restart loop, and one much longer just delays detection.
+   */
+  progressBudgetMs: number;
+  /**
+   * Called when progress has stalled past the budget above.
+   *
+   * The registry cannot restart a loop it does not schedule, so the
+   * participant supplies the recovery itself. It should return promptly —
+   * abandoning or interrupting the stuck work — rather than awaiting it.
+   */
+  restart: () => void;
+}
+
+/** Returned by {@link registerSelfSchedulingSweep}. */
+export interface SelfSchedulingSweepHandle {
+  /**
+   * Report that the loop advanced. Stamps `lastAttemptAt` — the SAME field,
+   * with the same meaning, that a timer fire stamps for an interval sweep.
+   *
+   * Call it where the loop demonstrably moved, not on a timer of its own: a
+   * signal that keeps firing while the work is wedged reports health through
+   * the exact failure it exists to detect.
+   */
+  noteProgress(): void;
+  /** Report that a unit of work completed successfully (also counts as progress). */
+  noteSuccess(): void;
+  /** Report that a unit of work failed (also counts as progress — the loop is still cycling). */
+  noteFailure(error?: unknown): void;
+  /** Deregister. Idempotent; the meta-watchdog refuses to act on a stopped entry. */
+  stop(): void;
+}
+
+/**
+ * Register a loop that schedules ITSELF with the sweep-liveness registry
+ * (mt#4185).
+ *
+ * {@link createIntervalSweeper} owns both halves of a sweep — it fires the
+ * tick AND records that the tick fired — so registration is a side effect of
+ * using it, and a loop that schedules itself had no way in. That gap is not
+ * theoretical: `startPrincipalChannelPoller` parked on an unsettled await for
+ * ~44 hours while `/api/sweeps` listed 16 healthy sweeps and never mentioned
+ * it, because it was not a registrant (mt#4183).
+ *
+ * The split here is deliberate. The participant keeps its own scheduling — the
+ * reason it is hand-rolled usually survives, as it does for a long poll that
+ * must not overlap itself — and gives up only the RECORDING half, which is the
+ * half the meta-watchdog needs. `startSweepMetaWatchdog` requires no knowledge
+ * of this: it reads `stopped`, `lastAttemptAtMs`, `intervalMs` and `restart`,
+ * none of which is specific to a `setInterval`.
+ */
+export function registerSelfSchedulingSweep(
+  options: SelfSchedulingSweepOptions
+): SelfSchedulingSweepHandle {
+  const { name, progressBudgetMs, restart } = options;
+
+  // Same duplicate-registration guard as createIntervalSweeper, and for the
+  // same reason: a second ACTIVE entry under one name would overwrite the
+  // registry's reference to the first, leaving it running with no
+  // `/api/sweeps` visibility and no meta-watchdog reach.
+  const existingActive = sweepLivenessRegistry.get(name);
+  if (existingActive && !existingActive.stopped) {
+    throw new Error(
+      `cockpit: duplicate active sweep registration for "${name}" — a sweep with this name is ` +
+        "already registered and running. Sweep names must be unique among active sweeps " +
+        "(call the existing sweep's stop() first if this is an intentional restart)."
+    );
+  }
+
+  let stopped = false;
+
+  const entry: SweepLivenessEntry = {
+    name,
+    intervalMs: progressBudgetMs,
+    lastAttemptAtMs: null,
+    lastSuccessAtMs: null,
+    lastErrorAtMs: null,
+    consecutiveFailures: 0,
+    reinits: 0,
+    metaRestarts: 0,
+    lastDomainSuccessAtMs: null,
+    lastDomainFailureAtMs: null,
+    consecutiveDomainFailures: 0,
+    reportsDomainOutcome: false,
+    selfScheduled: true,
+    stopped: false,
+    restart: (reason: SweepRestartReason): void => {
+      if (stopped) return;
+      if (reason === "meta-watchdog") {
+        entry.metaRestarts++;
+      } else {
+        entry.reinits++;
+      }
+      // mt#3060: a restart that does not itself reset staleness cannot outrun
+      // a watchdog scanning faster than the budget — the participant would be
+      // restarted again on the very next scan, and every scan after it, before
+      // its first post-restart progress call had a chance to land.
+      entry.lastAttemptAtMs = Date.now();
+      restart();
+    },
+    // Nothing to clear: the participant owns its own scheduling primitive, so
+    // there is no handle here to drop. The TEST-ONLY dropped-timer simulation
+    // this backs is meaningless for a self-scheduling participant — stopping
+    // its progress calls is the equivalent, and needs no hook.
+    clearUnderlyingTimer: () => {},
+  };
+  sweepLivenessRegistry.set(name, entry);
+
+  const noteProgress = (): void => {
+    if (stopped) return;
+    entry.lastAttemptAtMs = Date.now();
+  };
+
+  return {
+    noteProgress,
+    noteSuccess(): void {
+      if (stopped) return;
+      const now = Date.now();
+      entry.lastAttemptAtMs = now;
+      entry.lastSuccessAtMs = now;
+      entry.consecutiveFailures = 0;
+    },
+    noteFailure(error?: unknown): void {
+      if (stopped) return;
+      const now = Date.now();
+      // A failure is still PROGRESS: the loop ran, failed, and will cycle
+      // again. Conflating the two would make an erroring-but-alive loop
+      // indistinguishable from a wedged one, which is the distinction the
+      // meta-watchdog exists to draw.
+      entry.lastAttemptAtMs = now;
+      entry.lastErrorAtMs = now;
+      entry.consecutiveFailures++;
+      log.warn(`cockpit: self-scheduling sweep "${name}" reported a failed cycle`, {
+        name,
+        consecutiveFailures: entry.consecutiveFailures,
+        error: error instanceof Error ? error.message : String(error ?? "unknown"),
+      });
+    },
+    stop(): void {
+      stopped = true;
+      entry.stopped = true;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Sweep meta-watchdog ("sweep of sweeps") — mt#2894
 // ---------------------------------------------------------------------------
 
@@ -611,12 +792,23 @@ export function startSweepMetaWatchdog(
       const threshold = entry.intervalMs * META_WATCHDOG_STALL_MULTIPLIER;
       const staleMs = now - entry.lastAttemptAtMs;
       if (staleMs > threshold) {
-        log.warn(
-          `cockpit: meta-watchdog — sweep "${entry.name}" has not attempted a tick in ${staleMs}ms ` +
-            `(> ${threshold}ms, ${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms cadence); ` +
-            "force-restarting",
-          { name: entry.name, staleMs, threshold, intervalMs: entry.intervalMs }
-        );
+        // A self-scheduling participant (mt#4185) has no timer of ours to
+        // have stopped firing and no cadence to be a multiple of — the same
+        // two numbers mean "progress" and "budget" there. Say which, so an
+        // operator reading the line is not told about a tick that does not
+        // exist.
+        const stalled = entry.selfScheduled
+          ? `has not reported progress in ${staleMs}ms (> ${threshold}ms, ` +
+            `${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms progress budget)`
+          : `has not attempted a tick in ${staleMs}ms (> ${threshold}ms, ` +
+            `${META_WATCHDOG_STALL_MULTIPLIER}x its ${entry.intervalMs}ms cadence)`;
+        log.warn(`cockpit: meta-watchdog — sweep "${entry.name}" ${stalled}; force-restarting`, {
+          name: entry.name,
+          staleMs,
+          threshold,
+          intervalMs: entry.intervalMs,
+          selfScheduled: entry.selfScheduled,
+        });
         entry.restart("meta-watchdog");
       }
     }

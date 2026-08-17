@@ -877,17 +877,6 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
-    "policy-coverage",
-    {
-      description:
-        "Runs before every Edit/Write/NotebookEdit: when a tool call encodes a preference-bound choice that no policy source covers, it emits a `direction.decide` ask and blocks the action with the question surfaced as the denial reason.",
-      failureClasses: ["lost-signal", "blind-enforcement"],
-      provenance: [hook("policy-coverage-detector"), HOOK_FILES_RULE],
-      stratum: "standalone",
-      note: "Ontology amendment (a): its declared type is a capability SET — it selects deny, warn, or allow per fire — so it is legitimately both a guard and a detector.",
-    },
-  ],
-  [
     "require-session-for-main-workspace-edits",
     {
       description:
@@ -1257,6 +1246,18 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
   // -------------------------------------------------------------------------
   // Retired stratum (2) — no longer exist in source; their records are history
   // -------------------------------------------------------------------------
+  [
+    "policy-coverage",
+    {
+      description:
+        "Retired PreToolUse detector (Surface 1 of the System 3* detector) that ran before every Edit/Write and decided whether existing policy prose already authorized a preference-bound choice — a new file, dependency, config default, user-facing string, or top-level export.",
+      failureClasses: ["lost-signal"],
+      provenance: [KNOWN_NAMES],
+      provenanceStatus: "declaration-only",
+      stratum: "retired",
+      note: "Retired 2026-08-16 by mt#4197 (ask#8752). Ran log-only for its entire life and blocked nothing; measured over its 1,760-record log it classified 97.7% of actions 'covered' on incidental keyword matches, and its target problem was postulated from LLM training dynamics rather than observed (mt#1035 cites zero incidents). No source module exists — the oracle's declaration is the only honest pointer. The fire log is append-only history, so its 12,135 records persist under this name permanently.",
+    },
+  ],
   [
     "unit-tests",
     {

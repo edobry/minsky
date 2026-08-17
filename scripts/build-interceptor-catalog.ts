@@ -81,7 +81,10 @@ import {
   type Intervention,
   type Role,
 } from "../.minsky/hooks/interceptor-coordinates";
-import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
+import {
+  buildCoordinateResolutionInput,
+  readSettingsHookNames,
+} from "./interceptor-coordinate-input";
 import { resolvePrecommitStepNames } from "./precommit-step-names";
 
 const GENERATED_BANNER = "by scripts/build-interceptor-catalog.ts — do not edit directly";
@@ -280,11 +283,34 @@ function buildResolveInput(): ResolveCatalogInput {
  * hook runs — stayed missing from the catalog it builds.
  */
 export function collectOracleNames(): ReadonlySet<string> {
+  // mt#4129: `.claude/settings.json` registration is the fact that decides
+  // whether something runs at a lifecycle point. Before this, the oracle's only
+  // route for a non-registry hook was `STANDALONE_GUARD_NAMES`, defined as
+  // "guards that FIRE-LOG but are not in GUARD_REGISTRY" — so a hook whose
+  // handler never writes a record was in neither source the divergence check
+  // compares, and the check reported zero discrepancies while 30 registered
+  // hooks were missing from the catalog entirely.
+  //
+  // A null here is NOT treated as "none registered": that would silently shrink
+  // the population back to the pre-fix set. It throws, because a generator that
+  // cannot read the registration file must not emit a catalog claiming to be
+  // complete — the same reason `audit-settings-hook-coverage.ts` exits non-zero.
+  const settingsNames = readSettingsHookNames();
+  if (!settingsNames) {
+    throw new Error(
+      "Could not derive hook registrations from .claude/settings.json. The catalog " +
+        "population would silently omit every settings-registered hook, so this is a " +
+        "hard failure rather than a smaller catalog. Check that the file exists and " +
+        "that every hook command still points at a `<name>.ts` script."
+    );
+  }
+
   return new Set([
     ...resolveKnownGuardNames({
       registryNames: GUARD_REGISTRY.map((r) => r.name),
       precommitNames: resolvePrecommitStepNames(),
     }),
+    ...settingsNames,
     ...RETIRED_GUARD_NAMES.keys(),
     ...FIXTURE_GUARD_NAMES.keys(),
   ]);

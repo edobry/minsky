@@ -79,6 +79,18 @@ export type InterceptionPoint =
   | "UserPromptSubmit"
   | "SessionEnd"
   | "MessageDisplay"
+  // Added by mt#4129 — hooks were registered at each of these in
+  // `.claude/settings.json` while the model had no value for them, so
+  // `derivePoint`'s `POINTS` gate dropped them and the catalog carried neither
+  // the hook nor a gap. One of THREE copies of this union; see the header on
+  // `src/cockpit/web/hooks/useInterceptors.ts` for why the duplication is forced
+  // and which test pins the three together.
+  | "SessionStart"
+  | "StopFailure"
+  | "Notification"
+  | "PermissionRequest"
+  | "PreCompact"
+  | "PostCompact"
   | "pre-commit"
   | "merge-time";
 
@@ -265,7 +277,6 @@ export const DELIBERATELY_UNAUTHORED_NAMES: readonly string[] = [
  */
 export const STANDALONE_SCRIPT_ALIASES: Readonly<Record<string, string>> = {
   "bare-prohibition": "warn-bare-prohibition-dispatch",
-  "policy-coverage": "policy-coverage-detector",
 };
 
 // ---------------------------------------------------------------------------
@@ -273,7 +284,11 @@ export const STANDALONE_SCRIPT_ALIASES: Readonly<Record<string, string>> = {
 // ---------------------------------------------------------------------------
 
 const deny: Intervention = { type: "deny" };
-const allow: Intervention = { type: "allow" };
+// No `allow` constant: the `"allow"` intervention TYPE stays in the union (the
+// family filter at §computed families reads it, and a future entity may declare
+// it), but `policy-coverage` was the only authored coordinate that used one, and
+// it was retired 2026-08-16 (mt#4197). Re-add the constant when something
+// declares `allow` again.
 const mutate: Intervention = { type: "mutate" };
 const injectAgent: Intervention = { type: "inject", audience: "agent" };
 const recordReview: Intervention = { type: "record", audience: "review" };
@@ -583,15 +598,6 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["check-task-spec-read", structuralGate],
   ["dispatch-intent-write-gate", structuralGate],
-  [
-    "policy-coverage",
-    {
-      interventions: [deny, allow, injectAgent, recordReview],
-      mechanism: "structural",
-      role: "judge",
-      note: "Ontology amendment (a)'s worked example: it selects deny, warn, or allow PER FIRE at runtime, so its declaration names a repertoire rather than an outcome. Decides on a covered-tool set plus path predicates, not on prose.",
-    },
-  ],
   ["require-checks-on-bypass-merge", deliveryGate],
   [
     "require-deploy-verification-before-merge",
@@ -694,6 +700,16 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "RETIRED. Superseded by `fast-related-tests`, which scopes the run to staged files.",
     },
   ],
+  [
+    "policy-coverage",
+    {
+      interventions: [deny, injectAgent, recordReview],
+      mechanism: "structural",
+      point: "PreToolUse",
+      role: "judge",
+      note: "RETIRED 2026-08-16 (mt#4197). Was ontology amendment (a)'s worked example: it selected deny, warn, or allow PER FIRE, so its declaration named a repertoire rather than an outcome. The `allow` member is dropped here because it was the corpus's only use of that constant; the repertoire's point — a capability SET rather than a primary — is unchanged and the amendment it motivated stands on its own.",
+    },
+  ],
 ]);
 
 // ---------------------------------------------------------------------------
@@ -740,6 +756,16 @@ export interface ResolvedCoordinates {
   readonly gaps: readonly CoordinateGap[];
 }
 
+/**
+ * The representable interception points — kept in lockstep with the
+ * `InterceptionPoint` union in `src/cockpit/widgets/interceptors.ts`, which
+ * `interceptor-points.test.ts` pins.
+ *
+ * This set is a GATE, not a filter: `derivePoint` drops a settings-registered
+ * event that is absent here, so a missing value renders as no point at all
+ * rather than as an unrepresentable one. Six events sat outside it until
+ * mt#4129 — the hooks registered at them were dropped silently.
+ */
 const POINTS = new Set<string>([
   "PreToolUse",
   "PostToolUse",
@@ -748,6 +774,12 @@ const POINTS = new Set<string>([
   "UserPromptSubmit",
   "SessionEnd",
   "MessageDisplay",
+  "SessionStart",
+  "StopFailure",
+  "Notification",
+  "PermissionRequest",
+  "PreCompact",
+  "PostCompact",
   "pre-commit",
   "merge-time",
 ]);

@@ -84,7 +84,8 @@ import {
 import type { ProbeObservation } from "../../packages/domain/src/detectors/capability-absence-escalation";
 import { isReshapedRetry, leadingTokenOf } from "./command-shape";
 import type { TranscriptLine } from "./transcript";
-import { findKillVerb } from "./block-bulk-process-kill";
+import { findKillInvocation, findKillVerb } from "./block-bulk-process-kill";
+import type { KillInvocation } from "./block-bulk-process-kill";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import type { DispatchContext, GuardOutcome } from "./registry";
@@ -316,6 +317,13 @@ export const PRINCIPAL_RESERVED_EXCLUSIONS: RegExp[] = [
   /\b(standing|durable|default)[\s-](default|preference|behaviou?r|choice)s?\b/i,
   /\bdefault\s+(model|tool|format|setting)\b/i,
   /\bsets?\s+(a\s+)?(durable|standing)\b/i,
+  // Durability stated as a CONSEQUENCE rather than as the word `default`
+  // (mt#4111). `"Say the word and I'll write the setting so it's ready for your
+  // next restart."` is a durable-default change by the rule's own test — it is
+  // what a later turn inherits — and every pattern above needs the literal
+  // `default` / `standing` / `durable`, so it fired.
+  /\b(persists?|persisting|survives?|carries\s+over|stays)\b[^.!?]{0,30}\b(restarts?|sessions?|reboots?|conversations?)\b/i,
+  /\b(for|until|after)\s+your\s+next\s+(restart|session|launch|reboot)\b/i,
 ];
 
 // The pre-mt#3865 name `PERMISSION_ESCALATION_EXCLUSIONS` is deliberately GONE
@@ -358,11 +366,19 @@ const NEGATION_LOOKBACK_CHARS = 40;
  * behaviour it fires on.
  *
  * Deliberately omits a bare `not`. "I will not be able to provide the token"
- * IS a capability deferral, and `not` alone would swallow it; the four forms
- * kept here all attach a prohibition directly to the verb.
+ * IS a capability deferral, and `not` alone would swallow it; the forms kept
+ * here all attach a negation directly to the verb.
+ *
+ * The COPULAR forms (`isn't` / `is not` / `aren't` / `are not`) were added by
+ * mt#4111 after `"mt#4124 isn't deferred to you; I just can't walk two at once —
+ * I'll take it after"` fired: a denial of a deferral, paired with a commitment
+ * to do the work, read as the deferral itself. They are safe beside the omitted
+ * bare `not` because the lookback requires the negation within three words of
+ * the match — `"It is not available from agent context"` puts `not` INSIDE the
+ * match rather than before it, so that deferral still fires.
  */
 export const NEGATION_LEAD_PATTERN =
-  /\b(?:don'?t|do\s+not|never|no\s+need\s+to)\s+(?:\w+\s+){0,3}$/i;
+  /\b(?:don'?t|do\s+not|never|no\s+need\s+to|isn'?t|is\s+not|aren'?t|are\s+not)\s+(?:\w+\s+){0,3}$/i;
 
 /** True when the match at `idx` sits inside a prohibition rather than a request. */
 export function isNegated(text: string, idx: number): boolean {
@@ -401,6 +417,21 @@ export const STANDING_INSTRUCTION_PATTERNS: RegExp[] = [
   /\bthe\s+standing\s+instruction\b/i,
   /\bI'?m\s+not\s+supposed\s+to\b/i,
   /\byou'?ve\s+(asked|told)\s+me\s+not\s+to\b/i,
+  // The DIRECT-reference form (mt#4111): the instruction is attributed to the
+  // principal in their own words rather than to a config that carries it.
+  // `"Filed only, not planned — you said file. … say the word and I'll take it
+  // to READY."` is the same shape as the entries above and matched none of them.
+  //
+  // Both forms require a DIRECTIVE complement, and that is not fussiness — the
+  // first draft matched `you (said|asked|told me)` bare, and the replay over the
+  // live log immediately suppressed a rated REAL positive: `"…I haven't, since
+  // you asked whether it was worthwhile rather than for it."` Reporting what the
+  // principal ASKED ABOUT is not being told to stop. So `asked`/`told` need
+  // `to`/`for` behind them, and `said` needs a complement that is not a
+  // determiner or pronoun opening an ordinary report of what was said.
+  /\byou\s+said\s+(?:to\s+)?(?!the\b|it\b|that\b|this\b|they\b|we\b|I\b|you\b)\w+/i,
+  /\byou\s+(asked|told)\s+(?:me\s+)?(to|for)\b/i,
+  /\bper\s+your\s+(instruction|request|direction)s?\b/i,
 ];
 
 /**
@@ -421,6 +452,28 @@ export const STANDING_INSTRUCTION_PATTERNS: RegExp[] = [
  * position on it. The line: a completed or firmly-stated decision of the
  * agent's own is not a decision being handed over; a proposed next step is.
  */
+/**
+ * The message SURFACES A COLLISION with another actor — which is not a deferral
+ * the agent chose, but the behaviour `user-preferences.mdc §Probe before
+ * claiming a shared resource` requires by name (mt#4111).
+ *
+ * That rule: *"If a probe returns 'another actor is here', do NOT recommend the
+ * same action. Surface the collision (which actor, what evidence) to the
+ * principal; let them resolve who continues."* The agent probed, found a peer,
+ * and handed the resolution over — so a fire here penalises the corpus's own
+ * answer to a double-dispatch incident, which is the same shape as the
+ * standing-instruction and principal-reserved suppressions beside it.
+ *
+ * Matched against the {@link sentenceWithLead} window and, like
+ * {@link STANDING_INSTRUCTION_PATTERNS}, only suppressive BECAUSE the ask
+ * accompanies it: who continues is genuinely the principal's to say.
+ */
+export const PEER_COLLISION_PATTERNS: RegExp[] = [
+  /\b(another|a\s+second|the\s+other|a\s+peer)\s+(agent|actor|session|conversation)\b/i,
+  /\bsecond\s+agent\b/i,
+  /\bpeer\s+(agent|session)\s+is\b/i,
+];
+
 export const SETTLED_DECISION_PATTERNS: RegExp[] = [
   /\bI\s+(picked|chose|selected|went\s+with)\b/i,
   /\bwith\s+fresh\s+context\b/i,
@@ -721,6 +774,62 @@ export function isDestructiveCommand(command: string): boolean {
 }
 
 /**
+ * How many targets a `kill` must name before it reads as a workaround rather than as ordinary
+ * process management (mt#4111).
+ *
+ * Two, because every false positive this surface produced in its first four days was a
+ * SINGLE-target kill: a scratch MCP server the same session had started, a backgrounded dev
+ * server, a port-holder just located by `lsof`. Terminating one process you are managing is
+ * routine; the family this surface exists to catch destroys a POPULATION because a capability
+ * was not found.
+ *
+ * The division of labour this rests on: `block-bulk-process-kill` DENIES the bulk shapes (three
+ * or more PIDs, or `pkill`/`killall` of an interactive class), which is where mt#4081's
+ * originating incident — `kill` proposed on 26 live sessions — now lands. What reaches this
+ * surface is the residue that guard lets through, so a threshold aligned with the guard's own
+ * would leave nothing behind. Two-target kills and `pkill`/`killall` of a non-interactive class
+ * are that residue.
+ *
+ * Provenance ("did this turn spawn the thing it is killing?") was the remedy mt#4111's window 2
+ * proposed and is NOT implemented, for the reason `block-bulk-process-kill`'s own header records
+ * for the same exclusion: the hook input carries no record of which processes the agent spawned,
+ * and inferring it would be a guess with a silent failure mode. Cardinality is decidable from
+ * the command string alone and covers every observed case.
+ */
+export const REPORTABLE_KILL_MIN_TARGETS = 2;
+
+/**
+ * The kill this command performs, if it is one this surface should report.
+ *
+ * `pkill`/`killall` are mass by construction, so they qualify at any target count; a bare `kill`
+ * qualifies only at {@link REPORTABLE_KILL_MIN_TARGETS} or more.
+ */
+export function findReportableKill(command: string): KillInvocation | null {
+  const invocation = findKillInvocation(command);
+  if (!invocation) return null;
+  if (invocation.verb === "kill" && invocation.targets.length < REPORTABLE_KILL_MIN_TARGETS) {
+    return null;
+  }
+  return invocation;
+}
+
+/**
+ * What the record shows a reviewer: the segment that MATCHED, first, then the command it sat in
+ * (mt#4111).
+ *
+ * The segment leads deliberately. This field used to be `safeTruncate(command, 240, "head")`,
+ * which keeps the HEAD of the command — and in a compound command the kill is in the tail, so
+ * the record routinely did not contain its own cause. Two of the three act-path fires in the
+ * 2026-08-17 review window were then classified from the surrounding text and the (also wrong)
+ * phrase, and both classifications named the wrong trigger. Leading with the segment also keeps
+ * the record replayable: `findKillVerb` over this string returns the verb the record names.
+ */
+export function buildKillContext(command: string, segment: string): string {
+  const context = segment === command.trim() ? segment : `${segment}  (in: ${command})`;
+  return safeTruncate(context, 240, "head");
+}
+
+/**
  * Tools whose use IS a capability search — going outside your own model to ask
  * whether the thing can be done.
  *
@@ -744,12 +853,35 @@ export function hasCapabilitySearch(turnLines: TranscriptLine[]): boolean {
  * and this surface stays silent for it.
  */
 export function detectActPathWorkaround(turnLines: TranscriptLine[]): DeferralMatch[] {
-  const commands = COMMAND_TOOL_NAMES.flatMap((toolName) => findToolUseInputs(turnLines, toolName))
-    .map((input) => input["command"])
-    .filter((command): command is string => typeof command === "string");
+  // A DENIED invocation is the guard working, not a workaround the agent took
+  // (mt#4111 SC1). Recording it inverts the signal: the act path is about what
+  // the turn DID, and a denied call did nothing. It also pollutes this log with
+  // the deliberate exercises that verify `block-bulk-process-kill` denies.
+  //
+  // Keyed on the call's IDENTITY, never on its command TEXT (PR #3051 R1). A
+  // denial followed by a permitted retry is the ordinary shape — the operator
+  // overrides, the same string runs again — and a text-keyed filter drops the
+  // retry as well, which suppresses exactly the execution this surface exists
+  // to see. It would also reach backwards, retiring an earlier successful call
+  // because a later identical one was refused.
+  const deniedIds = new Set(findDeniedToolCalls(turnLines).map((call) => call.useId));
 
-  const destructive = commands.find((command) => isDestructiveCommand(command));
-  if (!destructive) return [];
+  let kill: KillInvocation | null = null;
+  let source = "";
+  // Transcript order, so the FIRST reportable kill is the one recorded.
+  for (const call of findToolCallsWithResults(turnLines)) {
+    if (!COMMAND_TOOL_NAMES.includes(call.toolName)) continue;
+    if (call.useId !== undefined && deniedIds.has(call.useId)) continue;
+    const command = call.input["command"];
+    if (typeof command !== "string") continue;
+    const found = findReportableKill(command);
+    if (found) {
+      kill = found;
+      source = command;
+      break;
+    }
+  }
+  if (!kill) return [];
   if (hasCapabilitySearch(turnLines)) return [];
 
   return [
@@ -757,9 +889,13 @@ export function detectActPathWorkaround(turnLines: TranscriptLine[]): DeferralMa
       surface: "act-path-workaround",
       // The diversity axis is the destructive VERB, not the command: a command
       // carrying PIDs is near-unique per fire and would satisfy the sweep's
-      // diversity gate by construction (mt#3781).
-      matchedPhrase: leadingTokenOf(destructive),
-      context: safeTruncate(destructive, 240, "head"),
+      // diversity gate by construction (mt#3781). Until mt#4111 this said the
+      // same thing and wrote `leadingTokenOf(command)` — the first token of the
+      // whole command, which for a compound one is not the verb at all. Three of
+      // the surface's five live fires recorded `-e`, `nohup` and `-nP`, each of
+      // them a real `kill`, and the axis counted one pattern as four.
+      matchedPhrase: kill.verb,
+      context: buildKillContext(source, kill.segment),
     },
   ];
 }
@@ -1018,6 +1154,7 @@ export function detectPermissionDeferral(turnLines: TranscriptLine[]): DeferralM
     // The conjunction (mt#3865 Cause C): naming a standing instruction only
     // suppresses BECAUSE the ask accompanies it, and the ask is `m` itself.
     if (STANDING_INSTRUCTION_PATTERNS.some((p) => p.test(window))) continue;
+    if (PEER_COLLISION_PATTERNS.some((p) => p.test(window))) continue;
     return [
       {
         surface: "permission-deferral-prose",

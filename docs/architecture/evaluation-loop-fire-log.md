@@ -227,8 +227,12 @@ fetch`, an actual `git merge` on the blocked+clean-tree auto-merge path
     fire-log decision would need restructuring that function's void return
     into a decision-returning one — a larger structural change than the
     additive instrumentation this task's scope allows.
-  - `policy-coverage-detector.ts` — NO LONGER A GAP as of mt#3393; a
-    `policy-coverage` canary now ships in `STANDALONE_GUARD_CANARIES`. The
+  - `policy-coverage-detector.ts` — MOOT as of 2026-08-16 (mt#4197): the hook,
+    its module, and its canary are deleted. The paragraph below is retained as
+    the record of how the gap was closed while the detector existed, because
+    its reasoning about synthetic-corpus canaries generalizes to the next
+    decision-function guard. It was NO LONGER A GAP as of mt#3393; a
+    `policy-coverage` canary shipped in `STANDALONE_GUARD_CANARIES`. The
     original exclusion reasoned that a canary "would be structurally brittle
     (depends on live corpus content)"; that holds only if the canary loads the
     live corpus. Injecting a synthetic two-entry `PolicyCorpus` straight into

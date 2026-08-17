@@ -279,9 +279,12 @@ because it shipped — it works only when its fire-log proves it covered its spa
 
 ## Surface F — act-path workaround (mt#4081)
 
-**Trigger:** a destructive command (`kill` / `pkill` / `killall`) in a turn that contains no
-capability search (`WebSearch`, `WebFetch`, or a `Skill` load). Both legs are tool-call state;
-**no prose is read**.
+**Trigger:** a kill (`kill` / `pkill` / `killall`) that was NOT denied and names more than one
+target, in a turn that contains no capability search (`WebSearch`, `WebFetch`, or a `Skill`
+load). Every leg is tool-call state; **no prose is read**.
+
+The target and denial legs were added by mt#4111 after the surface produced five live fires in
+its first four days and all five were rated false — see §The mt#4111 tune below.
 
 ### Why it is not a sixth phrase family
 
@@ -313,3 +316,93 @@ call is silent.
 `block-bulk-process-kill` (PreToolUse, denies from day one) is the enforcement half; this surface
 is the measurement half, and exists so the family's miss rate on the act path stays observable the
 way surface E's was here. See `docs/architecture/hooks/block-bulk-process-kill.md`.
+
+## The mt#4111 tune — what the act path actually owns
+
+Five live fires in four days, all five rated false, and the review that rated them named the wrong
+cause for three — which is the more useful finding.
+
+### The record did not contain its own cause
+
+`matchedPhrase` was `leadingTokenOf(command)`: the first token of the whole command, sitting
+directly beneath a comment saying _"the diversity axis is the destructive VERB, not the
+command"_. For a compound command the two are different, so three of the five fires recorded
+`-e`, `nohup` and `-nP` — each of them a real `kill` further down the command. `context` compounded
+it: `safeTruncate(command, 240, "head")` keeps the HEAD, and the kill is in the tail, so two
+records do not contain the kill at all. Replaying those two through the current parse still
+reports them UNREADABLE rather than quiet, which is the honest answer and the measurement of the
+defect.
+
+The review then classified from `phrase` plus the visible head and concluded the family was
+"matching argument substrings, not actions". It was not. Same class as mt#3931's finding for
+`retrospective-trigger`: a stored excerpt is not the judged input, and a rating taken from it can
+invert the verdict. The fix is on both axes — `phrase` is now `findKillInvocation(...).verb`, and
+`context` leads with the matching SEGMENT, so a record replays to the verb it names.
+
+### The trigger: the guard owns bulk, this surface owns the residue
+
+A denied invocation no longer records. It is the guard working, and the act path is about what the
+turn DID — a denied call did nothing. That alone removes the 2026-08-13 fire, which was an agent
+deliberately exercising `block-bulk-process-kill` to confirm it denies.
+
+That exclusion rules out narrowing to the guard's own bulk threshold, which would leave the
+surface permanently silent: every command clearing three PIDs is denied. So the discriminator is
+cardinality at a LOWER bar — a single-target `kill` is ordinary process management, and all four
+non-denied fires were exactly that (a scratch MCP server, a backgrounded dev server, a port-holder
+just located by `lsof`). What remains: two-target kills, and `pkill`/`killall` of a class the
+guard's interactive list does not carry.
+
+Provenance ("did this turn spawn what it is killing?") was the remedy proposed in review and is
+NOT implemented, for the reason `block-bulk-process-kill` records for the same exclusion — the
+hook input carries no record of which processes the agent spawned, and inferring it from the
+process tree is a guess with a silent failure mode.
+
+### The consequence to watch
+
+The surface has no true positive on record, so it may now record nothing. That is the correct
+outcome of the tune and it collides with ADR-024's coverage-receipt gate (≥1 live fire within 7
+days). **Review threshold: if the act-path surface records zero fires in the 14 days after this
+lands, the question is whether the residue is a real population — not whether to loosen the
+predicate.**
+
+## The mt#4111 tune — prose surfaces
+
+Three suppression families, each tied to a rated false positive with its context preserved in
+`.minsky/operator-deferral-calibration.jsonl`:
+
+- **Direct instruction reference** (`STANDING_INSTRUCTION_PATTERNS`). mt#3865 already decided this
+  shape — naming a standing instruction while posing the ask in the same message is the remedy
+  `user-preferences.mdc §Probe before deferring` prescribes (mt#3930) — but its patterns all
+  attribute the instruction to a CONFIG (`your setup says`). `"you said file"` attributes it to
+  the principal directly and matched none of them. Both new forms require a DIRECTIVE complement:
+  the first draft matched `you asked` bare and the replay immediately suppressed a rated real
+  positive (`"…since you asked whether it was worthwhile rather than for it"`), which is what the
+  negative control is for.
+- **Durability as a consequence** (`PRINCIPAL_RESERVED_EXCLUSIONS`). Every durable-default pattern
+  mt#3865 added needs the literal word `default` / `standing` / `durable`; `"ready for your next
+restart"` states the same property as an effect.
+- **Peer collision** (`PEER_COLLISION_PATTERNS`, new). `"There's a second agent on this task …
+want me to reconcile the two threads first?"` is `user-preferences.mdc §Probe before claiming a
+shared resource` executed verbatim — probe, find a peer, hand the resolution over. Firing here
+  penalises the corpus's own answer to a double-dispatch incident. Like the standing-instruction
+  family it is suppressive only BECAUSE the ask accompanies it.
+
+A fourth fix is on the capability surface: `NEGATION_LEAD_PATTERN` gained the copular forms, after
+`"mt#4124 isn't deferred to you; … I'll take it after"` — a DENIAL of a deferral paired with a
+commitment to act — was read as the deferral.
+
+### Escalation threshold on the suppression families
+
+This is the second extension of a suppression phrase family (mt#3865 was the first). A precision
+suppression is Rung-1 work under ADR-024, which is where this family stops by default. **If a
+THIRD phrasing escapes `STANDING_INSTRUCTION_PATTERNS`, the disposition is to take the family up a
+rung (embedding nomination against the suppression exemplars), not to add a fourth pattern.**
+
+### Measuring a tune
+
+`bun scripts/replay-operator-deferral-calibration.ts <path-to-log>` replays every record through
+the current matcher and splits the result three ways — no context / phrase truncated out of the
+stored window / rateable — so a silence caused by truncation is never counted as a suppression the
+change earned. mt#4111 added the act-path arm, which replays through the kill parse rather than
+the prose detectors. What it CANNOT replay: the denial leg, which is turn state the record does
+not carry.

@@ -254,6 +254,27 @@ jobs:
         if: ${{ always() }}
         run: bun run test:eslint-rules
 
+      # mt#4129: a completeness check nothing invokes reproduces the outcome it
+      # exists to prevent — mt#4071 is the demonstration, where the coordinate
+      # audit reported `UNAUTHORED: interceptor-catalog-regen` from the moment
+      # mt#4010 shipped that step and it persisted until a human ran the script
+      # by hand.
+      #
+      # ONLY the settings-coverage audit runs here, deliberately. Its inputs are
+      # `.claude/settings.json` and the committed catalog, both in the repo, so it
+      # is deterministic. The two older audits
+      # (`bun run audit:interceptors:corpus`) read the LIVE fire log, whose
+      # contents change whenever any guard anywhere starts firing — wiring those
+      # into CI makes a red build a fact about runtime history rather than about
+      # the commit. That is very likely why they were never wired, and shipping
+      # them into CI would have turned this PR red on `claim-provenance-scan`,
+      # a guard name from unrelated in-flight work.
+      #
+      # if: always() matches the other independent gates above.
+      - name: Audit (interceptor settings coverage)
+        if: ${{ always() }}
+        run: bun run audit:interceptors
+
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun
 

@@ -770,11 +770,6 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
     reason:
       "Calibration-first observer (mt#3162); graduation to blocking is tracked separately at mt#3167 per hook-observers.mdc",
   },
-  {
-    configPath: ".claude/hooks/policy-coverage-detector.ts",
-    reason:
-      "DetectorMode defaults to log-only (mt#2755); records calibration data for a future flip to block mode, not yet live",
-  },
 
   // ── Pure observers/recorders: no permission decision, fail-open ──
   {

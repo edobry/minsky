@@ -66,6 +66,10 @@ import {
   type InboundRoute,
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
+import { registerSelfSchedulingSweep } from "./sweepers";
+// Value import, not a cycle: this module's only edge back from the actuator is
+// `import type` (erased at runtime), so nothing loads twice.
+import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
 
 /**
  * Long-poll seconds. 25s sits inside Telegram's own server-side ceiling while
@@ -76,6 +80,29 @@ const DEFAULT_LONG_POLL_SEC = 25;
 
 /** Backoff after a failed poll, so a Telegram outage is not hammered. */
 const ERROR_BACKOFF_MS = 30_000;
+
+/** The name this poller registers under in the sweep-liveness registry (mt#4185). */
+export const PRINCIPAL_CHANNEL_SWEEP_NAME = "principal-channel poll";
+
+/**
+ * Longest legitimate gap between two progress reports from the poll loop
+ * (mt#4185) — the meta-watchdog treats twice this as a stall.
+ *
+ * DERIVED, not chosen. The loop reports progress after every await that could
+ * park, so the widest legitimate gap is the slowest single one: handling one
+ * message, which the actuator already bounds. Both terms are real enforced
+ * ceilings, not intentions — `awaitTurnResult` resolves its promise from a
+ * `setTimeout` on every path, so a turn cannot outlast the turn timeout.
+ *
+ * Idle and failing cadences sit far inside this: a long poll returns within
+ * {@link DEFAULT_LONG_POLL_SEC} and a failing one retries after
+ * {@link ERROR_BACKOFF_MS}. Importing the two terms rather than restating
+ * their sum is deliberate — a budget that silently stopped tracking the
+ * timeouts it is derived from would produce a restart loop against a turn that
+ * was still legitimately running.
+ */
+export const PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS =
+  DEFAULT_READY_TIMEOUT_MS + DEFAULT_TURN_TIMEOUT_MS;
 
 /** Cap on a single outbound reply. Telegram hard-rejects above 4096. */
 const MAX_REPLY_CHARS = 3500;
@@ -238,6 +265,15 @@ export interface PollCycleDeps {
   longPollSec?: number;
   fetchFn?: FetchFn;
   signal?: AbortSignal;
+  /**
+   * Called each time the cycle demonstrably advanced past an await that could
+   * have parked (mt#4185).
+   *
+   * Wired by {@link startPrincipalChannelPoller} to its sweep-liveness
+   * registration; omitted, the cycle behaves exactly as before. Must not
+   * throw and must not block — it stamps a timestamp.
+   */
+  onProgress?: () => void;
 }
 
 export interface PollCycleOutcome {
@@ -275,7 +311,14 @@ export interface PollCycleOutcome {
  * concurrently — no lock, no scheduler, just promise chaining.
  */
 export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcome> {
+  // Report progress after each await that could park (mt#4185) — never on a
+  // timer of its own. The question the liveness registry is asking is "did
+  // this loop ADVANCE", not "is this process alive", and only a settled await
+  // answers the first one.
+  const noteProgress = deps.onProgress ?? ((): void => {});
+
   const offset = await deps.cursor.read();
+  noteProgress();
   const result = await getTelegramUpdates({
     token: deps.token,
     ...(offset === undefined ? {} : { offset: offset + 1 }),
@@ -283,6 +326,7 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
     ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
     ...(deps.signal ? { signal: deps.signal } : {}),
   });
+  noteProgress();
 
   if (!result.ok) {
     return emptyCycle({ error: result.detail });
@@ -315,6 +359,7 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
     // Audit BEFORE acting. An RCE-adjacent surface must leave a record of what
     // it was asked to do even if carrying it out then fails or hangs.
     const recorded = await recordSafely(deps, message, route);
+    noteProgress();
 
     // A replay of an update a previous run already recorded. Skipping is the
     // whole point of the idempotency token: Telegram re-delivers up to 24h of
@@ -343,6 +388,10 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
         const succeeded = await handleRoute(deps, message, route);
         if (succeeded) handled += 1;
         else failed += 1;
+        // Per MESSAGE, not per cycle: a cycle carrying several messages would
+        // otherwise report nothing until the last one settled, so the budget
+        // would have to cover N turns instead of one.
+        noteProgress();
       })
     );
   }
@@ -357,6 +406,7 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
   // forever and the channel wedges behind it.
   if (result.highestUpdateId !== undefined) {
     await deps.cursor.write(result.highestUpdateId);
+    noteProgress();
   }
 
   return { received: result.messages.length, handled, failed, rejected, duplicates };
@@ -991,27 +1041,55 @@ export interface PollerHandle {
  */
 export function startPrincipalChannelPoller(
   deps: Omit<PollCycleDeps, "signal">,
-  opts: { errorBackoffMs?: number } = {}
+  opts: { errorBackoffMs?: number; progressBudgetMs?: number } = {}
 ): PollerHandle {
-  const controller = new AbortController();
   const errorBackoffMs = opts.errorBackoffMs ?? ERROR_BACKOFF_MS;
   let stopped = false;
 
+  // One controller PER CYCLE rather than one for the poller's whole lifetime
+  // (mt#4185). An AbortController aborts once and stays aborted, so a lifetime
+  // controller can express "shut down" and can never express "abandon this
+  // cycle and start another" — which is the only recovery the meta-watchdog is
+  // in a position to ask for.
+  let cycle = new AbortController();
+
+  const liveness = registerSelfSchedulingSweep({
+    name: PRINCIPAL_CHANNEL_SWEEP_NAME,
+    progressBudgetMs: opts.progressBudgetMs ?? PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS,
+    restart: (): void => {
+      // Abandon whatever this cycle is parked on. It only clears a park in an
+      // await that OBSERVES the signal (today: the long poll); a park in the
+      // cursor read or the event write is detected and logged here but settles
+      // only once mt#4183's per-await bounds land.
+      cycle.abort();
+    },
+  });
+
   const loop = async (): Promise<void> => {
     while (!stopped) {
+      cycle = new AbortController();
       let outcome: PollCycleOutcome;
       try {
-        outcome = await runPollCycle({ ...deps, signal: controller.signal });
+        outcome = await runPollCycle({
+          ...deps,
+          signal: cycle.signal,
+          onProgress: liveness.noteProgress,
+        });
       } catch (err: unknown) {
         outcome = emptyCycle({ error: err instanceof Error ? err.message : String(err) });
       }
       if (stopped) return;
       if (outcome.error) {
+        liveness.noteFailure(outcome.error);
         log.warn("[principal-channel] poll failed; backing off", {
           error: outcome.error,
           backoffMs: errorBackoffMs,
         });
-        await sleep(errorBackoffMs, controller.signal);
+        // An aborted signal makes this resolve immediately, so a restart
+        // retries at once instead of serving out a backoff it did not earn.
+        await sleep(errorBackoffMs, cycle.signal);
+      } else {
+        liveness.noteSuccess();
       }
     }
   };
@@ -1021,7 +1099,8 @@ export function startPrincipalChannelPoller(
   return {
     stop(): void {
       stopped = true;
-      controller.abort();
+      liveness.stop();
+      cycle.abort();
     },
   };
 }

@@ -7,16 +7,26 @@
  * and the promise that an actuator failure still reaches the principal.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   runPollCycle,
+  startPrincipalChannelPoller,
   truncateReply,
   type BindTopicOutcome,
   type ChannelActuator,
   type PollCursor,
   type PollCycleDeps,
   startTypingLoop,
+  PRINCIPAL_CHANNEL_SWEEP_NAME,
+  PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS,
 } from "./principal-channel-poller";
+import {
+  getSweepLivenessSnapshot,
+  startSweepMetaWatchdog,
+  _resetSweepLivenessRegistryForTest,
+  type SweepLivenessSnapshot,
+} from "./sweepers";
+import { DEFAULT_READY_TIMEOUT_MS, DEFAULT_TURN_TIMEOUT_MS } from "./principal-channel-actuator";
 import type { PrincipalMessageEventPayload } from "@minsky/domain/notify/principal-inbound";
 import type { FetchFn } from "@minsky/domain/notify/telegram-transport";
 import {
@@ -35,6 +45,17 @@ const THREAD_ID_KEY = "message_thread_id";
 interface Recorded {
   type: string;
   payload: PrincipalMessageEventPayload;
+}
+
+/** Poll `condition` until it is true, or throw after `timeoutMs` (mt#4185). */
+async function waitForCondition(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+  // eslint-disable-next-line custom/no-real-fs-in-tests -- Date.now() is used for timing, not path creation; the rule's regex fires on the call pattern but there is no filesystem interaction here
+  const deadline = Date.now() + timeoutMs;
+  while (!condition()) {
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- same: timing, not path creation
+    if (Date.now() > deadline) throw new Error("waitForCondition timed out");
+    await new Promise((r) => setTimeout(r, 5));
+  }
 }
 
 interface Harness {
@@ -1469,5 +1490,114 @@ describe("truncateReply", () => {
     expect(result.length).toBeLessThanOrEqual(60);
     expect(result).toContain("THE ANSWER");
     expect(result).toStartWith("[...truncated...]");
+  });
+});
+
+describe("poller sweep-liveness registration (mt#4185)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  /** The poller's entry in the public `/api/sweeps` payload, or undefined. */
+  function pollerEntry(): SweepLivenessSnapshot | undefined {
+    return getSweepLivenessSnapshot().find((e) => e.name === PRINCIPAL_CHANNEL_SWEEP_NAME);
+  }
+
+  /**
+   * A `fetchFn` for the long poll that parks forever, optionally honouring the
+   * abort signal. This is the seam ADR-036 rule 2 requires be used instead of
+   * patching the `runPollCycle` module export — `PollCycleDeps.fetchFn` already
+   * exists, so a stub belongs here.
+   */
+  function parkingFetch(opts: { honourAbort: boolean }): FetchFn {
+    return (url, init) => {
+      const target = String(url);
+      if (!target.includes(GET_UPDATES)) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, result: true })));
+      }
+      return new Promise<Response>((_resolve, reject) => {
+        if (!opts.honourAbort) return;
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      });
+    };
+  }
+
+  test("AT2: a poller parked on the long poll appears in /api/sweeps with a stale lastAttemptAt", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: false }) },
+      { errorBackoffMs: 5, progressBudgetMs: 50 }
+    );
+    try {
+      // The cycle stamps progress once (after the cursor read) and then parks
+      // on the long poll — exactly the 2026-08-16 shape.
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt != null);
+
+      const entry = pollerEntry();
+      expect(entry).toBeDefined();
+      expect(entry?.selfScheduled).toBe(true);
+      expect(entry?.intervalMs).toBe(50);
+
+      const parkedAt = entry?.lastAttemptAt;
+      await new Promise((r) => setTimeout(r, 60));
+      // Stale: the loop is alive as a process and has stopped advancing, which
+      // is the distinction the whole registry exists to make.
+      expect(pollerEntry()?.lastAttemptAt).toBe(parkedAt as string);
+    } finally {
+      poller.stop();
+    }
+  });
+
+  test("the meta-watchdog clears a park in an await that observes the abort signal", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: true }) },
+      { errorBackoffMs: 5, progressBudgetMs: 20 }
+    );
+    const stopWatchdog = startSweepMetaWatchdog(15);
+    try {
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt != null);
+      const parkedAt = pollerEntry()?.lastAttemptAt;
+
+      // The watchdog aborts the parked cycle; the loop starts a fresh one, and
+      // its cursor read stamps progress again.
+      await waitForCondition(() => pollerEntry()?.lastAttemptAt !== parkedAt, 3000);
+      expect(pollerEntry()?.metaRestarts).toBeGreaterThanOrEqual(1);
+    } finally {
+      stopWatchdog();
+      poller.stop();
+    }
+  });
+
+  test("stop() deregisters, so a restarted daemon does not collide with its own previous poller", async () => {
+    const h = harness(updateBody([]));
+    const poller = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: false }) },
+      { errorBackoffMs: 5 }
+    );
+    await waitForCondition(() => pollerEntry() !== undefined);
+    poller.stop();
+    expect(pollerEntry()).toBeUndefined();
+
+    // The name is free again — registering a second poller must not throw.
+    const second = startPrincipalChannelPoller(
+      { ...h.deps, fetchFn: parkingFetch({ honourAbort: false }) },
+      { errorBackoffMs: 5 }
+    );
+    try {
+      await waitForCondition(() => pollerEntry() !== undefined);
+      expect(pollerEntry()).toBeDefined();
+    } finally {
+      second.stop();
+    }
+  });
+
+  test("the default progress budget is derived from the actuator's enforced ceilings", () => {
+    // Guards the derivation, not the number: if either actuator timeout moves,
+    // this budget must move with it or a legitimately slow turn gets restarted.
+    expect(PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS).toBe(
+      DEFAULT_READY_TIMEOUT_MS + DEFAULT_TURN_TIMEOUT_MS
+    );
+    expect(PRINCIPAL_CHANNEL_PROGRESS_BUDGET_MS).toBeGreaterThan(DEFAULT_TURN_TIMEOUT_MS);
   });
 });
