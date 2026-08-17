@@ -1,7 +1,7 @@
 /**
  * @fileoverview ESLint rule to catch new `process.env.MINSKY_*` reads in src/
  * that are not registered in either `environmentMappings` (config-mapped) or
- * `HOOK_ONLY_ENV_VARS` (hook-only). Closes the ADD-side gap of the
+ * `HOOK_ONLY_ENV_VAR_CATEGORIES` (hook-only). Closes the ADD-side gap of the
  * env-var-namespace-conflict class (mt#1610, mt#1624, mt#1785).
  *
  * The Minsky env-var-to-config dot-path parser at
@@ -16,11 +16,19 @@
  * The two valid registration paths:
  *   1. `environmentMappings` — the env var routes to a config path. Add the
  *      key + the dotted config path. The config schema must accept the path.
- *   2. `HOOK_ONLY_ENV_VARS` — the env var is process/hook-only and does NOT
- *      feed config. The dot-path parser will skip it.
+ *   2. `HOOK_ONLY_ENV_VAR_CATEGORIES` — the env var is process/hook-only and
+ *      does NOT feed config. The dot-path parser will skip it. Add one line,
+ *      `MINSKY_FOO_BAR: "<category>",`, choosing `operator-override` (a guard,
+ *      gate or detector consults it as its OWN override), `test-fixture`, or
+ *      `tunable`. `HOOK_ONLY_ENV_VARS` is DERIVED from that record's keys
+ *      (mt#3882) and is not an edit target; `operator-override` additionally
+ *      obliges an entry in `.minsky/hooks/known-override-env-vars.ts`, which
+ *      `known-override-env-vars.test.ts` enforces by name.
  *
  * Tracking task: mt#1788. See bridge memory id
- * `0b361d17-cc83-41dc-a485-0002d7e41e94`.
+ * `0b361d17-cc83-41dc-a485-0002d7e41e94` — whose own "add the var to the
+ * `HOOK_ONLY_ENV_VARS` set" recipe predates mt#3882; this header is the
+ * current one.
  */
 
 import { readFileSync } from "node:fs";
@@ -45,18 +53,29 @@ const REGISTRATION_FILE_NATIVE = REGISTRATION_FILE_POSIX.split("/").join(pathSep
  *     `  "MINSKY_FOO_BAR": "..."` (quoted key — needed when name contains
  *       characters that aren't valid identifiers, OR when style mandates
  *       quoting)
- *   HOOK_ONLY_ENV_VARS:
+ *   HOOK_ONLY_ENV_VAR_CATEGORIES (mt#3882 — a record keyed by var name;
+ *   `HOOK_ONLY_ENV_VARS` is now derived from its keys):
+ *     `  MINSKY_FOO_BAR: "operator-override",` — matched by mappingKeyRe,
+ *       the SAME pattern that matches an environmentMappings key. The record
+ *       shape is required for exactly this reason; see that constant's
+ *       docblock in environment.ts.
+ *   HOOK_ONLY_ENV_VARS (the pre-mt#3882 `new Set([...])` literal — kept
+ *   because nothing guarantees no other Set-shaped allowlist appears here):
  *     `  "MINSKY_FOO_BAR",` (Set member as string literal, with trailing comma)
- *     `  "MINSKY_FOO_BAR", // comment` (trailing inline comment, currently
- *       used by every entry in this file)
+ *     `  "MINSKY_FOO_BAR", // comment` (trailing inline comment)
  *     `  "MINSKY_FOO_BAR"` (last entry, no trailing comma)
  *     Single OR double quotes for any of the above.
+ *
+ * Exported so `.minsky/hooks/known-override-env-vars.test.ts` can assert the
+ * REAL extractor still resolves every registry entry (mt#3882 AT5). A copy of
+ * these regexes in the test would be one more hand-maintained mirror, which is
+ * the defect that task exists to retire.
  *
  * On read failure (file missing, permission error, etc.) the function returns
  * an empty Set with a console warning — fail-soft so a misconfigured rule
  * doesn't break ESLint entirely.
  */
-function buildRegisteredSet() {
+export function buildRegisteredSet() {
   const registered = new Set();
   let text;
   try {
@@ -105,7 +124,7 @@ export default {
     docs: {
       description:
         "Require every `process.env.MINSKY_*` read in src/ and .claude/hooks/ " +
-        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VARS` to " +
+        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VAR_CATEGORIES` to " +
         "prevent env-var-namespace conflicts with the config-loader's dot-path " +
         "parser (mt#1610, mt#1624, mt#1785). Catches all statically-resolvable " +
         "access forms (mt#2324): bare-identifier (process.env.MINSKY_FOO), " +
@@ -120,7 +139,7 @@ export default {
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VARS\` (hook-only) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788.`,
+      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882.`,
     },
   },
 

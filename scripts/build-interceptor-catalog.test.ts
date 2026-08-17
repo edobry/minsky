@@ -10,7 +10,10 @@
  */
 import { describe, test, expect } from "bun:test";
 import { buildCatalog, collectOracleNames, type CatalogSources } from "./build-interceptor-catalog";
-import { INTERCEPTOR_DESCRIPTIONS } from "../.minsky/hooks/interceptor-descriptions";
+import {
+  INTERCEPTOR_DESCRIPTIONS,
+  resolveCatalogEntry,
+} from "../.minsky/hooks/interceptor-descriptions";
 import { GUARD_REGISTRY } from "../.minsky/hooks/registry";
 import type { RegistryFacts } from "../.minsky/hooks/interceptor-descriptions";
 import {
@@ -208,12 +211,25 @@ describe("the real corpus", () => {
     // honest: present in the population, and visibly missing its authored half.
     // An entry that rendered a plausible default here would be worse than the
     // omission mt#4129 fixed.
-    const undescribed = real.entries.filter((e) => e.undescribed);
-    expect(undescribed.length).toBeGreaterThan(0);
-    for (const entry of undescribed) {
-      expect(entry.description).toBeNull();
-      expect(entry.stratum).toBeNull();
-      expect(entry.failureClasses).toEqual([]);
+    //
+    // Exercised against a SYNTHETIC name, not against the live corpus. As
+    // written for mt#4129 this asserted `undescribed.length > 0` over the real
+    // entries, which held only while the 28 names mt#4129 admitted were still
+    // unauthored — so finishing that authoring in mt#4198 falsified it. A test
+    // that passes only while the corpus is incomplete measures the backlog, not
+    // the mechanism, and inverts precisely when the work it is watching is done.
+    const entry = resolveCatalogEntry("no-such-interceptor-exists", { registryFacts: new Map() });
+    expect(entry.undescribed).toBe(true);
+    expect(entry.description).toBeNull();
+    expect(entry.stratum).toBeNull();
+    expect(entry.failureClasses).toEqual([]);
+
+    // The live corpus keeps the consistency half: whatever IS undescribed at any
+    // moment carries the same markers. Zero such entries is a passing state.
+    for (const live of real.entries.filter((e) => e.undescribed)) {
+      expect(live.description).toBeNull();
+      expect(live.stratum).toBeNull();
+      expect(live.failureClasses).toEqual([]);
     }
   });
 
