@@ -1284,9 +1284,11 @@ this one.)
      fallback (mt#4194).** \`pr_watch_create\` does not push. When a watch fires it writes a
      \`wake_pending\` row keyed to the REGISTERING session, and \`enrichWakeResponse\`
      (\`src/mcp/middleware/wake-enrichment.ts\`) drains it only when your next tool call satisfies
-     BOTH halves of a conjunction: the tool is one of the five on \`WAKE_ENRICHMENT_ALLOWLIST\`
-     (\`tasks.get\`, \`pr.watch.list\`, \`tasks.status.get\`, \`session.pr.get\`, \`session.pr.list\`)
-     AND its args carry a \`session\`/\`sessionId\`/\`task\`/\`taskId\` that resolves to that session.
+     BOTH halves of a conjunction: the tool is on \`WAKE_ENRICHMENT_ALLOWLIST\` — five tools as of
+     mt#4194 (\`tasks.get\`, \`pr.watch.list\`, \`tasks.status.get\`, \`session.pr.get\`,
+     \`session.pr.list\`), but READ THE CONSTANT rather than this enumeration, which is a snapshot
+     and will drift — AND its args carry a \`session\`/\`sessionId\`/\`task\`/\`taskId\` that resolves
+     to that session.
      \`/plan-task\` runs in the MAIN workspace with no session bound, where neither half reliably
      holds. This is NOT a claim that the watch is broken — registering and firing work; what is
      conditional is DELIVERY to the conversation that armed it.
