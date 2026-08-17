@@ -20,11 +20,27 @@
  * them all at once — losing a held pane the operator deliberately kept. Only
  * the LAST pane honours Esc; the rest call `preventDefault`, which unwinds the
  * assembly one pane at a time from the outside in.
+ *
+ * ## An outside click closes ALL of them
+ *
+ * The opposite of Esc, deliberately (mt#4143, operator decision ask#8509).
+ * Clicking away from the peek means "give me the page back", which is the
+ * drawer idiom Notion's side peek set; Esc remains the way to unwind one pane
+ * at a time when a held pair is what you want to take apart. "Away from the
+ * peek" means away from EVERY pane and from every entity ref — `peek-dismiss.ts`
+ * owns that verdict, and its docblock records why the per-pane reading would
+ * have destroyed the held pair.
  */
 import { PanelRightClose, Pin, SquareArrowOutUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useEffect, useRef } from "react";
 import { usePeek, restorePeekOpenerFocus } from "../lib/peek";
+import {
+  PEEK_PANE_ATTR,
+  FOCUS_OUTSIDE_EVENT_TYPE,
+  shouldDismissPeek,
+  outsideEventTarget,
+} from "../lib/peek-dismiss";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { useResolvedEntityLabel } from "../lib/use-entity-index";
 import {
@@ -36,6 +52,7 @@ import {
   SheetCloseButton,
 } from "./ui/sheet";
 import { PeekBody } from "./PeekBody";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 /**
  * Pane title — the resolved entity label, not the raw id.
@@ -71,7 +88,7 @@ function PaneTitle({ type, id }: { type: RoutableEntityType; id: string }) {
 }
 
 export function PeekHost() {
-  const { panes, closePeek, holdPeek } = usePeek();
+  const { panes, closePeek, holdPeek, closeAllPeeks } = usePeek();
 
   // Return focus to the link that opened the peek once the assembly empties
   // (mt#3694 R2). Keyed on the TRANSITION to zero panes rather than on any one
@@ -100,8 +117,27 @@ export function PeekHost() {
             }}
           >
             <SheetContent
-              className="pointer-events-auto w-[26rem] max-w-[92vw]"
+              // Width is RESPONSIVE, not fixed (mt#4123). `w-[26rem]
+              // max-w-[92vw]` was effectively a constant: 92vw only binds below
+              // ~452px, so at every width an operator actually uses, the pane was
+              // 416px regardless of what it was covering. At 1440 that is 29% and
+              // fine; at the ~620px window the principal reported from, it is 67%
+              // and the page behind is sliced mid-word — which defeats the one
+              // thing a peek is for, keeping your place readable.
+              //
+              // `min(26rem,45vw)` keeps 416px wherever there is room for it (any
+              // viewport ≥ ~924px, so the wide case is unchanged, including two
+              // held panes: 832 of 1440 still leaves 608px of page) and yields to
+              // a proportion below that, so the page keeps a majority column at
+              // EVERY width. A breakpoint that flips the pane to full-width was
+              // the alternative; it hides the page entirely, which is a different
+              // failure rather than a fix, and it makes the pane's size jump
+              // during a window drag.
+              className="pointer-events-auto w-[min(26rem,45vw)]"
               data-testid="peek-pane"
+              // Behavioral, not a test hook: `peek-dismiss.ts` resolves "is this
+              // click inside SOME pane?" by walking up to this attribute.
+              {...{ [PEEK_PANE_ATTR]: "true" }}
               data-peek-type={pane.type}
               data-peek-id={pane.id}
               data-peek-held={pane.held ? "true" : "false"}
@@ -109,20 +145,33 @@ export function PeekHost() {
                 // See the module doc: one pane per Esc, outermost held panes last.
                 if (!isLast) event.preventDefault();
               }}
-              // A peek must NOT dismiss when the operator touches the page
-              // behind it — coexisting with a live page is the entire feature,
-              // and Radix's default is to treat any outside interaction as a
-              // dismissal. Left at its default this silently breaks the hold
-              // gesture: shift-clicking a ref lands OUTSIDE the open pane, so
-              // the pane closes at the same moment the hold opens the next one,
-              // and two panes collapse back to one. Found by the integration
-              // test in PeekHost.test.tsx — every unit along the path
-              // (the click classifier, the pane algebra, the URL round-trip)
-              // passed in isolation while the composed behavior was wrong.
-              // Closing is Esc, the close button, Back, or being replaced.
-              onPointerDownOutside={(event) => event.preventDefault()}
-              onInteractOutside={(event) => event.preventDefault()}
-              onFocusOutside={(event) => event.preventDefault()}
+              // An outside click dismisses the WHOLE assembly, except on a peek
+              // pane or an entity ref (mt#4143, operator decision ask#8509).
+              // `peek-dismiss.ts` owns the verdict and the reasoning; two things
+              // are decided here because they are about this component:
+              //
+              // 1. `onInteractOutside` is the only handler wired, because it is
+              //    the only one that fires on BOTH the pointer and focus paths.
+              //    The two path-specific handlers this replaced were redundant
+              //    with it — measured, not assumed (mt#4143).
+              // 2. The FOCUS path stays unconditionally suppressed, preserving
+              //    the pre-mt#4143 behavior. ask#8509 decided what a CLICK does;
+              //    tabbing through the page behind a pane is not a dismissal
+              //    gesture, and treating it as one would make the peek unusable
+              //    with a keyboard.
+              //
+              // Dismissal calls `closeAllPeeks` from the LAST pane only, and
+              // every pane still calls `preventDefault`, so Radix never drives
+              // the close itself. Both halves matter: N panes each firing their
+              // own index-based `closePeek` in one tick would remove index 0 and
+              // then index 1 of an already-shifted array. The same one-pane-owns-it
+              // shape as the Esc handler above.
+              onInteractOutside={(event) => {
+                event.preventDefault();
+                if (event.type === FOCUS_OUTSIDE_EVENT_TYPE) return;
+                if (!isLast) return;
+                if (shouldDismissPeek(outsideEventTarget(event))) closeAllPeeks();
+              }}
             >
               <SheetHeader>
                 <PaneTitle type={pane.type} id={pane.id} />
@@ -157,7 +206,17 @@ export function PeekHost() {
                 </div>
               </SheetHeader>
               <SheetBody>
-                <PeekBody type={pane.type} id={pane.id} />
+                {/*
+                 * Bounded per pane (mt#4069). Every route in `App.tsx` gets a
+                 * boundary; the peek did not, and it renders over whatever page
+                 * the operator is already on — so a body that throws took the
+                 * HOST page down with it and left a blank overlay behind. A
+                 * blank pane is the precise failure this task exists to remove,
+                 * so the pane names its own crash instead of propagating.
+                 */}
+                <ErrorBoundary id={`peek-${pane.type}`}>
+                  <PeekBody type={pane.type} id={pane.id} />
+                </ErrorBoundary>
               </SheetBody>
             </SheetContent>
           </Sheet>

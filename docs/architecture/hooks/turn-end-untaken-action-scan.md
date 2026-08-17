@@ -16,8 +16,86 @@ observes that an action was named and the turn ended.
 
 Matching runs over the TAIL of the message, against quoted-context-elided text (mt#3336) so a
 phrase the agent is QUOTING — a rule excerpt, detector data in a handoff blockquote — cannot fire.
-A set of suppression patterns (an armed watcher, "waiting for", "you asked me to stop") blanks the
-whole message: those name a legitimate stop.
+A set of suppression patterns ("waiting for", a delegated report) blanks the whole message: those
+name a legitimate stop. Six named suppressions sit beside them — see §Corpus-mandated halts below,
+which also records why `"you asked me to stop"` is no longer among the prose patterns.
+
+## Corpus-mandated halts (mt#4116, absorbing mt#4113)
+
+The 2026-08-13 calibration pass measured **7 false positives in 10 injected fires**, and three
+classes were halts a corpus rule REQUIRES. The guard already suppressed one such class (a
+principal-RESERVED category, §below); the gap was that the reserved list is not the only place the
+corpus mandates stopping. `user-preferences.mdc §Probe before deferring` names the stopping point as
+"an action that is **destructive**, OR that falls under a nameable category" — destructive is a PEER
+of that list, not a member.
+
+**The design constraint all of these inherit** comes from mt#4063: a suppression must key on
+evidence the condition holds, not on prose claiming it does. PR #2972 R2 enforced it by RETIRING the
+armed-watcher prose patterns rather than supplementing them. So the per-shape question is "what
+evidence exists at Stop time?", and the answer differs — which is why one mechanism does not cover
+all four.
+
+| Shape                     | Reason                       | Evidence                                                                                                                    |
+| ------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Destructive action        | `destructive-action-halt`    | the named destructive VERB (`SIGKILL`, `rm -rf`, `force-push`, …), never a claim of destructiveness                         |
+| Harness command           | `harness-command-halt`       | a closed list (`/mcp`, `/clear`, `/config`) the agent cannot issue **AND** no distinct action committed behind it (mt#4139) |
+| Filed for later by design | `filed-by-design-halt`       | the branch named in prose **AND** a `tasks_create` in the turn                                                              |
+| Principal instruction     | `principal-instruction-halt` | the citation **AND** a scope-bounding directive in the OPENING PROMPT                                                       |
+
+**Why the last two require a conjunction.** Each is manufacturable as prose alone. "Filed for later
+by design" with nothing filed is exactly the confabulated-halt shape the sibling
+`turn-end-unwalked-task` guard exists to catch, so suppressing on the words would open a way to talk
+past it. And no pattern over the agent's own closing text can separate a real instruction citation
+from an invented one — they are the same words — which is why mt#4113's SC3 ("a message that merely
+ASSERTS an instruction still fires") can only be met by reading the prompt that opened the turn.
+`extractFinalTurn` already returned that prompt; it was being discarded.
+
+**Why the harness-command row gained a conjunction too (mt#4139).** As shipped it had none, and
+that is what made it wrong. A harness-command halt rests on TWO claims: _I cannot run `/mcp`_ —
+true, decidable, and the only thing the pattern checked — and _therefore I cannot do the thing I
+was doing_, which is unchecked and frequently false. Suppressing on the first made the second
+unfalsifiable.
+
+The originating fixture is the whole argument: `"What's needed: run /mcp to reconnect, then I'll
+merge the PR."` The goal was MERGING, and `minsky session pr merge` reaches it without MCP — so
+this is `user-preferences.mdc §Probe before deferring`, an operator step named as the precondition
+for something the agent could do itself, and mt#4116 pinned it as a fixture that must go quiet.
+(Corroboration from the same day: a full `/calibration-review` pass ran end to end through the CLI
+during a multi-hour MCP outage. The outage bounded the interface, not the work.)
+
+The discriminator was already in the guard's own match data, so the fix stays at **ADR-024 Rung 1**
+— the proposition was repairable with a literal check, not a case for climbing the ladder. Suppress
+when the harness command is the TERMINAL named action (`"I can't run /clear for you — say the
+word"`, where both claims collapse into one); decline when a COMMITMENT family (`ill-action`,
+`going-to`, `proceed-to`, …) names a distinct action gated behind it. The offer families
+(`say-the-word`, `give-go-ahead`) name no verb of the agent's own and deliberately do not count.
+
+This also removes an inconsistency rather than adding a special case: `"I need you to reproduce the
+hang, then I'll merge the fix"` was ALREADY a shipped test expecting a fire. Only the presence of a
+harness token made the identical shape go quiet.
+
+A declined suppression is recorded as `harnessCommandDeclined` on the fire's calibration record, so
+the next pass can measure this decision instead of inferring it. Cost, stated plainly: a turn whose
+named step genuinely required the harness command now gets an advisory it did not get before — one
+line to answer, against a swallowed probe-before-deferring failure that is silent.
+
+**What is deliberately NOT covered: the general participation-required case.** "I need you to
+reproduce the hang while I sample" is a legitimate halt and was a measured false positive — but it
+is not lexically separable from an excuse, and a pattern that tried would silence real deferrals.
+Only the decidable subset (a harness command) ships. Recorded here rather than left as an apparent
+oversight.
+
+**One retirement, not an addition.** `/\byou\s+asked\s+me\s+(?:to\s+stop|not\s+to)\b/` left
+`SUPPRESSION_PATTERNS` in the same change. It was the narrow prose-only ancestor of the
+principal-instruction suppression, and leaving both would let a message earn suppression by quoting
+the phrase with no instruction behind it — the add-beside-rather-than-replace error PR #2972 R2
+caught.
+
+**Reading the extractor, not its name.** The first wiring passed the opening prompt to
+`extractAssistantText`, which filters to `role === "assistant"` and returns `""` for a user line —
+the suppression would have typechecked, read correctly, and been permanently inert. Caught before
+shipping by reading the extractor; it is the mt#1071 / mt#2416 dead-wiring shape. A local
+`extractPromptText` replaces it.
 
 ## Two directive branches (mt#3767)
 

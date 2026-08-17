@@ -42,9 +42,30 @@ Never `echo "$SECRET"` / `${SECRET:-default}` in output position — `${K:0:4}` 
 
 **Secret-bearing OUTPUT too, not just secret variables (mt#3282).** Never print output that may
 CONTAIN a secret you don't hold yet. Two tells: the command's purpose is to MINT a credential (the
-SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file's
-purpose is to HOLD one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`). Use a check that
-cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a variable.
+SUCCESS body carries it; the error body is safe — that asymmetry is the trap), or the file CARRIES
+one (`config.yaml`, `.env*`, `~/.aws/credentials`, `*.pem`, `.npmrc`, `.netrc`, `.mcp.json`). Use a
+check that cannot emit the value — `grep -c`, `grep -q`, `test -f` — or extract one field into a
+variable.
+
+**CARRIES, not "exists to hold" (mt#4159).** This sentence read "the file's purpose is to HOLD one"
+for two guard extensions, and that narrower test excludes most of its own list: `.npmrc` is a
+registry config, `.netrc` a machine-defaults file, `.mcp.json` an MCP server declaration. All three
+are config files that happen to carry a credential — which is what makes them easy to read without
+thinking, and why `.mcp.json` printed a live bearer token into a transcript before it was listed.
+Ask what the file CONTAINS, never what it is for.
+
+**A process listing is the third channel (mt#3850).** `ps`/`top`/`pgrep` print other processes'
+**argv**, which is world-readable — so a secret ANY process passed as a command-line argument lands
+in your output. Harder to spot than the two above, because nothing in your command names a secret
+or a path: a `ps` grepping for a stuck `git` process printed a live GitHub token carried by an
+unrelated `docker run -e TOKEN=<value>` row (2026-08-08). Select columns that cannot carry a value
+(`comm` is the executable NAME; `command`/`args`/`cmd` are argv), or keep argv and end the pipeline
+in a counting sink:
+
+```bash
+ps -eo pid,etime,comm                 # safe: no argv column
+ps -eo command | grep -c 'gho_'       # safe: counts, renders no row
+```
 
 **A redaction filter is not a mitigation.** A `sed`/`cut` pattern matching nothing emits its input
 UNCHANGED, indistinguishable from a redaction that fired — `postgres://` vs `postgresql://` leaked
@@ -68,6 +89,9 @@ check itself did not complete — never conflated with a clean pass). Reuses the
 transcript-ingest scrubber uses (`packages/domain/src/transcripts/credential-scrubber.ts`) and
 already excludes `maskConnectionString`'s masked rendering, so it does not reproduce mem#972.
 
-File-read half enforced by the `block-secret-file-read` guard (`hook-files.mdc`); the rest is
-discipline-tier. Recipes + leak-containment runbook:
-`docs/rules-rationale/terminal-command-best-practices.md §Secret-bearing output`.
+File-read and process-listing halves are both enforced by the `block-secret-file-read` guard
+(`hook-files.mdc`); the rest is discipline-tier. **An MCP server's launch config is a fourth
+channel** — a `$(…)` in an `args` field computes a secret into a child's argv (mt#4140); how to
+audit one for that and for a literal token at rest:
+`docs/rules-rationale/terminal-command-best-practices.md §Secrets in MCP server launch config`.
+Recipes + leak-containment runbook: same doc, `§Secret-bearing output`.

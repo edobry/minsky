@@ -191,7 +191,14 @@ jobs:
           # service declared above (GH Actions maps job services' declared
           # `ports:` onto the runner's localhost, not a docker-internal
           # network reachable from a separately-launched container).
-          docker run --rm -d --name reviewer-smoke --network host \
+          # NOT `--rm` (mt#4136): the failure branch below reads this
+          # container's logs, and `--rm` reaps it the moment it EXITS — so in
+          # the case that matters most, a container that CRASHED rather than
+          # one that hung, `docker logs` printed the daemon's own
+          # "No such container" error instead of the boot output, and `|| true`
+          # kept that from being loud. The cleanup trap removes the container
+          # instead, after the logs have been read.
+          docker run -d --name reviewer-smoke --network host \
             -e PORT=$PORT \
             -e MINSKY_REVIEWER_APP_ID=1 \
             -e MINSKY_REVIEWER_PRIVATE_KEY=smoke-test-key \
@@ -203,7 +210,7 @@ jobs:
             $IMAGE:ci
 
           cleanup() {
-            docker stop reviewer-smoke 2>/dev/null || true
+            docker rm -f reviewer-smoke 2>/dev/null || true
           }
           trap cleanup EXIT
 
@@ -219,7 +226,25 @@ jobs:
           done
 
           echo "/health did not respond 200 within 60s"
-          docker logs reviewer-smoke 2>&1 | tail -80 || true
+          # Pre-declared so the fallback's `$SMOKE_STATE` is unambiguously bound
+          # under `set -u`. Bash does assign the variable from a FAILED command
+          # substitution before `||` runs, so this is belt-and-braces rather than
+          # a bug fix — but the two-step form states that intent instead of
+          # asking every reader to know it.
+          SMOKE_STATE=""
+          SMOKE_STATE="$(docker inspect -f '{{.State.Status}} (exit {{.State.ExitCode}})' reviewer-smoke 2>&1)" \
+            || SMOKE_STATE="inspect failed: $SMOKE_STATE"
+          echo "Container state: $SMOKE_STATE"
+          # Captured, not piped straight to tail: an EMPTY log and a log this
+          # step failed to read are different findings, and printing nothing
+          # for both is what made the previous version unreadable.
+          SMOKE_LOGS="$(docker logs reviewer-smoke 2>&1 | tail -80 || true)"
+          if [ -n "$SMOKE_LOGS" ]; then
+            echo "--- reviewer-smoke logs (last 80 lines) ---"
+            echo "$SMOKE_LOGS"
+          else
+            echo "--- reviewer-smoke produced NO log output (container wrote nothing before failing) ---"
+          fi
           exit 1
 
       - name: Setup Bun

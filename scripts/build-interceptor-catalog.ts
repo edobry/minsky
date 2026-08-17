@@ -82,6 +82,7 @@ import {
   type Role,
 } from "../.minsky/hooks/interceptor-coordinates";
 import { buildCoordinateResolutionInput } from "./interceptor-coordinate-input";
+import { resolvePrecommitStepNames } from "./precommit-step-names";
 
 const GENERATED_BANNER = "by scripts/build-interceptor-catalog.ts — do not edit directly";
 
@@ -126,6 +127,13 @@ export interface CatalogEntryCoordinates {
   readonly point: InterceptionPoint | null;
   /** How axis 1 was established, so a reader can tell derived from authored. */
   readonly pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker (ontology §5) — `"delivery"` for the
+   * merge gates, whose subject nothing in a declared source separates from the
+   * other PreToolUse denials; null everywhere the stratum derives. mt#4011's
+   * lifecycle spine reads this for merge-station placement.
+   */
+  readonly trajectory: "delivery" | null;
   /** Axis 2 — the capability SET, never a single primary (ontology amendment (a)). */
   readonly interventions: readonly Intervention[];
   /** Axis 3. */
@@ -194,6 +202,7 @@ function resolveEntryCoordinates(
   return {
     point: resolved.point,
     pointSource: resolved.pointSource,
+    trajectory: resolved.trajectory,
     interventions: resolved.interventions,
     mechanism: resolved.mechanism,
     role: resolved.role,
@@ -260,10 +269,22 @@ function buildResolveInput(): ResolveCatalogInput {
  * different: it enumerates the corpus, and a retired step or a test fixture is
  * part of that corpus (each carries its own stratum). So both are unioned back
  * in here rather than the oracle's own resolver being changed.
+ *
+ * `precommitNames` is passed EXPLICITLY (mt#4071). Omitting it makes
+ * `resolveKnownGuardNames` fall back to the hand-maintained
+ * `PRECOMMIT_STEP_NAMES` snapshot, and a pre-commit step added without an
+ * accompanying snapshot edit is then absent from the population — not reported
+ * as a divergence, simply not in the catalog, because the divergence lists
+ * compare descriptions against the oracle and the name is in neither. That is
+ * how `interceptor-catalog-regen` — a step this very generator's pre-commit
+ * hook runs — stayed missing from the catalog it builds.
  */
 export function collectOracleNames(): ReadonlySet<string> {
   return new Set([
-    ...resolveKnownGuardNames({ registryNames: GUARD_REGISTRY.map((r) => r.name) }),
+    ...resolveKnownGuardNames({
+      registryNames: GUARD_REGISTRY.map((r) => r.name),
+      precommitNames: resolvePrecommitStepNames(),
+    }),
     ...RETIRED_GUARD_NAMES.keys(),
     ...FIXTURE_GUARD_NAMES.keys(),
   ]);

@@ -48,9 +48,61 @@ export interface FenceState {
   inFence: boolean;
 }
 
+/**
+ * What a rewrite pass actually did, by ref class (mt#4145).
+ *
+ * This exists so the display path can prove it RAN — the whole point of the
+ * channel is that a hook which silently stops looks exactly like a hook with
+ * nothing to do. Counting here rather than in the hook keeps it inside the scan
+ * that is already walking the text, so it adds no traversal.
+ *
+ * `shortIdUnresolved` is deliberately NOT a link count: it records short-id refs
+ * seen in unprotected prose that stayed BARE because the map could not resolve
+ * them. Its normal value is small and non-zero (a just-minted id the out-of-band
+ * refresh has not picked up); a sustained spike is the signature of an absent or
+ * stale map, which otherwise degrades silently.
+ */
+export interface LinkifyCounts {
+  task: number;
+  changeset: number;
+  ask: number;
+  memory: number;
+  session: number;
+  shortIdUnresolved: number;
+}
+
+export function emptyCounts(): LinkifyCounts {
+  return { task: 0, changeset: 0, ask: 0, memory: 0, session: 0, shortIdUnresolved: 0 };
+}
+
+/** Sum `b` into `a` in place. Used to accumulate a message's deltas. */
+export function addCounts(a: LinkifyCounts, b: LinkifyCounts): LinkifyCounts {
+  a.task += b.task;
+  a.changeset += b.changeset;
+  a.ask += b.ask;
+  a.memory += b.memory;
+  a.session += b.session;
+  a.shortIdUnresolved += b.shortIdUnresolved;
+  return a;
+}
+
+/** True when nothing at all was rewritten — "ran, had nothing to do". */
+export function countsAreEmpty(c: LinkifyCounts): boolean {
+  return (
+    c.task === 0 &&
+    c.changeset === 0 &&
+    c.ask === 0 &&
+    c.memory === 0 &&
+    c.session === 0 &&
+    c.shortIdUnresolved === 0
+  );
+}
+
 export interface LinkifyResult {
   text: string;
   state: FenceState;
+  /** What this delta rewrote. Always present; all-zero means "nothing to do". */
+  counts: LinkifyCounts;
 }
 
 /** A line that opens or closes a fenced code block (``` or ~~~, up to 3 spaces of indent). */
@@ -133,19 +185,37 @@ export function resolveShortId(
   return uuid;
 }
 
-/** Rewrite every task/PR/short-id reference in a span already known to be unprotected. */
-function replaceRefs(text: string, shortIdMap?: ShortIdMap): string {
+/**
+ * Rewrite every task/PR/short-id reference in a span already known to be unprotected.
+ *
+ * `counts`, when supplied, is MUTATED in place rather than returned (mt#4145).
+ * This runs per unprotected span of every line of every streaming delta on the
+ * harness's hottest event, so the accumulator is threaded down instead of
+ * allocating and merging a record at each level.
+ */
+function replaceRefs(text: string, shortIdMap?: ShortIdMap, counts?: LinkifyCounts): string {
   const withDerivable = text
     .replace(TASK_REF, (_match, num: string) => {
       const id = `mt#${num}`;
+      if (counts) counts.task += 1;
       return `[${id}](${entityToMinskyUri("task", id)})`;
     })
-    .replace(
-      PR_REF,
-      (_match, num: string) => `[PR #${num}](${entityToMinskyUri("changeset", num)})`
-    );
+    .replace(PR_REF, (_match, num: string) => {
+      if (counts) counts.changeset += 1;
+      return `[PR #${num}](${entityToMinskyUri("changeset", num)})`;
+    });
 
-  if (!shortIdMap) return withDerivable;
+  if (!shortIdMap) {
+    // No map means every short id stays bare. Still COUNT them when an
+    // accumulator is present: "the map was absent" and "there were no short ids"
+    // are the two readings of a zero here, and AT4 turns on telling them apart.
+    // Guarded on `counts` so the ordinary map-present path never pays this scan.
+    if (counts) {
+      SHORT_ID_REF.lastIndex = 0;
+      while (SHORT_ID_REF.exec(withDerivable) !== null) counts.shortIdUnresolved += 1;
+    }
+    return withDerivable;
+  }
 
   return withDerivable.replace(SHORT_ID_REF, (match, prefix: string, num: string) => {
     const kind = shortIdPrefixToKind(prefix);
@@ -154,7 +224,11 @@ function replaceRefs(text: string, shortIdMap?: ShortIdMap): string {
     // and the short id itself is not a legal target (ADR-029). The condition
     // lives in `resolveShortId` so the bare-ref scanner can share it verbatim.
     const uuid = resolveShortId(shortIdMap, kind, num);
-    if (uuid === undefined) return match;
+    if (uuid === undefined) {
+      if (counts) counts.shortIdUnresolved += 1;
+      return match;
+    }
+    if (counts) counts[kind] += 1;
     return `[${match}](${entityToMinskyUri(kind, uuid)})`;
   });
 }
@@ -165,17 +239,17 @@ function replaceRefs(text: string, shortIdMap?: ShortIdMap): string {
  * authoring economy, and at the display surface a repeat costs the reader
  * nothing.
  */
-export function linkifyLine(line: string, shortIdMap?: ShortIdMap): string {
+export function linkifyLine(line: string, shortIdMap?: ShortIdMap, counts?: LinkifyCounts): string {
   let out = "";
   let cursor = 0;
   PROTECTED_SPAN.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = PROTECTED_SPAN.exec(line)) !== null) {
-    out += replaceRefs(line.slice(cursor, match.index), shortIdMap);
+    out += replaceRefs(line.slice(cursor, match.index), shortIdMap, counts);
     out += match[0];
     cursor = match.index + match[0].length;
   }
-  return out + replaceRefs(line.slice(cursor), shortIdMap);
+  return out + replaceRefs(line.slice(cursor), shortIdMap, counts);
 }
 
 /**
@@ -201,6 +275,7 @@ export function linkifyDelta(
   const trailing = segments.pop() ?? "";
   let inFence = state.inFence;
   const rewritten: string[] = [];
+  const counts = emptyCounts();
 
   for (const line of segments) {
     if (FENCE_LINE.test(line)) {
@@ -212,7 +287,7 @@ export function linkifyDelta(
       rewritten.push(line);
       continue;
     }
-    rewritten.push(linkifyLine(line, options.shortIdMap));
+    rewritten.push(linkifyLine(line, options.shortIdMap, counts));
   }
 
   let trailingOut = trailing;
@@ -220,10 +295,10 @@ export function linkifyDelta(
     if (FENCE_LINE.test(trailing)) {
       inFence = !inFence;
     } else if (!inFence && !BLOCKQUOTE_LINE.test(trailing)) {
-      trailingOut = linkifyLine(trailing, options.shortIdMap);
+      trailingOut = linkifyLine(trailing, options.shortIdMap, counts);
     }
   }
 
   rewritten.push(trailingOut);
-  return { text: rewritten.join("\n"), state: { inFence } };
+  return { text: rewritten.join("\n"), state: { inFence }, counts };
 }

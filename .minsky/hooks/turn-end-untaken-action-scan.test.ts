@@ -12,14 +12,24 @@ import {
   SUPPRESSION_DEDUPED_BY_ASK_ROUTING_DEFERRAL,
   SUPPRESSION_RESERVED_CATEGORY_HALT,
   SUPPRESSION_ARMED_WATCHER_EVIDENCE,
+  SUPPRESSION_DESTRUCTIVE_ACTION_HALT,
+  SUPPRESSION_HARNESS_COMMAND_HALT,
+  SUPPRESSION_FILED_BY_DESIGN_HALT,
+  SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
   detectArmedWatcherEvidence,
+  turnKeyForMessage,
   CONDITIONAL_WAIT_TOOL,
   ARMED_WAIT_TOOLS,
 } from "./turn-end-untaken-action-scan";
 import type { TranscriptLine } from "./transcript";
 import type { StopHookInput } from "./turn-end-retro-scan";
-import { GUARD_REGISTRY, type DispatchContext } from "./registry";
-import { STOP_INJECTED_OVERLAP_FAMILY, readFlagged } from "./turn-end-scan-store";
+import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
+import {
+  STOP_INJECTED_OVERLAP_FAMILY,
+  readFlagged,
+  writeFlagged,
+  flagKey,
+} from "./turn-end-scan-store";
 
 // Verbatim tails from the mt#3179 incidents. These are the regression anchors:
 // if the detector stops matching them, the guard has lost the class it exists
@@ -948,5 +958,235 @@ describe("armed-watcher evidence suppression (mt#4063)", () => {
       );
       expect(outcome?.additionalContext ?? "").toContain(FIRED_HEADER);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4116 / mt#4113 — the four corpus-mandated halts the suppression missed
+// ---------------------------------------------------------------------------
+
+describe("corpus-mandated halt suppressions (mt#4116, absorbing mt#4113)", () => {
+  function userPrompt2(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+
+  function toolUse2(name: string): TranscriptLine {
+    return {
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "tool_use", id: "t", name, input: {} }] },
+    } as unknown as TranscriptLine;
+  }
+
+  function ctx2(...lines: TranscriptLine[]): DispatchContext {
+    return { transcriptLines: [userPrompt2("go"), ...lines] } as unknown as DispatchContext;
+  }
+
+  function runOn(msg: string, c: DispatchContext, store: string): GuardOutcome | null {
+    return run(
+      { session_id: `s-${Math.abs(hashOf(msg))}`, last_assistant_message: msg } as never,
+      c,
+      store
+    );
+  }
+  // Distinct session per message so the dedup store never masks a result.
+  function hashOf(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return h;
+  }
+
+  describe("destructive action (shape 1)", () => {
+    test("the 2026-08-13T15:24 fixture goes quiet", () => {
+      const msg = "Say the word and I'll SIGKILL both.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_DESTRUCTIVE_ACTION_HALT]);
+      expect(out?.additionalContext).toBeUndefined();
+    });
+
+    test("keys on the VERB, not on a claim of destructiveness", () => {
+      // The manufacturable form: asserts the category, names no destructive act.
+      const msg = "This next step is destructive, so say the word and I'll do it.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons ?? []).not.toContain(
+        SUPPRESSION_DESTRUCTIVE_ACTION_HALT
+      );
+    });
+  });
+
+  describe("harness command (shape 3)", () => {
+    // mt#4139 inverts this expectation. mt#4116 suppressed the fixture on the ground that the
+    // agent cannot issue `/mcp` — true, and not what the halt rested on. The agent's goal was
+    // MERGING, which `minsky session pr merge` reaches without MCP, so this is a
+    // probe-before-deferring failure and the guard must say so.
+    test("the 2026-08-12T22:16 fixture FIRES — /mcp was a precondition, not the goal", () => {
+      const msg = "What's needed: run /mcp to reconnect, then I'll merge the PR.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([]);
+      expect(out?.additionalContext).toBeDefined();
+    });
+
+    test("declining the suppression is RECORDED, not silent", () => {
+      const msg = "What's needed: run /mcp to reconnect, then I'll merge the PR.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.harnessCommandDeclined).toBeDefined();
+    });
+
+    test("the harness command as the TERMINAL action still goes quiet", () => {
+      // Claims (1) and (2) collapse into one here: the command IS the step, so there is no
+      // second, unexamined inference for the suppression to hide.
+      const msg = "I can't run /clear for you — say the word.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_HARNESS_COMMAND_HALT]);
+    });
+
+    test("an offer alongside a harness command is not a committed action", () => {
+      // `say-the-word` hands the principal a choice and names no verb of the agent's own, so it
+      // must not be read as a distinct action gated behind the command.
+      const msg = "Your MCP server is down. Say the word and I'll wait — or run /config yourself.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_HARNESS_COMMAND_HALT]);
+    });
+
+    test("a general participation excuse still fires — deliberately out of scope", () => {
+      const msg = "I need you to reproduce the hang, then I'll merge the fix.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+
+    // PR #2994 R1. The decision must read the MESSAGE's matches, not the dedup-filtered set.
+    // Seed the store so the commitment (`ill-action`) is already flagged for this exact turn and
+    // only the offer survives deduping: keyed on `newMatches` the guard sees no committed action
+    // and wrongly goes quiet, which is the false-suppression path the review named.
+    test("declines the suppression even when the commitment match is already deduped", () => {
+      // Carries TWO matches: the `ill-action` commitment (seeded as already-flagged below) and a
+      // `say-the-word` offer that survives deduping — so the guard still reaches the suppression
+      // decision with a match list whose commitment is visible only in the UNfiltered set.
+      const msg =
+        "What's needed: run /mcp to reconnect, then I'll merge the PR. Say the word and I'll go.";
+      const sessionId = "mt4139-dedup-leak";
+      const turnKey = turnKeyForMessage(msg);
+      const matches = detectUntakenAction(msg);
+      const commitment = matches.find((m) => m.family === "ill-action");
+      // Guards the seed itself: if the fixture stops producing a commitment match, the seeded
+      // state would be meaningless and the test would pass for the wrong reason.
+      if (!commitment) throw new Error("fixture no longer yields an ill-action match");
+
+      writeFlagged(
+        sessionId,
+        new Set([flagKey(turnKey, commitment.family, commitment.matchedPhrase)]),
+        storeDir
+      );
+
+      const out = run(
+        { session_id: sessionId, last_assistant_message: msg } as never,
+        ctx2(),
+        storeDir
+      );
+      expect(out?.calibration?.suppressionReasons).toEqual([]);
+      expect(out?.additionalContext).toBeDefined();
+    });
+  });
+
+  describe("filed-for-later-by-design (shape 2)", () => {
+    test("suppressed only when the turn ACTUALLY minted a task", () => {
+      const msg =
+        "That's the background/tracking task case, filed for later by design. " +
+        "Say the word and I'll start it.";
+      const withCreate = runOn(msg, ctx2(toolUse2("mcp__minsky__tasks_create")), storeDir);
+      expect(withCreate?.calibration?.suppressionReasons).toEqual([
+        SUPPRESSION_FILED_BY_DESIGN_HALT,
+      ]);
+    });
+
+    test("the same prose with NO task created still fires", () => {
+      // The confabulated-halt shape: says the words, filed nothing. This must not
+      // become a way to talk past the sibling unwalked-task guard.
+      const msg =
+        "That's the background/tracking task case, filed for later by design. " +
+        "Say the word and I'll start it.";
+      const out = runOn(msg, ctx2(), storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+  });
+
+  describe("principal instruction (shape 4, from mt#4113)", () => {
+    test("suppressed when the opening prompt actually bounded the scope", () => {
+      const msg =
+        "Filed only, not planned — you said file. Say the word and I'll take it to READY.";
+      const c = { transcriptLines: [userPrompt2("just file it")] } as unknown as DispatchContext;
+      const out = runOn(msg, c, storeDir);
+      expect(out?.calibration?.suppressionReasons).toEqual([
+        SUPPRESSION_PRINCIPAL_INSTRUCTION_HALT,
+      ]);
+    });
+
+    test("the SAME citation with no such instruction still fires (mt#4113 SC3)", () => {
+      const msg =
+        "Filed only, not planned — you said file. Say the word and I'll take it to READY.";
+      const c = {
+        transcriptLines: [userPrompt2("take mt#1 all the way through and merge it")],
+      } as unknown as DispatchContext;
+      const out = runOn(msg, c, storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+
+    test("the retired prose-only pattern no longer suppresses on its own", () => {
+      // `you asked me to stop` was a SUPPRESSION_PATTERNS entry until mt#4113.
+      // With no corroborating prompt it must fire.
+      const msg = "you asked me not to — say the word and I'll merge it.";
+      const c = { transcriptLines: [userPrompt2("keep going")] } as unknown as DispatchContext;
+      const out = runOn(msg, c, storeDir);
+      expect(out?.additionalContext).toBeDefined();
+    });
+  });
+});
+
+describe("suppressions run over ELIDED text (PR #2976 R1)", () => {
+  function up(text: string): TranscriptLine {
+    return {
+      type: "user",
+      message: { role: "user", content: [{ type: "text", text }] },
+    } as unknown as TranscriptLine;
+  }
+  const c = { transcriptLines: [up("go")] } as unknown as DispatchContext;
+
+  // The asymmetry that makes this worse than the firing direction: a fire
+  // manufactured by quoted text costs one advisory beat; a SUPPRESSION
+  // manufactured by quoted text silences a real fire, and nothing downstream
+  // notices silence.
+  test("a QUOTED destructive verb does not manufacture a suppression", () => {
+    const msg =
+      "The rule says: `Say the word and I'll SIGKILL both.` was a false positive.\n" +
+      "Say the word and I'll merge it.";
+    const out = run({ session_id: "elide-1", last_assistant_message: msg } as never, c, storeDir);
+    expect(out?.additionalContext).toBeDefined();
+  });
+
+  test("a QUOTED harness command does not manufacture a suppression", () => {
+    const msg = "Earlier I wrote `run /mcp to reconnect`. Say the word and I'll merge it.";
+    const out = run({ session_id: "elide-2", last_assistant_message: msg } as never, c, storeDir);
+    expect(out?.additionalContext).toBeDefined();
+  });
+
+  test("a QUOTED instruction citation does not manufacture a suppression", () => {
+    const msg = "The detector matched `you said file` in that report. Say the word and I'll merge.";
+    const c2 = { transcriptLines: [up("just file it")] } as unknown as DispatchContext;
+    const out = run({ session_id: "elide-3", last_assistant_message: msg } as never, c2, storeDir);
+    expect(out?.additionalContext).toBeDefined();
+  });
+
+  test("the UNQUOTED forms still suppress — elision did not break the feature", () => {
+    const out = run(
+      {
+        session_id: "elide-4",
+        last_assistant_message: "Say the word and I'll SIGKILL both.",
+      } as never,
+      c,
+      storeDir
+    );
+    expect(out?.calibration?.suppressionReasons).toEqual([SUPPRESSION_DESTRUCTIVE_ACTION_HALT]);
   });
 });

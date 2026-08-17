@@ -168,6 +168,20 @@ export interface InterceptorCoordinates {
    * `resolveCoordinates` would otherwise report `undeclared`.
    */
   readonly point?: InterceptionPoint;
+  /**
+   * Entity-strata DIMENSION 1 (ontology §5) — authored ONLY where it is not
+   * derivable. Every other stratum derives: a harness-event point is the agent
+   * conversation, `pre-commit` is repo/VCS, `subject: "system"` is the
+   * interception system itself. The one underivable case is `"delivery"`: the
+   * merge gates' SUBJECT is the delivery trajectory while their declared point
+   * stays `PreToolUse` (mechanism truth — mechanism decides who is bound), so
+   * nothing in a declared source separates them from the other PreToolUse
+   * denials. mt#4011's lifecycle spine places them at the merge station from
+   * this field; the `point` field is deliberately NOT re-authored to
+   * `merge-time` for them, which would overwrite mechanism truth with subject
+   * truth.
+   */
+  readonly trajectory?: "delivery";
   /** Anything a catalog reader needs that the coordinates cannot carry. */
   readonly note?: string;
 }
@@ -269,6 +283,16 @@ const structuralGate: InterceptorCoordinates = {
   role: "judge",
 };
 
+/**
+ * A structural deny gate whose SUBJECT is the delivery trajectory — the merge
+ * gates. Same shape as `structuralGate` plus the one authored stratum marker;
+ * see the `trajectory` field doc for why the point is not re-authored instead.
+ */
+const deliveryGate: InterceptorCoordinates = {
+  ...structuralGate,
+  trajectory: "delivery",
+};
+
 /** A pre-commit step that regenerates an artifact and re-stages it. */
 const regenStep: InterceptorCoordinates = {
   interventions: [mutate],
@@ -368,6 +392,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "cli-mcp-substitution",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Third guard on the same quote-aware command-string split, and the first whose decision is not about the command alone: it pairs a lookup against a GENERATED oracle (`commandId` on each CLI leaf of the completion manifest) with a fact about the session (no `mcp__minsky__*` tool use in the transcript). Both legs are structural — no prose, no paraphrase axis — which is why ADR-024's ladder does not govern it. The oracle being generated is what keeps coverage from drifting as commands are added, and what keeps the hook off the domain bootstrap a registry import would owe on every Bash call.",
+    },
+  ],
+  [
     "check-guessed-session-path",
     {
       ...structuralGate,
@@ -381,6 +414,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
   ],
   [
+    "evidence-record-provenance",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same claim shape as `duplicate-check-search-provenance`, at the commit and PR-body seams. `recordReview` only — no `injectAgent`, unlike that sibling: a pre-ship replay over 40 transcripts measured the negative-control half's fires as mostly false, so the stream is armed and nothing injects until mt#4067 tunes it.",
+    },
+  ],
+  [
     "duplicate-signature-scan",
     {
       interventions: [recordReview],
@@ -390,6 +432,33 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   ["flakiness-control-detector", lexicalDetector],
+  [
+    "stale-signal-sweep",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Exact substring over three corpora — active task specs, live memories, accepted ADRs — for a label lifted verbatim from the PR's own diff. No similarity metric: the token is not paraphrasable.",
+    },
+  ],
+  [
+    "unrendered-result-field-scan",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Diff-only, no corpus and no DB. Positional rather than pattern-based: a field counts as rendered when its name appears in a literal OUTSIDE a logger call, which is the distinction the originating incident turned on.",
+    },
+  ],
+  [
+    "new-surface-design-pass",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads with no paraphrase axis: git status `A` on a render-path path, and a `Skill` tool_use name against a fixed six-skill list. Neither half is a matcher over prose, which is why it ships without ADR-024's ladder above rung 1. The transcript half is what makes it a judge rather than a diff scanner — and why an absent transcript records `skipped` rather than a fire.",
+    },
+  ],
   [
     "guard-health-escalation-detector",
     {
@@ -474,11 +543,12 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [deny],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Reads the PR body for a documented coupled step. Its `elideMarkdownNonProse` quotation-aware pass is the shipped pattern ADR-024 rung 1 generalizes from.",
     },
   ],
-  ["block-subagent-bypass-merge", structuralGate],
-  ["block-subagent-merge-without-grant", structuralGate],
+  ["block-subagent-bypass-merge", deliveryGate],
+  ["block-subagent-merge-without-grant", deliveryGate],
   ["check-branch-fresh", structuralGate],
   [
     "check-generated-file-edit",
@@ -500,13 +570,14 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "Ontology amendment (a)'s worked example: it selects deny, warn, or allow PER FIRE at runtime, so its declaration names a repertoire rather than an outcome. Decides on a covered-tool set plus path predicates, not on prose.",
     },
   ],
-  ["require-checks-on-bypass-merge", structuralGate],
+  ["require-checks-on-bypass-merge", deliveryGate],
   [
     "require-deploy-verification-before-merge",
     {
       interventions: [deny],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Scans the PR body for a `Deploy verification:` commitment.",
     },
   ],
@@ -516,11 +587,12 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       interventions: [deny, recordReview],
       mechanism: "lexical",
       role: "judge",
+      trajectory: "delivery",
       note: "Blocks on a missing `Execution evidence:` marker and writes two calibration streams of its own (per-AT coverage, test-first evidence) — the many-to-many case the registry's list-valued `calibrationLog` exists for.",
     },
   ],
-  ["require-growth-justification-before-merge", structuralGate],
-  ["require-review-before-merge", structuralGate],
+  ["require-growth-justification-before-merge", deliveryGate],
+  ["require-review-before-merge", deliveryGate],
   ["require-session-for-main-workspace-edits", structuralGate],
   [
     "standalone-duplicate-matcher",
@@ -561,6 +633,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["fast-related-tests", structuralGate],
   ["hook-permission-check", structuralGate],
   ["immutable-migration-check", structuralGate],
+  ["interceptor-catalog-regen", regenStep],
   ["migration-collision-check", structuralGate],
   ["migration-guard-check", structuralGate],
   ["migration-journal-check", structuralGate],
@@ -632,6 +705,11 @@ export interface ResolvedCoordinates {
   readonly role: Role | null;
   /** How `point` was established, so a reader can tell derived from authored. */
   readonly pointSource: "registry" | "settings" | "stratum" | "authored" | "none";
+  /**
+   * Authored dimension-1 stratum marker; null for every entity whose stratum
+   * derives from its point or subject. See `InterceptorCoordinates.trajectory`.
+   */
+  readonly trajectory: "delivery" | null;
   readonly note?: string | undefined;
   /**
    * ALWAYS enumerated, never defaulted (SC5). A name with no authored entry
@@ -698,6 +776,7 @@ export function resolveCoordinates(
     mechanism: authored?.mechanism ?? null,
     role: authored?.role ?? null,
     pointSource: source,
+    trajectory: authored?.trajectory ?? null,
     note: authored?.note,
     gaps,
   };
@@ -795,6 +874,7 @@ export const OUT_OF_MODEL_NAMES: readonly string[] = [
   "completion-manifest-regen",
   "dockerfile-bun-build-regen",
   "dockerfile-workspace-copy-regen",
+  "interceptor-catalog-regen",
   "record-agent-dispatch",
   "record-turn-anchor",
 ];

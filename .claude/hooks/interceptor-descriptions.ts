@@ -296,12 +296,52 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "stale-signal-sweep",
+    {
+      description:
+        "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      failureClasses: ["stale-context", "unfounded-claim"],
+      provenance: [hook("stale-signal-sweep"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "unrendered-result-field-scan",
+    {
+      description:
+        "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("unrendered-result-field-scan"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "new-surface-design-pass",
+    {
+      description:
+        "Records when a PR ADDS a user-facing render-path surface and no design skill ran in the conversation that wrote it. The judgment half of mt#2421, whose check asks whether an artifact EXISTS and returns the same answer either way on whether anyone LOOKED: PR #2942 shipped two browser screenshots, a served branch with asserted health identity, and a reproduce recipe, and the pane had no padding. The screenshots were checked against the spec's criteria, and its only aesthetic criterion was conformance-shaped, which is satisfiable by reading class names. Keys on a `Skill` tool_use rather than on self-reported diligence, because the agent authoring the spec is the agent verifying it.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("new-surface-design-pass"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "duplicate-check-search-provenance",
     {
       description:
         "Records whether the search a `Duplicate check:` line claims to have run was actually run in the turn, and injects when it was not.",
       failureClasses: ["duplicate-work", "unfounded-claim"],
       provenance: [hook("duplicate-check-search-provenance")],
+      stratum: "registry",
+    },
+  ],
+  [
+    "evidence-record-provenance",
+    {
+      description:
+        "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("evidence-record-provenance"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -322,6 +362,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("truncated-outcome-read-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "cli-mcp-substitution",
+    {
+      description:
+        "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("detect-cli-mcp-substitution"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -1032,6 +1082,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Recompiles `.claude/hooks/*` from their `.minsky/hooks/*` sources and re-stages them, so the hooks that actually run are never older than the sources under review.",
       failureClasses: ["broken-main", "blind-enforcement"],
       provenance: [PRECOMMIT, "src/hooks/claude-hooks-compile-regen.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
+    "interceptor-catalog-regen",
+    {
+      description:
+        "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      failureClasses: ["broken-main", "blind-enforcement"],
+      provenance: [PRECOMMIT, "src/hooks/interceptor-catalog-regen.ts"],
       stratum: "precommit",
     },
   ],

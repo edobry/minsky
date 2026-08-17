@@ -750,10 +750,14 @@ describe("SessionFilmRibbon — expanded row real content (mt#3262 SC 2 / SC 3 /
     expect(link.closest("a")?.getAttribute("href")).toBe("/conversation/a1");
   });
 
-  test("a 422 scrub-gate refusal from the content endpoint renders 'Content unavailable', never a crash (AT4/AT5)", async () => {
+  // AT4 — a content-endpoint failure degrades to a legible message rather
+  // than a crash. This used to exercise the 422 scrub-gate refusal
+  // specifically; mt#3268 / ADR-040 removed that gate from the content
+  // endpoint, so the reachable failure is now an ordinary 404.
+  test("a content-endpoint failure renders 'Content unavailable', never a crash (AT4)", async () => {
     const speakEvent = selfEvent({ verb: "speak", sourceRef: { turnIndex: 1 } });
     renderRibbon([speakEvent]);
-    mockContentFetch({ ok: false, status: 422, code: "unscrubbed" });
+    mockContentFetch({ ok: false, status: 404, code: "session_not_found" });
     fireEvent.click(screen.getByTestId("session-film-row-0"));
     const errorEl = await screen.findByTestId("session-film-row-content-error");
     expect(errorEl.textContent).toBe("Content unavailable.");

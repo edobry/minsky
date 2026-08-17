@@ -110,14 +110,21 @@ jobs:
           PORT=$(( 30000 + RANDOM % 20000 ))
           echo "Boot port: $PORT"
 
-          docker run --rm -d --name minsky-smoke \
+          # NOT `--rm` (mt#4136): the failure branch below reads this
+          # container's logs, and `--rm` reaps it the moment it EXITS — so in
+          # the case that matters most, a container that CRASHED rather than
+          # one that hung, `docker logs` printed the daemon's own
+          # "No such container" error instead of the boot output, and `|| true`
+          # kept that from being loud. The cleanup trap removes the container
+          # instead, after the logs have been read.
+          docker run -d --name minsky-smoke \
             -e PORT=$PORT \
             -e MINSKY_MCP_AUTH_TOKEN=smoke-test \
             -p $PORT:$PORT \
             $IMAGE:ci
 
           cleanup() {
-            docker stop minsky-smoke 2>/dev/null || true
+            docker rm -f minsky-smoke 2>/dev/null || true
           }
           trap cleanup EXIT
 
@@ -133,7 +140,25 @@ jobs:
           done
 
           echo "/health did not respond 200 within 30s"
-          docker logs minsky-smoke 2>&1 | tail -50 || true
+          # Pre-declared so the fallback's `$SMOKE_STATE` is unambiguously bound
+          # under `set -u`. Bash does assign the variable from a FAILED command
+          # substitution before `||` runs, so this is belt-and-braces rather than
+          # a bug fix — but the two-step form states that intent instead of
+          # asking every reader to know it.
+          SMOKE_STATE=""
+          SMOKE_STATE="$(docker inspect -f '{{.State.Status}} (exit {{.State.ExitCode}})' minsky-smoke 2>&1)" \
+            || SMOKE_STATE="inspect failed: $SMOKE_STATE"
+          echo "Container state: $SMOKE_STATE"
+          # Captured, not piped straight to tail: an EMPTY log and a log this
+          # step failed to read are different findings, and printing nothing
+          # for both is what made the previous version unreadable.
+          SMOKE_LOGS="$(docker logs minsky-smoke 2>&1 | tail -50 || true)"
+          if [ -n "$SMOKE_LOGS" ]; then
+            echo "--- minsky-smoke logs (last 50 lines) ---"
+            echo "$SMOKE_LOGS"
+          else
+            echo "--- minsky-smoke produced NO log output (container wrote nothing before failing) ---"
+          fi
           exit 1
 
       # mt#2505 — deploy-keyed, single-runner PROD migration. Runs INSIDE the

@@ -24,7 +24,7 @@
 //      file, which puts the change in front of a human. (PR #2616 R1 flagged the
 //      brittleness; it is intentional and scoped to the policy phrases only — nothing
 //      here asserts the surrounding explanatory prose.)
-//   2. DRIFT (`describe` #2) — derived, not hardcoded. The six reserved categories are
+//   2. DRIFT (`describe` #2) — derived, not hardcoded. The reserved categories are
 //      read out of the canonical rule at run time and checked against each surface's
 //      restatement, so adding a seventh category canonically fails until the copies
 //      catch up. This is the answer to "the list is hand-copied in two places": the
@@ -47,6 +47,48 @@ const read = (relPath: string): string => readFileSync(join(REPO_ROOT, relPath),
 // below, and a typo'd path would silently read a different file.
 const SKILL_SOURCE = ".minsky/skills/plan-task/skill.ts";
 const RULE_SOURCE = ".minsky/rules/key-workflows.mdc";
+
+// mt#4141: the THIRD surface carrying the citation test, added after R7 of the
+// confabulated-strategic-frame family. The two surfaces above are both scoped to a
+// skill-chain transition ("override the chain-walk default at any transition"), so a
+// turn-end deferral outside any chain reached the principal with the test never applied.
+// /classify-before-deferring owns the whether-question generally — /escalation-packaging
+// §Related delegates it there explicitly — and its Class C copy had drifted to six
+// categories against the canonical seven, precisely because nothing here covered it.
+const CLASSIFY_SOURCE = ".minsky/skills/classify-before-deferring/SKILL.md";
+const CLASSIFY_GENERATED = ".claude/skills/classify-before-deferring/SKILL.md";
+// --- Restatement-window anchors (drift guard, `describe` #2) -------------------------
+//
+// These three phrases bound the span of a surface that restates the reserved-category list
+// (see `restatementWindow` below). They are grouped here so each phrase is defined ONCE
+// rather than once per call site, and they are hardcoded ON PURPOSE.
+//
+// Hardcoding is irreducible: the guard has to LOCATE the restatement inside prose it does
+// not control, so something must say where that span begins and ends. What WAS reducible is
+// the silence about why that is safe — the file header defends this same brittleness for
+// the PRESENCE guard (`describe` #1) and says nothing about these anchors, which is what
+// mt#4146 (PR #2998 R1, non-blocking) flagged.
+//
+// It is safe because the failure is FAIL-CLOSED, and that is measured rather than assumed
+// (mt#4146): reword an anchor on any surface and `indexOf` returns -1, so
+// `restatementWindow`'s `expect(...).toBeGreaterThanOrEqual(0)` fails loudly AND the failing
+// test names the drifted surface. It does NOT silently widen the window and keep passing —
+// that failure DIRECTION is the whole reason this is a nit rather than a defect, and it is
+// the opposite of the silent drift mt#4141 fixed one level down. Observed by rewording
+// CLOSE_MARKER's phrase in the classify source: 12 pass, 1 fail, the one failure being that
+// surface's own drift test.
+//
+// FOUR surfaces depend on these anchors as of mt#4141, so each anchor is load-bearing for a
+// real test: the plan-task skill source, `key-workflows.mdc`, and the classify skill's
+// source AND its compiled output.
+
+// Opens the window on both classify surfaces AND on the plan-task skill — they deliberately
+// share the phrase, so the drift guard reads the same construction everywhere it appears.
+const CLOSED_LIST_MARKER = "The closed list:";
+// Opens the window on the rule source, which introduces the same list in its own words.
+const RULE_OPEN_MARKER = "State the category before halting on it:";
+// Closes the window on every surface — all four restatements are followed by this sentence.
+const CLOSE_MARKER = "If you cannot name one";
 
 // The positive test itself: a halt must NAME the category.
 const CITATION_MARKER = "NAME which reserved category";
@@ -80,6 +122,18 @@ describe("halt-on-principal-decision requires naming the reserved category (mt#3
       expect(content).toContain(CITATION_MARKER);
       expect(content).toContain(SOURCE_MARKER);
       expect(content).toContain(DEMOTION_MARKER);
+    });
+  }
+
+  // Asserted separately from SURFACES, not appended to it: DEMOTION_MARKER is about
+  // demoting plan-task's negative enumeration of bad halt rationales to illustration.
+  // /classify-before-deferring never carried that enumeration, so requiring the marker
+  // there would assert the presence of text that has nothing to demote.
+  for (const surface of [CLASSIFY_SOURCE, CLASSIFY_GENERATED]) {
+    test(`${surface} states the positive citation test (mt#4141)`, () => {
+      const content = read(surface);
+      expect(content).toContain(CITATION_MARKER);
+      expect(content).toContain(SOURCE_MARKER);
     });
   }
 });
@@ -122,7 +176,7 @@ function restatementWindow(content: string, openMarker: string): string {
   const start = content.indexOf(openMarker);
   expect(start).toBeGreaterThanOrEqual(0);
   const rest = content.slice(start + openMarker.length);
-  const end = rest.indexOf("If you cannot name one");
+  const end = rest.indexOf(CLOSE_MARKER);
   expect(end).toBeGreaterThanOrEqual(0);
   return rest.slice(0, end);
 }
@@ -131,13 +185,21 @@ const RESTATEMENTS: Array<{ name: string; content: () => string; openMarker: str
   {
     name: SKILL_SOURCE,
     content: () => planTaskSkill.content as string,
-    openMarker: "The closed list:",
+    openMarker: CLOSED_LIST_MARKER,
   },
   {
     name: RULE_SOURCE,
     content: () => read(RULE_SOURCE),
-    openMarker: "State the category before halting on it:",
+    openMarker: RULE_OPEN_MARKER,
   },
+  // mt#4141 — both the source and its compiled output. The generated copy is included
+  // because an agent reads .claude/skills/, so a source-only assertion passes on a stale
+  // compile: exactly the failure mode the SURFACES list above already guards against.
+  ...[CLASSIFY_SOURCE, CLASSIFY_GENERATED].map((name) => ({
+    name,
+    content: () => read(name),
+    openMarker: CLOSED_LIST_MARKER,
+  })),
 ];
 
 describe("restated reserved-category lists track principal-context.mdc (mt#3596)", () => {

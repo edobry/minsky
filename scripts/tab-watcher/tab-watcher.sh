@@ -14,7 +14,9 @@ set -euo pipefail
 
 STATE_DIR="${TAB_WATCHER_STATE_DIR:-$HOME/.claude/tab-state}"
 SNAPSHOT="$STATE_DIR/snapshot.json"
-HISTORY_KEEP="${TAB_WATCHER_HISTORY_KEEP:-10}"
+# At the 30s cadence this is ~1h of rolling history (~35KB/file). The old
+# default of 10 was five minutes, which could not survive a reboot.
+HISTORY_KEEP="${TAB_WATCHER_HISTORY_KEEP:-120}"
 CLAUDE_BIN_PATTERN="${CLAUDE_BIN_PATTERN:-/\\.local/share/claude/versions/}"
 
 mkdir -p "$STATE_DIR"
@@ -38,9 +40,18 @@ discover_candidate_pids() {
 }
 
 # Single osascript call to enumerate iTerm window+tab+tty triples. Fails
-# silently and returns empty if iTerm isn't running or automation perms aren't
-# granted yet.
+# silently and returns empty if iTerm isn't running, if automation perms aren't
+# granted yet, or — the case mt#4080 is about — if iTerm is wedged and never
+# answers the AppleEvent. The caller cannot tell those apart from the return
+# value alone, which is why build_snapshot records the EMPTINESS separately
+# rather than letting it masquerade as an observed layout.
 dump_iterm_tabs() {
+  # Test seam: lets the suite exercise the unresponsive-iTerm path without
+  # wedging a real iTerm. Never set in production; mirrors the
+  # TAB_WATCHER_SKIP_LAUNCHCTL seam install.sh already uses.
+  if [ "${TAB_WATCHER_FORCE_EMPTY_DUMP:-0}" = "1" ]; then
+    return 0
+  fi
   /usr/bin/osascript 2>/dev/null <<'AS' || true
 tell application "System Events"
   if not (exists process "iTerm2") then return ""
@@ -92,6 +103,7 @@ build_snapshot() {
 
   TS="$timestamp" ITERM="$iterm_dump" LSOF="$lsof_out" PS="$ps_out" \
   PIDS_LIST="$pids_list" CLAUDE_BIN_PATTERN="$CLAUDE_BIN_PATTERN" HOME_DIR="$HOME" \
+  SNAP_STATE_DIR="$STATE_DIR" \
   /usr/bin/python3 <<'PY'
 import json, os, re, time
 from datetime import datetime
@@ -114,6 +126,65 @@ for line in iterm_raw.splitlines():
     iterm_by_tty[tty_path] = (win_id, tab_title)
     if tty_path.startswith("/dev/"):
         iterm_by_tty[tty_path[len("/dev/"):]] = (win_id, tab_title)
+
+# mt#4080. An empty dump is an OBSERVATION FAILURE, not an observed absence of
+# windows, and the two used to be written identically: every session got
+# iterm_window_id "" via the .get default below, indistinguishable from a real
+# single-window state. Record the distinction, then try to recover the grouping.
+#
+# Recovery joins on TTY, which is the whole reason it can work: the tty comes
+# from ps/lsof, which do not depend on iTerm answering. So a session that is
+# still running still has the tty it was recorded under, and a grouping from
+# before the wedge re-attaches to exactly the sessions it described. Sessions
+# started since the last good dump simply do not match, and stay ungrouped —
+# the join is self-limiting, which is why it needs no age cutoff.
+iterm_dump_status = "ok" if iterm_by_tty else "unavailable"
+grouping_source = "live" if iterm_by_tty else "none"
+grouping_from = ""
+
+
+def _recover_grouping(state_dir):
+    """Newest OBSERVED grouping from snapshot history, as (map, its timestamp).
+
+    Only snapshots whose own grouping was observed live are eligible: chaining
+    recovery onto a recovered snapshot would keep re-dating a stale layout and
+    make grouping_from meaningless. Legacy snapshots predate these fields, so
+    absence of the marker plus a populated window id counts as live.
+    """
+    try:
+        candidates = [Path(state_dir) / "snapshot.json"]
+        candidates += sorted(
+            Path(state_dir).glob("snapshot-*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except OSError:
+        return {}, ""
+
+    for path in candidates:
+        try:
+            with open(path) as fh:
+                prior = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if prior.get("iterm_grouping_source", "live") != "live":
+            continue
+        recovered = {}
+        for sess in prior.get("sessions", []):
+            tty, win = sess.get("tty", ""), sess.get("iterm_window_id", "")
+            if tty and win:
+                recovered[tty] = (win, sess.get("iterm_tab_title", ""))
+        if recovered:
+            return recovered, prior.get("timestamp", "")
+    return {}, ""
+
+
+if not iterm_by_tty:
+    _recovered, _from = _recover_grouping(os.environ["SNAP_STATE_DIR"])
+    if _recovered:
+        iterm_by_tty = _recovered
+        grouping_source = "history"
+        grouping_from = _from
 
 # Parse lsof -Ffpn: each PID has one fcwd record (with its n<path>) and many
 # ftxt records (binary + every loaded library). Capture the first cwd and set
@@ -201,12 +272,61 @@ for pid in pids:
         "uptime_sec": uptime_sec,
     })
 
-print(json.dumps({"timestamp": timestamp, "sessions": sessions}, indent=2))
+# `iterm_dump` and `iterm_grouping_source` are always emitted so a consumer can
+# branch on them without guessing; `iterm_grouping_from` only when it means
+# something. Additive — every snapshot already on disk predates all three, so
+# consumers must treat their ABSENCE as the legacy "assume observed" case.
+snapshot = {"timestamp": timestamp, "iterm_dump": iterm_dump_status,
+            "iterm_grouping_source": grouping_source}
+if grouping_from:
+    snapshot["iterm_grouping_from"] = grouping_from
+snapshot["sessions"] = sessions
+print(json.dumps(snapshot, indent=2))
 PY
+}
+
+# Preserve the last snapshot taken before the current boot. Rolling retention
+# alone is a self-defeating design for a crash-recovery tool: at a 30s cadence
+# HISTORY_KEEP=10 is five minutes of history, so the watcher restarting after an
+# unclean reboot deletes the pre-crash inventory — the only thing anyone wants —
+# before a human can get to it. Observed 2026-08-05: every pre-crash snapshot
+# was gone ~18 min after reboot. The archive is written once per boot and is
+# never a pruning candidate.
+archive_pre_boot_snapshot() {
+  local boot_epoch marker newest newest_epoch
+  # Anchor the match. `.*sec = ` is greedy and binds to the `usec = ` field,
+  # yielding the microseconds (6 digits) instead of the epoch — which makes
+  # `newest_epoch -lt boot_epoch` permanently false, so nothing is ever
+  # archived, while the marker below is still written so it never retries.
+  # Observed 2026-08-05 after the 14:19 panic: marker `.preboot-archived-478607`
+  # (a usec value), no preboot-*.json, pre-crash inventory saved only by the
+  # raised HISTORY_KEEP.
+  boot_epoch=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/^{ *sec = \([0-9]*\).*/\1/p')
+  [ -n "$boot_epoch" ] || return 0
+  marker="$STATE_DIR/.preboot-archived-$boot_epoch"
+  [ -e "$marker" ] && return 0
+
+  # `|| true` is load-bearing under `set -o pipefail`: with no snapshot-*.json yet,
+  # `ls` exits 1, the pipeline inherits it, and `set -e` kills the whole run BEFORE
+  # any snapshot is written. That is invisible on a populated state dir — which is
+  # every run of an already-installed watcher — and fires on exactly one case: the
+  # FIRST run after install, or after the state dir is cleared. Found by running the
+  # merged script against an empty TAB_WATCHER_STATE_DIR (mt#3873).
+  newest=$(ls -1t "$STATE_DIR"/snapshot-*.json 2>/dev/null | head -1 || true)
+  if [ -n "$newest" ]; then
+    newest_epoch=$(stat -f %m "$newest" 2>/dev/null || echo 0)
+    if [ "$newest_epoch" -lt "$boot_epoch" ]; then
+      cp "$newest" "$STATE_DIR/preboot-$(date -u -r "$boot_epoch" +"%Y%m%dT%H%M%SZ").json"
+      echo "archived pre-boot snapshot: $newest" >&2
+    fi
+  fi
+  : > "$marker"
 }
 
 main() {
   local tmp hist
+  archive_pre_boot_snapshot
+
   tmp="$SNAPSHOT.tmp"
   build_snapshot > "$tmp"
   mv "$tmp" "$SNAPSHOT"
@@ -217,9 +337,16 @@ main() {
   prune_history
 }
 
-# Prune historical snapshots beyond HISTORY_KEEP. Uses a shell glob into an
-# array rather than a pipeline so a zero-match case can't trip `set -o
-# pipefail`; ordering is by mtime via `stat -f`.
+# Prune historical snapshots beyond HISTORY_KEEP. Anchored to the rolling
+# snapshot-*.json series, so preboot-*.json is never a pruning candidate (one
+# small file per boot, retained indefinitely).
+#
+# Uses a shell glob into an array rather than a pipeline so a zero-match case
+# can't trip `set -o pipefail`. The live copy had drifted to an
+# `ls | tail | xargs` pipeline guarded by a trailing `|| true`; that does work,
+# but it is the same pipefail hazard class archive_pre_boot_snapshot above was
+# just fixed for, so the repo's pipefail-immune form is kept rather than
+# overwritten during the reconciliation (mt#3873).
 prune_history() {
   local files=("$STATE_DIR"/snapshot-*.json)
   # If the glob didn't match anything, bash leaves the literal pattern as the

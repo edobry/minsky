@@ -9,14 +9,19 @@
  * `getTranscript()` seam, resolves this transcript's user-turn actor (parent
  * agent if spawned, else principal — RFC Amendment 2), and runs the mt#3157
  * adapter (`adaptTranscriptToEvents`) per-request. The sessions endpoint
- * lists filmable conversations, applying the SAME credential-scrub gate as
- * the Gource exporter (RFC "Data honesty" / MVP section) — a session
- * ingested before the mt#2864 scrub-confirmed cutoff is marked
- * `scrubGateOk: false` and the client refuses to open it (spec SC 1 / AT8)
- * unless the caller explicitly asserts `verifiedRescrubbed`.
+ * lists filmable conversations.
+ *
+ * These endpoints are UNGATED by the credential-scrub gate, by decision
+ * (ADR-040, mt#3268): the gate binds where transcript bytes CROSS the
+ * operator's trust boundary — a file export, an anonymous share link — not
+ * where the operator reads their own stored history behind their own
+ * authentication. Until mt#3268 the film applied the gate while
+ * `routes/context-inspector.ts` did not, so a pre-cutoff conversation was
+ * unwatchable as a film and fully readable in the conversation view one
+ * route over. Do not re-add a gate here without revisiting ADR-040.
  *
  * @see packages/domain/src/transcripts/event-adapter.ts
- * @see packages/domain/src/transcripts/gource-exporter.ts — the scrub-gate precedent
+ * @see docs/architecture/adr-040-transcript-scrub-gate-binds-at-trust-boundary-crossings.md
  * @see mt#3157 — Phase 0 (schema + adapter + exporter)
  * @see mt#3184 — this task
  */
@@ -36,7 +41,6 @@ type SessionFilmErrorCode =
   | "unsupported_provider"
   | "session_not_found"
   | "invalid_id"
-  | "unscrubbed"
   | "internal";
 
 function sessionFilmError(
@@ -85,8 +89,7 @@ export interface SessionFilmEventsResult {
  * The film-owned content result (mt#3262 SC 5): the transcript's turn lines,
  * converted to `SessionContextSnapshotBlock[]` via the SAME `turnLineToBlock`
  * conversion `assembleSessionContextSnapshot` applies — one whole-transcript
- * fetch per conversation (not per-row), gated by the SAME `assertScrubGate`
- * call the events endpoint below applies. The client indexes this array by
+ * fetch per conversation (not per-row). The client indexes this array by
  * `turnIndex` to resolve an event's `sourceRef` to its real content.
  */
 export interface SessionFilmContentResult {
@@ -101,8 +104,6 @@ export interface SessionFilmPickerRow {
   startedAt: string | null;
   cwd: string | null;
   ingestedAt: string | null;
-  /** True when `ingestedAt` is on/after the credential-scrub cutoff (see gource-exporter.ts). */
-  scrubGateOk: boolean;
 }
 
 // ── Test seams ────────────────────────────────────────────────────────────
@@ -271,9 +272,6 @@ async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
     "@minsky/domain/storage/schemas/agent-transcripts-schema"
   );
   const { isNotNull } = await import("drizzle-orm");
-  const { CREDENTIAL_SCRUB_CUTOFF_ISO } = await import(
-    "@minsky/domain/transcripts/gource-exporter"
-  );
   const { deriveFallbackLabel } = await import("@minsky/domain/transcripts/conversation-label");
 
   const rows = await db
@@ -288,8 +286,6 @@ async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
     .orderBy(desc(agentTranscriptsTable.startedAt))
     .limit(MAX_PICKER_SESSIONS);
 
-  const cutoff = new Date(CREDENTIAL_SCRUB_CUTOFF_ISO).getTime();
-
   return filterAdmissiblePickerRows(rows).map((r) => {
     const startedAt = r.startedAt ? new Date(r.startedAt) : null;
     const ingestedAt = r.ingestedAt ? new Date(r.ingestedAt) : null;
@@ -299,7 +295,6 @@ async function defaultListSessions(): Promise<SessionFilmPickerRow[]> {
       startedAt: startedAt ? startedAt.toISOString() : null,
       cwd: r.cwd ?? null,
       ingestedAt: ingestedAt ? ingestedAt.toISOString() : null,
-      scrubGateOk: ingestedAt !== null && ingestedAt.getTime() >= cutoff,
     };
   });
 }
@@ -315,8 +310,7 @@ export function mountSessionFilmRoutes(
 
   /**
    * GET /api/cockpit/session-film/sessions — picker source: filmable
-   * conversations, newest first, each carrying `scrubGateOk` so the client
-   * can refuse a pre-cutoff un-re-scrubbed session (spec SC 1 / AT8).
+   * conversations, newest first.
    */
   app.get("/api/cockpit/session-film/sessions", async (_req, res) => {
     try {
@@ -329,13 +323,10 @@ export function mountSessionFilmRoutes(
   });
 
   /**
-   * GET /api/cockpit/session-film/events?conversationId=<id>&verifiedRescrubbed=<bool>
+   * GET /api/cockpit/session-film/events?conversationId=<id>
    *
-   * Returns the ordered `SemanticEvent[]` for a conversation. Refuses (422
-   * `unscrubbed`) a session ingested before the credential-scrub cutover
-   * unless `verifiedRescrubbed=true` is passed — the SAME gate the picker
-   * enforces client-side, re-checked server-side so a directly-typed `?t=`
-   * deep link can't bypass it.
+   * Returns the ordered `SemanticEvent[]` for a conversation. Ungated by the
+   * credential-scrub gate — see the module doc comment and ADR-040.
    */
   app.get("/api/cockpit/session-film/events", async (req, res) => {
     const conversationId = req.query["conversationId"];
@@ -353,8 +344,6 @@ export function mountSessionFilmRoutes(
       return;
     }
 
-    const verifiedRescrubbed = req.query["verifiedRescrubbed"] === "true";
-
     try {
       const result = await withBoundedTimeout(
         fetchEvents(conversationId),
@@ -370,19 +359,6 @@ export function mountSessionFilmRoutes(
         return;
       }
 
-      const { assertScrubGate, UnscrubbedSessionError } = await import(
-        "@minsky/domain/transcripts/gource-exporter"
-      );
-      try {
-        assertScrubGate(result.ingestedAt, verifiedRescrubbed);
-      } catch (err) {
-        if (err instanceof UnscrubbedSessionError) {
-          sessionFilmError(res, 422, "unscrubbed", err.message);
-          return;
-        }
-        throw err;
-      }
-
       res.json({ events: stableSortByTStart(result.events), ingestedAt: result.ingestedAt });
     } catch (err) {
       logInternal("GET /api/cockpit/session-film/events", err);
@@ -396,17 +372,16 @@ export function mountSessionFilmRoutes(
   });
 
   /**
-   * GET /api/cockpit/session-film/content?conversationId=<id>&verifiedRescrubbed=<bool>
+   * GET /api/cockpit/session-film/content?conversationId=<id>
    *
    * mt#3262 SC 2/SC 5 — the film-owned content endpoint an expanded ribbon
    * row fetches on first expand: the transcript's turn lines, converted to
    * `SessionContextSnapshotBlock[]`, so the client can resolve an event's
    * `sourceRef.turnIndex` to real content and render it via the shared
-   * `ElementView` renderers. Applies the EXACT SAME `assertScrubGate` call
-   * as `/events` above — a session ingested before the credential-scrub
-   * cutover is refused (422 `unscrubbed`) unless `verifiedRescrubbed=true`
-   * is passed. Deliberately NOT `/api/cockpit/context-inspector/snapshot`
-   * (ungated — see the module doc comment).
+   * `ElementView` renderers. Kept separate from
+   * `/api/cockpit/context-inspector/snapshot` because the film owns this
+   * shape and its fetch granularity, NOT because the two differ on the
+   * credential-scrub gate — as of ADR-040 neither is gated.
    */
   app.get("/api/cockpit/session-film/content", async (req, res) => {
     const conversationId = req.query["conversationId"];
@@ -424,8 +399,6 @@ export function mountSessionFilmRoutes(
       return;
     }
 
-    const verifiedRescrubbed = req.query["verifiedRescrubbed"] === "true";
-
     try {
       const result = await withBoundedTimeout(
         fetchContent(conversationId),
@@ -439,19 +412,6 @@ export function mountSessionFilmRoutes(
           "No transcript found for the requested session."
         );
         return;
-      }
-
-      const { assertScrubGate, UnscrubbedSessionError } = await import(
-        "@minsky/domain/transcripts/gource-exporter"
-      );
-      try {
-        assertScrubGate(result.ingestedAt, verifiedRescrubbed);
-      } catch (err) {
-        if (err instanceof UnscrubbedSessionError) {
-          sessionFilmError(res, 422, "unscrubbed", err.message);
-          return;
-        }
-        throw err;
       }
 
       res.json({ blocks: result.blocks, ingestedAt: result.ingestedAt });

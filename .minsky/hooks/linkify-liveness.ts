@@ -1,0 +1,241 @@
+// Liveness reading over the display linkifier's fire log (mt#4145).
+//
+// The question this answers is the one nothing could answer before: **did the
+// display linkifier actually run?** `linkify-message-display.ts` is off the
+// guard dispatcher by ADR-028 D1/D7(5), so it writes no dispatcher fire-log
+// record, and its own contract makes every failure path a silent no-op. Three
+// layers stood down on the assumption that it works — the authoring ration in
+// `cockpit-deeplinks.mdc`, mt#3897's `bare-ref` carve-out, mt#3937's carve-out
+// disclosure — and an operator noticing bare refs was the only detector.
+//
+// ## What the verdicts mean, and what they deliberately do NOT claim
+//
+// The hard requirement (SC3) is telling "never ran" apart from "ran and had
+// nothing to rewrite". Those two produce identical downstream symptoms — no
+// links — and opposite diagnoses. `deltas` in each record is what separates
+// them: a record exists only because the hook reached the end of a message.
+//
+// The verdicts are phrased as EVIDENCE claims, not firing claims. `no-evidence`
+// is not "the hook did not fire": the writer swallows its own errors by design
+// (the display outranks the evidence channel), so a missing record can mean the
+// append failed. Bounding the claim to the channel actually read is what
+// `claim-confidence.mdc` requires of a negative, and the distinction matters
+// here because mt#4174 gates an enforcement posture on this output.
+//
+// @see mt#4145 — this channel; mt#4174 — the conditional carve-out that consumes it
+// @see docs/architecture/hooks/linkify-message-display.md
+
+import * as fs from "fs";
+
+import {
+  getFenceStatePath,
+  getFireLogPath,
+  getRotatedFireLogPath,
+  type LinkifyFireRecord,
+} from "./linkify-message-display";
+import { emptyCounts, addCounts, type LinkifyCounts } from "./entity-linkify";
+
+/**
+ * `live` — ran, and rewrote at least one ref. The channel is healthy.
+ * `ran-idle` — ran, rewrote nothing across the window. Legitimate for a quiet
+ *   window; sustained, it is the shape a broken rewrite path would also make,
+ *   which is why it is its own verdict rather than folded into `live`.
+ * `no-evidence` — no records in the window. See the header: this bounds a claim
+ *   about the LOG, not about the hook.
+ * `never-ran` — no log file exists at all, and no in-flight state either.
+ */
+export type LivenessVerdict = "live" | "ran-idle" | "no-evidence" | "never-ran";
+
+export interface LivenessSummary {
+  verdict: LivenessVerdict;
+  /** Records inside the window. */
+  messages: number;
+  /** Records of any age in the log. */
+  messagesAllTime: number;
+  /** Deltas processed inside the window — the "did it actually do work" signal. */
+  deltas: number;
+  /** Refs rewritten inside the window, by class. */
+  totals: LinkifyCounts;
+  /** Sum of every LINK-producing class (excludes `shortIdUnresolved`). */
+  linked: number;
+  /** ISO timestamp of the newest record, or null when there are none. */
+  newestAt: string | null;
+  /**
+   * True when an in-flight fence-state file exists. A message ends without its
+   * `final` delta (client crash, interrupt) exactly when this is left behind, so
+   * it is positive evidence the hook RAN even with no record — the failure mode
+   * gate (l) flagged when this design bound the flush to a third-party signal.
+   */
+  inFlightStatePresent: boolean;
+  /** Human-readable one-liner, suitable for a report or an advisory. */
+  headline: string;
+}
+
+export interface LivenessOptions {
+  /** Window in hours. Records older than this are counted only in `messagesAllTime`. */
+  windowHours?: number;
+  /** Injected for tests; defaults to now. */
+  nowMs?: number;
+  /** Injected for tests; defaults to probing the real fence-state path. */
+  inFlightStatePresent?: boolean;
+}
+
+/** Parse a fire log's raw text into records, skipping any line that is not one. */
+export function parseFireLog(raw: string): LinkifyFireRecord[] {
+  const out: LinkifyFireRecord[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      const parsed = JSON.parse(line) as Partial<LinkifyFireRecord>;
+      if (typeof parsed.at !== "string" || typeof parsed.deltas !== "number") continue;
+      out.push({
+        at: parsed.at,
+        messageId: typeof parsed.messageId === "string" ? parsed.messageId : "",
+        deltas: parsed.deltas,
+        totals: { ...emptyCounts(), ...(parsed.totals ?? {}) },
+      });
+    } catch {
+      // intentional-swallow: one malformed line (a torn concurrent append) must
+      // not discard the rest of the log. A truncated tail is the expected shape
+      // of the race the writer deliberately does not lock against.
+      continue;
+    }
+  }
+  return out;
+}
+
+export function summarizeFireLog(
+  records: LinkifyFireRecord[],
+  options: LivenessOptions = {}
+): LivenessSummary {
+  const windowHours = options.windowHours ?? 24;
+  const nowMs = options.nowMs ?? Date.now();
+  const cutoff = nowMs - windowHours * 3_600_000;
+  const inFlightStatePresent = options.inFlightStatePresent ?? false;
+
+  const inWindow = records.filter((r) => {
+    const t = Date.parse(r.at);
+    return Number.isFinite(t) && t >= cutoff;
+  });
+
+  const totals = emptyCounts();
+  let deltas = 0;
+  for (const r of inWindow) {
+    addCounts(totals, { ...emptyCounts(), ...r.totals });
+    deltas += r.deltas;
+  }
+  const linked = totals.task + totals.changeset + totals.ask + totals.memory + totals.session;
+
+  const newestAt =
+    records.length === 0
+      ? null
+      : records.reduce((a, b) => (Date.parse(a.at) >= Date.parse(b.at) ? a : b)).at;
+
+  let verdict: LivenessVerdict;
+  if (records.length === 0 && !inFlightStatePresent) {
+    verdict = "never-ran";
+  } else if (inWindow.length === 0) {
+    verdict = "no-evidence";
+  } else if (linked > 0) {
+    verdict = "live";
+  } else {
+    verdict = "ran-idle";
+  }
+
+  return {
+    verdict,
+    messages: inWindow.length,
+    messagesAllTime: records.length,
+    deltas,
+    totals,
+    linked,
+    newestAt,
+    inFlightStatePresent,
+    headline: buildHeadline(verdict, {
+      windowHours,
+      messages: inWindow.length,
+      deltas,
+      linked,
+      unresolved: totals.shortIdUnresolved,
+      newestAt,
+      inFlightStatePresent,
+    }),
+  };
+}
+
+function buildHeadline(
+  verdict: LivenessVerdict,
+  facts: {
+    windowHours: number;
+    messages: number;
+    deltas: number;
+    linked: number;
+    unresolved: number;
+    newestAt: string | null;
+    inFlightStatePresent: boolean;
+  }
+): string {
+  const w = `${facts.windowHours}h`;
+  switch (verdict) {
+    case "live":
+      return (
+        `linkifier LIVE: ${facts.linked} refs rewritten across ${facts.messages} messages ` +
+        `(${facts.deltas} deltas) in the last ${w}${
+          facts.unresolved > 0 ? `; ${facts.unresolved} short ids stayed bare (unmapped)` : ""
+        }`
+      );
+    case "ran-idle":
+      // This is SC3's named condition. Say "had nothing to rewrite" rather than
+      // anything implying breakage — it is the expected reading for a quiet
+      // window, and only a sustained run of it is a signal.
+      return (
+        `linkifier RAN but rewrote 0 refs across ${facts.messages} messages ` +
+        `(${facts.deltas} deltas) in the last ${w} — it had nothing to rewrite, ` +
+        `which is NOT the same as not running${
+          facts.unresolved > 0 ? `; ${facts.unresolved} short ids stayed bare (unmapped)` : ""
+        }`
+      );
+    case "no-evidence":
+      return `linkifier: NO evidence in the last ${w}${
+        facts.newestAt ? ` (newest record ${facts.newestAt})` : ""
+      }${
+        facts.inFlightStatePresent ? "; an in-flight message state IS present" : ""
+      } — bounded to the fire log, which the writer may fail to append silently`;
+    case "never-ran":
+      return `linkifier: no fire log exists — no evidence it has ever run on this machine`;
+  }
+}
+
+function readIfPresent(file: string): string | null {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    // intentional-swallow: absent is a normal state for both the active log
+    // (never ran) and the rotated one (never grew past the cap).
+    return null;
+  }
+}
+
+/**
+ * Read + summarize in one call, probing the real paths.
+ *
+ * Reads the ROTATED file as well as the active one. Rotation is how the writer
+ * bounds the log without an unsynchronized rewrite (PR #3026 R1); a reader that
+ * looked only at the active file would see every pre-rotation record vanish and
+ * report `no-evidence` — turning the durability FIX into the evidence loss it
+ * was made to prevent. Rotated first, so records stay in write order.
+ */
+export function checkLiveness(options: LivenessOptions = {}): LivenessSummary {
+  const rotated = readIfPresent(getRotatedFireLogPath());
+  const active = readIfPresent(getFireLogPath());
+
+  const records = [
+    ...(rotated === null ? [] : parseFireLog(rotated)),
+    ...(active === null ? [] : parseFireLog(active)),
+  ];
+
+  return summarizeFireLog(records, {
+    ...options,
+    inFlightStatePresent: options.inFlightStatePresent ?? fs.existsSync(getFenceStatePath()),
+  });
+}

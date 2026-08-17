@@ -44,9 +44,36 @@
  * `event: "PreCommit"`.
  *
  * HAND-MAINTAINED FALLBACK ONLY — see the staleness note in the module header.
- * `scripts/audit-fire-log.ts` derives the live set by parsing
- * `src/hooks/pre-commit.ts` and uses this snapshot only when that parse fails.
- * Snapshot taken 2026-08-05 (24 entries).
+ * `scripts/precommit-step-names.ts` derives the live set by parsing
+ * `src/hooks/pre-commit.ts`, and both readers — `scripts/audit-fire-log.ts`
+ * and `scripts/build-interceptor-catalog.ts` — use this snapshot only when
+ * that parse fails.
+ *
+ * Snapshot refreshed 2026-08-13 (25 entries). It was one entry stale for eight
+ * days: `interceptor-catalog-regen` shipped with mt#4010 and never reached
+ * this list, and because the catalog generator read the snapshot rather than
+ * deriving, the step was absent from the interceptor catalog entirely rather
+ * than reported as a gap (mt#4071). The generator now derives; this list is
+ * the parse-failure fallback it is documented to be, which is why it still has
+ * to be correct.
+ *
+ * MAINTENANCE CONTRACT — stated here rather than left implicit in a test
+ * (PR #3002 R1). Adding or removing a `this.instrumented()` step in
+ * `src/hooks/pre-commit.ts` means editing this list in the SAME change, and
+ * `scripts/precommit-step-names.test.ts` fails in each direction with the
+ * one-line fix named:
+ *
+ *   - a name here that `pre-commit.ts` no longer has is a stale leftover —
+ *     delete it, and record it in `RETIRED_GUARD_NAMES` if it has fire-log
+ *     history, so a rename does not stay "known" forever;
+ *   - a name in `pre-commit.ts` missing from here leaves the FALLBACK
+ *     incomplete. That is not cosmetic: `resolvePrecommitStepNames` returns
+ *     this list whenever the parse fails — including the partial-parse case —
+ *     so a lagging entry reproduces mt#4071 on the fallback path, where the
+ *     catalog omits a real enforcement point and nothing reports it.
+ *
+ * Deriving is what removed the day-to-day dependency on this list; it did not
+ * make the list optional, because it is what the derivation falls back TO.
  */
 export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "adr-numbering-collision-check",
@@ -64,6 +91,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "fast-related-tests",
   "hook-permission-check",
   "immutable-migration-check",
+  "interceptor-catalog-regen",
   "migration-collision-check",
   "migration-guard-check",
   "migration-journal-check",

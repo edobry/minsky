@@ -263,7 +263,161 @@ describe("AT6 — every routable type is accounted for", () => {
     // This is the coverage ratchet the spec asks for. It fails when a routable
     // type is ADDED (the total moves) or when an adapter lands without being
     // declared — either way, the gap surfaces here rather than as a blank pane.
-    expect([...PEEKABLE_WITH_BODY].sort()).toEqual(["changeset", "memory", "task"]);
+    //
+    // mt#4069 closed the split: every routable type now has a body, so the two
+    // lists are equal. The ratchet still bites — adding an eighth routable type
+    // without an adapter fails BOTH assertions below.
+    expect([...PEEKABLE_WITH_BODY].sort()).toEqual([
+      "ask",
+      "changeset",
+      "conversation",
+      "interceptor",
+      "memory",
+      "session",
+      "task",
+    ]);
     expect(ROUTABLE_ENTITY_TYPES).toHaveLength(7);
+  });
+
+  test("every routable type has a body — the open-as-page placeholder is gone (mt#4069)", () => {
+    // The complement of the ratchet above, stated as the property the task
+    // actually delivers: no routable type falls through to a placeholder.
+    for (const type of ROUTABLE_ENTITY_TYPES) {
+      expect(PEEKABLE_WITH_BODY).toContain(type);
+    }
+  });
+});
+
+describe("AT7 — an outside click dismisses the assembly, not one pane (mt#4143)", () => {
+  // Radix registers its document-level outside listener in a deferred task, so a
+  // pointerdown fired in the same tick as the render reaches nothing. Without
+  // this wait every test below passes vacuously — the panes survive because no
+  // handler ran at all, which is indistinguishable from the exemption working.
+  const settleOutsideListener = () => new Promise((r) => setTimeout(r, 20));
+
+  async function openHeldPair() {
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    fireEvent.click(memoryRef(), { button: 0, shiftKey: true });
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(2));
+    await settleOutsideListener();
+  }
+
+  test("clicking inside a SIBLING pane closes nothing — the held-pair case", async () => {
+    await openHeldPair();
+    const [paneA, paneB] = screen.getAllByTestId("peek-pane");
+
+    // Click the FIRST pane, not the last, and the distinction is load-bearing.
+    // Dismissal is owned by the LAST pane alone, so a click on the last pane is
+    // "inside" the only pane that could act on it and the pane exemption is
+    // never consulted — a version of this test that clicked pane B passed with
+    // the exemption deleted. Clicking pane A is what puts the last pane's
+    // handler in front of a target inside a DIFFERENT pane, which is the case
+    // the exemption exists for.
+    fireEvent.pointerDown(paneA!);
+
+    await settleOutsideListener();
+    expect(screen.getAllByTestId("peek-pane")).toHaveLength(2);
+    expect(paneB!.isConnected).toBe(true);
+    expect(screen.getByTestId("location").textContent).toContain("peek=");
+  });
+
+  test("clicking a sibling pane's CLOSE BUTTON closes only that pane", async () => {
+    await openHeldPair();
+    const closeMemory = screen.getByLabelText("Close fbcb360f-fe0e-402d-9b35-7e3c2b2ab59a");
+
+    fireEvent.pointerDown(closeMemory);
+    fireEvent.click(closeMemory);
+
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(1));
+    expect(screen.getAllByTestId("peek-pane")[0]?.getAttribute("data-peek-type")).toBe("task");
+  });
+
+  test("clicking neutral page chrome dismisses BOTH panes and clears the URL", async () => {
+    await openHeldPair();
+
+    fireEvent.pointerDown(screen.getByText("Underlying page"));
+
+    await waitFor(() => expect(screen.queryByTestId("peek-pane")).toBeNull());
+    expect(screen.getByTestId("location").textContent).toBe("/tasks/mt%232370");
+  });
+
+  test("clicking neutral page chrome dismisses a single pane too", async () => {
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    await settleOutsideListener();
+
+    fireEvent.pointerDown(screen.getByText("Underlying page"));
+
+    await waitFor(() => expect(screen.queryByTestId("peek-pane")).toBeNull());
+    expect(screen.getByTestId("location").textContent).toBe("/tasks/mt%232370");
+  });
+
+  test("an outside dismissal returns focus to the opener, like Esc and the close button", async () => {
+    renderShell();
+    const opener = taskRef();
+    fireEvent.click(opener, { button: 0 });
+    await screen.findByTestId("peek-pane");
+    await settleOutsideListener();
+
+    fireEvent.pointerDown(screen.getByText("Underlying page"));
+
+    await waitFor(() => expect(screen.queryByTestId("peek-pane")).toBeNull());
+    expect(document.activeElement).toBe(opener);
+  });
+
+  test("clicking an entity ref REPLACES rather than dismissing", async () => {
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    await settleOutsideListener();
+
+    // The ref is outside the pane, so without its exemption this click would
+    // dismiss the assembly on its way to opening the next entity.
+    fireEvent.pointerDown(memoryRef());
+    fireEvent.click(memoryRef(), { button: 0 });
+
+    await waitFor(() => {
+      const panes = screen.getAllByTestId("peek-pane");
+      expect(panes).toHaveLength(1);
+      expect(panes[0]?.getAttribute("data-peek-type")).toBe("memory");
+    });
+  });
+
+  test("shift-clicking an entity ref still HOLDS rather than dismissing", async () => {
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    await settleOutsideListener();
+
+    fireEvent.pointerDown(memoryRef(), { shiftKey: true });
+    fireEvent.click(memoryRef(), { button: 0, shiftKey: true });
+
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(2));
+  });
+
+  test("focus leaving the pane does NOT dismiss — only a click does", async () => {
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    await settleOutsideListener();
+
+    // ask#8509 decided what a CLICK does. Tabbing to the page behind is not a
+    // dismissal gesture; treating it as one makes the peek keyboard-hostile.
+    fireEvent.focusIn(screen.getByText("Underlying page"));
+
+    await settleOutsideListener();
+    expect(screen.getAllByTestId("peek-pane")).toHaveLength(1);
+  });
+
+  test("Esc still unwinds ONE pane at a time, not the whole assembly", async () => {
+    await openHeldPair();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(1));
+    expect(screen.getAllByTestId("peek-pane")[0]?.getAttribute("data-peek-type")).toBe("task");
   });
 });

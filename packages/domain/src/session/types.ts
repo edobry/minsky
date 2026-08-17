@@ -374,6 +374,22 @@ export interface SessionPrResult {
   body?: string;
   url?: string; // PR URL from repository backend
   /**
+   * The commit the PR actually points at (mt#4046).
+   *
+   * PR creation runs a pre-PR session update, so the branch head afterwards is
+   * a DIFFERENT commit from the one `session_commit` returned moments earlier.
+   * Without this field, a caller has no way to name the commit it wants
+   * reviewed except by reading the PR out of band — and `session_pr_wait-for-review`'s
+   * `expectedHeadSha` needs exactly that value. Five sessions in five days
+   * armed the watcher with the pre-creation sha and waited out the full
+   * timeout while a real review sat suppressed.
+   *
+   * Optional because it is read best-effort AFTER the PR exists: the PR has
+   * already been created by then, and failing that over a diagnostic read
+   * would trade a rare inconvenience for a common one.
+   */
+  headSha?: string;
+  /**
    * Receipt of the IN-REVIEW status transition attempted post-PR-create.
    * See `StatusTransitionReceipt` in `session-pr-operations.ts` for the
    * full taxonomy of skip/success/failure cases (mt#1378).

@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 96,
+  "population": 102,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -71,6 +71,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -99,6 +100,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -130,6 +132,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -160,6 +163,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -190,6 +194,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -218,6 +223,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -243,6 +249,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -268,6 +275,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -293,6 +301,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -318,6 +327,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -346,6 +356,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -374,6 +385,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -399,6 +411,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -425,6 +438,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -454,6 +468,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -483,6 +498,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -512,6 +528,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -538,6 +555,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -563,6 +581,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -588,6 +607,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -613,6 +633,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -638,6 +659,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -648,6 +670,36 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "cli-mcp-substitution",
+      "description": "Records a Bash or `session_exec` command that invokes the Minsky CLI for a command carrying a registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded — the act path's non-destructive half, which rebuilds an absent tool surface instead of surfacing the gap to the operator. Equivalence comes from the `commandId` the completion-manifest generator stamps on each CLI leaf, so coverage tracks the registry rather than a hand-list. Suppressed once MCP is in use; the suppression is still recorded.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/detect-cli-mcp-substitution.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
       "deliberatelyUnauthored": false
     },
     {
@@ -663,6 +715,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -691,6 +744,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -721,6 +775,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -746,6 +801,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -774,6 +830,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -801,6 +858,7 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
@@ -822,6 +880,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -847,6 +906,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -872,6 +932,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -897,6 +958,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -922,6 +984,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -955,6 +1018,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -980,6 +1044,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1006,6 +1071,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1031,6 +1097,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1040,6 +1107,36 @@
       "role": "judge",
       "coordinateGaps": [],
       "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "evidence-record-provenance",
+      "description": "Records whether the run a `Negative control:` or `Execution evidence:` record claims — written into a commit message or a PR body — actually happened in this session. A negative control needs a FAILING run that either quotes back into the record or names its subject; 'did a test run?' is discharged many times over in any real session. Record-only: a pre-ship replay over 40 transcripts measured the fire rate as mostly false positives, so the stream is armed and nothing injects (tune: mt#4067).",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/evidence-record-provenance.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false
     },
@@ -1056,6 +1153,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1082,6 +1180,7 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
@@ -1106,6 +1205,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1140,6 +1240,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1166,6 +1267,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1191,6 +1293,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1216,6 +1319,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1242,6 +1346,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1268,6 +1373,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1294,6 +1400,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1320,6 +1427,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1331,6 +1439,32 @@
       "coordinateGaps": [],
       "families": ["injector"],
       "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "interceptor-catalog-regen",
+      "description": "Regenerates the interceptor catalog the `/interceptors` route reads and re-stages it, so the corpus's own read surface never describes an older set of interceptors than the one being committed. Auto-fixes rather than blocking, because the catalog is mechanically derived from the authored data with zero editorial content.",
+      "failureClasses": ["broken-main", "blind-enforcement"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/interceptor-catalog-regen.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "mutate"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "infrastructure",
+      "coordinateGaps": [],
+      "families": [],
+      "familyState": "out-of-model",
       "deliberatelyUnauthored": false
     },
     {
@@ -1349,6 +1483,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1376,6 +1511,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1402,6 +1538,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1428,6 +1565,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1454,6 +1592,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "authored",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1479,6 +1618,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1504,6 +1644,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1530,6 +1671,7 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
@@ -1554,6 +1696,37 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "new-surface-design-pass",
+      "description": "Records when a PR ADDS a user-facing render-path surface and no design skill ran in the conversation that wrote it. The judgment half of mt#2421, whose check asks whether an artifact EXISTS and returns the same answer either way on whether anyone LOOKED: PR #2942 shipped two browser screenshots, a served branch with asserted health identity, and a reproduce recipe, and the pane had no padding. The screenshots were checked against the spec's criteria, and its only aesthetic criterion was conformance-shaped, which is satisfiable by reading class names. Keys on a `Skill` tool_use rather than on self-reported diligence, because the agent authoring the spec is the agent verifying it.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/new-surface-design-pass.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1580,6 +1753,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1605,6 +1779,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1630,6 +1805,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1659,6 +1835,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1686,6 +1863,7 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
@@ -1708,6 +1886,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1744,6 +1923,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -1775,6 +1955,7 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
@@ -1796,6 +1977,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "mutate"
@@ -1830,6 +2012,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -1859,6 +2042,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1887,6 +2071,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1915,6 +2100,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -1943,6 +2129,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -1975,6 +2162,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -2003,6 +2191,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": "delivery",
       "interventions": [
         {
           "type": "deny"
@@ -2031,6 +2220,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2059,6 +2249,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2088,6 +2279,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2118,6 +2310,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2144,6 +2337,7 @@
       "undescribed": false,
       "point": null,
       "pointSource": "none",
+      "trajectory": null,
       "interventions": [],
       "mechanism": null,
       "role": null,
@@ -2165,6 +2359,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2193,6 +2388,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2227,6 +2423,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2237,6 +2434,33 @@
       "role": "judge",
       "coordinateGaps": [],
       "families": ["injector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "stale-signal-sweep",
+      "description": "Records when a PR stops emitting an operator-facing output label — a counter renamed, a field dropped — while active task specs, live memories, or accepted ADRs still quote the old one. Fixing a signal fixes it going forward and retracts nothing: the conclusions already drawn from the bad label sit in the corpus stated as fact, and keep being planned against.",
+      "failureClasses": ["stale-context", "unfounded-claim"],
+      "provenance": [".minsky/hooks/stale-signal-sweep.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false
     },
@@ -2257,6 +2481,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "authored",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2283,6 +2508,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2312,6 +2538,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2342,6 +2569,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2370,6 +2598,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
@@ -2400,6 +2629,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2430,6 +2660,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2463,6 +2694,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2496,6 +2728,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2529,6 +2762,7 @@
       "undescribed": false,
       "point": "Stop",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "inject",
@@ -2559,6 +2793,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2585,6 +2820,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "authored",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2594,6 +2830,36 @@
       "role": "judge",
       "coordinateGaps": [],
       "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false
+    },
+    {
+      "guardName": "unrendered-result-field-scan",
+      "description": "Records when a PR adds a counter or flag to a `*Result` type that no operator-facing output site renders. A log call does not count: the originating incident (mt#3514) shipped two fields built to report a silent DELETE failure, one of them written only to a log sink, while the command printed an ordinary success line — typecheck, tests and two reviewer rounds all passed, because every one of them measures whether the field is CORRECT rather than whether a human can see it.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [
+        ".minsky/hooks/unrendered-result-field-scan.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
       "familyState": "classified",
       "deliberatelyUnauthored": false
     },
@@ -2610,6 +2876,7 @@
       "undescribed": false,
       "point": "PreToolUse",
       "pointSource": "settings",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2635,6 +2902,7 @@
       "undescribed": false,
       "point": "pre-commit",
       "pointSource": "stratum",
+      "trajectory": null,
       "interventions": [
         {
           "type": "deny"
@@ -2660,6 +2928,7 @@
       "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
+      "trajectory": null,
       "interventions": [
         {
           "type": "record",
