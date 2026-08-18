@@ -373,6 +373,79 @@ describe("detectUnownedFindings — prose-bodied sections", () => {
   });
 });
 
+describe("a deeper subheading does not split a prose section (PR #3098 R2)", () => {
+  test("three subheadings inside one findings section still yield ONE item", () => {
+    // `closeSection()` is what records a prose-bodied section, and it used to
+    // run on EVERY heading while a section was open — so each subheading
+    // emitted the prose above it and reset. One finding became three.
+    const findings = detectUnownedFindings(
+      spec(
+        [
+          "## The third guard, recorded not fixed",
+          "",
+          "The phrase-keyed guard is blind to agentless modals.",
+          "",
+          "#### What was measured",
+          "",
+          "Ran the shipped detector against both strings.",
+          "",
+          "#### Why it is not fixed here",
+          "",
+          "Widening a phrase guard is the arms race ADR-024 ends.",
+          "",
+          "#### What would fix it",
+          "",
+          "File separately if the measurement justifies it.",
+        ].join("\n")
+      )
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.item).toContain("blind to agentless modals");
+    expect(findings[0]?.item).toContain("File separately");
+  });
+
+  test("a same-level heading DOES close the section — the boundary still works", () => {
+    // The other half: over-correcting into "never close on a heading" would
+    // run one section into the next and swallow the boundary entirely.
+    const findings = detectUnownedFindings(
+      spec(
+        [
+          "## The third guard, recorded not fixed",
+          "",
+          "An unowned prose finding.",
+          "",
+          "## Context",
+          "",
+          "Ordinary prose that is not a finding at all.",
+        ].join("\n")
+      )
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.item).toContain("An unowned prose finding");
+    expect(findings[0]?.item).not.toContain("Ordinary prose");
+  });
+
+  test("a subheading still ends the open list item", () => {
+    const findings = detectUnownedFindings(
+      spec(
+        [
+          HEADING_NOTICED,
+          "",
+          "- First item, unowned.",
+          "",
+          "#### A subheading",
+          "",
+          "- Second item, unowned.",
+        ].join("\n")
+      )
+    );
+
+    expect(findings.map((f) => f.item)).toEqual(["First item, unowned.", "Second item, unowned."]);
+  });
+});
+
 describe("fence tracking is document-scoped, not section-scoped (PR #3098 R1)", () => {
   test("a findings heading inside a fence OUTSIDE any section does not open one", () => {
     // The BLOCKING regression. Fence tracking used to toggle only while a

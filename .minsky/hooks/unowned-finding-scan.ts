@@ -269,10 +269,23 @@ export function detectUnownedFindings(specText: string): UnownedFinding[] {
 
     const heading = parseHeading(line);
     if (heading !== null) {
-      // A heading at the same or higher level closes the current section.
+      // Any heading ends the open list ITEM — a bullet cannot span one.
+      flushItem();
+      // Only a heading at the same or higher level ends the SECTION. A DEEPER
+      // subheading leaves it open, and prose keeps accumulating across it.
+      //
+      // The two used to be conflated: `closeSection()` ran on every heading
+      // while a section was open, and since it is what records a prose-bodied
+      // section, a `####` subheading before the first bullet emitted the
+      // preamble above it as its own finding — then reset, so a section with
+      // three subheadings produced three items where there is one (PR #3098 R2,
+      // NON-BLOCKING). Flushing the item and closing the section are different
+      // events at different granularities; they are separate calls now.
       const closes = section !== null && heading.level <= sectionLevel;
-      if (closes || section !== null) closeSection();
-      if (closes) section = null;
+      if (closes) {
+        closeSection();
+        section = null;
+      }
       if (isFindingSection(heading.title)) {
         section = heading.title;
         sectionLevel = heading.level;

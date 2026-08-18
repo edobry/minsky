@@ -39,6 +39,7 @@
  * Usage:
  *   bun scripts/replay-unowned-findings.ts
  *   bun scripts/replay-unowned-findings.ts --json
+ *   bun scripts/replay-unowned-findings.ts --done-only --since 2026-07-19   # SC5's window
  *
  * Exits 0 when it completes, including a clean SKIP when persistence is
  * unreachable (CI has no local DB).
@@ -52,6 +53,29 @@ interface SpecRow {
   task_id: string;
   status: string;
   content: string;
+  updated_at: string;
+}
+
+/**
+ * The spec's SC5 window, available on demand (PR #3098 R2, BLOCKING).
+ *
+ * `--done-only` restricts to tasks currently in DONE; `--since <ISO date>`
+ * restricts to tasks updated on or after that date. Together they are the
+ * "last 30 days of DONE transitions" corpus SC5 names, using the task's own
+ * `updated_at` as the transition proxy — the tasks table keeps no per-status
+ * transition log, so this is the closest available signal and is named as a
+ * proxy rather than presented as the transition time itself.
+ *
+ * The DEFAULT is still exhaustive, for the reason in the header: over this
+ * corpus the window is expected to contain zero findings sections, and a zero
+ * from a window that small is indistinguishable from "the guard never fires".
+ * Both numbers are worth having, which is why this is a flag and not a rewrite.
+ */
+function windowFilter(): { doneOnly: boolean; since: string | null } {
+  const at = process.argv.indexOf("--since");
+  const raw = at >= 0 ? process.argv[at + 1] : undefined;
+  const since = typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
+  return { doneOnly: process.argv.includes("--done-only"), since };
 }
 
 async function loadSpecs(): Promise<SpecRow[] | null> {
@@ -67,7 +91,8 @@ async function loadSpecs(): Promise<SpecRow[] | null> {
     if (!db) return null;
     const { sql } = await import("drizzle-orm");
     const rows = await db.execute(sql`
-      select t.id as task_id, t.status::text as status, s.content as content
+      select t.id as task_id, t.status::text as status, s.content as content,
+             t.updated_at::text as updated_at
       from task_specs s join tasks t on t.id = s.task_id
     `);
     if (!Array.isArray(rows)) return null;
@@ -81,18 +106,36 @@ async function loadSpecs(): Promise<SpecRow[] | null> {
       const status = r["status"];
       const content = r["content"];
       if (typeof taskId !== "string" || typeof content !== "string") return [];
-      return [{ task_id: taskId, status: typeof status === "string" ? status : "", content }];
+      const updatedAt = r["updated_at"];
+      return [
+        {
+          task_id: taskId,
+          status: typeof status === "string" ? status : "",
+          content,
+          updated_at: typeof updatedAt === "string" ? updatedAt : "",
+        },
+      ];
     });
   } catch {
     return null;
   }
 }
 
-const specs = await loadSpecs();
-if (specs === null) {
+const allSpecs = await loadSpecs();
+if (allSpecs === null) {
   console.log("SKIP: persistence unreachable — no corpus to replay.");
   process.exit(0);
 }
+
+const { doneOnly, since } = windowFilter();
+const specs = allSpecs.filter(
+  (row) => (!doneOnly || row.status === "DONE") && (since === null || row.updated_at >= since)
+);
+const corpusLabel =
+  doneOnly || since !== null
+    ? `SC5 window (${doneOnly ? "DONE only" : "any status"}${since === null ? "" : `, updated >= ${since}`}) — ${specs.length} of ${allSpecs.length} specs`
+    : `exhaustive — all ${specs.length} specs`;
+console.log(`Corpus: ${corpusLabel}\n`);
 
 const fired: {
   taskId: string;
