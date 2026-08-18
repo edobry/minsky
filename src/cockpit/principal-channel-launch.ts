@@ -60,6 +60,11 @@ import {
   type PollCursor,
   type PollerHandle,
 } from "./principal-channel-poller";
+import {
+  createDegradedDedupe,
+  type DegradedDedupe,
+  type DegradedDedupeSnapshot,
+} from "./principal-channel-degraded-dedupe";
 import type { PermissionMode } from "./driven-session-host";
 
 /**
@@ -183,9 +188,40 @@ export function createEventLogCursor(
   readHighestUpdateId: () => Promise<number | undefined>,
   recordAdvance: (updateId: number) => Promise<void>
 ): PollCursor {
+  // In-process high-water mark (mt#4252). ADVANCE-ONLY, and deliberately not a
+  // second source of truth: the log is still where the position lives, and a
+  // restart starts from the log alone.
+  //
+  // What it covers is the window the log cannot: while Postgres is unreachable,
+  // `readHighestUpdateId` fails open to `undefined` (its own docblock justifies
+  // that with the idempotency token — which lives in the database that just
+  // failed), the poll goes out with no offset, and Telegram re-serves every
+  // unconfirmed update. Remembering where we got to is what stops that from
+  // repeating once per backoff cycle.
+  let mark: number | undefined;
+
   return {
-    read: readHighestUpdateId,
+    async read(): Promise<number | undefined> {
+      const durable = await readHighestUpdateId();
+      // `max(memory, db)`, which resolves both directions of disagreement
+      // correctly: on a cold boot memory is empty and the log wins, and during
+      // an outage the log is silent and memory carries. A recovered read that
+      // comes back LOWER than what this process has already served never moves
+      // the mark backwards.
+      if (durable !== undefined && (mark === undefined || durable > mark)) mark = durable;
+      return mark;
+    },
     async write(updateId: number): Promise<void> {
+      // BEFORE the durable write, not after. `recordAdvance` is precisely the
+      // call that throws when the DB is down — advancing after it would leave
+      // the mark unset for the whole outage, which is the defect this exists to
+      // fix rather than a detail of ordering.
+      if (mark === undefined || updateId > mark) mark = updateId;
+
+      // Unchanged: "has the log already covered this?" is a question about the
+      // log, so it keeps using the raw reader rather than the marked `read`
+      // above. Answering it from memory would suppress the `poll_advanced` row
+      // that exists to record an update the message rows cannot express.
       const covered = await readHighestUpdateId();
       if (covered !== undefined && covered >= updateId) return;
       await recordAdvance(updateId);
@@ -514,6 +550,21 @@ export type PrincipalChannelStatus =
        * rather than treating null as "no opinion".
        */
       lastProgressAt: string | null;
+      /**
+       * Which dedupe the channel is currently relying on (mt#4252).
+       *
+       * `running` on its own says the loop is turning; it says nothing about
+       * whether the loop can still tell a replay from a new message. Those come
+       * apart exactly when Postgres is unreachable — the loop keeps reporting
+       * progress every cycle, so the staleness projection above has no input
+       * that would move it off `running`, while every unconfirmed message is
+       * being re-served. This is the field that distinguishes the two.
+       *
+       * Optional so a caller constructing a `running` status by hand (the
+       * test-only setter below, and existing callers) is unaffected; absent
+       * means "not reported", not "durable".
+       */
+      dedupe?: DegradedDedupeSnapshot;
     }
   | {
       /**
@@ -553,6 +604,17 @@ export type PrincipalChannelStatus =
 let channelStatus: PrincipalChannelStatus = { state: "disabled" };
 
 /**
+ * The running poller's fallback dedupe (mt#4252), or undefined before launch.
+ *
+ * Held here, beside {@link channelStatus}, because it has two readers that
+ * cannot see each other: the poll cycle consults it when a durable audit write
+ * fails, and {@link getPrincipalChannelStatus} projects its snapshot onto the
+ * health payload. One object, so the thing that OBSERVES the failure is the
+ * thing that REPORTS it.
+ */
+let channelDedupe: DegradedDedupe | undefined;
+
+/**
  * Last-known channel status. Read-only; never triggers work. Safe to call from
  * a health endpoint on every request.
  */
@@ -567,6 +629,16 @@ export function getPrincipalChannelStatus(
   // subject the way `running` did.
   if (channelStatus.state !== "running") return channelStatus;
 
+  // Projected, never latched (mt#4252) — the dedupe derives its own mode by
+  // comparing the last durable write against the last fallback, so nothing has
+  // to remember to clear it when the DB recovers. That is the same discipline
+  // mt#4183 applied to `running`/`stalled` here, for the same reason.
+  const dedupeSnapshot = channelDedupe?.snapshot();
+  const withDedupe = <T extends { state: "running" | "stalled" }>(status: T): T => {
+    if (dedupeSnapshot === undefined || status.state !== "running") return status;
+    return { ...status, dedupe: dedupeSnapshot };
+  };
+
   const now = deps.now?.() ?? Date.now();
   const snapshot = (deps.snapshot ?? getSweepLivenessSnapshot)();
   const entry = snapshot.find((e) => e.name === PRINCIPAL_CHANNEL_SWEEP_NAME);
@@ -574,7 +646,7 @@ export function getPrincipalChannelStatus(
   // No registrant: the poller is not reporting into the registry at all. Say
   // nothing rather than guess — inventing a staleness from `since` alone would
   // report a healthy channel as stalled on any build where registration moved.
-  if (!entry) return channelStatus;
+  if (!entry) return withDedupe(channelStatus);
 
   const lastProgressAt = entry.lastAttemptAt;
   // The threshold is the REGISTRY's, read off the entry — not a second constant
@@ -587,10 +659,10 @@ export function getPrincipalChannelStatus(
   // against launch time is what makes that visible instead of permanently
   // unevaluated. (The registry-side half of the same gap is mt#4206.)
   const referenceMs = Date.parse(lastProgressAt ?? channelStatus.since);
-  if (Number.isNaN(referenceMs)) return { ...channelStatus, lastProgressAt };
+  if (Number.isNaN(referenceMs)) return withDedupe({ ...channelStatus, lastProgressAt });
 
   const staleForMs = now - referenceMs;
-  if (staleForMs <= thresholdMs) return { ...channelStatus, lastProgressAt };
+  if (staleForMs <= thresholdMs) return withDedupe({ ...channelStatus, lastProgressAt });
 
   return {
     state: "stalled",
@@ -605,6 +677,19 @@ export function getPrincipalChannelStatus(
 /** Reset to the pre-start state. For tests. */
 export function resetPrincipalChannelStatus(): void {
   channelStatus = { state: "disabled" };
+  // Cleared alongside the status (mt#4252) — leaving a dedupe behind would let
+  // one test's degraded snapshot appear in the next test's health projection.
+  channelDedupe = undefined;
+}
+
+/**
+ * TEST-ONLY: install a dedupe so the health projection can be exercised without
+ * running the whole launch path (mt#4252). Sibling of
+ * {@link _setPrincipalChannelStatusForTest}, and cleared by
+ * {@link resetPrincipalChannelStatus}.
+ */
+export function _setPrincipalChannelDedupeForTest(dedupe: DegradedDedupe | undefined): void {
+  channelDedupe = dedupe;
 }
 
 /**
@@ -956,9 +1041,15 @@ async function startResolvedChannel(args: {
   };
   opts.onStarted?.(chatId);
 
+  // Fresh per launch (mt#4252): its whole authority is "did THIS process
+  // already act on this token", so carrying one across a relaunch would let a
+  // stale set suppress a message the new poller has not actually answered.
+  channelDedupe = createDegradedDedupe();
+
   return startPrincipalChannelPoller({
     token,
     chatId,
+    degradedDedupe: channelDedupe,
     auth: { allowedChatId: chatId, allowedUserIds },
     actuator,
     resolveTopicActuator,
