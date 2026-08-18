@@ -210,6 +210,26 @@ export function mountHealthRoutes(app: express.Express, opts: HealthRoutesOption
       // processStartedAtMs: monotonic epoch-ms of when THIS process started.
       // A change between successive polls means the daemon restarted.
       processStartedAtMs: serverStartTime,
+      // mt#4232: the pid of the process ANSWERING this request. Discharges the
+      // earmark `src/cockpit/launchd.ts` has carried since mt#3682 ("Reporting a
+      // PID for the tray-supervised case needs a new health field"), which is
+      // why `cockpit status` printed a null pid for every non-launchd daemon:
+      // launchctl was the only pid source, and it knows nothing about a daemon
+      // the tray spawned.
+      //
+      // Self-reported rather than inferred, and that is the point. Resolving the
+      // pid from the outside means `lsof` on the port, which answers "who holds
+      // this socket" — a question whose answer has already been wrong here (see
+      // `port-recovery.ts`'s `findPortHolder`, where a naive `lsof -i :3737`
+      // returned Tailscale's pid). `process.pid` read inside the handler is the
+      // process that actually served the response, so a caller pairing it with
+      // this payload's `service` field has an identity chain rather than a guess
+      // — which is what makes it safe to SIGNAL (mt#4232's `cockpit restart`).
+      //
+      // A plain top-level number, deliberately: mt#4186's liveness-dating
+      // invariant governs sub-objects that assert an operational state, and a
+      // pid asserts none, so this owes no `lastAttemptAt` sibling.
+      pid: process.pid,
       // consecutiveDegraded: how many consecutive /api/health calls have seen
       // db !== "ok". Resets to 0 on "ok". Read-only mirror of consecutiveDegradedCount.
       consecutiveDegraded: consecutiveDegradedCount,
