@@ -7,7 +7,8 @@
     "src/cockpit/web/components/Rail.tsx",
     "cockpit-tray/src-tauri/src/supervisor/daemon_core.rs (probe_health — transport + the `service` identity assertion + processStartedAtMs, mt#3815)",
     "cockpit-tray/src-tauri/src/supervisor.rs (db_status_from_body — the cockpit-only `db` field, mt#3815)",
-    "src/cockpit/port-recovery.ts (realIncumbentProbes.health — the `service` identity assertion before `cockpit start` displaces a port holder, mt#4205)"
+    "src/cockpit/port-recovery.ts (realIncumbentProbes.health — the `service` identity assertion before `cockpit start` displaces a port holder, mt#4205)",
+    "src/cockpit/launchd.ts (realRestartProbes.serving — `pid` + `service` + `processStartedAtMs`; the identity chain `cockpit restart` signals on, and the restart-confirmation signal, mt#4232)"
   ],
   "fields": {
     "status": "string",
@@ -22,6 +23,7 @@
     "survivedExceptions": "object",
     "principalChannel": "object",
     "processStartedAtMs": "number",
+    "pid": "number",
     "consecutiveDegraded": "number",
     "transcriptWatcher": "object",
     "transcriptSweep": "object",
@@ -60,6 +62,7 @@
       "lastProgressAt": "2026-08-17T03:49:17.000Z"
     },
     "processStartedAtMs": 1735689600000,
+    "pid": 54321,
     "consecutiveDegraded": 0,
     "transcriptWatcher": {
       "running": true,

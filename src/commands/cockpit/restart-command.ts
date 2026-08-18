@@ -1,23 +1,55 @@
 import { Command } from "commander";
-import { restartDaemon } from "../../cockpit/launchd";
+import {
+  describeOutcome,
+  realRestartProbes,
+  resolveRestart,
+  RESTART_CONFIRM_BUDGET_MS,
+} from "../../cockpit/daemon-restart";
+import { DEFAULT_DAEMON_PORT } from "../../cockpit/launchd";
 
 export function createRestartCommand(): Command {
   const cmd = new Command("restart");
-  cmd.description("Restart the cockpit daemon (unload + reload the LaunchAgent plist)");
-  cmd.action(async () => {
-    if (process.platform !== "darwin") {
-      console.error("cockpit restart is only supported on macOS (uses launchd).");
-      process.exit(1);
-    }
+  cmd.description("Restart the cockpit daemon under whichever supervisor is running it");
+  // The macOS-only gate this command used to open with is gone with the launchd
+  // dependency it existed for (mt#4232): signalling a pid is not launchd, and
+  // the failure it guarded against is now reported by the outcome itself rather
+  // than pre-judged by platform.
+  cmd.option(
+    "--port <port>",
+    `Port the daemon serves on (default ${DEFAULT_DAEMON_PORT})`,
+    (v) => parseInt(v, 10),
+    DEFAULT_DAEMON_PORT
+  );
+  cmd.addHelpText(
+    "after",
+    `
+Restarts by signalling the serving process, then confirming a supervisor
+replaced it — the tray and launchd both respawn a daemon that exits, so this
+works under either without asking which one is present.
 
-    try {
-      await restartDaemon();
-      console.log("Cockpit daemon restarted.");
-    } catch (err) {
-      const e = err as Error;
-      console.error(`Failed to restart cockpit daemon: ${e.message}`);
+Note the tray records a signalled restart as a CRASH-class exit: a SIGTERMed
+process reports no exit code, which is indistinguishable at the syscall level
+from a real crash. It respawns normally, but four restarts inside ten minutes
+trips the tray's restart-storm alert, and two inside five seconds hit its
+respawn throttle. Both are the supervisor working as intended.
+
+Confirmation can take up to ${Math.round(RESTART_CONFIRM_BUDGET_MS / 1000)}s under launchd, whose plist sets
+ThrottleInterval 60. Under the tray it is typically a few seconds.`
+  );
+
+  cmd.action(async (opts: { port: number }) => {
+    const port = opts.port;
+    console.log(`Restarting the cockpit daemon on port ${port}...`);
+
+    const outcome = await resolveRestart(port, realRestartProbes);
+    const { message, failed } = describeOutcome(outcome, "restart", port);
+
+    if (failed) {
+      console.error(message);
       process.exit(1);
     }
+    console.log(message);
   });
+
   return cmd;
 }
