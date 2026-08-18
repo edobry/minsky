@@ -63,14 +63,19 @@ times**, and each was noticed only when a message went unanswered (mt#3608).
     "state": "running",
     "chatId": "167346572",
     "since": "2026-08-17T03:48:02.000Z",
-    "lastProgressAt": "2026-08-17T03:49:17.000Z"
+    "lastProgressAt": "2026-08-17T03:49:17.000Z",
+    "dedupe": {
+      "mode": "durable",
+      "since": "2026-08-17T03:49:17.000Z",
+      "unrecordedCount": 0
+    }
   }
 }
 ```
 
 | `state`        | Means                                                                                                                                         |
 | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`.                                                 |
+| `running`      | The poller is up AND has made progress recently. Carries `chatId`, `since`, `lastProgressAt`, `dedupe`.                                       |
 | `stalled`      | Launched, then stopped making progress. Carries `chatId`, `since`, `lastProgressAt`, `staleForMs`, `thresholdMs`. **Not consuming messages.** |
 | `disabled`     | Turned off in config (`principalChannel.enabled` is not `true`). Not a fault.                                                                 |
 | `starting`     | Mid-launch. Transient; a value that persists here means startup threw.                                                                        |
@@ -115,6 +120,38 @@ the latch did.
 
 Read `staleForMs` rather than just the state: "stalled 4 minutes" and "stalled 4
 days" call for different responses, and only the number distinguishes them.
+
+### `dedupe` — is the channel still able to tell a replay from a new message?
+
+`running` says the loop is TURNING. It does not say the loop can still recognise
+a message it already answered, and those two come apart exactly when Postgres is
+unreachable (mt#4252). The channel's dedupe is durable — the idempotency token is
+looked up in the append-only event log — so when the database is unreachable the
+check is unreachable with it. `dedupe` is the field that separates the two:
+
+| Field             | Means                                                                                                                                                                 |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`            | `durable` — the last audit write LANDED, so the event log is answering the replay question. `degraded` — the last one FAILED, and a per-process fallback answered it. |
+| `since`           | ISO stamp of the write that set `mode`.                                                                                                                               |
+| `unrecordedCount` | How many messages this daemon has acted on with NO durable audit row behind them. A total for the process's lifetime, not a gauge — it does not reset on recovery.    |
+
+**`mode` describes the last write the channel attempted, dated by `since` — it is
+not a live database probe.** Nothing here polls Postgres; the channel only learns
+the database's state by trying to write to it. So a quiet channel keeps reporting
+whatever it last observed, and `since` is what stops that being mistaken for a
+fresh reading. A `degraded` from four hours ago on a channel nobody has messaged
+since means "the last write failed, four hours ago", not "still broken now".
+
+Like `running`/`stalled`, this is **projected, not latched**: `mode` is derived by
+comparing the last durable write against the last fallback, so it corrects itself
+on the next successful write and nothing has to remember to clear it.
+
+`degraded` is not by itself an outage you must act on — the channel keeps
+answering, which is the whole point of the fallback. What it tells you is that
+the audit log has a hole in it for those messages, and that dedupe is only as
+good as this process's memory: a daemon restart during a `degraded` stretch
+empties the fallback, and Telegram may re-serve anything still unconfirmed.
+`unrecordedCount` is the size of the hole.
 
 **`retrying` and `unconfigured` are deliberately different states.** The first
 means the credentials probably exist but could not be READ — a fault, usually
