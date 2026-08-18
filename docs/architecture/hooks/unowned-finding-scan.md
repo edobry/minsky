@@ -40,10 +40,21 @@ An item is discharged by one of two explicit markers, and by nothing else:
 preference.** The first draft discharged an item on any `mt#N`-shaped reference. That test cannot
 distinguish a reference in OWNER position ("filed as mt#4238") from one in SUBJECT position
 ("mt#3130's build list is stale"), and the corpus turned out to be made entirely of the second
-shape: at the time of the replay, **every findings item in the repo — all six, across four specs —
-carried a bare reference and none declared an owner.** The reference test discharged 6 of 6,
-including both items from the originating incident. Its recall on the class it exists to catch was
-zero.
+shape.
+
+**The counts are stated at two points, because the guard changed between them.** When the reference
+test was measured, the replay saw only LIST items and found **four**, across three specs — every one
+carrying a reference in SUBJECT position and none declaring an owner. The reference test discharged
+**4 of 4**, including both items from the originating incident: recall zero on the class it exists to
+catch.
+
+Widening to prose-bodied sections (below) then took the corpus to **six items across four specs**, of
+which **five** carry a bare reference. The sixth — mt#3265's prose section — carries none and was
+invisible to the list-only scan altogether.
+
+Do not collapse these into one figure. An earlier draft of this page said "all six carried a bare
+reference … discharged 6 of 6", which overstates both: the reference test never saw the sixth item,
+and that item has no reference to discharge on (PR #3098 R4).
 
 Widening the pattern (`filed as|tracked by|owned by`) is the obvious next move and is the wrong
 one: that is a phrase corpus over free text, which ADR-024 assigns to Rung 2 and whose recall arms
@@ -153,15 +164,21 @@ missing.
 
 ## Testing
 
-`.minsky/hooks/unowned-finding-scan.test.ts` — 24 tests. The load-bearing ones:
+`.minsky/hooks/unowned-finding-scan.test.ts` — 30 tests. The load-bearing ones:
 
 - Every heading variant asserted **per-variant**, not by one representative.
 - A reference in subject position **fires** (the regression that the marker exists to prevent).
 - The real corpus items as verbatim fixtures, asserting all five fire and that four carry a bare
   reference — grounded in the exhaustive scan rather than in recall.
 - The same items with markers added, asserting silence, so the adoption cost is demonstrated.
-- A prose-bodied section, a fenced block that must not open a section, and a section whose preamble
-  prose must not double-count against its own bullets.
+- A prose-bodied section, and a section whose preamble prose must not double-count against its own
+  bullets.
+- **Fence tracking is document-scoped** (PR #3098 R1): a findings heading quoted inside a fence
+  OUTSIDE any section must not open one — the shape this guard's own documentation takes — plus the
+  parity control that a real section after a closed fence is still detected.
+- **A deeper subheading does not split a prose section** (PR #3098 R2), with the control that a
+  same-level heading still closes it. Both controls exist because the obvious over-correction (never
+  close on a heading) would pass the first test and break the boundary.
 
 ## Cross-references
 

@@ -41,12 +41,28 @@
 // test ("filed as mt#4238" vs "mt#3130's build list is stale"), and that draft
 // shipped with the miss recorded as a known limit, to be measured.
 //
-// The measurement came back total. Every findings item in the corpus — all four,
-// across the only three specs that carry the section (`scripts/replay-unowned
-// -findings.ts`, exhaustive over 4,146 specs) — carries a reference in subject
-// position and none in owner position. The reference test discharged 4 of 4,
-// including BOTH originating items. Its recall on the class it exists to catch
-// was zero, so it is gone rather than annotated.
+// The measurement came back total, and the counts below are stated at two
+// points because the guard changed between them (PR #3098 R4, NON-BLOCKING —
+// this paragraph carried the first set as if it were the final one).
+//
+// At the time of the reference test, `scripts/replay-unowned-findings.ts` saw
+// only LIST items, and found FOUR of them across three specs — every one
+// carrying a reference in subject position, none in owner position. The
+// reference test discharged 4 of 4, including BOTH originating items. Its
+// recall on the class it exists to catch was zero, so it is gone rather than
+// annotated.
+//
+// Widening to prose-bodied sections (see `closeSection` below) then took the
+// corpus figure to SIX items across FOUR specs — mt#3845 x2, mt#4220 x2,
+// mt#4228, mt#3265 — of which five carry a bare reference and the sixth,
+// mt#3265's prose section, carries none. That sixth was invisible to the
+// list-only scan entirely, which is the point of the widening.
+//
+// Corpus size is ~4,130 specs and moves with the task table; the replay reports
+// the figure it actually scanned rather than a number pinned here. An earlier
+// draft of this comment pinned 4,146 — the raw `task_specs` count, which is
+// higher than what the replay scans because its join drops specs whose task row
+// no longer exists.
 //
 // The replacement is an explicit `[owner: mt#N]` marker. This is not a widening
 // of the pattern — "filed as|tracked by|owned by" over free text is exactly the
