@@ -393,8 +393,8 @@ binding rather than preferential.
 2. **ADR-024 forecloses the cheap version.** The detection-mechanism ladder governs this family and
    names the exact move as its anti-pattern: _"Each miss has historically been answered by adding
    another regex family (R1 → R5) — an arms race."_ Its constraint (a) stops the ladder at Rung 1 by
-   default and makes Rungs 2-3 _"strictly evidence-gated"_, with (b) setting the bar at _"0 known-FP
-   AND ≤5% new false-negative, measured on the existing `.minsky/_-calibration.jsonl` logs."\* A
+   default and makes Rungs 2-3 _"strictly evidence-gated"_, with (b) setting the bar at "0 known-FP
+   AND ≤5% new false-negative, measured on the existing `.minsky/*-calibration.jsonl` logs." A
    recall miss of this kind belongs at Rung 2 (embedding), and Rung 2 requires a MEASURED miss rate.
    One incident is not a measurement. The path was already declined twice on that basis (mt#3232,
    mt#4162; standing reasoning at mem#1025 R3).
