@@ -388,10 +388,7 @@ export const MATCHED_PHRASE_MAX_CHARS = 200;
  * ran in a recent prior turn is a legitimate back-reference, not
  * pre-narration.
  */
-export function extractWindowToolUseNames(
-  lines: TranscriptLine[],
-  windowTurns: number
-): Set<string> {
+export function windowSlice(lines: TranscriptLine[], windowTurns: number): TranscriptLine[] {
   let boundaries = 0;
   let start = 0;
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -404,7 +401,44 @@ export function extractWindowToolUseNames(
       }
     }
   }
-  return new Set(extractToolUseNames(lines.slice(start)));
+  return lines.slice(start);
+}
+
+export function extractWindowToolUseNames(
+  lines: TranscriptLine[],
+  windowTurns: number
+): Set<string> {
+  return new Set(extractToolUseNames(windowSlice(lines, windowTurns)));
+}
+
+/**
+ * PR numbers each category's `identityScopedTools` were called against, WITHIN
+ * the same window the tool-name set covers (PR #3096 R2).
+ *
+ * Both halves of identity-scoped suppression must share one scope. The first
+ * version gathered PR numbers over the WHOLE transcript while gating on a
+ * scoped tool having run in-window — two different scopes, which let an old
+ * read of the claimed PR combine with an unrelated recent read to suppress.
+ * The reviewer caught it; deriving the numbers from `windowSlice` is what makes
+ * the two conditions one condition.
+ *
+ * Keyed BY CATEGORY so a scoped tool declared on one category cannot back a
+ * claim in another. Only `merged` declares any today, so this is a latent
+ * distinction rather than a live one — encoded now because the union form is
+ * indistinguishable from correct until a second category exists.
+ */
+export function buildIdentityEvidence(
+  lines: TranscriptLine[],
+  windowTurns: number
+): Map<string, ReadonlySet<number>> {
+  const slice = windowSlice(lines, windowTurns);
+  const byCategory = new Map<string, ReadonlySet<number>>();
+  for (const category of OUTCOME_CATEGORIES) {
+    const scoped = category.identityScopedTools ?? [];
+    if (scoped.length === 0) continue;
+    byCategory.set(category.key, extractPrNumbersForTools(slice, scoped));
+  }
+  return byCategory;
 }
 
 /**
@@ -427,7 +461,7 @@ export function extractWindowToolUseNames(
 export function detectPreNarration(
   turnLines: TranscriptLine[],
   windowToolNames?: ReadonlySet<string>,
-  evidencePrNumbers?: ReadonlySet<number>
+  evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>
 ): ClaimMatch[] {
   return detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers).matches;
 }
@@ -445,11 +479,12 @@ export function detectPreNarrationWithSuppression(
   turnLines: TranscriptLine[],
   windowToolNames?: ReadonlySet<string>,
   /**
-   * PR numbers the `identityScopedTools` were actually called against, from the
-   * same window `windowToolNames` covers. Omitting it disables identity-scoped
-   * suppression entirely — the safe direction for a suppressor.
+   * Per-category PR numbers the `identityScopedTools` were called against,
+   * within the SAME window `windowToolNames` covers. Build it with
+   * `buildIdentityEvidence`. Omitting it disables identity-scoped suppression
+   * entirely — the safe direction for a suppressor.
    */
-  evidencePrNumbers?: ReadonlySet<number>
+  evidencePrNumbers?: ReadonlyMap<string, ReadonlySet<number>>
 ): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
   if (!rawText) return { matches: [], suppressed: [] };
@@ -485,16 +520,18 @@ export function detectPreNarrationWithSuppression(
     const sameTurn = category.requiredTools.some((t) => toolNames.has(t));
     const inWindow = category.requiredTools.some((t) => windowToolNames?.has(t) ?? false);
 
-    // Identity-scoped evidence (PR #3096 R1): a READ of the PR the claim names.
-    // Requires BOTH that such a tool ran and that its PR matches the claim's —
-    // a claim naming no PR number can never satisfy this, and deliberately
+    // Identity-scoped evidence (PR #3096 R1/R2): a READ, in the window, OF THE
+    // PR the claim names. ONE condition in ONE scope — R2 flagged that the
+    // earlier form gated on "a scoped tool ran in-window" while sourcing PR
+    // numbers from the whole transcript, so an old read of the claimed PR could
+    // ride in on an unrelated recent one. `buildIdentityEvidence` derives the
+    // numbers from the same `windowSlice`, which collapses the two into one.
+    //
+    // A claim naming no PR number is never identity-backed and deliberately
     // falls through to firing.
-    const scopedTools = category.identityScopedTools ?? [];
-    const scopedToolRan =
-      scopedTools.some((t) => toolNames.has(t)) ||
-      scopedTools.some((t) => windowToolNames?.has(t) ?? false);
-    const claimedPr = scopedToolRan ? extractClaimedPrNumber(matched.matchedPhrase) : null;
-    const identityBacked = claimedPr !== null && (evidencePrNumbers?.has(claimedPr) ?? false);
+    const claimedPr = extractClaimedPrNumber(matched.matchedPhrase);
+    const identityBacked =
+      claimedPr !== null && (evidencePrNumbers?.get(category.key)?.has(claimedPr) ?? false);
 
     if (sameTurn || inWindow || identityBacked) {
       suppressed.push({
@@ -663,11 +700,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
     // per the guard-module contract (mt#2637) — never re-derived.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    // Identity evidence is gathered over the WHOLE transcript, not the 12-turn
-    // window: a read of the SAME PR is evidence about that PR whenever it
-    // happened, and the PR-number match is the binding constraint here rather
-    // than recency (PR #3096 R1).
-    const evidencePrNumbers = extractPrNumbersForTools(lines, identityScopedToolNames());
+    const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
     detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
     process.stderr.write(
@@ -748,11 +781,7 @@ export async function main(): Promise<void> {
     // Cross-turn suppression (mt#2671): scan the trailing window for backing
     // tool calls so legitimate back-references don't fire.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    // Identity evidence is gathered over the WHOLE transcript, not the 12-turn
-    // window: a read of the SAME PR is evidence about that PR whenever it
-    // happened, and the PR-number match is the binding constraint here rather
-    // than recency (PR #3096 R1).
-    const evidencePrNumbers = extractPrNumbersForTools(lines, identityScopedToolNames());
+    const evidencePrNumbers = buildIdentityEvidence(lines, TRAILING_WINDOW_TURNS);
     detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
     console.error(

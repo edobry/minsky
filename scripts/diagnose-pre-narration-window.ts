@@ -39,6 +39,7 @@ import {
   TRAILING_WINDOW_TURNS,
   extractClaimedPrNumber,
   extractPrNumbersForTools,
+  windowSlice,
 } from "../.minsky/hooks/pre-narration-detector";
 import {
   extractToolUseNames,
@@ -233,11 +234,15 @@ function main(): void {
       // was actually read. Evaluated on the same terms the detector uses —
       // otherwise this script's before/after would misreport the very fix it
       // exists to measure.
+      // WINDOW-scoped, matching the detector after PR #3096 R2. Slicing to the
+      // fire and then taking the window is what the detector sees; using the
+      // full pre-fire history here would re-introduce, in the measurement, the
+      // exact scope mismatch R2 removed from the code.
       const claimedPr = extractClaimedPrNumber(match.phrase);
       const identityBacked =
         claimedPr !== null &&
         extractPrNumbersForTools(
-          lines.slice(0, fireIndex + 1),
+          windowSlice(lines.slice(0, fireIndex + 1), TRAILING_WINDOW_TURNS),
           category.identityScopedTools ?? []
         ).has(claimedPr);
 
