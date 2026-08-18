@@ -266,21 +266,26 @@ direction: it manufactures false CONFIRMED-KNOWN entries, which suppress glosses
 "he knows it" is silent; a wrong "he doesn't" is merely wordy.
 
 **Measured, not inferred** — `scripts/measure-principal-turn-purity.ts`, over the 25
-most-recently-modified transcripts:
+most-recently-modified transcripts (the script's default sample size as of mt#4264 — a bare
+`bun scripts/measure-principal-turn-purity.ts` reproduces this run with no `--files` flag
+required):
 
 ```
-user-role turns with text: 226
-user_text chars total:     5434550
+user-role turns with text: 296
+user_text chars total:     7730506
 
-agent/harness-authored turns: 87 (38.5%)
-  their chars:                5379404 (99.0%)
-plausibly typed turns:        139 (61.5%)
-  their chars:                55146 (1.0%)
+agent/harness-authored turns: 128 (43.2%)
+  their chars:                7663305 (99.1%)
+plausibly typed turns:        168 (56.8%)
+  their chars:                67201 (0.9%)
 ```
 
-**99.0% of the column's characters are agent-authored.** The principal's actual typed prose is
-1.0% of it. Any term-frequency pass over unfiltered `user_text` is reading the corpus, not the
-principal.
+**99.1% of the column's characters are agent-authored.** The principal's actual typed prose is
+0.9% of it. Any term-frequency pass over unfiltered `user_text` is reading the corpus, not the
+principal. (Re-verified mt#4264, 2026-08-18, against the fixed script — the figure moved from a
+previously-cited 99.0%/1.0% to 99.1%/0.9%. That is the "25 most-recently-modified transcripts"
+window shifting as new conversations accrue, not a correction to the original measurement; the
+conclusion is unchanged.)
 
 Worth recording how that number was reached, because the first attempt got it backwards: a
 paired-`<tag>` scan reported **0.0%** contamination — a clean-looking result falsified by its
@@ -301,7 +306,7 @@ output it did produce, not in an error.
    emit a gap — absence from his prose is the UNKNOWN case, and a derived "he doesn't know this"
    would encode exactly the inference the rule forbids.
 
-Cost/benefit as it stands: the residue is ~55k chars over 25 transcripts, so the corpus is
+Cost/benefit as it stands: the residue is ~67k chars over 25 transcripts, so the corpus is
 thin per-session but grows continuously and costs nothing to accumulate. The build is worth
 doing when the hand-maintained confirmed-known list starts to rot — that is the trigger to
 watch, not a date.

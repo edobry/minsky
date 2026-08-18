@@ -42,8 +42,13 @@ import { homedir } from "node:os";
  * injected material is not tag-wrapped: generated dispatch prompts, skill bodies and rule
  * text arrive as plain `text` blocks on a `user` line and are indistinguishable from typed
  * prose by shape alone. These markers are what actually discriminates.
+ *
+ * Exported (mt#4264 finding 3) so a pinning test can catch an accidental edit to this list —
+ * the harness-format drift itself (e.g. `<system-reminder>` renamed) is invisible to any test
+ * that doesn't read live harness output, but a test that pins the exact array at least forces
+ * a deliberate, reviewed edit whenever someone touches it, instead of a silent one.
  */
-const INJECTED_MARKERS = [
+export const INJECTED_MARKERS = [
   "minsky:prompt:v1", // session_generate_prompt output — an agent-authored dispatch
   "minsky:dispatch:v1", // the mt#2292 dispatch-record stamp
   "<system-reminder>",
@@ -63,17 +68,91 @@ const INJECTED_MARKERS = [
  */
 const TYPED_PROSE_CEILING_CHARS = 4000;
 
-interface Args {
+/**
+ * Default sample size for `--files`.
+ *
+ * mt#4264 finding 1: this used to be 20 while the doc it backs
+ * (`docs/rules-rationale/principal-context.md`) reports the figure "over the 25 most-recently-
+ * modified transcripts" — the sample size actually used (`--files 25`) for that published run.
+ * 20 had no grounding of its own (git history shows it was never anything but a placeholder);
+ * 25 is the number an existing citation depends on. Matching the default to it, rather than
+ * editing the doc to name the flag, means a bare run reproduces the cited figure with no flag
+ * required — one fewer thing a future reader has to get right.
+ */
+const DEFAULT_FILES = 25;
+
+export interface Args {
   dir: string;
   files: number;
 }
 
-function parseArgs(argv: string[]): Args {
-  const dirFlag = argv.indexOf("--dir");
-  const filesFlag = argv.indexOf("--files");
+/** Thrown by `parseFilesArg` on a non-numeric, zero, or negative `--files` value. */
+export class InvalidFilesArgError extends Error {}
+
+/** Thrown by `parseArgs` when `--dir` is present but was given no value. */
+export class InvalidDirArgError extends Error {}
+
+/**
+ * Validates `--files`. mt#4264 finding 2: an unvalidated `--files notanumber` (or `0`, or a
+ * negative count) previously fell through to `Array.prototype.slice`, which silently treats a
+ * NaN or non-positive limit as zero — producing a zero-sample run that printed the same SKIP
+ * text as the legitimate "no transcript store on this machine" case. That is the same failure
+ * shape mt#4248's PR body records for this script's first run (a wrong answer indistinguishable
+ * from a clean one): an instrument whose whole purpose is backing a published figure must fail
+ * loudly on bad input, not proceed to measure nothing and look like it measured something clean.
+ */
+export function parseFilesArg(raw: string | undefined): number {
+  if (raw === undefined) return DEFAULT_FILES;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    throw new InvalidFilesArgError(
+      `--files must be a positive integer, got: ${JSON.stringify(raw)}`
+    );
+  }
+  return n;
+}
+
+/** Whether a flag appeared in `argv`, and the value following it (if any looks like one). */
+interface FlagRead {
+  present: boolean;
+  /** `undefined` when the flag is absent, is the last argument, or is immediately followed
+   * by another flag — all three are "no value", distinct from "flag not given at all" via
+   * `present`. */
+  value: string | undefined;
+}
+
+/**
+ * Reads `name`'s value out of `argv`. mt#4264 review R1 (BLOCKING): a flag that is the last
+ * argument (`... --files`) or is immediately followed by ANOTHER flag (`--files --dir /x`) is
+ * present-without-a-value, not "omitted" — `argv[index + 1]` alone can't tell those apart from
+ * an omitted flag, since both read as `undefined`. `present` carries that distinction; a
+ * caller that finds `present && value === undefined` has a malformed invocation, not a default.
+ */
+function readFlag(argv: string[], name: string): FlagRead {
+  const index = argv.indexOf(name);
+  if (index < 0) return { present: false, value: undefined };
+  const next = argv[index + 1];
+  return { present: true, value: next !== undefined && !next.startsWith("--") ? next : undefined };
+}
+
+export function parseArgs(argv: string[]): Args {
+  const filesFlag = readFlag(argv, "--files");
+  if (filesFlag.present && filesFlag.value === undefined) {
+    throw new InvalidFilesArgError(
+      "--files given with no value — it must not be the last argument or precede another flag"
+    );
+  }
+
+  const dirFlag = readFlag(argv, "--dir");
+  if (dirFlag.present && dirFlag.value === undefined) {
+    throw new InvalidDirArgError(
+      "--dir given with no value — it must not be the last argument or precede another flag"
+    );
+  }
+
   return {
-    dir: dirFlag >= 0 ? (argv[dirFlag + 1] ?? "") : join(homedir(), ".claude", "projects"),
-    files: filesFlag >= 0 ? Number(argv[filesFlag + 1] ?? "20") : 20,
+    dir: dirFlag.value ?? join(homedir(), ".claude", "projects"),
+    files: parseFilesArg(filesFlag.value),
   };
 }
 
@@ -140,12 +219,27 @@ function sizeBucket(chars: number): string {
 }
 
 /** The injected markers present in a turn, if any. Names only — never the surrounding text. */
-function markersIn(text: string): string[] {
+export function markersIn(text: string): string[] {
   return INJECTED_MARKERS.filter((marker) => text.includes(marker));
 }
 
 function main(): void {
-  const { dir, files } = parseArgs(process.argv.slice(2));
+  let args: Args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    if (err instanceof InvalidFilesArgError || err instanceof InvalidDirArgError) {
+      console.error(`FAIL: ${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { dir, files } = args;
+
+  // "Nothing to measure": the transcript store itself is absent — the expected state on a
+  // fresh machine or in CI. Distinct from every check below, which is "measured nothing" —
+  // the store IS there but the run came back with zero samples anyway. mt#4264 finding 2:
+  // those two must be distinguishable by exit code alone, so only THIS one exits 0.
   if (!dir || !existsSync(dir)) {
     console.log(`SKIP: no transcript directory at ${dir || "<unset>"}`);
     process.exit(0);
@@ -153,8 +247,9 @@ function main(): void {
 
   const transcripts = recentTranscripts(dir, files);
   if (transcripts.length === 0) {
-    console.log(`SKIP: no .jsonl transcripts under ${dir}`);
-    process.exit(0);
+    console.error(`FAIL: measured zero transcripts under ${dir} (requested --files ${files}).
+An existing-but-empty directory is a failed measurement, not "nothing to measure" (mt#4264).`);
+    process.exit(1);
   }
 
   let userTurns = 0;
@@ -204,6 +299,15 @@ function main(): void {
     }
   }
 
+  // Same principle as the two checks above, for the path where transcript FILES exist but
+  // none contributed a `user`-role turn (e.g. every one failed to parse). Still "measured
+  // nothing" — still a failure, not a clean zero.
+  if (userTurns === 0) {
+    console.error(`FAIL: read ${transcripts.length} transcript(s) under ${dir} but extracted
+zero user-role turns — measured nothing (mt#4264).`);
+    process.exit(1);
+  }
+
   const pct = (n: number, d: number): string =>
     d === 0 ? "n/a" : `${((n / d) * 100).toFixed(1)}%`;
 
@@ -226,4 +330,6 @@ function main(): void {
   }
 }
 
-main();
+// Guarded so the pure functions above (parseFilesArg, markersIn, INJECTED_MARKERS) can be
+// imported and tested without the sweep running as a side effect of the import.
+if (import.meta.main) main();
