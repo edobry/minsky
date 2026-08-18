@@ -219,6 +219,14 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         // cockpit SPA.
         const etag = snapshotEtag(version);
         res.setHeader("ETag", etag);
+        // Declare Vary HERE, not only inside `sendJsonMaybeCompressed` (PR #3104
+        // R3). The 304 branch below never calls that helper, so it would emit a
+        // validated response carrying no Vary at all — and RFC 9110 §15.4.5 says
+        // a 304 should carry the header fields a 200 would have, precisely so a
+        // shared cache updating its stored entry does not lose the constraint
+        // that keeps gzip and identity variants apart. Setting it on both paths
+        // is idempotent (the helper writes the same value).
+        res.setHeader("Vary", "Accept-Encoding");
 
         // Revalidation: the client already holds this exact snapshot, so send
         // no body at all. This is the only path that avoids BOTH the assembly
