@@ -1045,8 +1045,9 @@ findings-shaped `state-ops` audit — the criterion passes automatically. State 
 1. **Search** — three cheap passes: (a) grep the ADR corpus for the
    file paths named in the spec's `## Scope`; (b) grep the in-scope source files for `ADR-`
    references; (c) search the **Notion RFC corpus** —
-   `mcp__plugin_Notion_notion__notion-search` with the decision's subject terms — and
-   **traverse what you find**.
+   `mcp__plugin_Notion_notion__notion-search` with the decision's subject terms, scoped to the
+   Minsky home page (`page_url: "33a937f0-3cb4-8197-a93e-cd4a98a94261"`, the parent
+   `/draft-rfc` publishes under) — and **traverse what you find**.
 
    **Pass (c) is not optional garnish, and this gate shipped without it (mt#4244).** Minsky's
    accepted decision records are SPLIT across two corpora by policy: `documentation-taxonomy.mdc`
