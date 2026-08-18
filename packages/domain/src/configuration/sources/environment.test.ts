@@ -349,22 +349,37 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
           expect(metadata.loadedVariables).not.toContain(key);
         }
       }
-      // And no hook-only var leaks a top-level key derived from its first
-      // underscore-delimited segment (the `force` / `skip` / `two` shape the
-      // sampled cases above check individually).
-      const leakedTopLevelKeys = new Set(
-        [...HOOK_ONLY_ENV_VARS].map(
-          (key) =>
-            key
-              .toLowerCase()
-              .replace(/^minsky_/, "")
-              .split("_")[0]
-        )
-      );
-      const polluted = Object.keys(config as Record<string, unknown>).filter((topLevel) =>
-        leakedTopLevelKeys.has(topLevel)
-      );
-      expect(polluted).toEqual([]);
+      // And no hook-only var CONTRIBUTES anything to the config object (the
+      // `force` / `skip` / `two` shape the sampled cases above check
+      // individually).
+      //
+      // Compared against a baseline derived with those vars UNSET, rather than
+      // by guessing leaked key names from each var's first underscore-delimited
+      // segment (mt#4223). The guess was wrong in both directions:
+      //
+      //   - FALSE POSITIVE, which is what surfaced it. `MINSKY_GITHUB_TOKEN` is
+      //     hook-only as of mt#4223, so its first segment put `github` in the
+      //     guessed set — but `github` is a real declared config key, and CI
+      //     always has a plain `GITHUB_TOKEN` set, which the EXPLICIT mapping
+      //     legitimately routes to `github.token`. The test then reported
+      //     `polluted: ["github"]` on a tree where nothing had leaked. It passed
+      //     locally only because a dev machine usually exports no GITHUB_TOKEN —
+      //     the same ambient-environment dependence mt#4221 removed elsewhere in
+      //     this file, resurfacing through a different door.
+      //   - FALSE NEGATIVE. A hook-only var leaking into a NESTED path whose
+      //     top-level segment was already present would not change the key set
+      //     at all, so the guess could not see it.
+      //
+      // The delta is exact: anything the hook-only vars add is a leak, whatever
+      // it is called and however deep it sits.
+      for (const key of HOOK_ONLY_ENV_VARS) {
+        if (restore[key] === undefined) delete process.env[key];
+        else process.env[key] = restore[key];
+      }
+      const baseline = getEnvironmentConfiguration().config;
+      for (const key of HOOK_ONLY_ENV_VARS) process.env[key] = "1";
+
+      expect(config).toEqual(baseline);
     } finally {
       for (const key of HOOK_ONLY_ENV_VARS) {
         const value = restore[key];
