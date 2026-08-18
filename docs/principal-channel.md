@@ -84,8 +84,14 @@ times**, and each was noticed only when a message went unanswered (mt#3608).
 | `unconfigured` | No bot token / chat id is set. Carries `reason`. Operator action needed.                                                                      |
 
 Field lists above are exhaustive per variant and match `PrincipalChannelStatus`
-in `src/cockpit/principal-channel-launch.ts`. Two rows were wrong before mt#4183
-and are corrected rather than carried forward:
+in `src/cockpit/principal-channel-launch.ts`, with one qualification: `dedupe` is
+typed OPTIONAL on `running`, while every other field listed is required. A live
+`running` payload always carries it — the poller and the dedupe are created
+together, so reaching `running` means one exists. The optionality covers a status
+seeded WITHOUT a poller, which only the test-only setter does. Read an absent
+`dedupe` as "not reported", never as `durable`.
+
+Two rows were wrong before mt#4183 and are corrected rather than carried forward:
 
 - **`failed` never carried `attempts`.** mt#3689 removed it: there it was always
   the literal `1` and counted nothing, since that failure happens once, after
