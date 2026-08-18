@@ -69,6 +69,9 @@ type AcquiredBySnakeRow = { acquired_by: string };
 /** SQL fragment for identifying inflight marker DELETE queries. */
 const INFLIGHT_TABLE_DELETE_SQL = "delete from reviewer_inflight_reviews";
 
+/** SQL fragment for identifying inflight marker INSERT (acquire) queries. */
+const INFLIGHT_TABLE_INSERT_SQL = "insert into reviewer_inflight_reviews";
+
 /** Reason string used in sweeper missing-PR lists. */
 const NO_REVIEW_BY_BOT = "no_review_by_bot" as const;
 
@@ -94,6 +97,47 @@ function fakeUuid(): string {
   return `fake-uuid-${++uuidCounter}`;
 }
 
+/**
+ * Recover the SQL text and bound parameters from a Drizzle `sql` tagged template.
+ *
+ * Structure: queryChunks alternates between {value: [string]} (SQL text) and raw
+ * primitive values (bound parameters). e.g. sql`INSERT INTO t (a) VALUES (${owner})`
+ * produces [{value: ["INSERT INTO t (a) VALUES ("]}, "owner-val", {value: [")"]}].
+ *
+ * Extracted (mt#4267) so the SQL-shape test below reads the SAME text the fake DB
+ * dispatches on. The fake HARDCODES the conflict semantics rather than interpreting
+ * the ON CONFLICT clause, so a behavioural test alone cannot catch a revert of the
+ * SQL — the fake would keep taking over the expired row and stay green. Asserting
+ * the emitted text is what closes that gap.
+ */
+function destructureDrizzleSql(sqlQuery: unknown): { sqlText: string; boundValues: unknown[] } {
+  const q = sqlQuery as {
+    queryChunks?: unknown[];
+    [key: string]: unknown;
+  };
+
+  let sqlText = "";
+  const boundValues: unknown[] = [];
+
+  if (q && Array.isArray(q.queryChunks)) {
+    for (const chunk of q.queryChunks) {
+      if (chunk !== null && chunk !== undefined && typeof chunk === "object" && "value" in chunk) {
+        // SQL text chunk: {value: [string]}
+        const v = (chunk as { value: unknown[] }).value;
+        if (Array.isArray(v) && typeof v[0] === "string") {
+          sqlText += v[0];
+        }
+      } else {
+        // Bound parameter (primitive or Date)
+        boundValues.push(chunk);
+        sqlText += `$${boundValues.length}`;
+      }
+    }
+  }
+
+  return { sqlText, boundValues };
+}
+
 function makeFakeDb(options: { failExecute?: boolean; failSelect?: boolean } = {}): {
   db: ReviewerDb;
   store: Map<string, FakeMarkerRow>;
@@ -116,7 +160,7 @@ function makeFakeDb(options: { failExecute?: boolean; failSelect?: boolean } = {
           ? JSON.stringify(sqlQuery).toLowerCase()
           : String(sqlQuery).toLowerCase();
 
-      if (sqlStr.includes("insert into reviewer_inflight_reviews")) {
+      if (sqlStr.includes(INFLIGHT_TABLE_INSERT_SQL)) {
         // Extract parameters from the tagged-template structure.
         // For testing, we inspect the query's values array.
         const queryObj = sqlQuery as {
@@ -253,45 +297,11 @@ function makeStatefulFakeDb(): {
   // db.select for the heldBy lookup, we need to implement both.
 
   const executeImpl = async (sqlQuery: unknown): Promise<unknown[]> => {
-    // Drizzle sql tagged template produces an object with queryChunks.
-    // Structure: queryChunks alternates between {value: [string]} (SQL text)
-    // and raw primitive values (bound parameters).
-    // e.g. sql`INSERT INTO t (a) VALUES (${owner})` produces:
-    //   [{value: ["INSERT INTO t (a) VALUES ("]}, "owner-val", {value: [")"]}]
-    const q = sqlQuery as {
-      queryChunks?: unknown[];
-      [key: string]: unknown;
-    };
-
-    // Extract the SQL text and bound parameter values from queryChunks.
-    let sqlText = "";
-    const boundValues: unknown[] = [];
-
-    if (q && Array.isArray(q.queryChunks)) {
-      for (const chunk of q.queryChunks) {
-        if (
-          chunk !== null &&
-          chunk !== undefined &&
-          typeof chunk === "object" &&
-          "value" in chunk
-        ) {
-          // SQL text chunk: {value: [string]}
-          const v = (chunk as { value: unknown[] }).value;
-          if (Array.isArray(v) && typeof v[0] === "string") {
-            sqlText += v[0];
-          }
-        } else {
-          // Bound parameter (primitive or Date)
-          boundValues.push(chunk);
-          sqlText += `$${boundValues.length}`;
-        }
-      }
-    }
-
+    const { sqlText, boundValues } = destructureDrizzleSql(sqlQuery);
     const sqlLower = sqlText.toLowerCase();
 
-    if (sqlLower.includes("insert into reviewer_inflight_reviews")) {
-      // INSERT ... ON CONFLICT DO NOTHING RETURNING id
+    if (sqlLower.includes(INFLIGHT_TABLE_INSERT_SQL)) {
+      // INSERT ... ON CONFLICT DO UPDATE ... WHERE expires_at < now() RETURNING id
       // Bound values order: owner, repo, prNumber, headSha, acquiredBy, deliveryId, ttlMs
       if (boundValues.length >= 7) {
         const [owner, repo, prNumber, headSha, acquiredBy, deliveryId, ttlMs] = boundValues as [
@@ -304,9 +314,14 @@ function makeStatefulFakeDb(): {
           number,
         ];
         const key = compositeKey(owner, repo, prNumber, headSha);
-        if (!store.has(key)) {
-          const id = fakeUuid();
-          const now = new Date();
+        const existing = store.get(key);
+        const now = new Date();
+        // mt#4267: the conflict action is conditional. No row → plain INSERT.
+        // An EXPIRED row → DO UPDATE fires and the row is taken over IN PLACE,
+        // keeping its id (which is what Postgres RETURNING gives back). A LIVE
+        // row → the WHERE fails, Postgres updates nothing, RETURNING is empty.
+        if (existing === undefined || existing.expiresAt < now) {
+          const id = existing?.id ?? fakeUuid();
           const expiresAt = new Date(now.getTime() + ttlMs);
           const row: FakeMarkerRow = {
             id,
@@ -322,7 +337,7 @@ function makeStatefulFakeDb(): {
           store.set(key, row);
           return [{ id }] as UuidRow[];
         }
-        // ON CONFLICT — return empty (DO NOTHING)
+        // A live marker holds the key — DO UPDATE's WHERE did not match.
         return [];
       }
       return [];
@@ -510,6 +525,158 @@ describe("acquireMarker", () => {
       // heldBy reflects the winner's acquiredBy
       expect(second.heldBy).toBe("webhook");
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4267: acquire is expiry-aware, so a stale marker does not deny forever.
+  //
+  // mt#1907's AT-3 exercises the same recovery through the SWEEPER (prune, then
+  // acquire), and the sweeper genuinely satisfied it. What had no coverage was
+  // the acquire path on its own — which is what POST /retrigger reaches, and
+  // which never prunes. These three tests are that path: the takeover, its
+  // negative control, and the id-reuse property the release path depends on.
+  // -------------------------------------------------------------------------
+
+  test("mt#4267: an EXPIRED marker is taken over — acquire succeeds without a prune", async () => {
+    const { db, insertRow } = makeStatefulFakeDb();
+
+    // A marker orphaned by a process that died mid-runReview: past expires_at,
+    // and nothing has pruned it because no sweeper cycle has run.
+    insertRow({
+      id: "orphaned-marker",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "webhook",
+      deliveryId: "del-killed-by-redeploy",
+      acquiredAt: testDate(-960_000),
+      expiresAt: testDate(-660_000), // expired 11 minutes ago
+    });
+
+    const result = await acquireMarker(db, {
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "webhook",
+      deliveryId: "retrigger-after-redeploy",
+      ttlMs: 300_000,
+    });
+
+    expect(result.acquired).toBe(true);
+  });
+
+  test("mt#4267 negative control: a LIVE marker still denies", async () => {
+    const { db, insertRow } = makeStatefulFakeDb();
+
+    insertRow({
+      id: "live-marker",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "webhook",
+      deliveryId: "del-in-flight",
+      acquiredAt: new Date(),
+      expiresAt: testDate(ONE_YEAR_MS),
+    });
+
+    const result = await acquireMarker(db, {
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "sweeper",
+      deliveryId: "sweeper-concurrent",
+      ttlMs: 300_000,
+    });
+
+    expect(result.acquired).toBe(false);
+    if (!result.acquired) {
+      // A LIVE holder is named, unlike the stale case this fix retired, where
+      // heldBy came back null because its lookup filters on expires_at > now().
+      expect(result.heldBy).toBe("webhook");
+    }
+  });
+
+  test("mt#4267: the emitted SQL makes the conflict action conditional on expiry", async () => {
+    // The three tests above assert acquireMarker's BEHAVIOUR against a fake that
+    // hardcodes the conflict semantics — so reverting the SQL to DO NOTHING would
+    // leave them green. This one reads the statement actually emitted, and is the
+    // test that goes red on that revert.
+    const emitted: string[] = [];
+    const capturingDb = {
+      execute: async (sqlQuery: unknown): Promise<unknown[]> => {
+        emitted.push(destructureDrizzleSql(sqlQuery).sqlText);
+        return [{ id: "captured" }];
+      },
+    } as unknown as ReviewerDb;
+
+    await acquireMarker(capturingDb, {
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "webhook",
+      deliveryId: "del-shape",
+      ttlMs: 300_000,
+    });
+
+    const insertSql = emitted.find((s) => s.toLowerCase().includes(INFLIGHT_TABLE_INSERT_SQL));
+    expect(insertSql).toBeDefined();
+    const normalized = (insertSql ?? "").toLowerCase().replace(/\s+/g, " ");
+
+    // The conflict action must UPDATE, not DO NOTHING...
+    expect(normalized).toContain("on conflict (owner, repo, pr_number, head_sha) do update");
+    expect(normalized).not.toContain("do nothing");
+    // ...and must be gated on the existing row being expired, so a LIVE marker
+    // is still denied. Without this predicate the takeover would steal a marker
+    // from a review that is genuinely running (mt#1907 AT-4/AT-5).
+    expect(normalized).toContain("where reviewer_inflight_reviews.expires_at < now()");
+    // RETURNING is what tells the caller it won; DO UPDATE without it always
+    // reads as a loss.
+    expect(normalized).toContain("returning id");
+  });
+
+  test("mt#4267: the takeover updates in place — one row, same id, new owner and expiry", async () => {
+    const { db, store, insertRow } = makeStatefulFakeDb();
+
+    insertRow({
+      id: "orphaned-marker",
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "webhook",
+      deliveryId: "del-killed-by-redeploy",
+      acquiredAt: testDate(-960_000),
+      expiresAt: testDate(-660_000),
+    });
+
+    const result = await acquireMarker(db, {
+      owner: "edobry",
+      repo: "minsky",
+      prNumber: 3107,
+      headSha: "sha-3107",
+      acquiredBy: "sweeper",
+      deliveryId: "sweeper-took-over",
+      ttlMs: 300_000,
+    });
+
+    expect(result.acquired).toBe(true);
+    // DO UPDATE updates the existing row rather than inserting beside it, and
+    // RETURNING gives that row's id back — which is what releaseMarker deletes,
+    // so a takeover that minted a new id would leak the old row.
+    if (result.acquired) {
+      expect(result.id).toBe("orphaned-marker");
+    }
+    expect(store.size).toBe(1);
+
+    const row = store.get("edobry/minsky#3107@sha-3107");
+    expect(row?.acquiredBy).toBe("sweeper");
+    expect(row?.deliveryId).toBe("sweeper-took-over");
+    expect(row?.expiresAt.getTime()).toBeGreaterThan(Date.now());
   });
 
   test("different (prNumber, headSha) tuples can both acquire", async () => {
