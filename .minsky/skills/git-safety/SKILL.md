@@ -62,7 +62,7 @@ Explicitly state what will change:
 - If unexpected results: **STOP** — do not run additional commands
 - Use `git reflog` for recovery options
 
-  **Reflog only helps if a commit or ref moved.** It recovers commits orphaned by `reset --hard`, a rewritten branch, or a similar ref-changing operation — reflog tracks ref history, not working-tree content. It does **not** recover content discarded by `git restore <path>` or `git checkout -- <path>` when that content was never committed: uncommitted edits have no reflog entry at all, so there is no recovery path other than reconstructing the change by hand. This is why the safer-alternatives table above routes both forms through `git stash` rather than treating them like `reset --hard` — stashing keeps a recoverable copy; restoring or checking out over uncommitted content does not.
+  **Reflog only helps if a commit or ref moved.** It recovers commits orphaned by `reset --hard`, a rewritten branch, or a similar ref-changing operation — reflog tracks ref history, not working-tree content. It does **not** recover content discarded by `git restore <path>`, `git restore .`, or `git checkout -- .` when that content was never committed: uncommitted edits have no reflog entry at all, so there is no recovery path other than reconstructing the change by hand. This is why the safer-alternatives table above routes both forms through `git stash` rather than treating them like `reset --hard` — stashing keeps a recoverable copy; restoring or checking out over uncommitted content does not.
 
 ## Session-level MCP operations that force-push
 
@@ -178,4 +178,4 @@ When the user requests "surgical", "targeted", or "precise" operations:
 - **Prefer reversible operations.** `git revert` over `git reset --hard`. `git stash` over `git checkout -- .` / `git restore`.
 - **Force push is a last resort.** Three conditions must ALL be met, plus user approval.
 - **Stop on unexpected results.** If the outcome doesn't match your prediction, investigate before continuing.
-- **Recovery via reflog is scoped to commits, not uncommitted content.** `git reflog` remembers ref history for 90 days — but `git restore <path>` / `git checkout -- <path>` on content that was never committed leaves nothing in reflog to recover. Prefer `git stash` to avoid needing that recovery in the first place.
+- **Recovery via reflog is scoped to commits, not uncommitted content.** `git reflog` remembers ref history for 90 days — but `git restore <path>` / `git restore .` / `git checkout -- .` on content that was never committed leaves nothing in reflog to recover. Prefer `git stash` to avoid needing that recovery in the first place.
