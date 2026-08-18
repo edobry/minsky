@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 134,
+  "population": 135,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -3829,6 +3829,34 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": null
+    },
+    {
+      "guardName": "unowned-finding-scan",
+      "description": "On a task's transition to DONE, records each item in the spec's findings section (`Noticed, not actioned` and variants) that declares neither an `[owner: mt#N]` nor a `[no-owner: reason]`. The section is a sanctioned place to write a finding down; without a declared owner it is also where the finding stops being read. Log-only.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/unowned-finding-scan.ts"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PostToolUse",
+      "pointSource": "settings",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "unowned-finding-scan"
     },
     {
       "guardName": "unrendered-result-field-scan",

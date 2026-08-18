@@ -154,6 +154,7 @@ export const STANDALONE_GUARD_NAMES: readonly string[] = [
   // false-positive failure mode this module's staleness note warns against.
   "standalone-duplicate-matcher",
   "tasks-status-set-guard",
+  "unowned-finding-scan",
   "validate-task-spec",
 ];
 
