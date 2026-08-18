@@ -220,7 +220,7 @@ belong at the same posture on day one.
   in-repo half is still worth it — but it caps what the backstop can claim, which matters because
   the gap it cannot see is the one that already cost a design collision (mt#4239 shipped a
   mechanism in Accepted RFC 390937f0's Piece C territory; gate (p) ran and passed). The
-  three-corpus search now lives in gate (p)'s prose.
+  three-pass search covering both corpora now lives in gate (p)'s prose.
 
 - **mt#4173** (gate (n) integration heuristic) — **re-scoped.** Its mechanism reads a diff and its
   title promises the gap "surfaces at plan time." No diff exists at plan time. It moves to the `pr`
