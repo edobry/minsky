@@ -201,6 +201,12 @@ type ResizeState = {
   ariaValueMin: string;
   ariaValueMax: string;
   storedWidth: string | null;
+  /** Widths of every open pane, so the held-pair case can assert they agree. */
+  paneWidths: number[];
+  /** True when the document scrolls horizontally — the peek must never cause this. */
+  bodyOverflowsX: boolean;
+  /** The peek's address, so a resize can be shown not to touch it. */
+  search: string;
 };
 
 /**
@@ -238,6 +244,10 @@ const READ_STATE = `(() => {
     ariaValueMin: divider ? (divider.getAttribute("aria-valuemin") || "") : "",
     ariaValueMax: divider ? (divider.getAttribute("aria-valuemax") || "") : "",
     storedWidth: stored,
+    paneWidths: Array.from(document.querySelectorAll('[data-testid="peek-pane"]'))
+      .map((p) => Math.round(p.getBoundingClientRect().width)),
+    bodyOverflowsX: document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    search: location.search,
   });
 })()`;
 
@@ -448,6 +458,16 @@ try {
         if (dragged.storedWidth === null) {
           failures.push("the dragged width was not persisted — it will be lost on reload");
         }
+        // The width is a preference, not part of the peek's address: a copied
+        // peek link must not carry the copier's window size.
+        if (dragged.search !== before.search) {
+          failures.push(
+            `resizing changed the URL from "${before.search}" to "${dragged.search}" — the width leaked into the peek's address`
+          );
+        }
+        if (dragged.bodyOverflowsX) {
+          failures.push("resizing pushed the document into horizontal scroll");
+        }
       }
 
       // 4. It survives a reload — a preference, not pane state.
@@ -529,6 +549,65 @@ try {
             failures.push(
               `the stored preference changed from ${maxed.paneWidth} to ${narrow.storedWidth} on a window resize — the render bound overwrote the preference`
             );
+          }
+        }
+
+        // 8. The held pair: one width for the assembly, and the assembly clamped
+        // rather than each pane. This is the combination mt#4123 reasoned about
+        // at 1440 only, and the reason the ceiling divides by the pane count.
+        await cdp(ws, "Emulation.setDeviceMetricsOverride", {
+          ...VIEWPORT,
+          deviceScaleFactor: 1,
+          mobile: false,
+        });
+        await sleep(300);
+        const held = await evaluate(
+          ws,
+          `(() => {
+            const host = document.querySelector('[data-testid="peek-host"]');
+            const pane = document.querySelector('[data-testid="peek-pane"]');
+            const ref = Array.from((pane || document).querySelectorAll("a[data-entity-ref]"))[0]
+              || Array.from(document.querySelectorAll("a[data-entity-ref]")).find((a) => !host || !host.contains(a));
+            if (!ref) return "no-ref";
+            const pin = document.querySelector('[data-testid="peek-pane"] button[aria-label^="Hold"]');
+            if (pin) pin.click();
+            ref.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, shiftKey: true }));
+            return "held";
+          })()`
+        );
+        if (held !== "held") {
+          failures.push("could not stage a held pair — no entity ref available to open beside it");
+        } else {
+          await pollUntil(
+            ws,
+            `String(document.querySelectorAll('[data-testid="peek-pane"]').length)`,
+            (v) => Number(v) >= 2,
+            10_000
+          );
+          await sleep(400);
+          const pair = await readState(ws);
+          console.log(
+            `held pair at ${VIEWPORT.width}px: widths=${JSON.stringify(pair.paneWidths)} ` +
+              `page=${VIEWPORT.width - pair.paneWidths.reduce((a, b) => a + b, 0)}px`
+          );
+          if (pair.paneWidths.length < 2) {
+            failures.push("the hold gesture did not produce a second pane");
+          } else {
+            if (new Set(pair.paneWidths).size !== 1) {
+              failures.push(
+                `held panes render at different widths (${JSON.stringify(pair.paneWidths)}) — the width is supposed to be shared`
+              );
+            }
+            const total = pair.paneWidths.reduce((a, b) => a + b, 0);
+            if (VIEWPORT.width - total < MIN_PAGE_COLUMN_PX) {
+              failures.push(
+                `two held panes take ${total}px of ${VIEWPORT.width}px, leaving the page ` +
+                  `${VIEWPORT.width - total}px (need >= ${MIN_PAGE_COLUMN_PX}px) — the ceiling is per-pane, not per-assembly`
+              );
+            }
+            if (pair.bodyOverflowsX) {
+              failures.push("a held pair pushed the document into horizontal scroll");
+            }
           }
         }
       } else {

@@ -468,6 +468,22 @@ describe("the peek's width is the operator's (mt#4261)", () => {
     expect(screen.getByTestId("location").textContent).toContain("peek=");
   });
 
+  test("resizing leaves the URL completely untouched", async () => {
+    // The width is a PREFERENCE, not part of the peek's address: a copied peek
+    // link must carry which entities are open and never the copier's window
+    // size. Asserted as string equality rather than "still contains peek=",
+    // which would pass even if the width had been appended as a parameter.
+    await openOnePane();
+    const urlBefore = screen.getByTestId("location").textContent;
+
+    fireEvent.pointerDown(screen.getByTestId("peek-divider"), { clientX: 700, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 600 });
+    fireEvent.pointerUp(window, { clientX: 600 });
+    await waitFor(() => expect(localStorage.getItem("cockpit.peek.width.v1")).not.toBeNull());
+
+    expect(screen.getByTestId("location").textContent).toBe(urlBefore);
+  });
+
   test("a drag widens the pane and persists the width", async () => {
     await openOnePane();
     const before = screen.getByTestId("peek-pane").style.width;
