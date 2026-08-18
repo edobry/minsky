@@ -139,6 +139,14 @@ const TASK_REF_RE = /\b[a-z]{2,}#\d+\b/;
  * author declares, the guard checks presence. `[owner: mt#4238]` is a claim a
  * reader of the spec can act on; `mt#4238` loose in a sentence is not, because
  * the sentence may be about that task rather than assigning to it.
+ *
+ * mt#4246's SC2 says this in the spec's own words as of 2026-08-18: "an item
+ * carrying an `[owner: mt#N]` marker does NOT fire … a bare task reference does
+ * NOT discharge an item". It previously said a bare reference discharged, which
+ * is the criterion this module was built against and then measured against —
+ * see the header. The criterion was amended rather than the behaviour, because
+ * the measurement is what settled it; a deviation explained here while the
+ * criterion still said otherwise is the mt#4213 shape (PR #3098 R3).
  */
 const OWNER_MARKER_RE = /\[owner:[^\]]*\S[^\]]*\]/i;
 
@@ -146,8 +154,9 @@ const OWNER_MARKER_RE = /\[owner:[^\]]*\S[^\]]*\]/i;
  * The explicit no-owner marker.
  *
  * **A MARKER rather than prose-reason recognition, and that choice is
- * load-bearing.** The spec's criterion is "a task ref OR a stated reason", and
- * the obvious implementation — detect whether the item contains a reason —
+ * load-bearing.** The spec's criterion ORIGINALLY read "a task ref OR a stated
+ * reason" — both halves are now markers, and SC2 says so (amended 2026-08-18,
+ * PR #3098 R3). The obvious implementation of the original — detect whether the item contains a reason —
  * would be a phrase corpus over free text, which ADR-024 assigns to Rung 2 and
  * whose recall arms-race that ADR exists to end. A marker moves the judgment to
  * the author, where it belongs: the guard checks that a reason was STATED, never
