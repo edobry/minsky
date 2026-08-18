@@ -83,6 +83,24 @@ export const DEFAULT_PEEK_VIEWPORT_FRACTION = 0.45;
 export const MAX_ASSEMBLY_VIEWPORT_FRACTION = 0.62;
 
 /**
+ * Absolute floor on what the page behind keeps, in px — a second ceiling on the
+ * assembly, applied alongside the fraction above.
+ *
+ * A fraction alone is not enough, and the live check is what showed it: at a
+ * 620px window 62% leaves the page 236px, which is the sliced-mid-word state
+ * mt#4123 was filed for, reached this time by the operator's own drag rather
+ * than by a constant. 300px is the same threshold
+ * `scripts/verify-peek-pane-layout.ts` already encodes for "the page behind is
+ * still readable prose rather than fragments" — taken from there rather than
+ * picked, so the two cannot drift apart.
+ *
+ * This bounds what RENDERS, never what is STORED: a preference set on a wide
+ * monitor is preserved intact and comes back at full width when the window
+ * grows again.
+ */
+export const MIN_PAGE_COLUMN_PX = 300;
+
+/**
  * The width a pane renders at when the operator has expressed no preference —
  * mt#4123's `min(26rem, 45vw)`, in a number rather than a CSS expression so the
  * divider has something to report and to drag from.
@@ -131,11 +149,18 @@ export function peekMinWidth(viewportWidth: number): number {
  * about is preserved exactly.
  */
 export function peekWidthBounds(paneCount: number, viewportWidth: number): PaneWidthBounds {
+  const panes = Math.max(1, paneCount);
+  const measured = Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0;
+  // The reserve is expressed through `max` rather than through `maxFraction`
+  // because it is ABSOLUTE — a fixed number of pixels for the page, not a share
+  // of the window. Folding it into the fraction would make it shrink with the
+  // window, which is the opposite of what a readability floor is for.
+  const reserveCeiling = measured > 0 ? (measured - MIN_PAGE_COLUMN_PX) / panes : MAX_PEEK_WIDTH_PX;
   return {
     min: peekMinWidth(viewportWidth),
-    max: MAX_PEEK_WIDTH_PX,
-    containerWidth: Number.isFinite(viewportWidth) && viewportWidth > 0 ? viewportWidth : 0,
-    maxFraction: MAX_ASSEMBLY_VIEWPORT_FRACTION / Math.max(1, paneCount),
+    max: Math.min(MAX_PEEK_WIDTH_PX, Math.max(0, reserveCeiling)),
+    containerWidth: measured,
+    maxFraction: MAX_ASSEMBLY_VIEWPORT_FRACTION / panes,
   };
 }
 

@@ -15,6 +15,7 @@ import {
   DEFAULT_PEEK_WIDTH_PX,
   MAX_ASSEMBLY_VIEWPORT_FRACTION,
   MAX_PEEK_WIDTH_PX,
+  MIN_PAGE_COLUMN_PX,
   MIN_PEEK_WIDTH_PX,
   defaultPeekWidth,
   peekMinWidth,
@@ -105,12 +106,40 @@ describe("resolvePeekWidth — a preference is honored, then bounded", () => {
   test("does not let a wide-monitor preference crush a narrow window", () => {
     // The preference is not rewritten — only what renders is bounded — so the
     // same stored 720 comes back at full width when the window grows again.
-    expect(resolvePeekWidth(720, 1, NARROW_VIEWPORT)).toBe(384);
+    // 320 is the page-column reserve binding (620 - 300), not the fraction,
+    // which would have permitted 384 and left the page unreadable.
+    expect(resolvePeekWidth(720, 1, NARROW_VIEWPORT)).toBe(NARROW_VIEWPORT - MIN_PAGE_COLUMN_PX);
     expect(resolvePeekWidth(720, 1, WIDE_VIEWPORT)).toBe(720);
   });
 
   test("holds the floor against a preference narrower than a legible column", () => {
     expect(resolvePeekWidth(MIN_PEEK_WIDTH_PX - 100, 1, WIDE_VIEWPORT)).toBe(MIN_PEEK_WIDTH_PX);
+  });
+
+  test("reserves an absolute page column, not just a fraction of the window", () => {
+    // Found by the live check, not by reasoning: at 620px the 0.62 fraction alone
+    // permits 384px and leaves the page 236px — the sliced-mid-word state mt#4123
+    // was filed for, reached by the operator's own drag instead of by a constant.
+    const rendered = resolvePeekWidth(MAX_PEEK_WIDTH_PX, 1, NARROW_VIEWPORT);
+    expect(NARROW_VIEWPORT - rendered).toBeGreaterThanOrEqual(MIN_PAGE_COLUMN_PX);
+
+    // A fraction is not a substitute: it scales with the window, so on a small
+    // one it permits a page column that is proportionally fine and absolutely
+    // unreadable. This is the assertion that would have caught it.
+    expect(NARROW_VIEWPORT * MAX_ASSEMBLY_VIEWPORT_FRACTION).toBeGreaterThan(
+      NARROW_VIEWPORT - MIN_PAGE_COLUMN_PX
+    );
+  });
+
+  test("keeps the reserve across the whole assembly when panes are held", () => {
+    const each = resolvePeekWidth(MAX_PEEK_WIDTH_PX, 2, WIDE_VIEWPORT);
+    expect(WIDE_VIEWPORT - each * 2).toBeGreaterThanOrEqual(MIN_PAGE_COLUMN_PX);
+  });
+
+  test("does not let the reserve bite a window with room to spare", () => {
+    // The wide single-pane case must still reach the static max — a reserve that
+    // clamped everywhere would be a regression dressed as a safety bound.
+    expect(resolvePeekWidth(MAX_PEEK_WIDTH_PX, 1, WIDE_VIEWPORT)).toBe(MAX_PEEK_WIDTH_PX);
   });
 });
 
