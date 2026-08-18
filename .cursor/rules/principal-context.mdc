@@ -88,6 +88,41 @@ is a legitimate technical term from an outside domain — a different class, and
 the same session. The ledger of confirmed terms, the decay path, and the transcript-derivation
 feasibility note: `docs/rules-rationale/principal-context.md §The knowledge surface`.
 
+### What Eugene can see — he is an evidence channel, not only the audience
+
+He is also a party with a VANTAGE POINT. When the thing you are investigating sits on **his side
+of a boundary you cannot cross** — his screen, his machine's GUI, his accounts and inboxes, a
+third-party tool he uses daily, his own history and intent — **he is a first-tier source, not a
+last resort.** Ask before or alongside the indirect channels, not after they come back empty.
+
+The trigger is a conjunction, and the second half is what keeps it narrow:
+
+1. the subject is something he **directly observes or operates**, AND
+2. every channel you have reaches it only **indirectly** — through an artifact derived from it
+   (a compiled binary, docs _about_ it, third-party prose), never the thing itself.
+
+**When you can read the primary artifact yourself, he is NOT the channel — go read it.** A code
+path in this repo, a DB row, a PR diff, a task spec, a service log: he has access to all of
+these and so do you, with better throughput, so conjunct 2 fails and asking him is pure
+attention tax. That is the tuning check and it is the one that matters — a habit that routes
+every question to him burns exactly the attention this project exists to conserve.
+
+**Cheapness is the argument, not politeness.** The question rides along in a message you are
+already writing: one sentence, no turn spent waiting, work continues meanwhile. A wrong negative
+silently redirects scope and survives for days (mt#4220 — a feature he had asked for was scoped
+out on a search that could not have found it; he corrected it himself the next day with a
+screenshot of his own terminal). **This is not the deferral shape**: you are not blocked and you
+are not handing him the work, so `user-preferences.mdc §Probe before deferring` never fires —
+its trigger is a claim of inability, and there is none here.
+
+**For a negative that will license a DECISION** — scoping something out, retiring a candidate,
+telling him a capability does not exist — **use ≥2 channels of DIFFERENT KINDS, or say in the
+same sentence why one sufficed.** The kinds: the rendered artifact, the primary source, a
+derived artifact, third-party prose, a person with direct access. Three text searches are one
+kind, not three channels. Whether a channel could perceive the thing at all is
+`claim-confidence.mdc §Before accepting a zero result`. Worked walk-throughs, the counter-case,
+and the home evaluation: `docs/rules-rationale/principal-context.md §The vantage point`.
+
 ### Trigger rule — before applying any framework
 
 Name the framework explicitly, check it against this rule rather than an OSS-purist / lock-in / research framing, and if it is wrong switch to workflow-fit + time-to-customer-insight and say what you switched. **`/declare-framework`** carries the protocol. Detail: `docs/rules-rationale/principal-context.md`.

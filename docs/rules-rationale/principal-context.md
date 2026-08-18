@@ -334,6 +334,193 @@ disabled within a day (failure mode 5 in the spec). The regression guard that DO
 every surface an agent reads it from and that the ledger keeps its seeded entries — it checks
 that the rule still SAYS this, never that a message obeyed it.
 
+## The vantage point (mt#4259)
+
+The rule's `§What Eugene can see` section is the behavioral contract. This section holds the
+originating incident, the evaluation of the three candidate homes (the substance of the task,
+not a formality), the worked walk-throughs including the counter-case that keeps the rule from
+firing everywhere, and the enforcement-tier statement.
+
+Quotations below are as recorded in mem#1086 (`5b8858f0`), which carries the incident and the
+channel analysis.
+
+### Why this axis exists
+
+`§The knowledge surface` above models what he KNOWS, so vocabulary can be pitched at its edge.
+This one models what he CAN SEE, so investigation can draw on it. They are two halves of one
+root, stated in mem#1086: **the agent's model of the principal is one-directional.** He is the
+recipient of output — never a party with STATE the agent can reason about, nor a VANTAGE POINT
+it can draw on.
+
+Originating incident, 2026-08-17/18 (mt#4220). He asked for a conversation-view behaviour "like
+how Claude Code does it" — runs of consecutive agent actions folded into one line. To check
+whether that behaviour existed, the agent ran `strings -n 6` over the installed Claude Code
+Mach-O binary and read two published doc pages. Zero hits. It reported the behaviour absent and
+**scoped the feature he had asked for out of the task on that basis**: _"Any run-folding here is
+therefore an invention, not a port."_
+
+Three things were true at once, and none of them surfaced:
+
+- **The probe could not have succeeded.** Claude Code ships its JavaScript bundled and
+  substantially compressed; `strings` prints runs of printable characters and cannot see
+  compressed regions. A direct `grep -ac` over the raw binary also returns 0. The search
+  returned "not found" whether or not the feature existed.
+- **The subject was a VISUAL behaviour and every channel tried was TEXT** — one `WebSearch` that
+  returned SEO listicles, two doc pages, and `strings`. Three channels, one kind.
+- **He was looking at the feature while the search ran.** He settled the question a day later by
+  posting a screenshot of his own terminal showing the exact line —
+  `Thought for 47s, listed 1 directory, ran 4 shell commands`. One sentence, _"can you screenshot
+  the fold you mean?"_, would have settled it in seconds.
+
+He named the gap himself, and the wording is effectively this rule's spec: _"couldnt you have
+found info about that claude code feature using methods besides scanning the binary, such as
+looking online for screenshots or whatever?"_
+
+**The cost shape is why this is worth a rule rather than a memory.** The adjacent-but-different
+work that shipped in the feature's place (de-carding, mt#4220) was independently worth doing, so
+nothing looked unfinished — a plausible deliverable landed, and the wrong scoping stayed
+invisible until he noticed it himself.
+
+### Why the existing rules did not fire
+
+This is the constraint that decided where the guidance could live, so it is recorded rather than
+summarised:
+
+- **`user-preferences.mdc §Probe before deferring`** fires on deferral prose — "requires X
+  access", "deferred to operator", "I can't verify until…". Its third shape (mt#3930) even says
+  the probe may be a QUESTION rather than a tool call, which is exactly the mechanic needed here.
+  But **no deferral prose was emitted.** The agent was not stuck; it was busy, and confidently
+  wrong. Every arm of that bullet is a claim of inability and this failure contains none, so
+  adding more phrases to its trigger list cannot catch it: **the failure has no phrase.**
+- **`claim-confidence.mdc §Bound a negative claim`** was FOLLOWED, at the sentence level, in the
+  same artifact — the spec said verbatim _"Bounded to what was checked: the installed binary's
+  extractable strings and the two published docs pages; the classic-renderer source was not
+  read."_ The unbounded conclusion drove the scope decision anyway, from elsewhere in the same
+  document. That is mem#1086's own subject; its revised root cause is upstream of it — a single
+  low-quality channel was treated as a search.
+- **The `research-sandwich` skill** exists for multi-modal fan-out and was not reached for.
+  Nothing signals when one channel is insufficient. See the home evaluation for why that skill
+  could not have been that signal.
+
+### Where this landed, and the three homes evaluated
+
+The task named three candidates. The deciding question is not "which rule is topically closest"
+but **which text an agent has in hand at the moment the failure occurs** — and for this incident
+that is not a guess, because the transcript records which rule the agent applied at the decision
+point.
+
+| Candidate                                      | Retrieval cue                         | Verdict                                         |
+| ---------------------------------------------- | ------------------------------------- | ----------------------------------------------- |
+| `user-preferences.mdc §Probe before deferring` | "am I actually blocked?"              | Wrong cue — the agent was not blocked           |
+| `claim-confidence.mdc`                         | "what warrant does this claim carry?" | **Right home for the modality half**            |
+| `research-sandwich` entry condition            | "this is a research project"          | Ruled out on the skill's own terms              |
+| `principal-context.mdc` (chosen)               | "who could answer this?"              | **Right home for the principal-as-source half** |
+
+**`user-preferences.mdc §Probe before deferring` — rejected as the primary home.** It owns the
+probe mechanic, including the question-as-probe form, and it has precedent for an ACTION-keyed
+arm: §Probe before SELF-IMPROVISING (mt#3154) explicitly says _"No deferral prose is emitted
+here, so the tell is the ACTION, not the wording."_ So the shape is admissible there. But the
+bullet's organising question is _am I unable to act?_, and the incident's agent was mid-stride
+and confident. Guidance filed under a deferral bullet is retrieved when an agent feels stuck,
+which is the one state this failure never enters. Secondary: that rule sits at 12,835 chars
+against the 15,000 per-rule ceiling (`packages/domain/src/compile/size-budget.ts`
+`DEFAULT_PER_RULE_CEILING_CHARS`), and this bullet is already its longest.
+
+**`claim-confidence.mdc` — chosen for the modality-match half only.** The evidence for retrieval
+is unusually direct: the agent wrote that rule's channel bound into the spec verbatim, so
+§Bound a negative claim demonstrably WAS in hand at the decision point. It complied and stopped
+one sentence short — the rule tells you how to LABEL a negative and never asks whether to go get
+a better one. The modality rule is also squarely in that rule's family: it generalises §Absence
+in a derived view ("the view is silent about your question") and mem#704 ("a probe that cannot
+fail is not verification") from a data view to a SEARCH. What does not fit there is the
+principal-as-source trigger: claim-confidence is a vocabulary for stating warrant, not a rule
+about whom to ask.
+
+**`research-sandwich` entry condition — ruled out, on the skill's own text.** Its "When to use
+it" section excludes exactly this case: _"Do NOT use it for: a single-fact lookup, a one-source
+question, anything a direct search-and-read answers in a few tool calls."_ "Does Claude Code
+fold agent actions?" is a single-fact lookup, so even a perfectly-written entry condition there
+would have told this agent not to enter. More generally, a skill is invoked deliberately;
+guidance that only fires once you have decided to research well cannot catch the case where you
+did not notice you were researching. The exclusion is correct and was left alone.
+
+**`principal-context.mdc` — chosen for the trigger.** The trigger is a fact about the principal
+(what he has direct access to), and this is the rule that models the principal; "who could
+answer this?" resolves here. It is `alwaysApply`, so availability is equal to the other two
+candidates and the choice is purely about the cue. Landing it beside `§What Eugene knows` also
+makes the pair legible as ONE model rather than two rules that cite each other — mt#4248's
+shipped text already forward-references this half by name. Headroom was the tiebreaker on a tie
+that did not exist: 5,655 chars before this addition.
+
+**Net: the guidance is split by nature, not by convenience** — the channel-selection trigger
+where the principal is modelled, the perceive-the-kind rule where evidential warrant is
+modelled, each cross-referencing the other. A reader arriving from either direction reaches
+both.
+
+### Worked walk-throughs
+
+**The originating incident, run against the shipped guidance.** Subject: a run-folding behaviour
+rendered in Claude Code's terminal UI, a tool he uses daily → conjunct 1 holds. Channels
+available to the agent: the compiled binary, docs _about_ the product, third-party prose — every
+one of them derived from the rendered artifact, which the agent has no way to render → conjunct
+2 holds. **Verdict: he is a first-tier source; ask him, before or alongside the indirect
+channels.** The guidance then bites twice more independently: the modality rule flags a TEXT
+search for a VISUAL behaviour before the zero result is accepted at all, and the multi-channel
+requirement rejects three text searches as one kind for a negative that is about to license a
+scope decision. Any one of the three produces "ask him / search images" rather than "grep the
+binary" — the criterion was that the text yields that outcome, not merely permits it.
+
+**The counter-case, run explicitly as the tuning check.** The rule is mis-tuned if it routes
+ordinary investigation to the principal, so this is checked rather than assumed:
+
+| Investigation                                | Conjunct 1           | Conjunct 2                              | Outcome        |
+| -------------------------------------------- | -------------------- | --------------------------------------- | -------------- |
+| A code path in this repo                     | ✅ (he has the repo) | ❌ — you can read the file              | **do not ask** |
+| Why a task's status changed                  | ✅                   | ❌ — the task record is queryable       | **do not ask** |
+| Whether a deployed service is healthy        | ✅                   | ❌ — probe it                           | **do not ask** |
+| A UI behaviour in a third-party app he uses  | ✅                   | ✅ — you cannot render it               | **ask**        |
+| What he intended by an ambiguous instruction | ✅                   | ✅ — the intent exists only in his head | **ask**        |
+
+The first row is the one that matters, and note that it fails on conjunct 2 alone. Conjunct 1 is
+nearly always true — he has access to essentially everything in this project — so a rule stated
+as "ask him when he has access" would route every question to him and be disabled within a day.
+**The narrowing work is done entirely by "your channels reach it only indirectly."** Row 3 is
+worth naming separately because it is the shape most likely to be rationalised into an ask: he
+would probably know, and asking still costs his attention for something a probe settles.
+
+Row 5 is the boundary case in the other direction: intent is not an artifact anyone can read, so
+there is no primary source to go to and he is the only channel. That is the same conjunction,
+not an exception to it.
+
+### Enforcement tier: prose, stated rather than defaulted to
+
+Per `/retrospective` Step 4's tier requirement. No detector, hook, or lint rule ships with this,
+and none is deferred.
+
+The trigger — "could the principal have answered this?" — is not statically decidable. It turns
+on whether the agent's available channels reach the subject directly, which is a judgement about
+the subject and the tooling in that moment, not a property of any text. The two adjacent
+detectors do not fire here **by construction**: `operator-deferral` and `ask-routing-deferral`
+both key on deferral prose or a deferral-shaped tool-call state, and this failure emits neither
+— the agent never claims inability, which is the same reason §Probe before deferring could not
+be the home. A detector that fired whenever an investigation concluded a negative would fire
+constantly and be disabled within a day, which is the failure mode the counter-case above is
+guarding against on the prose side.
+
+The regression guard that DOES ship is `tests/domain/principal-vantage-point.test.ts`: it
+asserts the guidance is present on every surface an agent reads it from, and that the
+counter-case and the conjunction survive edits. It checks that the rules still SAY this, never
+that an investigation obeyed it.
+
+**The mechanizable slice deliberately not built.** mem#1086's budget proposes one: a durable
+artifact containing BOTH a channel-bounded negative AND an unbounded conclusion drawn from it is
+a two-sentence pattern that is detectable in a way the general case is not. That is a
+claim-confidence-family detector about artifact text, not a channel-selection detector, and it
+belongs to whoever picks up that budget — note mem#1086's own correction, that the existing
+`negative-existence-claim` detector cannot host it (it requires a cited DONE Minsky task, and
+this class of claim is about third-party products). Filed here rather than built, per the task's
+`## Scope`.
+
 ## Cross-references
 
 - `humility.mdc` — design principle on delegation boundary; this rule provides the persona
@@ -350,14 +537,18 @@ that the rule still SAYS this, never that a message obeyed it.
 - `feedback_explicit_framework_selection` — meta-rule on naming frameworks before applying them
   (bridge memory, retiring with this skill)
 - mt#4248 — the knowledge-surface axis (`§The knowledge surface` above)
-- mt#4259 — **the reciprocal half**: treat the principal as an EVIDENCE CHANNEL, not only the
-  recipient of findings. Same root — the agent's model of him is one-directional: he is never a
-  party with STATE the agent can reason about (mt#4248, what he knows) nor a VANTAGE POINT it
-  can draw on (mt#4259, what he can see). **Coordinate, do not merge** — a knowledge model and
-  a probe habit are different builds, per `decision-defaults.mdc §Task overlap` — but a design
-  for either that ignores the other treats a symptom: a vocabulary model that never asks him
-  what he knows is guessing, and a probe habit that asks in terms he must decode reproduces
-  the problem while trying to solve it.
+- mt#4259 — **the reciprocal half, now shipped**: the principal as an EVIDENCE CHANNEL, not only
+  the recipient of findings (`§The vantage point` above). Same root — the agent's model of him is
+  one-directional: he is never a party with STATE the agent can reason about (mt#4248, what he
+  knows) nor a VANTAGE POINT it can draw on (mt#4259, what he can see). **Coordinated, not
+  merged** — a knowledge model and a probe habit are different builds, per `decision-defaults.mdc
+§Task overlap` — but a design for either that ignores the other treats a symptom: a vocabulary
+  model that never asks him what he knows is guessing, and a probe habit that asks in terms he
+  must decode reproduces the problem while trying to solve it. The two sections are deliberately
+  adjacent in the rule so the model reads as one thing.
+- `claim-confidence.mdc §Before accepting a zero result` — mt#4259's other half: whether a channel
+  can PERCEIVE the kind of thing being sought. Split by nature, not convenience; the reasoning is
+  in `§Where this landed, and the three homes evaluated`.
 - mem#1086 (`5b8858f0`) — the incident record and channel analysis both tasks cite
 - `user-preferences.mdc §Plain-language first` — the ADJACENT rule, deliberately a different
   class: process-internal shorthand, not outside-domain technical terms. Both failed in the
