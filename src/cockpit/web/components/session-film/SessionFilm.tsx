@@ -91,6 +91,13 @@ const MAX_RIBBON_FRACTION = 0.6;
  */
 const RIBBON_WIDTH_STORAGE_KEY = "cockpit.session-film.ribbon-width.v1"; // gitleaks:allow
 
+/**
+ * The ribbon's DOM id, so the divider can name what it sizes in `aria-controls`
+ * (mt#4261). A constant rather than a literal at each site because the two uses
+ * — the element's `id` and the divider's `controls` — are only correct together.
+ */
+const RIBBON_DOM_ID = "session-film-ribbon";
+
 export interface SessionFilmProps {
   /** The conversation to replay. Supplied by the route, not by a picker. */
   conversationId: string;
@@ -460,12 +467,14 @@ export function SessionFilm({
           onSelectRow={setSelectedRowIndex}
           onScrollRowChange={handleScrollRowChange}
           className="shrink-0"
+          id={RIBBON_DOM_ID}
           style={{ width: ribbonWidthPx }}
         />
         <PaneDivider
           value={ribbonWidthPx}
           min={MIN_RIBBON_WIDTH_PX}
           max={ribbonMaxPx}
+          controls={RIBBON_DOM_ID}
           onChange={handleRibbonResize}
           onReset={handleRibbonResetWidth}
           label="Resize the event ribbon"

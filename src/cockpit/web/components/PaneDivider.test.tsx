@@ -169,3 +169,65 @@ describe("PaneDivider — keyboard operation (mt#3701 SC 3)", () => {
     }
   });
 });
+
+describe("PaneDivider — which side it sizes (mt#4261)", () => {
+  test("defaults to the pane on its LEFT, unchanged from mt#3701", () => {
+    // The film host passes no `resizes`, so this is the regression guard for it:
+    // every assertion in the two suites above depends on this default holding.
+    const { divider, changes } = renderDivider();
+
+    fireEvent.pointerDown(divider, { clientX: 400, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 460 });
+
+    expect(changes).toEqual([START_WIDTH + 60]);
+  });
+
+  test("sizes the pane on its RIGHT when asked — dragging LEFT widens", () => {
+    const { divider, changes } = renderDivider({ resizes: "right" });
+
+    // Same gesture as the default-case test above, opposite meaning: on a
+    // right-anchored assembly the divider sits at the left edge, so moving the
+    // pointer RIGHT eats into the pane.
+    fireEvent.pointerDown(divider, { clientX: 400, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 460 });
+    fireEvent.pointerMove(window, { clientX: 340 });
+
+    expect(changes).toEqual([START_WIDTH - 60, START_WIDTH + 60]);
+  });
+
+  test("mirrors the arrow keys with the drag", () => {
+    const { divider, changes } = renderDivider({ resizes: "right" });
+
+    // The APG defines these by where the SPLITTER moves, not by whether the pane
+    // grows — so ArrowLeft is the widening direction here.
+    fireEvent.keyDown(divider, { key: "ArrowLeft" });
+    fireEvent.keyDown(divider, { key: "ArrowRight" });
+
+    expect(changes).toEqual([
+      START_WIDTH + PANE_DIVIDER_STEP_PX,
+      START_WIDTH - PANE_DIVIDER_STEP_PX,
+    ]);
+  });
+
+  test("Home still resets, whichever side it sizes", () => {
+    const { divider, resetCount } = renderDivider({ resizes: "right" });
+
+    fireEvent.keyDown(divider, { key: "Home" });
+
+    expect(resetCount()).toBe(1);
+  });
+});
+
+describe("PaneDivider — aria-controls names what it sizes (mt#4261)", () => {
+  test("carries the host's id list when given one", () => {
+    const { divider } = renderDivider({ controls: "peek-pane-0 peek-pane-1" });
+    expect(divider.getAttribute("aria-controls")).toBe("peek-pane-0 peek-pane-1");
+  });
+
+  test("omits the attribute entirely when the host has no id to name", () => {
+    // Not the empty string: an `aria-controls` resolving to nothing is worse
+    // than its absence, which is why the prop is optional.
+    const { divider } = renderDivider();
+    expect(divider.getAttribute("aria-controls")).toBeNull();
+  });
+});

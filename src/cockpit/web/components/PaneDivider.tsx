@@ -1,6 +1,13 @@
 /**
- * PaneDivider — a draggable vertical divider that resizes the pane to its LEFT
- * (mt#3701).
+ * PaneDivider — a draggable vertical divider that resizes the pane on ONE side
+ * of it (mt#3701; the side became a choice in mt#4261).
+ *
+ * `resizes` names which side, and defaults to `"left"` — the original and only
+ * behavior until the peek adopted this component. A right-anchored surface (the
+ * entity side peek) needs the mirror: its divider sits at the assembly's left
+ * edge and dragging LEFT must WIDEN the pane. That is a sign flip on one delta,
+ * not a second component, because everything else — the grip, the drag
+ * bookkeeping, the separator semantics, the reset gestures — is identical.
  *
  * Presentational and stateless about the width itself: it reports a REQUESTED
  * width and the host decides what to do with it (clamp, persist, ignore). That
@@ -28,15 +35,29 @@ export const PANE_DIVIDER_STEP_PX = 16;
 export const PANE_DIVIDER_COARSE_STEP_PX = 64;
 
 export interface PaneDividerProps {
-  /** Current rendered width of the pane to the LEFT of this divider, in px. */
+  /** Current rendered width of the pane this divider sizes, in px. */
   value: number;
+  /**
+   * Which side of the divider the sized pane is on. `"left"` (the default) is
+   * the film's ribbon/stage split; `"right"` is the right-anchored peek, where
+   * dragging left widens. Only the drag/arrow sign differs.
+   */
+  resizes?: "left" | "right";
+  /**
+   * `id` (or space-separated ids) of the element(s) this divider sizes, for
+   * `aria-controls`. The WAI-ARIA Window Splitter pattern lists it among the
+   * required attributes; it is optional here only because a host whose sized
+   * element has no id would otherwise have to invent one, and an `aria-controls`
+   * pointing at nothing is worse than its absence.
+   */
+  controls?: string;
   /** Reported to assistive tech as the range; the host still owns the clamp. */
   min: number;
   max: number;
   /**
-   * Requested new left-pane width, in px. Called continuously during a drag —
-   * the host is expected to clamp, and may render something other than what was
-   * asked for.
+   * Requested new width for the sized pane, in px. Called continuously during a
+   * drag — the host is expected to clamp, and may render something other than
+   * what was asked for.
    */
   onChange: (nextWidthPx: number) => void;
   /** Restore the host's default width (double-click, or `Home`). */
@@ -51,12 +72,17 @@ export function PaneDivider({
   value,
   min,
   max,
+  resizes = "left",
+  controls,
   onChange,
   onReset,
   label,
   className,
   "data-testid": testId,
 }: PaneDividerProps) {
+  // +1 when the sized pane is to the LEFT (dragging right widens it), -1 when it
+  // is to the RIGHT (dragging left widens it). The only thing `resizes` changes.
+  const widenSign = resizes === "right" ? -1 : 1;
   const [isDragging, setIsDragging] = useState(false);
   /** Pointer origin + the width at that moment, so a drag stays ABSOLUTE. */
   const dragOriginRef = useRef<{ clientX: number; widthPx: number } | null>(null);
@@ -86,7 +112,7 @@ export function PaneDivider({
     function handleMove(e: PointerEvent) {
       const origin = dragOriginRef.current;
       if (!origin) return;
-      onChangeRef.current(origin.widthPx + (e.clientX - origin.clientX));
+      onChangeRef.current(origin.widthPx + widenSign * (e.clientX - origin.clientX));
     }
     function handleEnd() {
       dragOriginRef.current = null;
@@ -116,14 +142,21 @@ export function PaneDivider({
       document.body.style.cursor = previousCursor;
       document.body.style.userSelect = previousUserSelect;
     };
-  }, [isDragging]);
+    // `widenSign` joins `isDragging` here without reintroducing the churn the
+    // `onChangeRef` comment above avoids: it is derived from a prop that names
+    // the host's fixed geometry, so it is constant for the life of a mount. An
+    // inline `onChange` arrow changes identity every render; this does not.
+  }, [isDragging, widenSign]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       const step = e.shiftKey ? PANE_DIVIDER_COARSE_STEP_PX : PANE_DIVIDER_STEP_PX;
       let next: number | null = null;
-      if (e.key === "ArrowRight") next = value + step;
-      else if (e.key === "ArrowLeft") next = value - step;
+      // The APG defines the arrow keys by where the SPLITTER moves, not by
+      // whether the pane grows — so on a right-anchored host ArrowLeft is the
+      // widening direction, which `widenSign` carries.
+      if (e.key === "ArrowRight") next = value + widenSign * step;
+      else if (e.key === "ArrowLeft") next = value - widenSign * step;
       else if (e.key !== "Home") return;
 
       e.preventDefault();
@@ -136,7 +169,7 @@ export function PaneDivider({
       if (next === null) onReset();
       else onChange(next);
     },
-    [value, onChange, onReset]
+    [value, widenSign, onChange, onReset]
   );
 
   return (
@@ -145,6 +178,7 @@ export function PaneDivider({
       tabIndex={0}
       aria-orientation="vertical"
       aria-label={label}
+      aria-controls={controls}
       aria-valuenow={Math.round(value)}
       aria-valuemin={min}
       aria-valuemax={max}
