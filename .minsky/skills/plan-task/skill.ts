@@ -1001,7 +1001,8 @@ restore + the append-only convention above); memories \`d77d2bd4\` (problem-stat
 
 When the spec proposes or changes a **mechanism, architecture, substrate, policy, or detection
 approach** — anything where "how should this work?" is the question — the agent must search the
-in-repo accepted decision records (\`docs/architecture/adr-*.md\`) for one that governs the choice,
+accepted decision records — BOTH corpora: \`docs/architecture/adr-*.md\` in-repo AND the Notion RFC
+corpus (mt#4244) — for one that governs the choice,
 cite it, and state match / extend / deviate BEFORE the mechanism is encoded and the task passes to
 READY. The accepted record is the DEFAULT; the spec justifies DEPARTING from it, not following it.
 
@@ -1037,12 +1038,36 @@ findings-shaped \`state-ops\` audit — the criterion passes automatically. Stat
 
 **Required when triggered:**
 
-1. **Search** — two cheap passes, either of which is usually enough: (a) grep the ADR corpus for the
+1. **Search** — three cheap passes: (a) grep the ADR corpus for the
    file paths named in the spec's \`## Scope\`; (b) grep the in-scope source files for \`ADR-\`
-   references — and **traverse what you find**.
-2. **Cite** — name the governing ADR in the spec, or state explicitly that the search was run and no
-   accepted record governs the decision. "No ADR governs this" is a PASSING answer only when the
-   search is recorded; an unrecorded absence is not a search.
+   references; (c) search the **Notion RFC corpus** —
+   \`mcp__plugin_Notion_notion__notion-search\` with the decision's subject terms — and
+   **traverse what you find**.
+
+   **Pass (c) is not optional garnish, and this gate shipped without it (mt#4244).** Minsky's
+   accepted decision records are SPLIT across two corpora by policy: \`documentation-taxonomy.mdc\`
+   routes ADRs to \`docs/architecture/\` and RFCs to Notion, and \`/draft-rfc\` publishes them there
+   under the Minsky home page. Passes (a) and (b) are both in-repo, so for the first year of this
+   gate's life an agent could run it honestly, record a correct PASS, and never have been able to
+   see half of what the gate is named for. That is a corpus gap, not a diligence gap — "search
+   harder" does not reach a page that is not on disk.
+
+   Originating incident (2026-08-17, mt#4239): a spec added a per-installation declaration of
+   which MCP servers a driven agent gets. Gate (p) ran, found ADR-038, and correctly recorded
+   "extend, not deviate." What neither in-repo pass could reach was **RFC 390937f0**
+   (\`Capability-escalation loop\`, **Accepted** 2026-07-01), whose Piece C1 is a
+   "lightweight, session-config declaration" of an agent's capability set — the same subject, one
+   granularity over. The design collision surfaced only when the principal asked whether the
+   shipped shape was right.
+
+   **If the Notion plugin is unavailable** (a headless or cron run, or the plugin is not
+   connected), record the pass as \`UNAVAILABLE\` with that reason — do NOT record a clean gate
+   pass. A corpus you could not search and a corpus you searched and found empty are different
+   findings, and only one of them licenses "no accepted record governs this."
+2. **Cite** — name the governing ADR **or RFC** in the spec, or state explicitly that all three
+   passes ran and no accepted record governs the decision. "No accepted record governs this" is a
+   PASSING answer only when the search is recorded; an unrecorded absence is not a search, and a
+   two-corpus search recorded as three is worse than either.
 3. **Match / extend / deviate** — state which, with justification for any deviation.
 4. **Phase placement** — if the ADR names a phase or task structure, state which phase this task
    belongs to, and whether it coordinates with the other phases or proceeds independently.
@@ -1078,6 +1103,11 @@ guidance — but it targets named concepts and frames, not accepted decision rec
 gate). Mechanization: mt#2755 carries this criterion's deterministic slice — for each file path in a
 spec's \`## Scope\`, grep \`docs/architecture/*.md\`; if an ADR references that path and the spec cites
 no ADR, flag it. That grep only NOMINATES candidates; the governance judgment stays here.
+**Its corpus must match pass (c)'s (mt#4244):** the nominator is specced against the ADR corpus
+alone (ADR-042's (p) row, mt#4172), which would mechanize the very blind spot this gate just
+closed. A grep cannot reach Notion, so the deterministic slice covers one corpus and the prose
+covers both — state which corpus a nominator's silence is evidence about, rather than reading it
+as "no record governs this."
 
 ### Step 4: Act on gate results
 
