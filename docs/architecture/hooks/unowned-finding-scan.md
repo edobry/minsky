@@ -125,6 +125,32 @@ The posture stays log-only. mt#4246 explicitly scopes flipping it out of calibra
 and a 6-item corpus is too small a base to justify injecting on. The number that would change this
 is the rate of NEW fires per week once the marker convention is in use, not the one-time backlog.
 
+## Registration — six sites, not five
+
+Recorded because this task's own planning gate enumerated **five** and CI caught the sixth. A new
+STANDALONE hook (one registered directly in `.claude/settings.json` rather than through the ADR-028
+dispatcher) must be added to all of:
+
+1. `.claude/settings.json` — the hook command itself.
+2. `.minsky/hooks/known-guard-names.ts` → `STANDALONE_GUARD_NAMES`.
+3. `.minsky/hooks/interceptor-descriptions-settings.ts` — the settings-stratum description map.
+   (Dispatcher-registered guards go in `interceptor-descriptions.ts` instead; picking the wrong one
+   fails `interceptor-descriptions.test.ts` AT2, a population check over every distinct `guardName`.)
+4. `.minsky/hooks/interceptor-coordinates.ts` — for a log-only detector, `structuralRecorder`
+   (`record`/`review`), NOT `conditionalFeeder`, which declares an `inject` intervention this guard
+   never performs.
+5. The override env var, in BOTH `.minsky/hooks/known-override-env-vars.ts` and
+   `packages/domain/src/configuration/sources/environment.ts`'s `HOOK_ONLY_ENV_VAR_CATEGORIES`.
+6. **`packages/domain/src/rules/enforcement-mapping.ts`** → `NON_ENFORCEMENT_CLAUDE_HOOKS`, with a
+   stated reason. This is the one that is easy to miss: it lives outside `.minsky/hooks/` entirely,
+   in the domain package, and its parity test asserts that **every** hook in `settings.json` is
+   either an enforcement mapping or an explicitly-reasoned non-enforcement entry.
+
+Site 6 is not reachable by pattern-matching a sibling hook's registration, because the sibling's
+entry is in a different package from everything else you touch. `bun run test` catches it;
+`bun test ./.minsky/hooks/` does not — this guard's whole hooks suite passed 5,530/0 with site 6
+missing.
+
 ## Testing
 
 `.minsky/hooks/unowned-finding-scan.test.ts` — 24 tests. The load-bearing ones:

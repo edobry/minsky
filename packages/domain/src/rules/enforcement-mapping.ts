@@ -822,6 +822,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Reminds the agent to walk READY -> /implement-task — advisory, no permission decision (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/unowned-finding-scan.ts",
+    reason:
+      "Records findings-section items with no declared owner at the DONE transition — log-only calibration, no permission decision (mt#4246, hook-observers.mdc)",
+  },
+  {
     configPath: ".claude/hooks/stamp-pr-author-link.ts",
     reason:
       "Stamps the workspace<->conversation link at session_pr_create — recording, not enforcement (hook-observers.mdc)",
