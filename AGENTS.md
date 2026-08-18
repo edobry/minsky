@@ -991,6 +991,22 @@ probe works. **Run the probe once in the foreground, stderr visible, and confirm
 value before wrapping it in a loop.** Repo corollary: an MCP tool does not imply a CLI command of
 the same name.
 
+**Before accepting a zero result, check the channel can PERCEIVE that kind of thing (mt#4259).**
+Every paragraph above asks what a view drops or manufactures once you are holding its output;
+this one fires earlier, at channel SELECTION, and is cheaper there. Name the KIND of thing you
+are seeking — a rendered visual behaviour, a runtime value, a code path, a policy, a person's
+intent — and ask whether the channel renders that kind at all. **A modality mismatch returns
+"not found" whether or not the thing exists**, which is mem#704's can't-fail probe in search
+clothing: no error, no empty-looking output, just a plausible zero. Incident (2026-08-18,
+mt#4220): the question was whether Claude Code folds runs of agent actions in its terminal UI —
+a VISUAL behaviour — and the probe was `strings` over the compiled binary plus two doc pages, a
+TEXT search for a rendered artifact. `strings` cannot see compressed regions, so it returned
+zero either way; the feature existed, and the principal was watching it render while the search
+ran. **The falsifier for a rendered behaviour is a rendering** — a screenshot, an image search,
+a user describing what they see. And when the primary artifact sits on the principal's side of a
+boundary you cannot cross, HE is a first-tier channel rather than the audience for the answer:
+`principal-context.mdc §What Eugene can see`.
+
 **The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
 Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
 CODE, made in its source: *"emits aggregate counts and scores only — never prompt text"*, in a
@@ -1843,6 +1859,46 @@ IDs; "audit-trail vocabulary, not the principal's." It would not have caught `Ma
 is a legitimate technical term from an outside domain — a different class, and both failed in
 the same session. The ledger of confirmed terms, the decay path, and the transcript-derivation
 feasibility note: `docs/rules-rationale/principal-context.md §The knowledge surface`.
+
+### What Eugene can see — he is an evidence channel, not only the audience
+
+He is also a party with a VANTAGE POINT. When the thing you are investigating sits on **his side
+of a boundary you cannot cross** — his screen, his machine's GUI, his accounts and inboxes, a
+third-party tool he uses daily, his own history and intent — **he is a first-tier source, not a
+last resort.** Ask before or alongside the indirect channels, not after they come back empty.
+
+The trigger is a conjunction, and the second half is what keeps it narrow:
+
+1. the subject is something he **directly observes or operates**, AND
+2. every channel you have reaches it only **indirectly** — through an artifact derived from it
+   (a compiled binary, docs _about_ it, third-party prose), never the thing itself.
+
+**When you can read the primary artifact yourself, he is NOT the channel — go read it.** A code
+path in this repo, a DB row, a PR diff, a task spec, a service log: he has access to all of
+these and so do you, with better throughput, so conjunct 2 fails and asking him is pure
+attention tax. That is the tuning check and it is the one that matters — a habit that routes
+every question to him burns exactly the attention this project exists to conserve.
+
+**Cheapness is the argument, not politeness.** The question rides along in a message you are
+already writing: one sentence, no turn spent waiting, work continues meanwhile. A wrong negative
+silently redirects scope and survives for days (mt#4220 — a feature he had asked for was scoped
+out on a search that could not have found it; he corrected it himself the next day with a
+screenshot of his own terminal). **This is not the deferral shape**: you are not blocked and you
+are not handing him the work, so `user-preferences.mdc §Probe before deferring` never fires —
+its trigger is a claim of inability, and there is none here.
+
+**For a negative that will license a DECISION** — scoping something out, retiring a candidate,
+telling him a capability does not exist — **use ≥2 channels of DIFFERENT KINDS, or say in the
+same sentence why one sufficed.** The kinds: the rendered artifact, the primary source, a
+derived artifact, third-party prose, a person with direct access. Three text searches are one
+kind, not three channels. Whether a channel could perceive the thing at all is
+`claim-confidence.mdc §Before accepting a zero result`.
+
+**When you do ask, ask in terms he does not have to decode** — `§What Eugene knows` above is the
+same model's other half, and a probe habit that ignores it reproduces the root from the other
+side: he is charged for the answer twice, once to read the question and once to give it. Worked
+walk-throughs, the counter-case, and the home evaluation:
+`docs/rules-rationale/principal-context.md §The vantage point`.
 
 ### Trigger rule — before applying any framework
 

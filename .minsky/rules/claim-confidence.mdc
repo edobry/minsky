@@ -88,6 +88,22 @@ probe works. **Run the probe once in the foreground, stderr visible, and confirm
 value before wrapping it in a loop.** Repo corollary: an MCP tool does not imply a CLI command of
 the same name.
 
+**Before accepting a zero result, check the channel can PERCEIVE that kind of thing (mt#4259).**
+Every paragraph above asks what a view drops or manufactures once you are holding its output;
+this one fires earlier, at channel SELECTION, and is cheaper there. Name the KIND of thing you
+are seeking — a rendered visual behaviour, a runtime value, a code path, a policy, a person's
+intent — and ask whether the channel renders that kind at all. **A modality mismatch returns
+"not found" whether or not the thing exists**, which is mem#704's can't-fail probe in search
+clothing: no error, no empty-looking output, just a plausible zero. Incident (2026-08-18,
+mt#4220): the question was whether Claude Code folds runs of agent actions in its terminal UI —
+a VISUAL behaviour — and the probe was `strings` over the compiled binary plus two doc pages, a
+TEXT search for a rendered artifact. `strings` cannot see compressed regions, so it returned
+zero either way; the feature existed, and the principal was watching it render while the search
+ran. **The falsifier for a rendered behaviour is a rendering** — a screenshot, an image search,
+a user describing what they see. And when the primary artifact sits on the principal's side of a
+boundary you cannot cross, HE is a first-tier channel rather than the audience for the answer:
+`principal-context.mdc §What Eugene can see`.
+
 **The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
 Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
 CODE, made in its source: *"emits aggregate counts and scores only — never prompt text"*, in a

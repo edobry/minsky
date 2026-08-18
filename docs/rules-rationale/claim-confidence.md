@@ -462,6 +462,64 @@ scoped by EPISTEMICS: derived view versus primary source. As long as fixes are f
 each new surface gets its own incident first. That is the argument recorded on the family anchor
 (mt#2544) for treating this generalization as the durable content rather than the fourth cue.
 
+## Modality match: does the channel perceive this KIND of thing? (mt#4259)
+
+Every section above operates on a view's OUTPUT — you are holding a run log, a parsed record, a
+projection, and the question is what it drops or manufactures. This one fires one step earlier,
+at channel SELECTION, where it is cheaper and where a zero result has not yet become a premise.
+
+### The check
+
+Name the KIND of thing you are seeking before you accept a null:
+
+| Kind sought                 | Perceives it                                        | Blind to it                           |
+| --------------------------- | --------------------------------------------------- | ------------------------------------- |
+| A rendered visual behaviour | A screenshot, an image search, a person watching it | Any text search over source or binary |
+| A runtime value             | A live probe, a log with the value in it            | A static read of the code             |
+| A code path                 | The source, the call sites                          | A screenshot, a doc page              |
+| A policy or an intent       | The decision record, or the person who holds it     | The code that implements it           |
+
+A mismatch does not error and does not look empty — it returns a well-formed "not found" whose
+value is independent of whether the thing exists. That is mem#704's shape ("a probe that returns
+the same result when the system is broken is not verification") applied to a SEARCH rather than
+a test, and it is the same structural property as §Absence in a derived view: the channel is
+accurate about itself and silent about your question.
+
+### Worked example (2026-08-18, mt#4220)
+
+The question: does Claude Code fold runs of consecutive agent actions into one line in its
+terminal UI? The probe: `strings -n 6` over the installed Mach-O binary, plus two published doc
+pages, plus one `WebSearch`. Zero hits, reported as absence, and used to scope a feature out of
+a task.
+
+Two independent reasons the result carried no information:
+
+1. **Instrument blindness.** Claude Code bundles its JavaScript substantially compressed;
+   `strings` prints runs of printable characters and cannot see compressed regions. A direct
+   `grep -ac` over the raw binary also returns 0. So the probe returns zero either way.
+2. **Modality mismatch, which is the more general failure.** The subject was a _rendered_
+   behaviour and every channel tried was _text_. Even a perfect text search over a perfectly
+   readable bundle answers a different question than the one asked — it tells you a string is
+   present in a file, not that a behaviour renders. Fixing (1) alone (decompressing, reading the
+   real source) would have improved the probe without addressing this.
+
+The feature existed. The principal settled it a day later with a screenshot of his own terminal:
+`Thought for 47s, listed 1 directory, ran 4 shell commands`. **The falsifier for a rendered
+behaviour is a rendering.**
+
+### The channel-kind corollary
+
+For a negative that will license a decision, count KINDS, not searches: the rendered artifact,
+the primary source, a derived artifact, third-party prose, a person with direct access. The
+incident used three channels of one kind and read it as thoroughness. When the rendered artifact
+sits on the principal's side of a boundary the agent cannot cross, that last kind is the cheapest
+one available — `principal-context.mdc §What Eugene can see`, and
+`docs/rules-rationale/principal-context.md §The vantage point` for the trigger's counter-case
+(when NOT to ask him, which is most of the time).
+
+Incident record: mem#1086 (`5b8858f0`). Family: `family:assertion-without-verification`,
+bounded-negative slice — siblings mem#704, mem#804, mem#490.
+
 ## Enforcement surfaces (not in the rule) + cross-references
 
 Vocabulary only; enforcement is the conditional siblings under parent **mt#2544**: **mt#2923**
