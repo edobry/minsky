@@ -32,6 +32,13 @@ Three mechanisms independently answer "what tools does this agent have":
 | `cockpit.drivenSession.mcpServers` | driven sessions, per INSTALLATION | MCP server      | cockpit config (mt#4239)    |
 | Declared capability set (C1)       | any agent, per SESSION            | capability      | agent identity (ADR-006)    |
 
+**Where `tools:` actually lives.** The authoritative site is `.minsky/agents/<name>/agent.ts` — a
+`defineAgent({ tools: [...] })` call. `.claude/agents/*.md` is GENERATED from it by the compile
+pipeline, so its frontmatter is an output, not a source. Earlier notes on this work (including
+mt#4245's own spec) name the `.claude` path, because that is the file an agent reads at dispatch
+time; both describe the same declaration, and anything that edits or validates it must target the
+`.minsky` source.
+
 RFC 390937f0 (Accepted 2026-07-01) already decided this belongs on identity; the two shipped
 mechanisms were built without reference to it, because gate (p) could not see a Notion-hosted RFC
 until mt#4244. The live incoherence: `.minsky/agents/reviewer/agent.ts` declares

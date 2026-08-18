@@ -23,31 +23,38 @@
 // "tsyringe requires a reflect polyfill" before it can check anything (mt#3680). Static, so
 // it is hoisted ahead of the dynamic imports below.
 import "reflect-metadata";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const { findUnprovisionedTools, formatFindings } = await import("./lib/agent-tool-provisioning");
 const { drivenSessionMcpServerNames } = await import("../src/cockpit/driven-session-mcp-servers");
+const { DRIVEN_SESSION_MCP_SERVER_NAME } = await import("../src/cockpit/driven-session-mcp-config");
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const AGENTS_DIR = path.join(REPO_ROOT, ".minsky", "agents");
-
-/**
- * `minsky` is provisioned unconditionally and SYNTHESIZED rather than inherited — its command
- * must point at the running build and the session's own repo path, so it is never read from
- * the operator's `.mcp.json`. Union it in explicitly rather than relying on it appearing in
- * the configured list, which an operator may legitimately set to `[]`.
- *
- * @see packages/domain/src/configuration/schemas/cockpit.ts — where that invariant is stated
- */
-const ALWAYS_PROVISIONED = "minsky";
 
 interface AgentModule {
   readonly default?: { readonly name?: string; readonly tools?: readonly string[] };
 }
 
+/**
+ * Read every agent definition's declared tool list.
+ *
+ * A missing agents directory yields an EMPTY list rather than throwing. This check runs from
+ * `validate-all`, so it can execute in a minimal or variant checkout that carries no
+ * `.minsky/agents/` at all — and crashing there would fail the whole validation run for a
+ * condition that is not a finding. The caller reports the absence explicitly, so an empty
+ * corpus is distinguishable from a corpus that was read and found clean.
+ *
+ * Definitions are IMPORTED rather than text-parsed. That costs a module side effect per agent
+ * (`loadMarkdown` reads the sibling `prompt.md`), which is the deliberate trade: `tools` is a
+ * typed array on the real `AgentDefinition`, and regex-parsing TypeScript to avoid a file read
+ * would reintroduce exactly the source-of-truth drift this check exists to catch.
+ */
 async function loadDeclarations(): Promise<{ agent: string; tools: readonly string[] }[]> {
+  if (!existsSync(AGENTS_DIR)) return [];
+
   const entries = readdirSync(AGENTS_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
@@ -56,8 +63,11 @@ async function loadDeclarations(): Promise<{ agent: string; tools: readonly stri
   const declarations: { agent: string; tools: readonly string[] }[] = [];
 
   for (const name of entries) {
-    const modulePath = path.join(AGENTS_DIR, name, "agent.ts");
-    const mod: AgentModule = await import(modulePath);
+    // `import()` of an ABSOLUTE path must be a file:// URL — a bare path is not a valid ESM
+    // specifier and resolution of it is runtime-specific (and breaks outright on Windows,
+    // where a drive letter reads as a protocol).
+    const moduleUrl = pathToFileURL(path.join(AGENTS_DIR, name, "agent.ts")).href;
+    const mod: AgentModule = await import(moduleUrl);
     const definition = mod.default;
     // `tools` is optional in AgentDefinition and means "all tools" when omitted — an agent
     // that restricts nothing cannot declare a tool the substrate lacks, so it has no findings.
@@ -89,16 +99,33 @@ async function initConfiguration(): Promise<void> {
 async function main(): Promise<void> {
   await initConfiguration();
   const declarations = await loadDeclarations();
-  const provisioned = [...new Set([ALWAYS_PROVISIONED, ...drivenSessionMcpServerNames()])];
+
+  // `minsky` is provisioned unconditionally and SYNTHESIZED rather than inherited — its command
+  // must point at the running build and the session's own repo path, so it is never read from
+  // the operator's `.mcp.json`. Sourced from the resolver's own constant rather than a literal
+  // here, so the two cannot drift.
+  const provisioned = [
+    ...new Set([DRIVEN_SESSION_MCP_SERVER_NAME, ...drivenSessionMcpServerNames()]),
+  ];
   const findings = findUnprovisionedTools(declarations, provisioned);
 
   if (process.argv.includes("--json")) {
     console.log(
       JSON.stringify(
-        { provisionedServers: provisioned, agentsChecked: declarations.length, findings },
+        {
+          agentsDir: existsSync(AGENTS_DIR) ? AGENTS_DIR : null,
+          provisionedServers: provisioned,
+          agentsChecked: declarations.length,
+          findings,
+        },
         null,
         2
       )
+    );
+  } else if (declarations.length === 0) {
+    // Named explicitly: a corpus that was never read must not look like one that read clean.
+    console.log(
+      `No agent definitions with a declared tool list under ${AGENTS_DIR} — nothing to check.`
     );
   } else {
     console.log(formatFindings(findings, provisioned));
