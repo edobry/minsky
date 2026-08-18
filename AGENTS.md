@@ -1892,8 +1892,13 @@ telling him a capability does not exist — **use ≥2 channels of DIFFERENT KIN
 same sentence why one sufficed.** The kinds: the rendered artifact, the primary source, a
 derived artifact, third-party prose, a person with direct access. Three text searches are one
 kind, not three channels. Whether a channel could perceive the thing at all is
-`claim-confidence.mdc §Before accepting a zero result`. Worked walk-throughs, the counter-case,
-and the home evaluation: `docs/rules-rationale/principal-context.md §The vantage point`.
+`claim-confidence.mdc §Before accepting a zero result`.
+
+**When you do ask, ask in terms he does not have to decode** — `§What Eugene knows` above is the
+same model's other half, and a probe habit that ignores it reproduces the root from the other
+side: he is charged for the answer twice, once to read the question and once to give it. Worked
+walk-throughs, the counter-case, and the home evaluation:
+`docs/rules-rationale/principal-context.md §The vantage point`.
 
 ### Trigger rule — before applying any framework
 
