@@ -78,10 +78,6 @@ const COCKPIT_PALETTE_EXEMPT_FILES = [
   // outside brand-system.md's "one accent, two warning tiers, one pastel"
   // budget.
   "src/cockpit/web/components/JsonView.tsx",
-  // Tool-call chip (sky = "no error") + subagent-spawn badge (violet) —
-  // categorical message-type distinction, not a status indicator. Same
-  // token-budget rationale as JsonView.tsx above.
-  "src/cockpit/web/widgets/ConversationView.tsx",
   // Subagent-spawn badge (violet) — a categorical "this call spawned a child
   // conversation" marker, not a status indicator. Same token-budget rationale
   // as JsonView.tsx above; paired with SpawnParentBacklink.tsx below, which
