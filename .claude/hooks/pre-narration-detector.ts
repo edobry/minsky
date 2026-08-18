@@ -57,6 +57,14 @@ import type { TranscriptLine } from "./transcript";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+// mt#3864 class 6: the local `elideMarkdownContexts` below covers fences, code
+// spans and blockquotes but NOT double-quoted prose — which is the one shape
+// class 6 needs (a bolded markdown link quoting a memory body). Composed onto
+// the local pass rather than swapping wholesale to `elideQuotedAndCodeContexts`:
+// elision.ts's own header scopes that consolidation to mt#2263 / the ADR-024
+// ladder, and replacing tested markdown behavior here is a larger, unmeasured
+// change than this task's evidence supports.
+import { elideDoubleQuotedSpans } from "./elision";
 import {
   CAPTURE_SCHEMA_FIELD,
   CAPTURE_SCHEMA_VERSION,
@@ -172,8 +180,24 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
       "session_pr_merge",
       "mcp__github__merge_pull_request",
       "merge_pull_request",
+      // mt#3864: READING a specific PR's state is evidence for a claim about
+      // that PR's state — the agent need not have performed the merge to know
+      // it happened. Measured, not assumed: both `merged` false positives in
+      // the 2026-08-13→18 window ("PR #3033 merged", "PR #3064 merged") had
+      // these in window and no merge tool, because another actor did the merge
+      // and the agent verified it by reading. See §MEASURED CAUSE (Cause A).
+      //
+      // Deliberately NOT the list-shaped tools (`list_pull_requests`,
+      // `session_pr_list`), which were also in window: a listing does not
+      // establish any PARTICULAR pr's state, so accepting it as evidence would
+      // widen toward silence rather than toward accuracy — the ADR-024
+      // §Context arms race this task exists to avoid.
+      "mcp__github__pull_request_read",
+      "pull_request_read",
+      "mcp__minsky__session_pr_get",
+      "session_pr_get",
     ],
-    expectedTool: "session_pr_merge / merge_pull_request",
+    expectedTool: "session_pr_merge / merge_pull_request / pull_request_read / session_pr_get",
   },
   {
     key: "build-test",
@@ -356,7 +380,10 @@ export function detectPreNarrationWithSuppression(
   const rawText = extractAssistantText(turnLines);
   if (!rawText) return { matches: [], suppressed: [] };
 
-  const text = elideMarkdownContexts(rawText);
+  // Double-quoted prose elided AFTER the markdown pass (mt#3864 class 6), so
+  // quotes inside a code span are already blanked and cannot confuse pairing —
+  // the same ordering `elideQuotedAndCodeContexts` uses.
+  const text = elideDoubleQuotedSpans(elideMarkdownContexts(rawText));
   const toolNames = new Set(extractToolUseNames(turnLines));
 
   const matches: ClaimMatch[] = [];

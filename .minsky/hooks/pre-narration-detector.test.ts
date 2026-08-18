@@ -671,3 +671,68 @@ describe("run() (dispatcher-compatible)", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#3864 — measured false-positive classes
+//
+// Every fixture below is grounded in a MEASURED record, not an invented shape.
+// The evidence is `scripts/diagnose-pre-narration-window.ts`, which replays each
+// injected calibration record against its own session transcript; its output for
+// the 2026-08-13→18 window is quoted in mt#3864 §MEASURED CAUSE.
+// ---------------------------------------------------------------------------
+
+describe("mt#3864 class 6 — a double-quoted prose span is a quotation, not an assertion", () => {
+  test("APPROVED inside double quotes does not fire", () => {
+    // The recorded shape: a line quoting a stored memory record's content. The
+    // local markdown elision covers fences/code-spans/blockquotes and left this
+    // one alone; `elideDoubleQuotedSpans` is what reaches it.
+    const turn = [
+      makeAssistantLine('mem#905 records that the round came back "APPROVED, 0 blocking".'),
+    ];
+    expect(detectPreNarration(turn as never).length).toBe(0);
+  });
+
+  test("NEGATIVE CONTROL: the same phrase unquoted still fires", () => {
+    // Without this, the test above passes just as well against a matcher that
+    // stopped detecting APPROVED entirely — it would assert nothing about the
+    // elision.
+    const turn = [makeAssistantLine("The round came back APPROVED, 0 blocking.")];
+    expect(detectPreNarration(turn as never).length).toBeGreaterThan(0);
+  });
+});
+
+describe("mt#3864 Cause A — reading a PR's state is evidence about that PR's state", () => {
+  const MERGED_CLAIM = "PR #3033 merged.";
+
+  test("a merge claim backed by pull_request_read in the window is suppressed", () => {
+    // Measured: "PR #3033 merged" and "PR #3064 merged" both had these tools in
+    // window and no merge tool, because ANOTHER ACTOR performed the merge and
+    // the agent verified it by reading. Both claims were true.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    const windowTools = new Set(["mcp__github__pull_request_read"]);
+    expect(detectPreNarration(turn as never, windowTools).length).toBe(0);
+  });
+
+  test("session_pr_get counts as the same evidence", () => {
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    expect(detectPreNarration(turn as never, new Set(["mcp__minsky__session_pr_get"])).length).toBe(
+      0
+    );
+  });
+
+  test("NEGATIVE CONTROL: with no PR tool at all, the merge claim still fires", () => {
+    // The widening must narrow the category, not disable it. Two of the four
+    // measured `merged` fires had no PR tool in window and must keep firing.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    expect(detectPreNarration(turn as never, new Set()).length).toBeGreaterThan(0);
+  });
+
+  test("a LIST-shaped tool is deliberately NOT evidence", () => {
+    // `list_pull_requests` / `session_pr_list` were also in window on both
+    // measured cases and are deliberately excluded: a listing establishes no
+    // PARTICULAR PR's state, so accepting it would widen toward silence.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    const listOnly = new Set(["mcp__github__list_pull_requests", "mcp__minsky__session_pr_list"]);
+    expect(detectPreNarration(turn as never, listOnly).length).toBeGreaterThan(0);
+  });
+});
