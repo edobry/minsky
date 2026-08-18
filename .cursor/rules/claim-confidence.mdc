@@ -65,6 +65,30 @@ adjacent to the question makes the inference feel checked.** Ask what the view C
 treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
 response body, not the run log you filtered.
 
+**Every case above is an accessor that DROPS. One that SYNTHESIZES is the unhandled half (mt#4227).**
+A filter, a projection, a silenced logger all REMOVE, so the remedy has always been "the view is
+missing something." A projection over a key the source LACKS does the opposite — it manufactures a
+type-valid value, and `null` then reads as data. `jq '{startedAt, uptimeMs}'` over a payload
+carrying neither prints `startedAt: null, uptimeMs: null`, which is byte-identical to two keys
+present and null; that became "present-but-null fields, possibly a small defect" to the principal
+(2026-08-17). The hazard is not `jq`'s: `.get(k)` returns `None`, `obj?.field` yields `undefined`,
+a DataFrame column selection creates `NaN` — anywhere a projection over a missing key returns a
+falsy value instead of raising. **An accessor is not a filter, it is a constructor.** So enumerate
+the source's real key set — `jq keys`, `has()`, `in` — BEFORE asserting anything about a field's
+VALUE. A null read through a projection is not evidence that the field exists and is empty; note
+this is the ABSENCE bound inverted, so the two are opposite failures of one operation and neither
+catches the other.
+
+**A wait loop is where a broken probe hides, because "not yet" is the expected reading (mt#4227).**
+`<cmd> 2>/dev/null | jq -r '.status // empty'` on a command that does not exist wrote its only
+explanation to the channel that was discarded, and `// empty` collapsed "no such command" into the
+same token as "no status yet" — 60 iterations over 30 minutes emitting exactly what a pending deploy
+emits. There is no moment at which that output looks wrong, because for most of a loop's life
+"nothing yet" IS correct. A loop waits on a condition; it is not where you discover whether your
+probe works. **Run the probe once in the foreground, stderr visible, and confirm it returns a real
+value before wrapping it in a loop.** Repo corollary: an MCP tool does not imply a CLI command of
+the same name.
+
 **The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
 Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
 CODE, made in its source: *"emits aggregate counts and scores only — never prompt text"*, in a
