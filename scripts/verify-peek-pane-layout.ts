@@ -476,6 +476,29 @@ async function checkViewport(
 
 try {
   await cdp(ws, "Runtime.enable");
+  // Measure the DEFAULT layout, which is what every threshold below encodes.
+  //
+  // Since mt#4261 the pane width is an operator PREFERENCE in `localStorage`, and
+  // this browser profile is shared with `verify-peek-resize.ts` — whose last act
+  // is a deliberate full-width drag. Without this clear, that leftover preference
+  // is what gets measured here, and the script reports a fraction violation that
+  // says nothing about the layout: the pane is wide because someone dragged it,
+  // which is the feature working. (Observed exactly that way on this task's own
+  // first paired run: 800px/56% at 1440.) An operator's own too-wide preference
+  // is bounded by `MIN_PAGE_COLUMN_PX` in `lib/peek-width.ts`, and asserted by
+  // the sibling script.
+  //
+  // The mount poll before the clear is load-bearing for the reason `pollUntil`
+  // above documents: `localStorage` is per-ORIGIN, and a tab opened via
+  // `PUT /json/new` is typically still on the pre-navigation document when the
+  // first evaluate lands — so clearing too early empties `about:blank`'s store
+  // and leaves the cockpit's untouched, with nothing to notice.
+  await pollUntil(ws, PAGE_REF_COUNT, (v) => Number(v) > 0, 25_000);
+  await evaluate(
+    ws,
+    `(() => { try { localStorage.removeItem("cockpit.peek.width.v1"); } catch (e) {} return "ok"; })()`
+  ).catch(() => "");
+  await cdp(ws, "Page.reload").catch(() => {});
   await checkViewport("wide (1440, desktop)", WIDE, MAX_PANE_FRACTION_WIDE);
   await checkViewport("narrow (620, the reported width)", NARROW, MAX_PANE_FRACTION_NARROW);
 } catch (err) {

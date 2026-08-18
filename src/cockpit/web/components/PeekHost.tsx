@@ -30,6 +30,15 @@
  * peek" means away from EVERY pane and from every entity ref — `peek-dismiss.ts`
  * owns that verdict, and its docblock records why the per-pane reading would
  * have destroyed the held pair.
+ *
+ * ## One divider sizes the whole assembly
+ *
+ * The panes share ONE width, set by a single `PaneDivider` at the seam against
+ * the page (mt#4261). Per-pane widths were considered and left out: they need a
+ * divider between every pair and a width per pane, to serve a case — a narrow
+ * held reference beside a wide live pane — nobody has asked for. `peek-width.ts`
+ * owns the policy, including why the ceiling is a share of the viewport for the
+ * ASSEMBLY rather than for each pane.
  */
 import { PanelRightClose, Pin, SquareArrowOutUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -37,10 +46,12 @@ import { useEffect, useRef } from "react";
 import { usePeek, restorePeekOpenerFocus } from "../lib/peek";
 import {
   PEEK_PANE_ATTR,
+  PEEK_ASSEMBLY_ATTR,
   FOCUS_OUTSIDE_EVENT_TYPE,
   shouldDismissPeek,
   outsideEventTarget,
 } from "../lib/peek-dismiss";
+import { usePeekWidth } from "../lib/peek-width";
 import { entityToPath, type RoutableEntityType } from "../lib/entity-codec";
 import { useResolvedEntityLabel } from "../lib/use-entity-index";
 import {
@@ -52,7 +63,20 @@ import {
   SheetCloseButton,
 } from "./ui/sheet";
 import { PeekBody } from "./PeekBody";
+import { PaneDivider } from "./PaneDivider";
 import { ErrorBoundary } from "./ErrorBoundary";
+
+/**
+ * DOM id for a pane, so the divider's `aria-controls` can name what it sizes.
+ *
+ * Keyed on POSITION rather than on the entity, deliberately: an entity id can
+ * carry characters an id selector has to escape (`mt#4261`), the assembly is
+ * small and ordered, and `aria-controls` only has to resolve within the document
+ * as it currently stands.
+ */
+function peekPaneDomId(index: number): string {
+  return `peek-pane-${index}`;
+}
 
 /**
  * Pane title — the resolved entity label, not the raw id.
@@ -89,6 +113,9 @@ function PaneTitle({ type, id }: { type: RoutableEntityType; id: string }) {
 
 export function PeekHost() {
   const { panes, closePeek, holdPeek, closeAllPeeks } = usePeek();
+  // Before the early return below — a hook cannot be called conditionally, and
+  // this one has to see every render to keep tracking the viewport.
+  const { widthPx, minPx, maxPx, setWidth, resetWidth } = usePeekWidth(panes.length);
 
   // Return focus to the link that opened the peek once the assembly empties
   // (mt#3694 R2). Keyed on the TRANSITION to zero panes rather than on any one
@@ -105,7 +132,31 @@ export function PeekHost() {
   if (panes.length === 0) return null;
 
   return (
-    <div className="pointer-events-none fixed inset-y-0 right-0 z-40 flex" data-testid="peek-host">
+    <div
+      className="pointer-events-none fixed inset-y-0 right-0 z-40 flex"
+      data-testid="peek-host"
+      // Behavioral, not a test hook: this is the assembly region `peek-dismiss.ts`
+      // exempts, which is what keeps the divider below from dismissing the peek
+      // on the first pointerdown of every drag.
+      {...{ [PEEK_ASSEMBLY_ATTR]: "true" }}
+    >
+      {/*
+       * The resize handle, at the seam against the page (mt#4261). One divider
+       * for the assembly rather than one per pane: the width is shared, so a
+       * second handle would offer a control that does not exist.
+       */}
+      <PaneDivider
+        value={widthPx}
+        min={minPx}
+        max={maxPx}
+        resizes="right"
+        controls={panes.map((_, index) => peekPaneDomId(index)).join(" ")}
+        onChange={setWidth}
+        onReset={resetWidth}
+        label="Resize the peek"
+        className="pointer-events-auto"
+        data-testid="peek-divider"
+      />
       {panes.map((pane, index) => {
         const isLast = index === panes.length - 1;
         return (
@@ -117,23 +168,29 @@ export function PeekHost() {
             }}
           >
             <SheetContent
-              // Width is RESPONSIVE, not fixed (mt#4123). `w-[26rem]
-              // max-w-[92vw]` was effectively a constant: 92vw only binds below
-              // ~452px, so at every width an operator actually uses, the pane was
-              // 416px regardless of what it was covering. At 1440 that is 29% and
-              // fine; at the ~620px window the principal reported from, it is 67%
-              // and the page behind is sliced mid-word — which defeats the one
-              // thing a peek is for, keeping your place readable.
+              // Width is the OPERATOR's (mt#4261), defaulting to what mt#4123
+              // made responsive. `lib/peek-width.ts` owns the policy; the two
+              // pieces of history worth keeping at the render site:
               //
-              // `min(26rem,45vw)` keeps 416px wherever there is room for it (any
-              // viewport ≥ ~924px, so the wide case is unchanged, including two
-              // held panes: 832 of 1440 still leaves 608px of page) and yields to
-              // a proportion below that, so the page keeps a majority column at
-              // EVERY width. A breakpoint that flips the pane to full-width was
-              // the alternative; it hides the page entirely, which is a different
-              // failure rather than a fix, and it makes the pane's size jump
-              // during a window drag.
-              className="pointer-events-auto w-[min(26rem,45vw)]"
+              // mt#3694's `w-[26rem] max-w-[92vw]` was effectively a constant —
+              // 92vw only binds below ~452px, so at every width an operator
+              // actually uses the pane was 416px regardless of what it covered.
+              // At 1440 that is 29% and fine; at the ~620px window the principal
+              // reported from it is 67%, with the page behind sliced mid-word,
+              // which defeats the one thing a peek is for.
+              //
+              // mt#4123 answered that with `min(26rem,45vw)` — still the DEFAULT
+              // here, now computed in JS rather than CSS because the divider
+              // needs a number to report and to drag from. A breakpoint flipping
+              // the pane to full-width was the alternative then; it hides the
+              // page entirely, which is a different failure rather than a fix.
+              className="pointer-events-auto shrink-0"
+              style={{ width: widthPx }}
+              // `shrink-0` above is as load-bearing as the width: without it the
+              // flex row would squeeze panes below what the operator dragged as
+              // soon as the assembly approached the viewport's edge, silently
+              // undoing the clamp rather than letting it bind.
+              id={peekPaneDomId(index)}
               data-testid="peek-pane"
               // Behavioral, not a test hook: `peek-dismiss.ts` resolves "is this
               // click inside SOME pane?" by walking up to this attribute.
