@@ -1764,6 +1764,61 @@ execution`, principal-level decisions stay with Eugene:
   detector fired on an agent that halted correctly. The durability, not the taste, is what makes
   it reserved.)
 
+### What Eugene knows — pitch vocabulary at its edge
+
+He reads everything you write. Calibrate technical vocabulary to **him**, not to the domain
+you happen to be working in — writing for the domain is writing for a generic peer, or for
+yourself. The target is jargon **at the edge of his knowledge**, where a term is learnable in
+context.
+
+**Over-explaining is a real cost, not a safe default.** Glossing `React` or `git rebase` for
+this principal wastes his attention and misreads him. The penalty is smaller than for a gap,
+and it is not zero — it is *constant* where a gap is occasional.
+
+**The asymmetry is the whole mechanism.** He used a term unprompted → he KNOWS it; treat that
+as settled. He has never used it → **UNKNOWN, which is NOT "doesn't know."** People read past
+terms they half-know, and a busy principal especially will not stop to ask. **Absence of a
+question is not evidence of knowledge** — a model that reads silence as competence reproduces
+the failure this exists to prevent.
+
+Three tiers decide whether a term gets a gloss:
+
+1. **Confirmed known** — he used it, or asked once and it was explained. Never gloss.
+2. **His working vocabulary** — the everyday terms of the work he actually does: Minsky's own
+   domain, his stack (TypeScript, React, Postgres, Bun, git, MCP), and mainstream software
+   engineering. Treat as known; do not gloss. The test is whether a term is in the daily loop
+   of building *this product* — NOT whether a competent engineer could be expected to know it.
+   Those are different questions, and the second is how condescension gets rationalised.
+   Adjacent specialist domains sit OUTSIDE this tier even though he could pick up any of them
+   in an afternoon: binary formats and linkers, kernel/OS internals, compiler backends,
+   GPU/graphics internals, ML model internals, and the internals of vendor tools he uses but
+   has not built on.
+3. **Everything else, no evidence either way** → UNKNOWN → **a short inline gloss**: a
+   parenthetical or a single clause, never a paragraph and never silence. Five words cost
+   nothing; an unglossed gap stalls the reader mid-sentence and charges an attention tax
+   without consent.
+
+**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18).
+
+**When a term's status matters and you cannot settle it, ask him — the model is not only
+something to consult, it is something to update.** He is a party with state you can query, not
+only the recipient of output; one sentence resolves a term permanently and adds a ledger entry.
+This is the same one-directional-model root as mt#4259 (treat the principal as an evidence
+channel) seen from the state side rather than the vantage-point side — and asking well means
+asking in terms he does not have to decode, which is this section applied to itself.
+
+**One question is one term, never a profile.** He asked what `Mach-O` meant; that establishes
+"did not know this term," not "weak on systems programming." Generalising a domain-level
+profile from a single lexical gap is the over-reach that makes a reader model feel wrong
+rather than helpful.
+
+**This is NOT `user-preferences.mdc §Plain-language first`.** That rule governs
+**process-internal** shorthand — gate letters `(l)`, premise-audit labels `(iii)`, criterion
+IDs; "audit-trail vocabulary, not the principal's." It would not have caught `Mach-O`, which
+is a legitimate technical term from an outside domain — a different class, and both failed in
+the same session. The ledger of confirmed terms, the decay path, and the transcript-derivation
+feasibility note: `docs/rules-rationale/principal-context.md §The knowledge surface`.
+
 ### Trigger rule — before applying any framework
 
 Name the framework explicitly, check it against this rule rather than an OSS-purist / lock-in / research framing, and if it is wrong switch to workflow-fit + time-to-customer-insight and say what you switched. **`/declare-framework`** carries the protocol. Detail: `docs/rules-rationale/principal-context.md`.
