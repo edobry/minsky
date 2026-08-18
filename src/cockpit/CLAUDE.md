@@ -170,9 +170,28 @@ restart needed.
   three read — add a root there, not at a call site. **Remember the tray binary is NOT auto-rebuilt**
   (`cockpit-tray-dev`): a checkout that predates mt#4230's tray release still has the old
   single-root watcher, so probe before assuming this applies to the tray you are running.
-- When a restart IS needed, prefer the clean primitive `restartDaemon()` (`src/cockpit/launchd.ts`)
-  over a hand `kill`/respawn — but note it requires a launchd plist, so it does NOT work under the
-  tray-supervised default (mt#4232 tracks making `cockpit restart` supervision-independent).
+- **When a restart IS needed, run `minsky cockpit restart` (mt#4232).** It works under the
+  tray-supervised default, under launchd, and from an agent shell — no GUI click, no hand
+  `kill`/respawn. It resolves the serving pid (from `/api/health`'s `pid`, falling back to the port
+  holder for a daemon whose build predates that field), verifies the process's live command line
+  before signalling it, and does not report success until `processStartedAtMs` actually changes.
+  `--port` follows the same `cockpit.port` precedence as the other cockpit subcommands.
+  - Until mt#4232 this bullet recommended `restartDaemon()` in `src/cockpit/launchd.ts`. That
+    function is GONE: it required a launchd plist, so it threw "No cockpit daemon installed" under
+    the default setup — the defect mt#4232 fixed. Do not reintroduce a launchd-gated restart.
+  - **The tray records a signalled restart as a crash-class exit.** A SIGTERMed process reports no
+    exit code, which `classify_exit` cannot distinguish from a real crash. It respawns normally, but
+    four restarts inside ten minutes trip the restart-storm alert and two inside five seconds hit the
+    respawn throttle. Both are the supervisor behaving correctly; pace accordingly.
+  - **`minsky cockpit stop` is NOT the mirror of restart.** A signal cannot stop a supervised daemon
+    — respawning is the supervisor's job. Under launchd it runs `launchctl unload` (the only stop
+    launchd honours); under the tray it signals, observes the respawn, and reports that plainly with
+    a non-zero exit rather than claiming a stop. To actually stop a tray-supervised daemon, use the
+    tray menu's Stop item.
+  - **Check for a mid-turn driven session first** when the restart is discretionary:
+    `curl http://127.0.0.1:<port>/api/driven-session/turn-active`. The daemon has no shutdown handler
+    (mt#4040), so a mid-turn kill leaves no record that the turn was never checkpointed. This is the
+    same gate the tray consults before auto-restarting.
 
 **Dev mode (recommended for active UI work):**
 

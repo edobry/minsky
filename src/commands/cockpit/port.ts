@@ -36,10 +36,17 @@ export const DEFAULT_COCKPIT_PORT = 3737;
  * Resolve the cockpit port for a command invocation.
  *
  * `flagValue` is the raw `--port` string, or undefined when the operator did
- * not pass one. The commander-level default was REMOVED from the three cockpit
+ * not pass one. The commander-level default was REMOVED from the cockpit
  * subcommands precisely so that undefined means "not specified" here — with a
  * commander default in place, an explicit `--port 3737` and an unset flag are
  * indistinguishable, and configuration could never take effect.
+ *
+ * Consumers were `install` / `start` / `status` at mt#3988; `restart` and `stop`
+ * joined at mt#4232, when they gained a `--port` at all. Both initially shipped
+ * a hand-rolled `parseInt` default and were routed here in PR #3097 R1 — the
+ * validation was the reviewer's finding, but the config precedence was the
+ * larger bug underneath it: a configured `cockpit.port` would have been ignored,
+ * so restart would have signalled nothing and reported the daemon absent.
  *
  * Throws on a malformed or out-of-range explicit flag rather than silently
  * falling back: an operator who typed a port meant it, and quietly serving a
