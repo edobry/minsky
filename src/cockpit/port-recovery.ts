@@ -284,6 +284,10 @@ export function decideIncumbentDisposition(evidence: IncumbentEvidence): Incumbe
  * `etime` renders as `[[DD-]HH:]MM:SS` — the last two fields are ALWAYS
  * minutes and seconds, so `00:03` is three seconds, not three minutes.
  *
+ * Fields outside that rendering are REJECTED rather than summed (mt#4260):
+ * hours > 23, minutes > 59, or seconds > 59 return null. See the bound check
+ * below for why erring strict is the safe direction here.
+ *
  * Exported because this is the one part of `processStartedAtMs` that can be
  * checked without a live process, and because its predecessor shipped broken:
  * the first version asked `ps` for `etimes` (whole seconds, no parsing needed)
@@ -298,9 +302,33 @@ export function parseElapsedSeconds(raw: string): number | null {
   const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(raw.trim());
   if (!match) return null;
   const [, days, hours, minutes, seconds] = match;
-  return (
-    Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes) * 60 + Number(seconds)
-  );
+
+  const h = Number(hours ?? 0);
+  const m = Number(minutes);
+  const s = Number(seconds);
+
+  // Reject anything outside `etime`'s documented rendering (mt#4260). The regex
+  // above matches POSITIONS; it bounds no field, so before this check any
+  // numeric garbage in any position became a confident seconds count —
+  // `"00:99"` read as 99s, `"0-99:99:99"` parsed, and `"10585853616:18:40"`
+  // yielded 38,109,073,018,720s. That last number is not hypothetical: it is
+  // exactly what a `test-forced-tz` CI run reported on 2026-08-18, as an age of
+  // ~1.2 million years for a `sleep` spawned microseconds earlier.
+  //
+  // The bounds are `ps`'s, not ours: `etime` renders as `[[DD-]hh:]mm:ss`
+  // (ps(1), man7.org/linux/man-pages/man1/ps.1.html), so minutes and seconds are
+  // clock fields and hours rolls into the days field past 24. Days is genuinely
+  // unbounded — a process can run for years.
+  //
+  // Erring STRICT is the safe direction, and that follows from the consumer:
+  // `realIncumbentProbes.processStartedAtMs` already maps null to null and every
+  // caller handles it. So an over-strict bound costs an honest "unknown", while
+  // an under-strict one costs a fabricated age that downstream logic treats as
+  // real. Note this does NOT fix the underlying flake — it converts an absurd
+  // value into a legible null so the next occurrence is diagnosable.
+  if (h > 23 || m > 59 || s > 59) return null;
+
+  return Number(days ?? 0) * 86_400 + h * 3_600 + m * 60 + s;
 }
 
 /**
