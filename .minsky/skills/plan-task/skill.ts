@@ -445,6 +445,33 @@ If none of these apply, this criterion passes automatically. State that explicit
 | Config key / schema field | All reads in \`src/\`, \`tests/\`, \`services/\`, \`.github/\`, \`docs/\` **and** deployed-environment artifacts (see below)               |
 | Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the \`*.test.ts\` beside the command), skill, rule and \`docs/\` text that shows a call, and the generated CLI/MCP surface (\`src/generated/completion-manifest.json\`) |
 
+**Take the UNION of every row that applies — never pick one (mt#4265).** An artifact routinely
+belongs to more than one row, and the rows prescribe DIFFERENT directories: \`Function / type
+signature\` omits \`docs/\`; \`Config key / schema field\` includes it. When more than one row
+applies, the enumeration covers the UNION of their consumer sets, and the audit NAMES every row
+it unioned. There is no tie-break to get right, because there is no tie to break.
+
+**Row membership follows the artifact's EXPOSURE, not how the change is DECLARED.** The
+declaration cannot discriminate: an internal-only type and a type serialized into an HTTP
+response produce identical-looking diff hunks, and only the second one's consumers include
+\`docs/\`. So ask what the artifact is READ THROUGH — a route's response body, a golden contract
+fixture (\`contract/*.json\`), a generated manifest, a config file, a command's params map — and
+take every row that answer reaches.
+
+Worked example (mt#4252): a field added to a TypeScript discriminated union that \`GET
+/api/health\` serializes. DECLARED as a type, so the diff suggests \`Function / type signature\`,
+whose set has no \`docs/\`. EXPOSED as a response schema, so \`Config key / schema field\` applies
+too — and the union reaches \`docs/\`, where \`docs/principal-channel.md\` enumerated that same
+union and stated its field lists were "exhaustive per variant". The change made the doc's own
+sentence false rather than merely dating it. The sweep that ran was thorough on the row it
+picked; PICKING was the defect, and the reviewer caught it as BLOCKING.
+
+**Why a union instead of a better-worded row.** The previous instance (mt#3969) was answered by
+ADDING a row, and row-selection failed again seven days later — enlarging a choice does not help
+someone making it wrongly. This gate's own origin memo (2026-05-07, "contract propagation as
+design-time discipline") had already framed the categories as ones that "all qualify"; the
+exclusivity arrived later, with the table that rendered them as rows.
+
 **Callers of a COMMAND are a different population from callers of the FUNCTION behind it
 (mt#3969).** The row above exists because the two rows above it cannot find them:
 
