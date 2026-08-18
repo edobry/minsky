@@ -532,6 +532,78 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_LOCAL_MCP_TOKEN_PATH: "tunable", // src/mcp/daemon/local-daemon.ts + src/mcp/shim/main.ts (ADR-038) — local-daemon token file path
   MINSKY_SHIM_DAEMON_URL: "tunable", // src/mcp/shim/main.ts (ADR-038) — daemon URL the per-conversation shim dials
   MINSKY_HOOK_SOURCE_DIR: "tunable", // packages/domain/src/setup/hook-provisioning.ts — hook-source dir override for provisioning
+
+  // ---------------------------------------------------------------------
+  // scripts/ tree (mt#4223). The rule's scan path gained `scripts/` in the
+  // same change; these are the 18 reads it then reported.
+  //
+  // All 18 are `tunable`. None is `operator-override`: that category is
+  // scoped above to the population the fire log's `authorized_exception`
+  // classification is about, which `.minsky/hooks/known-override-env-vars.ts`
+  // must EQUAL — and a dev/CI script writes no fire-log record, so adding one
+  // here would put a name in the mirror its consumer can never see. Same
+  // reasoning as the memory-ceiling block above.
+  //
+  // Consequence is NOT uniform across them, and the split is worth keeping in
+  // view when one of these is retired or renamed. It turns on whether the
+  // derived top-level segment is DECLARED in `configurationSchema`:
+  //   - undeclared (`cdp`, `latency`, `peek`, `probe`, `screenshot`, `smoke`,
+  //     `transcript`, `transcripts`, `ask`, `claude`, `conversation`, `film`,
+  //     `require`, `skip`, `postgres`) — the loader warns `Unrecognized
+  //     top-level config key` and ignores it, so registering is behavior-
+  //     neutral and simply silences a warning nobody was reading.
+  //   - DECLARED — the value reaches a live config path. Exactly one of these
+  //     18 is in that case; see MINSKY_GITHUB_TOKEN below.
+  // ---------------------------------------------------------------------
+  MINSKY_ASK_ID: "tunable", // scripts/verify-terminal-ask-render.ts — ask to render in the probe
+  MINSKY_CDP_URL: "tunable", // scripts/verify-*.ts (14 render probes) — Chrome DevTools endpoint the probe drives
+  MINSKY_CLAUDE_PROJECTS_DIR: "tunable", // scripts/measure-transcript-discovery-cost.ts + verify-postgres-text-safety.ts — harness transcript root
+  MINSKY_CONVERSATION_ID: "tunable", // scripts/verify-conversation-{orientation,turn-target,weight}.ts — conversation under test
+  MINSKY_FILM_CONVERSATION_ID: "tunable", // scripts/verify-session-film-camera.ts — conversation for the session-film probe
+  MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
+  MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
+  MINSKY_PEEK_TASK_ID: "tunable", // scripts/verify-peek-pane-layout.ts — task rendered in the peek pane
+  MINSKY_PROBE_TASK_ID: "tunable", // scripts/verify-similarity-terminal-visibility.ts — task the probe queries
+  MINSKY_REQUIRE_DERIVED_LINK_PROBE: "tunable", // scripts/verify-derived-conversation-link.ts — fail instead of skipping when preconditions are absent
+  MINSKY_REQUIRE_PRESENCE_DERIVATION_PROBE: "tunable", // scripts/verify-presence-conversation-derivation.ts — same, for the presence probe
+  MINSKY_SCREENSHOT_PATH: "tunable", // scripts/verify-{interceptors-axes,terminal-ask}-render.ts — where the probe writes its PNG
+  MINSKY_TRANSCRIPTS_DIR: "tunable", // scripts/measure-*.ts + replay-*.ts (5 files) — transcript corpus root
+  MINSKY_TRANSCRIPT_CORPUS: "tunable", // scripts/audit-unknown-harness-tags.ts — corpus selector
+
+  // A documented skip for the `npm-pack-install-smoke` CI check. NOT
+  // `operator-override` despite the SKIP_ name and the surface similarity to
+  // MINSKY_SKIP_BUNDLE_SMOKE (which IS that category): that one is consulted by
+  // `.claude/hooks/require-review-before-merge.ts`, a hook GUARD that writes
+  // fire-log records and is therefore in the mirrored population. This one is
+  // read by a CI script, which is not. Categorizing it `operator-override`
+  // would make `known-override-env-vars.test.ts` demand a mirror entry for a
+  // consumer that can never appear in the fire log (mt#4223).
+  MINSKY_SKIP_PACK_INSTALL_SMOKE: "tunable", // scripts/verify-npm-pack-install.ts — skip the npm-pack-install CI smoke
+
+  // Postgres connection strings for env-gated smoke scripts. `tunable` rather
+  // than an `environmentMappings` config path: they select a DISPOSABLE target
+  // for one script's live run, and the real config path
+  // (`persistence.postgres.connectionString`) already has two explicit mappings
+  // (MINSKY_POSTGRES_URL, MINSKY_PERSISTENCE_POSTGRES_URL). Adding a third
+  // alias would let a smoke-test target silently become the process-wide
+  // persistence target — the opposite of what these scripts want. Both derive
+  // undeclared top-level segments (`postgres`, `smoke`) today, so registering
+  // them changes no behavior; it stops the derivation from ever reaching a
+  // declared namespace if one is added later (mt#4223).
+  MINSKY_POSTGRES_CONNECTION_STRING: "tunable", // scripts/smoke-{prod-state-cache,transcript-sweep,transcript-watcher}.ts — DATABASE_URL fallback
+  MINSKY_SMOKE_PG_URL: "tunable", // scripts/smoke-setup-db.ts — disposable Postgres target for the setup-db smoke
+
+  // The ONLY one of the 18 whose registration changes behavior, and the reason
+  // this sweep is not merely lint hygiene (mt#4223). `github` IS a declared
+  // top-level key, so before this entry the generic fallback derived
+  // `github.token` and made this var a THIRD, undeclared alias for the GitHub
+  // token beside the explicit GITHUB_TOKEN / GH_TOKEN mappings at the top of
+  // this file — verified by loading the config with it set. Its only read site
+  // uses it as a script-local fallback for a USER token, so feeding the
+  // process-wide GitHub client from it was never intended; nobody wrote that
+  // alias, the dot-path parser did. Registering it `tunable` skips the
+  // derivation and removes the alias. The two documented aliases are unchanged.
+  MINSKY_GITHUB_TOKEN: "tunable", // scripts/smoke-reviewer-watch.ts — user-token fallback for the reviewer-watch smoke
 };
 
 /**

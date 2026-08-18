@@ -127,19 +127,18 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
       code: "const v = process.env.MINSKY_TOTALLY_BOGUS_HOOK_NAME;",
       filename: claudeHookFile("legacy-hook.js"),
     },
-    // Files outside src/ AND the two hook trees remain out of scope.
-    //
-    // mt#4217 CORRECTION to this case's original rationale: it read "those have
-    // their own boot lifecycles separate from the MCP config loader," which is
-    // false for `scripts/`. `scripts/cli-entry.ts` SETS MINSKY_LOADED_COMMIT /
-    // MINSKY_RUN_MODE / MINSKY_PACKAGE_ROOT on the CLI's own environment before
-    // importing the bundle — it IS the boot path, which is why those three are
-    // registered. The assertion below is still correct about today's behavior;
-    // only the reason was wrong. Closing that gap is mt#4223 (18 unregistered
-    // vars measured in that tree), and this case flips to `invalid` there.
+    // mt#4223: a REGISTERED name under `scripts/` passes. The tree is now
+    // scanned (the out-of-scope case that used to sit here moved to `invalid`
+    // below, as its mt#4217 note said it would), so a valid case is needed here
+    // to show the filter admits the tree rather than merely reporting in it.
     {
-      code: "const v = process.env.MINSKY_OUT_OF_SCOPE_FOR_SCRIPTS;",
-      filename: path.join(repoRoot, "scripts", "deploy.ts"),
+      code: "const v = process.env.MINSKY_LOADED_COMMIT;",
+      filename: path.join(repoRoot, "scripts", "cli-entry.ts"),
+    },
+    // Files outside src/, the two hook trees AND scripts/ remain out of scope.
+    {
+      code: "const v = process.env.MINSKY_OUT_OF_SCOPE_ENTIRELY;",
+      filename: path.join(repoRoot, "docs", "example.ts"),
     },
     // mt#4217: a bare `env.MINSKY_FOO` member access on a REGISTERED name passes
     // — the widened matcher keys on registration, not on the access shape.
@@ -186,6 +185,26 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
     },
   ],
   invalid: [
+    // mt#4223: the scan-path widening. This is the case that used to sit in
+    // `valid` asserting `scripts/` was out of scope — flipped here, which is the
+    // fixture proving the filter admits the tree. Its derived path is also the
+    // benign shape: `out.of.scope.for.scripts` has an undeclared top-level
+    // segment, so the loader would warn and ignore it rather than crash. The
+    // rule reports it anyway, because whether a segment is declared is not
+    // visible from the var name.
+    {
+      code: "const v = process.env.MINSKY_OUT_OF_SCOPE_FOR_SCRIPTS;",
+      filename: path.join(repoRoot, "scripts", "deploy.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_OUT_OF_SCOPE_FOR_SCRIPTS",
+            configPath: "out.of.scope.for.scripts",
+          },
+        },
+      ],
+    },
     // Unregistered MINSKY_* read in a regular src/ file.
     {
       code: "const v = process.env.MINSKY_TOTALLY_BOGUS_NEW_VAR;",
