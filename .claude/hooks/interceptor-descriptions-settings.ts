@@ -145,6 +145,16 @@ export const SETTINGS_REGISTERED_DESCRIPTIONS: readonly (readonly [
     },
   ],
   [
+    "unowned-finding-scan",
+    {
+      description:
+        "On a task's transition to DONE, records each item in the spec's findings section (`Noticed, not actioned` and variants) that declares neither an `[owner: mt#N]` nor a `[no-owner: reason]`. The section is a sanctioned place to write a finding down; without a declared owner it is also where the finding stops being read. Log-only.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("unowned-finding-scan")],
+      stratum: "standalone",
+    },
+  ],
+  [
     "guard-events-ingest-on-session-end",
     {
       description:
