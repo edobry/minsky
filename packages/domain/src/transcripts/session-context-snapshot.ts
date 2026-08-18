@@ -194,28 +194,44 @@ export async function assembleSessionContextSnapshot(
   db: PostgresJsDatabase,
   agentSessionId: AgentSessionId
 ): Promise<SessionContextSnapshot | null> {
-  // 1. Fetch the parent transcripts row (provides turn jsonb + harness).
-  const transcriptRows = await db
-    .select({
-      harness: agentTranscriptsTable.harness,
-      transcript: agentTranscriptsTable.transcript,
-    })
-    .from(agentTranscriptsTable)
-    .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
-    .limit(1);
+  // 1. Issue every read as ONE wave. All four key on `agentSessionId` alone and
+  //    none consumes another's output, so the three sequential waves this used
+  //    to run (transcript row -> attachments -> the spawn pair) were serialized
+  //    for no reason. mt#3696 measured exactly this defect on `/api/tasks/:id`:
+  //    -40% locally and -61% in production, because de-serializing pays MORE the
+  //    slower the substrate — and this endpoint's substrate is a REMOTE database
+  //    (measured 2026-08-18: a 5-turn conversation, whose payload is negligible,
+  //    still cost 0.51s across this sequence).
+  //
+  //    The spawn resolvers swallow their own errors and degrade to null, so the
+  //    only rejection this `Promise.all` can see comes from the two reads below,
+  //    which is the same failure the sequential form propagated.
+  const [transcriptRows, attachmentRows, spawnChildrenByToolUseId, spawnParent] = await Promise.all(
+    [
+      db
+        .select({
+          harness: agentTranscriptsTable.harness,
+          transcript: agentTranscriptsTable.transcript,
+        })
+        .from(agentTranscriptsTable)
+        .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
+        .limit(1),
+      // Ordered by line_index (stable per JSONL).
+      db
+        .select()
+        .from(agentTranscriptAttachmentsTable)
+        .where(eq(agentTranscriptAttachmentsTable.agentSessionId, agentSessionId))
+        .orderBy(asc(agentTranscriptAttachmentsTable.lineIndex)),
+      resolveSpawnChildren(db, agentSessionId),
+      resolveSpawnParent(db, agentSessionId),
+    ]
+  );
 
   const parentRow = transcriptRows[0];
   if (!parentRow) return null;
 
   const { harness, transcript } = parentRow;
   const turnArray = Array.isArray(transcript) ? transcript : [];
-
-  // 2. Fetch the attachment rows, ordered by line_index (stable per JSONL).
-  const attachmentRows = await db
-    .select()
-    .from(agentTranscriptAttachmentsTable)
-    .where(eq(agentTranscriptAttachmentsTable.agentSessionId, agentSessionId))
-    .orderBy(asc(agentTranscriptAttachmentsTable.lineIndex));
 
   // 3. Convert both streams to unified blocks.
   const blocks: SessionContextSnapshotBlock[] = [];
@@ -249,15 +265,10 @@ export async function assembleSessionContextSnapshot(
   //    Returns the same array reference when there is no rewind to mark.
   const markedBlocks = markAbandonedRewindBranches(blocks);
 
-  // 6. Resolve the spawn edges in both directions (mt#3692). Two small indexed
-  //    lookups; a failure in either degrades to "no links" rather than failing
-  //    the whole snapshot, since the transcript is still fully readable without
-  //    the navigation affordance.
-  const [spawnChildrenByToolUseId, spawnParent] = await Promise.all([
-    resolveSpawnChildren(db, agentSessionId),
-    resolveSpawnParent(db, agentSessionId),
-  ]);
-
+  // 6. The spawn edges in both directions (mt#3692) were resolved in step 1's
+  //    wave. Two small indexed lookups; a failure in either degrades to "no
+  //    links" rather than failing the whole snapshot, since the transcript is
+  //    still fully readable without the navigation affordance.
   return {
     agentSessionId,
     harness: typeof harness === "string" ? harness : "unknown",
