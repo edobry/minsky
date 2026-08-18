@@ -17,6 +17,25 @@
  * that appears in a handful of specs. A sampled replay of a rare pattern
  * measures the sampler, not the pattern.
  *
+ * ## Why this scans everything, not the spec's "last 30 days of DONE" window
+ *
+ * A deliberate deviation from mt#4246's SC5 wording, recorded here rather than
+ * left for a reader to notice (PR #3098 R1, NON-BLOCKING).
+ *
+ * The findings section occurs in 3 of ~4,100 specs. A 30-day window over DONE
+ * transitions would very likely contain ZERO of them — and a zero from a window
+ * that small is indistinguishable from "the guard never fires", which is the
+ * exact confusion the first draft of this script already produced by sampling
+ * 150 specs. Narrowing the corpus to make the number match the spec's phrasing
+ * would trade a real measurement for a vacuous one.
+ *
+ * The window is not lost, only computed the other way round: every fired item
+ * is printed WITH its task's current status, and the summary carries
+ * `unownedItemsOnDoneTasks`, so the DONE subset the spec asked about is read
+ * off this output rather than baked into the query. The exhaustive count is
+ * additionally an upper bound on the live rate — items that WOULD fire if their
+ * task transitioned today — which is the useful number for setting posture.
+ *
  * Usage:
  *   bun scripts/replay-unowned-findings.ts
  *   bun scripts/replay-unowned-findings.ts --json
@@ -105,6 +124,9 @@ const summary = {
   unownedItems: fired.length,
   tasksWithAtLeastOne: tasksWithSection.size,
   itemsCarryingABareRef: fired.filter((f) => f.bareRefPresent).length,
+  // The subset mt#4246's SC5 asks about, derived rather than queried — see the
+  // header for why the corpus is not narrowed to a window.
+  unownedItemsOnDoneTasks: fired.filter((f) => f.status === "DONE").length,
 };
 
 if (process.argv.includes("--json")) {

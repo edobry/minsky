@@ -243,14 +243,26 @@ export function detectUnownedFindings(specText: string): UnownedFinding[] {
     if (section !== null && !sawListItem) record(prose.join(" "));
     prose = [];
     sawListItem = false;
-    inFence = false;
   };
 
   for (const line of lines) {
-    // Fences are tracked before the heading test so a `#` comment inside a code
+    // Fences are tracked before the heading test so a `#` line inside a code
     // block cannot open or close a section.
+    //
+    // Tracked UNCONDITIONALLY — not only while a section is open (PR #3098 R1,
+    // BLOCKING). Gating the toggle on `section !== null` meant a fence opened
+    // OUTSIDE any findings section never set the flag, so a `### Noticed, not
+    // actioned` line inside that fence was read as a real heading and opened a
+    // section. That is not a hypothetical shape: mt#4246's own spec, mt#4228's,
+    // and this PR's body all quote findings headings inside fences, so the
+    // guard would have fired on its own documentation.
+    //
+    // Fence state is a property of the DOCUMENT, not of a section, which is
+    // also why `closeSection` no longer resets it — a section boundary cannot
+    // occur inside a fence, and clearing the flag there would resynchronize the
+    // parser to the wrong parity.
     if (/^\s*```/.test(line)) {
-      if (section !== null) inFence = !inFence;
+      inFence = !inFence;
       continue;
     }
     if (inFence) continue;

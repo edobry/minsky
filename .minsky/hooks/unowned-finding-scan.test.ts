@@ -373,6 +373,79 @@ describe("detectUnownedFindings — prose-bodied sections", () => {
   });
 });
 
+describe("fence tracking is document-scoped, not section-scoped (PR #3098 R1)", () => {
+  test("a findings heading inside a fence OUTSIDE any section does not open one", () => {
+    // The BLOCKING regression. Fence tracking used to toggle only while a
+    // section was already open, so a fence in ordinary prose never set the
+    // flag and the heading inside it was read as real. Specs quoting this
+    // guard's own trigger — mt#4246's, mt#4228's, this PR's body — are exactly
+    // that shape, so the guard would have fired on its own documentation.
+    const findings = detectUnownedFindings(
+      spec(
+        [
+          "## Summary",
+          "",
+          "The guard keys on a heading like this:",
+          "",
+          "```markdown",
+          HEADING_NOTICED,
+          "",
+          "- An item with no owner at all.",
+          "```",
+          "",
+          "That is the whole trigger.",
+        ].join("\n")
+      )
+    );
+
+    expect(findings).toEqual([]);
+  });
+
+  test("a REAL section after a closed fence is still detected — parity is not broken", () => {
+    // The other half: over-correcting (e.g. never clearing the flag, or
+    // clearing it at a section boundary) would swallow every section following
+    // a code block. Most real specs have one.
+    const findings = detectUnownedFindings(
+      spec(
+        [
+          "## Summary",
+          "",
+          "```ts",
+          "const x = 1;",
+          "```",
+          "",
+          HEADING_NOTICED,
+          "",
+          "- A genuinely unowned item.",
+        ].join("\n")
+      )
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.item).toContain("genuinely unowned");
+  });
+
+  test("a fence inside a section still hides its contents, and the section survives it", () => {
+    const findings = detectUnownedFindings(
+      spec(
+        [
+          HEADING_NOTICED,
+          "",
+          "```",
+          "## Not a heading",
+          "- Not an item.",
+          "```",
+          "",
+          "- A real item with no owner.",
+        ].join("\n")
+      )
+    );
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.item).toContain("A real item");
+  });
+});
+
 describe("decideFindings", () => {
   const readSpec = () => spec([HEADING_NOTICED, "", "- An unowned finding."].join("\n"));
 
