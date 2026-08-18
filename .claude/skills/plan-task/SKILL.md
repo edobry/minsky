@@ -1071,8 +1071,12 @@ findings-shaped `state-ops` audit — the criterion passes automatically. State 
    findings, and only one of them licenses "no accepted record governs this."
 2. **Cite** — name the governing ADR **or RFC** in the spec, or state explicitly that all three
    passes ran and no accepted record governs the decision. "No accepted record governs this" is a
-   PASSING answer only when the search is recorded; an unrecorded absence is not a search, and a
-   two-corpus search recorded as three is worse than either.
+   PASSING answer only when the search is recorded; an unrecorded absence is not a search.
+
+   **Record which passes actually ran.** If pass (c) was skipped or unavailable, say so — do not
+   write "searched the decision records" and leave the reader to assume all three. An overstated
+   search record is worse than an honestly narrow one, because the next reader inherits it as
+   settled and has no reason to look again.
 3. **Match / extend / deviate** — state which, with justification for any deviation.
 4. **Phase placement** — if the ADR names a phase or task structure, state which phase this task
    belongs to, and whether it coordinates with the other phases or proceeds independently.
