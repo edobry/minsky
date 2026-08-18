@@ -16,7 +16,7 @@ import {
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import { ServerTimingRecorder } from "../server-timing";
-import { SnapshotCache, snapshotEtag } from "../snapshot-cache";
+import { ifNoneMatchSatisfies, SnapshotCache, snapshotEtag } from "../snapshot-cache";
 import { sendJsonMaybeCompressed } from "../compressed-json";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -223,7 +223,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         // Revalidation: the client already holds this exact snapshot, so send
         // no body at all. This is the only path that avoids BOTH the assembly
         // and the multi-megabyte transfer.
-        if (req.headers["if-none-match"] === etag) {
+        if (ifNoneMatchSatisfies(req.headers["if-none-match"], etag)) {
           timing.record("revalidated", 0, "304");
           timing.applyTo(res);
           res.status(304).end();

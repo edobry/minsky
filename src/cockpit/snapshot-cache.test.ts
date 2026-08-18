@@ -11,7 +11,12 @@
 import { describe, expect, test } from "bun:test";
 import type { SessionContextSnapshot } from "@minsky/domain/context/types";
 
-import { DEFAULT_MAX_ENTRIES, SnapshotCache, snapshotEtag } from "./snapshot-cache";
+import {
+  DEFAULT_MAX_ENTRIES,
+  ifNoneMatchSatisfies,
+  SnapshotCache,
+  snapshotEtag,
+} from "./snapshot-cache";
 
 /** A snapshot carrying just enough shape to be identifiable in an assertion. */
 function snapshotWith(id: string, blockCount: number): SessionContextSnapshot {
@@ -123,6 +128,46 @@ describe("SnapshotCache", () => {
     cache.set("a", "t", snapshotWith("a", 1));
     cache.clear();
     expect(cache.size()).toBe(0);
+  });
+});
+
+describe("ifNoneMatchSatisfies", () => {
+  // PR #3104 R2. Every miss here is silent and expensive: the route skips its
+  // 304 and re-sends the whole multi-megabyte body, which is the exact cost this
+  // feature exists to avoid. Nothing errors; revalidation just stops happening.
+  const etag = snapshotEtag("2067-919-live");
+
+  test("matches the exact etag the server emitted", () => {
+    expect(ifNoneMatchSatisfies(etag, etag)).toBe(true);
+  });
+
+  test("matches a member of a comma-separated LIST", () => {
+    expect(ifNoneMatchSatisfies(`W/"other", ${etag}, W/"third"`, etag)).toBe(true);
+  });
+
+  test("matches under WEAK comparison — W/ ignored on either side", () => {
+    expect(ifNoneMatchSatisfies('"2067-919-live"', etag)).toBe(true);
+    expect(ifNoneMatchSatisfies('W/"2067-919-live"', '"2067-919-live"')).toBe(true);
+  });
+
+  test("matches the wildcard", () => {
+    expect(ifNoneMatchSatisfies("*", etag)).toBe(true);
+  });
+
+  test("does NOT match a different token — the control", () => {
+    expect(ifNoneMatchSatisfies('W/"9999-1-live"', etag)).toBe(false);
+    expect(ifNoneMatchSatisfies('W/"other", W/"third"', etag)).toBe(false);
+  });
+
+  test("does not match an absent or empty header", () => {
+    expect(ifNoneMatchSatisfies(undefined, etag)).toBe(false);
+    expect(ifNoneMatchSatisfies("", etag)).toBe(false);
+    expect(ifNoneMatchSatisfies("   ", etag)).toBe(false);
+  });
+
+  test("tolerates surrounding whitespace in a list", () => {
+    expect(ifNoneMatchSatisfies(`   ${etag}   `, etag)).toBe(true);
+    expect(ifNoneMatchSatisfies(`W/"a" ,   ${etag}`, etag)).toBe(true);
   });
 });
 

@@ -128,3 +128,35 @@ export class SnapshotCache {
 export function snapshotEtag(token: string): string {
   return `W/"${token}"`;
 }
+
+/** Strip a `W/` weakness prefix, leaving the opaque-tag (quotes included). */
+function opaqueTag(raw: string): string {
+  return raw.trim().replace(/^W\//, "");
+}
+
+/**
+ * Whether an `If-None-Match` request header satisfies `etag` (PR #3104 R2).
+ *
+ * An exact string equality check against the header is NOT sufficient, and the
+ * failure is silent in the expensive direction: a client sending a list, or
+ * sending `W/"x"` where the server compared against `"x"`, simply does not match
+ * — so the route skips its 304 and re-sends the whole multi-megabyte body. The
+ * revalidation quietly stops working while everything still looks correct.
+ *
+ * Implements RFC 9110 §13.1.2 / §8.8.3.2:
+ * - `*` matches any current representation.
+ * - The header is a COMMA-SEPARATED LIST; any member matching is a match.
+ * - Comparison is WEAK: the `W/` prefix is ignored on both sides, and only the
+ *   opaque-tags are compared. Weak comparison is what `If-None-Match` specifies,
+ *   and it is the right semantics here anyway — this route's validator is a
+ *   deliberately weak, encoding-agnostic one.
+ */
+export function ifNoneMatchSatisfies(header: string | undefined, etag: string): boolean {
+  if (header === undefined) return false;
+  const trimmed = header.trim();
+  if (trimmed === "") return false;
+  if (trimmed === "*") return true;
+
+  const target = opaqueTag(etag);
+  return trimmed.split(",").some((candidate) => opaqueTag(candidate) === target);
+}
