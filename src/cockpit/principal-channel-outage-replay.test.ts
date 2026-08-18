@@ -25,6 +25,7 @@ import {
   _setPrincipalChannelStatusForTest,
 } from "./principal-channel-launch";
 import { createDegradedDedupe } from "./principal-channel-degraded-dedupe";
+import { auditLivenessAssertions } from "./health-liveness-invariant";
 // The REAL key builder, not a string spelled the same way here: the fallback
 // dedupe is only correct if it keys on exactly what the durable dedupe keys on,
 // so a test that hard-coded the format could go on passing after the two drifted.
@@ -257,6 +258,35 @@ describe("mt#4252 — the channel under a persistence outage", () => {
     // A TOTAL, not a gauge — it deliberately does not reset, so the outage
     // stays visible after it ends.
     expect(recovered.state === "running" ? recovered.dedupe?.unrecordedCount : undefined).toBe(1);
+  });
+
+  test("AT4 (cont.): the degraded payload still satisfies the liveness invariant", async () => {
+    // Criterion 4 names `health-liveness-invariant.ts` as a check the new shape
+    // has to pass, so this RUNS it against the real projected status rather
+    // than against a hand-written fixture — a fixture would only prove the
+    // fixture is well-formed.
+    const h = outageHarness([update(101, "first")]);
+    _setPrincipalChannelStatusForTest({
+      state: "running",
+      chatId: CHAT,
+      since: new Date(1700000000000).toISOString(),
+      lastProgressAt: new Date(1700000001000).toISOString(),
+    });
+    _setPrincipalChannelDedupeForTest(h.dedupe);
+    await runCycleLikeThePoller(h.deps);
+
+    const projected = getPrincipalChannelStatus();
+    expect(projected.state === "running" ? projected.dedupe?.mode : undefined).toBe("degraded");
+
+    const audit = auditLivenessAssertions({
+      principalChannel: projected as unknown as Record<string, unknown>,
+    });
+
+    expect(audit.undated).toEqual([]);
+    // Asserted so the check above cannot pass VACUOUSLY: an invariant that
+    // found no assertion to test would also report zero undated ones, which is
+    // the failure mode `dated` exists to expose.
+    expect(audit.dated.map((entry) => entry.field)).toContain("principalChannel");
   });
 });
 
