@@ -7,11 +7,25 @@
  * The Minsky env-var-to-config dot-path parser at
  * `packages/domain/src/configuration/sources/environment.ts` auto-converts every
  * `MINSKY_FOO_BAR` env var seen at boot into a `foo.bar` config-path write.
- * Any path the strict config schema doesn't know about throws a validation
- * error at root level (`Unrecognized key: "foo"`), failing the config loader
- * and crashing the container at boot. This rule prevents new `MINSKY_*`
- * reads from being added without explicit registration in one of the two
- * allowlists.
+ * What an unregistered var COSTS depends on the derived path's top-level
+ * segment, and the two cases differ sharply (measured mt#4223):
+ *
+ *   - UNDECLARED segment (`MINSKY_CDP_URL` -> `cdp.url`): the loader emits
+ *     `Unrecognized top-level config key: cdp. These keys will be ignored.`
+ *     and continues. Verified on the CLI entrypoint.
+ *   - DECLARED segment: the value reaches a live config path. `MINSKY_GITHUB_TOKEN`
+ *     derived `github.token` and was silently a third alias for the GitHub token
+ *     beside the explicit GITHUB_TOKEN / GH_TOKEN mappings until mt#4223
+ *     registered it. An unknown key inside a nested `z.strictObject` DOES still
+ *     fail validation and take the loader down (mt#2452, `reviewer.app`).
+ *
+ * The hard boot crash this rule was filed against (mt#1785 `auto.migrate`,
+ * mt#1994 `ack`) is REAL history, not a hypothetical — both were observed. The
+ * top-level case has since softened to warn-and-ignore; the nested-strict case
+ * has not. So the rule is not merely crash-prevention: it is what keeps a name
+ * from silently acquiring a config meaning nobody declared. This rule prevents
+ * new `MINSKY_*` reads from being added without explicit registration in one of
+ * the two allowlists.
  *
  * The two valid registration paths:
  *   1. `environmentMappings` — the env var routes to a config path. Add the
@@ -143,7 +157,7 @@ export default {
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882, mt#4217.`,
+      unregistered: `{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` — if that path's top-level segment is DECLARED in the config schema the value silently becomes live config (mt#4223: MINSKY_GITHUB_TOKEN -> github.token), and an unknown key inside a strict object fails the loader outright (mt#2452). See mt#1788, mt#3882, mt#4217, mt#4223.`,
     },
   },
 
@@ -168,8 +182,11 @@ export default {
     //   (e.g., MINSKY_ACK_OOB_MERGE, MINSKY_FORCE_EDIT_GENERATED) have their
     //   only read site in hook files. Without scanning this directory, the rule
     //   missed the hook-only-override slice — operators following the documented
-    //   override instructions would hit a hard CLI crash because the env var
-    //   wasn't registered in HOOK_ONLY_ENV_VARS.
+    //   override instructions hit a hard CLI crash (`Unrecognized key: "ack"`)
+    //   because the env var wasn't registered in HOOK_ONLY_ENV_VARS. That crash
+    //   was observed at the time; the top-level case has since softened to
+    //   warn-and-ignore (see the module docblock's declared-vs-undeclared split,
+    //   mt#4223), so a re-run today would warn rather than crash.
     //   See mt#1994 spec and `feedback_new_minsky_env_var_must_be_registered`.
     //
     // - .minsky/hooks/**/*.ts: mt#2304 extension. After moving hook sources to
@@ -200,6 +217,26 @@ export default {
     //   why the whole tree is scanned rather than a curated subset.
     //   (Bound: "warns and ignores" is verified on the CLI entrypoint; mt#2452
     //   shows an unknown key inside a nested z.strictObject DOES fail validation.)
+    //
+    //   This scope is per-RULE and deliberately does NOT match how other rules
+    //   treat `scripts/` (PR #3094 R1). `eslint.config.js` turns `no-console` /
+    //   `no-magic-numbers` OFF for `scripts/**` and exempts the tree from
+    //   `no-raw-console`, because a CLI script SHOULD print to stdout — that is
+    //   a statement about console usage, and carries no implication about env
+    //   vars. This rule is ON here for an unrelated reason: the dot-path parser
+    //   reads the process environment regardless of which tree the read site
+    //   lives in, so the tree a var is read from has no bearing on whether its
+    //   name acquires a config meaning. Two rules disagreeing about one
+    //   directory is the scoping mechanism working, not a policy conflict.
+    //
+    //   Coverage is nonetheless the footgun this repo has hit twice
+    //   (`require-hook-domain-bootstrap` mt#3178, `require-guard-outcome-in-fire-log`
+    //   mt#3920): a tree present in the rule but not in `eslint.config.js`'s
+    //   `files` glob is SILENTLY unenforced, and reports zero — indistinguishable
+    //   from a clean tree. Verified empirically rather than by reading the config:
+    //   a `process.env.MINSKY_DEFINITELY_NOT_REGISTERED` read added to
+    //   `scripts/smoke-setup-db.ts` IS reported by a real `bunx eslint` run, and
+    //   the tree is clean once removed.
     const srcSegment = `${pathSep}src${pathSep}`;
     const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
     const minskyHooksSegment = `${pathSep}.minsky${pathSep}hooks${pathSep}`;
