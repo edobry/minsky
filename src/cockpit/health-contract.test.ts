@@ -117,6 +117,21 @@ describe("Cockpit /api/health contract (mt#2629)", () => {
     }
   });
 
+  test("pid names the process actually SERVING the response (mt#4232)", async () => {
+    // Not just "a number is present": the field's whole value is that it
+    // identifies a process safe to SIGNAL, so it has to be THIS process rather
+    // than anything the handler could have read from elsewhere. Here the server
+    // runs in-process, so the serving pid is knowable independently.
+    const { url, close } = await startTestServer();
+    closeList.push(close);
+
+    const res = await fetch(`${url}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(body["pid"]).toBe(process.pid);
+    expect(Number.isInteger(body["pid"])).toBe(true);
+  });
+
   test("fixture's rustConsumedFields are a subset of its own fields", async () => {
     // Self-consistency guard on the fixture file itself: the field names the
     // Rust supervisor is documented to depend on must actually be declared
