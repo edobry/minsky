@@ -434,7 +434,8 @@ Gate criterion (h).
 If none of these apply, this criterion passes automatically. State that explicitly:
 "(h) No contract modification — criterion passes."
 
-**Consumer enumeration heuristic by change type.** For each category of change, the spec's
+**Consumer enumeration heuristic by change type.** For each category the change falls under —
+possibly MORE THAN ONE, per the union rule immediately below the table — the spec's
 \`## Scope\` → \`In scope\` list must cover all of the following:
 
 | Change type               | Consumers to enumerate                                                                                                           |
@@ -506,9 +507,11 @@ following deployed-environment locations must be explicitly checked and enumerat
 1. Read the spec and identify whether it describes any of the trigger-condition change types.
    If not, record "(h) passes — no contract modification."
 2. If triggered, identify the specific artifact(s) being changed (names, paths, key names).
-3. For each artifact, look up its consumer class in the heuristic table above.
-4. Verify the spec's \`## Scope\` → \`In scope\` list covers each consumer class. Missing
-   consumer classes are blocking gaps.
+3. For each artifact, look up EVERY row of the heuristic table it is reachable through — by
+   EXPOSURE, not by how the change is declared — and take the UNION of those rows' consumer
+   sets. An artifact reachable through one row has one; a serialized type routinely has two.
+4. Verify the spec's \`## Scope\` → \`In scope\` list covers every consumer class in that union,
+   and that the audit NAMES the rows it unioned. Missing consumer classes are blocking gaps.
 5. For env-var and config-key changes specifically: confirm the spec explicitly addresses each
    of the three deployed-environment artifact categories, either enumerating consumers or
    stating "no consumers in this category."
