@@ -60,7 +60,12 @@
       "state": "running",
       "chatId": "167346572",
       "since": "2026-08-17T03:48:02.000Z",
-      "lastProgressAt": "2026-08-17T03:49:17.000Z"
+      "lastProgressAt": "2026-08-17T03:49:17.000Z",
+      "dedupe": {
+        "mode": "durable",
+        "since": "2026-08-17T03:49:17.000Z",
+        "unrecordedCount": 0
+      }
     },
     "processStartedAtMs": 1735689600000,
     "pid": 54321,
@@ -159,7 +164,23 @@
       "state": "running",
       "chatId": "167346572",
       "since": "2026-08-17T03:48:02.000Z",
-      "lastProgressAt": "2026-08-17T03:49:17.000Z"
+      "lastProgressAt": "2026-08-17T03:49:17.000Z",
+      "dedupe": {
+        "mode": "durable",
+        "since": "2026-08-17T03:49:17.000Z",
+        "unrecordedCount": 0
+      }
+    },
+    "runningWithoutDurableDedupe": {
+      "state": "running",
+      "chatId": "167346572",
+      "since": "2026-08-17T03:48:02.000Z",
+      "lastProgressAt": "2026-08-17T03:49:17.000Z",
+      "dedupe": {
+        "mode": "degraded",
+        "since": "2026-08-17T03:49:15.000Z",
+        "unrecordedCount": 3
+      }
     },
     "stalled": {
       "state": "stalled",
