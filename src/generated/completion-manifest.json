@@ -8083,7 +8083,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port the daemon serves on (default 3737)",
+              "description": "Port to stop on (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             }
           ]
@@ -8094,7 +8094,7 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port the daemon serves on (default 3737)",
+              "description": "Port to restart on (default: the `cockpit.port` configuration value, else 3737)",
               "takesValue": true
             }
           ]

@@ -5,7 +5,7 @@ import {
   resolveRestart,
   RESTART_CONFIRM_BUDGET_MS,
 } from "../../cockpit/daemon-restart";
-import { DEFAULT_DAEMON_PORT } from "../../cockpit/launchd";
+import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
 
 export function createRestartCommand(): Command {
   const cmd = new Command("restart");
@@ -14,12 +14,13 @@ export function createRestartCommand(): Command {
   // dependency it existed for (mt#4232): signalling a pid is not launchd, and
   // the failure it guarded against is now reported by the outcome itself rather
   // than pre-judged by platform.
-  cmd.option(
-    "--port <port>",
-    `Port the daemon serves on (default ${DEFAULT_DAEMON_PORT})`,
-    (v) => parseInt(v, 10),
-    DEFAULT_DAEMON_PORT
-  );
+  //
+  // No commander default, and the parsing/validation is `resolveCockpitPort`'s
+  // (mt#3988): with a default in place an explicit `--port 3737` and an unset
+  // flag are indistinguishable, so a configured `cockpit.port` could never
+  // apply — and this command would have restarted a port the daemon does not
+  // serve while reporting "nothing is serving" (PR #3097 R1).
+  cmd.option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION.replace("listen on", "restart on"));
   cmd.addHelpText(
     "after",
     `
@@ -37,8 +38,15 @@ Confirmation can take up to ${Math.round(RESTART_CONFIRM_BUDGET_MS / 1000)}s und
 ThrottleInterval 60. Under the tray it is typically a few seconds.`
   );
 
-  cmd.action(async (opts: { port: number }) => {
-    const port = opts.port;
+  cmd.action(async (options: { port?: string }) => {
+    let port: number;
+    try {
+      port = resolveCockpitPort(options.port);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+
     console.log(`Restarting the cockpit daemon on port ${port}...`);
 
     const outcome = await resolveRestart(port, realRestartProbes);

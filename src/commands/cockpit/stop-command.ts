@@ -1,16 +1,14 @@
 import { Command } from "commander";
-import { DEFAULT_DAEMON_PORT, getDaemonStatus, stopDaemon } from "../../cockpit/launchd";
+import { getDaemonStatus, stopDaemon } from "../../cockpit/launchd";
 import { describeOutcome, realRestartProbes, resolveStop } from "../../cockpit/daemon-restart";
+import { resolveCockpitPort, COCKPIT_PORT_FLAG_DESCRIPTION } from "./port";
 
 export function createStopCommand(): Command {
   const cmd = new Command("stop");
   cmd.description("Stop the cockpit daemon (keeps a LaunchAgent plist installed)");
-  cmd.option(
-    "--port <port>",
-    `Port the daemon serves on (default ${DEFAULT_DAEMON_PORT})`,
-    (v) => parseInt(v, 10),
-    DEFAULT_DAEMON_PORT
-  );
+  // Same reasoning as `restart`: no commander default, validation and the
+  // `cockpit.port` precedence both belong to `resolveCockpitPort` (mt#3988).
+  cmd.option("--port <port>", COCKPIT_PORT_FLAG_DESCRIPTION.replace("listen on", "stop on"));
   cmd.addHelpText(
     "after",
     `
@@ -26,8 +24,15 @@ signal cannot stop a supervised daemon — that is the supervisor's whole job:
   no supervisor -> signalling stops it, and it stays stopped.`
   );
 
-  cmd.action(async (opts: { port: number }) => {
-    const port = opts.port;
+  cmd.action(async (options: { port?: string }) => {
+    let port: number;
+    try {
+      port = resolveCockpitPort(options.port);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+
     const status = await getDaemonStatus(port);
 
     // launchd is the one supervisor whose stop is NOT a signal. `launchctl

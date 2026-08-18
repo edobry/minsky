@@ -38,7 +38,8 @@ function fakeProbes(opts: {
   serving: Array<ServingProcess | null>;
   portHolderPid?: number | null;
   alive?: boolean;
-  signalThrows?: string;
+  /** Simulates the identity check refusing, or the kill failing — one negative, per the primitive. */
+  signalRefused?: string;
 }): Fake {
   const signalled: Array<{ pid: number; signal: string }> = [];
   let clock = 0;
@@ -51,9 +52,10 @@ function fakeProbes(opts: {
       return next;
     },
     portHolderPid: () => opts.portHolderPid ?? null,
-    signal: (pid, signal) => {
-      if (opts.signalThrows) throw new Error(opts.signalThrows);
+    signal: async (pid, signal) => {
+      if (opts.signalRefused) return { ok: false, reason: opts.signalRefused };
       signalled.push({ pid, signal });
+      return { ok: true };
     },
     isAlive: () => opts.alive ?? false,
     sleep: async (ms) => {
@@ -186,10 +188,23 @@ describe("resolveRestart (mt#4232)", () => {
     expect(await resolveRestart(PORT, fake.probes)).toEqual({ kind: "still-running", pid: 100 });
   });
 
-  test("a failing signal is surfaced, not swallowed", async () => {
-    const fake = fakeProbes({ serving: [serving()], signalThrows: "ESRCH" });
+  test("a refused or failed signal is surfaced, not swallowed", async () => {
+    // The identity primitive collapses "the live command line no longer matches"
+    // and "kill() itself failed" into one false. Neither is recoverable here, and
+    // both must reach the operator rather than being read as a restart.
+    const fake = fakeProbes({ serving: [serving()], signalRefused: "identity refused" });
     const outcome = await resolveRestart(PORT, fake.probes);
-    expect(outcome).toMatchObject({ kind: "signal-failed", pid: 100 });
+    expect(outcome).toEqual({ kind: "signal-failed", pid: 100, reason: "identity refused" });
+    expect(fake.signalled).toEqual([]);
+  });
+
+  test("stop surfaces a refused signal too", async () => {
+    const fake = fakeProbes({ serving: [serving()], signalRefused: "pid reused" });
+    expect(await resolveStop(PORT, fake.probes)).toEqual({
+      kind: "signal-failed",
+      pid: 100,
+      reason: "pid reused",
+    });
   });
 
   test("the respawn gap is not mistaken for a completed restart", async () => {

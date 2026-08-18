@@ -36,14 +36,24 @@
  */
 
 import { COCKPIT_SERVICE_IDENTITY, findPortHolder, isProcessAlive } from "./port-recovery";
+import { killIfIdentityMatches } from "./process-identity";
 import { DEFAULT_DAEMON_PORT, readPid } from "./launchd";
 
-// The project's narrowed `process` type omits EventEmitter methods like `kill`.
-// Mirrors the cast in ./port-recovery.ts.
-// eslint-disable-next-line custom/no-excessive-as-unknown
-const proc = process as unknown as {
-  kill(pid: number, signal: NodeJS.Signals | number): void;
-};
+/**
+ * The argv substring that identifies a cockpit daemon, checked against the LIVE
+ * command line immediately before signalling (PR #3097 R1, BLOCKING).
+ *
+ * **Measured against both spawn paths, not guessed.** launchd's plist builds
+ * `[bun, run, src/cli.ts, cockpit, start, --no-dev-chromium, --port, N]`
+ * (`launchd.ts` `generatePlist`), and the tray's `cockpit_spawn_args` produces
+ * the same subcommand pair — confirmed against the live tray-supervised daemon
+ * on 2026-08-18, where `"cockpit start"` matched and, notably, `"minsky"` did
+ * NOT (the daemon runs through `bun run src/cli.ts`, never the `minsky` bin).
+ * That is worth recording: the intuitive substring is the one that silently
+ * fails, and its failure mode is `killIfIdentityMatches` returning false, which
+ * is indistinguishable from "nothing to kill" at the call site.
+ */
+export const COCKPIT_DAEMON_CMD_SUBSTRING = "cockpit start";
 
 /**
  * How long to wait for a supervisor to bring the daemon back.
@@ -112,8 +122,18 @@ export interface RestartProbes {
   serving(port: number): Promise<ServingProcess | null>;
   /** Pid holding the port — the fallback when health carries none. */
   portHolderPid(port: number): number | null;
-  /** Send a signal. Throws on failure, like `process.kill`. */
-  signal(pid: number, signal: NodeJS.Signals): void;
+  /**
+   * Signal the pid, verifying its live command line first.
+   *
+   * Returns a result rather than throwing because the sanctioned primitive
+   * behind it (`killIfIdentityMatches`) deliberately collapses "identity did not
+   * match" and "the kill itself failed" into one negative — both mean no signal
+   * was delivered, and neither is recoverable here.
+   */
+  signal(
+    pid: number,
+    signal: NodeJS.Signals
+  ): Promise<{ ok: true } | { ok: false; reason: string }>;
   /** Whether a pid is still alive. */
   isAlive(pid: number): boolean;
   sleep(ms: number): Promise<void>;
@@ -202,11 +222,8 @@ export async function resolveRestart(
   if (!target.ok) return target.outcome;
   const { pid, before } = target;
 
-  try {
-    probes.signal(pid, "SIGTERM");
-  } catch (err) {
-    return { kind: "signal-failed", pid, reason: err instanceof Error ? err.message : String(err) };
-  }
+  const sent = await probes.signal(pid, "SIGTERM");
+  if (!sent.ok) return { kind: "signal-failed", pid, reason: sent.reason };
 
   const budgetMs = opts.budgetMs ?? RESTART_CONFIRM_BUDGET_MS;
   const pollMs = opts.pollIntervalMs ?? RESTART_POLL_INTERVAL_MS;
@@ -250,11 +267,8 @@ export async function resolveStop(
   if (!target.ok) return target.outcome;
   const { pid, before } = target;
 
-  try {
-    probes.signal(pid, "SIGTERM");
-  } catch (err) {
-    return { kind: "signal-failed", pid, reason: err instanceof Error ? err.message : String(err) };
-  }
+  const sent = await probes.signal(pid, "SIGTERM");
+  if (!sent.ok) return { kind: "signal-failed", pid, reason: sent.reason };
 
   const budgetMs = opts.budgetMs ?? STOP_OBSERVE_BUDGET_MS;
   const pollMs = opts.pollIntervalMs ?? RESTART_POLL_INTERVAL_MS;
@@ -302,7 +316,22 @@ export const realRestartProbes: RestartProbes = {
     }
   },
   portHolderPid: (port) => findPortHolder(port)?.pid ?? null,
-  signal: (pid, signal) => proc.kill(pid, signal),
+  // Routed through the sanctioned identity-before-kill primitive rather than a
+  // bare `process.kill` (PR #3097 R1, BLOCKING). `process-identity.ts`'s own
+  // docblock names itself "the ONLY sanctioned way this codebase kills a pid" —
+  // a pid is a reusable integer, and the health-identity assertion upstream
+  // proves the PORT is ours, not that this pid still is by the time we signal.
+  signal: async (pid, signal) => {
+    const killed = await killIfIdentityMatches(pid, COCKPIT_DAEMON_CMD_SUBSTRING, signal);
+    return killed
+      ? { ok: true }
+      : {
+          ok: false,
+          reason:
+            `the identity check refused it, or the signal failed — pid ${pid} no longer looks like ` +
+            `a \`${COCKPIT_DAEMON_CMD_SUBSTRING}\` process (it may have exited, or the pid was reused)`,
+        };
+  },
   isAlive: isProcessAlive,
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now: () => Date.now(),
