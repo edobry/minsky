@@ -82,6 +82,8 @@ is cheap.
 | Browser Back                   | Close the newest pane                                     |
 | Header pin control             | Hold this pane, same as `⇧`-click                         |
 | Header ↗ control              | Open this pane's entity as a full page                    |
+| Drag the peek's left edge      | Resize the peek; the width is remembered                  |
+| Double-click that edge, `Home` | Forget your width and go back to the default              |
 
 **Holding is how you compare two things.** By default one pane is open at a time
 and each click reuses it, so reading down a conversation never accumulates panes.
@@ -97,7 +99,16 @@ the peek as a whole — clicking one pane never closes the pane beside it, and
 clicking an entity reference opens that entity rather than closing anything, so
 neither reading a held pair nor walking from one entity to the next can dismiss
 the assembly out from under you. Tabbing into the page behind is not a dismissal
-either; only a click is.
+either; only a click is — and neither is dragging the peek's own edge to resize it.
+
+**How wide the peek gets is yours.** Drag the seam along its left edge, or focus
+it and use the arrow keys (`⇧` for bigger steps); the width you land on is
+remembered for next time. Double-click the seam, or press `Home`, to forget it and
+go back to the default. Two bounds you cannot drag past: the peek never gets so
+narrow that it stops being readable, and it never takes so much of the window that
+the page behind loses its majority — the second one tightens as you hold more
+panes, since the whole row has to fit. If you want a full-width view of something,
+that is what the header's ↗ control is for.
 
 **A peek is addressable and disposable.** The open panes live in the URL as a
 `?peek=` parameter, so copying the link, sharing it, or reloading brings the same

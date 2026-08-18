@@ -20,19 +20,35 @@
  * the hold gesture exists to build, the moment the operator clicked the pane beside the one they
  * held.
  *
- * ## The two exemptions
+ * ## The three exemptions
  *
  * 1. **Any peek pane.** Interacting with one pane must never dismiss its siblings — the case
  *    above.
  * 2. **Any entity ref.** An ordinary click on a ref REPLACES the pane's contents and a shift-click
  *    HOLDS it; both currently depend on the outside event not dismissing anything. `EntityRef`'s
  *    own click handler owns what happens next, so this module's only job is to stay out of its way.
+ * 3. **The assembly's own region** (mt#4261). The host renders chrome that is not a pane — today
+ *    the resize divider — and Radix computes outside events against each PANE's node, so a
+ *    pointerdown on that chrome is "outside" every pane and would dismiss the whole assembly on
+ *    the drag's FIRST event. The failure is invisible in review: the divider is a flex sibling of
+ *    the panes and reads as part of the peek, while the predicate it has to satisfy is expressed
+ *    in terms of panes.
+ *
+ *    Keyed on the CONTAINER rather than tagging each piece of chrome, so a later addition inherits
+ *    the exemption instead of rediscovering this. That is safe because the container holds nothing
+ *    but the assembly: it is `pointer-events-none` and `fixed` to the viewport's right edge, so
+ *    page content never sits inside it. Exemption 1 is not thereby redundant — it states the
+ *    per-pane semantics this module is about, and it is what the sibling-pane behavior is tested
+ *    against.
  *
  * Everything else — page chrome, the list behind, empty space, the app header — dismisses.
  */
 
 /** Marks a rendered peek pane. Set by `PeekHost` on every `SheetContent`. */
 export const PEEK_PANE_ATTR = "data-peek-pane";
+
+/** Marks the peek assembly's own region. Set by `PeekHost` on its host container. */
+export const PEEK_ASSEMBLY_ATTR = "data-peek-assembly";
 
 /** Marks a rendered entity reference. Set by `EntityRef` on its anchor. */
 export const ENTITY_REF_ATTR = "data-entity-ref";
@@ -59,6 +75,11 @@ export function isInsideEntityRef(target: EventTarget | null | undefined): boole
   return Boolean(asElement(target)?.closest(`[${ENTITY_REF_ATTR}]`));
 }
 
+/** True when the target sits inside the peek assembly's own region — a pane, or its chrome. */
+export function isInsidePeekAssembly(target: EventTarget | null | undefined): boolean {
+  return Boolean(asElement(target)?.closest(`[${PEEK_ASSEMBLY_ATTR}]`));
+}
+
 /**
  * True when an outside interaction on this target should dismiss the peek assembly.
  *
@@ -66,7 +87,7 @@ export function isInsideEntityRef(target: EventTarget | null | undefined): boole
  * Element dismisses, because "not inside anything we exempt" is exactly the dismissing case.
  */
 export function shouldDismissPeek(target: EventTarget | null | undefined): boolean {
-  return !isInsidePeekPane(target) && !isInsideEntityRef(target);
+  return !isInsidePeekPane(target) && !isInsideEntityRef(target) && !isInsidePeekAssembly(target);
 }
 
 /**
