@@ -669,6 +669,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["drive-pr-to-convergence", conditionalFeeder],
   ["drive-ready-to-implementation", conditionalFeeder],
+  ["unowned-finding-scan", structuralRecorder],
   [
     "guard-events-ingest-on-session-end",
     {
