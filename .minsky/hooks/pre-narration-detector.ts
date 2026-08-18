@@ -48,6 +48,7 @@ import {
   extractLastAssistantTurn,
   extractAssistantText,
   extractToolUseNames,
+  findToolUseInputs,
   isRealUserPrompt,
 } from "./transcript";
 import type { TranscriptLine } from "./transcript";
@@ -124,8 +125,70 @@ export interface OutcomeCategory {
   patterns: RegExp[];
   /** Tool names that, if present in the same turn, prove the claim. */
   requiredTools: string[];
+  /**
+   * Tools that count as evidence ONLY when the PR they were called against is
+   * the PR the claim names (mt#3864, PR #3096 R1).
+   *
+   * `requiredTools` is name-matched with no identity correlation, which is
+   * tolerable for tools that PERFORM the outcome — an agent rarely merges a PR
+   * it is not talking about, and those calls are rare and deliberate. It is NOT
+   * tolerable for READ tools: agents read PRs constantly, so accepting any read
+   * anywhere in the window would let a read of PR #100 silence a false "PR #200
+   * merged". The reviewer caught exactly that.
+   *
+   * A tool listed here suppresses only when the claim names a PR number AND
+   * that number appears in the tool call's input. **When the claim names no
+   * number, these tools do not suppress at all** — correlation is impossible,
+   * and for a suppressor the safe degrade direction is MORE fires, never fewer
+   * (ADR-024's fail-to-Rung-1 invariant).
+   */
+  identityScopedTools?: string[];
   /** Human-readable description of the tool the claim needed. */
   expectedTool: string;
+}
+
+/** The PR number a claim names, or null when it names none. */
+export function extractClaimedPrNumber(phrase: string): number | null {
+  const m = /\bPR\s*#?(\d+)/i.exec(phrase);
+  if (m?.[1] === undefined) return null;
+  const n = Number.parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** PR-number-ish input keys used across the PR-reading tools. */
+const PR_NUMBER_INPUT_KEYS = ["pullNumber", "prNumber", "number", "pr"];
+
+/**
+ * Every tool any category treats as identity-scoped. Derived from
+ * `OUTCOME_CATEGORIES` rather than restated, so adding one to a category cannot
+ * leave the evidence-gathering side behind.
+ */
+export function identityScopedToolNames(): string[] {
+  return [...new Set(OUTCOME_CATEGORIES.flatMap((c) => c.identityScopedTools ?? []))];
+}
+
+/**
+ * PR numbers referenced by the given tools' inputs within `lines`.
+ *
+ * Deliberately reads only the numeric identity keys — a tool input can be
+ * large, and the only field this correlation needs is which PR was addressed.
+ */
+export function extractPrNumbersForTools(
+  lines: TranscriptLine[],
+  toolNames: readonly string[]
+): Set<number> {
+  const numbers = new Set<number>();
+  for (const toolName of toolNames) {
+    for (const input of findToolUseInputs(lines, toolName)) {
+      for (const key of PR_NUMBER_INPUT_KEYS) {
+        const raw = input[key];
+        const n =
+          typeof raw === "number" ? raw : typeof raw === "string" ? Number.parseInt(raw, 10) : NaN;
+        if (Number.isFinite(n)) numbers.add(n);
+      }
+    }
+  }
+  return numbers;
 }
 
 export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
@@ -177,24 +240,31 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
       "session_pr_merge",
       "mcp__github__merge_pull_request",
       "merge_pull_request",
-      // mt#3864: READING a specific PR's state is evidence for a claim about
-      // that PR's state — the agent need not have performed the merge to know
-      // it happened. Measured, not assumed: both `merged` false positives in
-      // the 2026-08-13→18 window ("PR #3033 merged", "PR #3064 merged") had
-      // these in window and no merge tool, because another actor did the merge
-      // and the agent verified it by reading. See §MEASURED CAUSE (Cause A).
-      //
-      // Deliberately NOT the list-shaped tools (`list_pull_requests`,
-      // `session_pr_list`), which were also in window: a listing does not
-      // establish any PARTICULAR pr's state, so accepting it as evidence would
-      // widen toward silence rather than toward accuracy — the ADR-024
-      // §Context arms race this task exists to avoid.
+    ],
+    // mt#3864: READING a specific PR's state is evidence for a claim about that
+    // PR's state — the agent need not have performed the merge to know it
+    // happened. Measured, not assumed: both `merged` false positives in the
+    // 2026-08-13→18 window ("PR #3033 merged", "PR #3064 merged") had these in
+    // window and no merge tool, because another actor did the merge and the
+    // agent verified it by reading. See §MEASURED CAUSE (Cause A).
+    //
+    // IDENTITY-SCOPED, not plain required (PR #3096 R1): these suppress only
+    // when the PR read is the PR claimed. A bare name match would let a read of
+    // any PR silence a false claim about a different one, and reads are common
+    // enough that this would be the usual case rather than a corner.
+    //
+    // Deliberately NOT the list-shaped tools (`list_pull_requests`,
+    // `session_pr_list`), which were also in window: a listing does not
+    // establish any PARTICULAR PR's state, so accepting it as evidence would
+    // widen toward silence rather than toward accuracy — the ADR-024 §Context
+    // arms race this task exists to avoid.
+    identityScopedTools: [
       "mcp__github__pull_request_read",
       "pull_request_read",
       "mcp__minsky__session_pr_get",
       "session_pr_get",
     ],
-    expectedTool: "session_pr_merge / merge_pull_request / pull_request_read / session_pr_get",
+    expectedTool: "session_pr_merge / merge_pull_request (or a read of the same PR)",
   },
   {
     key: "build-test",
@@ -356,9 +426,10 @@ export function extractWindowToolUseNames(
  */
 export function detectPreNarration(
   turnLines: TranscriptLine[],
-  windowToolNames?: ReadonlySet<string>
+  windowToolNames?: ReadonlySet<string>,
+  evidencePrNumbers?: ReadonlySet<number>
 ): ClaimMatch[] {
-  return detectPreNarrationWithSuppression(turnLines, windowToolNames).matches;
+  return detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers).matches;
 }
 
 /**
@@ -372,7 +443,13 @@ export function detectPreNarration(
  */
 export function detectPreNarrationWithSuppression(
   turnLines: TranscriptLine[],
-  windowToolNames?: ReadonlySet<string>
+  windowToolNames?: ReadonlySet<string>,
+  /**
+   * PR numbers the `identityScopedTools` were actually called against, from the
+   * same window `windowToolNames` covers. Omitting it disables identity-scoped
+   * suppression entirely — the safe direction for a suppressor.
+   */
+  evidencePrNumbers?: ReadonlySet<number>
 ): PreNarrationDetection {
   const rawText = extractAssistantText(turnLines);
   if (!rawText) return { matches: [], suppressed: [] };
@@ -407,7 +484,19 @@ export function detectPreNarrationWithSuppression(
     // (mt#2671). Same-turn wins when both hold: it is the stronger evidence.
     const sameTurn = category.requiredTools.some((t) => toolNames.has(t));
     const inWindow = category.requiredTools.some((t) => windowToolNames?.has(t) ?? false);
-    if (sameTurn || inWindow) {
+
+    // Identity-scoped evidence (PR #3096 R1): a READ of the PR the claim names.
+    // Requires BOTH that such a tool ran and that its PR matches the claim's —
+    // a claim naming no PR number can never satisfy this, and deliberately
+    // falls through to firing.
+    const scopedTools = category.identityScopedTools ?? [];
+    const scopedToolRan =
+      scopedTools.some((t) => toolNames.has(t)) ||
+      scopedTools.some((t) => windowToolNames?.has(t) ?? false);
+    const claimedPr = scopedToolRan ? extractClaimedPrNumber(matched.matchedPhrase) : null;
+    const identityBacked = claimedPr !== null && (evidencePrNumbers?.has(claimedPr) ?? false);
+
+    if (sameTurn || inWindow || identityBacked) {
       suppressed.push({
         ...matched,
         reason: sameTurn ? SUPPRESSION_SAME_TURN_TOOL_CALL : SUPPRESSION_WINDOW_TOOL_CALL,
@@ -574,7 +663,12 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
     // Cross-turn suppression (mt#2671): window computed from ctx.transcriptLines
     // per the guard-module contract (mt#2637) — never re-derived.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
+    // Identity evidence is gathered over the WHOLE transcript, not the 12-turn
+    // window: a read of the SAME PR is evidence about that PR whenever it
+    // happened, and the PR-number match is the binding constraint here rather
+    // than recency (PR #3096 R1).
+    const evidencePrNumbers = extractPrNumbersForTools(lines, identityScopedToolNames());
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
     process.stderr.write(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}\n`
@@ -654,7 +748,12 @@ export async function main(): Promise<void> {
     // Cross-turn suppression (mt#2671): scan the trailing window for backing
     // tool calls so legitimate back-references don't fire.
     const windowToolNames = extractWindowToolUseNames(lines, TRAILING_WINDOW_TURNS);
-    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames);
+    // Identity evidence is gathered over the WHOLE transcript, not the 12-turn
+    // window: a read of the SAME PR is evidence about that PR whenever it
+    // happened, and the PR-number match is the binding constraint here rather
+    // than recency (PR #3096 R1).
+    const evidencePrNumbers = extractPrNumbersForTools(lines, identityScopedToolNames());
+    detection = detectPreNarrationWithSuppression(turnLines, windowToolNames, evidencePrNumbers);
   } catch (err) {
     console.error(
       `[pre-narration-detector] Detection error: ${err instanceof Error ? err.message : String(err)}`

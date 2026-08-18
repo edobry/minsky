@@ -17,6 +17,9 @@ import {
   SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
   run,
+  extractClaimedPrNumber,
+  extractPrNumbersForTools,
+  identityScopedToolNames,
 } from "./pre-narration-detector";
 import {
   extractDistinctPhrases,
@@ -701,21 +704,38 @@ describe("mt#3864 class 6 — a double-quoted prose span is a quotation, not an 
   });
 });
 
-describe("mt#3864 Cause A — reading a PR's state is evidence about that PR's state", () => {
+describe("mt#3864 Cause A — reading a PR's state is evidence about THAT PR's state", () => {
   const MERGED_CLAIM = "PR #3033 merged.";
+  const PR_READ_TOOL = "mcp__github__pull_request_read";
+  const READ_TOOLS = new Set([PR_READ_TOOL]);
 
-  test("a merge claim backed by pull_request_read in the window is suppressed", () => {
+  test("a merge claim backed by a read OF THE SAME PR is suppressed", () => {
     // Measured: "PR #3033 merged" and "PR #3064 merged" both had these tools in
     // window and no merge tool, because ANOTHER ACTOR performed the merge and
     // the agent verified it by reading. Both claims were true.
     const turn = [makeAssistantLine(MERGED_CLAIM)];
-    const windowTools = new Set(["mcp__github__pull_request_read"]);
-    expect(detectPreNarration(turn as never, windowTools).length).toBe(0);
+    expect(detectPreNarration(turn as never, READ_TOOLS, new Set([3033])).length).toBe(0);
   });
 
   test("session_pr_get counts as the same evidence", () => {
     const turn = [makeAssistantLine(MERGED_CLAIM)];
-    expect(detectPreNarration(turn as never, new Set(["mcp__minsky__session_pr_get"])).length).toBe(
+    const tools = new Set(["mcp__minsky__session_pr_get"]);
+    expect(detectPreNarration(turn as never, tools, new Set([3033])).length).toBe(0);
+  });
+
+  test("BLOCKING R1: a read of a DIFFERENT PR does not suppress", () => {
+    // PR #3096 R1, the finding's exact scenario. Without identity correlation,
+    // reading any PR would silence a false claim about any other — and reads are
+    // common enough that this would be the usual case, not a corner.
+    const turn = [makeAssistantLine(MERGED_CLAIM)]; // claims #3033
+    expect(detectPreNarration(turn as never, READ_TOOLS, new Set([100])).length).toBeGreaterThan(0);
+  });
+
+  test("a claim naming NO PR number is never identity-backed", () => {
+    // Correlation is impossible, so the safe degrade for a suppressor is to fire
+    // (ADR-024's fail-to-Rung-1 invariant: degrade toward MORE fires).
+    const turn = [makeAssistantLine("The PR is now merged.")];
+    expect(detectPreNarration(turn as never, READ_TOOLS, new Set([3033])).length).toBeGreaterThan(
       0
     );
   });
@@ -733,6 +753,43 @@ describe("mt#3864 Cause A — reading a PR's state is evidence about that PR's s
     // PARTICULAR PR's state, so accepting it would widen toward silence.
     const turn = [makeAssistantLine(MERGED_CLAIM)];
     const listOnly = new Set(["mcp__github__list_pull_requests", "mcp__minsky__session_pr_list"]);
-    expect(detectPreNarration(turn as never, listOnly).length).toBeGreaterThan(0);
+    expect(detectPreNarration(turn as never, listOnly, new Set([3033])).length).toBeGreaterThan(0);
+  });
+});
+
+describe("mt#3864 — PR-identity helpers (PR #3096 R1)", () => {
+  const PR_READ_TOOL_NAME = "mcp__github__pull_request_read";
+
+  test("extractClaimedPrNumber reads the number a claim names", () => {
+    expect(extractClaimedPrNumber("PR #3033 merged")).toBe(3033);
+    expect(extractClaimedPrNumber("PR 3033 merged")).toBe(3033);
+    expect(extractClaimedPrNumber("the PR is now merged")).toBeNull();
+  });
+
+  test("extractPrNumbersForTools reads identity keys from tool inputs", () => {
+    const lines = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              name: PR_READ_TOOL_NAME,
+              input: { pullNumber: 3033 },
+            },
+          ],
+        },
+      },
+    ];
+    const found = extractPrNumbersForTools(lines as never, [PR_READ_TOOL_NAME]);
+    expect([...found]).toEqual([3033]);
+  });
+
+  test("identityScopedToolNames is derived from the categories, not restated", () => {
+    // Guards the wiring: a tool added to a category's identityScopedTools must
+    // reach the evidence-gathering side automatically.
+    expect(identityScopedToolNames()).toContain(PR_READ_TOOL_NAME);
+    expect(identityScopedToolNames()).toContain("mcp__minsky__session_pr_get");
   });
 });

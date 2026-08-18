@@ -34,7 +34,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { OUTCOME_CATEGORIES, TRAILING_WINDOW_TURNS } from "../.minsky/hooks/pre-narration-detector";
+import {
+  OUTCOME_CATEGORIES,
+  TRAILING_WINDOW_TURNS,
+  extractClaimedPrNumber,
+  extractPrNumbersForTools,
+} from "../.minsky/hooks/pre-narration-detector";
 import {
   extractToolUseNames,
   isRealUserPrompt,
@@ -63,7 +68,7 @@ interface CalibrationRecord {
   matches?: CalibrationMatch[];
 }
 
-type Cause = "within-window" | "beyond-window" | "tool-absent" | "unreplayable";
+type Cause = "within-window" | "beyond-window" | "tool-absent" | "identity-backed" | "unreplayable";
 
 interface Finding {
   timestamp: string;
@@ -222,8 +227,23 @@ function main(): void {
         continue;
       }
       const distance = boundaryDistanceToTool(lines, fireIndex, category.requiredTools);
-      const cause: Cause =
-        distance === null
+
+      // Identity-scoped evidence (PR #3096 R1) is not a name match, so boundary
+      // distance cannot express it: it holds only when the PR the claim NAMES
+      // was actually read. Evaluated on the same terms the detector uses —
+      // otherwise this script's before/after would misreport the very fix it
+      // exists to measure.
+      const claimedPr = extractClaimedPrNumber(match.phrase);
+      const identityBacked =
+        claimedPr !== null &&
+        extractPrNumbersForTools(
+          lines.slice(0, fireIndex + 1),
+          category.identityScopedTools ?? []
+        ).has(claimedPr);
+
+      const cause: Cause = identityBacked
+        ? "identity-backed"
+        : distance === null
           ? "tool-absent"
           : distance < TRAILING_WINDOW_TURNS
             ? "within-window"
