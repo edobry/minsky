@@ -81,13 +81,16 @@ const TYPED_PROSE_CEILING_CHARS = 4000;
  */
 const DEFAULT_FILES = 25;
 
-interface Args {
+export interface Args {
   dir: string;
   files: number;
 }
 
 /** Thrown by `parseFilesArg` on a non-numeric, zero, or negative `--files` value. */
 export class InvalidFilesArgError extends Error {}
+
+/** Thrown by `parseArgs` when `--dir` is present but was given no value. */
+export class InvalidDirArgError extends Error {}
 
 /**
  * Validates `--files`. mt#4264 finding 2: an unvalidated `--files notanumber` (or `0`, or a
@@ -109,12 +112,47 @@ export function parseFilesArg(raw: string | undefined): number {
   return n;
 }
 
-function parseArgs(argv: string[]): Args {
-  const dirFlag = argv.indexOf("--dir");
-  const filesFlag = argv.indexOf("--files");
+/** Whether a flag appeared in `argv`, and the value following it (if any looks like one). */
+interface FlagRead {
+  present: boolean;
+  /** `undefined` when the flag is absent, is the last argument, or is immediately followed
+   * by another flag — all three are "no value", distinct from "flag not given at all" via
+   * `present`. */
+  value: string | undefined;
+}
+
+/**
+ * Reads `name`'s value out of `argv`. mt#4264 review R1 (BLOCKING): a flag that is the last
+ * argument (`... --files`) or is immediately followed by ANOTHER flag (`--files --dir /x`) is
+ * present-without-a-value, not "omitted" — `argv[index + 1]` alone can't tell those apart from
+ * an omitted flag, since both read as `undefined`. `present` carries that distinction; a
+ * caller that finds `present && value === undefined` has a malformed invocation, not a default.
+ */
+function readFlag(argv: string[], name: string): FlagRead {
+  const index = argv.indexOf(name);
+  if (index < 0) return { present: false, value: undefined };
+  const next = argv[index + 1];
+  return { present: true, value: next !== undefined && !next.startsWith("--") ? next : undefined };
+}
+
+export function parseArgs(argv: string[]): Args {
+  const filesFlag = readFlag(argv, "--files");
+  if (filesFlag.present && filesFlag.value === undefined) {
+    throw new InvalidFilesArgError(
+      "--files given with no value — it must not be the last argument or precede another flag"
+    );
+  }
+
+  const dirFlag = readFlag(argv, "--dir");
+  if (dirFlag.present && dirFlag.value === undefined) {
+    throw new InvalidDirArgError(
+      "--dir given with no value — it must not be the last argument or precede another flag"
+    );
+  }
+
   return {
-    dir: dirFlag >= 0 ? (argv[dirFlag + 1] ?? "") : join(homedir(), ".claude", "projects"),
-    files: parseFilesArg(filesFlag >= 0 ? argv[filesFlag + 1] : undefined),
+    dir: dirFlag.value ?? join(homedir(), ".claude", "projects"),
+    files: parseFilesArg(filesFlag.value),
   };
 }
 
@@ -190,7 +228,7 @@ function main(): void {
   try {
     args = parseArgs(process.argv.slice(2));
   } catch (err) {
-    if (err instanceof InvalidFilesArgError) {
+    if (err instanceof InvalidFilesArgError || err instanceof InvalidDirArgError) {
       console.error(`FAIL: ${err.message}`);
       process.exit(1);
     }

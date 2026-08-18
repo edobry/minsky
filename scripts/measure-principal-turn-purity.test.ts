@@ -9,6 +9,12 @@
  *  3. `INJECTED_MARKERS` carries a pinning test so an accidental edit produces a red test
  *     rather than a silently higher (falsely clean) purity number.
  *
+ * Plus PR #3110 review 4966109841 R1 (BLOCKING): `--files`/`--dir` present but given NO value
+ * (trailing, or immediately followed by another flag) fell through to the "flag omitted"
+ * default instead of failing — the same silent-wrong-answer shape finding 2 exists to close,
+ * surviving inside finding 2's own fix. `readFlag`/`parseArgs` now distinguish "absent" from
+ * "present without a value" and fail loudly on the latter, for both flags.
+ *
  * The CLI-level tests spawn the real script as a subprocess (mirrors
  * scripts/rationalization-review.test.ts's identical rationale) because `process.exit()`
  * cannot be observed in-process without killing the test runner.
@@ -31,8 +37,10 @@ import { join } from "node:path";
 
 import {
   INJECTED_MARKERS,
+  InvalidDirArgError,
   InvalidFilesArgError,
   markersIn,
+  parseArgs,
   parseFilesArg,
 } from "./measure-principal-turn-purity";
 
@@ -130,11 +138,53 @@ describe("parseFilesArg (mt#4264 finding 1 + finding 2)", () => {
   );
 });
 
+describe("parseArgs — flag present but given no value (PR #3110 review R1, BLOCKING)", () => {
+  test("--files as the trailing argument throws InvalidFilesArgError, not the default", () => {
+    expect(() => parseArgs(["--files"])).toThrow(InvalidFilesArgError);
+  });
+
+  test("--files immediately followed by another flag throws, not the default", () => {
+    expect(() => parseArgs(["--files", "--dir", "/x"])).toThrow(InvalidFilesArgError);
+  });
+
+  test("--dir as the trailing argument throws InvalidDirArgError, not SKIP", () => {
+    expect(() => parseArgs(["--dir"])).toThrow(InvalidDirArgError);
+  });
+
+  test("--dir immediately followed by another flag throws, not SKIP", () => {
+    expect(() => parseArgs(["--dir", "--files", "10"])).toThrow(InvalidDirArgError);
+  });
+
+  test("a flag that is truly omitted still uses the default — the counter-case", () => {
+    expect(parseArgs([]).files).toBe(25);
+    expect(parseArgs(["--files", "10"]).dir).toContain(".claude");
+  });
+
+  test("a real value for --files still works when --dir follows it", () => {
+    expect(parseArgs(["--files", "10", "--dir", "/x"])).toEqual({ dir: "/x", files: 10 });
+  });
+});
+
 describe("CLI: invalid --files exits non-zero and names the value (mt#4264 finding 2)", () => {
   test.each(["notanumber", "0", "-5"])("--files %s", async (bad) => {
     const result = await runScript(["--files", bad, "--dir", "/nonexistent-does-not-matter"]);
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(bad);
+    expect(result.stderr.toUpperCase()).toContain("FAIL");
+  });
+});
+
+describe("CLI: a flag given with no value exits non-zero (PR #3110 review R1, BLOCKING)", () => {
+  test("--files as the trailing argument exits non-zero, not a 25-sample run", async () => {
+    const result = await runScript(["--files"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toUpperCase()).toContain("FAIL");
+  });
+
+  test("--dir as the trailing argument exits non-zero, not SKIP", async () => {
+    const result = await runScript(["--dir"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout).not.toContain("SKIP");
     expect(result.stderr.toUpperCase()).toContain("FAIL");
   });
 });
