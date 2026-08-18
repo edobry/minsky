@@ -112,10 +112,22 @@ export async function sendJsonMaybeCompressed(
     return false;
   }
 
-  const compressed = await gzipAsync(json, { level: GZIP_LEVEL });
+  const compressed = (await gzipAsync(json, { level: GZIP_LEVEL })) as Uint8Array;
   res.setHeader("Content-Encoding", "gzip");
-  // express sets Content-Length from the Buffer's own length, which is the
-  // COMPRESSED size — the correct value for a Content-Encoding: gzip response.
+  // Set Content-Length HERE rather than leaving it to the response object.
+  //
+  // The previous comment asserted that "express sets Content-Length from the
+  // Buffer's own length" — true of express in practice, and not something this
+  // function can rely on: its parameter is `CompressibleResponse`, which
+  // guarantees `setHeader` and `send` and nothing else. A framework free to
+  // fall back to chunked transfer would satisfy the type while silently
+  // dropping the header, and the PR that introduced this quoted a specific
+  // Content-Length as evidence. Setting it makes the claim true by
+  // construction instead of by a collaborator's discretion (PR #3104 R1).
+  //
+  // `.length` on a Uint8Array/Buffer is the BYTE count, which is what
+  // Content-Length means — no encoding subtlety here, unlike the string branch.
+  res.setHeader("Content-Length", String(compressed.length));
   res.send(compressed);
   return true;
 }

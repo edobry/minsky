@@ -141,6 +141,42 @@ describe("sendJsonMaybeCompressed", () => {
     expect(res.headers["Vary"]).toBe("Accept-Encoding");
   });
 
+  test("sets Content-Length itself on the compressed path, not leaving it to the framework", async () => {
+    // PR #3104 R1 (BLOCKING): this used to rely on express computing it from the
+    // Buffer. `CompressibleResponse` guarantees only setHeader and send, so a
+    // response object free to use chunked transfer would satisfy the type and
+    // drop the header — while the PR quoted a Content-Length as evidence. The
+    // recorder here sets no headers of its own, so this assertion passes only if
+    // the helper sets it.
+    const res = recorder();
+    await sendJsonMaybeCompressed(res, big, { acceptEncoding: "gzip" });
+
+    expect(res.headers["Content-Length"]).toBe(String((res.body as Uint8Array).length));
+  });
+
+  test("the declared Content-Length is the COMPRESSED byte count, not the raw one", async () => {
+    const res = recorder();
+    await sendJsonMaybeCompressed(res, big, { acceptEncoding: "gzip" });
+
+    const declared = Number(res.headers["Content-Length"]);
+    expect(declared).toBeLessThan(JSON.stringify(big).length);
+  });
+
+  test("a large payload compresses under an explicit byte ceiling", async () => {
+    // Regression guard standing in for the windowing byte-ceiling test that was
+    // scoped out with SQL windowing (see mt#4263). A shape test cannot express
+    // "this response stays small", which is the property that would regress —
+    // e.g. if GZIP_LEVEL were changed to 0 (store), or the threshold raised past
+    // this payload so it shipped uncompressed.
+    const CEILING_BYTES = 40 * 1024;
+    const res = recorder();
+    await sendJsonMaybeCompressed(res, big, { acceptEncoding: "gzip" });
+
+    const raw = JSON.stringify(big).length;
+    expect(raw).toBeGreaterThan(CEILING_BYTES);
+    expect((res.body as Uint8Array).length).toBeLessThan(CEILING_BYTES);
+  });
+
   test("always declares a JSON content type", async () => {
     const res = recorder();
     await sendJsonMaybeCompressed(res, big, { acceptEncoding: "gzip" });

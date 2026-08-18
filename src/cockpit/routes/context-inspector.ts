@@ -204,6 +204,19 @@ export function mountContextInspectorRoutes(app: express.Express): void {
       );
 
       if (version !== null) {
+        // The ETag is deliberately ENCODING-AGNOSTIC (PR #3104 R1, non-blocking).
+        // It identifies the snapshot's semantic content, so the identity and
+        // gzip renderings of one version share a validator. That is what a WEAK
+        // validator asserts, and it is correct here — but it has a visible
+        // consequence worth stating: a client can be issued a 304 and then, on
+        // its next unconditional request, negotiate a different encoding and see
+        // a very differently sized transfer. Nothing is stale; only the size
+        // changes. `sendJsonMaybeCompressed` sets `Vary: Accept-Encoding`, which
+        // is what keeps a shared cache from serving one encoding's bytes to a
+        // client that asked for the other. A per-encoding validator would need a
+        // STRONG etag, which would in turn have to change whenever the
+        // compression level did — a worse trade for a route whose client is the
+        // cockpit SPA.
         const etag = snapshotEtag(version);
         res.setHeader("ETag", etag);
 
