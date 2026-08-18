@@ -142,12 +142,11 @@ describe("sendJsonMaybeCompressed", () => {
   });
 
   test("sets Content-Length itself on the compressed path, not leaving it to the framework", async () => {
-    // PR #3104 R1 (BLOCKING): this used to rely on express computing it from the
-    // Buffer. `CompressibleResponse` guarantees only setHeader and send, so a
-    // response object free to use chunked transfer would satisfy the type and
-    // drop the header — while the PR quoted a Content-Length as evidence. The
-    // recorder here sets no headers of its own, so this assertion passes only if
-    // the helper sets it.
+    // PR #3104 R1 (BLOCKING). `CompressibleResponse` guarantees only setHeader
+    // and send, so a response object using chunked transfer would satisfy the
+    // type and emit no Content-Length — while callers quote Content-Length as a
+    // measurement. The recorder here sets no headers of its own, so this
+    // assertion passes only if the helper sets the header itself.
     const res = recorder();
     await sendJsonMaybeCompressed(res, big, { acceptEncoding: "gzip" });
 

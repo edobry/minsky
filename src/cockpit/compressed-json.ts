@@ -114,19 +114,21 @@ export async function sendJsonMaybeCompressed(
 
   const compressed = (await gzipAsync(json, { level: GZIP_LEVEL })) as Uint8Array;
   res.setHeader("Content-Encoding", "gzip");
-  // Set Content-Length HERE rather than leaving it to the response object.
+  // This function sets Content-Length on the compressed branch itself, rather
+  // than depending on the response object to derive one (PR #3104 R1).
   //
-  // The previous comment asserted that "express sets Content-Length from the
-  // Buffer's own length" — true of express in practice, and not something this
-  // function can rely on: its parameter is `CompressibleResponse`, which
-  // guarantees `setHeader` and `send` and nothing else. A framework free to
-  // fall back to chunked transfer would satisfy the type while silently
-  // dropping the header, and the PR that introduced this quoted a specific
-  // Content-Length as evidence. Setting it makes the claim true by
-  // construction instead of by a collaborator's discretion (PR #3104 R1).
+  // The reason is the parameter type: `CompressibleResponse` promises
+  // `setHeader` and `send`, and nothing about how a body becomes bytes. A
+  // response object that used chunked transfer would satisfy that type and emit
+  // no Content-Length at all — and callers of this helper quote Content-Length
+  // as a measurement. Setting it makes the header a property of this function
+  // instead of a property of whichever framework is passed in.
   //
-  // `.length` on a Uint8Array/Buffer is the BYTE count, which is what
-  // Content-Length means — no encoding subtlety here, unlike the string branch.
+  // `.length` on a Uint8Array/Buffer is a BYTE count, which is exactly what
+  // Content-Length means — no encoding subtlety, unlike the identity branch
+  // above, which passes a string and leaves the byte accounting to the response
+  // object precisely because computing it here would mean encoding a
+  // multi-megabyte string twice.
   res.setHeader("Content-Length", String(compressed.length));
   res.send(compressed);
   return true;
