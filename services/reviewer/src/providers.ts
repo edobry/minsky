@@ -186,17 +186,54 @@ const PARTIAL_TIMING = Symbol.for("minsky.reviewer.partialTiming");
  */
 export function attachPartialTiming<E>(err: E, timing: TimingData): E {
   if (err === null || typeof err !== "object") return err;
-  Object.defineProperty(err, PARTIAL_TIMING, {
-    value: {
-      roundLatenciesMs: [...timing.roundLatenciesMs],
-      timeoutCount: timing.timeoutCount,
-      retryOutcomes: [...timing.retryOutcomes],
-    } satisfies TimingData,
-    enumerable: false,
-    configurable: true,
-    writable: false,
-  });
+
+  // PR #3136 R1 (BLOCKING, correct): `Object.defineProperty` THROWS on a
+  // frozen, sealed, or otherwise non-extensible object. Every caller is
+  // `throw attachPartialTiming(err, …)` inside a catch, so an unguarded throw
+  // here would REPLACE the original error with a TypeError — masking the actual
+  // failure and defeating this task's own criterion that recording must not
+  // alter control flow. Losing the timing is a bad outcome; losing the ERROR is
+  // a far worse one, so this degrades to returning `err` untouched.
+  //
+  // Both a pre-check and a catch: `isExtensible` covers the common frozen case
+  // without relying on an exception, and the catch covers the rest
+  // (a pre-existing non-configurable property under the same key, a hostile
+  // Proxy's `defineProperty` trap) rather than enumerating them.
+  if (!Object.isExtensible(err)) {
+    logPartialTimingAttachFailure("non-extensible-error");
+    return err;
+  }
+  try {
+    Object.defineProperty(err, PARTIAL_TIMING, {
+      value: {
+        roundLatenciesMs: [...timing.roundLatenciesMs],
+        timeoutCount: timing.timeoutCount,
+        retryOutcomes: [...timing.retryOutcomes],
+      } satisfies TimingData,
+      enumerable: false,
+      configurable: true,
+      writable: false,
+    });
+  } catch {
+    logPartialTimingAttachFailure("define-property-threw");
+  }
   return err;
+}
+
+/**
+ * Report a dropped timing attachment.
+ *
+ * Silence here would reproduce, in the recovery path, the exact defect this
+ * task exists to fix: a row that never gets written and nothing saying why. A
+ * reader seeing an unrecovered-timeout row with empty timing needs to be able
+ * to tell "no timing was accumulated" from "timing was accumulated and could
+ * not be attached".
+ */
+function logPartialTimingAttachFailure(reason: string): void {
+  log.warn("reviewer.partial_timing_attach_failed", {
+    event: "reviewer.partial_timing_attach_failed",
+    reason,
+  });
 }
 
 /** Read back timing attached by {@link attachPartialTiming}; undefined if absent. */
@@ -1745,7 +1782,13 @@ export function isSdkRetryableStatus(status: number): boolean {
  */
 function describeFetchTarget(input: unknown): string {
   if (typeof input === "string") return input;
-  if (input instanceof URL) return input.toString();
+  // Same class as R1's `fetch` finding: a bare `URL` reference would throw
+  // ReferenceError where the global is absent. Guarded off `globalThis` for the
+  // same reason, and because this runs on the failure path — where an
+  // incidental throw would replace the error being reported.
+  if (typeof globalThis.URL === "function" && input instanceof globalThis.URL) {
+    return input.toString();
+  }
   if (typeof input === "object" && input !== null && "url" in input) {
     return String((input as { url: unknown }).url);
   }
@@ -1823,12 +1866,44 @@ export function withSdkRetryVisibility(
  * `baseFetch` is injected so the retry-visibility behaviour is testable against
  * a stub transport without patching a module import.
  */
-export function createReviewerOpenAIClient(apiKey: string, baseFetch: FetchLike = fetch): OpenAI {
-  return new OpenAI({
+export function createReviewerOpenAIClient(apiKey: string, baseFetch?: FetchLike): OpenAI {
+  const budget = {
     apiKey,
     maxRetries: OPENAI_SDK_MAX_RETRIES,
     timeout: OPENAI_SDK_TIMEOUT_MS,
-    fetch: withSdkRetryVisibility(baseFetch, ({ status, target, attempt }) => {
+  };
+
+  // PR #3136 R1 (BLOCKING, correct): the previous `baseFetch: FetchLike = fetch`
+  // default made this hard-depend on a global `fetch`. Two problems. A bare
+  // identifier reference throws ReferenceError where the global is absent, at
+  // construction — turning a missing convenience into a dead reviewer. And
+  // passing `fetch` explicitly BYPASSES the SDK's own `_shims` transport
+  // selection, which exists precisely to supply a fetch on runtimes lacking one.
+  // The pre-existing `new OpenAI({ apiKey })` delegated that choice entirely, so
+  // this was a robustness regression introduced for instrumentation's sake.
+  //
+  // Resolved off `globalThis` (a property read, never a bare identifier) and
+  // bound, so an unbound extraction cannot lose its receiver.
+  const resolved =
+    baseFetch ??
+    (typeof globalThis.fetch === "function"
+      ? (globalThis.fetch.bind(globalThis) as FetchLike)
+      : undefined);
+
+  if (resolved === undefined) {
+    // No transport to wrap — hand the SDK its own. The pinned budget still
+    // applies; only retry VISIBILITY is lost, and it is announced rather than
+    // silently absent, so "no retry logs" cannot be misread as "no retries".
+    log.warn("openai.sdk_retry_visibility_unavailable", {
+      event: "openai.sdk_retry_visibility_unavailable",
+      reason: "no-global-fetch",
+    });
+    return new OpenAI(budget);
+  }
+
+  return new OpenAI({
+    ...budget,
+    fetch: withSdkRetryVisibility(resolved, ({ status, target, attempt }) => {
       log.warn("openai.sdk_retryable_response", {
         event: "openai.sdk_retryable_response",
         status,

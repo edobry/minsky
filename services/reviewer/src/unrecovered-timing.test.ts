@@ -31,6 +31,12 @@ import type OpenAI from "openai";
 import type { ReviewerDb } from "./db/client";
 import type { ReviewerToolContext } from "./tools";
 
+/** The error a caller must still receive — never a TypeError from the carrier. */
+const REAL_FAILURE_MESSAGE = "the real failure";
+
+/** `withTimeout`'s op name for the OpenAI model call. */
+const TOOLLOOP_OP = "openai.chat.completions.create";
+
 // ---------------------------------------------------------------------------
 // Partial-timing carrier
 // ---------------------------------------------------------------------------
@@ -74,6 +80,54 @@ describe("attachPartialTiming / extractPartialTiming (mt#4281)", () => {
     expect(extractPartialTiming(err)?.retryOutcomes).toEqual(["a"]);
   });
 
+  // --- PR #3136 R1 (BLOCKING): masking the original failure -----------------
+  //
+  // `Object.defineProperty` throws on a non-extensible object. Every caller is
+  // `throw attachPartialTiming(err, …)` inside a catch, so an unguarded throw
+  // would replace the real error with a TypeError. Losing the timing is
+  // acceptable; losing the error is not.
+
+  // NOTE on assertion style: these assert the RETURN VALUE rather than using
+  // `expect(fn).not.toThrow()`. `attachPartialTiming` returns the error itself,
+  // and bun's `toThrow` matcher reads a returned Error as a thrown one — so the
+  // negated form fails against correct code. Returning the identical object is
+  // the stronger claim anyway: it cannot pass unless the call completed.
+
+  test("R1: a FROZEN error is returned untouched instead of throwing", () => {
+    const frozen = Object.freeze(new Error(REAL_FAILURE_MESSAGE));
+
+    // Unguarded, `Object.defineProperty` throws here and this line never returns.
+    expect(attachPartialTiming(frozen, timing)).toBe(frozen);
+    expect(frozen.message).toBe(REAL_FAILURE_MESSAGE);
+  });
+
+  test("R1: a SEALED error is returned untouched instead of throwing", () => {
+    const sealed = Object.seal(new Error(REAL_FAILURE_MESSAGE));
+
+    expect(attachPartialTiming(sealed, timing)).toBe(sealed);
+    expect(extractPartialTiming(sealed)).toBeUndefined();
+  });
+
+  test("R1: an error whose defineProperty trap throws is still returned", () => {
+    // Covers the residue `isExtensible` cannot see — the pre-check alone would
+    // pass this object straight through to a throwing defineProperty.
+    const hostile = new Proxy(new Error(REAL_FAILURE_MESSAGE), {
+      defineProperty() {
+        throw new TypeError("trap");
+      },
+    });
+
+    expect(attachPartialTiming(hostile, timing)).toBe(hostile);
+  });
+
+  test("R1 NEGATIVE CONTROL: an ordinary extensible error still gets its timing", () => {
+    // Without this, a guard that gave up on EVERY error would pass the three
+    // tests above while silently disabling the whole feature.
+    const ordinary = new Error(REAL_FAILURE_MESSAGE);
+
+    expect(extractPartialTiming(attachPartialTiming(ordinary, timing))).toEqual(timing);
+  });
+
   test("the attached property is non-enumerable, so it cannot alter error serialization", () => {
     const err = attachPartialTiming(new Error("boom"), timing);
     expect(Object.keys(err)).toHaveLength(0);
@@ -113,7 +167,7 @@ describe("callOpenAIWithClient carries partial timing out of a throw (mt#4281)",
   for (const { name, tools } of CALL_PATHS) {
     describe(name, () => {
       test("an unrecovered TimeoutError arrives carrying timeout-unrecovered", async () => {
-        const client = clientThatThrows(new TimeoutError("openai.chat.completions.create", 1));
+        const client = clientThatThrows(new TimeoutError(TOOLLOOP_OP, 1));
 
         const err = await callOpenAIWithClient(client, "gpt-5", "sys", "user", tools).then(
           () => {
@@ -132,11 +186,24 @@ describe("callOpenAIWithClient carries partial timing out of a throw (mt#4281)",
       });
 
       test("NEGATIVE CONTROL: the error still propagates — recording must not swallow it", async () => {
-        const boom = new TimeoutError("openai.chat.completions.create", 1);
+        const boom = new TimeoutError(TOOLLOOP_OP, 1);
         const client = clientThatThrows(boom);
 
         await expect(callOpenAIWithClient(client, "gpt-5", "sys", "user", tools)).rejects.toBe(
           boom
+        );
+      });
+
+      test("R1: a FROZEN error propagates unchanged — the carrier never masks it", async () => {
+        // The end-to-end form of the R1 finding: what actually matters is not
+        // that `attachPartialTiming` returns, but that the ORIGINAL error still
+        // arrives at the caller. A TypeError here would look like a reviewer
+        // bug rather than the timeout it really was.
+        const frozen = Object.freeze(new TimeoutError(TOOLLOOP_OP, 1)) as TimeoutError;
+        const client = clientThatThrows(frozen);
+
+        await expect(callOpenAIWithClient(client, "gpt-5", "sys", "user", tools)).rejects.toBe(
+          frozen
         );
       });
 
@@ -377,6 +444,31 @@ describe("createReviewerOpenAIClient (mt#4281)", () => {
     // which this task explicitly is not. This test is the tripwire on that.
     expect(OPENAI_SDK_MAX_RETRIES).toBe(2);
     expect(OPENAI_SDK_TIMEOUT_MS).toBe(10 * 60 * 1000);
+  });
+
+  test("R1: constructs WITHOUT a global fetch instead of throwing ReferenceError", () => {
+    // The previous `baseFetch: FetchLike = fetch` default evaluated a bare
+    // global at call time. Where it is absent that is a ReferenceError at
+    // construction — a dead reviewer, traded for instrumentation.
+    const original = Object.getOwnPropertyDescriptor(globalThis, "fetch");
+    try {
+      Reflect.deleteProperty(globalThis, "fetch");
+
+      expect(() => createReviewerOpenAIClient("sk-test")).not.toThrow();
+      // The pinned budget survives the fallback — only visibility is lost.
+      const client = createReviewerOpenAIClient("sk-test");
+      expect(client.maxRetries).toBe(OPENAI_SDK_MAX_RETRIES);
+      expect(client.timeout).toBe(OPENAI_SDK_TIMEOUT_MS);
+    } finally {
+      if (original !== undefined) Object.defineProperty(globalThis, "fetch", original);
+    }
+  });
+
+  test("R1 NEGATIVE CONTROL: with a global fetch present, the wrapper IS installed", () => {
+    // Without this, a fallback that ALWAYS skipped instrumentation would pass
+    // the test above while shipping no retry visibility at all.
+    const client = createReviewerOpenAIClient("sk-test");
+    expect(typeof (client as unknown as { fetch?: unknown }).fetch).toBe("function");
   });
 
   test("installs the retry-visibility fetch on the client", async () => {
