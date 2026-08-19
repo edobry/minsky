@@ -107,8 +107,8 @@ function getDbFromContainer(
  * tracked separately as mt#3609.
  */
 export function registerPrincipalCommands(
-  registry?: SharedCommandRegistry,
-  channelDeps?: PrincipalChannelDeps
+  channelDeps: PrincipalChannelDeps,
+  registry?: SharedCommandRegistry
 ): void {
   const targetRegistry = registry ?? sharedCommandRegistry;
   targetRegistry.registerCommand({
@@ -124,22 +124,17 @@ export function registerPrincipalCommands(
       // a call with no taskId (every caller before this parameter existed,
       // and any caller with nothing to name) needs none of this and reaches
       // notifyPrincipal exactly as it always did.
-      let deps: PrincipalChannelDeps | undefined = channelDeps;
+      let deps: PrincipalChannelDeps = channelDeps;
       if (params.taskId !== undefined) {
         const getDb = getDbFromContainer(ctx);
         if (getDb) {
           deps = {
-            // `?? {}` is a readability no-op, not a bug fix. Object spread of
-            // `undefined` yields no properties and does not throw — only
-            // ARRAY spread (`[...undefined]`) is a TypeError. PR #2566 R1
-            // flagged this as a "possible runtime TypeError"; that was a false
-            // positive, disproved by execution (`{...undefined, a:1}` -> `{a:1}`)
-            // and by the pre-existing passing test "a taskId with persistence
-            // available queries the topic store before sending", which already
-            // takes this exact branch with `channelDeps === undefined`. Written
-            // explicitly to converge the review rather than spend an operator
-            // authorization on a one-line non-issue.
-            ...(channelDeps ?? {}),
+            // `channelDeps` is REQUIRED as of mt#3609, so this spread no longer
+            // needs the `?? {}` guard PR #2566 R1 asked about — there is no
+            // `undefined` case left to spread. The topic hooks are ADDED to the
+            // caller's deps rather than replacing them, so injecting credential
+            // readers does not silently disable topic routing.
+            ...channelDeps,
             lookupTaskTopic: (taskId, chatId) =>
               findTelegramTopicForTask(taskId, chatId, { getDb }),
             markTopicDead: (chatId, messageThreadId) =>
@@ -152,7 +147,7 @@ export function registerPrincipalCommands(
         message: params.message,
         ...(params.title === undefined ? {} : { title: params.title }),
         ...(params.taskId === undefined ? {} : { taskId: params.taskId }),
-        ...(deps ? { deps } : {}),
+        deps,
       });
 
       const human = !params.json && ctx?.format !== "json";

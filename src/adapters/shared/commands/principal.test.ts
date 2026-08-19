@@ -77,6 +77,7 @@ const FORCE_NOT_CONFIGURED: PrincipalChannelDeps = {
   readEnv: () => undefined,
   readPulumiToken: async () => null,
   readPulumiPlain: async () => null,
+  now: Date.now,
   fetchFn: (() => {
     throw new Error(
       "principal.test.ts: fetch reached under FORCE_NOT_CONFIGURED — credential resolution " +
@@ -91,7 +92,7 @@ describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
 
   beforeEach(() => {
     registry = createSharedCommandRegistry();
-    registerPrincipalCommands(registry, FORCE_NOT_CONFIGURED);
+    registerPrincipalCommands(FORCE_NOT_CONFIGURED, registry);
     clearPrincipalChannelCache();
   });
 
@@ -154,12 +155,27 @@ describe("principal.notify (mt#3228 base + mt#3507 taskId)", () => {
     const ORIGINAL_FETCH = globalThis.fetch;
 
     beforeEach(() => {
-      // Re-register WITHOUT FORCE_NOT_CONFIGURED: this block needs the real
-      // resolution path so the env credentials it sets below are the ones used.
-      // Safe because it supplies its own credentials (so the `pulumi` fallback
-      // is never reached) and stubs `globalThis.fetch` per test.
+      // This block needs env-based resolution to SUCCEED, so it injects a
+      // reader that reads the real `process.env` it populates below — rather
+      // than passing no deps at all, which is what it used to do.
+      //
+      // That old form is the defect mt#3609 fixes: "no deps" meant "fall
+      // through to the real readers", and the `pulumi` fallback was avoided
+      // only by the happy accident that env wins when it is set. The Pulumi
+      // readers are now stubbed EXPLICITLY, so this block cannot reach the
+      // `pulumi` CLI even if the env setup below were to fail. `fetchFn`
+      // delegates to `globalThis.fetch`, which each test in this block stubs.
       registry = createSharedCommandRegistry();
-      registerPrincipalCommands(registry);
+      registerPrincipalCommands(
+        {
+          readEnv: (name) => process.env[name],
+          readPulumiToken: async () => null,
+          readPulumiPlain: async () => null,
+          now: Date.now,
+          fetchFn: (url, init) => globalThis.fetch(url, init),
+        },
+        registry
+      );
       clearPrincipalChannelCache();
       process.env[TOKEN_ENV_KEY] = "test-token";
       process.env[CHAT_ENV_KEY] = "999";

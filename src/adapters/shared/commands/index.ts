@@ -50,6 +50,7 @@ import { registerForgeCommands } from "./forge";
 import { registerEventsCommands } from "./events";
 import { registerRefsCommands } from "./refs";
 import { registerPrincipalCommands } from "./principal";
+import { createRealPrincipalChannelDeps } from "@minsky/domain/notify/principal-channel";
 import { registerCalibrationCommands } from "./calibration";
 import { registerSecurityCommands } from "./security";
 import { sharedCommandRegistry } from "../command-registry";
@@ -186,8 +187,12 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register refs commands (id-set cross-reference, mt#2819)
   registerRefsCommands(container);
 
-  // Register principal-channel commands (agent -> principal's phone, mt#3228)
-  registerPrincipalCommands();
+  // Register principal-channel commands (agent -> principal's phone, mt#3228).
+  // The real credential readers + transport are constructed HERE, in the
+  // composition root, rather than fallen back to inside the domain module
+  // (ADR-026, mt#3609) — this call site is what a grep for the production
+  // wiring now finds.
+  registerPrincipalCommands(createRealPrincipalChannelDeps());
 
   // Register security commands (callable credential-shape check, mt#4022)
   registerSecurityCommands();
