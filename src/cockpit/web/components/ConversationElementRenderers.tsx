@@ -89,7 +89,7 @@ const SPAWN_BADGE_CLASS =
  * nothing at all to see. `ring-inset` because these rows have no border to sit
  * outside of — an outset ring on a bare line reads as a stray box.
  */
-const FOCUS_RING =
+export const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded";
 
 /**
@@ -768,9 +768,7 @@ export function ElementView({
           result={element.result}
           entityIndex={entityIndex}
           expandSignal={expandSignal}
-          isAddressed={
-            addressedToolUseId !== undefined && element.call.id === addressedToolUseId
-          }
+          isAddressed={addressedToolUseId !== undefined && element.call.id === addressedToolUseId}
           filmPath={filmPath}
           turnIndex={turnIndex}
         />
