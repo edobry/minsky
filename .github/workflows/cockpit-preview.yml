@@ -103,8 +103,44 @@ jobs:
             exit 1
           fi
 
+          # Consecutive READ failures tolerated before declaring the probe broken.
+          # Derived, not picked (mt#4277): the longest failure burst observed is
+          # 1 (one `error decoding response body` inside nine clean polls on
+          # 2026-08-19T01:07Z), so 3 carries 3x margin over the only sample we
+          # have, and costs 30s of the 10-minute budget — 5% — before it gives
+          # up. If read failures are ever seen in bursts of 3+, revisit this
+          # number rather than the design.
+          MAX_READ_FAILS=3
+          READ_FAILS=0
+
           echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
           for i in $(seq 1 60); do
+            # mt#4277: a failed READ is not an absent deployment. Separate them.
+            #
+            # These are two different ways to learn nothing, and collapsing them
+            # is the same conflation this whole check exists to end, one level
+            # down: `set -o pipefail` turns a transient `railway` error into a
+            # non-zero pipeline, and treating that as "not registered yet" would
+            # burn the full ten minutes and then blame Railway for a deploy that
+            # was healthy. Observed on the first live run: nine clean
+            # INITIALIZING polls, then one `error decoding response body`, and
+            # the step aborted while the deploy was still in flight.
+            #
+            # Keep pipefail — it is what makes the failure detectable at all
+            # (PR #3119 R1) — and handle it here instead.
+            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>&1); then
+              READ_FAILS=$((${READ_FAILS:-0} + 1))
+              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive)"
+              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
+                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
+                echo "$RAW"
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
+
             # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
             # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
             # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
@@ -112,7 +148,7 @@ jobs:
             # in the SAME second as the stamp behind it, and the loop would miss
             # the deployment it is waiting for. jq's fromdateiso8601 rejects the
             # fractional form outright, hence the sub() that trims it.
-            STATUS=$(railway deployment list --json --limit 5 --service cockpit-preview \
+            STATUS=$(printf '%s' "$RAW" \
               | jq -r --arg since "$DEPLOY_STARTED_AT" \
                   '($since | fromdateiso8601) as $t
                    | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
@@ -376,10 +412,46 @@ jobs:
             exit 1
           fi
 
+          # Consecutive READ failures tolerated before declaring the probe broken.
+          # Derived, not picked (mt#4277): the longest failure burst observed is
+          # 1 (one `error decoding response body` inside nine clean polls on
+          # 2026-08-19T01:07Z), so 3 carries 3x margin over the only sample we
+          # have, and costs 30s of the 10-minute budget — 5% — before it gives
+          # up. If read failures are ever seen in bursts of 3+, revisit this
+          # number rather than the design.
+          MAX_READ_FAILS=3
+          READ_FAILS=0
+
           echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
           for i in $(seq 1 60); do
             # Newest-first; take the newest deployment created at or after the
             # upload. An empty result means Railway has not registered it yet.
+            # mt#4277: a failed READ is not an absent deployment. Separate them.
+            #
+            # These are two different ways to learn nothing, and collapsing them
+            # is the same conflation this whole check exists to end, one level
+            # down: `set -o pipefail` turns a transient `railway` error into a
+            # non-zero pipeline, and treating that as "not registered yet" would
+            # burn the full ten minutes and then blame Railway for a deploy that
+            # was healthy. Observed on the first live run: nine clean
+            # INITIALIZING polls, then one `error decoding response body`, and
+            # the step aborted while the deploy was still in flight.
+            #
+            # Keep pipefail — it is what makes the failure detectable at all
+            # (PR #3119 R1) — and handle it here instead.
+            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>&1); then
+              READ_FAILS=$((${READ_FAILS:-0} + 1))
+              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive)"
+              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
+                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
+                echo "$RAW"
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
+
             # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
             # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
             # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
@@ -387,7 +459,7 @@ jobs:
             # in the SAME second as the stamp behind it, and the loop would miss
             # the deployment it is waiting for. jq's fromdateiso8601 rejects the
             # fractional form outright, hence the sub() that trims it.
-            STATUS=$(railway deployment list --json --limit 5 --service cockpit-preview \
+            STATUS=$(printf '%s' "$RAW" \
               | jq -r --arg since "$DEPLOY_STARTED_AT" \
                   '($since | fromdateiso8601) as $t
                    | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
