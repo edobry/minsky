@@ -55,6 +55,18 @@ export interface TranscriptTurnResult {
   agentSessionId: string;
   turnIndex: number;
   userText: string | null;
+  /**
+   * Who authored `userText` (mt#4289) — `"human"` for operator speech, a
+   * harness kind (`compact_summary`, `harness_meta`, `task_notification`, …)
+   * for a `user`-role line Claude Code generated. Null when the turn carries no
+   * `userText`.
+   *
+   * Read this before treating a `role: "user"` hit as something the operator
+   * said: measured against prod 2026-08-19, 43.5% of turns carrying `userText`
+   * are harness-written. `originKind` on the search options filters on it
+   * server-side.
+   */
+  userOrigin: string | null;
   assistantText: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
@@ -257,6 +269,7 @@ export class TranscriptSimilarityService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -285,6 +298,7 @@ export class TranscriptSimilarityService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
@@ -385,6 +399,7 @@ export class TranscriptSimilarityService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -412,6 +427,7 @@ export class TranscriptSimilarityService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
