@@ -111,6 +111,38 @@ describe("disclosure-control hover affordance (mt#4251)", () => {
     expect(wrapper!.className).not.toContain("hover:bg-");
   });
 
+  test("an errored row gains the affordance without losing its destructive treatment", () => {
+    // The two live on DIFFERENT elements — destructive border/tint on the
+    // anchored wrapper, hover on the row container inside it — so "both apply"
+    // is a real claim about nesting, not a restatement of the CSS. An errored
+    // row is also the one case that is expanded by default, and hovering it
+    // must not be the thing that changes that.
+    const { container } = wrap(
+      <ToolInvocation
+        call={{ kind: "tool-call", id: "call-err", name: "Bash", input: {} }}
+        result={{
+          kind: "tool-result",
+          toolUseId: "call-err",
+          content: "boom",
+          isError: true,
+          isInterruptionRejection: false,
+        }}
+        entityIndex={EMPTY_INDEX}
+        expandSignal={undefined}
+      />
+    );
+
+    const wrapper = container.querySelector<HTMLElement>("[data-tool-use-id]")!;
+    expect(wrapper.className).toContain("border-destructive/50");
+    expect(wrapper.className).toContain("bg-destructive/5");
+
+    const target = hoverTarget(container);
+    expect(target).not.toBeNull();
+    expect(target!.className).toContain("w-full");
+    // Still open by default: the affordance is additive to the error path.
+    expect(container.querySelector("button")!.getAttribute("aria-expanded")).toBe("true");
+  });
+
   test("the injected-span toggle carries it", () => {
     const { container } = wrap(
       <InjectedContentBlock
