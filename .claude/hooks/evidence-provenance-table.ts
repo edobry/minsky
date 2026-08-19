@@ -410,7 +410,40 @@ export function callNamesSubject(call: ToolCallWithResult, tokens: readonly stri
  * it cannot be produced without the run. A fabricated paste matches nothing and
  * still fires, which is the case this guard exists for.
  */
-const QUOTED_FAILURE_LINE_RE = /^.*\(fail\).+$/gm;
+const QUOTED_FAILURE_LINE_RE = /\(fail\)/;
+
+/**
+ * The other shapes a record pastes when it reports a run (mt#4067).
+ *
+ * MEASURED over the live window, not anticipated: 553 calibration records / 96
+ * fires, of which **58 (60.4%) had a FAILING test run in the same session before
+ * the call** and still fired — the run happened and neither join found it. The
+ * `(fail)` line above is the only paste the join accepted, and a large share of
+ * genuine controls do not paste one. They paste the runner's SUMMARY
+ * (`5466 pass`, `Ran 5456 tests across 153 files`) or a hand-rolled harness's
+ * result table (`PASS  expected=false ...`, `exit=0`).
+ *
+ * Widening the ACCEPTED SHAPES does not weaken the join, because the property
+ * that makes it sound is unchanged and lives at the other end: the line must
+ * still appear VERBATIM in a real failing run's output, and still clear
+ * {@link MIN_QUOTED_LINE_LENGTH}. A 30-plus-character line reproduced exactly
+ * cannot be produced without the run, whichever shape it has — while a fabricated
+ * paste matches nothing and still fires, which is the case this guard exists for.
+ *
+ * Deliberately NOT included: a bare tally with no other content (`3 fail`). It is
+ * under the length floor, and it is the one shape a fabricator could type from
+ * memory and have match a real run that happened for unrelated reasons.
+ */
+const QUOTED_RESULT_LINE_MARKERS: readonly RegExp[] = [
+  QUOTED_FAILURE_LINE_RE,
+  /\b\d+\s+(?:pass|fail)(?:ed|ing|ures?)?\b/i,
+  /^\s*(?:PASS|FAIL)\b/,
+  /\bRan\s+\d+\s+tests?\b/i,
+  /\bexit=\d+\b/,
+  /\bexpected=\S+/,
+  /\bAssertionError\b/,
+  /error:\s*expect\(/,
+];
 
 /**
  * Below this a quoted line is too short to be evidence of anything. A bare
@@ -419,10 +452,68 @@ const QUOTED_FAILURE_LINE_RE = /^.*\(fail\).+$/gm;
  */
 const MIN_QUOTED_LINE_LENGTH = 30;
 
-/** Failing-run lines the record quotes, as literal strings to look for. */
+/**
+ * ANSI SGR escapes, stripped from both sides before comparison (PR #3143 R1).
+ *
+ * Semantics-preserving by construction — a colour code carries no content — so
+ * this cannot merge two lines that differ in what they SAY, which is the
+ * property that makes it safe to apply to a join whose whole job is precision.
+ *
+ * MEASURED as currently inert: 0 of 186 real failing-run tool results across 12
+ * recent transcripts contain an escape sequence, because bun's output reaches
+ * the transcript already plain. It is forward-insurance against a runner that
+ * colourises, not a fix for an observed miss.
+ */
+
+// Matching the ESC control character IS the intent: ANSI SGR sequences are
+// DEFINED by it, so there is no non-control spelling to prefer.
+// eslint-disable-next-line no-control-regex -- see the two lines above
+const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+/** Strip decorations that carry no content, for verbatim comparison. */
+function normalizeForComparison(text: string): string {
+  return text.replace(ANSI_ESCAPE_RE, "");
+}
+
+/**
+ * Sanity bound on lines carried forward — NOT a recall bound (PR #3143 R1).
+ *
+ * The first cut capped this at 20, which could drop the one line that would have
+ * discharged when a record pastes a long run: the opposite of this change's
+ * purpose. The cap now sits far above any real paste (the largest judged artifact
+ * in the live window is ~12KB, a few hundred lines) and exists only so a
+ * pathological input cannot make the join unbounded. Cost is bounded at the join
+ * instead, which short-circuits on the first match.
+ */
+const MAX_QUOTED_LINES = 500;
+
+/**
+ * The STRICT subset: only `(fail)` lines (mt#4067).
+ *
+ * Adjudicability and discharge are deliberately asymmetric, and the asymmetry is
+ * measured. Widening {@link extractQuotedFailures} to summaries and harness
+ * tables let more records DISCHARGE — and also dragged 22 records out of
+ * `unadjudicable` into `undischarged`, because the verdict treats "carries a
+ * quotable line" as "is judgeable". Net effect on the live corpus was fires
+ * 108 -> 129: worse, not better.
+ *
+ * So the widened shapes are a discharge SIGNAL, never grounds to condemn. A
+ * summary line that MATCHES a real run is proof the run happened; a summary line
+ * that matches nothing is not proof it did not, because the summary is weak
+ * evidence either way. Only a pasted `(fail)` line is distinctive enough to make
+ * a record judgeable on its absence — which is the direction-of-error rule this
+ * module's header states: an unrecognized shape must not fire the guard at an
+ * author who ran their tests.
+ */
+export function extractStrictQuotedFailures(record: string): string[] {
+  return extractQuotedFailures(record).filter((l) => QUOTED_FAILURE_LINE_RE.test(l));
+}
+
+/** Run-output lines the record quotes, as literal strings to look for. */
 export function extractQuotedFailures(record: string): string[] {
   const out: string[] = [];
-  for (const raw of record.match(QUOTED_FAILURE_LINE_RE) ?? []) {
+  for (const raw of record.split("\n")) {
+    if (!QUOTED_RESULT_LINE_MARKERS.some((re) => re.test(raw))) continue;
     // Drop the runner's per-test duration: the paste and the live result agree
     // on the name but a re-run's timing differs, and the timing is the tail of
     // the line, so keeping it would defeat every comparison.
@@ -431,16 +522,28 @@ export function extractQuotedFailures(record: string): string[] {
       .replace(/\s*\[[\d.]+m?s\]\s*$/, "")
       .trim();
     if (line.length >= MIN_QUOTED_LINE_LENGTH && !out.includes(line)) out.push(line);
+    if (out.length >= MAX_QUOTED_LINES) break;
   }
   return out;
 }
 
-/** True when the call's output contains one of the record's quoted failure lines. */
+/**
+ * True when the call's output contains one of the record's quoted lines.
+ *
+ * Both sides are ANSI-stripped first (PR #3143 R1). Deliberately NOT
+ * whitespace-collapsed: measured over the live corpus, collapsing bought ZERO
+ * additional discharges (69 records carrying quoted lines with a failing output
+ * in-session: 52 matched exactly, 52 with whitespace collapsed, 52 with a
+ * trailing stack suffix stripped), while it CAN merge two lines that differ only
+ * in spacing — a real loosening of a join whose job is precision, for no measured
+ * gain. `.some()` short-circuits, which is what bounds the cost.
+ */
 export function callContainsQuotedFailure(
   call: ToolCallWithResult,
   quoted: readonly string[]
 ): boolean {
-  return quoted.some((line) => call.resultText.includes(line));
+  const haystack = normalizeForComparison(call.resultText);
+  return quoted.some((line) => haystack.includes(normalizeForComparison(line)));
 }
 
 // ---------------------------------------------------------------------------

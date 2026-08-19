@@ -243,6 +243,133 @@ describe("judgeClaims", () => {
     expect(runOutput).not.toContain("[3.1ms]");
   });
 
+  // -------------------------------------------------------------------------
+  // mt#4067 — the quoted join accepts run output that is not a `(fail)` line.
+  //
+  // Measured over the live window (553 records / 96 fires): 58 fires had a
+  // FAILING run in the same session and still fired. A share of them paste the
+  // runner's SUMMARY or a hand-rolled harness table rather than `(fail)` lines,
+  // which the join could not see. Paired same-corpus replay: 109 -> 106 fires.
+  // -------------------------------------------------------------------------
+
+  test("a pasted runner SUMMARY that appears verbatim in the run discharges", () => {
+    const record = [
+      "Negative control — reverted the guard and re-ran the suite:",
+      "",
+      "```",
+      "Ran 5456 tests across 153 files. [21.61s]",
+      "```",
+    ].join("\n");
+    const runOutput = "bun test v1.3.14\n 2 fail\nRan 5456 tests across 153 files. [21.61s]";
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, runOutput));
+    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+  });
+
+  test("a hand-rolled harness result line discharges on a verbatim match", () => {
+    const record = [
+      "Negative control — the predicate run over 8 shapes:",
+      "",
+      "```",
+      "PASS  expected=true  new=true  old=false z.coerce.number().optional()",
+      "```",
+    ].join("\n");
+    const runOutput =
+      "bun test harness\n 1 fail\nPASS  expected=true  new=true  old=false z.coerce.number().optional()";
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, runOutput));
+    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+  });
+
+  // REGRESSION PIN for the defect the first cut of this tune introduced.
+  // Widening the quoted set without splitting discharge from adjudicability let
+  // a summary line make a record JUDGEABLE, so 22 records moved from
+  // `unadjudicable` to `undischarged` and the live fire count went 108 -> 129 —
+  // worse than the baseline it was meant to improve. The widened shapes are a
+  // discharge signal only; only a `(fail)` line makes absence meaningful.
+  test("a summary-only record with no subject stays UNADJUDICABLE, never a fire", () => {
+    const record = [
+      "Negative control — reverted and re-ran:",
+      "",
+      "```",
+      "Ran 5456 tests across 153 files. [21.61s]",
+      "```",
+    ].join("\n");
+    // A failing run exists, but nothing in it matches the paste.
+    const calls = findToolCallsWithResults(
+      testRun(TEST_CMD, "(fail) Unrelated > other [1ms]\n 1 fail")
+    );
+    const v = judgeClaims(record, calls)[0];
+    expect(v?.kind).toBe("negative-control");
+    expect(v?.verdict).toBe("unadjudicable");
+    expect(v?.verdict).not.toBe("undischarged");
+  });
+
+  test("a fabricated SUMMARY paste does not discharge — the verbatim match still binds", () => {
+    const record = [
+      "Negative control — invented:",
+      "",
+      "```",
+      "Ran 9999 tests across 999 files. [0.01s]",
+      "```",
+    ].join("\n");
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, "(fail) Real > case [1ms]\n 1 fail"));
+    // It carries no `(fail)` line, so absence is not condemnable -> unadjudicable,
+    // but crucially it is NOT discharged: the paste bought nothing.
+    expect(judgeClaims(record, calls)[0]?.verdict).not.toBe("discharged");
+  });
+
+  // PR #3143 R1 — the reviewer's brittleness concern, pinned rather than argued.
+  // Measured on the live corpus before responding: 0 of 186 real failing-run
+  // tool results carry ANSI, and whitespace-collapsing or stack-stripping bought
+  // ZERO additional discharges over 69 records. ANSI stripping is applied anyway
+  // (semantics-preserving, so it cannot merge lines that differ in content);
+  // whitespace collapsing is declined because it CAN, for no measured gain.
+
+  test("ANSI colour in the run output does not defeat the join", () => {
+    const record = [
+      "Negative control — reverted and re-ran:",
+      "",
+      "```",
+      "(fail) TabCloseBridge > closes the ACTIVE tab when one is focused",
+      "```",
+    ].join("\n");
+    const coloured =
+      "\u001b[31m(fail)\u001b[0m TabCloseBridge > closes the ACTIVE tab when one is focused\n 1 fail";
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, coloured));
+    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+  });
+
+  test("differing internal whitespace still does NOT match — collapsing is declined", () => {
+    // Characterizes the deliberate limit. Collapsing would discharge this, and it
+    // measured zero real cases, so the join stays strict here.
+    const record = [
+      "Negative control:",
+      "",
+      "```",
+      "(fail) TabCloseBridge  >  closes the ACTIVE tab when one is focused",
+      "```",
+    ].join("\n");
+    const calls = findToolCallsWithResults(
+      testRun(
+        TEST_CMD,
+        "(fail) TabCloseBridge > closes the ACTIVE tab when one is focused\n 1 fail"
+      )
+    );
+    expect(judgeClaims(record, calls)[0]?.verdict).not.toBe("discharged");
+  });
+
+  test("a matching line beyond the 20th is still found — the cap is not a recall bound", () => {
+    // R1 NON-BLOCKING: the first cut capped extraction at 20 lines, which could
+    // drop the only line that would have discharged in a long pasted run.
+    const filler = Array.from(
+      { length: 30 },
+      (_, i) => `(fail) FillerSuite > case number ${i} that is long enough to clear the floor`
+    );
+    const theMatch = "(fail) RealSuite > the only case that actually appears in the run output";
+    const record = ["Negative control:", "", "```", ...filler, theMatch, "```"].join("\n");
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, `${theMatch}\n 1 fail`));
+    expect(judgeClaims(record, calls)[0]?.verdict).toBe("discharged");
+  });
+
   test("a FABRICATED paste matches nothing and still fires", () => {
     // The whole point of preferring the quoted join: it cannot be satisfied
     // without the run, so widening it to kill the false positives above does not
