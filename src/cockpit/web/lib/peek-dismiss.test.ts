@@ -9,9 +9,11 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import {
   PEEK_PANE_ATTR,
+  PEEK_ASSEMBLY_ATTR,
   ENTITY_REF_ATTR,
   isInsidePeekPane,
   isInsideEntityRef,
+  isInsidePeekAssembly,
   shouldDismissPeek,
   outsideEventTarget,
 } from "./peek-dismiss";
@@ -91,6 +93,36 @@ describe("shouldDismissPeek", () => {
     expect(shouldDismissPeek(document)).toBe(true);
     expect(shouldDismissPeek(null)).toBe(true);
     expect(shouldDismissPeek(undefined)).toBe(true);
+  });
+});
+
+describe("isInsidePeekAssembly (mt#4261)", () => {
+  test("true for assembly chrome that is not a pane", () => {
+    // The resize divider is the case this exists for: a flex sibling of the
+    // panes, so every pane's Radix layer reports it as OUTSIDE, and the drag's
+    // first pointerdown would close the assembly under the operator's cursor.
+    const host = mount(
+      `<div ${PEEK_ASSEMBLY_ATTR}="true"><div role="separator" id="divider"></div><div ${PEEK_PANE_ATTR}="true"></div></div>`
+    );
+    expect(isInsidePeekAssembly(host.querySelector("#divider"))).toBe(true);
+    expect(shouldDismissPeek(host.querySelector("#divider"))).toBe(false);
+  });
+
+  test("false for page chrome outside the assembly", () => {
+    // The control: the exemption discriminates rather than exempting everything.
+    // Without this the assertion above would pass on a predicate hardwired to
+    // `false`, which is exactly the vacuous shape mem#1046 records for this
+    // component's tests.
+    const host = mount(
+      `<div ${PEEK_ASSEMBLY_ATTR}="true"><div id="divider"></div></div><p id="chrome">page</p>`
+    );
+    expect(isInsidePeekAssembly(host.querySelector("#chrome"))).toBe(false);
+    expect(shouldDismissPeek(host.querySelector("#chrome"))).toBe(true);
+  });
+
+  test("false for a non-Element target", () => {
+    expect(isInsidePeekAssembly(document)).toBe(false);
+    expect(isInsidePeekAssembly(null)).toBe(false);
   });
 });
 

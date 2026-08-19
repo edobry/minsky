@@ -434,7 +434,8 @@ Gate criterion (h).
 If none of these apply, this criterion passes automatically. State that explicitly:
 "(h) No contract modification — criterion passes."
 
-**Consumer enumeration heuristic by change type.** For each category of change, the spec's
+**Consumer enumeration heuristic by change type.** For each category the change falls under —
+possibly MORE THAN ONE, per the union rule immediately below the table — the spec's
 \`## Scope\` → \`In scope\` list must cover all of the following:
 
 | Change type               | Consumers to enumerate                                                                                                           |
@@ -444,6 +445,33 @@ If none of these apply, this criterion passes automatically. State that explicit
 | Env-var rename            | All reads in \`src/\`, \`services/\`, \`scripts/\`, \`.github/\` **and** deployed-environment artifacts (see below)                      |
 | Config key / schema field | All reads in \`src/\`, \`tests/\`, \`services/\`, \`.github/\`, \`docs/\` **and** deployed-environment artifacts (see below)               |
 | Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the \`*.test.ts\` beside the command), skill, rule and \`docs/\` text that shows a call, and the generated CLI/MCP surface (\`src/generated/completion-manifest.json\`) |
+
+**Take the UNION of every row that applies — never pick one (mt#4265).** An artifact routinely
+belongs to more than one row, and the rows prescribe DIFFERENT directories: \`Function / type
+signature\` omits \`docs/\`; \`Config key / schema field\` includes it. When more than one row
+applies, the enumeration covers the UNION of their consumer sets, and the audit NAMES every row
+it unioned. There is no tie-break to get right, because there is no tie to break.
+
+**Row membership follows the artifact's EXPOSURE, not how the change is DECLARED.** The
+declaration cannot discriminate: an internal-only type and a type serialized into an HTTP
+response produce identical-looking diff hunks, and only the second one's consumers include
+\`docs/\`. So ask what the artifact is READ THROUGH — a route's response body, a golden contract
+fixture (\`contract/*.json\`), a generated manifest, a config file, a command's params map — and
+take every row that answer reaches.
+
+Worked example (mt#4252): a field added to a TypeScript discriminated union that \`GET
+/api/health\` serializes. DECLARED as a type, so the diff suggests \`Function / type signature\`,
+whose set has no \`docs/\`. EXPOSED as a response schema, so \`Config key / schema field\` applies
+too — and the union reaches \`docs/\`, where \`docs/principal-channel.md\` enumerated that same
+union and stated its field lists were "exhaustive per variant". The change made the doc's own
+sentence false rather than merely dating it. The sweep that ran was thorough on the row it
+picked; PICKING was the defect, and the reviewer caught it as BLOCKING.
+
+**Why a union instead of a better-worded row.** The previous instance (mt#3969) was answered by
+ADDING a row, and row-selection failed again seven days later — enlarging a choice does not help
+someone making it wrongly. This gate's own origin memo (2026-05-07, "contract propagation as
+design-time discipline") had already framed the categories as ones that "all qualify"; the
+exclusivity arrived later, with the table that rendered them as rows.
 
 **Callers of a COMMAND are a different population from callers of the FUNCTION behind it
 (mt#3969).** The row above exists because the two rows above it cannot find them:
@@ -479,9 +507,11 @@ following deployed-environment locations must be explicitly checked and enumerat
 1. Read the spec and identify whether it describes any of the trigger-condition change types.
    If not, record "(h) passes — no contract modification."
 2. If triggered, identify the specific artifact(s) being changed (names, paths, key names).
-3. For each artifact, look up its consumer class in the heuristic table above.
-4. Verify the spec's \`## Scope\` → \`In scope\` list covers each consumer class. Missing
-   consumer classes are blocking gaps.
+3. For each artifact, look up EVERY row of the heuristic table it is reachable through — by
+   EXPOSURE, not by how the change is declared — and take the UNION of those rows' consumer
+   sets. An artifact reachable through one row has one; a serialized type routinely has two.
+4. Verify the spec's \`## Scope\` → \`In scope\` list covers every consumer class in that union,
+   and that the audit NAMES the rows it unioned. Missing consumer classes are blocking gaps.
 5. For env-var and config-key changes specifically: confirm the spec explicitly addresses each
    of the three deployed-environment artifact categories, either enumerating consumers or
    stating "no consumers in this category."

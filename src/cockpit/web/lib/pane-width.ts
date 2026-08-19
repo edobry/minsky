@@ -70,9 +70,9 @@ export function clampPaneWidth(requested: number, bounds: PaneWidthBounds): numb
 }
 
 /**
- * Read a persisted pane width, falling back to `fallback` for anything this
- * surface cannot use: no stored value, a value that does not parse as a finite
- * number, or a value outside `bounds`.
+ * Read a persisted pane width, or `null` when this surface cannot use what is
+ * stored: no stored value, a value that does not parse as a finite number, or a
+ * value outside `bounds`.
  *
  * Out-of-range is treated as absent rather than clamped on purpose. A stored
  * value outside the bounds means the bounds moved (a redesign, a renamed key
@@ -82,23 +82,44 @@ export function clampPaneWidth(requested: number, bounds: PaneWidthBounds): numb
  *
  * Never throws: `localStorage` access itself raises in a sandboxed iframe and
  * under some privacy modes, and a pane width is not worth failing a render over.
+ *
+ * **Why this returns `null` rather than a fallback (mt#4261).** `loadPaneWidth`
+ * below is the ergonomic form and remains what a host with a CONSTANT default
+ * should call. A host whose default is DERIVED from something live — the peek's
+ * default is a function of viewport width — cannot use it: seeding state with
+ * `loadPaneWidth(key, derivedDefault, …)` freezes the derived value at first
+ * render, so "no preference set" silently stops tracking the thing it derives
+ * from. Such a host needs to know whether a preference EXISTS, which a value
+ * that is indistinguishable from a legitimately-stored one cannot tell it.
+ */
+export function readPaneWidth(
+  storageKey: string,
+  bounds: Pick<PaneWidthBounds, "min" | "max">
+): number | null {
+  let raw: string | null = null;
+  try {
+    raw = localStorage.getItem(storageKey);
+  } catch {
+    return null;
+  }
+  if (raw === null || raw.trim() === "") return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed < bounds.min || parsed > bounds.max) return null;
+  return Math.round(parsed);
+}
+
+/**
+ * Read a persisted pane width, falling back to `fallback` for anything this
+ * surface cannot use. Thin wrapper over `readPaneWidth` — see its doc for the
+ * unusable cases and why out-of-range is treated as absent.
  */
 export function loadPaneWidth(
   storageKey: string,
   fallback: number,
   bounds: Pick<PaneWidthBounds, "min" | "max">
 ): number {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(storageKey);
-  } catch {
-    return fallback;
-  }
-  if (raw === null || raw.trim() === "") return fallback;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return fallback;
-  if (parsed < bounds.min || parsed > bounds.max) return fallback;
-  return Math.round(parsed);
+  return readPaneWidth(storageKey, bounds) ?? fallback;
 }
 
 /** Persist a pane width. Silently no-ops when storage is unavailable. */

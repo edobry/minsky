@@ -176,6 +176,8 @@ describe("the ledger is seeded and internally consistent (mt#4248)", () => {
     expect(doc).toContain("agent_transcript_turns");
     // The verdict must carry the finding that makes it actionable, not just "feasible".
     expect(doc).toContain("The filtering is the build, not the query");
-    expect(doc).toContain("99.0% of the column's characters are agent-authored");
+    // mt#4264 re-verified this figure against the fixed script: 99.0% -> 99.1% as the
+    // 25-most-recent-transcript window moved (not a correction to the measurement itself).
+    expect(doc).toContain("99.1% of the column's characters are agent-authored");
   });
 });

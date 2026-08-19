@@ -37,15 +37,27 @@ Three properties are load-bearing and easy to break:
 
 - **The pathname never changes.** Pane state lives entirely in a `?peek=` query parameter,
   derived on every render with no second copy (`lib/peek.ts`). That is simultaneously why the
-  peek is URL-addressable, why Back closes it, why it is ephemeral with nothing persisted —
-  and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
+  peek is URL-addressable, why Back closes it, why the pane LIST is ephemeral with nothing
+  persisted — and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
   `matchEntityRoute(pathname)` and a search-only change cannot reach it. **A peek therefore
   cannot be implemented as a route change**; that is the constraint the whole design turns on.
-- **The panes are non-modal, and do not dismiss on outside interaction.** Coexisting with a
-  live page is the feature. Radix's default treats any outside click as a dismissal, which
-  silently breaks the hold gesture — a shift-click lands outside the open pane, so the pane
-  closes at the same moment the hold opens the next one. `PeekHost` prevents all three
-  outside-interaction events. Non-modal also means panes do NOT trap focus (verified in
+
+  Read "nothing persisted" as scoped to the pane list, which is what the URL contract is about.
+  The pane WIDTH is a separate dimension and deliberately does persist, in `localStorage` via
+  `lib/peek-width.ts` (mt#4261) — a durable preference about this screen rather than part of the
+  peek's address, so a copied peek link carries which entities are open and never the copier's
+  window size.
+
+- **The panes are non-modal, and an outside CLICK dismisses the whole assembly.** Coexisting
+  with a live page is the feature, so there is no scrim and clicks reach the page behind. What
+  "outside" means is the load-bearing part: Radix computes it PER PANE, and taking that reading
+  literally would break the hold gesture — a shift-click lands outside the open pane, so the
+  pane would close at the same moment the hold opened the next one. `lib/peek-dismiss.ts` owns
+  the verdict instead, exempting every pane, every entity ref, and the assembly's own chrome
+  (mt#4143 per operator decision ask#8509; the chrome exemption is mt#4261's resize divider,
+  which is a flex sibling of the panes and so "outside" all of them). Esc remains the
+  one-pane-at-a-time unwind, and the FOCUS path never dismisses — tabbing behind a pane is not
+  a dismissal gesture. Non-modal also means panes do NOT trap focus (verified in
   `@radix-ui/react-dialog@1.1.15`: `DialogContentNonModal` sets `trapFocus: false`), which is
   unavoidable — a focus trap needs exactly one region to trap into, and the hold gesture
   allows two live panes.

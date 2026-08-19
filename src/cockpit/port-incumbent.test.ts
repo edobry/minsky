@@ -158,6 +158,30 @@ describe("parseElapsedSeconds — ps -o etime=", () => {
     }
   );
 
+  // mt#4260. The regex matches POSITIONS and bounds no field, so every case
+  // below used to parse into a confident seconds count. The last one is the
+  // value a `test-forced-tz` CI run actually reported on 2026-08-18 — an age of
+  // ~1.2 million years for a `sleep` spawned microseconds earlier.
+  test.each([
+    ["00:99"], // seconds past a clock field
+    ["99:00"], // minutes past a clock field
+    ["24:00:00"], // hours past 23 — procps rolls into the days field instead
+    ["0-99:99:99"], // every field out of range at once
+    ["99999999:00:00"],
+    ["10585853616:18:40"], // == 38,109,073,018,720s, the observed CI value
+  ])("returns null for out-of-range %p rather than summing it", (raw) => {
+    expect(parseElapsedSeconds(raw as string)).toBeNull();
+  });
+
+  test("the documented rendering's boundary values still parse", () => {
+    // The bound must reject garbage without rejecting legitimate maxima, or it
+    // trades a fabricated age for a spurious null.
+    expect(parseElapsedSeconds("23:59:59")).toBe(86_399);
+    expect(parseElapsedSeconds("0-23:59:59")).toBe(86_399);
+    // Days is genuinely unbounded — a process can run for years.
+    expect(parseElapsedSeconds("3650-00:00:00")).toBe(315_360_000);
+  });
+
   test("a live process yields a plausible start time, and a dead pid yields null", () => {
     // The end-to-end shell-out — the exact check that caught the `etimes` bug.
     const child = Bun.spawn(["sleep", "30"]);
