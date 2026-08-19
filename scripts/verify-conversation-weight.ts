@@ -187,6 +187,16 @@ type Measurement = {
   toolRowCount: number;
   proseCount: number;
   /**
+   * Every `div.break-words` in the thread, unscoped (mt#4278).
+   *
+   * Not an assertion of its own — it exists so a `proseCount` of 0 can be
+   * ATTRIBUTED. Zero prose with zero break-words is a specimen that has no
+   * prose in it; zero prose with a positive total is a selector that has
+   * stopped matching. Those want opposite responses, and for the whole life of
+   * this script they produced the same sentence.
+   */
+  breakWordsTotal: number;
+  /**
    * Folded action bursts currently rendered (mt#4250).
    *
    * Reported beside `turnCount` and `toolRowCount` for the same reason those
@@ -258,9 +268,22 @@ const MEASURE = `(() => {
   // is nested inside its own block wrapper. Structural, not a class match on
   // \`text-foreground\` — keying on the class under test would make the assertion
   // circular.
+  //
+  // Anchored on \`[data-testid="turn-elements"]\`, NOT on \`> div:last-child\`
+  // (mt#4278). The positional form expressed the same intent and stopped being
+  // true 38 minutes after it was written: mt#3845 moved the film link below the
+  // element stack, so a turn's last child became an \`<a>\`, no div matched, and
+  // this count sat at 0 on every conversation — the script failing at the
+  // has-no-prose branch below without anyone reading it as instrument breakage.
+  // The direct-child \`>\` is retained because it is what does the discriminating.
   const proseEls = Array.from(
-    thread.querySelectorAll('[data-turn-index] > div:last-child > div.break-words')
+    thread.querySelectorAll('[data-testid="turn-elements"] > div.break-words')
   );
+  // Every prose-bearing block in the thread, scoped to nothing. Its only job is
+  // to tell the two zero-cases apart below: a specimen with no prose in it, and
+  // a selector that has stopped matching. Those need opposite responses and
+  // produced identical output until mt#4278.
+  const breakWordsTotal = thread.querySelectorAll('div.break-words').length;
 
   // Alpha-0 in ANY notation, not just the one literal form. getComputedStyle
   // returns \`rgba(0, 0, 0, 0)\` for \`transparent\` on most engines, but a token
@@ -305,6 +328,7 @@ const MEASURE = `(() => {
     turnCount: thread.querySelectorAll('[data-turn-index]').length,
     toolRowCount: toolRows.length,
     proseCount: proseEls.length,
+    breakWordsTotal,
     burstFoldCount: thread.querySelectorAll('[data-testid="action-burst-toggle"]').length,
     enclosedToolRows: enclosed,
     erroredToolRows: errored,
@@ -448,8 +472,24 @@ try {
       "conversation has no tool calls — pick a tool-dense conversation, this run proves nothing"
     );
   }
+  // A zero prose count has two causes that want OPPOSITE responses, and until
+  // mt#4278 both printed the same sentence — which is how a broken selector
+  // survived as "pick a better conversation" for as long as it did.
   if (m.proseCount === 0) {
-    fail("conversation has no prose blocks — the hierarchy comparison has no left-hand side");
+    if (m.breakWordsTotal > 0) {
+      fail(
+        `THE INSTRUMENT IS BROKEN, not the conversation: the prose selector matched 0 of ` +
+          `${m.breakWordsTotal} \`div.break-words\` blocks in this thread. Assistant speech is ` +
+          `addressed as a direct child of \`[data-testid="turn-elements"]\` — check that the ` +
+          `anchor still exists on the element stack in ConversationTurnView.tsx before ` +
+          `re-running against another conversation`
+      );
+    } else {
+      fail(
+        "conversation has no prose blocks at all — the hierarchy comparison has no left-hand " +
+          "side. This one is the SPECIMEN: pick a conversation containing assistant speech"
+      );
+    }
   }
 
   // 2. The hierarchy itself: prose paints brighter than machinery.

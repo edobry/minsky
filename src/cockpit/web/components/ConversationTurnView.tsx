@@ -394,7 +394,20 @@ function TurnSegment({
           )}
         </div>
       )}
-      <div className="flex flex-col gap-2">{rendered}</div>
+      {/*
+        `data-testid` is load-bearing, not a test convenience (mt#4278).
+        `scripts/verify-conversation-weight.ts` needs to address THIS wrapper to
+        find assistant speech, and it used to do so positionally, as
+        `[data-turn-index] > div:last-child`. mt#3845 then moved the film link
+        below this div, so the last child became an `<a>`, no div matched, and
+        the script's prose count silently went to zero — taking with it the one
+        assertion no unit test can make. A named anchor survives any number of
+        trailing siblings; a positional one waits for the next change to add
+        one.
+      */}
+      <div data-testid="turn-elements" className="flex flex-col gap-2">
+        {rendered}
+      </div>
       {/*
         Turn-grain film link (mt#3794). Gated on a KNOWN `turnIndex`: a
         live-tail block the snapshot never stamped has no address, so there is
