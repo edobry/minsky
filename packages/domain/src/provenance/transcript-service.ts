@@ -28,6 +28,7 @@ import { promises as fs } from "fs";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import type { AgentSessionId } from "../transcripts/transcript-source";
+import { isOperatorAuthored } from "../transcripts/user-line-origin";
 import { provenanceTable } from "../storage/schemas/provenance-schema";
 import { log } from "@minsky/shared/logger";
 
@@ -80,6 +81,35 @@ export interface TranscriptMessage {
   timestamp?: string;
   uuid?: string;
   model?: string;
+  /**
+   * Harness provenance markers, carried verbatim from the stored line (mt#4289).
+   *
+   * Declared for the same reason `message` is: they ARE on every live row —
+   * `getTranscript` casts the stored JSONB straight to this type — and omitting
+   * them from the declaration is what made a machine-written compact summary
+   * indistinguishable from operator speech at every reader of this interface.
+   * Do not branch on them directly; call `isOperatorAuthored` from
+   * `../transcripts/user-line-origin`, which knows their precedence.
+   */
+  isCompactSummary?: boolean;
+  isMeta?: boolean;
+  origin?: { kind?: string };
+  promptSource?: string;
+}
+
+/**
+ * True iff this message is the OPERATOR speaking, rather than a `user`-role
+ * line Claude Code generated (mt#4289).
+ *
+ * Both counts below used a bare `type === "user"` test, which reads a compact
+ * summary, an injected skill body, and a background-task notification as things
+ * the human said. `countCorrections` was the sharper case: a compact summary
+ * NARRATES the corrections in the conversation it summarizes, so it matches
+ * `CORRECTION_PATTERNS` almost by construction and inflated the count with the
+ * conversation's own history.
+ */
+function isOperatorMessage(msg: TranscriptMessage): boolean {
+  return msg.type === "user" && isOperatorAuthored(msg);
 }
 
 /** Statistics computed from a stored transcript. */
@@ -119,8 +149,9 @@ function countCorrections(messages: TranscriptMessage[]): number {
   for (let i = 1; i < messages.length; i++) {
     const msg = messages[i] as TranscriptMessage;
     const prev = messages[i - 1] as TranscriptMessage;
-    // A user message after an assistant message that contains correction signals
-    if (msg.type === "user" && prev.type === "assistant") {
+    // An OPERATOR message after an assistant message that contains correction
+    // signals (mt#4289 narrowed this from any `user`-role line).
+    if (isOperatorMessage(msg) && prev.type === "assistant") {
       const text = extractTextContent(resolveTranscriptMessageContent(msg));
       if (CORRECTION_PATTERNS.some((pattern) => pattern.test(text))) {
         corrections++;
@@ -160,10 +191,19 @@ export class AgentTranscriptService {
           timestamp: line.timestamp as string | undefined,
           uuid: line.uuid as string | undefined,
           model: (msg?.model as string) ?? undefined,
+          // mt#4289: carry the provenance markers through the projection. This
+          // path DROPS every field it does not name, so without these the two
+          // stat paths would disagree — `computeMessageStats` (reading stored
+          // raw lines) would exclude synthetic lines while this one, three
+          // lines below, counted them as human.
+          isCompactSummary: line.isCompactSummary as boolean | undefined,
+          isMeta: line.isMeta as boolean | undefined,
+          origin: line.origin as { kind?: string } | undefined,
+          promptSource: line.promptSource as string | undefined,
         };
       });
 
-    const humanMessages = messages.filter((m) => m.type === "user").length;
+    const humanMessages = messages.filter(isOperatorMessage).length;
     const assistantMessages = messages.filter((m) => m.type === "assistant").length;
     const corrections = countCorrections(messages);
 
@@ -218,7 +258,7 @@ export class AgentTranscriptService {
     const messages = await this.getTranscript(sessionId);
     if (!messages) return null;
 
-    const humanMessages = messages.filter((m) => m.type === "user").length;
+    const humanMessages = messages.filter(isOperatorMessage).length;
     const assistantMessages = messages.filter((m) => m.type === "assistant").length;
     const corrections = countCorrections(messages);
 

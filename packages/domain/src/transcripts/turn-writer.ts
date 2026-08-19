@@ -327,6 +327,11 @@ async function writeTurnsLocked(
       agentSessionId,
       turnIndex: turn.turnIndex,
       userText: turn.userText ?? undefined,
+      // mt#4289: who authored `user_text`. Written on the SAME statement as the
+      // text it describes — a separate pass would let the two disagree, and a
+      // row whose text says one thing and whose provenance says another is
+      // worse than one carrying no provenance at all.
+      userOrigin: turn.userOrigin ?? undefined,
       assistantText: turn.assistantText ?? undefined,
       // Pass the array directly — `tool_calls` is a jsonb column and Drizzle
       // serializes the value. JSON.stringify here would DOUBLE-encode it (store a
@@ -372,6 +377,13 @@ async function writeTurnsLocked(
             // backfill refills it on its next pass.
             set: {
               userText: sql`EXCLUDED.user_text`,
+              // mt#4289. Listed here and NOT in the embedding CASE below: a
+              // change in provenance with identical text does not invalidate a
+              // vector, which describes the text. This is also what makes the
+              // existing `extractTurnsForAllTranscripts` sweep the backfill for
+              // this column — a re-run rewrites `user_origin` on every row
+              // while leaving unchanged rows' embeddings intact.
+              userOrigin: sql`EXCLUDED.user_origin`,
               assistantText: sql`EXCLUDED.assistant_text`,
               toolCalls: sql`EXCLUDED.tool_calls`,
               startedAt: sql`EXCLUDED.started_at`,

@@ -85,6 +85,23 @@ export interface TranscriptLine {
    * the logical turn.
    */
   isMeta?: boolean;
+  /**
+   * Auto-compaction-boundary marker (mt#4289). Claude Code stamps
+   * `isCompactSummary: true` on the ~15KB model-written summary it appends as a
+   * `user`-role line when it compacts a conversation.
+   *
+   * It is a SEPARATE marker from `isMeta`, not a special case of it: the
+   * boundary record carries no `isMeta` at all (verified 2026-08-19 — its key
+   * set is `cwd, entrypoint, gitBranch, isCompactSummary, isSidechain,
+   * isVisibleInTranscriptOnly, message, parentUuid, promptId, sessionId,
+   * session_id, slug, timestamp, type, userType, uuid, version`). And its
+   * `message.content` is a plain STRING, so it takes {@link isRealUserPrompt}'s
+   * string branch, which until mt#4289 excluded only interrupt-marker and
+   * skill-body text — meaning every detector downstream read a compaction
+   * boundary as an operator prompt, i.e. as a turn boundary the operator never
+   * created.
+   */
+  isCompactSummary?: boolean;
   /** Line identity stamped by Claude Code; used for stable turn keying (mt#2357). */
   uuid?: string;
 }
@@ -521,6 +538,10 @@ export function isRealUserPrompt(line: TranscriptLine): boolean {
   // Harness-synthetic user-role lines (skill bodies, re-invocation notices)
   // are marked isMeta and are never human prompts (mt#2357).
   if (line.isMeta === true) return false;
+  // The auto-compaction summary is harness-written too, and carries its OWN
+  // marker rather than isMeta (mt#4289) — so it needs its own check here, not
+  // a widening of the one above. See TranscriptLine.isCompactSummary.
+  if (line.isCompactSummary === true) return false;
   const content = line.message?.content;
   if (typeof content === "string") {
     const trimmed = content.trim();
