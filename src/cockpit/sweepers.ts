@@ -72,6 +72,40 @@ export function unrefSweeperTimer(id: ReturnType<typeof setInterval>): void {
 /** Default per-tick abandonment timeout when a caller doesn't supply one. */
 export const DEFAULT_TICK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * How much longer than `tickTimeoutMs` an ABANDONED tick may hold the guard
+ * before the watchdog force-releases it anyway (mt#4335).
+ *
+ * The two deadlines answer different questions and both are needed:
+ *
+ * - `tickTimeoutMs` is when we stop WAITING on a tick — it is marked failed,
+ *   its `AbortSignal` fires, and the sweep stops treating it as live work.
+ * - `tickTimeoutMs * this` is when we stop letting it hold the guard, whether
+ *   or not it ever settles.
+ *
+ * Between the two, the guard stays held. That is the whole fix: releasing the
+ * guard at `tickTimeoutMs` (the pre-mt#4335 behaviour) let the next tick start
+ * BESIDE an abandoned predecessor that was still holding a database
+ * connection, so a persistently-slow tick leaked roughly one connection per
+ * cycle until the pool was exhausted.
+ *
+ * Why a ceiling at all, rather than waiting forever: mt#2625's guarantee is
+ * that one hung tick can never starve every later tick permanently, and its
+ * regression tests assert exactly that with a tick that NEVER settles. Waiting
+ * unconditionally would reintroduce that bug. So a never-settling tick still
+ * gets force-released — just after 3 tick-timeouts instead of 1, which is a
+ * bounded delay rather than a lost guarantee.
+ *
+ * 3 is chosen as the smallest multiplier that leaves room for a tick to finish
+ * shortly after its deadline (the common case for a slow query — the
+ * interceptor rollup measured 2.73s cold against a 120s budget) without
+ * meaningfully extending mt#2625's recovery window. It is deliberately a
+ * multiplier rather than a fixed duration: sweeps run at cadences from
+ * milliseconds (tests) to minutes (production), so any absolute number would
+ * be wrong at one end.
+ */
+export const ABANDONED_TICK_HARD_RELEASE_MULTIPLIER = 3;
+
 // ---------------------------------------------------------------------------
 // Sweep-liveness registry (mt#2894)
 //
@@ -121,6 +155,35 @@ export interface SweepLivenessSnapshot {
   lastDomainFailureAt: string | null;
   /** Consecutive reported domain failures since the last reported domain success. */
   consecutiveDomainFailures: number;
+  /**
+   * Cumulative count of ticks abandoned for exceeding `tickTimeoutMs` (mt#4335).
+   *
+   * A non-zero and RISING value is the signal that this sweep's work no longer
+   * fits its budget — which is what preceded the 2026-08-19 pool exhaustion.
+   * Surfaced here rather than only logged because the incident was diagnosed by
+   * reading `pg_stat_activity` by hand; the point of the counter is that a
+   * recurrence is visible from `/api/sweeps` without doing that.
+   */
+  abandonedTicks: number;
+  /**
+   * Abandoned ticks that have STILL not settled (mt#4335).
+   *
+   * This is the one to alert on. It is normally 0 — a tick that overruns and
+   * then finishes decrements it. A value that stays above 0, or grows, means
+   * work is accumulating with resources still held, which is the shape that
+   * exhausted the connection pool.
+   */
+  abandonedTicksOutstanding: number;
+  /**
+   * Count of abandoned ticks that outlived even the hard-release ceiling and
+   * had their guard force-released by the watchdog anyway (mt#4335).
+   *
+   * Distinct from {@link abandonedTicks}: those settled late, these never
+   * settled at all. A non-zero value here means the mt#2625 escape hatch fired
+   * and a resource may still be held with nothing left to release it — the
+   * residual leak this design accepts in exchange for not starving the sweep.
+   */
+  abandonedTickHardReleases: number;
   /** False when this sweep has never reported a domain outcome — the three fields above are then meaningless rather than healthy. */
   reportsDomainOutcome: boolean;
   /**
@@ -165,6 +228,12 @@ interface SweepLivenessEntry {
   lastDomainFailureAtMs: number | null;
   consecutiveDomainFailures: number;
   reportsDomainOutcome: boolean;
+  /** See {@link SweepLivenessSnapshot.abandonedTicks} (mt#4335). */
+  abandonedTicks: number;
+  /** See {@link SweepLivenessSnapshot.abandonedTicksOutstanding} (mt#4335). */
+  abandonedTicksOutstanding: number;
+  /** See {@link SweepLivenessSnapshot.abandonedTickHardReleases} (mt#4335). */
+  abandonedTickHardReleases: number;
   /** See {@link SweepLivenessSnapshot.selfScheduled} (mt#4185). */
   selfScheduled: boolean;
   /** See {@link SweepLivenessSnapshot.registeredAt} (mt#4206). */
@@ -231,6 +300,9 @@ export function getSweepLivenessSnapshot(): SweepLivenessSnapshot[] {
       lastDomainFailureAt:
         e.lastDomainFailureAtMs === null ? null : new Date(e.lastDomainFailureAtMs).toISOString(),
       consecutiveDomainFailures: e.consecutiveDomainFailures,
+      abandonedTicks: e.abandonedTicks,
+      abandonedTicksOutstanding: e.abandonedTicksOutstanding,
+      abandonedTickHardReleases: e.abandonedTickHardReleases,
       reportsDomainOutcome: e.reportsDomainOutcome,
       selfScheduled: e.selfScheduled,
       registeredAt: new Date(e.registeredAtMs).toISOString(),
@@ -285,18 +357,38 @@ export interface IntervalSweeperOptions {
    * WORK succeeded, return a {@link SweepTickResult} (mt#3684). Returning
    * nothing is unchanged behavior and reports no domain outcome at all —
    * which is why adding this did not require touching the other sweeps.
+   *
+   * Receives an {@link AbortSignal} that fires when the tick exceeds
+   * `tickTimeoutMs` (mt#4335). Using it is OPTIONAL and existing ticks that
+   * take no arguments remain assignable to this type unchanged — but a tick
+   * holding a cancellable resource SHOULD honour it, because the framework
+   * cannot reach inside the tick to release what it opened. For a
+   * `postgres-js` query that means calling `.cancel()`, which sends a
+   * protocol-level CancelRequest (`src/query.js:52` → `src/index.js:350` →
+   * `Connection.cancel`, protocol code 80877102 — the wire equivalent of
+   * `pg_cancel_backend`).
    */
-  tick: () => Promise<SweepTickResult | void>;
+  tick: (signal: AbortSignal) => Promise<SweepTickResult | void>;
   /**
-   * Per-tick abandonment timeout in milliseconds (mt#2625). A tick that
-   * hasn't settled within this window is abandoned: the `running` guard is
-   * force-released (via `Promise.race` against an internal timer) so the
-   * NEXT scheduled tick can proceed, and a warning is logged. The abandoned
-   * tick's underlying promise is NOT cancelled (no AbortSignal threading
-   * here) — it may still complete and log its own outcome later; releasing
-   * the guard early is what prevents PERMANENT starvation of every future
-   * tick, which is the mt#2625 failure mode. Defaults to
-   * {@link DEFAULT_TICK_TIMEOUT_MS}.
+   * Per-tick abandonment timeout in milliseconds (mt#2625, amended mt#4335).
+   * A tick that hasn't settled within this window is abandoned: it is marked
+   * failed, a warning is logged, and its {@link AbortSignal} fires so a tick
+   * that opted in can cancel its own work.
+   *
+   * **The guard is NOT released at this deadline (changed in mt#4335).** It is
+   * released when the abandoned tick actually settles, or at
+   * `tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER`, whichever comes
+   * first. Until mt#4335 the guard WAS released here, and this docblock
+   * described that as the fix for mt#2625's permanent-starvation bug — which
+   * it was, at the cost of a second bug: the next tick started beside an
+   * abandoned predecessor still holding a database connection, and each
+   * overlapping tick opened another. Measured 2026-08-19: 16 backends stranded
+   * in `state='active', wait_event='ClientRead'` from a single ~40s burst,
+   * which exhausted the pooler and took the substrate down for ~25 minutes.
+   *
+   * mt#2625's guarantee is preserved by the hard-release ceiling rather than
+   * by this deadline — see {@link ABANDONED_TICK_HARD_RELEASE_MULTIPLIER}.
+   * Defaults to {@link DEFAULT_TICK_TIMEOUT_MS}.
    *
    * The SAME value also serves as the watchdog invariant threshold: if a
    * scheduled tick attempt finds the guard already held for longer than
@@ -323,6 +415,12 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
 
   let running = false;
   let runningSinceMs: number | null = null;
+  /**
+   * When the in-flight tick was ABANDONED (exceeded `tickTimeoutMs`) but is
+   * still holding the guard, mt#4335. Null whenever the current tick is still
+   * within its budget. Read by the watchdog to pick which deadline applies.
+   */
+  let abandonedSinceMs: number | null = null;
   let id: ReturnType<typeof setInterval> | null = null;
   // Authoritative "this sweep has been stopped" flag (PR #2019 R1 BLOCKING
   // #1). Mirrored onto `entry.stopped` below, but also held here in the
@@ -367,6 +465,9 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     lastDomainSuccessAtMs: null,
     lastDomainFailureAtMs: null,
     consecutiveDomainFailures: 0,
+    abandonedTicks: 0,
+    abandonedTicksOutstanding: 0,
+    abandonedTickHardReleases: 0,
     reportsDomainOutcome: false,
     selfScheduled: false,
     registeredAtMs: Date.now(),
@@ -399,16 +500,38 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     // loudly so the stall is observable instead of silent.
     if (running && runningSinceMs !== null) {
       const heldForMs = Date.now() - runningSinceMs;
-      if (heldForMs > tickTimeoutMs) {
+      // mt#4335: two deadlines, and which one applies depends on whether the
+      // in-flight tick has already been abandoned.
+      //
+      // NOT abandoned -> `tickTimeoutMs`, the pre-existing fail-safe for the
+      // case where the primary `Promise.race` somehow did not fire at all.
+      //
+      // Abandoned -> the hard-release ceiling. The tick is deliberately still
+      // holding the guard so its successor cannot open a second connection
+      // beside it; force-releasing at `tickTimeoutMs` here would undo exactly
+      // the fix and is the bug a naive implementation reintroduces.
+      const releaseAfterMs =
+        abandonedSinceMs !== null
+          ? tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER
+          : tickTimeoutMs;
+      if (heldForMs > releaseAfterMs) {
         log.warn(
-          `cockpit: ${name} sweep watchdog — guard held ${heldForMs}ms (> ${tickTimeoutMs}ms); force-releasing`,
+          `cockpit: ${name} sweep watchdog — guard held ${heldForMs}ms (> ${releaseAfterMs}ms); force-releasing`,
           {
             heldForMs,
             tickTimeoutMs,
+            releaseAfterMs,
+            abandoned: abandonedSinceMs !== null,
           }
         );
+        // An abandoned tick force-released here is the case mt#2625 exists for
+        // (a tick that never settles at all). Count it separately from the
+        // ordinary abandonment: it means the tick outlived even the ceiling,
+        // so its resources are still held with nothing left to release them.
+        if (abandonedSinceMs !== null) entry.abandonedTickHardReleases++;
         running = false;
         runningSinceMs = null;
+        abandonedSinceMs = null;
       }
     }
 
@@ -424,26 +547,74 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       timeoutHandle = setTimeout(() => resolve("timed-out"), tickTimeoutMs);
     });
 
+    // mt#4335: fires at `tickTimeoutMs` so a tick holding a cancellable
+    // resource can release it. The framework cannot do this on the tick's
+    // behalf — it never sees the query — so this is the only channel by which
+    // an abandoned tick's own work can actually be cancelled rather than
+    // merely un-awaited.
+    const abortController = new AbortController();
+
     let failed = false;
+    // mt#4335: true once this tick has been abandoned, so the `finally` below
+    // knows not to release a guard that is now owned by the settle handler.
+    let abandoned = false;
     // null = this tick reported no domain outcome (the pre-mt#3684 behavior of
     // every sweep, and still the behavior of any tick returning nothing).
     let domainOk: boolean | null = null;
+
+    // Held in a variable rather than inlined into the race (mt#4335): the
+    // timeout path needs a handle on the abandoned promise so it can release
+    // the guard when it eventually settles.
+    const tickPromise = tick(abortController.signal).then((result) => {
+      if (result && typeof result.ok === "boolean") domainOk = result.ok;
+      return "completed" as const;
+    });
+
     try {
-      const outcome = await Promise.race([
-        tick().then((result) => {
-          if (result && typeof result.ok === "boolean") domainOk = result.ok;
-          return "completed" as const;
-        }),
-        timedOut,
-      ]);
+      const outcome = await Promise.race([tickPromise, timedOut]);
       if (outcome === "timed-out") {
+        abandoned = true;
+        failed = true;
+        abandonedSinceMs = Date.now();
+        entry.abandonedTicks++;
+        entry.abandonedTicksOutstanding++;
+        abortController.abort(new Error(`${name} sweep tick exceeded ${tickTimeoutMs}ms`));
         log.warn(
-          `cockpit: ${name} sweep tick timed out after ${tickTimeoutMs}ms — releasing guard for next tick`,
+          `cockpit: ${name} sweep tick timed out after ${tickTimeoutMs}ms — abandoned; HOLDING guard until it settles`,
           {
             tickTimeoutMs,
+            hardReleaseAfterMs: tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER,
           }
         );
-        failed = true;
+
+        const abandonedAtMs = abandonedSinceMs;
+        // The abandoned tick is no longer awaited by anyone, so its rejection
+        // must be absorbed here or it surfaces as an unhandled rejection —
+        // which in the cockpit's supervisor is a process-level crash, i.e.
+        // exactly the restart loop this incident already produced by another
+        // route.
+        void tickPromise
+          .catch((err: unknown) => {
+            const message = err instanceof Error ? err.message : String(err);
+            log.warn(`cockpit: ${name} abandoned sweep tick rejected after abandonment`, {
+              message,
+            });
+          })
+          .finally(() => {
+            entry.abandonedTicksOutstanding--;
+            // Only release if THIS tick is still the one holding the guard.
+            // The watchdog's hard-release may have already handed the guard to
+            // a successor, and releasing again here would free that
+            // successor's guard from under it.
+            if (abandonedSinceMs === abandonedAtMs) {
+              running = false;
+              runningSinceMs = null;
+              abandonedSinceMs = null;
+            }
+            log.warn(`cockpit: ${name} abandoned sweep tick settled; guard released`, {
+              heldAfterAbandonmentMs: Date.now() - abandonedAtMs,
+            });
+          });
       }
     } catch (err) {
       // Last-resort safety net — the tick callback is expected to apply its
@@ -454,8 +625,14 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       failed = true;
     } finally {
       if (timeoutHandle) clearTimeout(timeoutHandle);
-      running = false;
-      runningSinceMs = null;
+      // mt#4335: an ABANDONED tick keeps the guard — its settle handler above
+      // (or the watchdog's ceiling) owns the release. Releasing here is the
+      // pre-mt#4335 behaviour and is precisely what let the next tick open a
+      // second connection beside a predecessor that still held one.
+      if (!abandoned) {
+        running = false;
+        runningSinceMs = null;
+      }
     }
 
     // mt#2894 R1 BLOCKING #1: re-check after the await — stop() may have
@@ -690,6 +867,9 @@ export function registerSelfSchedulingSweep(
     lastDomainSuccessAtMs: null,
     lastDomainFailureAtMs: null,
     consecutiveDomainFailures: 0,
+    abandonedTicks: 0,
+    abandonedTicksOutstanding: 0,
+    abandonedTickHardReleases: 0,
     reportsDomainOutcome: false,
     selfScheduled: true,
     registeredAtMs: Date.now(),
