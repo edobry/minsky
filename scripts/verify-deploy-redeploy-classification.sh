@@ -10,8 +10,14 @@
 # The logic under test is EXTRACTED FROM THE SHIPPED WORKFLOW rather than
 # reimplemented here. A reimplementation would be a copy that can pass while the
 # workflow is broken — the exact "probe observes the wrong system" trap this
-# task is about. `railway` is stubbed on PATH so each scenario can choose which
-# call fails; nothing here touches Railway.
+# task is about. `railway` (and `mktemp`, for the harness-failure case) are
+# stubbed on PATH so each scenario chooses which call fails; nothing here
+# touches Railway.
+#
+# Scenarios 4 and 5 exist because PR #3138 R1 found the first version of the fix
+# reintroduced the same defect at smaller scale: an unexpected exit code was
+# folded into "auth failed", and a mixed-cause run reported one verdict for
+# every failed service.
 #
 # Usage: bash scripts/verify-deploy-redeploy-classification.sh
 # Exit 0 = all scenarios classified correctly; non-zero = a scenario misclassified.
@@ -28,8 +34,6 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
 # ── Extract the unit under test straight out of the YAML ─────────────────────
-# From the `redeploy_with() {` definition through the classification block's
-# closing `fi`. Dedented so it can run as a standalone script.
 python3 - "${WORKFLOW}" "${WORK}/under-test.sh" <<'PY'
 import sys, textwrap
 src, dst = sys.argv[1], sys.argv[2]
@@ -37,9 +41,9 @@ lines = open(src).read().splitlines()
 
 start = next(i for i, l in enumerate(lines) if "redeploy_with() {" in l)
 # The classification block ends at the `fi` CLOSING the failed_services test —
-# matched by indentation, because the block nests another if/else whose `fi`
-# comes first. Taking that inner one truncates the script mid-conditional, which
-# is exactly what this comment exists to stop someone re-introducing.
+# matched by indentation, because the block nests other if/else blocks whose
+# `fi` comes first. Taking an inner one truncates the script mid-conditional,
+# which is exactly what this comment exists to stop someone re-introducing.
 tail = next(i for i, l in enumerate(lines) if 'if [ -n "${failed_services}" ]; then' in l)
 indent = len(lines[tail]) - len(lines[tail].lstrip())
 end = next(
@@ -49,10 +53,15 @@ end = next(
 )
 
 block = textwrap.dedent("\n".join(lines[start : end + 1]))
-if "|| exit 2" not in block or "|| exit 3" not in block:
-    sys.exit("EXTRACT-FAIL: the distinct link/redeploy exit codes are not in the workflow")
-if "authenticated_services" not in block:
-    sys.exit("EXTRACT-FAIL: the workflow records no authenticated-services evidence")
+for marker, why in [
+    ("|| exit 2", "the link-failed exit code"),
+    ("|| exit 3", "the redeploy-failed exit code"),
+    ("auth_ok_services", "the authenticated-services bucket"),
+    ("auth_failed_services", "the credential-failure bucket"),
+    ("unclassified_services", "the cause-not-determined bucket"),
+]:
+    if marker not in block:
+        sys.exit(f"EXTRACT-FAIL: {why} ({marker}) is not in the workflow")
 open(dst, "w").write(block + "\n")
 PY
 if [ $? -ne 0 ]; then
@@ -60,14 +69,23 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# ── Stub `railway` ───────────────────────────────────────────────────────────
-# STUB_MODE picks which call fails, so each scenario drives a different branch.
+# ── Stubs ────────────────────────────────────────────────────────────────────
+# LINK_FAIL_FOR / REDEPLOY_FAIL_FOR are space-separated service-id lists, so a
+# single run can mix causes across services (the R1 mixed-service case).
 mkdir -p "${WORK}/bin"
 cat > "${WORK}/bin/railway" <<'STUB'
 #!/usr/bin/env bash
+in_list() { case " $2 " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+# Both subcommands carry the target as `--service <id>`.
+target=""
+prev=""
+for a in "$@"; do
+  [ "${prev}" = "--service" ] && target="${a}"
+  prev="${a}"
+done
 case "$1" in
   link)
-    if [ "${STUB_MODE}" = "link-fails" ]; then
+    if in_list "${target}" "${LINK_FAIL_FOR:-}"; then
       echo "Invalid RAILWAY_TOKEN. Please check that it is valid." >&2
       exit 1
     fi
@@ -75,33 +93,48 @@ case "$1" in
     exit 0
     ;;
   redeploy)
-    if [ "${STUB_MODE}" = "all-ok" ]; then
-      echo "redeploy triggered"
-      exit 0
+    if in_list "${target}" "${REDEPLOY_FAIL_FOR:-}"; then
+      echo "Problem processing request" >&2
+      exit 1
     fi
-    echo "Problem processing request" >&2
-    exit 1
+    echo "redeploy triggered"
+    exit 0
     ;;
   *) exit 0 ;;
 esac
 STUB
 chmod +x "${WORK}/bin/railway"
 
-run_scenario() {
-  # $1 = STUB_MODE
+# Breaks the helper OUTSIDE both instrumented points: mktemp hands back a path
+# that does not exist, so the `cd` fails and the subshell exits 1 — neither 2
+# nor 3. This is the real path to an unclassified code, not a synthetic one.
+cat > "${WORK}/bin/mktemp" <<'STUB'
+#!/usr/bin/env bash
+if [ "${BREAK_HARNESS:-}" = "1" ]; then
+  echo "/nonexistent/mt4288-harness-break"
+  exit 0
+fi
+exec /usr/bin/mktemp "$@"
+STUB
+chmod +x "${WORK}/bin/mktemp"
+
+run_scenario() { # $1=LINK_FAIL_FOR $2=REDEPLOY_FAIL_FOR $3=services $4=BREAK_HARNESS
   (
     export PATH="${WORK}/bin:${PATH}"
-    export STUB_MODE="$1"
-    export DEPLOY_TOKEN="stub-token"
-    export DEPLOY_TOKEN_SOURCE="RAILWAY_MCP_TOKEN"
+    export LINK_FAIL_FOR="$1" REDEPLOY_FAIL_FOR="$2"
+    export REDEPLOY_SERVICES="$3" BREAK_HARNESS="${4:-0}"
+    export DEPLOY_TOKEN="stub-token" DEPLOY_TOKEN_SOURCE="RAILWAY_MCP_TOKEN"
     export PROJECT_ID="proj" ENVIRONMENT_ID="env"
-    export REDEPLOY_SERVICES="minsky-mcp svc-id-1"
     bash "${WORK}/under-test.sh" 2>&1
   )
 }
 
+ONE="minsky-mcp svc-1"
+TWO="minsky-mcp svc-1
+minsky-ops svc-2"
+
 FAILURES=0
-assert_contains() { # $1=haystack $2=needle $3=label
+assert_contains() {
   case "$1" in
     *"$2"*) echo "  PASS: $3" ;;
     *) echo "  FAIL: $3"; echo "        expected to find: $2"; FAILURES=$((FAILURES + 1)) ;;
@@ -115,21 +148,37 @@ assert_not_contains() {
 }
 
 echo "Scenario 1 — link succeeds, redeploy fails (the 2026-08-19 shape):"
-OUT="$(run_scenario "redeploy-fails")"
+OUT="$(run_scenario "" "svc-1" "${ONE}")"
 assert_contains "${OUT}" "AUTHENTICATED and linked the project" "attempt-1 outcome names successful auth"
-assert_contains "${OUT}" "This is NOT a credential failure" "final verdict does not blame the token"
-assert_not_contains "${OUT}" "re-mint the token against the minsky-mcp project" "no re-mint instruction"
+assert_contains "${OUT}" "NOT a credential failure for: minsky-mcp" "verdict clears the token, and names the service"
+assert_not_contains "${OUT}" "Re-mint it against" "no re-mint instruction"
 
 echo "Scenario 2 — link fails (a genuine credential failure):"
-OUT="$(run_scenario "link-fails")"
-assert_contains "${OUT}" "could not authenticate or resolve the target" "attempt-1 outcome names the auth failure"
-assert_contains "${OUT}" "authentication was never demonstrated" "final verdict says auth was never shown"
-assert_contains "${OUT}" "re-mint the token" "re-mint instruction IS given"
+# BOTH attempts must fail to reach the classification block at all: attempt 2 is
+# project-scope and skips `link`, so it only fails if `redeploy` fails too. A
+# scenario that fails link alone exercises the SUCCESS path via attempt 2, which
+# is correct behaviour and not what this asserts.
+OUT="$(run_scenario "svc-1" "svc-1" "${ONE}")"
+assert_contains "${OUT}" "'railway link' was rejected" "attempt-1 outcome names the auth failure"
+assert_contains "${OUT}" "CREDENTIAL failure for: minsky-mcp" "verdict blames the credential"
+assert_contains "${OUT}" "Re-mint it against" "re-mint instruction IS given"
 
 echo "Scenario 3 — everything succeeds:"
-OUT="$(run_scenario "all-ok")"
+OUT="$(run_scenario "" "" "${ONE}")"
 assert_contains "${OUT}" "Railway redeploy triggered successfully" "success is reported"
 assert_not_contains "${OUT}" "::error::" "no error emitted on the happy path"
+
+echo "Scenario 4 — MIXED: one service authenticated, one rejected (R1 blocking #2):"
+OUT="$(run_scenario "svc-2" "svc-1 svc-2" "${TWO}")"
+assert_contains "${OUT}" "NOT a credential failure for: minsky-mcp" "the authenticated service is cleared by name"
+assert_contains "${OUT}" "CREDENTIAL failure for: minsky-ops" "the rejected service is blamed by name"
+assert_not_contains "${OUT}" "NOT a credential failure for: minsky-mcp minsky-ops" "one verdict does not cover both"
+
+echo "Scenario 5 — helper fails outside both instrumented points (R1 blocking #1):"
+OUT="$(run_scenario "" "" "${ONE}" 1)"
+assert_contains "${OUT}" "CAUSE NOT DETERMINED for: minsky-mcp" "unexpected exit is its own bucket"
+assert_not_contains "${OUT}" "CREDENTIAL failure for:" "an unknown cause is not reported as a credential failure"
+assert_not_contains "${OUT}" "Re-mint it against" "no re-mint instruction on an undetermined cause"
 
 echo
 if [ "${FAILURES}" -eq 0 ]; then

@@ -583,12 +583,18 @@ jobs:
           # is invisible from the outside. Failures are collected and the job
           # exits non-zero at the end.
           failed_services=""
-          # mt#4288 — services for which the token DEMONSTRABLY authenticated: it
-          # completed a 'railway link', which requires a valid credential that can
-          # resolve the project, environment and service. This is a locally
-          # observable fact, deliberately not a pattern-match on Railway's error
-          # prose (which is vendor text and can change without notice).
-          authenticated_services=""
+          # mt#4288 — per-service buckets, keyed on a LOCALLY OBSERVABLE fact:
+          # whether 'railway link' completed, which requires a valid credential
+          # that can resolve the project, environment and service. Deliberately
+          # not a pattern-match on Railway's error prose, which is vendor text and
+          # can change without notice.
+          #
+          # Leading-space concatenation matches the existing `failed_services`
+          # convention in this step; the messages below strip it with ${var# }
+          # so rendering does not depend on it (PR #3138 R1 NON-BLOCKING).
+          auth_ok_services=""          # link OK, redeploy failed
+          auth_failed_services=""      # link rejected
+          unclassified_services=""     # helper failed somewhere else entirely
           while read -r svc service_id; do
             [ -n "${svc}" ] || continue
             echo "Attempt 1/2 for ${svc} (${service_id}): treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN + railway link)."
@@ -598,12 +604,26 @@ jobs:
               echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
               continue
             fi
-            if [ "${attempt1_rc}" -eq 3 ]; then
-              authenticated_services="${authenticated_services} ${svc}"
-              echo "Attempt 1 for ${svc}: the ${DEPLOY_TOKEN_SOURCE} token AUTHENTICATED and linked the project — the redeploy call itself is what failed."
-            else
-              echo "Attempt 1 for ${svc}: could not authenticate or resolve the target under account/workspace scope."
-            fi
+            # PR #3138 R1 — three buckets, not two. An exit code that is neither
+            # 2 nor 3 means the helper failed somewhere other than the two points
+            # we instrumented, so NEITHER authentication nor the redeploy call can
+            # be blamed. Folding that into "auth failed" would be this task's own
+            # defect at smaller scale: a confident verdict the evidence does not
+            # support.
+            case "${attempt1_rc}" in
+              3)
+                attempt1_class="authenticated"
+                echo "Attempt 1 for ${svc}: the ${DEPLOY_TOKEN_SOURCE} token AUTHENTICATED and linked the project — the redeploy call itself is what failed."
+                ;;
+              2)
+                attempt1_class="auth-failed"
+                echo "Attempt 1 for ${svc}: 'railway link' was rejected — the token could not authenticate or resolve the target under account/workspace scope."
+                ;;
+              *)
+                attempt1_class="unclassified"
+                echo "Attempt 1 for ${svc}: the redeploy helper exited ${attempt1_rc}, which is neither the link-failed (2) nor the redeploy-failed (3) signal — cause not determined from this attempt."
+                ;;
+            esac
             echo "Attempt 1 failed for ${svc} — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
             if redeploy_with "${service_id}" RAILWAY_TOKEN; then
               echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, project scope)."
@@ -611,6 +631,14 @@ jobs:
             fi
             echo "::error::railway redeploy failed under BOTH token scopes for ${svc} (${service_id})."
             failed_services="${failed_services} ${svc}"
+            # PR #3138 R1 — bucket PER SERVICE. A run where one service
+            # authenticated and another was rejected must not report one verdict
+            # for both; that is the same over-claiming one level up.
+            case "${attempt1_class}" in
+              authenticated) auth_ok_services="${auth_ok_services} ${svc}" ;;
+              auth-failed) auth_failed_services="${auth_failed_services} ${svc}" ;;
+              *) unclassified_services="${unclassified_services} ${svc}" ;;
+            esac
           done <<< "${REDEPLOY_SERVICES}"
 
           if [ -n "${failed_services}" ]; then
@@ -624,10 +652,19 @@ jobs:
             # token logged in, linked the project, and only the redeploy call
             # failed — and the message still told the operator to re-mint it, at
             # 01:29, as a severity-incident page. Report only what was observed.
-            if [ -n "${authenticated_services}" ]; then
-              echo "::error::railway redeploy failed for:${failed_services}. This is NOT a credential failure: the ${DEPLOY_TOKEN_SOURCE} token authenticated and completed 'railway link' for:${authenticated_services}, so the secret is valid and can resolve the target — only the redeploy call failed. Look at Railway's status page and the per-attempt output above before re-minting anything."
-            else
-              echo "::error::railway redeploy failed for:${failed_services}, and the ${DEPLOY_TOKEN_SOURCE} token never completed a 'railway link' under either scope, so authentication was never demonstrated. The CLI was verified runnable before this loop, which makes a CREDENTIAL failure the leading explanation: re-mint the token against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
+            # PR #3138 R1: ONE VERDICT PER GROUP. A run can mix causes — one
+            # service authenticated and failed to redeploy while another was
+            # rejected outright — and a single sentence covering all of
+            # ${failed_services} is wrong for at least one of them.
+            echo "::error::railway redeploy failed for:${failed_services}."
+            if [ -n "${auth_ok_services}" ]; then
+              echo "::error::  NOT a credential failure for: ${auth_ok_services# } — the ${DEPLOY_TOKEN_SOURCE} token authenticated and completed 'railway link' for these, so the secret is valid and resolves the target; only the redeploy call failed. Check Railway's status page and the per-attempt output above before re-minting anything."
+            fi
+            if [ -n "${auth_failed_services}" ]; then
+              echo "::error::  CREDENTIAL failure for: ${auth_failed_services# } — 'railway link' was rejected, so the ${DEPLOY_TOKEN_SOURCE} token could not authenticate or resolve these services. Re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
+            fi
+            if [ -n "${unclassified_services}" ]; then
+              echo "::error::  CAUSE NOT DETERMINED for: ${unclassified_services# } — the redeploy helper exited outside the instrumented failure points, so this run does not say whether the credential or the redeploy call was at fault. Read the per-attempt output above rather than acting on a guess."
             fi
             exit 1
           fi
