@@ -94,7 +94,8 @@ jobs:
             case "$STATUS" in
               SUCCESS)
                 echo "Deploy reached SUCCESS."
-                exit 0
+                LANDED=1
+                break
                 ;;
               FAILED|CRASHED|REMOVED)
                 echo "FAIL: the preview deploy ended in $STATUS."
@@ -112,7 +113,35 @@ jobs:
             sleep 10
           done
 
-          echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+          if [ "${LANDED:-0}" != "1" ]; then
+            echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+            exit 1
+          fi
+
+          # Freshness — see the restore job's matching block for the full
+          # reasoning. In short: SUCCESS means built and promoted, not up and
+          # answering, and the step below can only tell "something healthy is
+          # serving" from "THIS build is serving" by the process start time.
+          # The identity half is covered here by the next step's cockpit-specific
+          # route assertions; the restore job, which has no such step, checks the
+          # health body's service field itself.
+          echo "Confirming the deployed build is the one serving..."
+          STARTED_EPOCH_MS=$(date -u -d "$DEPLOY_STARTED_AT" +%s000 2>/dev/null \
+            || date -u -jf '%Y-%m-%dT%H:%M:%SZ' "$DEPLOY_STARTED_AT" +%s000)
+
+          for i in $(seq 1 30); do
+            STARTED=$(curl -s --max-time 15 "$PREVIEW_URL/api/health" \
+              | jq -r '.processStartedAtMs // empty' 2>/dev/null || echo '')
+            if [ -n "$STARTED" ] && [ "$STARTED" -ge "$STARTED_EPOCH_MS" ]; then
+              echo "Serving a process started $STARTED (>= upload $STARTED_EPOCH_MS)."
+              exit 0
+            fi
+            echo "  [$i/30] started=${STARTED:-unreachable} (want >= $STARTED_EPOCH_MS)"
+            sleep 10
+          done
+
+          echo "FAIL: deploy reached SUCCESS but the live service never reported a process started at or after this run's upload."
+          echo "The previous build is most likely still serving."
           exit 1
 
       - name: Verify preview is live
@@ -305,7 +334,8 @@ jobs:
             case "$STATUS" in
               SUCCESS)
                 echo "Deploy reached SUCCESS."
-                exit 0
+                LANDED=1
+                break
                 ;;
               FAILED|CRASHED|REMOVED)
                 echo "FAIL: the restore deploy ended in $STATUS."
@@ -323,5 +353,46 @@ jobs:
             sleep 10
           done
 
-          echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+          if [ "${LANDED:-0}" != "1" ]; then
+            echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+            exit 1
+          fi
+
+          # SUCCESS means the deployment BUILT and was promoted. It does not mean
+          # the process is up and answering — a container can reach SUCCESS and
+          # then crash on boot. And "the URL answers" is not enough either: the
+          # PREVIOUS build answers identically, which is the blind spot that let
+          # six failed deploys read as green.
+          #
+          # So assert two things about the live service, not one:
+          #   - identity: the health BODY says minsky-cockpit. Every service here
+          #     is built from the same monorepo, so a misconfigured build can put
+          #     a DIFFERENT app on this host and it answers 200 exactly like the
+          #     right one (mt#3148 / mt#3142).
+          #   - freshness: processStartedAtMs is at or after this run's upload, so
+          #     the process answering is the one this run deployed rather than a
+          #     survivor of a failed replacement.
+          echo "Confirming the restored build is the one serving..."
+          STARTED_EPOCH_MS=$(date -u -d "$DEPLOY_STARTED_AT" +%s000 2>/dev/null \
+            || date -u -jf '%Y-%m-%dT%H:%M:%SZ' "$DEPLOY_STARTED_AT" +%s000)
+
+          for i in $(seq 1 30); do
+            BODY=$(curl -s --max-time 15 "$PREVIEW_URL/api/health" || echo '')
+            SERVICE=$(printf '%s' "$BODY" | jq -r '.service // empty' 2>/dev/null || echo '')
+            STARTED=$(printf '%s' "$BODY" | jq -r '.processStartedAtMs // empty' 2>/dev/null || echo '')
+
+            if [ "$SERVICE" = "minsky-cockpit" ] && [ -n "$STARTED" ] && [ "$STARTED" -ge "$STARTED_EPOCH_MS" ]; then
+              echo "Serving minsky-cockpit, started $STARTED (>= upload $STARTED_EPOCH_MS)."
+              exit 0
+            fi
+            if [ -n "$SERVICE" ] && [ "$SERVICE" != "minsky-cockpit" ]; then
+              echo "FAIL: the host is serving '$SERVICE', not minsky-cockpit — wrong artifact deployed."
+              exit 1
+            fi
+            echo "  [$i/30] service=${SERVICE:-unreachable} started=${STARTED:-?} (want >= $STARTED_EPOCH_MS)"
+            sleep 10
+          done
+
+          echo "FAIL: deploy reached SUCCESS but the live service never reported a process started at or after this run's upload."
+          echo "The previous build is most likely still serving."
           exit 1
