@@ -18,6 +18,7 @@ import {
   SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
   run,
+  renderWorstCase,
   buildIdentityEvidence,
   extractClaimedPrNumber,
   extractPrNumbersForTools,
@@ -25,6 +26,7 @@ import {
 } from "./pre-narration-detector";
 import {
   extractDistinctPhrases,
+  isSuppressedRecord,
   parseCalibrationRecord,
 } from "../../src/domain/calibration/calibration-sweep";
 import { parseTranscript, extractLastAssistantTurn } from "./transcript";
@@ -560,7 +562,15 @@ describe("pre-narration-detector E2E", () => {
     expect(stdout.trim()).toBe("");
   });
 
-  test("flagged claim → exit 0, additionalContext emitted", async () => {
+  // AT1 (main path) — mt#4286. This test previously asserted the OPPOSITE:
+  // `expect(stdout).toContain("[pre-narration-detector]")`, i.e. that a flagged
+  // claim emitted the reminder. That was correct until the guard was quieted to
+  // log-only per ask#9219; the same fixture is kept so the inversion is visible
+  // in the diff rather than the test being deleted and replaced.
+  //
+  // Negative control for the quieting: this exact fixture, run against the tree
+  // before `INJECTION_ENABLED` existed, emitted 581 chars of `additionalContext`.
+  test("flagged claim → exit 0, quieted: no reminder on stdout (mt#4286)", async () => {
     const p = join(dir, "claim.jsonl");
     writeFileSync(
       p,
@@ -569,13 +579,8 @@ describe("pre-narration-detector E2E", () => {
     );
     const { exitCode, stdout } = await invokeHook(makeHookInput(p));
     expect(exitCode).toBe(0);
-    // Updated expectation (mt#3485): the reminder's first line is now the
-    // standard's guard-id header, `[pre-narration-detector] ...`, replacing the
-    // old "**Possible pre-narrated / fabricated tool outcome (mt#2197 ...)**"
-    // banner whose provenance moved to buildReminder's doc comment. Asserting
-    // the guard-id header keeps this test's intent — "the guard emitted its
-    // reminder" — pinned to the part of the shape that is now mandated.
-    expect(stdout).toContain("[pre-narration-detector]");
+    expect(stdout.trim()).toBe("");
+    expect(stdout).not.toContain("hookSpecificOutput");
   });
 
   test("multi-round turn: 'PR created' claim + minting tool split by a tool_result → not flagged", async () => {
@@ -638,7 +643,11 @@ describe("run() (dispatcher-compatible)", () => {
     };
   }
 
-  test("flagged claim -> additionalContext + calibration record", () => {
+  // AT1 (dispatcher path) — mt#4286. Previously asserted
+  // `expect(outcome?.additionalContext).toContain("[pre-narration-detector]")`.
+  // The RECORD half of the old assertion is deliberately kept and strengthened:
+  // quieting must not cost the corpus, because mt#4256 measures against it.
+  test("flagged claim -> calibration record, quieted: NO additionalContext (mt#4286)", () => {
     const p = join(dir, "claim.jsonl");
     writeFileSync(
       p,
@@ -646,9 +655,89 @@ describe("run() (dispatcher-compatible)", () => {
       "utf8"
     );
     const outcome = run(makeHookInput(p), makeCtx(p));
-    // mt#3485: guard-id header replaces the old "pre-narrated" banner phrase.
-    expect(outcome?.additionalContext).toContain("[pre-narration-detector]");
+    expect(outcome?.additionalContext).toBeUndefined();
     expect(outcome?.calibration).toBeDefined();
+  });
+
+  // AT2 — the record survives the quieting intact. Each field is asserted by
+  // name rather than by a snapshot, so a future edit that drops one fails here
+  // instead of silently shrinking the corpus mt#4256 is measured against.
+  test("AT2: the calibration record keeps every field, plus injection_enabled (mt#4286)", () => {
+    const p = join(dir, "claim.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine(CREATED_PR_CLAIM), makeUserLine()]),
+      "utf8"
+    );
+    const record = run(makeHookInput(p), makeCtx(p))?.calibration as Record<string, unknown>;
+    expect(record).toBeDefined();
+    expect(record.injection_enabled).toBe(false);
+    expect(record.session_id).toBe("test-session-pre-narration");
+    const matches = record.matches as Array<Record<string, unknown>>;
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      category: "pr-created",
+      phrase: "Created PR",
+      hadMatchingTool: false,
+    });
+    expect(matches[0]?.context).toBeTypeOf("string");
+    expect(matches[0]?.expectedTool).toBeTypeOf("string");
+  });
+
+  // AT3 — mt#3207's suppressed-only behavior is unchanged by the flag: such a
+  // pass recorded and did not inject before, and still does exactly that.
+  test("AT3: a suppressed-only pass still records and still injects nothing (mt#4286)", () => {
+    const p = join(dir, "suppressed.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([
+        makeUserLine(),
+        makeAssistantToolUseLine(PR_CREATE_TOOL),
+        makeToolResultLine(),
+        makeAssistantLine(CREATED_PR_CLAIM),
+        makeUserLine(),
+      ]),
+      "utf8"
+    );
+    const outcome = run(makeHookInput(p), makeCtx(p));
+    expect(outcome?.additionalContext).toBeUndefined();
+    const record = outcome?.calibration as Record<string, unknown>;
+    expect(record).toBeDefined();
+    expect(record.suppressionReasons).toEqual([SUPPRESSION_SAME_TURN_TOOL_CALL]);
+  });
+
+  // AT4 — the load-bearing one. `isSuppressedRecord` is what the review
+  // thresholds key on via `injectedFiresSinceLastReview`. If quieting made a
+  // matched pass read as SUPPRESSED, the log would stop becoming review-due and
+  // mt#4256 — this quieting's own retirement condition — would never be
+  // prompted. Gating only `additionalContext` is what keeps this true.
+  test("AT4: a quieted fire still counts as a fire, not a suppression (mt#4286)", () => {
+    const p = join(dir, "claim.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine(CREATED_PR_CLAIM), makeUserLine()]),
+      "utf8"
+    );
+    const record = run(makeHookInput(p), makeCtx(p))?.calibration as Record<string, unknown>;
+    const parsed = parseCalibrationRecord(JSON.stringify(record), "pre-narration");
+    if (parsed === null)
+      throw new Error("the quieted record failed to parse as a calibration record");
+    expect(isSuppressedRecord(parsed)).toBe(false);
+  });
+
+  // The quieting is a GATE, not a deletion — `buildReminder` still works and is
+  // still exercised, via the renderProbe the registration now declares. Without
+  // this, "quieted" and "the reminder builder rotted" look identical.
+  test("renderWorstCase still renders, and exceeds the pre-mt#4286 ceiling", () => {
+    const rendered = renderWorstCase();
+    expect(rendered).toContain("[pre-narration-detector]");
+    // One line per category — the axis the old "fixed" shape classification and
+    // the old 650 annotation both missed.
+    for (const category of OUTCOME_CATEGORIES) {
+      expect(rendered).toContain(`**${category.key}**`);
+    }
+    expect(rendered.length).toBeGreaterThan(650);
+    expect(rendered.length).toBeLessThanOrEqual(1800);
   });
 
   test("no match -> null (silent allow)", () => {
