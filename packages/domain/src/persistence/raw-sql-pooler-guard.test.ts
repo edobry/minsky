@@ -80,9 +80,9 @@ describe("guardRawSqlAgainstPoolerWedge (mt#2773)", () => {
     const { sql } = fakeSql({ max: 4 });
     const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
 
-    const snap = (guarded as unknown as Record<symbol, () => PoolerSaturation>)[
-      POOLER_SATURATION
-    ]();
+    const snap = (
+      (guarded as unknown as Record<symbol, unknown>)[POOLER_SATURATION] as () => PoolerSaturation
+    )();
 
     expect(snap.limit).toBe(4);
     expect(snap.inFlight).toBe(0);
@@ -97,7 +97,9 @@ describe("guardRawSqlAgainstPoolerWedge (mt#2773)", () => {
     const { sql } = fakeSql({ max: 2, delayMs: 5 });
     const guarded = guardRawSqlAgainstPoolerWedge(sql as never);
     const read = () =>
-      (guarded as unknown as Record<symbol, () => PoolerSaturation>)[POOLER_SATURATION]();
+      (
+        (guarded as unknown as Record<symbol, unknown>)[POOLER_SATURATION] as () => PoolerSaturation
+      )();
 
     // Deliberately NOT awaited yet — the mid-burst read is the point.
     const inflight = Promise.all(

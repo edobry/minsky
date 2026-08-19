@@ -137,7 +137,26 @@ export interface PoolerSaturation {
   saturated: boolean;
   /** True if the cap was ever reached. Survives the burst that caused it. */
   everSaturated: boolean;
+  /**
+   * How many guards this process has constructed (PR #3177 review).
+   *
+   * The reader below reports the LATEST guard, which is accurate only while
+   * there is one. Rather than assert that invariant in prose and leave it
+   * unchecked, this exposes the number so a reader can see when it stops
+   * holding: `guardCount > 1` means the other fields describe one guard among
+   * several and understate total demand.
+   *
+   * Deliberately NOT enforced by throwing — tests legitimately construct many
+   * guards, and a hard failure would make the invariant untestable. Production
+   * routes every consumer through one memoized instance (mt#4298), so a
+   * `guardCount > 1` reading outside tests is the signal that something
+   * re-wrapped the client.
+   */
+  guardCount: number;
 }
+
+/** Count of guards constructed in this process. See `PoolerSaturation.guardCount`. */
+let guardsConstructed = 0;
 
 /**
  * Most recently constructed guard's snapshot reader (mt#4308).
@@ -208,7 +227,9 @@ export function guardRawSqlAgainstPoolerWedge(sql: Sql, limit?: number): Guarded
     lastSettledAt: lastSettledAt === null ? null : new Date(lastSettledAt).toISOString(),
     saturated: waiters.length > 0,
     everSaturated: peakQueued > 0,
+    guardCount: guardsConstructed,
   });
+  guardsConstructed++;
   latestGuardSaturation = saturation;
 
   const guardedUnsafe = (
