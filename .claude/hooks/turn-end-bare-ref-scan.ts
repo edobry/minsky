@@ -80,6 +80,7 @@ import { readFileSync } from "node:fs";
 import type { ClaudeHookInput } from "./types";
 import { GUARD_REGISTRY, type DispatchContext, type GuardOutcome } from "./registry";
 import { calibrationLogPath } from "./dispatcher";
+import { CAPTURE_SCHEMA_VERSION, captureArtifact } from "./judged-input-capture";
 import { collectShortIdBindings, extractAssistantText, extractFinalTurn } from "./transcript";
 import {
   partitionAuthorLinkedShortIds,
@@ -391,6 +392,31 @@ export async function run(
     // silenced, which is otherwise invisible in the log.
     advisory_chain_capped: chainCapped,
     advisory_emitted: flagged.length > 0 && !chainCapped,
+    // mt#4161: snapshot the message these findings were judged against.
+    //
+    // Without it a rating pass has `matches` — it can see that `mem#1041` was
+    // flagged — and nothing to decide the verdict WITH. Every question that
+    // settles a fire is a question about the message: was this the FIRST
+    // mention of that ref, was a UUID actually in hand, was the ref inside a
+    // fence the matcher should have skipped. mt#4160's pass answered them by
+    // scanning session transcripts by timestamp, which worked and is not
+    // guaranteed to: transcripts age out (mt#3821 measured 12 of 959 records
+    // with none left), so a future pass inherits an archaeology step that can
+    // simply fail.
+    //
+    // WHOLE message, not a per-match window. `extractMatchContext` is the
+    // cheaper sibling and is the wrong tool here — a 240-char window around the
+    // ref cannot answer "was this the first mention" or "was a UUID present
+    // elsewhere in the message", which are two of the three questions above.
+    // `captureArtifact` is bounded (16k) and records `truncated`, so a pass
+    // reading a truncated record reports partial rather than a verdict.
+    //
+    // `captureSchema` is a NUMBER and is read by the sweep from the record's
+    // `detectorFields` passthrough, never the top level — no per-kind parse
+    // branch names it, so `parseDetectorFields` routes it there for every log
+    // kind (`hasCaptureMarker` in `calibration-sweep.ts`; mem#888).
+    captureSchema: CAPTURE_SCHEMA_VERSION,
+    judgedMessage: captureArtifact(text),
   };
 
   // Calibration-first (ADR-024): a record is written on every fire, but the
