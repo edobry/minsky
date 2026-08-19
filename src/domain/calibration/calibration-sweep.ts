@@ -1552,11 +1552,18 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       // is near-unique and would satisfy the distinct-phrase gate by construction; the failed
       // segment is what repeats across genuinely similar mistakes (the same wrong `tray`, the same
       // wrong root), which is exactly what a review needs to see clustered.
+      // The fallback is defensive only: `run()` writes `phrase` on every MATCHED record, and only
+      // matched records reach here (a CLEAN record carries `binary: null`, fails this branch's
+      // guard, and correctly contributes nothing — the axis measures fires). It exists for a record
+      // whose writer omitted `phrase` — a hand-edited or pre-rename line. PR #3149 R1 NON-BLOCKING
+      // noted that `binary|missingCount` alone collapses distinct shapes that share a count;
+      // `unresolvedCount` is the only other discriminating field available at this layer, since the
+      // failed SEGMENTS live in `phrase` itself and cannot be reconstructed from what is left.
       const phrase = rec.detectorFields["phrase"];
       phrases.add(
         typeof phrase === "string" && phrase.length > 0
           ? phrase
-          : `${rec.detectorFields["binary"]}|${rec.detectorFields["missingCount"]}`
+          : `${rec.detectorFields["binary"]}|${rec.detectorFields["missingCount"]}|${rec.detectorFields["unresolvedCount"]}`
       );
     } else {
       for (const m of rec.matches) {

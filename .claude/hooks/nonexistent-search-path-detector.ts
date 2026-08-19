@@ -283,6 +283,40 @@ export function positionalArgs(tokens: readonly string[]): string[] | null {
 }
 
 /**
+ * Short-option letters `grep`/`rg` actually define. Used to bound {@link suppliesPattern}'s scan so
+ * an arbitrary word starting with `-` cannot be read as a bundled option run.
+ */
+const KNOWN_SHORT_FLAGS = new Set("abcdDeEfFGhHiIlLmnoPqrRsUvVwxyzZ".split(""));
+
+/**
+ * Whether `token` supplies the PATTERN via `-e`/`-f` (or `--regexp`/`--file`), in EITHER spelling.
+ *
+ * The attached spelling is the whole reason this is not an equality test. `grep -ePATTERN src/tray`
+ * and `grep -rnePATTERN src/tray` are valid, and the earlier `/^-[A-Za-z]*[ef]$/` anchored on `$`
+ * so it matched only the detached form — leaving `patternSuppliedByFlag` false, which made
+ * `pathArgs` drop the FIRST POSITIONAL as "the pattern" when it was actually the path. The result
+ * was a silent recall miss: `grep -ePATTERN src/tray` checked zero paths. Caught by
+ * `minsky-reviewer[bot]` on PR #3149; pinned by tests below.
+ *
+ * In a short-option run, `e`/`f` consumes the REST of the token as its value, so an occurrence
+ * anywhere in the run means the pattern is supplied. The scan stops at the first non-flag letter so
+ * that a stray `-notaflag` (whose `f` sits inside a word) cannot be read as `-f` — that direction
+ * matters, because a false "pattern supplied" promotes the real pattern to a path candidate and is
+ * the one way this helper could manufacture a false fire.
+ */
+export function suppliesPattern(token: string): boolean {
+  if (token.startsWith("--")) {
+    return /^--(regexp|file)(=|$)/.test(token);
+  }
+  if (!token.startsWith("-") || token.length < 2) return false;
+  for (const ch of token.slice(1)) {
+    if (ch === "e" || ch === "f") return true;
+    if (!KNOWN_SHORT_FLAGS.has(ch)) return false;
+  }
+  return false;
+}
+
+/**
  * Options that precede `find`'s path operands (`find -L src -name '*.ts'`).
  */
 const FIND_LEADING_OPTS = new Set(["-H", "-L", "-P", "-E", "-s", "-x", "-d"]);
@@ -333,15 +367,7 @@ export function pathArgs(binary: string, tokens: readonly string[]): string[] | 
   const positionals = positionalArgs(tokens);
   if (positionals === null) return null;
 
-  const patternSuppliedByFlag = tokens.some(
-    (t, i) =>
-      i > 0 &&
-      (t === "-e" ||
-        t === "-f" ||
-        t.startsWith("--regexp") ||
-        t.startsWith("--file") ||
-        (/^-[A-Za-z]*[ef]$/.test(t) && !t.startsWith("--")))
-  );
+  const patternSuppliedByFlag = tokens.some((t, i) => i > 0 && suppliesPattern(t));
 
   return patternSuppliedByFlag ? positionals : positionals.slice(1);
 }

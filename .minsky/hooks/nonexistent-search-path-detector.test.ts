@@ -22,6 +22,7 @@ import {
   positionalArgs,
   renderWorstCase,
   scanCommand,
+  suppliesPattern,
   tokenize,
   type SearchPathFs,
 } from "./nonexistent-search-path-detector";
@@ -247,6 +248,33 @@ describe("the other search binaries", () => {
     // Without this branch, `src` would be swallowed as the pattern and `src/tray` never checked.
     expect(scan("grep -rn -e foo src/tray").matched).toBe(true);
     expect(scan("grep -rne foo src/tray").matched).toBe(true);
+  });
+
+  // PR #3149 R1 (BLOCKING, reviewer-caught): the ATTACHED spelling. The original matcher anchored
+  // on `$`, so `-ePATTERN` did not register as pattern-supplying and `pathArgs` dropped the real
+  // path as if it were the pattern — the command checked ZERO paths and said nothing.
+  test("`-e`/`-f` with an ATTACHED value still supplies the pattern", () => {
+    expect(pathArgs("grep", tokenize("grep -ePATTERN src/tray"))).toEqual(["src/tray"]);
+    expect(pathArgs("grep", tokenize("grep -rnePATTERN src/tray"))).toEqual(["src/tray"]);
+    expect(pathArgs("grep", tokenize("grep -fFILE src/tray"))).toEqual(["src/tray"]);
+    expect(scan("grep -ePATTERN src/tray").matched).toBe(true);
+    expect(scan("grep -rnePATTERN src/tray").matched).toBe(true);
+  });
+
+  test("the long forms supply the pattern in both spellings", () => {
+    expect(pathArgs("grep", tokenize("grep --regexp=foo src/tray"))).toEqual(["src/tray"]);
+    expect(pathArgs("grep", tokenize("grep --file patterns.txt src/tray"))).toEqual(["src/tray"]);
+  });
+
+  test("suppliesPattern stops at the first non-flag letter, so a stray word is not read as -f", () => {
+    // The false-positive direction: reading this as pattern-supplying would promote the real
+    // PATTERN to a path candidate and could manufacture a fire on a correct command.
+    expect(suppliesPattern("-notaflag")).toBe(false);
+    expect(suppliesPattern("-rniE")).toBe(false);
+    expect(suppliesPattern("-e")).toBe(true);
+    expect(suppliesPattern("-rne")).toBe(true);
+    expect(suppliesPattern("--regexp")).toBe(true);
+    expect(suppliesPattern("--exclude-dir")).toBe(false);
   });
 
   test("a non-search binary is ignored entirely", () => {
