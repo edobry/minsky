@@ -158,6 +158,21 @@ const COCKPIT_NODE_IMPORT_GUARD_OPTIONS = {
     // inferring health from fire counts — the exact conflation mt#3754 exists
     // to prevent.
     "@minsky/domain/guard-events/interceptor-state",
+    // mt#4287: meets the same "zero Node dependency at ANY hop" bar, verified
+    // rather than assumed. protection-summary.ts has exactly TWO import lines:
+    // a type-only one from ./aggregates (erased, no runtime edge) and a value
+    // import from ./interceptor-state — the entry directly above, whose own
+    // sole import is likewise type-only. So its entire runtime import graph is
+    // {interceptor-state}, which is already verified empty; there is no third
+    // hop to check.
+    //
+    // The operator page imports `deriveProtectionSummary` from it so the
+    // per-failure-class rollup has ONE authority rather than a second copy in
+    // the web bundle. That matters more here than for a typical shared helper:
+    // the maintainer and operator surfaces render the SAME figures in two
+    // vocabularies, and a drifted second definition would leave both looking
+    // correct while disagreeing — the exact failure mt#3754 SC6 forbids.
+    "@minsky/domain/guard-events/protection-summary",
   ],
 };
 

@@ -87,6 +87,9 @@ const VitalsPage = lazy(() =>
 const InterceptorsPage = lazy(() =>
   import("./pages/InterceptorsPage").then((m) => ({ default: m.InterceptorsPage }))
 );
+const ProtectionPage = lazy(() =>
+  import("./pages/ProtectionPage").then((m) => ({ default: m.ProtectionPage }))
+);
 const InterceptorDetailPage = lazy(() =>
   import("./pages/InterceptorDetailPage").then((m) => ({ default: m.InterceptorDetailPage }))
 );
@@ -638,6 +641,22 @@ export function App() {
             element={
               <ErrorBoundary id="interceptor-detail-page">
                 <InterceptorDetailPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* The OPERATOR rendering of the same corpus (mt#4287, phase 6 of
+              mt#3754) — mem#802's two-audience split. Deliberately NOT nested
+              under `/interceptors`: nesting would make the operator surface a
+              subordinate view of the maintainer one, and the split's whole
+              claim is that they are peers over one substrate. The path is a
+              PLACEHOLDER pending the naming ask (SC7); it is a list-shaped
+              destination with no entity id, so `matchEntityRoute` is not
+              involved and no deeplink type is added. */}
+          <Route
+            path="/protection"
+            element={
+              <ErrorBoundary id="protection-page">
+                <ProtectionPage />
               </ErrorBoundary>
             }
           />
