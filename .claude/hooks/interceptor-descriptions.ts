@@ -340,6 +340,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "enumeration-scope-check",
+    {
+      description:
+        'Records when a PR changes a SERIALIZED contract — a `contract/*.json` fixture, a generated manifest, a `-shape.json` — and the session\'s consumer sweep never reached `docs/`, which gate (h) prescribes for that change type. The strictly stronger sibling of the did-a-search-happen guards: every recorded gate-(h) failure DID sweep and missed a prescribed directory. mt#4252 produced a correct six-row consumer table, ruled the Rust side out by reading `rustConsumedFields` rather than assuming, and grepped `docs/architecture/adr-*.md` — a glob that structurally could not reach `docs/principal-channel.md`, whose own "exhaustive per variant" sentence the change made false. Reviewer-confirmed BLOCKING on PR #3101. Record-only: 14 decided of 1134 PR-creates over 589 transcripts, 5 flagged.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("enumeration-scope-check"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "claim-provenance-scan",
     {
       description:

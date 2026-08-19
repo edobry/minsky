@@ -360,3 +360,228 @@ export function callContainsQuotedFailure(
 ): boolean {
   return quoted.some((line) => call.resultText.includes(line));
 }
+
+// ---------------------------------------------------------------------------
+// Discharge: a claimed CONSUMER SWEEP — which directories did it cover?
+// (mt#4171, gate (h))
+// ---------------------------------------------------------------------------
+//
+// The section above answers "did a search run?" (mt#4004). This one answers the
+// strictly stronger question gate (h) turns on: "the sweep ran — did it reach
+// the directories the gate prescribes?" Same substrate, one more field read.
+//
+// WHY THIS PARSES A COMMAND STRING, when mt#4171's spec says the directories
+// arrive as structured arguments. They mostly do not. Measured over the 589
+// on-disk transcripts in this project (2026-08-19), by tool name:
+//
+//     Bash                       27561
+//     session_grep_search          339
+//     repo_search                  180
+//     Grep                          21
+//     git_search                     9
+//     Glob                           5
+//
+// So ~98% of this repo's search activity is a shell command, and a recognizer
+// reading only structured `path` arguments would be blind to nearly all of it —
+// the inert-probe shape of mem#1020, one level up from a test fixture. A
+// command string is still not a paraphrase axis: it is a structured artifact
+// matched against a FIXED directory list, the same matcher class as
+// `block-secret-file-read`'s reader+path pairs and the chained-verification
+// scanner, both of which ship denying. ADR-024's ladder does not govern it.
+//
+// DIRECTION OF ERROR, per this module's header, decides every judgment call
+// below: a directory this MISSES becomes a false POSITIVE — the guard telling
+// an author who swept `docs/` that they did not. So the recognizer is
+// deliberately over-generous in every ambiguous case, and the discriminating
+// weight sits on the join.
+
+/** Tools whose invocation can constitute part of a consumer sweep. */
+const SWEEP_TOOL_NAMES: readonly string[] = [
+  "bash",
+  "session_exec",
+  "grep",
+  "glob",
+  "session_grep_search",
+  "repo_search",
+  "git_search",
+  "session_search",
+];
+
+/**
+ * The shell commands that SEARCH, as opposed to ones that merely name a path.
+ *
+ * `cat`/`sed`/`head` are excluded on purpose: reading one file is not a sweep of
+ * its directory, and crediting it would discharge gate (h) on a single-file
+ * read — the exact "enumerated 25+ sites and missed a class" shape (mt#1610)
+ * this check exists to catch.
+ */
+const SWEEP_COMMAND_RE = /\b(?:grep|rg|ugrep|ag|ack|find|fd|fgrep|egrep|ls)\b/;
+
+/**
+ * The top-level directories gate (h)'s consumer table can prescribe.
+ *
+ * A FIXED list, which is what keeps this a lookup rather than a parse. Anything
+ * outside it is not a directory the gate ever asks about, so there is nothing to
+ * be wrong about.
+ */
+export const PRESCRIBABLE_DIRECTORIES: readonly string[] = [
+  "src",
+  "tests",
+  "services",
+  "scripts",
+  "docs",
+  "packages",
+  ".github",
+  ".claude",
+  ".minsky",
+  "contract",
+];
+
+/**
+ * A search naming no path at all sweeps the whole tree from cwd, so it covers
+ * every prescribable directory. Recognizing this is what keeps the common
+ * `grep -rn "<sym>" .` and a bare `rg <sym>` from reading as zero coverage —
+ * the single largest false-positive source if it were missed.
+ *
+ * THE FIRST VERSION OF THIS WAS A CAN'T-FAIL PROBE, and the replay is what said
+ * so. It ended in `…(?:\s\.\s|\s\.$|$)/m`, and that trailing `$` matches the end
+ * of any line — so EVERY grep took the whole-tree branch and credited all ten
+ * directories. The measured output was the tell rather than the code: `contract`
+ * came back swept in 86.4% of READY transitions, which is not a thing anyone
+ * does. mem#704 — a probe returning the same result whether or not the system
+ * did the work is not verification — and the same shape mem#1020 records one
+ * level down at the fixture.
+ *
+ * `grep` is deliberately NOT in the no-operand list below. With no path operand
+ * `grep` reads STDIN (it is the tail of a pipe), which sweeps nothing; `rg`,
+ * `ag`, `ack` and `fd` default to the working tree. Treating them alike is what
+ * produced the 86% above.
+ */
+const EXPLICIT_CWD_OPERAND_RE = /(?:^|\s)\.(?=\s|$)/;
+const TREE_DEFAULTING_COMMAND_RE = /(?:^|[\s|(])(?:rg|ugrep|ag|ack|fd)\b/;
+const PATH_OPERAND_RE = /(?:^|\s)(?:--include=)?["']?[\w@.][\w\-./]*\//;
+
+/**
+ * Split a command string into the segments a shell would run separately.
+ *
+ * A SINGLE `|` is deliberately NOT a separator, and this cost a real defect. A
+ * grep alternation carries literal pipes — `grep -rn "A\s*=\|B\s*=" src/foo.ts`
+ * is one command — so splitting on `|` tore the pattern away from its path
+ * operand, leaving a segment with a search verb and no directory and another
+ * with a directory and no verb. The guard's own liveness test caught it on a
+ * fixture quoted verbatim from the mt#4252 session (mem#1020: assert a fixture
+ * matches SOMETHING before asserting what it does not match).
+ *
+ * Keeping a pipeline whole is also the right reading: in `grep -rn foo src/ |
+ * head`, the path belongs to the searcher, and a path introduced later in the
+ * pipeline only ever over-credits, which is the safe direction here.
+ */
+function commandSegments(command: string): string[] {
+  return command.split(/(?:\n|;|&&|\|\|)/);
+}
+
+/**
+ * True when a segment searches the whole tree: either it names `.` explicitly,
+ * or it runs a tree-defaulting searcher with no path operand at all.
+ */
+function sweepsWholeTree(segment: string): boolean {
+  if (!SWEEP_COMMAND_RE.test(segment)) return false;
+  if (EXPLICIT_CWD_OPERAND_RE.test(segment)) return true;
+  return TREE_DEFAULTING_COMMAND_RE.test(segment) && !PATH_OPERAND_RE.test(segment);
+}
+
+/**
+ * Directories this ONE call demonstrably searched.
+ *
+ * Token-membership against {@link PRESCRIBABLE_DIRECTORIES}, NOT argument-position
+ * parsing. A pattern that merely MENTIONS `src/` (`grep -rn "src/cockpit" .`)
+ * credits `src` — which is over-crediting, and over-crediting is the safe
+ * direction here. Argument-position parsing would be more precise and would fail
+ * in the dangerous direction on every flag spelling it did not anticipate.
+ */
+export function sweptDirectories(call: ToolCallWithResult): string[] {
+  if (!SWEEP_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
+
+  const isShell = ["bash", "session_exec"].includes(normalizeToolName(call.toolName));
+
+  if (isShell) {
+    const command = call.input["command"];
+    if (typeof command !== "string" || command === "") return [];
+    // PER SEGMENT, and this is the whole correctness of the shell path.
+    //
+    // The first version asked "does ANY segment run a search?" and then pulled
+    // directory tokens from the WHOLE command string. That pairs a verb from one
+    // segment with a path from another — the same defect CLAUDE.md records for a
+    // `grep -E` over a test log, where the filter dropped the structure binding a
+    // line to its block and the pairing read as one record.
+    //
+    // Measured on the mt#4252 session (2026-08-19): one `Bash` call ran
+    // `grep -rn … src/cockpit/principal-channel-poller.ts` in one segment and
+    // `sed -n '1,80p' docs/architecture/adr-035-….md` in another. `docs` was
+    // credited as SWEPT off a single-file `sed` read that shares a command with
+    // an unrelated grep — and that false credit is precisely what suppressed the
+    // guard on its own originating incident.
+    const covered = new Set<string>();
+    for (const segment of commandSegments(command)) {
+      if (!SWEEP_COMMAND_RE.test(segment)) continue;
+      if (sweepsWholeTree(segment)) {
+        for (const dir of PRESCRIBABLE_DIRECTORIES) covered.add(dir);
+        continue;
+      }
+      for (const dir of directoriesNamedIn(segment)) covered.add(dir);
+    }
+    return [...covered];
+  }
+
+  // A structured search tool: every field it exposes is part of ONE search, so
+  // there are no segments to keep apart.
+  const parts: string[] = [];
+  for (const field of ["path", "pattern", "include_pattern", "query", "glob"]) {
+    const value = call.input[field];
+    if (typeof value === "string" && value !== "") parts.push(value);
+  }
+  if (parts.length === 0) return [];
+  return directoriesNamedIn(parts.join(" "));
+}
+
+/**
+ * The prescribable directories a single search expression sweeps.
+ *
+ * A SUBTREE IS NOT THE DIRECTORY, and this distinction is the whole check. A
+ * search naming `docs/architecture/adr-*.md` has not swept `docs/` — it has read
+ * one subtree under a glob that structurally cannot reach `docs/principal-channel.md`.
+ * Crediting it would be mt#4215's defect in the guard itself: a path argument
+ * that names a directory is not proof the directory was searched.
+ *
+ * Measured (2026-08-19): this is exactly how mt#4252 escaped an earlier revision.
+ * That session ran
+ * `grep -rln "principal-channel\\|principal channel" docs/architecture/adr-*.md`,
+ * which credited `docs` and suppressed the guard on its own originating
+ * incident — while the file the change falsified sits at the `docs/` root, one
+ * level above everything that grep could see.
+ *
+ * So a reference counts only when it addresses the directory ITSELF: `docs/`,
+ * `docs/*`, `docs/**`, or a file directly inside it. `docs/<subdir>/…` does not.
+ * This trades a small false-positive risk (an author who sweeps several subtrees
+ * separately reads as not having swept the root) for not silently discharging the
+ * claim the gate exists to check — and the guard is record-only, so that risk
+ * costs a calibration record rather than a denial.
+ */
+function directoriesNamedIn(text: string): string[] {
+  const covered: string[] = [];
+  for (const dir of PRESCRIBABLE_DIRECTORIES) {
+    // `dir/` preceded by a separator (so `srcfoo` does not credit `src`, and a
+    // bare word `docs` in a pattern does not either — a directory reference
+    // carries a slash), and NOT followed by a further `<component>/`.
+    const re = new RegExp(`(?:^|[\\s"'=(])${dir.replace(".", "\\.")}/(?![\\w.-]+/)`);
+    if (re.test(text)) covered.push(dir);
+  }
+  return covered;
+}
+
+/** Every prescribable directory the session's sweep calls reached, unioned. */
+export function sessionSweptDirectories(calls: readonly ToolCallWithResult[]): Set<string> {
+  const covered = new Set<string>();
+  for (const call of calls) for (const dir of sweptDirectories(call)) covered.add(dir);
+  return covered;
+}
