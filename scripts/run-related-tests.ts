@@ -211,9 +211,22 @@ async function runBunTest(
  * dom-setup preload, `services/*` runs from the service directory — so a single
  * pasted command reproduces the selection, not necessarily every partition's
  * exact flags.
+ *
+ * Rendered through `toBunTestPath`, the same anchoring the runner itself uses
+ * (PR #3150 R1). Space-separation alone does NOT make the list pasteable: bun
+ * reads a bare dot-directory argument such as `.minsky/hooks/guard.test.ts` as
+ * a NAME filter rather than a path, so it matches nothing and the run emits no
+ * completion summary — a command that looks correct and silently does nothing,
+ * which is the failure `toBunTestPath` exists to prevent. Emitting a list the
+ * reader cannot actually paste would reintroduce it at the diagnostic layer.
+ *
+ * The PASS path deliberately keeps its own unanchored, comma-joined rendering:
+ * leaving it untouched is one of this task's success criteria, and it reads as
+ * a report rather than as arguments.
  */
-export function describeSelection(related: string[]): string {
-  return `${related.length} related test file(s) selected: ${related.join(" ")}`;
+function describeSelection(related: string[]): string {
+  const args = related.map(toBunTestPath).join(" ");
+  return `${related.length} related test file(s) selected: ${args}`;
 }
 
 export async function runFastRelatedTestGate(
