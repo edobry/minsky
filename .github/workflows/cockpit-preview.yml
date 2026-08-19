@@ -74,6 +74,24 @@ jobs:
         run: |
           # Foreground probe first — see the restore job's matching step for why
           # a broken probe is invisible once it is inside a wait loop.
+          # pipefail: every status read below is `railway ... | jq ...`. Without
+          # it the pipeline's exit status is jq's, so a railway failure MID-LOOP
+          # yields empty output that the loop reads as "not registered yet" —
+          # the same masking the foreground probe guards against at entry, but
+          # arriving later. Both are needed: the probe catches a broken probe,
+          # pipefail catches one that breaks partway through.
+          set -o pipefail
+
+          # `jq` is preinstalled on GitHub's ubuntu runner images, but this
+          # workflow did not depend on it before this change (the older step
+          # greps the health body), so assert rather than assume — an absent jq
+          # would otherwise surface as an empty STATUS, which reads as "not
+          # registered yet" and times out ten minutes later blaming Railway.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "FAIL: jq is not available on this runner; the status reads below cannot work."
+            exit 1
+          fi
+
           if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>&1); then
             echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
             echo "$PROBE"
@@ -87,9 +105,18 @@ jobs:
 
           echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
           for i in $(seq 1 60); do
+            # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
+            # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
+            # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
+            # BEFORE 'Z' (0x5A) — so a string compare puts a deployment created
+            # in the SAME second as the stamp behind it, and the loop would miss
+            # the deployment it is waiting for. jq's fromdateiso8601 rejects the
+            # fractional form outright, hence the sub() that trims it.
             STATUS=$(railway deployment list --json --limit 5 --service cockpit-preview \
               | jq -r --arg since "$DEPLOY_STARTED_AT" \
-                  '[.[] | select(.createdAt >= $since)] | first | .status // empty')
+                  '($since | fromdateiso8601) as $t
+                   | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
+                   | first | .status // empty')
 
             case "$STATUS" in
               SUCCESS)
@@ -100,7 +127,10 @@ jobs:
               FAILED|CRASHED|REMOVED)
                 echo "FAIL: the preview deploy ended in $STATUS."
                 echo "Build logs:"
-                railway logs --json --lines 100 || true
+                # --service is required: the token scopes the project, not a
+                # service, so an unscoped call resolves against whatever is
+                # "linked" — which on a runner is nothing.
+                railway logs --json --lines 100 --service cockpit-preview || true
                 exit 1
                 ;;
               "")
@@ -118,25 +148,30 @@ jobs:
             exit 1
           fi
 
-          # Freshness — see the restore job's matching block for the full
-          # reasoning. In short: SUCCESS means built and promoted, not up and
-          # answering, and the step below can only tell "something healthy is
-          # serving" from "THIS build is serving" by the process start time.
-          # The identity half is covered here by the next step's cockpit-specific
-          # route assertions; the restore job, which has no such step, checks the
-          # health body's service field itself.
+          # Identity AND freshness — see the restore job's matching block for the
+          # full reasoning. An earlier revision asserted only freshness here and
+          # leaned on the next step's cockpit-specific route assertions for
+          # identity. That was indirect for no saving: the health body is already
+          # being read for processStartedAtMs, so checking `service` in the same
+          # read costs one comparison and removes the argument.
           echo "Confirming the deployed build is the one serving..."
           STARTED_EPOCH_MS=$(date -u -d "$DEPLOY_STARTED_AT" +%s000 2>/dev/null \
             || date -u -jf '%Y-%m-%dT%H:%M:%SZ' "$DEPLOY_STARTED_AT" +%s000)
 
           for i in $(seq 1 30); do
-            STARTED=$(curl -s --max-time 15 "$PREVIEW_URL/api/health" \
-              | jq -r '.processStartedAtMs // empty' 2>/dev/null || echo '')
-            if [ -n "$STARTED" ] && [ "$STARTED" -ge "$STARTED_EPOCH_MS" ]; then
-              echo "Serving a process started $STARTED (>= upload $STARTED_EPOCH_MS)."
+            BODY=$(curl -s --max-time 15 "$PREVIEW_URL/api/health" || echo '')
+            SERVICE=$(printf '%s' "$BODY" | jq -r '.service // empty' 2>/dev/null || echo '')
+            STARTED=$(printf '%s' "$BODY" | jq -r '.processStartedAtMs // empty' 2>/dev/null || echo '')
+
+            if [ "$SERVICE" = "minsky-cockpit" ] && [ -n "$STARTED" ] && [ "$STARTED" -ge "$STARTED_EPOCH_MS" ]; then
+              echo "Serving minsky-cockpit, started $STARTED (>= upload $STARTED_EPOCH_MS)."
               exit 0
             fi
-            echo "  [$i/30] started=${STARTED:-unreachable} (want >= $STARTED_EPOCH_MS)"
+            if [ -n "$SERVICE" ] && [ "$SERVICE" != "minsky-cockpit" ]; then
+              echo "FAIL: the host is serving '$SERVICE', not minsky-cockpit — wrong artifact deployed."
+              exit 1
+            fi
+            echo "  [$i/30] service=${SERVICE:-unreachable} started=${STARTED:-?} (want >= $STARTED_EPOCH_MS)"
             sleep 10
           done
 
@@ -312,6 +347,24 @@ jobs:
           # iterations emitting exactly what a pending deploy emits, then a
           # timeout that blames Railway. There is no moment at which that looks
           # wrong, which is why the check goes here and not in the loop.
+          # pipefail: every status read below is `railway ... | jq ...`. Without
+          # it the pipeline's exit status is jq's, so a railway failure MID-LOOP
+          # yields empty output that the loop reads as "not registered yet" —
+          # the same masking the foreground probe guards against at entry, but
+          # arriving later. Both are needed: the probe catches a broken probe,
+          # pipefail catches one that breaks partway through.
+          set -o pipefail
+
+          # `jq` is preinstalled on GitHub's ubuntu runner images, but this
+          # workflow did not depend on it before this change (the older step
+          # greps the health body), so assert rather than assume — an absent jq
+          # would otherwise surface as an empty STATUS, which reads as "not
+          # registered yet" and times out ten minutes later blaming Railway.
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "FAIL: jq is not available on this runner; the status reads below cannot work."
+            exit 1
+          fi
+
           if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>&1); then
             echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
             echo "$PROBE"
@@ -327,9 +380,18 @@ jobs:
           for i in $(seq 1 60); do
             # Newest-first; take the newest deployment created at or after the
             # upload. An empty result means Railway has not registered it yet.
+            # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
+            # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
+            # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
+            # BEFORE 'Z' (0x5A) — so a string compare puts a deployment created
+            # in the SAME second as the stamp behind it, and the loop would miss
+            # the deployment it is waiting for. jq's fromdateiso8601 rejects the
+            # fractional form outright, hence the sub() that trims it.
             STATUS=$(railway deployment list --json --limit 5 --service cockpit-preview \
               | jq -r --arg since "$DEPLOY_STARTED_AT" \
-                  '[.[] | select(.createdAt >= $since)] | first | .status // empty')
+                  '($since | fromdateiso8601) as $t
+                   | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
+                   | first | .status // empty')
 
             case "$STATUS" in
               SUCCESS)
@@ -340,7 +402,10 @@ jobs:
               FAILED|CRASHED|REMOVED)
                 echo "FAIL: the restore deploy ended in $STATUS."
                 echo "Build logs:"
-                railway logs --json --lines 100 || true
+                # --service is required: the token scopes the project, not a
+                # service, so an unscoped call resolves against whatever is
+                # "linked" — which on a runner is nothing.
+                railway logs --json --lines 100 --service cockpit-preview || true
                 exit 1
                 ;;
               "")
