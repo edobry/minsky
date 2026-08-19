@@ -46,22 +46,34 @@ const ANALYZER_MODEL = "claude-haiku-4-5-20251001";
 const ANALYZER_PROVIDER = "anthropic";
 
 /**
- * Token cap; keeps the call cheap for routine post-merge runs.
+ * Token cap for the analyzer's structured answer.
  *
- * **This value currently has NO EFFECT on this call path (mt#4314).**
- * `DefaultAICompletionService.generateObject` spreads only `temperature` into the AI SDK
- * call — `maxTokens` is declared on `AIObjectGenerationRequest`, is forwarded by
- * `generateText` and `streamText`, and is dropped here. So the real ceiling is the SDK's
- * provider default, and changing this number changes nothing.
+ * **This value now takes effect (mt#4314).** It did not until then:
+ * `DefaultAICompletionService.generateObject` dropped `maxTokens`, so the real ceiling was
+ * the SDK's provider default and this number was inert. mt#4235's note here said exactly
+ * that, and recorded that its 2000 → 8000 → 16000 sweep produced 9 → 4 → 6 failures —
+ * variance around a disconnected knob rather than a dose-response curve.
  *
- * Left at its original value deliberately rather than tuned: mt#4235 measured 2000 → 8000
- * → 16000 across three live 20-transcript replays and got 9 → 4 → 6 failures, which is
- * run-to-run variance around a knob that was never connected, not a dose-response curve.
- * Raising it would encode a belief the code does not support. Fixing the forwarding is
- * mt#4314, which has to handle `authorship-judge` passing 500 into a cap that has never
- * been enforced.
+ * Raised 2000 → 12000 because the value is now REAL, not because 2000 was measured to be
+ * the cause of anything. Both caps in this codebase were chosen while they did nothing, so
+ * connecting the knob means re-sizing them to values that are safe to actually enforce; a
+ * 2000 ceiling that binds for the first time is a behaviour change on long answers even if
+ * nothing observed today is hitting it. 12000 is chosen to be clearly NON-BINDING for this
+ * analyzer's output shape — an array of findings, each with a label, rationale, severity,
+ * evidence indices and a suggested signature, plus a trailing summary.
+ *
+ * **The cap is NOT what drives this analyzer's observed failures, and this comment must not
+ * be read as claiming it is (mt#4314).** Live 20-transcript replays with the knob connected:
+ * 2000 → 7 failures, 12000 → 8. That is flat. The failures are the model returning an object
+ * missing a REQUIRED field — and at 12000 one row came back missing `findings`, which is the
+ * FIRST field in the schema, so it cannot be truncation. The emitted JSON Schema was checked
+ * and does carry `required: ["findings","summary"]`, so the model is being told. That is a
+ * structured-output compliance problem with this model on this schema, owned by mt#4317.
+ *
+ * A cap is a CEILING rather than a spend: a quiet session still costs what its short answer
+ * costs, so the headroom is free.
  */
-const MAX_TOKENS = 2000;
+const MAX_TOKENS = 12000;
 
 /**
  * Cap on how many messages are rendered into the prompt.

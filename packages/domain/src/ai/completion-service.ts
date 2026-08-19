@@ -279,6 +279,17 @@ export class DefaultAICompletionService implements AICompletionService {
         messages: request.messages as import("ai").CoreMessage[],
         schema: jsonSchema(schemaJson as Record<string, unknown>),
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
+        // mt#4314: this line was missing. `maxTokens` is declared on
+        // `AIObjectGenerationRequest` and forwarded by `generateText` and `streamText`
+        // above — only this path dropped it, so a caller's cap typechecked, looked
+        // honored, and never reached the provider. Two production callers had been
+        // passing one since they were written.
+        //
+        // Conditional-spread rather than the siblings' unconditional `maxTokens:
+        // request.maxTokens`, matching the `temperature` treatment one line up: mt#2733
+        // is this file's record of an unset field forwarded as `undefined` being read
+        // downstream as a value. Omitting the key when unset cannot reproduce that class.
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
       });
 
       // Post-parse validation: the AI may return a shape the JSON Schema
