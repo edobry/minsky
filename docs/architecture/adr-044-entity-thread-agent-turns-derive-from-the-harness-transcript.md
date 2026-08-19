@@ -167,11 +167,19 @@ render problem untouched.
 (write-behind) versus a read-time join. **Recommend the read-time join**: no third copy, and the
 GET is already a database read. Materialize later only if the join measurably hurts.
 
-**Required either way**: an append-only `entity_thread_conversations (local_id,
-harness_session_id, harness, adopted_at, adoption_reason)` binding. A thread's history spans
-several conversation ids (a daemon restart can spawn a fresh seeded child rather than resuming),
-and the `driven_sessions` upsert overwrites the prior id — mt#4093's named data loss. No table
-carries this today (verified: no such table exists in the schema tree).
+**Required either way**: an append-only `driven_session_conversations (local_id,
+harness_session_id, harness, actuator_generation, adopted_at, adoption_reason)` binding. A thread's
+history spans several conversation ids (a daemon restart can spawn a fresh seeded child rather than
+resuming), and the `driven_sessions` upsert overwrites the prior id — mt#4093's named data loss. No
+table carries this today (verified: no such table exists in the schema tree).
+
+**Widened from `entity_thread_conversations` on 2026-08-19**, per RFC `3bb937f0` §5 — see
+§Reconciliation below. The overwriting upsert is `onConflictDoUpdate({ target:
+drivenSessionsTable.localId, set: values })` in
+`packages/domain/src/transcripts/driven-session-registry-store.ts:107`, a store shared by the
+principal channel (`principal-channel-launch.ts`, `principal-channel-actuator.ts`) and the
+WS-driven callers (`routes/driven-sessions.ts`) as well as entity threads. A thread-scoped table
+would fix one caller's instance of a hole that lives in all of them.
 
 ## Consequences
 
@@ -214,6 +222,46 @@ be smuggled into this decision:
 4. **The unconfirmed tier needs a transport.** The panel is poll-only by explicit decision, and a
    3s poll cannot render streaming. Either accept sub-poll invisibility or revisit that decision —
    consciously, not by inheritance.
+
+## Reconciliation with RFC 3bb937f0 (added 2026-08-19, after acceptance)
+
+This ADR was drafted, decided and accepted **without citing the RFC that is its own proximate
+ancestor**: _Subject-scoped engagement — the office, the incumbency, and the attachment event_
+(Notion `3bb937f0-3cb4-81d8-a571-ca8bcca9051c`, **Draft** 2026-08-13,
+<https://app.notion.com/p/3bb937f03cb481d8a571ca8bcca9051c>). Its §6 is titled _"Disposition of
+ADR-040"_ and argues that the entity-thread system-of-record ADR should _"proceed now, narrowed"_ —
+this document is that ADR, renumbered because 040 was taken meanwhile by the scrub-gate ADR.
+
+The omission is a corpus-coverage gap, not an oversight of retrieval: Minsky's accepted decision
+records are split by policy between `docs/architecture/` and Notion, and the in-repo passes cannot
+reach the second. Surfaced by `/plan-task mt#4319`'s gate (p) pass (c) on 2026-08-19.
+
+**The RFC is a Draft, so it does not GOVERN this decision** — nothing here is retracted. What
+follows is the narrowing its §6 asks for, applied:
+
+1. **Scope of the claim.** The binding table is the system of record for the **attachment-event
+   series** — which conversation was adopted, when, and why. It is NOT the system of record for
+   "the conversation" and it does not establish line-of-work identity.
+2. **Disjoint coverage with mt#3943.** `conversation-transitions.jsonl` structurally cannot record
+   these swaps: `writeConversationMapping` emits a transition only when a prior mapping exists on
+   the SAME pid, and a daemon respawn is a new pid with no prior mapping. **Transition** = a
+   conversation replaced in the same seat (`/clear`, in-process resume, compact, fork). **Adoption**
+   = a conversation attached to the same subject-surface across seats. Neither covers the other.
+3. **mem#938 compliance.** No identity is minted. `local_id` already exists and is deterministically
+   derived; this table is an edge relation, and mem#938's own text anticipates it — post-mt#3900 the
+   data is _"recoverable by a join once edges exist."_ The line of work stays a derived join; this
+   makes its edges durable.
+4. **Generalization.** Recorded above, in §Option C.
+5. **Consumer.** mt#3695 (lineage ontology, PLANNING) is the task that decides what the series
+   MEANS. This ADR deliberately does not — it captures perishable edges ahead of the ontology that
+   will interpret them, which is mt#3943's standing precedent.
+6. **Anti-reification.** The series is a fold over adoption rows and the incumbency is the interval
+   between consecutive ones. Both are derived. Do not mint an id-space for either — the temptation
+   appears first here, which is why the discipline is stated here.
+
+**Not taken from the RFC**: its §3 concept and naming (_matter / case / watch_), which remain the
+principal's to decide, and its larger unification across entity threads, task work and collision
+detection. Adopting §5's schema does not accept §3's ontology.
 
 ## Cross-references
 
