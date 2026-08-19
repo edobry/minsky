@@ -326,9 +326,58 @@ export function parseElapsedSeconds(raw: string): number | null {
   // an under-strict one costs a fabricated age that downstream logic treats as
   // real. Note this does NOT fix the underlying flake — it converts an absurd
   // value into a legible null so the next occurrence is diagnosable.
+  //
+  // CORRECTION (mt#4275): that last sentence overstated what this check does.
+  // It converts absurd values in the BOUNDED fields; days is left open by the
+  // paragraph above, and the same reading came back through it three hours after
+  // this shipped, as `441077234-00:18:40`. The "legible null" is delivered by
+  // `startedAtMsFromElapsed` below, which bounds the derived TIMESTAMP rather
+  // than another field — see its docblock. This check remains correct and
+  // useful; it is simply not sufficient on its own.
   if (h > 23 || m > 59 || s > 59) return null;
 
   return Number(days ?? 0) * 86_400 + h * 3_600 + m * 60 + s;
+}
+
+/**
+ * Convert a raw `ps -o etime=` reading into an absolute start time, or null.
+ *
+ * Pure by construction — `nowMs` is a parameter rather than a `Date.now()` call
+ * — so the bound below is testable without depending on the host's `ps`, which
+ * is the very thing under suspicion.
+ *
+ * ## Why the epoch bound exists (mt#4275)
+ *
+ * `parseElapsedSeconds` bounds hours, minutes and seconds against `ps`'s
+ * documented rendering, and deliberately does NOT bound days, because a process
+ * can legitimately run for years. That reasoning is right about `ps` and wrong
+ * about this consumer, and mt#4260 shipped with the gap: the same absurd
+ * reading that motivated the field bounds came back through the one field left
+ * open. Decomposed, it was `441077234-00:18:40` — 441 million days, every
+ * bounded field in range. mt#4260's originating occurrence recorded the
+ * identical garbage as `10585853616:18:40`, parsed then as HOURS; 10,585,853,616
+ * hours IS 441,077,234 days. Same reading, different capture group, and only the
+ * group seen first was bounded.
+ *
+ * So the ceiling belongs here rather than in the parser, and it is not a chosen
+ * constant: **a process cannot have started before the UNIX epoch.** An elapsed
+ * that drives the computed start time negative is not a long-running process, it
+ * is a bad reading. That admits a genuinely decade-old process and rejects 441
+ * million days, with no threshold to justify or revisit.
+ *
+ * The parse itself stays faithful — `parseElapsedSeconds` still returns the
+ * number the string denotes. Rejecting it is the consumer's call, because only
+ * the consumer knows the value becomes a timestamp.
+ */
+export function startedAtMsFromElapsed(raw: string, nowMs: number): number | null {
+  const elapsedSec = parseElapsedSeconds(raw);
+  if (elapsedSec === null) return null;
+
+  const startedAtMs = nowMs - elapsedSec * 1000;
+  // Before the epoch means the reading is impossible, not merely large.
+  if (startedAtMs < 0) return null;
+
+  return startedAtMs;
 }
 
 /**
@@ -408,8 +457,7 @@ export const realIncumbentProbes: IncumbentProbes = {
         timeout: 3000,
         encoding: "utf-8",
       }).toString();
-      const elapsedSec = parseElapsedSeconds(raw);
-      return elapsedSec === null ? null : Date.now() - elapsedSec * 1000;
+      return startedAtMsFromElapsed(raw, Date.now());
     } catch {
       // Process gone, or `ps` unavailable.
       return null;
