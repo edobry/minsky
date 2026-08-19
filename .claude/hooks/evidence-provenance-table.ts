@@ -371,11 +371,39 @@ const QUOTED_RESULT_LINE_MARKERS: readonly RegExp[] = [
 const MIN_QUOTED_LINE_LENGTH = 30;
 
 /**
- * Cap on lines carried forward. A record pasting a whole run would otherwise
- * make the join quadratic against every failing call's output; the first N
- * distinctive lines settle it either way.
+ * ANSI SGR escapes, stripped from both sides before comparison (PR #3143 R1).
+ *
+ * Semantics-preserving by construction — a colour code carries no content — so
+ * this cannot merge two lines that differ in what they SAY, which is the
+ * property that makes it safe to apply to a join whose whole job is precision.
+ *
+ * MEASURED as currently inert: 0 of 186 real failing-run tool results across 12
+ * recent transcripts contain an escape sequence, because bun's output reaches
+ * the transcript already plain. It is forward-insurance against a runner that
+ * colourises, not a fix for an observed miss.
  */
-const MAX_QUOTED_LINES = 20;
+
+// Matching the ESC control character IS the intent: ANSI SGR sequences are
+// DEFINED by it, so there is no non-control spelling to prefer.
+// eslint-disable-next-line no-control-regex -- see the two lines above
+const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+/** Strip decorations that carry no content, for verbatim comparison. */
+function normalizeForComparison(text: string): string {
+  return text.replace(ANSI_ESCAPE_RE, "");
+}
+
+/**
+ * Sanity bound on lines carried forward — NOT a recall bound (PR #3143 R1).
+ *
+ * The first cut capped this at 20, which could drop the one line that would have
+ * discharged when a record pastes a long run: the opposite of this change's
+ * purpose. The cap now sits far above any real paste (the largest judged artifact
+ * in the live window is ~12KB, a few hundred lines) and exists only so a
+ * pathological input cannot make the join unbounded. Cost is bounded at the join
+ * instead, which short-circuits on the first match.
+ */
+const MAX_QUOTED_LINES = 500;
 
 /**
  * The STRICT subset: only `(fail)` lines (mt#4067).
@@ -417,10 +445,21 @@ export function extractQuotedFailures(record: string): string[] {
   return out;
 }
 
-/** True when the call's output contains one of the record's quoted failure lines. */
+/**
+ * True when the call's output contains one of the record's quoted lines.
+ *
+ * Both sides are ANSI-stripped first (PR #3143 R1). Deliberately NOT
+ * whitespace-collapsed: measured over the live corpus, collapsing bought ZERO
+ * additional discharges (69 records carrying quoted lines with a failing output
+ * in-session: 52 matched exactly, 52 with whitespace collapsed, 52 with a
+ * trailing stack suffix stripped), while it CAN merge two lines that differ only
+ * in spacing — a real loosening of a join whose job is precision, for no measured
+ * gain. `.some()` short-circuits, which is what bounds the cost.
+ */
 export function callContainsQuotedFailure(
   call: ToolCallWithResult,
   quoted: readonly string[]
 ): boolean {
-  return quoted.some((line) => call.resultText.includes(line));
+  const haystack = normalizeForComparison(call.resultText);
+  return quoted.some((line) => haystack.includes(normalizeForComparison(line)));
 }
