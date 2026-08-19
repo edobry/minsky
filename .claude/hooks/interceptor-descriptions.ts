@@ -579,7 +579,7 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     "pre-narration-detector",
     {
       description:
-        "Injects when a turn states a tool outcome — created, merged, tests pass — before that result is in hand.",
+        "Records a turn that states a tool outcome — created, merged, tests pass — before that result is in hand. Log-only.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("pre-narration-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",

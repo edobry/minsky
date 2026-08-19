@@ -90,6 +90,7 @@ import {
   type PermissionMode,
   type SpawnFn,
 } from "./driven-session-host";
+import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 import {
   createDrivenInitLinkObserver,
   createDrivenResultObserver,
@@ -285,6 +286,7 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
     }
 
     const { record } = startDrivenSession({
+      mcpServerNames: drivenSessionMcpServerNames(),
       cwd: opts.cwd,
       permissionMode: opts.permissionMode ?? "bypassPermissions",
       ...(opts.model === undefined ? {} : { model: opts.model }),

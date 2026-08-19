@@ -421,3 +421,164 @@ describe("AT7 — an outside click dismisses the assembly, not one pane (mt#4143
     expect(screen.getAllByTestId("peek-pane")[0]?.getAttribute("data-peek-type")).toBe("task");
   });
 });
+
+describe("the peek's width is the operator's (mt#4261)", () => {
+  // Same deferred-listener wait as AT7, and load-bearing for the same reason:
+  // the whole point of the first test below is that a handler DID run and chose
+  // not to dismiss, which is indistinguishable from no handler running at all.
+  const settleOutsideListener = () => new Promise((r) => setTimeout(r, 20));
+
+  async function openOnePane() {
+    renderShell();
+    fireEvent.click(taskRef(), { button: 0 });
+    await screen.findByTestId("peek-pane");
+    await settleOutsideListener();
+  }
+
+  /**
+   * The width every pane actually renders at.
+   *
+   * Read from the host's `--peek-pane-width` rather than `pane.style.width`
+   * because mt#4274 moved the number there: the pane's own rule is
+   * `width: var(--peek-pane-width, …)`, so a drag can repaint by writing one
+   * property instead of re-rendering every pane body. `pane.style.width` now
+   * holds the `var()` expression, and happy-dom does not resolve it — reading it
+   * would assert on the indirection rather than on the width.
+   */
+  function renderedWidthPx(): number {
+    const host = screen.getByTestId("peek-host");
+    return Number.parseInt(host.style.getPropertyValue("--peek-pane-width"), 10);
+  }
+
+  test("renders one divider for the assembly, naming every pane it sizes", async () => {
+    await openOnePane();
+    const divider = screen.getByTestId("peek-divider");
+    expect(divider.getAttribute("role")).toBe("separator");
+    expect(divider.getAttribute("aria-controls")).toBe("peek-pane-0");
+
+    // Hold, open a second: still ONE divider, now naming both panes, because the
+    // width is shared rather than per-pane.
+    fireEvent.click(memoryRef(), { button: 0, shiftKey: true });
+    await waitFor(() => expect(screen.getAllByTestId("peek-pane")).toHaveLength(2));
+    expect(screen.getAllByTestId("peek-divider")).toHaveLength(1);
+    expect(screen.getByTestId("peek-divider").getAttribute("aria-controls")).toBe(
+      "peek-pane-0 peek-pane-1"
+    );
+    // Both ids resolve — an `aria-controls` pointing at nothing is worse than none.
+    expect(document.getElementById("peek-pane-0")).not.toBeNull();
+    expect(document.getElementById("peek-pane-1")).not.toBeNull();
+  });
+
+  test("dragging the divider does NOT dismiss the assembly", async () => {
+    // The regression this exists for: the divider is a flex sibling of the
+    // panes, so every pane's Radix layer reports a pointerdown on it as OUTSIDE.
+    // Without the assembly exemption the first event of every drag closes the
+    // peek under the operator's cursor.
+    await openOnePane();
+
+    fireEvent.pointerDown(screen.getByTestId("peek-divider"), { clientX: 700, button: 0 });
+    await settleOutsideListener();
+
+    expect(screen.getAllByTestId("peek-pane")).toHaveLength(1);
+    expect(screen.getByTestId("location").textContent).toContain("peek=");
+  });
+
+  test("resizing leaves the URL completely untouched", async () => {
+    // The width is a PREFERENCE, not part of the peek's address: a copied peek
+    // link must carry which entities are open and never the copier's window
+    // size. Asserted as string equality rather than "still contains peek=",
+    // which would pass even if the width had been appended as a parameter.
+    await openOnePane();
+    const urlBefore = screen.getByTestId("location").textContent;
+
+    fireEvent.pointerDown(screen.getByTestId("peek-divider"), { clientX: 700, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 600 });
+    fireEvent.pointerUp(window, { clientX: 600 });
+    await waitFor(() => expect(localStorage.getItem("cockpit.peek.width.v1")).not.toBeNull());
+
+    expect(screen.getByTestId("location").textContent).toBe(urlBefore);
+  });
+
+  test("a drag widens the pane and persists the width", async () => {
+    await openOnePane();
+    const before = renderedWidthPx();
+
+    // Right-anchored: dragging the pointer LEFT widens.
+    fireEvent.pointerDown(screen.getByTestId("peek-divider"), { clientX: 700, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 600 });
+    fireEvent.pointerUp(window, { clientX: 600 });
+
+    await waitFor(() => expect(renderedWidthPx()).not.toBe(before));
+    expect(renderedWidthPx()).toBe(before + 100);
+    expect(localStorage.getItem("cockpit.peek.width.v1")).toBe(String(before + 100));
+  });
+
+  test("the pane repaints DURING the drag, before the pointer is released (mt#4274)", async () => {
+    // The property this task exists for: the width tracks the pointer while the
+    // button is still down. Before mt#4274 that was true only because every move
+    // pushed React state through the whole assembly; now the move repaints and
+    // only the release commits, so this asserts the repaint half in isolation.
+    await openOnePane();
+    const before = renderedWidthPx();
+
+    fireEvent.pointerDown(screen.getByTestId("peek-divider"), { clientX: 700, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 640 });
+
+    expect(renderedWidthPx()).toBe(before + 60);
+    // ...and nothing has been recorded yet, because the drag is not over.
+    expect(localStorage.getItem("cockpit.peek.width.v1")).toBeNull();
+
+    fireEvent.pointerUp(window, { clientX: 640 });
+    await waitFor(() =>
+      expect(localStorage.getItem("cockpit.peek.width.v1")).toBe(String(before + 60))
+    );
+  });
+
+  test("the divider announces the live width mid-drag, not the pre-drag one (mt#4274)", async () => {
+    // The host deliberately does not re-render until release, so `aria-valuenow`
+    // would freeze at the starting width if the divider did not track it itself.
+    await openOnePane();
+    const divider = screen.getByTestId("peek-divider");
+    const before = Number(divider.getAttribute("aria-valuenow"));
+
+    fireEvent.pointerDown(divider, { clientX: 700, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 620 });
+
+    expect(Number(divider.getAttribute("aria-valuenow"))).toBe(before + 80);
+
+    fireEvent.pointerUp(window, { clientX: 620 });
+    await waitFor(() =>
+      expect(Number(divider.getAttribute("aria-valuenow"))).toBe(before + 80)
+    );
+  });
+
+  test("Home CLEARS the preference rather than storing the current default", async () => {
+    await openOnePane();
+
+    fireEvent.pointerDown(screen.getByTestId("peek-divider"), { clientX: 700, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 600 });
+    fireEvent.pointerUp(window, { clientX: 600 });
+    await waitFor(() => expect(localStorage.getItem("cockpit.peek.width.v1")).not.toBeNull());
+
+    fireEvent.keyDown(screen.getByTestId("peek-divider"), { key: "Home" });
+
+    // Storing today's default instead would freeze a viewport-derived number
+    // into a preference the operator never expressed, and the pane would stop
+    // responding to window size from the moment they pressed Home.
+    await waitFor(() => expect(localStorage.getItem("cockpit.peek.width.v1")).toBeNull());
+  });
+
+  test("a stored preference is restored on the next open", async () => {
+    localStorage.setItem("cockpit.peek.width.v1", "512");
+    await openOnePane();
+    expect(renderedWidthPx()).toBe(512);
+  });
+
+  test("a stored value outside the bounds falls back to the default, not to the nearest edge", async () => {
+    // `pane-width.ts` treats out-of-range as ABSENT on purpose: the bounds
+    // moving means the operator never chose that width under this layout.
+    localStorage.setItem("cockpit.peek.width.v1", "9000");
+    await openOnePane();
+    expect(renderedWidthPx()).toBe(416);
+  });
+});

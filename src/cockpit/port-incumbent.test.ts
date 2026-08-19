@@ -16,6 +16,7 @@ import {
   realIncumbentProbes,
   healthProbeAuthorities,
   parseElapsedSeconds,
+  startedAtMsFromElapsed,
   COCKPIT_SERVICE_IDENTITY,
   PID_REUSE_SKEW_MS,
   type IncumbentEvidence,
@@ -158,26 +159,138 @@ describe("parseElapsedSeconds — ps -o etime=", () => {
     }
   );
 
-  test("a live process yields a plausible start time, and a dead pid yields null", () => {
+  // mt#4260. The regex matches POSITIONS and bounds no field, so every case
+  // below used to parse into a confident seconds count. The last one is the
+  // value a `test-forced-tz` CI run actually reported on 2026-08-18 — an age of
+  // ~1.2 million years for a `sleep` spawned microseconds earlier.
+  test.each([
+    ["00:99"], // seconds past a clock field
+    ["99:00"], // minutes past a clock field
+    ["24:00:00"], // hours past 23 — procps rolls into the days field instead
+    ["0-99:99:99"], // every field out of range at once
+    ["99999999:00:00"],
+    ["10585853616:18:40"], // == 38,109,073,018,720s, the observed CI value
+  ])("returns null for out-of-range %p rather than summing it", (raw) => {
+    expect(parseElapsedSeconds(raw as string)).toBeNull();
+  });
+
+  test("the documented rendering's boundary values still parse", () => {
+    // The bound must reject garbage without rejecting legitimate maxima, or it
+    // trades a fabricated age for a spurious null.
+    expect(parseElapsedSeconds("23:59:59")).toBe(86_399);
+    expect(parseElapsedSeconds("0-23:59:59")).toBe(86_399);
+    // Days is genuinely unbounded — a process can run for years.
+    expect(parseElapsedSeconds("3650-00:00:00")).toBe(315_360_000);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4275: the DAYS rendering, which mt#4260's field bounds leave open.
+  // -------------------------------------------------------------------------
+
+  test("mt#4275: the days field is NOT bounded — the parse stays faithful", () => {
+    // This is the reading that defeated mt#4260's guard, in the form CI saw it.
+    // Every bounded field is in range (00 hours, 18 minutes, 40 seconds); only
+    // the day count is absurd, and `parseElapsedSeconds` deliberately does not
+    // judge it. Asserting this pins the division of labour: the parser reports
+    // what the string says, the consumer decides whether it is possible.
+    expect(parseElapsedSeconds("441077234-00:18:40")).toBe(38_109_073_018_720);
+
+    // Same garbage, the rendering mt#4260 DID bound — 10,585,853,616 hours is
+    // exactly 441,077,234 days, which is how the two occurrences were identified
+    // as one reading rather than two coincidences.
+    expect(parseElapsedSeconds("10585853616:18:40")).toBeNull();
+  });
+});
+
+describe("startedAtMsFromElapsed — the epoch bound (mt#4275)", () => {
+  // A fixed "now" rather than Date.now(): the function takes the clock as a
+  // parameter precisely so these assertions do not depend on when they run.
+  const NOW_MS = new Date("2026-08-19T00:00:00.000Z").getTime();
+
+  test("rejects a reading that would place the start before the UNIX epoch", () => {
+    // The CI failure, end to end. Pre-mt#4275 this returned a NEGATIVE timestamp,
+    // which the caller then rendered as an age of ~1.2 million years.
+    expect(startedAtMsFromElapsed("441077234-00:18:40", NOW_MS)).toBeNull();
+  });
+
+  test("a genuinely long-lived process still yields a real timestamp", () => {
+    // ~10 years. The bound rejects IMPOSSIBLE readings, not merely large ones —
+    // if this returned null the fix would have replaced one wrong answer with
+    // another.
+    const tenYears = startedAtMsFromElapsed("3650-00:00:00", NOW_MS);
+    expect(tenYears).toBe(NOW_MS - 315_360_000 * 1000);
+    expect(tenYears).toBeGreaterThan(0);
+  });
+
+  test("the exact epoch boundary is admitted, not rejected", () => {
+    // elapsed == now: start time is exactly 0. `< 0` is the bound, so this is
+    // the last accepted value — worth pinning so a later `<= 0` does not slip in.
+    const elapsedSecToEpoch = NOW_MS / 1000;
+    const raw = `${Math.floor(elapsedSecToEpoch / 86_400)}-00:00:00`;
+    const result = startedAtMsFromElapsed(raw, NOW_MS);
+    expect(result).not.toBeNull();
+    expect(result as number).toBeGreaterThanOrEqual(0);
+  });
+
+  test("an ordinary recent reading passes through unchanged", () => {
+    expect(startedAtMsFromElapsed("00:30", NOW_MS)).toBe(NOW_MS - 30_000);
+  });
+
+  test("an unparseable reading is still null, via the parser", () => {
+    expect(startedAtMsFromElapsed("not-a-time", NOW_MS)).toBeNull();
+    expect(startedAtMsFromElapsed("99:00", NOW_MS)).toBeNull();
+  });
+
+  test("a live process yields a plausible start time, and a dead pid yields null", async () => {
     // The end-to-end shell-out — the exact check that caught the `etimes` bug.
     const child = Bun.spawn(["sleep", "30"]);
     try {
       const startedAt = realIncumbentProbes.processStartedAtMs(child.pid);
-      expect(startedAt).not.toBeNull();
-      // `no-real-fs-in-tests` guards against Date.now()-derived FILE PATHS
-      // colliding across parallel tests. Nothing here touches the filesystem:
-      // the clock IS the quantity under test, because the probe's entire job is
-      // converting `ps` elapsed time into an absolute start time.
-      // eslint-disable-next-line custom/no-real-fs-in-tests -- clock under test, no paths
-      const ageMs = Date.now() - (startedAt as number);
-      // Generous bound: `etime` has whole-second granularity, so a process
-      // started moments ago can read as up to ~1s old.
-      expect(ageMs).toBeGreaterThanOrEqual(0);
-      expect(ageMs).toBeLessThan(60_000);
+
+      // mt#4275: assert what the probe PROMISES — a plausible timestamp, or an
+      // explicit null — rather than `not.toBeNull()`.
+      //
+      // The old assertion contradicted the code it guards. Some CI runners emit
+      // an `etime` of ~441 million days for a process spawned microseconds
+      // earlier; on such a host `null` is the CORRECT answer, and a test that
+      // fails on it is failing the probe for behaving properly. The end-to-end
+      // shell-out is kept — it is what caught the original `etimes` bug — but
+      // its contract is now the disjunction the probe actually offers.
+      //
+      // What this still catches, which is the point of the live probe: a
+      // fabricated age. If the probe ever returns a NUMBER, that number must be
+      // plausible for a process spawned moments ago. The pre-mt#4275 failure was
+      // exactly this — a non-null 1.2-million-year age — and it would still be
+      // caught here.
+      if (startedAt !== null) {
+        // `no-real-fs-in-tests` guards against Date.now()-derived FILE PATHS
+        // colliding across parallel tests. Nothing here touches the filesystem:
+        // the clock IS the quantity under test, because the probe's entire job is
+        // converting `ps` elapsed time into an absolute start time.
+        // eslint-disable-next-line custom/no-real-fs-in-tests -- clock under test, no paths
+        const ageMs = Date.now() - startedAt;
+        // Generous bound: `etime` has whole-second granularity, so a process
+        // started moments ago can read as up to ~1s old.
+        expect(ageMs).toBeGreaterThanOrEqual(0);
+        expect(ageMs).toBeLessThan(60_000);
+      }
     } finally {
       child.kill();
     }
-    expect(realIncumbentProbes.processStartedAtMs(4_194_302)).toBeNull();
+    // mt#4275 R1: don't GUESS a dead pid — make one.
+    //
+    // This was `processStartedAtMs(4_194_302)`, picked to sit just under Linux's
+    // usual `pid_max` of 4,194,304. That reasoning is backwards: being under
+    // pid_max is exactly what makes it ALLOCATABLE, so on a busy runner the pid
+    // can be live, `ps` answers, and the assertion fails. It is the same
+    // ambient-machine-state dependency this file has been bitten by twice today.
+    //
+    // Spawning and reaping gives a pid that is definitively gone: `exited`
+    // resolves only after the child is reaped, so the pid is free at that point.
+    const doomed = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    doomed.kill();
+    await doomed.exited;
+    expect(realIncumbentProbes.processStartedAtMs(doomed.pid)).toBeNull();
   });
 });
 

@@ -7,11 +7,25 @@
  * The Minsky env-var-to-config dot-path parser at
  * `packages/domain/src/configuration/sources/environment.ts` auto-converts every
  * `MINSKY_FOO_BAR` env var seen at boot into a `foo.bar` config-path write.
- * Any path the strict config schema doesn't know about throws a validation
- * error at root level (`Unrecognized key: "foo"`), failing the config loader
- * and crashing the container at boot. This rule prevents new `MINSKY_*`
- * reads from being added without explicit registration in one of the two
- * allowlists.
+ * What an unregistered var COSTS depends on the derived path's top-level
+ * segment, and the two cases differ sharply (measured mt#4223):
+ *
+ *   - UNDECLARED segment (`MINSKY_CDP_URL` -> `cdp.url`): the loader emits
+ *     `Unrecognized top-level config key: cdp. These keys will be ignored.`
+ *     and continues. Verified on the CLI entrypoint.
+ *   - DECLARED segment: the value reaches a live config path. `MINSKY_GITHUB_TOKEN`
+ *     derived `github.token` and was silently a third alias for the GitHub token
+ *     beside the explicit GITHUB_TOKEN / GH_TOKEN mappings until mt#4223
+ *     registered it. An unknown key inside a nested `z.strictObject` DOES still
+ *     fail validation and take the loader down (mt#2452, `reviewer.app`).
+ *
+ * The hard boot crash this rule was filed against (mt#1785 `auto.migrate`,
+ * mt#1994 `ack`) is REAL history, not a hypothetical — both were observed. The
+ * top-level case has since softened to warn-and-ignore; the nested-strict case
+ * has not. So the rule is not merely crash-prevention: it is what keeps a name
+ * from silently acquiring a config meaning nobody declared. This rule prevents
+ * new `MINSKY_*` reads from being added without explicit registration in one of
+ * the two allowlists.
  *
  * The two valid registration paths:
  *   1. `environmentMappings` — the env var routes to a config path. Add the
@@ -134,15 +148,16 @@ export default {
         "Dynamic computed access (variable key, interpolated template literal) " +
         "is not statically resolvable and is skipped, as is `delete env.MINSKY_FOO` " +
         "on a bare env (a scrub, not an introduction — `delete process.env.MINSKY_FOO` " +
-        "still reports). The services/* tree is excluded (independent deploy " +
-        "packages with their own config loaders); scripts/ is not yet scanned (mt#4223).",
+        "still reports). Scans src/, .claude/hooks/, .minsky/hooks/ and scripts/ " +
+        "(mt#4223); the services/* tree is excluded (independent deploy packages " +
+        "with their own config loaders).",
       category: "Best Practices",
       recommended: true,
     },
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788, mt#3882, mt#4217.`,
+      unregistered: `{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VAR_CATEGORIES\` (hook-only — one entry per line as \`{{name}}: "operator-override" | "test-fixture" | "tunable",\`; \`HOOK_ONLY_ENV_VARS\` is DERIVED from its keys and must not be edited directly) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` — if that path's top-level segment is DECLARED in the config schema the value silently becomes live config (mt#4223: MINSKY_GITHUB_TOKEN -> github.token), and an unknown key inside a strict object fails the loader outright (mt#2452). See mt#1788, mt#3882, mt#4217, mt#4223.`,
     },
   },
 
@@ -167,8 +182,11 @@ export default {
     //   (e.g., MINSKY_ACK_OOB_MERGE, MINSKY_FORCE_EDIT_GENERATED) have their
     //   only read site in hook files. Without scanning this directory, the rule
     //   missed the hook-only-override slice — operators following the documented
-    //   override instructions would hit a hard CLI crash because the env var
-    //   wasn't registered in HOOK_ONLY_ENV_VARS.
+    //   override instructions hit a hard CLI crash (`Unrecognized key: "ack"`)
+    //   because the env var wasn't registered in HOOK_ONLY_ENV_VARS. That crash
+    //   was observed at the time; the top-level case has since softened to
+    //   warn-and-ignore (see the module docblock's declared-vs-undeclared split,
+    //   mt#4223), so a re-run today would warn rather than crash.
     //   See mt#1994 spec and `feedback_new_minsky_env_var_must_be_registered`.
     //
     // - .minsky/hooks/**/*.ts: mt#2304 extension. After moving hook sources to
@@ -177,25 +195,53 @@ export default {
     //   Scanning the source location catches new hook-only env vars at authoring
     //   time before compile, matching the intent of mt#1994.
     //
-    // - scripts/**/*.ts is NOT scanned, and that is a decision rather than an
-    //   oversight (mt#4217, tracked to close in mt#4223). `scripts/` genuinely
-    //   participates in the boot path this rule guards — `scripts/cli-entry.ts`
-    //   SETS MINSKY_LOADED_COMMIT / MINSKY_RUN_MODE / MINSKY_PACKAGE_ROOT on the
-    //   CLI's own environment before importing the bundle, and those three are
-    //   registered for exactly that reason — so this tree SHOULD be scanned.
-    //   Measured 2026-08-17: adding it reports 18 further unregistered vars,
-    //   overwhelmingly dev-tooling knobs (CDP URLs, screenshot paths,
-    //   transcript-corpus dirs) plus three needing real dispositions
-    //   (MINSKY_SKIP_PACK_INSTALL_SMOKE, MINSKY_POSTGRES_CONNECTION_STRING,
-    //   MINSKY_SMOKE_PG_URL). mt#4217 shipped the matcher widening below and the
-    //   16 dispositions it forced in src/ + packages/ — the trees whose code
-    //   ships in the deploy image, where the mt#1785 boot-crash risk lives —
-    //   and left this tree to mt#4223 so 34 per-var classifications did not land
-    //   in one review. Remove this note when mt#4223 lands.
+    // - scripts/**/*.ts IS scanned as of mt#4223. This tree participates in the
+    //   boot path the rule guards — `scripts/cli-entry.ts` SETS
+    //   MINSKY_LOADED_COMMIT / MINSKY_RUN_MODE / MINSKY_PACKAGE_ROOT on the CLI's
+    //   own environment before importing the bundle, and those three are
+    //   registered for exactly that reason. mt#4217 shipped the matcher widening
+    //   below plus the 16 dispositions it forced in src/ + packages/, and
+    //   deferred this tree so 34 per-var classifications did not land in one
+    //   review; mt#4223 closed it with the remaining 18.
+    //
+    //   What scanning `scripts/` actually buys is narrower than the boot-crash
+    //   framing suggests, and worth stating so the next reader does not
+    //   over-claim it (measured mt#4223): an unregistered var's consequence
+    //   depends on whether its derived top-level segment is DECLARED in
+    //   `configurationSchema`. `MINSKY_CDP_URL` derives `cdp.url` — undeclared,
+    //   and the loader warns `Unrecognized top-level config key` and ignores it.
+    //   `MINSKY_GITHUB_TOKEN` derives `github.token` — DECLARED and live, so it
+    //   silently became a third alias for the GitHub token beside the explicit
+    //   `GITHUB_TOKEN` / `GH_TOKEN` mappings. The declared-segment case is the
+    //   one with teeth, and it is not visible from the var name alone, which is
+    //   why the whole tree is scanned rather than a curated subset.
+    //   (Bound: "warns and ignores" is verified on the CLI entrypoint; mt#2452
+    //   shows an unknown key inside a nested z.strictObject DOES fail validation.)
+    //
+    //   This scope is per-RULE and deliberately does NOT match how other rules
+    //   treat `scripts/` (PR #3094 R1). `eslint.config.js` turns `no-console` /
+    //   `no-magic-numbers` OFF for `scripts/**` and exempts the tree from
+    //   `no-raw-console`, because a CLI script SHOULD print to stdout — that is
+    //   a statement about console usage, and carries no implication about env
+    //   vars. This rule is ON here for an unrelated reason: the dot-path parser
+    //   reads the process environment regardless of which tree the read site
+    //   lives in, so the tree a var is read from has no bearing on whether its
+    //   name acquires a config meaning. Two rules disagreeing about one
+    //   directory is the scoping mechanism working, not a policy conflict.
+    //
+    //   Coverage is nonetheless the footgun this repo has hit twice
+    //   (`require-hook-domain-bootstrap` mt#3178, `require-guard-outcome-in-fire-log`
+    //   mt#3920): a tree present in the rule but not in `eslint.config.js`'s
+    //   `files` glob is SILENTLY unenforced, and reports zero — indistinguishable
+    //   from a clean tree. Verified empirically rather than by reading the config:
+    //   a `process.env.MINSKY_DEFINITELY_NOT_REGISTERED` read added to
+    //   `scripts/smoke-setup-db.ts` IS reported by a real `bunx eslint` run, and
+    //   the tree is clean once removed.
     const srcSegment = `${pathSep}src${pathSep}`;
     const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
     const minskyHooksSegment = `${pathSep}.minsky${pathSep}hooks${pathSep}`;
     const servicesSegment = `${pathSep}services${pathSep}`;
+    const scriptsSegment = `${pathSep}scripts${pathSep}`;
     const isTsFile = normalized.endsWith(".ts");
     const inSrc = normalized.includes(srcSegment);
     const inClaudeHooks = normalized.includes(claudeHooksSegment);
@@ -210,10 +256,11 @@ export default {
     // This matches the existing root-config exclusion rationale above — files
     // with their own lifecycle separate from the MCP boot path.
     const inServices = normalized.includes(servicesSegment);
+    const inScripts = normalized.includes(scriptsSegment);
     // mt#2304: scan .minsky/hooks/ (canonical hook source) in addition to
     // src/ and .claude/hooks/, so new hook-only env vars are caught at authoring
     // time. mt#2324: but never the services/ tree (own config loaders).
-    if (!isTsFile || (!inSrc && !inClaudeHooks && !inMinskyHooks) || inServices) {
+    if (!isTsFile || (!inSrc && !inClaudeHooks && !inMinskyHooks && !inScripts) || inServices) {
       return {};
     }
 

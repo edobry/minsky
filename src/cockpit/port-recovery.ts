@@ -284,6 +284,10 @@ export function decideIncumbentDisposition(evidence: IncumbentEvidence): Incumbe
  * `etime` renders as `[[DD-]HH:]MM:SS` — the last two fields are ALWAYS
  * minutes and seconds, so `00:03` is three seconds, not three minutes.
  *
+ * Fields outside that rendering are REJECTED rather than summed (mt#4260):
+ * hours > 23, minutes > 59, or seconds > 59 return null. See the bound check
+ * below for why erring strict is the safe direction here.
+ *
  * Exported because this is the one part of `processStartedAtMs` that can be
  * checked without a live process, and because its predecessor shipped broken:
  * the first version asked `ps` for `etimes` (whole seconds, no parsing needed)
@@ -298,9 +302,100 @@ export function parseElapsedSeconds(raw: string): number | null {
   const match = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(raw.trim());
   if (!match) return null;
   const [, days, hours, minutes, seconds] = match;
-  return (
-    Number(days ?? 0) * 86_400 + Number(hours ?? 0) * 3_600 + Number(minutes) * 60 + Number(seconds)
-  );
+
+  const h = Number(hours ?? 0);
+  const m = Number(minutes);
+  const s = Number(seconds);
+
+  // Reject anything outside `etime`'s documented rendering (mt#4260). The regex
+  // above matches POSITIONS; it bounds no field, so before this check any
+  // numeric garbage in any position became a confident seconds count —
+  // `"00:99"` read as 99s, `"0-99:99:99"` parsed, and `"10585853616:18:40"`
+  // yielded 38,109,073,018,720s. That last number is not hypothetical: it is
+  // exactly what a `test-forced-tz` CI run reported on 2026-08-18, as an age of
+  // ~1.2 million years for a `sleep` spawned microseconds earlier.
+  //
+  // The bounds are `ps`'s, not ours: `etime` renders as `[[DD-]hh:]mm:ss`
+  // (ps(1), man7.org/linux/man-pages/man1/ps.1.html), so minutes and seconds are
+  // clock fields and hours rolls into the days field past 24. Days is genuinely
+  // unbounded — a process can run for years.
+  //
+  // Erring STRICT is the safe direction, and that follows from the consumer:
+  // `realIncumbentProbes.processStartedAtMs` already maps null to null and every
+  // caller handles it. So an over-strict bound costs an honest "unknown", while
+  // an under-strict one costs a fabricated age that downstream logic treats as
+  // real. Note this does NOT fix the underlying flake — it converts an absurd
+  // value into a legible null so the next occurrence is diagnosable.
+  //
+  // CORRECTION (mt#4275): that last sentence overstated what this check does.
+  // It converts absurd values in the BOUNDED fields; days is left open by the
+  // paragraph above, and the same reading came back through it three hours after
+  // this shipped, as `441077234-00:18:40`. The "legible null" is delivered by
+  // `startedAtMsFromElapsed` below, which bounds the derived TIMESTAMP rather
+  // than another field — see its docblock. This check remains correct and
+  // useful; it is simply not sufficient on its own.
+  if (h > 23 || m > 59 || s > 59) return null;
+
+  return Number(days ?? 0) * 86_400 + h * 3_600 + m * 60 + s;
+}
+
+/**
+ * Convert a raw `ps -o etime=` reading into an absolute start time, or null.
+ *
+ * Pure by construction — `nowMs` is a parameter rather than a `Date.now()` call
+ * — so the bound below is testable without depending on the host's `ps`, which
+ * is the very thing under suspicion.
+ *
+ * ## Why the epoch bound exists (mt#4275)
+ *
+ * `parseElapsedSeconds` bounds hours, minutes and seconds against `ps`'s
+ * documented rendering, and deliberately does NOT bound days, because a process
+ * can legitimately run for years. That reasoning is right about `ps` and wrong
+ * about this consumer, and mt#4260 shipped with the gap: the same absurd
+ * reading that motivated the field bounds came back through the one field left
+ * open. Decomposed, it was `441077234-00:18:40` — 441 million days, every
+ * bounded field in range. mt#4260's originating occurrence recorded the
+ * identical garbage as `10585853616:18:40`, parsed then as HOURS; 10,585,853,616
+ * hours IS 441,077,234 days. Same reading, different capture group, and only the
+ * group seen first was bounded.
+ *
+ * So the ceiling belongs here rather than in the parser, and it is not a chosen
+ * constant: **a process cannot have started before the UNIX epoch.** An elapsed
+ * that drives the computed start time negative is not a long-running process, it
+ * is a bad reading. That admits a genuinely decade-old process and rejects 441
+ * million days, with no threshold to justify or revisit.
+ *
+ * The parse itself stays faithful — `parseElapsedSeconds` still returns the
+ * number the string denotes. Rejecting it is the consumer's call, because only
+ * the consumer knows the value becomes a timestamp.
+ *
+ * ## Integer precision at these magnitudes (R1)
+ *
+ * `elapsedSec * 1000` for the observed reading is 3.81e16, which is past
+ * `Number.MAX_SAFE_INTEGER` (9.01e15) — so the product is imprecise. Measured:
+ * `Number.isSafeInteger(38_109_073_018_720 * 1000)` is `false`.
+ *
+ * That does not weaken the bound, and the reason is worth stating rather than
+ * assuming: float error at this scale perturbs low-order digits, never the
+ * MAGNITUDE or the SIGN. `nowMs` is ~1.79e12 against a subtrahend of ~3.81e16,
+ * so the difference is negative by four orders of magnitude — no rounding
+ * reaches that. The check is a sign test, and a sign test is exactly the kind
+ * that survives precision loss.
+ *
+ * The reverse case needs no guard either: a reading small enough to produce a
+ * plausible timestamp is far inside the safe range (a decade is 3.15e11 ms), so
+ * every value this function ACCEPTS is exact. Imprecision is confined to values
+ * it rejects.
+ */
+export function startedAtMsFromElapsed(raw: string, nowMs: number): number | null {
+  const elapsedSec = parseElapsedSeconds(raw);
+  if (elapsedSec === null) return null;
+
+  const startedAtMs = nowMs - elapsedSec * 1000;
+  // Before the epoch means the reading is impossible, not merely large.
+  if (startedAtMs < 0) return null;
+
+  return startedAtMs;
 }
 
 /**
@@ -380,8 +475,7 @@ export const realIncumbentProbes: IncumbentProbes = {
         timeout: 3000,
         encoding: "utf-8",
       }).toString();
-      const elapsedSec = parseElapsedSeconds(raw);
-      return elapsedSec === null ? null : Date.now() - elapsedSec * 1000;
+      return startedAtMsFromElapsed(raw, Date.now());
     } catch {
       // Process gone, or `ps` unavailable.
       return null;

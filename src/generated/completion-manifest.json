@@ -8079,11 +8079,25 @@
         },
         {
           "name": "stop",
-          "description": "Stop the cockpit daemon (keeps the LaunchAgent plist installed)"
+          "description": "Stop the cockpit daemon (keeps a LaunchAgent plist installed)",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to stop on (default: the `cockpit.port` configuration value, else 3737)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "restart",
-          "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+          "description": "Restart the cockpit daemon under whichever supervisor is running it",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to restart on (default: the `cockpit.port` configuration value, else 3737)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "url",

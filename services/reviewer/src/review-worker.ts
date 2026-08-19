@@ -56,11 +56,20 @@ import {
 } from "./github-client";
 import type { ReviewerDb } from "./db/client";
 import type { ConvergenceMetricInput } from "./metrics";
-import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
+import {
+  type ReviewTimingInput,
+  recordReviewTiming,
+  recordUnrecoveredReviewTiming,
+} from "./review-timing";
 import { emitReviewPostedEvent, type ReviewPostedEvent } from "./review-events";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
-import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
+import {
+  callReviewer,
+  extractPartialTiming,
+  type ReviewOutput,
+  type ReviewUsage,
+} from "./providers";
 import { shouldChunkReview, runChunkedReview } from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
 import { countBlockingFindings } from "./prior-review-summary";
@@ -827,39 +836,68 @@ async function runReviewBody(
   let attempt: ReviewAttemptTrace;
   let retryAttempted: boolean;
 
-  if (useChunkedReview) {
-    // mt#2731: chunked-review orchestration (chunk math + per-chunk model calls
-    // + aggregation, with single-pass fallback on an empty file list) extracted
-    // to runChunkedReview in chunked-review.ts. Returns the same shape as
-    // callReviewerWithRetry.
-    ({ output, validation, attempt, retryAttempted } = await runChunkedReview({
-      config,
-      systemPrompt,
-      userPrompt,
-      basePromptInput,
-      tools: toolsActive ? toolContext : undefined,
-      outputToolsActive,
-      fileEntries: promptFileEntries,
-      diff: promptDiff,
-      owner,
-      repo,
-      prNumber,
-      totalDiffLines,
-    }));
-  } else {
-    // Single-pass mode (existing behavior for small PRs)
-    const result = await callReviewerWithRetry(
-      config,
-      systemPrompt,
-      userPrompt,
-      toolsActive ? toolContext : undefined,
-      callReviewer,
-      outputToolsActive
-    );
-    output = result.output;
-    validation = result.validation;
-    attempt = result.attempt;
-    retryAttempted = result.retryAttempted;
+  try {
+    if (useChunkedReview) {
+      // mt#2731: chunked-review orchestration (chunk math + per-chunk model calls
+      // + aggregation, with single-pass fallback on an empty file list) extracted
+      // to runChunkedReview in chunked-review.ts. Returns the same shape as
+      // callReviewerWithRetry.
+      ({ output, validation, attempt, retryAttempted } = await runChunkedReview({
+        config,
+        systemPrompt,
+        userPrompt,
+        basePromptInput,
+        tools: toolsActive ? toolContext : undefined,
+        outputToolsActive,
+        fileEntries: promptFileEntries,
+        diff: promptDiff,
+        owner,
+        repo,
+        prNumber,
+        totalDiffLines,
+      }));
+    } else {
+      // Single-pass mode (existing behavior for small PRs)
+      const result = await callReviewerWithRetry(
+        config,
+        systemPrompt,
+        userPrompt,
+        toolsActive ? toolContext : undefined,
+        callReviewer,
+        outputToolsActive
+      );
+      output = result.output;
+      validation = result.validation;
+      attempt = result.attempt;
+      retryAttempted = result.retryAttempted;
+    }
+  } catch (err) {
+    // mt#4281: the ONLY place an unrecovered model failure can be recorded.
+    // Every `recordReviewTiming` call site sits downstream of this throw — the
+    // two skip paths run before the model is reached, and `writeMainPathTiming`
+    // needs a `ReviewRunContext` that is built from `output`. So a review that
+    // times out here has, since mt#2088, written nothing at all: 30 days of
+    // `review_timing` held zero `timeout-unrecovered` rows while the service
+    // produced at least five on 2026-08-18 alone.
+    //
+    // This records and RETHROWS — the error still reaches the webhook handler
+    // and still surfaces as `review_error`. It adds a row; it does not recover.
+    await recordUnrecoveredReviewTiming({
+      db: deps.db,
+      timingRecorder: deps.timingRecorder,
+      prOwner: owner,
+      prRepo: repo,
+      prNumber: pr.number,
+      headSha: pr.headSha,
+      iterationIndex: priorReviewIngestion.iterationCount + 1,
+      totalWallClockMs: Date.now() - reviewStartTime,
+      partialTiming: extractPartialTiming(err),
+      scopeClassification: prScope ?? null,
+      toolUseActive: outputToolsActive,
+      provider: config.provider,
+      model: config.providerModel,
+    });
+    throw err;
   }
   const totalWallClockMs = Date.now() - reviewStartTime;
 

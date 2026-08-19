@@ -187,6 +187,12 @@ export interface SessionFilmRibbonProps {
   onScrollRowChange: (rowIndex: number) => void;
   className?: string;
   /**
+   * DOM id for the scroll container, so the divider that sizes this rail can
+   * name it in `aria-controls` (mt#4261 — the WAI-ARIA Window Splitter pattern
+   * lists that attribute as required, and it was missing).
+   */
+  id?: string;
+  /**
    * Inline styles for the scroll container. Exists for the ONE thing a class
    * cannot express: the operator's dragged width (mt#3701), which is a live
    * pixel value rather than one of Tailwind's steps. See the `w-full` note on
@@ -496,6 +502,7 @@ export function SessionFilmRibbon({
   onSelectRow,
   onScrollRowChange,
   className,
+  id,
   style,
 }: SessionFilmRibbonProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -724,6 +731,7 @@ export function SessionFilmRibbon({
       ref={containerRef}
       onScroll={handleScroll}
       style={style}
+      id={id}
       data-testid="session-film-ribbon"
       role="group"
       aria-label="Session event ribbon"

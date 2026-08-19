@@ -67,6 +67,7 @@ import {
   type PrincipalMessageEventPayload,
 } from "@minsky/domain/notify/principal-inbound";
 import { registerSelfSchedulingSweep } from "./sweepers";
+import type { DegradedDedupe } from "./principal-channel-degraded-dedupe";
 import { withDeadline } from "@minsky/domain/utils/deadline";
 // Value import, not a cycle: this module's only edge back from the actuator is
 // `import type` (erased at runtime), so nothing loads twice.
@@ -256,6 +257,27 @@ export type InboundEventType =
  */
 export type RecordOutcome = "recorded" | "duplicate";
 
+/**
+ * What {@link recordSafely} reports — the recorder's two outcomes plus the one
+ * only it can observe (mt#4252).
+ *
+ * `"unrecorded"` means the durable write did not land. It is a THIRD thing, not
+ * a flavour of `"recorded"`: the recorder deliberately separated "this is a
+ * replay" from "the database failed" (PR #2324 R1), and returning `"recorded"`
+ * for a failure re-collapsed that distinction at the caller — the poller could
+ * not tell a message it had already run from one it had not, so during an
+ * outage it ran every re-served message again, every cycle.
+ *
+ * Kept off {@link RecordOutcome} and {@link InboundEventRecorder} on purpose:
+ * the recorder cannot report this, because it THROWS instead. Only the wrapper
+ * that catches the throw can, so only the wrapper's signature widens.
+ *
+ * Per ADR-035 rule 2, what to DO about it is the consumer's decision — see
+ * {@link runPollCycle}'s handling, which consults the per-process fallback
+ * dedupe rather than assuming either answer.
+ */
+export type SafeRecordOutcome = RecordOutcome | "unrecorded";
+
 /** Append-only audit sink. One row per inbound update, before any side effect. */
 export type InboundEventRecorder = (
   eventType: InboundEventType,
@@ -301,6 +323,17 @@ export interface PollCycleDeps {
   markTopicDead?: (chatId: string, messageThreadId: number) => Promise<void>;
   cursor: PollCursor;
   recordEvent: InboundEventRecorder;
+  /**
+   * Per-process fallback dedupe, consulted ONLY when a durable audit write
+   * fails (mt#4252).
+   *
+   * Omitted, the cycle behaves exactly as it did before this existed — a failed
+   * write is treated as new and the message runs — so a caller that does not
+   * wire it is not silently made stricter. The composition root
+   * (`./principal-channel-launch.ts`) supplies it, and also reads its snapshot
+   * for the `principalChannel.dedupe` health substate.
+   */
+  degradedDedupe?: DegradedDedupe;
   longPollSec?: number;
   fetchFn?: FetchFn;
   signal?: AbortSignal;
@@ -431,6 +464,27 @@ export async function runPollCycle(deps: PollCycleDeps): Promise<PollCycleOutcom
       continue;
     }
 
+    // The durable dedupe could not be consulted (mt#4252). Decide here, on the
+    // one question this process CAN still answer — have I already acted on this
+    // token? — rather than assuming either answer. Assuming "new" re-runs the
+    // principal's messages for the length of the outage; assuming "duplicate"
+    // would make the channel go silent, which is the failure both fail-opens
+    // exist to prevent, so criterion 2 rules it out.
+    if (recorded === "unrecorded") {
+      const token = inboundEventToken(message.updateId);
+      const fallback = deps.degradedDedupe?.admitUnrecorded(token) ?? "recorded";
+      if (fallback === "duplicate") {
+        duplicates += 1;
+        log.warn("[principal-channel] skipping a replay while the audit log is unwritable", {
+          updateId: message.updateId,
+        });
+        continue;
+      }
+      log.warn("[principal-channel] acting on a message without a durable audit row", {
+        updateId: message.updateId,
+      });
+    }
+
     if (route.kind === "rejected") {
       rejected += 1;
       log.warn("[principal-channel] refused an inbound message", {
@@ -524,18 +578,30 @@ async function recordSafely(
   deps: PollCycleDeps,
   message: InboundTelegramMessage,
   route: InboundRoute
-): Promise<RecordOutcome> {
+): Promise<SafeRecordOutcome> {
   try {
-    return await deps.recordEvent(
+    const outcome = await deps.recordEvent(
       route.kind === "rejected" ? "principal.message_rejected" : "principal.message_received",
       buildInboundEventPayload(message, route)
     );
+    // The write landed, so the durable dedupe is authoritative again. Stamped
+    // here rather than inferred later: this is the only place that observes the
+    // outcome, and mem#862's lesson is that an instrument placed anywhere else
+    // is blind to the failures that stop it being reached.
+    deps.degradedDedupe?.noteDurableWrite();
+    return outcome;
   } catch (err: unknown) {
     log.error("[principal-channel] failed to record the inbound audit event", {
       updateId: message.updateId,
       error: err instanceof Error ? err.message : String(err),
     });
-    return "recorded";
+    // NOT "recorded" (mt#4252). Reporting a failure as a success is what let a
+    // DB outage re-run the principal's messages once per backoff cycle: the
+    // caller could not distinguish "the dedupe says this is new" from "the
+    // dedupe could not be consulted". Those call for different handling, so
+    // per ADR-035 rule 2 the caller gets to decide rather than being handed a
+    // substituted answer.
+    return "unrecorded";
   }
 }
 

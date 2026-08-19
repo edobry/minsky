@@ -18,7 +18,9 @@ Optional: description of the operation being considered (e.g., `/git-safety forc
 
 ## Pre-command verification (MANDATORY)
 
-Before executing ANY destructive git command (`reset`, `rebase`, `push --force`, `checkout -- .`, `clean -fd`, `branch -D`):
+Before executing ANY destructive git command (`reset`, `rebase`, `push --force`, `checkout -- <path>` / `checkout -- .`, `restore <path>` / `restore .`, `clean -fd`, `branch -D`):
+
+`git restore --staged <path>` is index-only — it undoes `git add` and never touches the working tree — and is **not** covered by this protocol; see `git restore` under Command-specific safety below. Likewise, plain `git checkout <branch>` (no `--`) switches branches and is **not** covered — the `--` is what disambiguates a destructive path-restore from a branch switch; see `git checkout` under Command-specific safety below.
 
 ### 1. Document current state
 
@@ -37,13 +39,16 @@ Explicitly state what will change:
 
 ### 3. Consider safer alternatives
 
-| Destructive command | Safer alternative                                 |
-| ------------------- | ------------------------------------------------- |
-| `git reset --hard`  | `git stash` or create a temporary branch          |
-| `git rebase`        | Work on a new temporary branch first              |
-| `git push --force`  | `git revert` (creates new commit undoing changes) |
-| `git checkout -- .` | `git stash` (preserves changes)                   |
-| `git branch -D`     | `git branch -d` (refuses if unmerged)             |
+| Destructive command      | Safer alternative                                 |
+| ------------------------ | ------------------------------------------------- |
+| `git reset --hard`       | `git stash` or create a temporary branch          |
+| `git rebase`             | Work on a new temporary branch first              |
+| `git push --force`       | `git revert` (creates new commit undoing changes) |
+| `git checkout -- <path>` | `git stash push -- <path>` (preserves changes)    |
+| `git checkout -- .`      | `git stash` (preserves changes)                   |
+| `git restore <path>`     | `git stash push -- <path>` (preserves changes)    |
+| `git restore .`          | `git stash` (preserves changes)                   |
+| `git branch -D`          | `git branch -d` (refuses if unmerged)             |
 
 ### 4. Execute with verification
 
@@ -57,6 +62,8 @@ Explicitly state what will change:
 - Compare actual vs predicted outcome
 - If unexpected results: **STOP** — do not run additional commands
 - Use `git reflog` for recovery options
+
+  **Reflog only helps if a commit or ref moved.** It recovers commits orphaned by `reset --hard`, a rewritten branch, or a similar ref-changing operation — reflog tracks ref history, not working-tree content. It does **not** recover content discarded by `git restore <path>`, `git restore .`, `git checkout -- <path>`, or `git checkout -- .` when that content was never committed: uncommitted edits have no reflog entry at all, so there is no recovery path other than reconstructing the change by hand. This is why the safer-alternatives table above routes all four forms through `git stash` rather than treating them like `reset --hard` — stashing keeps a recoverable copy; restoring or checking out over uncommitted content does not.
 
 ## Session-level MCP operations that force-push
 
@@ -151,7 +158,15 @@ When the user requests "surgical", "targeted", or "precise" operations:
 ### `git checkout`
 
 - Stash uncommitted changes before switching branches
-- For `checkout -- .`: run `git diff` first to see what will be lost
+- `git checkout -- <path>` and `git checkout -- .` discard uncommitted changes to that path or the whole working tree — exactly as destructive as `git restore` (they are the same operation; `restore` was split out of `checkout` in git 2.23). Run `git diff -- <path>` (or `git diff` for the whole-tree form) first to see what will be lost, and prefer `git stash push -- <path>` / `git stash` instead.
+- Plain `git checkout <branch>` (no `--`) switches branches and is **not** covered by this protocol — the `--` is what marks the destructive path-restore form; a bare branch name is a ref, not a path. (Git itself will still refuse or warn if the switch would overwrite conflicting uncommitted changes — that's git's own safeguard, not this protocol.)
+
+### `git restore`
+
+- `git restore <path>` and `git restore .` are git's own replacement for `checkout --` (split out in git 2.23) and are exactly as destructive: both overwrite working-tree content with no recovery path if that content was never committed (see step 5 above).
+- Run `git diff -- <path>` (or `git diff` for the whole-tree form) first to see what will be lost.
+- Prefer `git stash push -- <path>` / `git stash` to preserve the content instead of discarding it.
+- **`git restore --staged <path>` is not covered by this protocol** — it only moves a file from HEAD back into the index (undoes `git add`) and never touches the working tree.
 
 ### Branch deletion
 
@@ -162,7 +177,7 @@ When the user requests "surgical", "targeted", or "precise" operations:
 ## Key principles
 
 - **Measure twice, cut once.** Every destructive operation gets a pre-check and a post-check.
-- **Prefer reversible operations.** `git revert` over `git reset --hard`. `git stash` over `git checkout -- .`.
+- **Prefer reversible operations.** `git revert` over `git reset --hard`. `git stash` over `git checkout -- .` / `git restore`.
 - **Force push is a last resort.** Three conditions must ALL be met, plus user approval.
 - **Stop on unexpected results.** If the outcome doesn't match your prediction, investigate before continuing.
-- **Recovery is always possible.** `git reflog` remembers everything for 90 days.
+- **Recovery via reflog is scoped to commits, not uncommitted content.** `git reflog` remembers ref history for 90 days — but `git restore <path>` / `git restore .` / `git checkout -- <path>` / `git checkout -- .` on content that was never committed leaves nothing in reflog to recover. Prefer `git stash` to avoid needing that recovery in the first place.

@@ -120,7 +120,7 @@ where the target status is READY · `pr` = `mcp__minsky__session_pr_create` · `
 | (m) citation verification    | a judgment trigger; a read on discharge                             | mechanize, **not worth it** — see below | —                                                             | n/a                                                  |
 | (n) external integration     | new `octokit.rest.*` / outbound host / webhook route, **in a diff** | **mechanize**                           | `pr` — **not `ready`; no diff exists at plan time**           | deviate: diff read                                   |
 | (o) problem statement        | a causal claim in prose                                             | discipline — paraphrase axis, ADR-024   | —                                                             | n/a                                                  |
-| (p) decision record          | in-scope paths ∩ ADR corpus                                         | **mechanize**                           | `ready` (mt#4172)                                             | deviate: corpus grep                                 |
+| (p) decision record          | in-scope paths ∩ ADR corpus (**one of two corpora** — see below)    | **mechanize** (partial)                 | `ready` (mt#4172)                                             | deviate: corpus grep                                 |
 
 Eight rows get a backstop. Of the seven that do not, five are discipline-tier by construction and
 two are mechanizable but priced out below. Every "deviate" is the same deviation and it is the ADR-031
@@ -209,6 +209,19 @@ belong at the same posture on day one.
 - **mt#4172** (gate (p) ADR nominator) — **confirmed** as the `ready` row for (p). Its spec already
   notes pricing an extension of `corpus-loader.ts` before writing a grep; that module belongs to
   the policy-coverage detector whose fate ask#8752 decides, so prefer a standalone corpus read.
+
+  **Scoped correction (mt#4244): the nominator covers ONE of gate (p)'s two corpora, and must say
+  so.** Minsky's accepted decision records are split by policy — `documentation-taxonomy.mdc`
+  routes ADRs to `docs/architecture/` and RFCs to Notion. This row's trace ("in-scope paths ∩ ADR
+  corpus") is therefore a partial read, and a grep cannot be widened to close it: Notion is not on
+  disk. Two consequences for whoever builds mt#4172. First, the nominator's SILENCE is evidence
+  about the ADR corpus only, and its output must say which corpus it searched rather than implying
+  "no record governs this." Second, this does not change the row's verdict — mechanizing the
+  in-repo half is still worth it — but it caps what the backstop can claim, which matters because
+  the gap it cannot see is the one that already cost a design collision (mt#4239 shipped a
+  mechanism in Accepted RFC 390937f0's Piece C territory; gate (p) ran and passed). The
+  three-pass search covering both corpora now lives in gate (p)'s prose.
+
 - **mt#4173** (gate (n) integration heuristic) — **re-scoped.** Its mechanism reads a diff and its
   title promises the gap "surfaces at plan time." No diff exists at plan time. It moves to the `pr`
   seam and becomes a merge-lane backstop for a plan-time gate. Its value is unchanged; its claim

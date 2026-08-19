@@ -89,6 +89,46 @@ adjacent to the question makes the inference feel checked.** Ask what the view C
 treating its silence as data; the falsifier is the artifact the program actually PRODUCED — the HTTP
 response body, not the run log you filtered.
 
+**Every case above is an accessor that DROPS. One that SYNTHESIZES is the unhandled half (mt#4227).**
+A filter, a projection, a silenced logger all REMOVE, so the remedy has always been "the view is
+missing something." A projection over a key the source LACKS does the opposite — it manufactures a
+type-valid value, and `null` then reads as data. `jq '{startedAt, uptimeMs}'` over a payload
+carrying neither prints `startedAt: null, uptimeMs: null`, which is byte-identical to two keys
+present and null; that became "present-but-null fields, possibly a small defect" to the principal
+(2026-08-17). The hazard is not `jq`'s: `.get(k)` returns `None`, `obj?.field` yields `undefined`,
+a DataFrame column selection creates `NaN` — anywhere a projection over a missing key returns a
+falsy value instead of raising. **An accessor is not a filter, it is a constructor.** So enumerate
+the source's real key set — `jq keys`, `has()`, `in` — BEFORE asserting anything about a field's
+VALUE. A null read through a projection is not evidence that the field exists and is empty; note
+this is the ABSENCE bound inverted, so the two are opposite failures of one operation and neither
+catches the other.
+
+**A wait loop is where a broken probe hides, because "not yet" is the expected reading (mt#4227).**
+`<cmd> 2>/dev/null | jq -r '.status // empty'` on a command that does not exist wrote its only
+explanation to the channel that was discarded, and `// empty` collapsed "no such command" into the
+same token as "no status yet" — 60 iterations over 30 minutes emitting exactly what a pending deploy
+emits. There is no moment at which that output looks wrong, because for most of a loop's life
+"nothing yet" IS correct. A loop waits on a condition; it is not where you discover whether your
+probe works. **Run the probe once in the foreground, stderr visible, and confirm it returns a real
+value before wrapping it in a loop.** Repo corollary: an MCP tool does not imply a CLI command of
+the same name.
+
+**Before accepting a zero result, check the channel can PERCEIVE that kind of thing (mt#4259).**
+Every paragraph above asks what a view drops or manufactures once you are holding its output;
+this one fires earlier, at channel SELECTION, and is cheaper there. Name the KIND of thing you
+are seeking — a rendered visual behaviour, a runtime value, a code path, a policy, a person's
+intent — and ask whether the channel renders that kind at all. **A modality mismatch returns
+"not found" whether or not the thing exists**, which is mem#704's can't-fail probe in search
+clothing: no error, no empty-looking output, just a plausible zero. Incident (2026-08-18,
+mt#4220): the question was whether Claude Code folds runs of agent actions in its terminal UI —
+a VISUAL behaviour — and the probe was `strings` over the compiled binary plus two doc pages, a
+TEXT search for a rendered artifact. `strings` cannot see compressed regions, so it returned
+zero either way; the feature existed, and the principal was watching it render while the search
+ran. **The falsifier for a rendered behaviour is a rendering** — a screenshot, an image search,
+a user describing what they see. And when the primary artifact sits on the principal's side of a
+boundary you cannot cross, HE is a first-tier channel rather than the audience for the answer:
+`principal-context.mdc §What Eugene can see`.
+
 **The same bound runs in the POSITIVE direction, over your OWN artifact's data flow (mt#4191).**
 Every case above is a claim about the WORLD, made in a report. This one is a claim about YOUR OWN
 CODE, made in its source: *"emits aggregate counts and scores only — never prompt text"*, in a
@@ -662,18 +702,19 @@ Detail: `guard-dispatcher-framework.md`.
 - **Silent-stretch** — tool-only run crossing the heartbeat cadence (10min OR 15 calls, `user-preferences.mdc §Progress heartbeats`) with no interstitial prose. LIVE mt#3399. `MINSKY_SKIP_SILENT_STRETCH`.
 - **Chained-verification-commands** (mt#3910) — a `Bash`/`session_exec` command string chaining TWO OR MORE verification commands (`bun test`, `bun run lint|format|typecheck|validate|build`, `bunx eslint|tsc`, `tsgo`) with `;`/`&&`/`||`, which makes a non-zero exit unattributable. Deliberately narrow. Calibration-first. `MINSKY_SKIP_CHAINED_VERIFICATION_SCAN`. Detail: `chained-verification-commands-detector.md`.
 - **Truncated-outcome-read** (mt#4096) — an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) piped into `tail`/`head`, discarding `pushed`/`pushUnconfirmed` by position; `grep`/`jq` never fire. Second arm (mt#4176): a truncated `--help` — enumeration, not sample. Calibration-first. `MINSKY_SKIP_TRUNCATED_OUTCOME_READ`. Detail: `truncated-outcome-read-detector.md`.
-- **CLI-substitutes-MCP** (mt#4144) — a `Bash`/`session_exec` command invoking the Minsky CLI for a command that HAS an `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded. Equivalence comes from `commandId` on each CLI leaf of the generated `completion-manifest.json`. Suppressed once MCP is in use; suppression still RECORDED. Calibration-first. `MINSKY_ALLOW_CLI_SUBSTITUTION`. Detail: `cli-mcp-substitution-detector.md`.
+- **CLI-substitutes-MCP** (mt#4144) — a `Bash`/`session_exec` invoking the Minsky CLI for a command that HAS an `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded. Suppressed once MCP is in use; suppression still RECORDED. Calibration-first. `MINSKY_ALLOW_CLI_SUBSTITUTION`. Detail: `cli-mcp-substitution-detector.md`.
 - **Constructed-identifier batch** — TWO passes: mint-and-consume in one parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Consume surfaces include file writes, so a constructed id in source code ships. Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`. Detail: `constructed-identifier-batch-detector.md`.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Narrowed mt#3167: a missing licence-to-falsify no longer fires on its own (8/8 measured FP); still recorded. Calibration-first (mt#3162). `MINSKY_ACK_BARE_PROHIBITION`. Detail: `bare-prohibition-dispatch-detector.md`.
 - **Duplicate-check search provenance** (mt#4004) — a duplicate-check record CLAIMING a past-tense search, in a session with no `tasks_search`/`tasks_similar`/`refs_status` call. Third of four tiers on that record (present / true / searched / read). Calibration-first. `MINSKY_SKIP_SEARCH_PROVENANCE`.
 - **Duplicate-check candidate read** (mt#4167) — the fourth: the record distinguishes candidates whose specs were never opened this session. Composes `specWasSurfaced`. NAMED candidates only; omission is the signature scan's axis. Calibration-first. `MINSKY_SKIP_CANDIDATE_READ_PROVENANCE`. Detail: `duplicate-check-candidate-read.md`.
-- **Claim provenance** (mt#4168) — a spec asserting a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim ("unowned", "no task covers this"), written at the spec-WRITE seam with no discharging call: a `pull_request_read` for the cited PR, a path-filtered `git_log`, or a `tasks_search` that PRECEDES the write. First guard on `tasks_spec_patch`/`tasks_edit`, which carried no PreToolUse guard at all — and where both originating incidents wrote. RECORD-ONLY: a pre-ship replay measured 16 fires / 70 claims with one true positive (tune: mt#4190). `MINSKY_SKIP_CLAIM_PROVENANCE`. Detail: `claim-provenance-scan.md`.
+- **Claim provenance** (mt#4168) — a spec asserting a file-level COLLISION with named other work, or a NEGATIVE OWNERSHIP claim, written at the spec-WRITE seam with no discharging call (`pull_request_read`, path-filtered `git_log`, or a preceding `tasks_search`). First guard on `tasks_spec_patch`/`tasks_edit`. RECORD-ONLY; pre-ship replay hand-classified (tune: mt#4190). `MINSKY_SKIP_CLAIM_PROVENANCE`. Detail: `claim-provenance-scan.md`.
 - **Evidence-record provenance** (mt#4044) — a `Negative control:` / `Execution evidence:` record claiming a run, written into a commit message or PR body with no matching run in the session. Wired on `session_commit` / `session_pr_create` / `session_pr_edit`. RECORD-ONLY: the stream is armed and nothing injects (tune: mt#4067). `MINSKY_SKIP_EVIDENCE_PROVENANCE`. Detail: `evidence-record-provenance.md`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens (routes, source paths, backticked identifiers) already in an active task's spec that its duplicate-check record does not concede. Exact substring, no similarity metric (mem#819). Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`. Detail: `duplicate-signature-scan.md`.
 - **Stale-signal sweep** (mt#3959) — `session_pr_create` on a branch that STOPPED emitting an operator-facing `<label>=` while active task specs, live memories, or accepted ADRs still quote it. Same exact-substring class as the scan above. Calibration-first. `MINSKY_SKIP_STALE_SIGNAL_SWEEP`. Detail: `stale-signal-sweep.md`.
 - **Unrendered-result-field scan** (mt#3913) — `session_pr_create` on a branch adding a counter/flag to a `*Result` type that no output site renders. **A log call is not a render site.** Diff-only; a `*Result` declared under `**/hooks/**` or `**/detectors/**` is not considered. Calibration-first. `MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN`. Detail: `unrendered-result-field-scan.md`.
 - **New-surface design pass** (mt#4124) — `session_pr_create` on a branch that ADDS a render-path file with no design skill invoked in the authoring conversation. The judgment half of mt#2421, which answers "an artifact exists" and is silent on "anyone looked". Calibration-first. `MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS`. Detail: `new-surface-design-pass.md`.
 - **Flakiness-control detector** (mt#3658) — `tasks_create` whose spec claims a failure MODE with no isolation control recorded. Fires on the ATTRIBUTION and equally on the DENIAL, each silenced only by its own family's evidence (mt#4166). Calibration-first. `MINSKY_SKIP_FLAKINESS_CONTROL`. Detail: `flakiness-control-detector.md`.
+- **Unowned-finding scan** (mt#4246) — a `tasks_status_set` → DONE whose spec's findings section (`Noticed, not actioned`) holds an item declaring neither `[owner: mt#N]` nor `[no-owner: reason]`. Ownership is a MARKER, never an inferred reference. Calibration-first. `MINSKY_SKIP_UNOWNED_FINDING_SCAN`. Detail: `unowned-finding-scan.md`.
 - **Spec-criterion-claim** (mt#4153) — a `## Success Criteria` / `## Acceptance Tests` bullet that asserts unverified corpus state (Class A, silenced by an inline verifying command) or imposes a precondition absent from the task's authorizing ask (Class B, edit surfaces only — a create has no id for an ask to point at). Calibration-first. `MINSKY_SKIP_SPEC_CRITERION_CLAIM`. Detail: `spec-criterion-claim-detector.md`.
 - **Display linkifier** (mt#2565) — MessageDisplay: rewrites bare `mt#NNNN`/`PR #N`/`ask#N`/`mem#N`/`ws#N` into deeplinks as a message streams; the stored transcript keeps the bare ref. OFF the dispatcher (ADR-028 D7(5)); an unmapped short id stays bare. Liveness: `bun scripts/check-linkify-liveness.ts`. `MINSKY_SKIP_TERMINAL_LINKIFY`. Detail: `linkify-message-display.md`.
 - **Injection (per-turn)** — current-time/git-state/prod-state/dispatch-watchdog. `MINSKY_SKIP_*_INJECTION`.
@@ -946,6 +987,101 @@ execution`, principal-level decisions stay with Eugene:
   §"Preference-bound decisions … are not yours to make alone" contradicted each other, and a
   detector fired on an agent that halted correctly. The durability, not the taste, is what makes
   it reserved.)
+
+### What Eugene knows — pitch vocabulary at its edge
+
+He reads everything you write. Calibrate technical vocabulary to **him**, not to the domain
+you happen to be working in — writing for the domain is writing for a generic peer, or for
+yourself. The target is jargon **at the edge of his knowledge**, where a term is learnable in
+context.
+
+**Over-explaining is a real cost, not a safe default.** Glossing `React` or `git rebase` for
+this principal wastes his attention and misreads him. The penalty is smaller than for a gap,
+and it is not zero — it is *constant* where a gap is occasional.
+
+**The asymmetry is the whole mechanism.** He used a term unprompted → he KNOWS it; treat that
+as settled. He has never used it → **UNKNOWN, which is NOT "doesn't know."** People read past
+terms they half-know, and a busy principal especially will not stop to ask. **Absence of a
+question is not evidence of knowledge** — a model that reads silence as competence reproduces
+the failure this exists to prevent.
+
+Three tiers decide whether a term gets a gloss:
+
+1. **Confirmed known** — he used it, or asked once and it was explained. Never gloss.
+2. **His working vocabulary** — the everyday terms of the work he actually does: Minsky's own
+   domain, his stack (TypeScript, React, Postgres, Bun, git, MCP), and mainstream software
+   engineering. Treat as known; do not gloss. The test is whether a term is in the daily loop
+   of building *this product* — NOT whether a competent engineer could be expected to know it.
+   Those are different questions, and the second is how condescension gets rationalised.
+   Adjacent specialist domains sit OUTSIDE this tier even though he could pick up any of them
+   in an afternoon: binary formats and linkers, kernel/OS internals, compiler backends,
+   GPU/graphics internals, ML model internals, and the internals of vendor tools he uses but
+   has not built on.
+3. **Everything else, no evidence either way** → UNKNOWN → **a short inline gloss**: a
+   parenthetical or a single clause, never a paragraph and never silence. Five words cost
+   nothing; an unglossed gap stalls the reader mid-sentence and charges an attention tax
+   without consent.
+
+**Confirmed gaps — gloss on first use:** `Mach-O`, `strings(1)` (2026-08-18).
+
+**When a term's status matters and you cannot settle it, ask him — the model is not only
+something to consult, it is something to update.** He is a party with state you can query, not
+only the recipient of output; one sentence resolves a term permanently and adds a ledger entry.
+This is the same one-directional-model root as mt#4259 (treat the principal as an evidence
+channel) seen from the state side rather than the vantage-point side — and asking well means
+asking in terms he does not have to decode, which is this section applied to itself.
+
+**One question is one term, never a profile.** He asked what `Mach-O` meant; that establishes
+"did not know this term," not "weak on systems programming." Generalising a domain-level
+profile from a single lexical gap is the over-reach that makes a reader model feel wrong
+rather than helpful.
+
+**This is NOT `user-preferences.mdc §Plain-language first`.** That rule governs
+**process-internal** shorthand — gate letters `(l)`, premise-audit labels `(iii)`, criterion
+IDs; "audit-trail vocabulary, not the principal's." It would not have caught `Mach-O`, which
+is a legitimate technical term from an outside domain — a different class, and both failed in
+the same session. The ledger of confirmed terms, the decay path, and the transcript-derivation
+feasibility note: `docs/rules-rationale/principal-context.md §The knowledge surface`.
+
+### What Eugene can see — he is an evidence channel, not only the audience
+
+He is also a party with a VANTAGE POINT. When the thing you are investigating sits on **his side
+of a boundary you cannot cross** — his screen, his machine's GUI, his accounts and inboxes, a
+third-party tool he uses daily, his own history and intent — **he is a first-tier source, not a
+last resort.** Ask before or alongside the indirect channels, not after they come back empty.
+
+The trigger is a conjunction, and the second half is what keeps it narrow:
+
+1. the subject is something he **directly observes or operates**, AND
+2. every channel you have reaches it only **indirectly** — through an artifact derived from it
+   (a compiled binary, docs _about_ it, third-party prose), never the thing itself.
+
+**When you can read the primary artifact yourself, he is NOT the channel — go read it.** A code
+path in this repo, a DB row, a PR diff, a task spec, a service log: he has access to all of
+these and so do you, with better throughput, so conjunct 2 fails and asking him is pure
+attention tax. That is the tuning check and it is the one that matters — a habit that routes
+every question to him burns exactly the attention this project exists to conserve.
+
+**Cheapness is the argument, not politeness.** The question rides along in a message you are
+already writing: one sentence, no turn spent waiting, work continues meanwhile. A wrong negative
+silently redirects scope and survives for days (mt#4220 — a feature he had asked for was scoped
+out on a search that could not have found it; he corrected it himself the next day with a
+screenshot of his own terminal). **This is not the deferral shape**: you are not blocked and you
+are not handing him the work, so `user-preferences.mdc §Probe before deferring` never fires —
+its trigger is a claim of inability, and there is none here.
+
+**For a negative that will license a DECISION** — scoping something out, retiring a candidate,
+telling him a capability does not exist — **use ≥2 channels of DIFFERENT KINDS, or say in the
+same sentence why one sufficed.** The kinds: the rendered artifact, the primary source, a
+derived artifact, third-party prose, a person with direct access. Three text searches are one
+kind, not three channels. Whether a channel could perceive the thing at all is
+`claim-confidence.mdc §Before accepting a zero result`.
+
+**When you do ask, ask in terms he does not have to decode** — `§What Eugene knows` above is the
+same model's other half, and a probe habit that ignores it reproduces the root from the other
+side: he is charged for the answer twice, once to read the question and once to give it. Worked
+walk-throughs, the counter-case, and the home evaluation:
+`docs/rules-rationale/principal-context.md §The vantage point`.
 
 ### Trigger rule — before applying any framework
 

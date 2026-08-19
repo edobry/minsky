@@ -434,7 +434,8 @@ Gate criterion (h).
 If none of these apply, this criterion passes automatically. State that explicitly:
 "(h) No contract modification — criterion passes."
 
-**Consumer enumeration heuristic by change type.** For each category of change, the spec's
+**Consumer enumeration heuristic by change type.** For each category the change falls under —
+possibly MORE THAN ONE, per the union rule immediately below the table — the spec's
 \`## Scope\` → \`In scope\` list must cover all of the following:
 
 | Change type               | Consumers to enumerate                                                                                                           |
@@ -444,6 +445,33 @@ If none of these apply, this criterion passes automatically. State that explicit
 | Env-var rename            | All reads in \`src/\`, \`services/\`, \`scripts/\`, \`.github/\` **and** deployed-environment artifacts (see below)                      |
 | Config key / schema field | All reads in \`src/\`, \`tests/\`, \`services/\`, \`.github/\`, \`docs/\` **and** deployed-environment artifacts (see below)               |
 | Command / tool parameter  | Every INVOCATION of the command: its adapter tests (the \`*.test.ts\` beside the command), skill, rule and \`docs/\` text that shows a call, and the generated CLI/MCP surface (\`src/generated/completion-manifest.json\`) |
+
+**Take the UNION of every row that applies — never pick one (mt#4265).** An artifact routinely
+belongs to more than one row, and the rows prescribe DIFFERENT directories: \`Function / type
+signature\` omits \`docs/\`; \`Config key / schema field\` includes it. When more than one row
+applies, the enumeration covers the UNION of their consumer sets, and the audit NAMES every row
+it unioned. There is no tie-break to get right, because there is no tie to break.
+
+**Row membership follows the artifact's EXPOSURE, not how the change is DECLARED.** The
+declaration cannot discriminate: an internal-only type and a type serialized into an HTTP
+response produce identical-looking diff hunks, and only the second one's consumers include
+\`docs/\`. So ask what the artifact is READ THROUGH — a route's response body, a golden contract
+fixture (\`contract/*.json\`), a generated manifest, a config file, a command's params map — and
+take every row that answer reaches.
+
+Worked example (mt#4252): a field added to a TypeScript discriminated union that \`GET
+/api/health\` serializes. DECLARED as a type, so the diff suggests \`Function / type signature\`,
+whose set has no \`docs/\`. EXPOSED as a response schema, so \`Config key / schema field\` applies
+too — and the union reaches \`docs/\`, where \`docs/principal-channel.md\` enumerated that same
+union and stated its field lists were "exhaustive per variant". The change made the doc's own
+sentence false rather than merely dating it. The sweep that ran was thorough on the row it
+picked; PICKING was the defect, and the reviewer caught it as BLOCKING.
+
+**Why a union instead of a better-worded row.** The previous instance (mt#3969) was answered by
+ADDING a row, and row-selection failed again seven days later — enlarging a choice does not help
+someone making it wrongly. This gate's own origin memo (2026-05-07, "contract propagation as
+design-time discipline") had already framed the categories as ones that "all qualify"; the
+exclusivity arrived later, with the table that rendered them as rows.
 
 **Callers of a COMMAND are a different population from callers of the FUNCTION behind it
 (mt#3969).** The row above exists because the two rows above it cannot find them:
@@ -479,9 +507,11 @@ following deployed-environment locations must be explicitly checked and enumerat
 1. Read the spec and identify whether it describes any of the trigger-condition change types.
    If not, record "(h) passes — no contract modification."
 2. If triggered, identify the specific artifact(s) being changed (names, paths, key names).
-3. For each artifact, look up its consumer class in the heuristic table above.
-4. Verify the spec's \`## Scope\` → \`In scope\` list covers each consumer class. Missing
-   consumer classes are blocking gaps.
+3. For each artifact, look up EVERY row of the heuristic table it is reachable through — by
+   EXPOSURE, not by how the change is declared — and take the UNION of those rows' consumer
+   sets. An artifact reachable through one row has one; a serialized type routinely has two.
+4. Verify the spec's \`## Scope\` → \`In scope\` list covers every consumer class in that union,
+   and that the audit NAMES the rows it unioned. Missing consumer classes are blocking gaps.
 5. For env-var and config-key changes specifically: confirm the spec explicitly addresses each
    of the three deployed-environment artifact categories, either enumerating consumers or
    stating "no consumers in this category."
@@ -977,7 +1007,27 @@ observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
 2. **Run it against the ACTUAL failing context**, not a simulation. A simulation (\`env PATH=... cmd\`)
    proves a CONDITIONAL ("IF the PATH lacks X THEN it fails"), NOT the ANTECEDENT ("the hook's PATH
    lacks X"). A "reproduced (definitive)" claim whose repro is a conditional is not verified.
-3. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
+3. **When the falsifier is a QUERY, the failing context is a SUBPOPULATION.** Step 2 in its
+   data-shaped form: scope the query to the population the CLAIM is about. A statistic computed
+   over a population in which the phenomenon is largely ABSENT is not evidence about where it is
+   PRESENT. Concretely — **before summarizing over a window, bucket the events by sub-interval
+   (day, or hour for a short window) and read the per-bucket counts.** This is not a statistical
+   test and does not need one: you are looking for a large share of the events sitting in a small
+   share of the window — visible by eye at the scale these questions arise. If they cluster, split
+   at the cluster and report per regime; a pooled statistic spanning a regime boundary is either
+   reported as such or not reported at all, because it describes neither regime. Note this failure
+   survives every check step 2 imposes: the antecedent is real, the query runs against production,
+   and the number it returns is arithmetically correct.
+   (mt#1897, 2026-08-19: 30 days of per-round reviewer latency put p99 at 61s against a 120s cap,
+   which became "the cap is 2x p99, so a timing-out round is stuck, not slow — do not raise the
+   timeout," written into the spec as an instruction not to pursue that option. Splitting at one
+   3.5-hour degraded window put the in-window p95 at 126.6s — the cap sits BELOW it — with 29 of
+   the 30-day total of 40 over-cap rounds inside that window; the same pooling had also
+   manufactured a concurrency correlation that goes flat once the window is excluded. The tell was
+   already written down two paragraphs above the percentiles: 15 of 25 timeout-carrying reviews
+   fell on a single day. The clustering was measured, recorded, and then not applied to the choice
+   of window — which is why this is a step rather than a caution.)
+4. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
    rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
    surface the gap and re-scope BEFORE designing a fix.
 
@@ -1001,7 +1051,8 @@ restore + the append-only convention above); memories \`d77d2bd4\` (problem-stat
 
 When the spec proposes or changes a **mechanism, architecture, substrate, policy, or detection
 approach** — anything where "how should this work?" is the question — the agent must search the
-in-repo accepted decision records (\`docs/architecture/adr-*.md\`) for one that governs the choice,
+accepted decision records — BOTH corpora: \`docs/architecture/adr-*.md\` in-repo AND the Notion RFC
+corpus (mt#4244) — for one that governs the choice,
 cite it, and state match / extend / deviate BEFORE the mechanism is encoded and the task passes to
 READY. The accepted record is the DEFAULT; the spec justifies DEPARTING from it, not following it.
 
@@ -1037,12 +1088,41 @@ findings-shaped \`state-ops\` audit — the criterion passes automatically. Stat
 
 **Required when triggered:**
 
-1. **Search** — two cheap passes, either of which is usually enough: (a) grep the ADR corpus for the
+1. **Search** — three cheap passes: (a) grep the ADR corpus for the
    file paths named in the spec's \`## Scope\`; (b) grep the in-scope source files for \`ADR-\`
-   references — and **traverse what you find**.
-2. **Cite** — name the governing ADR in the spec, or state explicitly that the search was run and no
-   accepted record governs the decision. "No ADR governs this" is a PASSING answer only when the
-   search is recorded; an unrecorded absence is not a search.
+   references; (c) search the **Notion RFC corpus** —
+   \`mcp__plugin_Notion_notion__notion-search\` with the decision's subject terms, scoped to the
+   Minsky home page (\`page_url: "33a937f0-3cb4-8197-a93e-cd4a98a94261"\`, the parent
+   \`/draft-rfc\` publishes under) — and **traverse what you find**.
+
+   **Pass (c) is not optional garnish, and this gate shipped without it (mt#4244).** Minsky's
+   accepted decision records are SPLIT across two corpora by policy: \`documentation-taxonomy.mdc\`
+   routes ADRs to \`docs/architecture/\` and RFCs to Notion, and \`/draft-rfc\` publishes them there
+   under the Minsky home page. Passes (a) and (b) are both in-repo, so for the first year of this
+   gate's life an agent could run it honestly, record a correct PASS, and never have been able to
+   see half of what the gate is named for. That is a corpus gap, not a diligence gap — "search
+   harder" does not reach a page that is not on disk.
+
+   Originating incident (2026-08-17, mt#4239): a spec added a per-installation declaration of
+   which MCP servers a driven agent gets. Gate (p) ran, found ADR-038, and correctly recorded
+   "extend, not deviate." What neither in-repo pass could reach was **RFC 390937f0**
+   (\`Capability-escalation loop\`, **Accepted** 2026-07-01), whose Piece C1 is a
+   "lightweight, session-config declaration" of an agent's capability set — the same subject, one
+   granularity over. The design collision surfaced only when the principal asked whether the
+   shipped shape was right.
+
+   **If the Notion plugin is unavailable** (a headless or cron run, or the plugin is not
+   connected), record the pass as \`UNAVAILABLE\` with that reason — do NOT record a clean gate
+   pass. A corpus you could not search and a corpus you searched and found empty are different
+   findings, and only one of them licenses "no accepted record governs this."
+2. **Cite** — name the governing ADR **or RFC** in the spec, or state explicitly that all three
+   passes ran and no accepted record governs the decision. "No accepted record governs this" is a
+   PASSING answer only when the search is recorded; an unrecorded absence is not a search.
+
+   **Record which passes actually ran.** If pass (c) was skipped or unavailable, say so — do not
+   write "searched the decision records" and leave the reader to assume all three. An overstated
+   search record is worse than an honestly narrow one, because the next reader inherits it as
+   settled and has no reason to look again.
 3. **Match / extend / deviate** — state which, with justification for any deviation.
 4. **Phase placement** — if the ADR names a phase or task structure, state which phase this task
    belongs to, and whether it coordinates with the other phases or proceeds independently.
@@ -1078,6 +1158,11 @@ guidance — but it targets named concepts and frames, not accepted decision rec
 gate). Mechanization: mt#2755 carries this criterion's deterministic slice — for each file path in a
 spec's \`## Scope\`, grep \`docs/architecture/*.md\`; if an ADR references that path and the spec cites
 no ADR, flag it. That grep only NOMINATES candidates; the governance judgment stays here.
+**Its corpus must match pass (c)'s (mt#4244):** the nominator is specced against the ADR corpus
+alone (ADR-042's (p) row, mt#4172), which would mechanize the very blind spot this gate just
+closed. A grep cannot reach Notion, so the deterministic slice covers one corpus and the prose
+covers both — state which corpus a nominator's silence is evidence about, rather than reading it
+as "no record governs this."
 
 ### Step 4: Act on gate results
 
