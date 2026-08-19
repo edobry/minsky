@@ -51,9 +51,69 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
+          # See the restore job's matching step for why this timestamp exists.
+          echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           railway up \
             --service cockpit-preview \
             --detach
+
+      # mt#4272 — the same check the restore job gained, for the same reason,
+      # and it belongs BEFORE the health assertions below rather than beside
+      # them. Those assertions are good at what they test (the passkey gate is
+      # mounted, the domain layer booted) and blind to whether THIS deploy is
+      # the one answering: a failed build leaves the previous one running, and
+      # it returns the same 200, the same 401, and the same gated:true. So the
+      # existing step would pass on a failed deploy — and would spend five
+      # minutes polling a URL that was already healthy before concluding so.
+      #
+      # Ordering it first also makes the failure legible: "the deploy failed"
+      # rather than "the gate assertions passed, somehow."
+      - name: Verify the deploy actually landed
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          # Foreground probe first — see the restore job's matching step for why
+          # a broken probe is invisible once it is inside a wait loop.
+          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>&1); then
+            echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
+            echo "$PROBE"
+            exit 1
+          fi
+          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "FAIL: 'railway deployment list --json' did not return an array — the probe is broken."
+            echo "$PROBE"
+            exit 1
+          fi
+
+          echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
+          for i in $(seq 1 60); do
+            STATUS=$(railway deployment list --json --limit 5 --service cockpit-preview \
+              | jq -r --arg since "$DEPLOY_STARTED_AT" \
+                  '[.[] | select(.createdAt >= $since)] | first | .status // empty')
+
+            case "$STATUS" in
+              SUCCESS)
+                echo "Deploy reached SUCCESS."
+                exit 0
+                ;;
+              FAILED|CRASHED|REMOVED)
+                echo "FAIL: the preview deploy ended in $STATUS."
+                echo "Build logs:"
+                railway logs --json --lines 100 || true
+                exit 1
+                ;;
+              "")
+                echo "  [$i/60] no deployment registered yet"
+                ;;
+              *)
+                echo "  [$i/60] $STATUS"
+                ;;
+            esac
+            sleep 10
+          done
+
+          echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+          exit 1
 
       - name: Verify preview is live
         run: |
@@ -185,6 +245,83 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
+          # Record the wall clock BEFORE the upload so the verify step below can
+          # tell the deployment this run created from any that preceded it.
+          echo "DEPLOY_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           railway up \
             --service cockpit-preview \
             --detach
+
+      # mt#4272. `railway up --detach` returns as soon as the upload completes;
+      # Railway's own CLI help says so outright — "starts an upload and
+      # deployment, but it does not wait for the deployment to become healthy.
+      # Poll with `railway deployment list --json`" — and gives the flag the
+      # alias --no-wait. So without this step the job succeeds whatever Railway
+      # then does with the upload.
+      #
+      # That is not hypothetical: on 2026-08-18 this service took SIX
+      # consecutive FAILED deploys over ~50 minutes (21:14Z through 22:04Z),
+      # every one of them reported green by its workflow run, while the preview
+      # URL kept serving the 21:08Z build. Nothing surfaced it.
+      #
+      # Why this polls Railway rather than reusing the deploy job's health
+      # check: a failed deploy leaves the PREVIOUS build running, and that build
+      # answers /api/health with 200 exactly like a fresh one. A URL probe
+      # therefore passes in precisely the case this step exists to catch — it
+      # verifies "something healthy is serving", never "the deploy I just made
+      # is serving" (mem#704: a probe that returns the same result when the
+      # system is broken is not verification). Only the deployment's own
+      # terminal status distinguishes them.
+      - name: Verify the restore deploy actually landed
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          # Run the probe ONCE in the foreground before wrapping it in a loop.
+          # If `deployment list` fails — a token that does not scope this
+          # project, a CLI flag that changed — its output is empty, jq yields
+          # empty, and the loop below reads that as "not registered yet": sixty
+          # iterations emitting exactly what a pending deploy emits, then a
+          # timeout that blames Railway. There is no moment at which that looks
+          # wrong, which is why the check goes here and not in the loop.
+          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>&1); then
+            echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
+            echo "$PROBE"
+            exit 1
+          fi
+          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "FAIL: 'railway deployment list --json' did not return an array — the probe is broken."
+            echo "$PROBE"
+            exit 1
+          fi
+
+          echo "Waiting for the deployment created after $DEPLOY_STARTED_AT to reach a terminal status..."
+          for i in $(seq 1 60); do
+            # Newest-first; take the newest deployment created at or after the
+            # upload. An empty result means Railway has not registered it yet.
+            STATUS=$(railway deployment list --json --limit 5 --service cockpit-preview \
+              | jq -r --arg since "$DEPLOY_STARTED_AT" \
+                  '[.[] | select(.createdAt >= $since)] | first | .status // empty')
+
+            case "$STATUS" in
+              SUCCESS)
+                echo "Deploy reached SUCCESS."
+                exit 0
+                ;;
+              FAILED|CRASHED|REMOVED)
+                echo "FAIL: the restore deploy ended in $STATUS."
+                echo "Build logs:"
+                railway logs --json --lines 100 || true
+                exit 1
+                ;;
+              "")
+                echo "  [$i/60] no deployment registered yet"
+                ;;
+              *)
+                echo "  [$i/60] $STATUS"
+                ;;
+            esac
+            sleep 10
+          done
+
+          echo "FAIL: no terminal status within 10 minutes (last seen: ${STATUS:-none})."
+          exit 1
