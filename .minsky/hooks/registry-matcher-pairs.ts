@@ -194,6 +194,25 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["block-concurrent-bulk-mutation", "cli-mcp-substitution"],
   ["block-bulk-process-kill", "cli-mcp-substitution"],
   ["truncated-outcome-read", "cli-mcp-substitution"],
+  // Seventh question about the same command string (mt#4215), and the first
+  // asked about the command's INPUT. Every sibling reads the command alone or
+  // pairs it with session state; this one pairs it with the FILESYSTEM, asking
+  // whether the paths it names are there to be searched. That is a different
+  // false-positive surface from all six — it lives in an argument-grammar
+  // parser and in the resolution of a relative path against a cwd, neither of
+  // which any sibling touches — so it needs its own calibration log and its own
+  // override. Note the near-miss with `check-guessed-session-path`, which also
+  // stats a path: that one fires on a CONSTRUCTED session path anywhere in the
+  // command and denies; this one fires on a path in ARGUMENT POSITION of a
+  // search binary and only records. Independent overrides; running all seven is
+  // the point.
+  ["check-guessed-session-path", "nonexistent-search-path"],
+  ["block-secret-file-read", "nonexistent-search-path"],
+  ["chained-verification-commands", "nonexistent-search-path"],
+  ["block-concurrent-bulk-mutation", "nonexistent-search-path"],
+  ["block-bulk-process-kill", "nonexistent-search-path"],
+  ["truncated-outcome-read", "nonexistent-search-path"],
+  ["cli-mcp-substitution", "nonexistent-search-path"],
   // Two guards on `session_pr_create`, both reading the SAME branch diff and
   // both asking about operator-facing output — but about opposite failures, and
   // neither subsumes the other. `stale-signal-sweep` (mt#3959) fires on a label
