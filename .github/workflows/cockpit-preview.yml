@@ -92,14 +92,22 @@ jobs:
             exit 1
           fi
 
-          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>&1); then
+          # stderr goes to a FILE, never into the captured value (mt#4277 R1).
+          # `railway` can write a warning to stderr on a SUCCESSFUL call, and
+          # `2>&1` would splice that text into the JSON — so jq then fails to
+          # parse a perfectly healthy read, and the result reads as "no
+          # deployment". Capturing them separately keeps the diagnostic without
+          # corrupting the data.
+          ERR_FILE="${RUNNER_TEMP:-/tmp}/railway-read-err"
+
+          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>"$ERR_FILE"); then
             echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
-            echo "$PROBE"
+            cat "$ERR_FILE" || true
             exit 1
           fi
-          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>"$ERR_FILE"; then
             echo "FAIL: 'railway deployment list --json' did not return an array — the probe is broken."
-            echo "$PROBE"
+            cat "$ERR_FILE" || true
             exit 1
           fi
 
@@ -128,19 +136,13 @@ jobs:
             #
             # Keep pipefail — it is what makes the failure detectable at all
             # (PR #3119 R1) — and handle it here instead.
-            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>&1); then
-              READ_FAILS=$((${READ_FAILS:-0} + 1))
-              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive)"
-              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
-                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
-                echo "$RAW"
-                exit 1
-              fi
-              sleep 10
-              continue
-            fi
-            READ_FAILS=0
-
+            # TWO ways the read can fail, and both mean this iteration told us
+            # nothing (mt#4277 R1): the command can fail, OR it can succeed and
+            # return a body jq cannot parse. Only an EMPTY-but-VALID array means
+            # "not registered yet". Treating a parse error as empty would put the
+            # silent conflation straight back — the loop would wait out the full
+            # ten minutes on a response it never understood.
+            #
             # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
             # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
             # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
@@ -148,11 +150,29 @@ jobs:
             # in the SAME second as the stamp behind it, and the loop would miss
             # the deployment it is waiting for. jq's fromdateiso8601 rejects the
             # fractional form outright, hence the sub() that trims it.
-            STATUS=$(printf '%s' "$RAW" \
+            READ_OK=1
+            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>"$ERR_FILE"); then
+              READ_OK=0
+            elif ! STATUS=$(printf '%s' "$RAW" \
               | jq -r --arg since "$DEPLOY_STARTED_AT" \
                   '($since | fromdateiso8601) as $t
                    | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
-                   | first | .status // empty')
+                   | first | .status // empty' 2>"$ERR_FILE"); then
+              READ_OK=0
+            fi
+
+            if [ "$READ_OK" = "0" ]; then
+              READ_FAILS=$((READ_FAILS + 1))
+              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive): $(head -1 "$ERR_FILE" 2>/dev/null)"
+              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
+                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
+                cat "$ERR_FILE" || true
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
 
             case "$STATUS" in
               SUCCESS)
@@ -401,14 +421,22 @@ jobs:
             exit 1
           fi
 
-          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>&1); then
+          # stderr goes to a FILE, never into the captured value (mt#4277 R1).
+          # `railway` can write a warning to stderr on a SUCCESSFUL call, and
+          # `2>&1` would splice that text into the JSON — so jq then fails to
+          # parse a perfectly healthy read, and the result reads as "no
+          # deployment". Capturing them separately keeps the diagnostic without
+          # corrupting the data.
+          ERR_FILE="${RUNNER_TEMP:-/tmp}/railway-read-err"
+
+          if ! PROBE=$(railway deployment list --json --limit 1 --service cockpit-preview 2>"$ERR_FILE"); then
             echo "FAIL: cannot list deployments — the verify probe is broken, not the deploy."
-            echo "$PROBE"
+            cat "$ERR_FILE" || true
             exit 1
           fi
-          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+          if ! printf '%s' "$PROBE" | jq -e 'type == "array"' >/dev/null 2>"$ERR_FILE"; then
             echo "FAIL: 'railway deployment list --json' did not return an array — the probe is broken."
-            echo "$PROBE"
+            cat "$ERR_FILE" || true
             exit 1
           fi
 
@@ -439,19 +467,13 @@ jobs:
             #
             # Keep pipefail — it is what makes the failure detectable at all
             # (PR #3119 R1) — and handle it here instead.
-            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>&1); then
-              READ_FAILS=$((${READ_FAILS:-0} + 1))
-              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive)"
-              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
-                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
-                echo "$RAW"
-                exit 1
-              fi
-              sleep 10
-              continue
-            fi
-            READ_FAILS=0
-
+            # TWO ways the read can fail, and both mean this iteration told us
+            # nothing (mt#4277 R1): the command can fail, OR it can succeed and
+            # return a body jq cannot parse. Only an EMPTY-but-VALID array means
+            # "not registered yet". Treating a parse error as empty would put the
+            # silent conflation straight back — the loop would wait out the full
+            # ten minutes on a response it never understood.
+            #
             # Compare as EPOCH SECONDS, not as strings. `createdAt` carries
             # milliseconds ("2026-08-18T22:04:39.310Z") and DEPLOY_STARTED_AT
             # does not ("...T22:04:39Z"), and lexicographically '.' (0x2E) sorts
@@ -459,11 +481,29 @@ jobs:
             # in the SAME second as the stamp behind it, and the loop would miss
             # the deployment it is waiting for. jq's fromdateiso8601 rejects the
             # fractional form outright, hence the sub() that trims it.
-            STATUS=$(printf '%s' "$RAW" \
+            READ_OK=1
+            if ! RAW=$(railway deployment list --json --limit 5 --service cockpit-preview 2>"$ERR_FILE"); then
+              READ_OK=0
+            elif ! STATUS=$(printf '%s' "$RAW" \
               | jq -r --arg since "$DEPLOY_STARTED_AT" \
                   '($since | fromdateiso8601) as $t
                    | [ .[] | select((.createdAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) >= $t) ]
-                   | first | .status // empty')
+                   | first | .status // empty' 2>"$ERR_FILE"); then
+              READ_OK=0
+            fi
+
+            if [ "$READ_OK" = "0" ]; then
+              READ_FAILS=$((READ_FAILS + 1))
+              echo "  [$i/60] deployment-list READ failed (${READ_FAILS} consecutive): $(head -1 "$ERR_FILE" 2>/dev/null)"
+              if [ "$READ_FAILS" -ge "$MAX_READ_FAILS" ]; then
+                echo "FAIL: $MAX_READ_FAILS consecutive read failures — the PROBE is broken, not the deploy."
+                cat "$ERR_FILE" || true
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
 
             case "$STATUS" in
               SUCCESS)
