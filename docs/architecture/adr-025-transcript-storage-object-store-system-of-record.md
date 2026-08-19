@@ -39,6 +39,24 @@ deliberately does not pre-empt that decision. An accepted ADR should not carry a
 awaiting supersession, and it should not be quietly reversed by the agent that noticed the premise was
 wrong.
 
+### 2026-08-18 — the lifecycle-policy leg of the `pg_largeobject` rejection does not hold on Supabase (mt#4285)
+
+§Alternatives rejects `pg_largeobject` on three grounds, the third being that in-Postgres blobs "cannot
+carry a separate retention/lifecycle policy." That is true of `pg_largeobject` and misleading as a
+comparison, because **Supabase Storage does not support S3 lifecycle configuration either**:
+`GetBucketLifecycleConfiguration` and `PutBucketLifecycleConfiguration` are both marked unsupported, as
+are bucket versioning ("S3 versioning is not supported. Supabase Storage does not enable S3's versioning
+capabilities"), object lock, and object tagging
+([Supabase: S3 compatibility](https://supabase.com/docs/guides/storage/s3/compatibility), verified
+2026-08-18). A retention policy is application code you write and schedule under BOTH options, so this
+leg does not discriminate between them.
+
+Scope note: this is a SECOND instance of the same defect class as the correction above — an unverified
+factual premise about Supabase load-bearing in this ADR's reasoning — found while fixing the first, and
+patched in the same round rather than split into a follow-up. It records the verified fact and stops
+there. It does NOT re-weigh the two remaining legs (backup-set consumption, independent HTTP URL), and
+it does NOT revisit the decision; that is [ask#8004](minsky://ask/f022e484-6047-44ad-8c2f-a6200064cb11).
+
 ## Context
 
 The transcript substrate (`agent_transcripts` / `agent_transcript_turns`, behind
@@ -142,7 +160,9 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
   blobs still consume the Postgres backup set (the bloat we are removing), get no independent
   HTTP-accessible URL (wanted for future cockpit direct-streaming), and cannot carry a separate
   retention/lifecycle policy (delete a session's raw without a PG migration). For a cold, immutable,
-  large-object workload these three tip to object storage.
+  large-object workload these three tip to object storage. **⚠ The third leg does not hold on Supabase:
+  Supabase Storage does not support S3 lifecycle configuration either, so a retention policy is
+  application code under both options — corrected 2026-08-18, see `## Corrections`.**
 - **(C) Accept lossy reconstruction from per-turn rows, fall back to JSONL.** Rejected: spike fact (1) —
   no JSONL fallback for most rows; spike fact (2) — the rows are lossy.
 
