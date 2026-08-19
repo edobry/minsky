@@ -2,10 +2,17 @@
  * AT4 (mt#4315) — the advisory form-lint checks never reach the hard-reject set.
  *
  * `filterBlockingFormLintMatches` is what decides whether an `asks.create` is
- * REFUSED or merely warned. Four checks are advisory by deliberate choice, each
- * for a reason recorded at its exclusion in `asks.ts`; the shared shape is that
- * none of them states a condition the author can mechanically satisfy, so
- * blocking would train rewording rather than rethinking.
+ * REFUSED or merely warned. The advisory checks are excluded by deliberate
+ * choice, each for a reason recorded at its own exclusion in `asks.ts`; the
+ * shared shape is that none of them states a condition the author can
+ * mechanically satisfy, so blocking would train rewording rather than
+ * rethinking.
+ *
+ * The `ADVISORY` array below is the enumeration — no count is written in prose
+ * (PR #3158 R1). An earlier draft of this header said "Four checks" while the
+ * array held five, which is the same drift the reviewer caught one file over in
+ * `asks.ts`. The list is the statement; a number beside it is a second copy that
+ * can only go stale.
  *
  * `asserted-not-self-resolving` is the one this file was added for, and its
  * failure direction is the sharpest: it guesses about someone else's
