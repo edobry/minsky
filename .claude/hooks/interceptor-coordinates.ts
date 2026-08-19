@@ -508,6 +508,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "enumeration-scope-check",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads over the same PR window with no paraphrase axis: the session's own edit-call paths against a fixed serialized-surface list, and its search-call command strings against a fixed directory list. The strictly stronger sibling of the did-a-search-happen shape — it asks whether the sweep that RAN reached the prescribed directory, which is what every recorded gate-(h) failure missed. A subtree does not count as its directory (mt#4215), which is the discrimination that lets it see mt#4252.",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       interventions: [injectAgent],
