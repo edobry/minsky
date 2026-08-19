@@ -52,6 +52,29 @@ async function seedEscalatedAsk(repo: FakeAskRepository): Promise<Ask> {
   });
 }
 
+/**
+ * Create an ask carrying caller-supplied metadata — the create-side reservation
+ * is the only thing these cases vary, so the rest of the input is shared.
+ */
+async function createWithMetadata(
+  repo: FakeAskRepository,
+  metadata: Record<string, unknown>
+): Promise<Ask> {
+  return repo.create({
+    kind: "authorization.approve",
+    classifierVersion: "v1.0.0",
+    requestor: "minsky.agent:test",
+    title: ESCALATED_TITLE,
+    question: ESCALATED_QUESTION,
+    metadata,
+  });
+}
+
+/** A fabricated provenance note, as a caller might plant one at create time. */
+const PLANTED_NOTE = { editedAt: "1999-01-01T00:00:00.000Z", editor: "x", fields: ["question"] };
+/** A fabricated capture, likewise. */
+const PLANTED_ORIGINAL = { capturedAt: "1999-01-01T00:00:00.000Z", question: "planted" };
+
 /** The captured original, or undefined when nothing has been captured. */
 function originalOf(ask: Ask): AskOriginalContent | undefined {
   const raw = ask.metadata[ORIGINAL_CONTENT_METADATA_KEY];
@@ -234,6 +257,126 @@ describe("the capture is not caller-controlled", () => {
 
     expect(ask.metadata.note).toBe("kept");
     expect(ask.metadata.severity).toBe("incident");
+  });
+});
+
+describe("PR #3162 R1 — the reservation holds at the CREATE boundary too", () => {
+  test("a planted originalContent does not survive create", async () => {
+    // `metadata` is caller-supplied at create, so defending the key only at the
+    // edit boundary leaves it plantable. This is the same rule
+    // `principalPagedAt` already follows (mt#3595).
+    const repo = new FakeAskRepository();
+    const seeded = await createWithMetadata(repo, {
+      keepMe: "yes",
+      [ORIGINAL_CONTENT_METADATA_KEY]: PLANTED_ORIGINAL,
+    });
+
+    expect(originalOf(seeded)).toBeUndefined();
+    expect(seeded.metadata.keepMe).toBe("yes"); // unrelated keys survive
+  });
+
+  test("a planted editHistory does not survive create either", async () => {
+    const repo = new FakeAskRepository();
+    const seeded = await createWithMetadata(repo, {
+      [EDIT_HISTORY_METADATA_KEY]: [PLANTED_NOTE],
+    });
+
+    expect(seeded.metadata[EDIT_HISTORY_METADATA_KEY]).toBeUndefined();
+  });
+
+  test("planting BOTH keys still does not defeat the capture", async () => {
+    // The bypass found while fixing R1's first finding: the edit-side guard
+    // trusts a stored capture when `editHistory` is non-empty, so planting a
+    // fake history ALONGSIDE a fake original would have re-opened the hole.
+    // Stripping at create is what closes it — this asserts the pair, not just
+    // the single key.
+    const repo = new FakeAskRepository();
+    const seeded = await createWithMetadata(repo, {
+      [EDIT_HISTORY_METADATA_KEY]: [PLANTED_NOTE],
+      [ORIGINAL_CONTENT_METADATA_KEY]: PLANTED_ORIGINAL,
+    });
+
+    const { ask } = await editAskContent(repo, { id: seeded.id, question: FIRST_CORRECTION });
+
+    expect(originalOf(ask)?.question).toBe(ESCALATED_QUESTION);
+    expect(originalOf(ask)?.question).not.toBe(PLANTED_ORIGINAL.question);
+  });
+});
+
+describe("PR #3162 R1 — the edit-side guard still matters for rows that PREDATE the strip", () => {
+  test("a row already carrying a planted original does not defeat the capture", async () => {
+    // Create-side stripping is not retroactive: a row persisted before this
+    // shipped can already carry the key, and no later change cleans it. This is
+    // the same case `sanitizeMetadata`'s docblock names for its own two-sided
+    // application — "a hostile key already persisted at create time is scrubbed
+    // on the way through, not just blocked at the boundary".
+    //
+    // Seeded through `_seedAtState` rather than `create`, precisely because
+    // `create` now strips it — which is why the guard reads as redundant if you
+    // only test through the create path. It is not.
+    const repo = new FakeAskRepository();
+    const seeded = await seedEscalatedAsk(repo);
+    repo._seedAtState({
+      ...seeded,
+      metadata: {
+        ...seeded.metadata,
+        [ORIGINAL_CONTENT_METADATA_KEY]: {
+          capturedAt: "1999-01-01T00:00:00.000Z",
+          question: "planted-before-the-fix",
+        },
+      },
+    });
+
+    const { ask } = await editAskContent(repo, { id: seeded.id, question: FIRST_CORRECTION });
+
+    expect(originalOf(ask)?.question).toBe(ESCALATED_QUESTION);
+    expect(originalOf(ask)?.question).not.toBe("planted-before-the-fix");
+  });
+
+  test("but a genuine prior capture IS still honoured", async () => {
+    // The guard keys on a non-empty editHistory, so it must not discard a real
+    // capture written by an earlier edit. Without this, "ignore what is stored"
+    // would pass the test above and silently break AT2.
+    const repo = new FakeAskRepository();
+    const seeded = await seedEscalatedAsk(repo);
+
+    await editAskContent(repo, { id: seeded.id, question: FIRST_CORRECTION });
+    const { ask } = await editAskContent(repo, { id: seeded.id, question: SECOND_CORRECTION });
+
+    expect(originalOf(ask)?.question).toBe(ESCALATED_QUESTION);
+  });
+});
+
+describe("PR #3162 R1 — a metadata-only edit captures nothing", () => {
+  test("no originalContent key is created when no content field is touched", async () => {
+    // `metadata` is itself an editable field, so this edit is legal and reaches
+    // the capture path having preserved nothing. Writing a contentless
+    // `{ capturedAt }` would make it indistinguishable from an ask that HAS a
+    // preserved original, which is what SC5 turns on.
+    const repo = new FakeAskRepository();
+    const seeded = await seedEscalatedAsk(repo);
+
+    const { ask } = await editAskContent(repo, {
+      id: seeded.id,
+      metadata: { note: "bookkeeping" },
+    });
+
+    expect(ask.metadata[ORIGINAL_CONTENT_METADATA_KEY]).toBeUndefined();
+    expect(ask.metadata.note).toBe("bookkeeping");
+    // The edit itself is still recorded — only the capture is absent.
+    expect(Array.isArray(ask.metadata[EDIT_HISTORY_METADATA_KEY])).toBe(true);
+  });
+
+  test("a metadata-only edit AFTER a content edit preserves the existing capture", async () => {
+    // The other direction: suppressing the write must not drop what a prior
+    // edit captured.
+    const repo = new FakeAskRepository();
+    const seeded = await seedEscalatedAsk(repo);
+
+    await editAskContent(repo, { id: seeded.id, question: FIRST_CORRECTION });
+    const { ask } = await editAskContent(repo, { id: seeded.id, metadata: { note: "later" } });
+
+    expect(originalOf(ask)?.question).toBe(ESCALATED_QUESTION);
   });
 });
 

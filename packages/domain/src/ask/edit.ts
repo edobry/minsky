@@ -111,6 +111,46 @@ export const ORIGINAL_CONTENT_METADATA_KEY = "originalContent";
 const PRESERVED_CONTENT_FIELDS = ["title", "question", "options", "contextRefs"] as const;
 
 /**
+ * Metadata keys that are the SUBSTRATE's record, never a caller's input
+ * (PR #3162 R1).
+ *
+ * Both are written exclusively by {@link editAskContent}. Accepting either from
+ * a caller at create time would let a producer manufacture provenance it never
+ * earned — a fabricated edit trail, or a planted "original" that pre-empts the
+ * real capture on the first edit and destroys the text this whole mechanism
+ * exists to keep.
+ *
+ * This is the same rule `principalPagedAt` already follows in `repository.ts`,
+ * for the same reason stated there: *"Accepting it from a caller would let a
+ * producer claim a page it never sent, which is exactly what the marker exists
+ * to prevent (mt#3595)."* A reserved field defended only at the edit boundary is
+ * not reserved — the create boundary is the other half.
+ */
+export const RESERVED_PROVENANCE_METADATA_KEYS = [
+  EDIT_HISTORY_METADATA_KEY,
+  ORIGINAL_CONTENT_METADATA_KEY,
+] as const;
+
+/**
+ * Return `metadata` without any {@link RESERVED_PROVENANCE_METADATA_KEYS} entry.
+ *
+ * Applied at CREATE by both repository backends. Deliberately separate from
+ * {@link sanitizeMetadata}, which strips prototype-pollution vectors and runs on
+ * both sides of the EDIT merge: these keys must survive that merge (they carry
+ * the accumulated provenance) and must not survive a create.
+ */
+export function stripReservedProvenanceKeys(
+  metadata: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if ((RESERVED_PROVENANCE_METADATA_KEYS as readonly string[]).includes(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * Keys that must never enter the metadata merge — prototype-pollution
  * hardening (PR #1831 review). `metadata` arrives from the MCP surface as
  * untrusted input; merging a literal `__proto__` / `constructor` /
@@ -242,7 +282,17 @@ export async function editAskContent(
   // caller supplies. Already-captured fields are never overwritten: that is what
   // makes it the ORIGINAL rather than the previous revision, and what bounds the
   // growth at one copy per field regardless of edit count.
-  const priorOriginal = existing.metadata[ORIGINAL_CONTENT_METADATA_KEY];
+  //
+  // Only a PRIOR EDIT's capture is trusted (PR #3162 R1). `metadata` is
+  // caller-supplied at CREATE time, so an Ask can be created already carrying an
+  // `originalContent` key — and trusting that would let a caller pre-empt the
+  // real capture and defeat the reservation this key is supposed to have, which
+  // is the opposite of what it is for. `editHistory` is written ONLY by this
+  // function, so a non-empty history is the evidence that a prior edit ran and
+  // its capture is genuine; an empty one means this is the first edit and
+  // anything under the key came in from outside.
+  const priorOriginal =
+    history.length > 0 ? existing.metadata[ORIGINAL_CONTENT_METADATA_KEY] : undefined;
   const captured: AskOriginalContent =
     typeof priorOriginal === "object" && priorOriginal !== null && !Array.isArray(priorOriginal)
       ? { ...(priorOriginal as AskOriginalContent) }
@@ -255,6 +305,14 @@ export async function editAskContent(
     captured[field] = existing[field] as never;
   }
 
+  // Written only when something was actually captured (PR #3162 R1). `metadata`
+  // is itself an editable field, so a metadata-ONLY edit reaches here having
+  // preserved nothing — and writing the key anyway would stamp a contentless
+  // `{ capturedAt }` onto an Ask whose content was never touched, making it
+  // indistinguishable from one that HAS a preserved original. An edit that does
+  // capture nothing carries a prior capture forward unchanged via the spread.
+  const capturedAnything = PRESERVED_CONTENT_FIELDS.some((f) => captured[f] !== undefined);
+
   const mergedMetadata: Record<string, unknown> = {
     ...sanitizeMetadata(existing.metadata),
     ...sanitizeMetadata(params.metadata ?? {}),
@@ -262,7 +320,7 @@ export async function editAskContent(
     // Set AFTER the caller spread, exactly like the history above — a
     // caller-supplied "original" is ignored, because a mutable original is not
     // one.
-    [ORIGINAL_CONTENT_METADATA_KEY]: captured,
+    ...(capturedAnything ? { [ORIGINAL_CONTENT_METADATA_KEY]: captured } : {}),
   };
 
   const write: EditAskFields = { metadata: mergedMetadata };
