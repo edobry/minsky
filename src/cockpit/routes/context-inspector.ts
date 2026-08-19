@@ -16,7 +16,12 @@ import {
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import { ServerTimingRecorder } from "../server-timing";
-import { ifNoneMatchSatisfies, SnapshotCache, snapshotEtag } from "../snapshot-cache";
+import {
+  ifNoneMatchSatisfies,
+  SnapshotCache,
+  snapshotEtag,
+  StructureCache,
+} from "../snapshot-cache";
 import { sendJsonMaybeCompressed } from "../compressed-json";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -26,6 +31,19 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
  * the mechanism; a per-request cache would be a no-op.
  */
 const snapshotCache = new SnapshotCache();
+
+/**
+ * Derived conversation structure, keyed by conversation id ALONE (mt#4263).
+ *
+ * Deliberately not window-keyed, unlike `snapshotCache` above: the abandoned-id
+ * set and the tool-name map describe the whole conversation and are identical
+ * for every window over it. Keying them by window would defeat the entire point,
+ * which is that scroll-back — a sequence of DIFFERENT windows over one
+ * conversation — stops re-deriving them. Validity still comes from the same
+ * version token, so a conversation that gains a turn invalidates both caches
+ * together.
+ */
+const structureCache = new StructureCache();
 
 /** Upper bound on `?turns=`; mirrors the assembler's own clamp. */
 const MAX_WINDOW_TURNS = 500;
@@ -347,9 +365,26 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         }
       }
 
-      const { assembleSessionContextSnapshot } = await import(
+      const { assembleSessionContextSnapshot, computeSnapshotStructure } = await import(
         "@minsky/domain/transcripts/session-context-snapshot"
       );
+
+      // Only the windowed path needs derived structure — the unwindowed response
+      // carries every block, so its renderer derives both itself and this stays
+      // exactly the code path mt#4258 shipped.
+      //
+      // Started WITHOUT awaiting on a miss: the assembler folds it into its own
+      // `Promise.all`, so the structure query and the window query run
+      // concurrently rather than as two round trips against a remote database.
+      const cachedStructure =
+        snapshotWindow !== null && version !== null
+          ? structureCache.get(sessionId, version)
+          : undefined;
+      if (cachedStructure !== undefined) timing.record("structure", 0, "hit");
+      const structure =
+        snapshotWindow === null
+          ? undefined
+          : (cachedStructure ?? computeSnapshotStructure(db, sessionId as AgentSessionId));
       // mt#3131 (D3): bound the assembly call itself — a DB pool under
       // contention must not hang this response forever.
       const snapshot = await timing.time("assemble", () =>
@@ -357,11 +392,19 @@ export function mountContextInspectorRoutes(app: express.Express): void {
           assembleSessionContextSnapshot(
             db,
             sessionId as AgentSessionId,
-            snapshotWindow ?? undefined
+            snapshotWindow ?? undefined,
+            structure
           ),
           SNAPSHOT_ASSEMBLY_TIMEOUT_MS
         )
       );
+
+      // Stored only on a miss, and only once the assembly it fed succeeded —
+      // caching a structure whose sibling query threw would leave the next
+      // request revalidating against a token no response was ever built under.
+      if (cachedStructure === undefined && structure !== undefined && version !== null) {
+        structureCache.set(sessionId, version, await structure);
+      }
       if (snapshot !== null) {
         // Block count is the size driver this route's latency tracks, and it is
         // not recoverable from the header's durations alone — a 2s assemble over

@@ -220,14 +220,15 @@ export const MAX_SNAPSHOT_WINDOW_LIMIT = 500;
 export async function assembleSessionContextSnapshot(
   db: PostgresJsDatabase,
   agentSessionId: AgentSessionId,
-  window?: SnapshotWindowRequest
+  window?: SnapshotWindowRequest,
+  structure?: SnapshotStructure | Promise<SnapshotStructure>
 ): Promise<SessionContextSnapshot | null> {
   // The windowed path is a SEPARATE query rather than a parameterization of the
   // one below, deliberately. The unwindowed response must stay byte-for-byte
   // what it was (mt#4263 SC1), and the surest way to guarantee that is to leave
   // its code path untouched.
   if (window !== undefined) {
-    return assembleWindowedSessionContextSnapshot(db, agentSessionId, window);
+    return assembleWindowedSessionContextSnapshot(db, agentSessionId, window, structure);
   }
 
   // 1. Issue every read as ONE wave. All four key on `agentSessionId` alone and
@@ -315,12 +316,6 @@ export async function assembleSessionContextSnapshot(
   };
 }
 
-/** One renderable turn line from the window, with its ORIGINAL array index. */
-interface WindowedLineRow {
-  i: number;
-  l: unknown;
-}
-
 /**
  * Structure-only projection of one renderable turn line — no message content.
  *
@@ -362,16 +357,154 @@ interface ToolNameRow {
 // A TYPE alias, not an interface: `db.execute<T>` constrains T to
 // `Record<string, unknown>`, which an interface does not satisfy implicitly
 // (interfaces have no implicit index signature; type aliases do).
-type WindowedQueryRow = {
-  harness: string | null;
-  total_turns: number | string | null;
-  oldest_turn_index: number | string | null;
-  has_more: boolean | null;
-  lines: WindowedLineRow[] | null;
-  attachments: WindowedAttachmentRow[] | null;
+/**
+ * A conversation's derived STRUCTURE — everything the renderer needs that a tail
+ * window cannot supply, and nothing that depends on which window was asked for
+ * (mt#4263).
+ *
+ * Both members are pure functions of the conversation's stored rows, so they are
+ * valid for exactly as long as the route's version token is, and identical
+ * across every window over the same conversation. That is what makes them worth
+ * caching separately: the first page of a conversation pays to derive them, and
+ * every scroll-back page after it pays nothing.
+ */
+export interface SnapshotStructure {
+  /**
+   * Block ids superseded by a rewind, computed over the FULL transcript. An
+   * ARRAY rather than a Set so the value survives a cache that may one day
+   * serialize.
+   */
+  abandonedBlockIds: string[];
+  /** Every `tool_use` id in the conversation mapped to its tool name. */
+  toolNamesByUseId: Record<string, string>;
+}
+
+type StructureQueryRow = {
   structure: StructureRow[] | null;
   attachment_structure: AttachmentStructureRow[] | null;
   tools: ToolNameRow[] | null;
+};
+
+/**
+ * Derive a conversation's structure: which blocks a rewind superseded, and what
+ * every tool_use id is called.
+ *
+ * Separate from the window query on purpose. These two passes are the only part
+ * of a windowed assembly that reads the WHOLE transcript, so keeping them in the
+ * window statement made every scroll-back page pay to re-derive facts that had
+ * not changed — measured at `assemble;dur=756ms` on a 2,236-turn conversation
+ * even after the window itself cut the payload 51x. Split out, the caller can
+ * hold them against the same version token the response is already validated by.
+ */
+export async function computeSnapshotStructure(
+  db: PostgresJsDatabase,
+  agentSessionId: AgentSessionId
+): Promise<SnapshotStructure> {
+  const rows = await db.execute<StructureQueryRow>(sql`
+    with t as (
+      select transcript
+      from agent_transcripts
+      where agent_session_id = ${agentSessionId}
+      limit 1
+    ),
+    lines as (
+      select (e.ord - 1)::int as turn_index, e.line
+      from t, lateral jsonb_array_elements(t.transcript) with ordinality as e(line, ord)
+    ),
+    renderable as (
+      select
+        turn_index,
+        line->>'uuid' as uuid,
+        line->>'parentUuid' as parent_uuid,
+        line->>'timestamp' as ts,
+        line->>'type' as raw_type,
+        -- Projected here so the two legs below never touch the full line again.
+        -- This is the whole reason the split pays: what leaves this CTE is a
+        -- handful of scalars per turn plus the content array, not the turn.
+        line->'message'->'content' as parts
+      from lines
+      where line->>'type' in ('user', 'assistant')
+        and line->>'timestamp' is not null
+    )
+    select
+      coalesce(
+        (
+          select jsonb_agg(
+            jsonb_build_object(
+              'i', turn_index,
+              'u', uuid,
+              'p', parent_uuid,
+              't', ts,
+              'ty', raw_type,
+              -- Containment, not a per-row lateral + EXISTS. The lateral form
+              -- cost ~1.2s of assembly on the 2,236-turn conversation — one
+              -- correlated subquery per turn — and made the windowed request no
+              -- faster than the unwindowed one it replaces.
+              'tr', coalesce(parts @> '[{"type": "tool_result"}]'::jsonb, false)
+            ) order by turn_index
+          )
+          from renderable
+        ),
+        '[]'::jsonb
+      ) as structure,
+      coalesce(
+        (
+          select jsonb_agg(
+            jsonb_build_object(
+              'i', a.line_index,
+              'p', a.parent_uuid,
+              't', a.timestamp,
+              'ty', a.raw_jsonl_type
+            ) order by a.line_index
+          )
+          from agent_transcript_attachments a
+          where a.agent_session_id = ${agentSessionId}
+        ),
+        '[]'::jsonb
+      ) as attachment_structure,
+      coalesce(
+        (
+          select jsonb_agg(distinct jsonb_build_object('id', part->>'id', 'name', part->>'name'))
+          -- Prune to the lines that actually carry a tool_use BEFORE the
+          -- lateral, so the expansion runs over the assistant turns that have
+          -- one rather than over every turn in the conversation.
+          from (
+            select parts
+            from renderable
+            where jsonb_typeof(parts) = 'array'
+              and parts @> '[{"type": "tool_use"}]'::jsonb
+          ) tu,
+            lateral jsonb_array_elements(tu.parts) as part
+          where part->>'type' = 'tool_use' and part->>'id' is not null
+        ),
+        '[]'::jsonb
+      ) as tools
+  `);
+
+  const row = rows[0];
+  if (row === undefined) return { abandonedBlockIds: [], toolNamesByUseId: {} };
+
+  const abandoned = computeAbandonedBlockIds(
+    structureBlocks(agentSessionId, row.structure ?? [], row.attachment_structure ?? [])
+  );
+
+  const toolNamesByUseId: Record<string, string> = {};
+  for (const tool of row.tools ?? []) {
+    if (typeof tool.id === "string" && typeof tool.name === "string") {
+      toolNamesByUseId[tool.id] = tool.name;
+    }
+  }
+
+  return { abandonedBlockIds: [...abandoned], toolNamesByUseId };
+}
+
+type WindowedQueryRow = {
+  harness: string | null;
+  total_turns: number | string | null;
+  /** ORIGINAL array index of `lines[0]`; every entry's index is this plus its position. */
+  slice_start: number | string | null;
+  lines: unknown[] | null;
+  attachments: WindowedAttachmentRow[] | null;
 };
 
 function toInt(value: number | string | null | undefined): number | null {
@@ -414,67 +547,84 @@ function toInt(value: number | string | null | undefined): number | null {
 async function assembleWindowedSessionContextSnapshot(
   db: PostgresJsDatabase,
   agentSessionId: AgentSessionId,
-  request: SnapshotWindowRequest
+  request: SnapshotWindowRequest,
+  structure?: SnapshotStructure | Promise<SnapshotStructure>
 ): Promise<SessionContextSnapshot | null> {
+  // Accepted as a value OR a promise so a caller holding a cached structure
+  // passes it directly, and one that does not can hand over an in-flight query
+  // that resolves inside the same wave as the window itself. Awaiting it here
+  // rather than before the call is what keeps the two concurrent.
+  const resolvedStructure = structure ?? computeSnapshotStructure(db, agentSessionId);
   const limit = Math.max(1, Math.min(MAX_SNAPSHOT_WINDOW_LIMIT, Math.trunc(request.limit)));
   const before =
     request.before === undefined || !Number.isFinite(request.before)
       ? null
       : Math.trunc(request.before);
 
-  // `renderable` mirrors `turnLineToBlock`'s own guard exactly (user/assistant
-  // with a timestamp). Windowing over raw array entries instead would return
-  // fewer blocks than the caller asked for whenever the transcript carries
-  // summary or meta lines, and make `hasMore` disagree with what renders.
-  const [rowsWindow, spawnChildrenByToolUseId, spawnParent] = await Promise.all([
+  // ## Why the slice is taken by ARRAY INDEX rather than by filtering rows
+  //
+  // The obvious form — expand with `jsonb_array_elements ... WITH ORDINALITY`,
+  // filter to renderable lines, `order by ... desc limit N` — is what shipped
+  // first, and it does not deliver the win. It makes Postgres expand and
+  // materialize all 2,236 entries INCLUDING their full message content just to
+  // choose 50 of them, so the window saves the wire and not the scan: measured
+  // `assemble;dur=612–700ms` on this conversation even with every whole-transcript
+  // pass already cached.
+  //
+  // `jsonb_array_length` is O(1) on jsonb, and a jsonpath index range reads only
+  // the elements it names, because jsonb stores an array as a binary structure
+  // with an offset table rather than as text to be parsed. So the bounds are
+  // computed as integers and the slice is addressed directly.
+  //
+  // The cost of doing it this way: the slice is over RAW array positions, so a
+  // non-renderable entry inside it (a summary or meta line `turnLineToBlock`
+  // rejects) yields a page slightly shorter than `limit` rather than reaching
+  // further back to backfill. That is a real difference and an acceptable one —
+  // the caller asked for AT MOST `limit`, `oldestTurnIndex` still says exactly
+  // where the page ends, and paging is unaffected. It is also rare in practice:
+  // `agent_transcripts.transcript` holds only user/assistant lines (attachments
+  // live in their own table), which is why the ETag's `jsonb_array_length` and
+  // the renderable count agree at 2,236 on this conversation.
+  const [rowsWindow, snapshotStructure, spawnChildrenByToolUseId, spawnParent] = await Promise.all([
     db.execute<WindowedQueryRow>(sql`
       with t as (
-        select harness, transcript
+        select harness, transcript, jsonb_array_length(transcript) as total
         from agent_transcripts
         where agent_session_id = ${agentSessionId}
         limit 1
       ),
-      lines as (
-        select (e.ord - 1)::int as turn_index, e.line
-        from t, lateral jsonb_array_elements(t.transcript) with ordinality as e(line, ord)
-      ),
-      renderable as (
+      bounds as (
         select
-          turn_index,
-          line,
-          -- Projected ONCE here rather than re-navigated in each leg below.
-          -- This CTE is referenced five times, so Postgres materializes it
-          -- (PG12+ multi-reference default) and every leg reads this column
-          -- instead of walking the message content path again.
-          line->'message'->'content' as parts
-        from lines
-        where line->>'type' in ('user', 'assistant')
-          and line->>'timestamp' is not null
+          harness,
+          transcript,
+          total,
+          -- hi is EXCLUSIVE, mirroring the before cursor's own meaning.
+          least(coalesce(${before}::int, total), total) as hi,
+          greatest(least(coalesce(${before}::int, total), total) - ${limit}, 0) as lo
+        from t
       ),
-      win as (
-        select turn_index, line
-        from renderable
-        where ${before === null ? sql`true` : sql`turn_index < ${before}`}
-        order by turn_index desc
-        limit ${limit}
+      sliced as (
+        select
+          harness,
+          total,
+          lo,
+          case
+            when hi > lo then coalesce(
+              jsonb_path_query_array(
+                transcript,
+                ('$[' || lo || ' to ' || (hi - 1) || ']')::jsonpath
+              ),
+              '[]'::jsonb
+            )
+            else '[]'::jsonb
+          end as raw
+        from bounds
       )
       select
-        (select harness from t) as harness,
-        (select count(*)::int from renderable) as total_turns,
-        (select min(turn_index) from win) as oldest_turn_index,
-        (
-          select exists (
-            select 1 from renderable
-            where turn_index < coalesce((select min(turn_index) from win), 0)
-          )
-        ) as has_more,
-        coalesce(
-          (
-            select jsonb_agg(jsonb_build_object('i', turn_index, 'l', line) order by turn_index)
-            from win
-          ),
-          '[]'::jsonb
-        ) as lines,
+        s.harness as harness,
+        s.total as total_turns,
+        s.lo as slice_start,
+        s.raw as lines,
         coalesce(
           (
             select jsonb_agg(
@@ -489,71 +639,43 @@ async function assembleWindowedSessionContextSnapshot(
             )
             from agent_transcript_attachments a
             where a.agent_session_id = ${agentSessionId}
+              -- Bounded by the window's TIMESTAMP RANGE, not by an index:
+              -- attachment line_index and turn index are different index
+              -- spaces, and the two streams are merged by timestamp below.
               and a.timestamp >= coalesce(
                 (
-                  select min((line->>'timestamp')::timestamptz)
-                  from win
-                  where line->>'timestamp' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                  select min((e->>'timestamp')::timestamptz)
+                  from jsonb_array_elements(s.raw) e
+                  where e->>'timestamp' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
                 ),
                 '-infinity'::timestamptz
               )
+              -- The UPPER bound exists only on a scroll-back page, and it is
+              -- not an optimization. Without it the bound is open-ended, so
+              -- every page back re-sends every attachment newer than its own
+              -- oldest turn — measured 30, then 54, then 76 attachments over
+              -- three consecutive pages of one conversation, each page
+              -- re-delivering what the client already had. On the NEWEST page
+              -- the bound stays open on purpose: a live conversation can land
+              -- an attachment after its last turn, and that one belongs here.
+              and ${
+                before === null
+                  ? sql`true`
+                  : sql`a.timestamp <= coalesce(
+                      (
+                        select max((e->>'timestamp')::timestamptz)
+                        from jsonb_array_elements(s.raw) e
+                        where e->>'timestamp' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                      ),
+                      'infinity'::timestamptz
+                    )`
+              }
           ),
           '[]'::jsonb
-        ) as attachments,
-        coalesce(
-          (
-            select jsonb_agg(
-              jsonb_build_object(
-                'i', turn_index,
-                'u', line->>'uuid',
-                'p', line->>'parentUuid',
-                't', line->>'timestamp',
-                'ty', line->>'type',
-                -- Containment, not a per-row lateral + EXISTS. Measured on the
-                -- 2,236-turn conversation: the lateral form cost ~1.2s of
-                -- assembly (one correlated subquery per turn) and made the
-                -- windowed request no faster than the unwindowed one it
-                -- replaces. Containment answers it in a single operator.
-                'tr', coalesce(parts @> '[{"type": "tool_result"}]'::jsonb, false)
-              ) order by turn_index
-            )
-            from renderable
-          ),
-          '[]'::jsonb
-        ) as structure,
-        coalesce(
-          (
-            select jsonb_agg(
-              jsonb_build_object(
-                'i', a.line_index,
-                'p', a.parent_uuid,
-                't', a.timestamp,
-                'ty', a.raw_jsonl_type
-              ) order by a.line_index
-            )
-            from agent_transcript_attachments a
-            where a.agent_session_id = ${agentSessionId}
-          ),
-          '[]'::jsonb
-        ) as attachment_structure,
-        coalesce(
-          (
-            select jsonb_agg(distinct jsonb_build_object('id', part->>'id', 'name', part->>'name'))
-            -- Prune to the lines that actually carry a tool_use BEFORE the
-            -- lateral, so the expansion runs over the assistant turns that have
-            -- one rather than over every turn in the conversation.
-            from (
-              select parts
-              from renderable
-              where jsonb_typeof(parts) = 'array'
-                and parts @> '[{"type": "tool_use"}]'::jsonb
-            ) tu,
-              lateral jsonb_array_elements(tu.parts) as part
-            where part->>'type' = 'tool_use' and part->>'id' is not null
-          ),
-          '[]'::jsonb
-        ) as tools
+        ) as attachments
+      from sliced s
     `),
+    resolvedStructure,
     resolveSpawnChildren(db, agentSessionId),
     resolveSpawnParent(db, agentSessionId),
   ]);
@@ -565,11 +687,22 @@ async function assembleWindowedSessionContextSnapshot(
   if (row === undefined || row.harness === null) return null;
 
   const blocks: SessionContextSnapshotBlock[] = [];
+  const sliceStart = toInt(row.slice_start) ?? 0;
+  let returnedTurns = 0;
+  let oldestTurnIndex: number | null = null;
 
-  for (const entry of row.lines ?? []) {
-    const block = turnLineToBlock(agentSessionId, entry.i, entry.l);
-    if (block !== null) blocks.push(block);
-  }
+  (row.lines ?? []).forEach((line, position) => {
+    // The ORIGINAL transcript-array index — not the position in this page.
+    // Block ids embed it and `SemanticEvent.turnIndex` is index-identical with
+    // it, so re-basing here would silently renumber every id and break deep
+    // links into a turn.
+    const turnIndex = sliceStart + position;
+    const block = turnLineToBlock(agentSessionId, turnIndex, line);
+    if (block === null) return;
+    blocks.push(block);
+    returnedTurns += 1;
+    if (oldestTurnIndex === null) oldestTurnIndex = turnIndex;
+  });
 
   for (const attachment of row.attachments ?? []) {
     const ts = typeof attachment.timestamp === "string" ? attachment.timestamp : "";
@@ -587,23 +720,19 @@ async function assembleWindowedSessionContextSnapshot(
 
   blocks.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-  const abandoned = computeAbandonedBlockIds(
-    structureBlocks(agentSessionId, row.structure ?? [], row.attachment_structure ?? [])
-  );
-  const markedBlocks = applyAbandonedBlockIds(blocks, abandoned);
-
-  const toolNamesByUseId: Record<string, string> = {};
-  for (const tool of row.tools ?? []) {
-    if (typeof tool.id === "string" && typeof tool.name === "string") {
-      toolNamesByUseId[tool.id] = tool.name;
-    }
-  }
+  const markedBlocks = applyAbandonedBlockIds(blocks, new Set(snapshotStructure.abandonedBlockIds));
 
   const window: SessionContextSnapshotWindow = {
+    // The RAW array length, which is also what the route's version token counts
+    // — so the two never disagree about how long the conversation is.
     totalTurns: toInt(row.total_turns) ?? 0,
-    returnedTurns: (row.lines ?? []).length,
-    oldestTurnIndex: toInt(row.oldest_turn_index),
-    hasMore: row.has_more === true,
+    returnedTurns,
+    oldestTurnIndex,
+    // Derived from the slice bound rather than a second query: anything before
+    // the oldest index this page reached is, by construction, unfetched. Falls
+    // back to `sliceStart` when the page came back empty, so an empty page in
+    // the middle of a transcript still reports that history remains.
+    hasMore: (oldestTurnIndex ?? sliceStart) > 0,
   };
 
   return {
@@ -613,7 +742,7 @@ async function assembleWindowedSessionContextSnapshot(
     ...(spawnChildrenByToolUseId ? { spawnChildrenByToolUseId } : {}),
     ...(spawnParent ? { spawnParent } : {}),
     window,
-    toolNamesByUseId,
+    toolNamesByUseId: snapshotStructure.toolNamesByUseId,
     assembledAt: new Date().toISOString(),
   };
 }
