@@ -2200,6 +2200,11 @@ export async function main(): Promise<void> {
   let relay: RelayDetectionResult;
   let commentResult: CodeMechanismDetectionResult;
   let artifactResult: CodeMechanismDetectionResult;
+  // mt#4155 — same fields as `run()`. This path writes into the SAME calibration
+  // log, so omitting them here would leave records whose rung is unknowable and
+  // silently bias any measurement taken over the window (PR #3128 R2).
+  let identityRung: "1-lexical" | "2-embedding" = "1-lexical";
+  let identityDegradedReason: string | undefined;
   // mt#3649: the text the CHAT surface judged, hoisted so the calibration record
   // can capture it — without it a record carries claims but nothing to re-run a
   // changed detector against. ELIDED, never raw (PR #2926 R1): per
@@ -2230,6 +2235,49 @@ export async function main(): Promise<void> {
       corpus,
       buildWriteEchoCorpus(turnLines)
     );
+
+    // mt#4155 — Rung 2, identical composition to run()'s path. Both entry points
+    // must apply the same rungs: they write the same calibration log, and a
+    // window mixing augmented and un-augmented records would report a recall
+    // difference that is an artifact of which entry point ran (PR #3128 R2).
+    const nominator = isRung2NominationEnabled() ? createIdentityClaimNominator() : undefined;
+    if (nominator !== undefined) {
+      const writeEcho = buildWriteEchoCorpus(turnLines);
+      const chat = await augmentWithIdentityNomination(
+        result,
+        assistantText,
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const comment = await augmentWithIdentityNomination(
+        commentResult,
+        buildAddedCommentCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      const artifact = await augmentWithIdentityNomination(
+        artifactResult,
+        buildArtifactProseCorpus(turnLines),
+        corpus,
+        writeEcho,
+        nominator
+      );
+      result = chat;
+      commentResult = comment;
+      artifactResult = artifact;
+      identityRung =
+        chat.detectionRung === "2-embedding" ||
+        comment.detectionRung === "2-embedding" ||
+        artifact.detectionRung === "2-embedding"
+          ? "2-embedding"
+          : "1-lexical";
+      identityDegradedReason =
+        chat.nominationDegradedReason ??
+        comment.nominationDegradedReason ??
+        artifact.nominationDegradedReason;
+    }
   } catch (err) {
     console.error(
       `[code-mechanism-assertion-detector] detection error: ${err instanceof Error ? err.message : String(err)}`
@@ -2262,6 +2310,10 @@ export async function main(): Promise<void> {
     appendCalibrationRecord(input.cwd, {
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
+      // mt#4155 — same two fields run() writes. A record without them cannot be
+      // attributed to a rung, and this path shares the log (PR #3128 R2).
+      identityDetectionRung: identityRung,
+      identityNominationDegradedReason: identityDegradedReason,
       claims: result.claims,
       hadSameTurnRead: result.hadSameTurnRead,
       backedClaimCount: result.backedClaimCount,
