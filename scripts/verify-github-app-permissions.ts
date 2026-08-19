@@ -22,8 +22,16 @@
  * is used to sign a short-lived JWT and is never written to stdout, stderr, a
  * file, or a subprocess argument.
  *
- * Exit codes: 0 = checked and no drift; 1 = checked and drift found;
- * 2 = could not check (never conflated with a clean pass).
+ * Exit codes: **0 only ever means "checked, and no drift"**; 1 = checked, drift
+ * found; 2 = could not check — including the not-configured and no-private-key
+ * cases, which are unchecked rather than healthy.
+ *
+ * That last part is the whole point and it is deliberately NOT the usual
+ * skip-gracefully-with-0 convention (PR #3174 R1). This script exists because a
+ * question went unasked for three weeks; a wrapper that reads exit 0 as
+ * "permissions match" when nothing was read would recreate exactly that, and a
+ * probe that returns the healthy answer whether or not it ran is not a probe.
+ * Anything gating on this should treat 2 as "go find out why", not as a pass.
  */
 import "reflect-metadata";
 import { createSign } from "node:crypto";
@@ -43,8 +51,11 @@ async function main(): Promise<number> {
 
   const serviceAccount = getConfigurationProvider().getConfig().github?.serviceAccount;
   if (!serviceAccount) {
-    console.log("SKIP: no github.serviceAccount configured — nothing to check.");
-    return 0;
+    console.error(
+      "COULD NOT CHECK: no github.serviceAccount configured. This is not a pass — " +
+        "no permission was read."
+    );
+    return 2;
   }
 
   const { appId, installationId } = serviceAccount;
@@ -52,7 +63,7 @@ async function main(): Promise<number> {
   try {
     privateKey = resolvePrivateKey(serviceAccount);
   } catch (err) {
-    console.error(`SKIP: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`COULD NOT CHECK: ${err instanceof Error ? err.message : String(err)}`);
     return 2;
   }
 

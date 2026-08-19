@@ -108,24 +108,44 @@ export function redactPushError(err: unknown): unknown {
 }
 
 /**
- * Appends git's own stderr to one of `pushImpl`'s two actionable rewrites
- * (mt#3264).
+ * Prefixes one of `pushImpl`'s two actionable rewrites onto git's own error,
+ * IN PLACE, and returns that same error for rethrowing (mt#3264).
  *
- * Those rewrites used to REPLACE the stderr outright, which threw away the only
- * text that said what actually went wrong. A non-fast-forward and a
- * `cannot lock ref` conflict both surface as `[rejected]` and produced the same
- * "you may need to pull or use --force" sentence — advice that is right for the
- * first and useless for the second, with nothing left to tell them apart. The
- * guidance is a GUESS at the cause; git already reported the cause, so keep both
- * and let the reader see which one applies.
+ * Two separate problems, one fix.
  *
- * Redacted through `redactPushCredentials` because the stderr is being lifted
- * into a NEW error message, which `redactPushError` (applied only on the
- * fall-through path) never sees.
+ * The rewrites used to REPLACE the stderr outright, throwing away the only text
+ * that said what actually went wrong. A non-fast-forward and a `cannot lock ref`
+ * conflict both surface as `[rejected]` and produced the same "you may need to
+ * pull or use --force" sentence — right for the first, useless for the second,
+ * with nothing left to tell them apart. The guidance is a GUESS at the cause;
+ * git already reported the cause, so keep both.
+ *
+ * They also threw a fresh `new Error(...)`, which silently dropped the original
+ * error's prototype (a `GitExecError` stops satisfying `instanceof`), its
+ * `name`, and the string extras Node's exec attaches (`stderr`/`stdout`/`cmd`).
+ * `redactPushError` in this same module already rejects re-wrapping for exactly
+ * that reason and says so in its doc block; these two paths contradicted it.
+ * So mutate the message and hand the original error back, preserving everything
+ * a consumer might branch on. Reviewer-caught (PR #3174 R1).
+ *
+ * Redaction runs over the whole error via `redactPushError` — necessary because
+ * the stderr is now being copied into the MESSAGE, which is a channel the
+ * fall-through path's redaction would have covered but these two paths, by
+ * building their own string, previously bypassed.
  */
-function withGitReason(guidance: string, stderr: string): string {
+function withGitReason(err: unknown, guidance: string, stderr: string): unknown {
   const reason = redactPushCredentials(stderr).trim();
-  return reason ? `${guidance}\n\nGit reported:\n${reason}` : guidance;
+  const message = reason ? `${guidance}\n\nGit reported:\n${reason}` : guidance;
+
+  if (err instanceof Error) {
+    err.message = message;
+    return redactPushError(err);
+  }
+
+  // Non-Error throw (a string, or something exotic from a custom execAsync):
+  // there is no prototype or field set worth preserving, so the guidance-bearing
+  // Error is strictly better than what was thrown.
+  return new Error(message);
 }
 
 /**
@@ -253,19 +273,17 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     // guess at the cause, and git already said what the cause was.
     const gitError = validateGitError(err);
     if (gitError.stderr && gitError.stderr.includes("[rejected]")) {
-      throw new Error(
-        withGitReason(
-          "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history.",
-          gitError.stderr
-        )
+      throw withGitReason(
+        err,
+        "Push was rejected by the remote. You may need to pull or use --force if you intend to overwrite remote history.",
+        gitError.stderr
       );
     }
     if (gitError.stderr && gitError.stderr.includes("no upstream")) {
-      throw new Error(
-        withGitReason(
-          "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first.",
-          gitError.stderr
-        )
+      throw withGitReason(
+        err,
+        "No upstream branch is set for this branch. Set the upstream with 'git push --set-upstream' or push manually first.",
+        gitError.stderr
       );
     }
     // mt#3219: the raw error's message is `Command failed: <full command>`,
