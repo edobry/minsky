@@ -42,6 +42,115 @@ export interface AskEditNote {
 export const EDIT_HISTORY_METADATA_KEY = "editHistory";
 
 /**
+ * The content an Ask carried when it was FIRST edited — the text that was
+ * actually put in front of the principal (mt#4329).
+ *
+ * `AskEditNote` above records WHICH fields an edit touched. It does not record
+ * WHAT they said, so an edited Ask's escalated text was unrecoverable from the
+ * substrate: the record knew it had been edited and could not say to what. That
+ * cost real work three times, each in a task building detector fixtures from the
+ * ask corpus — `form-lint.test.ts`'s ask#6589 and `6807fb14` fixtures are
+ * RECONSTRUCTIONS for exactly this reason, and mt#4315 only avoided a fourth
+ * because the authoring harness transcript happened to still be on disk.
+ *
+ * ## Why the ORIGINAL only, and only once
+ *
+ * This is a size decision, not a taste one. `toAskSummary`
+ * (`src/adapters/shared/commands/asks.ts`) deliberately omits `metadata` —
+ * `editHistory` included — as part of the multi-KB "body" that made `asks.list`
+ * unsafe to page at store size (mt#2748). A full revision log would grow that
+ * body linearly in edit count and walk back toward that incident.
+ *
+ * Capturing the ORIGINAL only bounds the growth at **one extra copy of each
+ * content field, ever**, no matter how many times the Ask is edited. It is also
+ * exactly what the use case needs: the corpus is a MEASUREMENT corpus, and what
+ * a measurement wants is the text that was escalated — not the intermediate
+ * drafts of a correction.
+ *
+ * ## Per-field, not per-record
+ *
+ * Each field is captured the first time THAT field is edited, rather than all
+ * fields on the first edit. An edit touching only `title` must not foreclose
+ * capturing the original `question` when a later edit rewrites it — which is the
+ * real shape of ask#9278, whose two edits touched title, question and
+ * contextRefs together but need not have.
+ *
+ * `metadata` is deliberately NOT captured: it is shallow-MERGED rather than
+ * replaced, so no metadata value is ever lost by an edit, and capturing it would
+ * nest a copy of this record inside itself.
+ */
+export interface AskOriginalContent {
+  /**
+   * ISO-8601 timestamp of the first edit that captured ANY field here.
+   *
+   * Not per-field: a later field's capture does not move it. Read it as "this
+   * Ask was first edited at", which is what a corpus sweep scoping to
+   * originals actually asks.
+   */
+  capturedAt: string;
+  /** The title as first escalated, if a later edit replaced it. */
+  title?: string;
+  /** The question body as first escalated, if a later edit replaced it. */
+  question?: string;
+  /** The options as first escalated, if a later edit replaced them. */
+  options?: AskOption[];
+  /** The context refs as first escalated, if a later edit replaced them. */
+  contextRefs?: ContextRef[];
+}
+
+/**
+ * Reserved metadata key carrying {@link AskOriginalContent}.
+ *
+ * Reserved in the same sense as {@link EDIT_HISTORY_METADATA_KEY}: a
+ * caller-supplied value is ignored, because a mutable "original" is not an
+ * original.
+ */
+export const ORIGINAL_CONTENT_METADATA_KEY = "originalContent";
+
+/** The content fields whose pre-edit value is preserved. `metadata` is merged, so it is not one. */
+const PRESERVED_CONTENT_FIELDS = ["title", "question", "options", "contextRefs"] as const;
+
+/**
+ * Metadata keys that are the SUBSTRATE's record, never a caller's input
+ * (PR #3162 R1).
+ *
+ * Both are written exclusively by {@link editAskContent}. Accepting either from
+ * a caller at create time would let a producer manufacture provenance it never
+ * earned — a fabricated edit trail, or a planted "original" that pre-empts the
+ * real capture on the first edit and destroys the text this whole mechanism
+ * exists to keep.
+ *
+ * This is the same rule `principalPagedAt` already follows in `repository.ts`,
+ * for the same reason stated there: *"Accepting it from a caller would let a
+ * producer claim a page it never sent, which is exactly what the marker exists
+ * to prevent (mt#3595)."* A reserved field defended only at the edit boundary is
+ * not reserved — the create boundary is the other half.
+ */
+export const RESERVED_PROVENANCE_METADATA_KEYS = [
+  EDIT_HISTORY_METADATA_KEY,
+  ORIGINAL_CONTENT_METADATA_KEY,
+] as const;
+
+/**
+ * Return `metadata` without any {@link RESERVED_PROVENANCE_METADATA_KEYS} entry.
+ *
+ * Applied at CREATE by both repository backends. Deliberately separate from
+ * {@link sanitizeMetadata}, which strips prototype-pollution vectors and runs on
+ * both sides of the EDIT merge: these keys must survive that merge (they carry
+ * the accumulated provenance) and must not survive a create.
+ */
+export function stripReservedProvenanceKeys(
+  metadata: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if ((RESERVED_PROVENANCE_METADATA_KEYS as readonly string[]).includes(key)) continue;
+    out[key] = value;
+  }
+  return out;
+}
+
+/**
  * Keys that must never enter the metadata merge — prototype-pollution
  * hardening (PR #1831 review). `metadata` arrives from the MCP surface as
  * untrusted input; merging a literal `__proto__` / `constructor` /
@@ -166,10 +275,60 @@ export async function editAskContent(
   // enter the merge, whatever their origin.
   const existingHistory = existing.metadata[EDIT_HISTORY_METADATA_KEY];
   const history = Array.isArray(existingHistory) ? existingHistory : [];
+
+  // mt#4329: preserve the pre-edit value of each content field the FIRST time
+  // that field is replaced. Read from `existing`, so this captures what the Ask
+  // actually carried — the text the principal saw — rather than anything the
+  // caller supplies. Already-captured fields are never overwritten: that is what
+  // makes it the ORIGINAL rather than the previous revision, and what bounds the
+  // growth at one copy per field regardless of edit count.
+  //
+  // Only a PRIOR EDIT's capture is trusted (PR #3162 R1). `metadata` is
+  // caller-supplied at CREATE time, so an Ask can be created already carrying an
+  // `originalContent` key — and trusting that would let a caller pre-empt the
+  // real capture and defeat the reservation this key is supposed to have, which
+  // is the opposite of what it is for. `editHistory` is written ONLY by this
+  // function, so a non-empty history is the evidence that a prior edit ran and
+  // its capture is genuine; an empty one means this is the first edit and
+  // anything under the key came in from outside.
+  const priorOriginal =
+    history.length > 0 ? existing.metadata[ORIGINAL_CONTENT_METADATA_KEY] : undefined;
+  const captured: AskOriginalContent =
+    typeof priorOriginal === "object" && priorOriginal !== null && !Array.isArray(priorOriginal)
+      ? { ...(priorOriginal as AskOriginalContent) }
+      : { capturedAt: note.editedAt };
+  for (const field of PRESERVED_CONTENT_FIELDS) {
+    if (params[field] === undefined) continue; // this edit does not replace it
+    if (captured[field] !== undefined) continue; // already captured — keep the first
+    // `as never` narrows the union write; each key's value type matches its
+    // source on `Ask` by construction, and the loop cannot mix them.
+    captured[field] = existing[field] as never;
+  }
+
+  // Written only when something was actually captured (PR #3162 R1). `metadata`
+  // is itself an editable field, so a metadata-ONLY edit reaches here having
+  // preserved nothing — and writing the key anyway would stamp a contentless
+  // `{ capturedAt }` onto an Ask whose content was never touched, making it
+  // indistinguishable from one that HAS a preserved original. An edit that does
+  // capture nothing carries a prior capture forward unchanged via the spread.
+  const capturedAnything = PRESERVED_CONTENT_FIELDS.some((f) => captured[f] !== undefined);
+
   const mergedMetadata: Record<string, unknown> = {
+    // The EXISTING side keeps its reserved keys — that is how accumulated
+    // provenance carries forward.
     ...sanitizeMetadata(existing.metadata),
-    ...sanitizeMetadata(params.metadata ?? {}),
+    // The CALLER side never may (PR #3162 R2). Making the capture write
+    // conditional in R1 opened this: on a metadata-only edit `capturedAnything`
+    // is false, the conditional spread below contributes nothing, and a
+    // caller-supplied `originalContent` would win the merge outright. Stripping
+    // here makes the reservation hold on every path rather than only the ones
+    // that happen to overwrite it afterwards.
+    ...stripReservedProvenanceKeys(sanitizeMetadata(params.metadata ?? {})),
     [EDIT_HISTORY_METADATA_KEY]: [...history, note],
+    // Set AFTER the caller spread, exactly like the history above — a
+    // caller-supplied "original" is ignored, because a mutable original is not
+    // one.
+    ...(capturedAnything ? { [ORIGINAL_CONTENT_METADATA_KEY]: captured } : {}),
   };
 
   const write: EditAskFields = { metadata: mergedMetadata };

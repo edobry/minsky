@@ -5631,7 +5631,7 @@
             },
             {
               "name": "edit",
-              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata, and preserves each content field's PRE-EDIT value once, under metadata.originalContent — so the text an ask was originally escalated with survives a correction (mt#4329). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
                 {
                   "flags": ["--title"],
@@ -5655,7 +5655,7 @@
                 },
                 {
                   "flags": ["--metadata"],
-                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory and originalContent are reserved — provenance and the pre-edit content capture; caller-supplied values for either are ignored)",
                   "takesValue": true
                 },
                 {
