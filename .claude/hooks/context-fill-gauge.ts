@@ -49,15 +49,31 @@ import { logEvaluationRecord } from "./dispatcher";
 // ---------------------------------------------------------------------------
 
 /**
- * Ships FALSE: the gauge records without injecting, so its thresholds can be
- * checked against real fill distributions before any of them reach the agent's
- * context. Same log-only entry the rest of the family uses — see
- * `pre-narration`'s flag (mt#4286) for the current instance of the pattern.
+ * TRUE — this guard ships LIVE, against the family's calibration-first default.
  *
- * Flipping this is a calibration decision, not a code cleanup: read the
- * evaluation stream first and confirm the tiers land where intended.
+ * The default exists to keep an unproven PHRASE MATCHER from injecting noise
+ * while its false-positive rate is unknown. That reasoning does not transfer
+ * here, on either half:
+ *
+ *   - There is no paraphrase axis. The signal is `input + cache_creation +
+ *     cache_read` compared against a table lookup. It cannot "match the wrong
+ *     thing"; the only way it misfires is a threshold placed badly, which
+ *     changes WHEN a true number appears, not WHETHER a false one does.
+ *   - Log-only would defeat the requirement. The principal asked for the agent
+ *     to be AWARE of its own fill (ask#8878). A gauge that records to a file
+ *     the agent never reads leaves it exactly as blind as before — the feature
+ *     would be present, tested, and inert, which is the shape
+ *     `work-completion.mdc §Invocation path` exists to catch.
+ *
+ * Blast radius is small and bounded by the tiers rather than by a flag: only
+ * ~18% of observed sessions ever cross the WARN ratio, below it the guard emits
+ * nothing at all, and the emission is one line.
+ *
+ * Display-only still holds, and is a different axis from this flag: the guard
+ * REPORTS and acts on nothing. `context-fill-gauge.test.ts` pins that with an
+ * assertion on the ABSENCE of an imperative.
  */
-export const INJECTION_ENABLED = false;
+export const INJECTION_ENABLED = true;
 
 /** Bespoke opt-out, in addition to the shared `MINSKY_HOOK_OVERRIDE` channel. */
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_CONTEXT_FILL_GAUGE";

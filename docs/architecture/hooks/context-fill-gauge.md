@@ -104,9 +104,20 @@ means a future trigger can be derived rather than invented.
 
 ## Display-only
 
-Ships `INJECTION_ENABLED = false`.
+Ships `INJECTION_ENABLED = true` — **live, against the family's calibration-first default**.
 
-Beyond that flag, the constraint is a principal decision: ask#8878 (closed 2026-08-18) took the
+That default exists to hold back an unproven PHRASE MATCHER while its false-positive rate is
+unknown, and neither half of the reasoning transfers here. There is no paraphrase axis: the signal
+is a sum compared against a table lookup, so a badly-placed threshold changes WHEN a true number
+appears, never WHETHER a false one does. And log-only would have defeated the requirement outright —
+a gauge writing to a file the agent never reads leaves it exactly as blind as before, which is the
+"feature exists, tests pass, produces nothing" shape `work-completion.mdc §Invocation path` names.
+
+Blast radius is bounded by the tiers rather than by a flag: ~18% of observed sessions ever cross
+WARN, below it the guard emits nothing, and the emission is one line.
+
+**Display-only is a DIFFERENT axis from that flag, and it still holds.** The guard reports; it acts
+on nothing. The constraint is a principal decision: ask#8878 (closed 2026-08-18) took the
 gauge and explicitly held the automatic-handoff half. The rendered line states a number and names
 `/handoff` as available; it does not direct the agent to hand off, to stop, or to wind down. The
 `work-completion.mdc` amendment that would authorize autonomous action is analysed in mt#2531
@@ -137,25 +148,32 @@ flush. No `Stop` anchor is needed: the guard reads one usage record, not a bound
 dispatcher (`LifecycleEvent` has no member for it), and fires only once compaction is already
 imminent — far too late to be useful for anything but a post-hoc marker.
 
-## Graduating it
+## Tuning it
 
-Flipping `INJECTION_ENABLED` is a calibration decision, not a cleanup. Read the evaluation stream
-first and confirm the tiers land where intended. The same change must also:
+It already ships live, so there is no graduation step. What remains is threshold tuning, and the
+evaluation stream is the instrument: it records EVERY turn, so the fill distribution and the
+turn-count distribution are both available without waiting for fires.
 
-- add `context-fill-gauge` to BOTH receipts in `guard-feedback-shape.test.ts` (the producing-guard
-  list and the growth-shape map). It is absent from both today because both are keyed on guards that
-  actually produce feedback text.
+The first question to ask of it is whether WARN at 80% is landing anywhere useful. It is tied to no
+observed quality failure — only to a distributional inflection — so if the stream shows it firing on
+sessions that were fine, lower the signal rather than defending the number.
 
-  **Classify it `"fixed"` only after re-measuring.** Measured 2026-08-18: 269 chars on a known
-  model, 355 on the unknown-model path — which appends `assumed (model <id> not in the window
-table)` and therefore grows with the MODEL ID's length. Every other interpolation is a number.
-  So the render is fixed-shaped but not strictly constant, and the declared `attentionCost: 400`
-  is a measured ceiling against a 46-char model id rather than a proved bound. If a longer id is
-  ever plausible, either cap the id in the render or declare a `renderProbe`;
+Done at ship, recorded here so a later reader does not redo them:
 
-- flip the registry canary's `expects` from `"calibration"` to `"warn"`;
-- re-derive `MERGED_CONTEXT_BUDGET_CHARS` in `dispatcher.ts`, which is hand-derived from the
-  existing registrations and does not auto-propagate.
+- **Registered in both `guard-feedback-shape.test.ts` receipts** — the producing-guard list and the
+  growth-shape map, classified `"capped"` rather than `"fixed"`. Measured 2026-08-18: 269 chars on a
+  known model, 355 on the unknown-model path, which appends `assumed (model <id> not in the window
+table)` and therefore grows with the MODEL ID's length. Every other interpolation is a number, so
+  the declared `attentionCost: 400` is a measured ceiling against a realistic id rather than a proved
+  bound. If a longer id ever becomes plausible, cap the id in the render or declare a `renderProbe`;
+
+- **Canary `expects: "warn"`**, not `"calibration"`. That is the stronger assertion: `"calibration"`
+  passes on both sides of the `INJECTION_ENABLED` branch, so it could not catch injection silently
+  stopping — which for this guard means the agent going blind again with every test still green.
+- **`MERGED_CONTEXT_BUDGET_CHARS` deliberately UNCHANGED.** It is hand-derived and does not
+  auto-propagate, so this was checked rather than assumed: the bucket holds the five heaviest ACTUAL
+  injectors, whose current floor is 600, and this guard's measured ceiling is 400. It does not enter
+  the top five, so the constant must not move.
 
 ## Cross-references
 

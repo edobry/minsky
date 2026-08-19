@@ -770,16 +770,19 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
   // worth reading. Its steady-state cost is zero — below threshold it emits no
   // additionalContext at all.
   //
-  // NOT in `guard-feedback-shape.test.ts`'s two receipts, deliberately: both are
-  // keyed on guards that actually PRODUCE feedback text, and this one produces
-  // none while INJECTION_ENABLED is false. Adding it now fails them. The
-  // graduation change adds it to BOTH (classification `"fixed"` — every
-  // interpolation is a number or a short model id, so no axis grows with the
-  // input) and flips the canary's `expects` below from "calibration" to "warn".
+  // Ships LIVE rather than calibration-first (PR #3144 R4). The default exists
+  // to hold back an unproven PHRASE MATCHER; this is a numeric comparison with
+  // no paraphrase axis, and log-only would have made the feature inert — the
+  // agent would stay as blind as before, which is the whole thing it exists to
+  // fix. See the flag's own docblock in `context-fill-gauge.ts`.
+  //
+  // `MERGED_CONTEXT_BUDGET_CHARS` is deliberately UNCHANGED: the bucket holds
+  // the five heaviest ACTUAL injectors, whose current floor is 600, and this
+  // guard's measured ceiling is 400 — it does not enter the top five.
   // -------------------------------------------------------------------------
   {
     name: "context-fill-gauge",
-    effects: [recorderEffect()],
+    effects: [advisoryEffect(), recorderEffect()],
     tuningOwnership: "preference",
     event: "UserPromptSubmit",
     module: () => import("./context-fill-gauge").then((m) => ({ run: m.run })),
@@ -823,10 +826,12 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
         },
         { type: "user", message: { role: "user", content: "second turn" } },
       ],
-      // "calibration", not "warn": INJECTION_ENABLED is false at ship, so the
-      // calibration record is the only observable. Flip this to "warn" in the
-      // same change that graduates the flag.
-      expects: "calibration",
+      // "warn" asserts the reading is actually EMITTED. That is the stronger
+      // assertion and the one that matters: "calibration" would pass on both
+      // sides of the INJECTION_ENABLED branch, so it could not catch injection
+      // silently stopping — which for this guard means the agent going blind
+      // again with every test still green.
+      expects: "warn",
     },
   },
 ];

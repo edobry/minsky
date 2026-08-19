@@ -283,6 +283,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "cli-mcp-substitution",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
+        "context-fill-gauge",
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
@@ -407,6 +408,12 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "cli-mcp-substitution": "capped",
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
+  // mt#4291. Every interpolation is a NUMBER except the model id on the
+  // unknown-model path, which appends `assumed (model <id> not in the window
+  // table)`. No list, no excerpt, no finding enumeration — so the canary's
+  // render is the ceiling for any realistic model id (measured 269 known / 355
+  // fallback against the declared 400), not a sample of an unbounded axis.
+  "context-fill-gauge": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
   "inject-current-time": "fixed",
   "inject-dispatch-watchdog": "capped", // MAX_ENUMERATED_FLAGS (mt#3485)
