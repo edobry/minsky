@@ -20,7 +20,11 @@
 import { z } from "zod";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "../provenance/transcript-service";
-import { detectBlindRendering, resolveMessageText } from "../provenance/transcript-content";
+import {
+  detectBlindRendering,
+  nonTextRatio,
+  resolveMessageText,
+} from "../provenance/transcript-content";
 import type { DetectionSignal } from "./types";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -41,10 +45,31 @@ const ANALYZER_MODEL = "claude-haiku-4-5-20251001";
 /** Provider for analysis. */
 const ANALYZER_PROVIDER = "anthropic";
 
-/** Token cap; keeps the call cheap for routine post-merge runs. */
+/**
+ * Token cap; keeps the call cheap for routine post-merge runs.
+ *
+ * **This value currently has NO EFFECT on this call path (mt#4314).**
+ * `DefaultAICompletionService.generateObject` spreads only `temperature` into the AI SDK
+ * call — `maxTokens` is declared on `AIObjectGenerationRequest`, is forwarded by
+ * `generateText` and `streamText`, and is dropped here. So the real ceiling is the SDK's
+ * provider default, and changing this number changes nothing.
+ *
+ * Left at its original value deliberately rather than tuned: mt#4235 measured 2000 → 8000
+ * → 16000 across three live 20-transcript replays and got 9 → 4 → 6 failures, which is
+ * run-to-run variance around a knob that was never connected, not a dose-response curve.
+ * Raising it would encode a belief the code does not support. Fixing the forwarding is
+ * mt#4314, which has to handle `authorship-judge` passing 500 into a cap that has never
+ * been enforced.
+ */
 const MAX_TOKENS = 2000;
 
-/** Cap transcript messages used in the prompt. */
+/**
+ * Cap on how many messages are rendered into the prompt.
+ *
+ * Unchanged at 60 by mt#4235, deliberately: this constant is the analyzer's COST
+ * ceiling, and the defect it fixed was in WHICH 60 were chosen, not how many. See
+ * `selectAnalysisWindow` for the selection rule and its cost consequence.
+ */
 const TRANSCRIPT_MESSAGE_CAP = 60;
 
 /** Cap per-message body size. */
@@ -87,6 +112,143 @@ export type UnaskedDirectionFinding = z.infer<typeof findingSchema>;
 export type AnalyzerOutput = z.infer<typeof analyzerOutputSchema>;
 
 // ---------------------------------------------------------------------------
+// Message selection (mt#4235)
+// ---------------------------------------------------------------------------
+
+/** A message chosen for analysis, paired with where it sat in the FULL transcript. */
+export interface SelectedMessage {
+  message: TranscriptMessage;
+  /** 0-based position in the full stored transcript. */
+  index: number;
+}
+
+/**
+ * How a run's analyzed window was chosen — recorded alongside every run.
+ *
+ * Without this, a run that read 7 text-bearing messages of setup chatter and a run that
+ * read 60 spanning the whole session produce the same record: `findings: []`. mt#4196
+ * spent 496 runs in the first state and the record could not say so. These fields are what
+ * make a future zero interpretable without re-deriving it (mt#4235 SC4).
+ */
+export interface TranscriptSampling {
+  /** `head-fallback` means nothing in the transcript carried prose; see the selector. */
+  strategy: "text-bearing-even" | "head-fallback";
+  /** Messages in the full stored transcript. */
+  totalMessages: number;
+  /** How many of those carried non-empty text. */
+  textBearingMessages: number;
+  /** How many were actually rendered into the prompt. */
+  analyzedMessages: number;
+  /** Fraction of the ANALYZED window resolving to empty text. The mt#4235 headline. */
+  emptyTextRatio: number;
+  /** Fraction of the analyzed window that fell back to the non-text marker (mt#4196). */
+  nonTextRatio: number;
+  /** Transcript position of the first analyzed message (`null` for an empty window). */
+  firstIndex: number | null;
+  /** Transcript position of the last analyzed message — with `firstIndex`, the span. */
+  lastIndex: number | null;
+}
+
+/** Does this message carry any prose for the model to read? */
+function hasRenderableText(msg: TranscriptMessage): boolean {
+  return resolveMessageText(msg).text.trim() !== "";
+}
+
+/**
+ * Choose which messages the model actually reads.
+ *
+ * ## The decision (mt#4235 SC1)
+ *
+ * **Filter to text-bearing messages, then take an evenly-spaced sample across the whole
+ * filtered sequence, keeping the cap at 60.** Two independent defects made the previous
+ * rule — `messages.slice(0, 60)` — unable to say anything about a session:
+ *
+ * 1. **Emptiness.** A tool-use-only assistant message holds a real block array with no
+ *    `text` block, so extraction SUCCEEDS and returns `""`. Measured over 20 real stored
+ *    transcripts, 75–93% of the head-60 window was empty in EVERY one of them — roughly 7
+ *    of 60 slots carried prose. That is a property of what a coding-agent transcript IS,
+ *    not of the sample.
+ * 2. **Position.** These sessions run 41–2,805 messages, so the first 60 are handoff,
+ *    skill-loading and command metadata. The analyzer model said so unprompted in 4 of the
+ *    first 6 summaries of mt#4196's replay.
+ *
+ * Filtering alone fixes (1) and leaves (2) — the first 60 text-bearing messages of a
+ * 2,800-message session are still its setup phase. Even spacing over the filtered sequence
+ * fixes both, and spans first-to-last inclusive so the end of the session is always seen.
+ *
+ * ## Cost consequence, stated plainly
+ *
+ * The cap exists to keep a routine post-merge call cheap, so the change is priced against
+ * it. The WORST-CASE prompt is unchanged: still at most 60 messages × 400 chars. The
+ * TYPICAL prompt grows toward that ceiling, because slots that used to render as `""` now
+ * carry prose — roughly 7 text-bearing messages becoming 60. That is a real increase in
+ * transcript-body tokens against the previous typical case, and it buys the only thing
+ * that makes the call worth making at all: a window that has something in it.
+ *
+ * Rejected alternatives, each against that same ceiling:
+ * - **Raise the cap.** Multiplies the ceiling and leaves the emptiness ratio untouched —
+ *   a 300-message window would be ~240 empty slots.
+ * - **Segment long sessions, analyze each.** Multiplies CALLS per session, which is the
+ *   one cost the cap was chosen to bound.
+ * - **Text-bearing from the head only.** Fixes emptiness, keeps the preamble problem.
+ *
+ * Order is chronological throughout, and the rendered labels carry TRANSCRIPT positions
+ * rather than window positions, so a gap in the numbering tells the model messages were
+ * skipped — and `evidenceMessages` keeps pointing at real transcript rows.
+ */
+export function selectAnalysisWindow(messages: readonly TranscriptMessage[]): SelectedMessage[] {
+  const textBearing: SelectedMessage[] = [];
+  messages.forEach((message, index) => {
+    if (hasRenderableText(message)) textBearing.push({ message, index });
+  });
+
+  // Degenerate: nothing in this transcript carries prose. Fall back to the head so the run
+  // records what was actually there rather than sending an empty transcript — and so the
+  // recorded `strategy` says which case produced the window.
+  if (textBearing.length === 0) {
+    return messages.slice(0, TRANSCRIPT_MESSAGE_CAP).map((message, index) => ({ message, index }));
+  }
+
+  if (textBearing.length <= TRANSCRIPT_MESSAGE_CAP) return textBearing;
+
+  // Spans [0, length-1] inclusive rather than striding by `length / CAP`, which would
+  // never pick the final message — the end of a session is where its decisions land.
+  // `step > 1` whenever length > CAP, so the rounded picks are strictly increasing and
+  // cannot duplicate.
+  const step = (textBearing.length - 1) / (TRANSCRIPT_MESSAGE_CAP - 1);
+  const sampled: SelectedMessage[] = [];
+  for (let i = 0; i < TRANSCRIPT_MESSAGE_CAP; i++) {
+    const pick = textBearing[Math.round(i * step)];
+    if (pick !== undefined) sampled.push(pick);
+  }
+  return sampled;
+}
+
+/** Describe what a selection actually produced, for the run record. */
+export function describeSampling(
+  messages: readonly TranscriptMessage[],
+  selected: readonly SelectedMessage[]
+): TranscriptSampling {
+  const windowMessages = selected.map((s) => s.message);
+  const textBearingMessages = messages.reduce((n, m) => (hasRenderableText(m) ? n + 1 : n), 0);
+  const emptyCount = windowMessages.reduce(
+    (n, m) => (resolveMessageText(m).text.trim() === "" ? n + 1 : n),
+    0
+  );
+
+  return {
+    strategy: textBearingMessages === 0 ? "head-fallback" : "text-bearing-even",
+    totalMessages: messages.length,
+    textBearingMessages,
+    analyzedMessages: selected.length,
+    emptyTextRatio: selected.length === 0 ? 0 : emptyCount / selected.length,
+    nonTextRatio: nonTextRatio(windowMessages),
+    firstIndex: selected[0]?.index ?? null,
+    lastIndex: selected[selected.length - 1]?.index ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Prompt construction
 // ---------------------------------------------------------------------------
 
@@ -123,6 +285,11 @@ If the session has NO unasked directions, return an empty findings array.`;
  * read `msg.content` directly, which is `undefined` on every stored row — so every message
  * rendered as `[non-text content]` and the model was asked to analyze a transcript of
  * nothing but markers. 496 recorded runs, 0 findings, no error on any of them.
+ *
+ * `index` is the message's 0-based position in the FULL transcript, rendered 1-based.
+ * It used to coincide with the window position because the window was the head; since
+ * mt#4235 the window is sampled, and the label must keep naming the real row so a
+ * finding's `evidenceMessages` stay resolvable against the transcript.
  */
 function summarizeMessage(msg: TranscriptMessage, index: number): string {
   const role = msg.type === "user" ? "Human" : "Agent";
@@ -135,18 +302,37 @@ function summarizeMessage(msg: TranscriptMessage, index: number): string {
   return `[${index + 1}] ${role}: ${truncated}`;
 }
 
-/** Build the user prompt body from a transcript. */
-function buildUserPrompt(messages: TranscriptMessage[], context: AnalyzerContext): string {
-  const sliced = messages.slice(0, TRANSCRIPT_MESSAGE_CAP);
-  const transcriptText = sliced.map((msg, i) => summarizeMessage(msg, i)).join("\n");
+/**
+ * Build the user prompt body from an already-chosen window.
+ *
+ * Split from `buildUserPrompt` so `analyzeTranscript` can render and DESCRIBE the same
+ * selection without running the selector twice — the run record must report the window
+ * that was actually sent, not an equivalent one computed a second time.
+ */
+function buildUserPromptFromSelection(
+  selected: readonly SelectedMessage[],
+  messages: readonly TranscriptMessage[],
+  context: AnalyzerContext
+): string {
+  const transcriptText = selected
+    .map(({ message, index }) => summarizeMessage(message, index))
+    .join("\n");
 
   const taskContext = context.taskId
     ? `Task: ${context.taskId}`
     : "Task: (none — session-level analysis)";
 
+  // States the sampling to the model, because the numbering it sees is no longer
+  // contiguous: without this a gap reads as a missing message rather than a skipped one.
+  const selectionNote =
+    selected.length < messages.length
+      ? `${selected.length} sampled evenly across the whole session, skipping messages with no text`
+      : `all ${selected.length} shown`;
+
   return `${taskContext}
 Session: ${context.sessionId}
-Total messages: ${messages.length} (analyzer sees first ${sliced.length})
+Total messages: ${messages.length} (${selectionNote})
+Message numbers below are positions in the FULL transcript, so gaps mean messages were skipped.
 
 Transcript:
 ${transcriptText}
@@ -156,9 +342,25 @@ Identify any preference-bound decisions the agent made that the spec did not dic
 - summary: brief one-sentence overall judgment of the session`;
 }
 
+/** Build the user prompt body from a transcript, selecting the window first. */
+function buildUserPrompt(messages: TranscriptMessage[], context: AnalyzerContext): string {
+  return buildUserPromptFromSelection(selectAnalysisWindow(messages), messages, context);
+}
+
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
+
+/**
+ * One analyzer run: the model's output plus how the window it read was chosen.
+ *
+ * Widens `AnalyzerOutput` rather than replacing it, so existing readers of `.findings` /
+ * `.summary` are unaffected and `writeFindings` can record the sampling by passing the
+ * same object through (mt#4235 SC4).
+ */
+export interface AnalyzerRunResult extends AnalyzerOutput {
+  sampling: TranscriptSampling;
+}
 
 /** Context fed to the analyzer alongside the transcript. */
 export interface AnalyzerContext {
@@ -230,17 +432,26 @@ export class UnaskedDirectionAnalyzer {
   async analyzeTranscript(
     messages: TranscriptMessage[],
     context: AnalyzerContext
-  ): Promise<AnalyzerOutput> {
+  ): Promise<AnalyzerRunResult> {
     if (messages.length === 0) {
       log.debug("UnaskedDirectionAnalyzer: empty transcript, returning empty findings");
-      return { findings: [], summary: "No transcript messages available." };
+      return {
+        findings: [],
+        summary: "No transcript messages available.",
+        sampling: describeSampling(messages, []),
+      };
     }
+
+    // Selected once, then both rendered and described — so the recorded sampling is a
+    // fact about the prompt that was sent, not about a second equivalent computation.
+    const selected = selectAnalysisWindow(messages);
+    const sampling = describeSampling(messages, selected);
 
     // mt#4196: the transcript this analyzer was handed rendered as nothing but
     // `[non-text content]` markers for 496 consecutive runs, and reported "no findings"
     // every time — the failure and a genuinely clean session produce identical output.
     // Measure the rendering before spending an LLM call on it, so a recurrence is loud.
-    const blindness = detectBlindRendering(messages.slice(0, TRANSCRIPT_MESSAGE_CAP));
+    const blindness = detectBlindRendering(selected.map((s) => s.message));
     if (blindness.blind) {
       log.warn(
         "UnaskedDirectionAnalyzer: transcript rendered almost entirely as non-text — " +
@@ -254,12 +465,13 @@ export class UnaskedDirectionAnalyzer {
       );
     }
 
-    const userPrompt = buildUserPrompt(messages, context);
+    const userPrompt = buildUserPromptFromSelection(selected, messages, context);
 
     log.debug("UnaskedDirectionAnalyzer: analyzing transcript", {
       sessionId: context.sessionId,
       taskId: context.taskId,
       messageCount: messages.length,
+      ...sampling,
     });
 
     const result = await this.completionService.generateObject({
@@ -279,9 +491,11 @@ export class UnaskedDirectionAnalyzer {
     log.debug("UnaskedDirectionAnalyzer: analysis complete", {
       sessionId: context.sessionId,
       findingsCount: output.findings.length,
+      emptyTextRatio: sampling.emptyTextRatio,
+      analyzedMessages: sampling.analyzedMessages,
     });
 
-    return output;
+    return { ...output, sampling };
   }
 }
 
@@ -291,7 +505,9 @@ export class UnaskedDirectionAnalyzer {
 
 export const __TEST_ONLY = {
   buildUserPrompt,
+  buildUserPromptFromSelection,
   summarizeMessage,
+  hasRenderableText,
   analyzerOutputSchema,
   ANALYZER_MODEL,
   ANALYZER_PROVIDER,
