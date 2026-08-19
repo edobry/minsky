@@ -220,7 +220,10 @@ describe("buildUserPrompt", () => {
     const prompt = __TEST_ONLY.buildUserPrompt(many, { sessionId: "s1" });
 
     // The prompt states how many it sampled, and renders exactly that many lines.
-    expect(prompt).toContain(`${__TEST_ONLY.TRANSCRIPT_MESSAGE_CAP} sampled evenly`);
+    expect(prompt).toContain(
+      `${__TEST_ONLY.TRANSCRIPT_MESSAGE_CAP} of ${many.length} text-bearing messages`
+    );
+    expect(prompt).toContain("sampled evenly across the whole session");
     const rendered = prompt.split("\n").filter((line) => /^\[\d+] (Human|Agent):/.test(line));
     expect(rendered).toHaveLength(__TEST_ONLY.TRANSCRIPT_MESSAGE_CAP);
   });
@@ -417,6 +420,65 @@ describe("selectAnalysisWindow (mt#4235)", () => {
     expect(sampling.strategy).toBe("head-fallback");
     expect(sampling.textBearingMessages).toBe(0);
     expect(sampling.emptyTextRatio).toBe(1);
+  });
+});
+
+describe("describeSelection — the prompt's own account of its window (PR #3153 R1)", () => {
+  const CAP = __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP;
+
+  it("does not claim even sampling on the head-fallback path", () => {
+    // R1: the note was inferred from `selected.length < messages.length`, which is TRUE here
+    // and made the prompt say "sampled evenly across the whole session, skipping messages
+    // with no text" — false twice over. This window is the unfiltered head and skipped nothing.
+    const messages = Array.from({ length: CAP + 5 }, () => makeToolUseOnlyMessage());
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+
+    expect(prompt).not.toContain("sampled evenly");
+    expect(prompt).not.toContain("skipping messages with no text");
+    expect(prompt).toContain("this is the head of the transcript, not a sample");
+    expect(prompt).toContain("no message in this transcript carried extractable text");
+  });
+
+  it("says 'all' rather than 'sampled' when every text-bearing message fits", () => {
+    const messages = [
+      makeStoredMessage("user", "one"),
+      makeToolUseOnlyMessage(),
+      makeStoredMessage("assistant", "two"),
+    ];
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+
+    expect(prompt).toContain("all 2 text-bearing messages shown");
+    expect(prompt).not.toContain("sampled evenly");
+  });
+
+  it("reads the recorded strategy, not the window's length", () => {
+    // The three notes are a function of `sampling` alone — so the prompt and the stored
+    // record cannot disagree about how the window was chosen.
+    expect(
+      __TEST_ONLY.describeSelection({
+        strategy: "head-fallback",
+        totalMessages: 100,
+        textBearingMessages: 0,
+        analyzedMessages: 60,
+        emptyTextRatio: 1,
+        nonTextRatio: 0,
+        firstIndex: 0,
+        lastIndex: 59,
+      })
+    ).toContain("not a sample");
+
+    expect(
+      __TEST_ONLY.describeSelection({
+        strategy: "text-bearing-even",
+        totalMessages: 500,
+        textBearingMessages: 200,
+        analyzedMessages: 60,
+        emptyTextRatio: 0,
+        nonTextRatio: 0,
+        firstIndex: 0,
+        lastIndex: 499,
+      })
+    ).toBe("60 of 200 text-bearing messages, sampled evenly across the whole session");
   });
 });
 

@@ -47,6 +47,7 @@ import {
   selectAnalysisWindow,
   __TEST_ONLY,
 } from "../packages/domain/src/detectors/unasked-direction-analyzer";
+import type { TranscriptSampling } from "../packages/domain/src/detectors/unasked-direction-analyzer";
 import type { ConversationId } from "../packages/domain/src/ids";
 
 interface ReplayRow {
@@ -77,6 +78,12 @@ interface ReplayRow {
   headBaselineEmptyTextRatio: number;
   /** Messages actually fed to the model under the current selection. */
   analyzedMessages: number;
+  /**
+   * Which rule produced the window — `head-fallback` means nothing in the transcript carried
+   * extractable text, so the row's other figures describe the unfiltered head rather than a
+   * sample. Recorded because without it those two cases are indistinguishable in the output.
+   */
+  strategy: TranscriptSampling["strategy"];
   /** Transcript span the analyzed window covers, as `[firstIndex, lastIndex]`. */
   windowSpan: [number, number] | null;
   blind: boolean;
@@ -195,6 +202,7 @@ async function main(): Promise<void> {
         emptyTextRatio: 0,
         headBaselineEmptyTextRatio: 0,
         analyzedMessages: 0,
+        strategy: "head-fallback",
         windowSpan: null,
         blind: false,
         findingCount: null,
@@ -212,6 +220,7 @@ async function main(): Promise<void> {
         emptyTextRatio: 0,
         headBaselineEmptyTextRatio: 0,
         analyzedMessages: 0,
+        strategy: "head-fallback",
         windowSpan: null,
         blind: false,
         findingCount: null,
@@ -247,6 +256,7 @@ async function main(): Promise<void> {
       headBaselineEmptyTextRatio:
         headBaseline.length === 0 ? 0 : Number((headEmptyCount / headBaseline.length).toFixed(4)),
       analyzedMessages: sampling.analyzedMessages,
+      strategy: sampling.strategy,
       windowSpan:
         sampling.firstIndex === null || sampling.lastIndex === null
           ? null

@@ -303,15 +303,44 @@ function summarizeMessage(msg: TranscriptMessage, index: number): string {
 }
 
 /**
+ * Describe to the MODEL how its window was chosen.
+ *
+ * Reads the recorded `strategy` rather than inferring from lengths. Inferring is what the
+ * first version did — `selected.length < messages.length` — and it reported the head-fallback
+ * path as "sampled evenly across the whole session, skipping messages with no text", which
+ * is false twice over on that path: the window is the unfiltered HEAD and nothing was
+ * skipped. A prompt that misdescribes its own sampling teaches the model to read gaps that
+ * are not there, and on the one path where the transcript is degenerate it also hides that
+ * fact. Caught in review on PR #3153.
+ */
+function describeSelection(sampling: TranscriptSampling): string {
+  if (sampling.strategy === "head-fallback") {
+    return (
+      `first ${sampling.analyzedMessages} shown — no message in this transcript carried ` +
+      `extractable text, so this is the head of the transcript, not a sample`
+    );
+  }
+  if (sampling.analyzedMessages >= sampling.textBearingMessages) {
+    return `all ${sampling.analyzedMessages} text-bearing messages shown`;
+  }
+  return (
+    `${sampling.analyzedMessages} of ${sampling.textBearingMessages} text-bearing messages, ` +
+    `sampled evenly across the whole session`
+  );
+}
+
+/**
  * Build the user prompt body from an already-chosen window.
  *
  * Split from `buildUserPrompt` so `analyzeTranscript` can render and DESCRIBE the same
  * selection without running the selector twice — the run record must report the window
- * that was actually sent, not an equivalent one computed a second time.
+ * that was actually sent, not an equivalent one computed a second time. It takes the
+ * `TranscriptSampling` for the same reason: the note the model reads and the note the record
+ * carries are then the same fact, not two derivations that can disagree.
  */
 function buildUserPromptFromSelection(
   selected: readonly SelectedMessage[],
-  messages: readonly TranscriptMessage[],
+  sampling: TranscriptSampling,
   context: AnalyzerContext
 ): string {
   const transcriptText = selected
@@ -322,16 +351,9 @@ function buildUserPromptFromSelection(
     ? `Task: ${context.taskId}`
     : "Task: (none — session-level analysis)";
 
-  // States the sampling to the model, because the numbering it sees is no longer
-  // contiguous: without this a gap reads as a missing message rather than a skipped one.
-  const selectionNote =
-    selected.length < messages.length
-      ? `${selected.length} sampled evenly across the whole session, skipping messages with no text`
-      : `all ${selected.length} shown`;
-
   return `${taskContext}
 Session: ${context.sessionId}
-Total messages: ${messages.length} (${selectionNote})
+Total messages: ${sampling.totalMessages} (${describeSelection(sampling)})
 Message numbers below are positions in the FULL transcript, so gaps mean messages were skipped.
 
 Transcript:
@@ -344,7 +366,8 @@ Identify any preference-bound decisions the agent made that the spec did not dic
 
 /** Build the user prompt body from a transcript, selecting the window first. */
 function buildUserPrompt(messages: TranscriptMessage[], context: AnalyzerContext): string {
-  return buildUserPromptFromSelection(selectAnalysisWindow(messages), messages, context);
+  const selected = selectAnalysisWindow(messages);
+  return buildUserPromptFromSelection(selected, describeSampling(messages, selected), context);
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +488,7 @@ export class UnaskedDirectionAnalyzer {
       );
     }
 
-    const userPrompt = buildUserPromptFromSelection(selected, messages, context);
+    const userPrompt = buildUserPromptFromSelection(selected, sampling, context);
 
     log.debug("UnaskedDirectionAnalyzer: analyzing transcript", {
       sessionId: context.sessionId,
@@ -506,6 +529,7 @@ export class UnaskedDirectionAnalyzer {
 export const __TEST_ONLY = {
   buildUserPrompt,
   buildUserPromptFromSelection,
+  describeSelection,
   summarizeMessage,
   hasRenderableText,
   analyzerOutputSchema,

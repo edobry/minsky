@@ -456,10 +456,10 @@ if (import.meta.main) {
     // The window shape rides along with the count (mt#4235). A zero from 7 text-bearing
     // messages of session preamble and a zero from 60 spanning the whole session are
     // different results, and until now they printed the same line.
-    const { analyzedMessages, totalMessages, emptyTextRatio } = output.sampling;
+    const { analyzedMessages, totalMessages, emptyTextRatio, strategy } = output.sampling;
     process.stdout.write(
       `[post-merge-unasked-direction-scan] Wrote ${findingCount} finding(s) for session ${ctx.sessionId} ` +
-        `(analyzed ${analyzedMessages} of ${totalMessages} messages, ` +
+        `(analyzed ${analyzedMessages} of ${totalMessages} messages via ${strategy}, ` +
         `emptyTextRatio=${emptyTextRatio.toFixed(4)})\n`
     );
   }
