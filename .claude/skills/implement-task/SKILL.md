@@ -641,8 +641,20 @@ files this PR actually changed:
 
 ```
 bun -e 'import { isDeploySurfaceFile } from "./packages/domain/src/deployment/deploy-surface.ts";
-for (const f of process.argv.slice(1)) console.log(isDeploySurfaceFile(f), f);' <changed files>
+for (const f of process.argv.slice(1)) console.log(isDeploySurfaceFile(f), f);' src/cockpit/routes/context-inspector.ts packages/domain/src/deployment/deploy-surface.ts
 ```
+
+Swap the two example paths for this PR's actual changed files, passed as plain
+arguments. Do NOT substitute a `<placeholder>` for them: the shell reads `<` as
+input redirection, so the line dies as a syntax error before bun ever runs. Get
+the file list from `git_diff` or `session_pr_get` — `block-git-gh-cli.ts` denies
+the `git` CLI, so a `git diff --name-only` substitution is not available here.
+
+The slice is `1`, not `2`, and that is worth not "correcting": `bun -e` passes
+no script path, so `process.argv` is `[<bun>, ...yourFiles]` — measured, not
+assumed. Slicing at `2` drops the FIRST file silently, which for this particular
+check is the worst available failure: a deploy-surface file vanishes from the
+output and `[no-deploy-impact]` looks confirmed.
 
 **This binds hardest on `[no-deploy-impact]`.** That tag asserts the predicate
 returns false for EVERY changed file, so run it over the diff before you write
