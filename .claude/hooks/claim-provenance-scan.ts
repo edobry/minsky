@@ -196,7 +196,185 @@ function paragraphs(text: string): string[] {
  * doing the right thing is the one who learns to discount the guard.
  */
 const OVERLAP_DENIAL_RE =
-  /\b(?:no|not|never|zero|none|without)\s+(?:\w+\s+){0,3}?(?:overlap|overlapping|collision|collides?|conflict)/i;
+  /\b(?:no|not|never|zero|none|without)\s+(?:[\w`'’-]+\s+){0,3}?(?:overlap|overlapping|collision|collides?|conflict)/i;
+
+/**
+ * The intervening-token class is `[\w`'’-]+`, not `\w+` (mt#4190).
+ *
+ * `\w` excludes the hyphen, so a hyphenated compound between the negator and the
+ * overlap noun read as TWO non-matching tokens and the denial went unseen. The
+ * measured instance: "there is no generated-file overlap with in-flight PR
+ * #3070" — a correct, compliant denial that fired the guard, which is the
+ * precise inversion mem#719 warns about, since the author doing the right thing
+ * is the one who learns to discount it. Backticks and apostrophes are in the
+ * class for the same reason: `` no `foo.ts` overlap `` and "no author's overlap"
+ * are one token to a reader and two to `\w+`.
+ *
+ * This is a repair to an existing recognizer, not a new vocabulary family — the
+ * regex already meant to allow three intervening words and did not.
+ */
+
+/**
+ * A markdown table row, which is a tabulated RECORD and never a claim.
+ *
+ * The `| --- |` separator and the data rows both match; that is deliberate, since
+ * the test below is "is this paragraph made of record lines?" rather than "does
+ * this line carry data?".
+ */
+const TABLE_ROW_RE = /^\s*\|.*\|\s*$/;
+
+/**
+ * A list item opening with an audit-record marker: a parenthesized gate letter or
+ * premise-audit numeral, optionally bolded, optionally after a bullet.
+ *
+ * `- **(g)** No parallel work.` / `| (a) required sections | PASS |` /
+ * `**(iii) Parallel work.**` — the shapes `/plan-task` and `/create-task` emit
+ * when they record a gate battery's verdicts.
+ */
+const AUDIT_MARKER_LINE_RE = /^\s*(?:[-*+]\s+)?\*{0,2}\((?:[a-p]|i{1,3}|iv|v|vi{0,3})\)/i;
+
+/**
+ * True when this paragraph is a RECORD of a check rather than an assertion.
+ *
+ * THIS IS THE STRUCTURAL DISCRIMINATOR, and it is ADR-024's Rung 1 rather than a
+ * fourth vocabulary pass. Rung 1 prescribes eliding "prose-quoted spans and
+ * explicit discussion-framing" before matching; a gate-verdict block IS explicit
+ * discussion-framing — it is the recorded OUTPUT of the very check that this
+ * guard exists to demand. Four of the nine false fires measured in mt#4190's
+ * planning pass are exactly this shape, and they are the guard firing at its most
+ * careful authors.
+ *
+ * MAJORITY OF ITEMS, not of LINES, and not any-line. A single `(g)` mentioned
+ * inside ordinary prose must not silence a real claim, so the paragraph has to be
+ * MADE of record items: at least two, and more than half.
+ *
+ * ITEMS rather than lines because this repo wraps at 100 characters, so a gate
+ * bullet routinely spans three or four of them. Counting lines, the real mt#4275
+ * block scored 7 markers against 10 wrapped continuations and failed its own
+ * majority — the discriminator was correct about every line it looked at and
+ * wrong about the paragraph. Same wrapped-line trap mem#1067 §2 records one
+ * subsystem over, where a same-sentence window treated `\n` as a sentence end.
+ * Caught here by a fixture sampled verbatim from the transcript; a hand-written
+ * one would have been narrower than 100 columns and passed.
+ *
+ * What this deliberately does NOT do is elide inline code spans. The obvious
+ * reading of Rung 1 is "run `elideMarkdownNonProse` and match the residual", and
+ * that pass blanks code spans — which is where this corpus keeps its filenames.
+ * Both recall controls in `claim-provenance-corpus-fixtures.ts` name their files
+ * inside backticks, so the wholesale version would delete the file-token half of
+ * the conjunction and drive the fire rate toward zero: a result that reads as a
+ * precision win and is the guard switched off.
+ */
+export function isAuditRecordParagraph(para: string): boolean {
+  // An enumeration is an enumeration whether or not it is broken across lines.
+  // A premise audit written as one run-on paragraph — "**Premise audit.** (i) …
+  // (ii) … (iii) … (iv) …" — is the same record as the bulleted form, and the
+  // line-anchored test below cannot see it, because the markers are inline.
+  //
+  // THREE distinct markers, not one: a single "(i)" or "per gate (g)" is an
+  // ordinary prose citation, while three parenthesized sequence markers in one
+  // paragraph is a structure. Counting DISTINCT ones matters — a paragraph that
+  // says "(a)" three times is quoting, not enumerating.
+  const inlineMarkers = new Set(
+    [...para.matchAll(/\((?:[a-p]|i{1,3}|iv|v|vi{0,3})\)/gi)].map((m) => m[0].toLowerCase())
+  );
+  if (inlineMarkers.size >= 3) return true;
+
+  const lines = para.split("\n").filter((l) => l.trim() !== "");
+  let items = 0;
+  let records = 0;
+  let seenFirst = false;
+  for (const line of lines) {
+    // A wrapped continuation: indented, and not itself opening a new bullet or
+    // table row. It belongs to the item above and must not be counted against
+    // it.
+    const startsItem = /^\s*[-*+]\s/.test(line) || TABLE_ROW_RE.test(line);
+    const isContinuation = seenFirst && !startsItem && /^\s{2,}\S/.test(line);
+    if (isContinuation) continue;
+    seenFirst = true;
+    items += 1;
+    if (TABLE_ROW_RE.test(line) || AUDIT_MARKER_LINE_RE.test(line)) records += 1;
+  }
+  return items >= 2 && records >= 2 && records * 2 > items;
+}
+
+/**
+ * REJECTED: requiring the paragraph to name a counterparty (mt#4190).
+ *
+ * The idea was that a collision is a RELATION, so a paragraph naming only one
+ * side is describing a file rather than asserting a collision on it — tested as
+ * "does a `PR #N` / `mt#N` / `origin/…` / `task/…` ref appear?". It is recorded
+ * here rather than deleted silently because it is an attractive rule that a
+ * later pass will re-derive, and it is WRONG for a reason that is not obvious
+ * until it runs.
+ *
+ * A counterparty is routinely named DESCRIPTIVELY: "this conflicts with a merge
+ * that landed on `src/thing.ts` yesterday" names its counterparty perfectly well
+ * and carries no identifier. That is not a rare phrasing — it is the whole
+ * merge-shaped class, the one `sessionReadMergeHistory` exists to discharge. The
+ * rule silenced it, and the existing AT2 test caught that within a minute.
+ *
+ * Widening the test to accept descriptive counterparties ("merge", "branch",
+ * "sibling", "another task") would be a word list, which is the arms race
+ * ADR-024 §Context exists to end, and it would be bought for ONE fire in twelve.
+ * The narrow repair below covers that fire without the trade.
+ */
+
+/**
+ * `(same file` — a parenthetical cross-reference, not a collision claim.
+ *
+ * "`mapAttachmentTypeToBlockType` (same file, line 43)" is how this corpus
+ * points at a second symbol in a file it just named. `same\s+file` is the
+ * weakest member of the verb list — unlike "collides" or "conflicts with" it is
+ * not inherently relational — and inside a parenthetical it is doing citation
+ * work exclusively.
+ *
+ * This NARROWS one existing verb's context rather than adding a family, which is
+ * the opposite direction from the widening SC1 forbids: it can only ever remove
+ * fires, and it removes them from a construction that cannot express a collision.
+ */
+const CITATION_PARENTHETICAL_RE = /\(\s*same\s+file\b[^)]*\)/gi;
+
+/**
+ * Blank citation parentheticals with same-length whitespace.
+ *
+ * Same convention as `elideMarkdownNonProse`: the replacement preserves
+ * character positions and newlines, so anything downstream that reads offsets
+ * into the paragraph stays aligned.
+ */
+function elideCitationParentheticals(text: string): string {
+  return text.replace(CITATION_PARENTHETICAL_RE, (m) => m.replace(/[^\n]/g, " "));
+}
+
+/**
+ * True when a collision verb survives the citation elision.
+ *
+ * Applied as a DISCRIMINATOR rather than folded into the signal test, so that
+ * `paragraphsWithCollisionSignals` stays the raw-signal layer the corpus
+ * fixtures assert liveness against. A paragraph carrying both a citation
+ * parenthetical and a real verb keeps the real one.
+ */
+function hasNonCitationCollisionVerb(para: string): boolean {
+  return COLLISION_VERB_RE.test(elideCitationParentheticals(para));
+}
+
+/**
+ * Paragraphs carrying the raw SIGNALS — overlap verb, file token, no denial —
+ * before either discriminator runs.
+ *
+ * Exported for the tests, and for a reason mem#1020 makes concrete: this tune's
+ * assertions are almost all negative ("this must STOP firing"), and a negative
+ * assertion passes vacuously on a fixture that reaches no matcher at all. It also
+ * SURVIVES its own negative control, because "nothing matched" is stable whether
+ * or not the code under test is disabled. So each corpus fixture asserts
+ * liveness HERE first — it does reach the matcher — and only then asserts that
+ * the discriminator is what silences it.
+ */
+export function paragraphsWithCollisionSignals(specText: string): string[] {
+  return paragraphs(stripDuplicateCheckRecords(specText)).filter(
+    (p) => COLLISION_VERB_RE.test(p) && FILE_TOKEN_RE.test(p) && !OVERLAP_DENIAL_RE.test(p)
+  );
+}
 
 /**
  * The paragraphs that actually assert a file-level collision.
@@ -207,10 +385,13 @@ const OVERLAP_DENIAL_RE =
  * fired at authors who HAD read the PR their claim was about — the dangerous
  * direction, and a plausible cause of the three "author says `get_files` was
  * read" misses the pre-ship replay measured.
+ *
+ * Two discriminators sit on top of the raw signals (mt#4190), both structural:
+ * the paragraph must not BE an audit record, and it must name a counterparty.
  */
 export function collisionParagraphs(specText: string): string[] {
-  return paragraphs(stripDuplicateCheckRecords(specText)).filter(
-    (p) => COLLISION_VERB_RE.test(p) && FILE_TOKEN_RE.test(p) && !OVERLAP_DENIAL_RE.test(p)
+  return paragraphsWithCollisionSignals(specText).filter(
+    (p) => !isAuditRecordParagraph(p) && hasNonCitationCollisionVerb(p)
   );
 }
 
@@ -232,13 +413,19 @@ export function claimsFileCollision(specText: string): boolean {
  *
  * Scoped to the collision paragraphs, not the whole spec.
  */
+export function prNumbersInParagraph(para: string): number[] {
+  const out = new Set<number>();
+  for (const m of para.matchAll(/\bPR\s*#(\d+)\b/gi)) {
+    const n = Number.parseInt(m[1] ?? "", 10);
+    if (Number.isInteger(n)) out.add(n);
+  }
+  return [...out];
+}
+
 export function citedPrNumbers(specText: string): number[] {
   const out = new Set<number>();
   for (const para of collisionParagraphs(specText)) {
-    for (const m of para.matchAll(/\bPR\s*#(\d+)\b/gi)) {
-      const n = Number.parseInt(m[1] ?? "", 10);
-      if (Number.isInteger(n)) out.add(n);
-    }
+    for (const n of prNumbersInParagraph(para)) out.add(n);
   }
   return [...out];
 }
@@ -307,14 +494,25 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
   const unbacked: string[] = [];
 
   if (collision) {
-    const cited = citedPrNumbers(specText);
     const readPrs = prNumbersWithFileListRead(calls);
-    // A claim naming PRs is discharged only by reading THOSE PRs' files. A
-    // claim naming none is about a merge, and a path-filtered `git_log` is its
-    // evidence.
-    const discharged =
-      cited.length > 0 ? cited.every((n) => readPrs.has(n)) : sessionReadMergeHistory(calls);
-    if (!discharged) unbacked.push("a file-level collision");
+    const readHistory = sessionReadMergeHistory(calls);
+    // PER PARAGRAPH, not per spec (mt#4190). A claim naming PRs is discharged
+    // only by reading THOSE PRs' files; a claim naming none is about a merge,
+    // and a path-filtered `git_log` or a branch-range file diff is its evidence.
+    //
+    // Evaluating the union across every collision paragraph — which is what this
+    // did — makes a PR named in paragraph A a required read for the claim made
+    // in paragraph B. That is the same over-demanding join PR #3050 R1 fixed one
+    // level up by scoping extraction to collision paragraphs rather than the
+    // whole spec; it scoped to the SET of them collectively and stopped there.
+    // The measured instance: a spec asserting a resolved partial collision on
+    // PR #774 (read with `get_files`, and said so) fired anyway, because a
+    // SECOND collision paragraph elsewhere named PR #703.
+    const unbackedParagraph = collisionParagraphs(specText).some((para) => {
+      const cited = prNumbersInParagraph(para);
+      return cited.length > 0 ? !cited.every((n) => readPrs.has(n)) : !readHistory;
+    });
+    if (unbackedParagraph) unbacked.push("a file-level collision");
   }
 
   if (ownership && !sessionRanASearch(extractToolUseNames(lines))) {
