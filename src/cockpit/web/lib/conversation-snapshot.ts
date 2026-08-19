@@ -53,7 +53,11 @@ export interface SnapshotWindowParams {
   turns: number;
   /**
    * Page back from this ORIGINAL turn index (exclusive). Omit for the newest
-   * page; pass the previous page's `window.oldestTurnIndex` to go further back.
+   * page; pass the previous page's `window.nextBefore` to go further back.
+   *
+   * NOT `window.oldestTurnIndex` — that is the oldest turn RENDERED and is null
+   * for a page whose entries were all non-renderable, which ends paging over
+   * history that still exists (PR #3148 R1).
    */
   before?: number;
 }

@@ -197,7 +197,11 @@ export interface SnapshotWindowRequest {
   /**
    * Return only turns whose ORIGINAL transcript-array index is strictly less
    * than this. Omit for the newest page; pass the previous response's
-   * `window.oldestTurnIndex` to page backwards.
+   * `window.nextBefore` to page backwards.
+   *
+   * NOT `window.oldestTurnIndex` — that describes the oldest turn RENDERED and
+   * is null for a page whose entries were all non-renderable, which ends paging
+   * over history that still exists (PR #3148 R1).
    */
   before?: number;
 }

@@ -221,11 +221,14 @@ export function mountContextInspectorRoutes(app: express.Express): void {
    *                                     response byte-for-byte as before.
    *   ?before=<turnIndex>             — optional; with `turns`, page backwards from
    *                                     an ORIGINAL transcript-array index. Pass the
-   *                                     previous response's `window.oldestTurnIndex`.
+   *                                     previous response's `window.nextBefore` —
+   *                                     NOT `oldestTurnIndex`, which is the oldest
+   *                                     turn RENDERED and is null when a page's
+   *                                     entries were all non-renderable (PR #3148 R1).
    *                                     Rejected without `turns`.
    *
    * A windowed response additionally carries `window` (totalTurns / returnedTurns /
-   * oldestTurnIndex / hasMore) and `toolNamesByUseId` (over the FULL transcript, so
+   * oldestTurnIndex / nextBefore / hasMore) and `toolNamesByUseId` (over the FULL transcript, so
    * a windowed tool-result can still name the call it answers). Both are absent
    * from an unwindowed response.
    *
