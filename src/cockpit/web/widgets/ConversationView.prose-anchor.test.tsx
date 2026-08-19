@@ -27,13 +27,17 @@ import { render, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { ConversationView } from "./ConversationView";
+import { SPEECH_PROSE_SELECTOR } from "../lib/conversation-turn-address";
 import type {
   SessionContextSnapshot,
   SessionContextSnapshotBlock,
 } from "@minsky/domain/context/types";
 
-/** The exact selector `verify-conversation-weight.ts` uses. Keep them identical. */
-const PROSE_SELECTOR = '[data-testid="turn-elements"] > div.break-words';
+// Imported, not hand-copied. The previous revision declared this string here
+// with a comment asking the reader to keep it identical to the probe's — which
+// is precisely the arrangement that produced the drift this whole task is about
+// (PR #3140 R1). One definition, two consumers.
+const PROSE_SELECTOR = SPEECH_PROSE_SELECTOR;
 
 function renderCV(blocks: SessionContextSnapshotBlock[], filmPath?: string) {
   const snapshot: SessionContextSnapshot = {

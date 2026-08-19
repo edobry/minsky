@@ -50,6 +50,7 @@ import {
 import {
   ADDRESSED_MARK_CLASS,
   TURN_ANCHOR_ATTR,
+  TURN_ELEMENTS_TESTID,
   type TurnAddress,
 } from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
@@ -405,7 +406,7 @@ function TurnSegment({
         trailing siblings; a positional one waits for the next change to add
         one.
       */}
-      <div data-testid="turn-elements" className="flex flex-col gap-2">
+      <div data-testid={TURN_ELEMENTS_TESTID} className="flex flex-col gap-2">
         {rendered}
       </div>
       {/*
