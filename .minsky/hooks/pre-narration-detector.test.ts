@@ -13,10 +13,15 @@ import {
   MATCH_CONTEXT_MAX_CHARS,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
+  SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
   SUPPRESSION_SAME_TURN_TOOL_CALL,
   SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
   run,
+  buildIdentityEvidence,
+  extractClaimedPrNumber,
+  extractPrNumbersForTools,
+  identityScopedToolNames,
 } from "./pre-narration-detector";
 import {
   extractDistinctPhrases,
@@ -29,6 +34,8 @@ import type { DispatchContext } from "./registry";
 const CREATED_PR_CLAIM = "Created PR #4242.";
 const APPROVED_CLAIM = "The review came back: APPROVED, no findings.";
 const PR_CREATE_TOOL = "mcp__minsky__session_pr_create";
+const PR_READ_TOOL_NAME = "mcp__github__pull_request_read";
+const MERGED_CLAIM_3033 = "PR #3033 merged.";
 
 // ---------------------------------------------------------------------------
 // Transcript JSONL helpers
@@ -669,5 +676,264 @@ describe("run() (dispatcher-compatible)", () => {
     } finally {
       delete process.env[OVERRIDE_ENV_VAR];
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#3864 — measured false-positive classes
+//
+// Every fixture below is grounded in a MEASURED record, not an invented shape.
+// The evidence is `scripts/diagnose-pre-narration-window.ts`, which replays each
+// injected calibration record against its own session transcript; its output for
+// the 2026-08-13→18 window is quoted in mt#3864 §MEASURED CAUSE.
+// ---------------------------------------------------------------------------
+
+describe("mt#3864 class 6 — a double-quoted prose span is a quotation, not an assertion", () => {
+  test("APPROVED inside double quotes does not fire", () => {
+    // The recorded shape: a line quoting a stored memory record's content. The
+    // local markdown elision covers fences/code-spans/blockquotes and left this
+    // one alone; `elideDoubleQuotedSpans` is what reaches it.
+    const turn = [
+      makeAssistantLine('mem#905 records that the round came back "APPROVED, 0 blocking".'),
+    ];
+    expect(detectPreNarration(turn as never).length).toBe(0);
+  });
+
+  test("NEGATIVE CONTROL: the same phrase unquoted still fires", () => {
+    // Without this, the test above passes just as well against a matcher that
+    // stopped detecting APPROVED entirely — it would assert nothing about the
+    // elision.
+    const turn = [makeAssistantLine("The round came back APPROVED, 0 blocking.")];
+    expect(detectPreNarration(turn as never).length).toBeGreaterThan(0);
+  });
+});
+
+describe("mt#3864 Cause A — reading a PR's state is evidence about THAT PR's state", () => {
+  const MERGED_CLAIM = MERGED_CLAIM_3033;
+  const PR_READ_TOOL = PR_READ_TOOL_NAME;
+  const READ_TOOLS = new Set([PR_READ_TOOL]);
+  /** Identity evidence in the shape `buildIdentityEvidence` produces. */
+  const mergedEvidence = (...prs: number[]) => new Map([["merged", new Set(prs)]]);
+
+  test("a merge claim backed by a read OF THE SAME PR is suppressed", () => {
+    // Measured: "PR #3033 merged" and "PR #3064 merged" both had these tools in
+    // window and no merge tool, because ANOTHER ACTOR performed the merge and
+    // the agent verified it by reading. Both claims were true.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    expect(detectPreNarration(turn as never, READ_TOOLS, mergedEvidence(3033)).length).toBe(0);
+  });
+
+  test("R3: an identity-backed suppression names its OWN reason, not the window's", () => {
+    // The reason strings exist so a calibration reviewer can tell the sources
+    // apart from the record alone. Identity-scoped is reached only when NO
+    // `requiredTools` call was in window, so recording it as `window-tool-call`
+    // would name a call that never happened.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    const detection = detectPreNarrationWithSuppression(
+      turn as never,
+      READ_TOOLS,
+      mergedEvidence(3033)
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+    ]);
+  });
+
+  test("a same-turn merge tool still names the same-turn reason, not the identity one", () => {
+    // Negative control for the ordering: identity evidence present AND a real
+    // merge call in the turn must still record the stronger source.
+    const turn = [
+      makeAssistantToolUseLine("mcp__minsky__session_pr_merge"),
+      makeAssistantLine(MERGED_CLAIM),
+    ];
+    const detection = detectPreNarrationWithSuppression(
+      turn as never,
+      undefined,
+      mergedEvidence(3033)
+    );
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_SAME_TURN_TOOL_CALL]);
+  });
+
+  test("session_pr_get counts as the same evidence", () => {
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    const tools = new Set(["mcp__minsky__session_pr_get"]);
+    expect(detectPreNarration(turn as never, tools, mergedEvidence(3033)).length).toBe(0);
+  });
+
+  test("BLOCKING R1: a read of a DIFFERENT PR does not suppress", () => {
+    // PR #3096 R1, the finding's exact scenario. Without identity correlation,
+    // reading any PR would silence a false claim about any other — and reads are
+    // common enough that this would be the usual case, not a corner.
+    const turn = [makeAssistantLine(MERGED_CLAIM)]; // claims #3033
+    expect(
+      detectPreNarration(turn as never, READ_TOOLS, mergedEvidence(100)).length
+    ).toBeGreaterThan(0);
+  });
+
+  test("a claim naming NO PR number is never identity-backed", () => {
+    // Correlation is impossible, so the safe degrade for a suppressor is to fire
+    // (ADR-024's fail-to-Rung-1 invariant: degrade toward MORE fires).
+    const turn = [makeAssistantLine("The PR is now merged.")];
+    expect(
+      detectPreNarration(turn as never, READ_TOOLS, mergedEvidence(3033)).length
+    ).toBeGreaterThan(0);
+  });
+
+  test("NEGATIVE CONTROL: with no PR tool at all, the merge claim still fires", () => {
+    // The widening must narrow the category, not disable it. Two of the four
+    // measured `merged` fires had no PR tool in window and must keep firing.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    expect(detectPreNarration(turn as never, new Set()).length).toBeGreaterThan(0);
+  });
+
+  test("a LIST-shaped tool contributes no identity evidence", () => {
+    // `list_pull_requests` / `session_pr_list` were in window on BOTH measured
+    // cases and are deliberately excluded: a listing establishes no PARTICULAR
+    // PR's state. Asserted at buildIdentityEvidence, which is the layer that
+    // decides which tools contribute (it was detectPreNarration's job until R2
+    // collapsed the two conditions into one).
+    const lines = [
+      makeUserLine(),
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              name: "mcp__github__list_pull_requests",
+              input: { pullNumber: 3033 },
+            },
+          ],
+        },
+      },
+      makeAssistantLine(MERGED_CLAIM),
+    ];
+    expect(
+      buildIdentityEvidence(lines as never, 12)
+        .get("merged")
+        ?.has(3033) ?? false
+    ).toBe(false);
+  });
+});
+
+describe("mt#3864 — PR-identity helpers (PR #3096 R1)", () => {
+  test("extractClaimedPrNumber reads the number a claim names", () => {
+    expect(extractClaimedPrNumber("PR #3033 merged")).toBe(3033);
+    expect(extractClaimedPrNumber("PR 3033 merged")).toBe(3033);
+    expect(extractClaimedPrNumber("the PR is now merged")).toBeNull();
+  });
+
+  test("extractPrNumbersForTools reads identity keys from tool inputs", () => {
+    const lines = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              name: PR_READ_TOOL_NAME,
+              input: { pullNumber: 3033 },
+            },
+          ],
+        },
+      },
+    ];
+    const found = extractPrNumbersForTools(lines as never, [PR_READ_TOOL_NAME]);
+    expect([...found]).toEqual([3033]);
+  });
+
+  test("R4: a GENERIC number key is not identity evidence", () => {
+    // The key list is deliberately narrow. A spurious match manufactures
+    // evidence and SUPPRESSES a fire — the unsafe degrade, and a silent one.
+    // Re-widening to a generic key must be a deliberate edit that fails here.
+    const lines = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", name: PR_READ_TOOL_NAME, input: { number: 3033, pr: 3033 } },
+          ],
+        },
+      },
+    ];
+    expect([...extractPrNumbersForTools(lines as never, [PR_READ_TOOL_NAME])]).toEqual([]);
+  });
+
+  test("NEGATIVE CONTROL: the same call keyed `pullNumber` IS evidence", () => {
+    // Pins that the test above measures the KEY, not a broken helper.
+    const lines = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", name: PR_READ_TOOL_NAME, input: { pullNumber: 3033 } }],
+        },
+      },
+    ];
+    expect([...extractPrNumbersForTools(lines as never, [PR_READ_TOOL_NAME])]).toEqual([3033]);
+  });
+
+  test("identityScopedToolNames is derived from the categories, not restated", () => {
+    // Guards the wiring: a tool added to a category's identityScopedTools must
+    // reach the evidence-gathering side automatically.
+    expect(identityScopedToolNames()).toContain(PR_READ_TOOL_NAME);
+    expect(identityScopedToolNames()).toContain("mcp__minsky__session_pr_get");
+  });
+});
+
+describe("mt#3864 — identity evidence is window-scoped (PR #3096 R2)", () => {
+  const PR_READ = PR_READ_TOOL_NAME;
+
+  function readOfPr(pr: number): TranscriptLine {
+    return {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_use", name: PR_READ, input: { pullNumber: pr } }],
+      },
+    };
+  }
+
+  test("a read INSIDE the window is evidence", () => {
+    const lines = [makeUserLine(), readOfPr(3033), makeAssistantLine(MERGED_CLAIM_3033)];
+    const evidence = buildIdentityEvidence(lines as never, 12);
+    expect(evidence.get("merged")?.has(3033)).toBe(true);
+  });
+
+  test("BLOCKING R2: a read OUTSIDE the window is NOT evidence", () => {
+    // The finding: identity numbers were sourced from the whole transcript
+    // while the gate only required some scoped tool in-window, so a stale read
+    // could back a claim it had no current relationship to. Both halves now
+    // derive from the same `windowSlice`.
+    const lines: TranscriptLine[] = [readOfPr(3033)];
+    for (let i = 0; i < 4; i++) lines.push(makeUserLine(), makeAssistantLine("working"));
+    lines.push(makeAssistantLine(MERGED_CLAIM_3033));
+
+    // Window of 2 real prompts cannot reach back to the read at index 0.
+    expect(
+      buildIdentityEvidence(lines as never, 2)
+        .get("merged")
+        ?.has(3033) ?? false
+    ).toBe(false);
+    // NEGATIVE CONTROL: a window wide enough to reach it does see it, so the
+    // assertion above is about SCOPE and not about the read being unreadable.
+    expect(
+      buildIdentityEvidence(lines as never, 12)
+        .get("merged")
+        ?.has(3033)
+    ).toBe(true);
+  });
+
+  test("evidence is keyed by category, so a scoped tool cannot back another category", () => {
+    const lines = [makeUserLine(), readOfPr(3033), makeAssistantLine(MERGED_CLAIM_3033)];
+    const evidence = buildIdentityEvidence(lines as never, 12);
+    // Only `merged` declares identityScopedTools today; the others must be absent
+    // rather than sharing one union set.
+    expect(evidence.has("merged")).toBe(true);
+    expect(evidence.has("review-approved")).toBe(false);
   });
 });
