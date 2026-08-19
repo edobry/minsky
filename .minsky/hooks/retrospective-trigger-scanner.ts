@@ -1332,7 +1332,21 @@ export async function run(
       source: "live",
       timestamp: new Date().toISOString(),
       session_id: input.session_id,
-      matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+      // mt#4102: the per-match rung marker, mirroring the Stop sibling. A
+      // Rung-1 phrase IS the sentence that matched a pattern; a Rung-3 phrase
+      // is Rung 2's nominated SEGMENT, routinely not the sentence that
+      // justified the fire (mt#3931 measured classify-from-phrase inverting
+      // the verdict 4/4). Recording both identically is what made a genuine R1
+      // admission read as a false positive for six days on the Stop side; this
+      // path has the same ambiguity even though its excerpt anchoring is
+      // already correct.
+      matches: allMatches.map((m) => ({
+        family: m.family,
+        phrase: m.matchedPhrase,
+        ...(confirmedFamilies.includes(m.family)
+          ? { rung: "rung3", phrase_is_nomination_artifact: true }
+          : { rung: "rung1" }),
+      })),
       transcript_excerpt: transcriptExcerpt,
       // mt#3950: a dedup that failed open is otherwise indistinguishable from a
       // clean no-match, which is what made candidate 3 unfalsifiable from the log.
