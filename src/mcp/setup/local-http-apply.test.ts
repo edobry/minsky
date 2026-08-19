@@ -179,6 +179,53 @@ describe("classifyDaemonProbe", () => {
   });
 });
 
+describe("classifyDaemonProbe — mt#4297 readiness, not just identity", () => {
+  // The incumbent that motivated this: right identity, 200, and no database.
+  const unreadyByMode: HealthProbeOutcome = {
+    kind: "body",
+    body: { service: "minsky-mcp", persistence: { mode: "unconfigured" } },
+  };
+
+  test("`ready: false` is `not-ready`, not `running`", () => {
+    const status = classifyDaemonProbe({
+      kind: "body",
+      body: { service: "minsky-mcp", ready: false, persistence: { mode: "unconfigured" } },
+    });
+    expect(status.state).toBe("not-ready");
+    expect(status.detail).toContain("database");
+  });
+
+  test("`ready: true` is `running`", () => {
+    expect(
+      classifyDaemonProbe({
+        kind: "body",
+        body: { service: "minsky-mcp", ready: true, persistence: { mode: "connected" } },
+      }).state
+    ).toBe("running");
+  });
+
+  test("falls back to persistence.mode for a daemon predating the `ready` field", () => {
+    expect(classifyDaemonProbe(unreadyByMode).state).toBe("not-ready");
+  });
+
+  test("persistence.mode `connected` with no `ready` field is `running`", () => {
+    expect(
+      classifyDaemonProbe({
+        kind: "body",
+        body: { service: "minsky-mcp", persistence: { mode: "connected" } },
+      }).state
+    ).toBe("running");
+  });
+
+  test("neither signal present stays `running` — cannot-tell is not not-ready", () => {
+    // Refusing here would have failed closed against every daemon built before
+    // this change, turning a safety check into an outage during rollout.
+    expect(classifyDaemonProbe({ kind: "body", body: { service: "minsky-mcp" } }).state).toBe(
+      "running"
+    );
+  });
+});
+
 describe("ensureDaemonRunning", () => {
   const ARGV = daemonSpawnCommand(["/bin/minsky"], PROJECT);
   const healthy: HealthProbeOutcome = { kind: "body", body: { service: "minsky-mcp" } };
@@ -202,6 +249,25 @@ describe("ensureDaemonRunning", () => {
       deps: deps([healthy], spawned),
     });
     expect(result.spawned).toBe(false);
+    expect(spawned).toEqual([]);
+  });
+
+  test("mt#4297: refuses a not-ready incumbent, and spawns nothing", async () => {
+    // The state observed live: right identity, 200, no database. Before this,
+    // `running` was returned and the migration proceeded onto it. Spawning is
+    // asserted absent for a specific reason -- `not-ready` falls through the
+    // `running`/`foreign` guards, so a missing branch would spawn a second
+    // daemon that loses the bind race and adopts the very incumbent being
+    // refused, and the config would be rewritten anyway.
+    const spawned: string[][] = [];
+    const unready: HealthProbeOutcome = {
+      kind: "body",
+      body: { service: "minsky-mcp", ready: false, persistence: { mode: "unconfigured" } },
+    };
+
+    await expect(
+      ensureDaemonRunning(ARGV, { healthUrl: HEALTH_URL, deps: deps([unready], spawned) })
+    ).rejects.toThrow(/cannot reach the database/);
     expect(spawned).toEqual([]);
   });
 
@@ -372,6 +438,29 @@ describe("stopLocalDaemon", () => {
   const down: HealthProbeOutcome = { kind: "unreachable", detail: "ECONNREFUSED" };
   const healthy: HealthProbeOutcome = { kind: "body", body: { service: "minsky-mcp" } };
   const record = { port: 48765, host: "127.0.0.1", pid: 4242, startedAt: "2026-08-12T21:00:00Z" };
+
+  test("mt#4297: a still-serving but not-ready daemon is NOT reported as stopped", async () => {
+    // This guard was `status.state !== "running"`, so adding `not-ready` to the
+    // union silently made a live, still-listening daemon report `stopped: true`
+    // — a false success at a call site that never mentions the new state. The
+    // check now enumerates the gone-states instead of negating the up-state.
+    const unready: HealthProbeOutcome = {
+      kind: "body",
+      body: { service: "minsky-mcp", ready: false, persistence: { mode: "unconfigured" } },
+    };
+    const result = await stopLocalDaemon({
+      healthUrl: HEALTH_URL,
+      attempts: 2,
+      deps: {
+        readRecord: () => record,
+        killIfOurs: async () => true,
+        probe: async () => unready,
+        sleep: async () => {},
+      },
+    });
+    expect(result.stopped).toBe(false);
+    expect(result.detail).toContain("still answering");
+  });
 
   test("signals the pid from the discovery record and confirms the port went quiet", async () => {
     const killed: Array<[number, string]> = [];
