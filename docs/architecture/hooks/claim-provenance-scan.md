@@ -375,6 +375,15 @@ per the script's header:
    results carry a `status` per task but which is not in the status-read set. This is the dangerous
    direction — firing at an author who did the work.
 
+**Subject id form narrowed at review (PR #3173 R1).** `TASK_ID_RE` matched `md#N` as well as `mt#N`,
+since `md#` is a documented task-id form. Measured wrong: `md#N` in this corpus is overwhelmingly
+placeholder text — 64 distinct tokens repo-wide, led by `md#123` (110 occurrences), `md#999` (66) and
+`md#456` (16), which are the tool description's own examples and test fixtures — and `refs_status`
+reports `md#1` / `md#100` / `md#456` all `absent`. Matching it manufactures subjects no status read
+can discharge, which is the one failure this class must not have. **Re-running the sweep after the
+narrowing left the class at 8 fires**, so this removed no measured fire; it is a forward-looking
+correctness fix, not a precision gain, and is recorded as such.
+
 **Not tuned in this diff, by scope.** mt#4299 `## Scope` puts false-positive tuning of the guard out
 of scope explicitly, and the guard is record-only so the cost is a calibration record rather than a
 denial. This is the same posture mt#4168 shipped the collision class at (1 true in 16) with mt#4190

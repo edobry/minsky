@@ -422,6 +422,18 @@ describe("remainingWorkSubjects — the join key", () => {
     expect(remainingWorkSubjects("mem#1114 still needs retiring.", null)).toEqual([]);
   });
 
+  test("PR #3173 R1: md#N is not a subject — it is placeholder text in this corpus", () => {
+    // `md#N` is a documented task-id form, and matching it was measured wrong:
+    // 64 distinct tokens repo-wide led by md#123 (110x) / md#999 (66x), which are
+    // the tool description's own examples and test fixtures, and refs_status
+    // reports the real ones absent. A subject no status read can discharge is the
+    // one failure this class exists to avoid.
+    expect(remainingWorkSubjects("md#456 still needs its doc note.", null)).toEqual([]);
+    // ...and it must not silently fall through to the deictic branch either,
+    // which would swap one wrong subject for another.
+    expect(remainingWorkSubjects("md#456 still needs its doc note.", "mt#1")).toEqual([]);
+  });
+
   test("several ids in one paragraph are all required", () => {
     expect(
       remainingWorkSubjects("mt#4295 and mt#4301 still need their guards.", null).sort()
@@ -521,5 +533,72 @@ describe("run — the discharge set is generous (all four tools)", () => {
       ctxWith([...NOISE, REFS_STATUS_CALL(["mt#4295", "mt#4301"])])
     );
     expect(both?.calibration?.["outcome"]).toBe("clean");
+  });
+});
+
+describe("run — the class reaches every spec-WRITE seam (PR #3173 R1)", () => {
+  // The seam finding this guard was built on: binding only to `tasks_create`
+  // would miss the surface both original incidents wrote at. A new class that
+  // silently covered only `tasks_spec_patch` would rebuild that gap one level
+  // down — the same shape, one class over — so each seam is pinned rather than
+  // assumed from the shared `SPEC_TEXT_FIELD_BY_TOOL` lookup.
+  const SEAMS: Array<[string, string, (content: string) => ToolHookInput]> = [
+    [
+      "tasks_edit",
+      "specContent",
+      (content) =>
+        ({
+          session_id: "sess-mt4299",
+          tool_name: "mcp__minsky__tasks_edit",
+          tool_input: { taskId: "mt#1651", specContent: content },
+        }) as unknown as ToolHookInput,
+    ],
+    [
+      "tasks_spec_search_replace",
+      "replace",
+      (content) =>
+        ({
+          session_id: "sess-mt4299",
+          tool_name: "mcp__minsky__tasks_spec_search_replace",
+          tool_input: { taskId: "mt#1651", search: "old", replace: content },
+        }) as unknown as ToolHookInput,
+    ],
+  ];
+
+  for (const [tool, field, build] of SEAMS) {
+    test(`${tool} (${field}): fires undischarged, and a status read on the cited id clears it`, () => {
+      expect(run(build(REMAINING_WORK_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]).toBe(
+        "matched"
+      );
+      expect(
+        run(build(REMAINING_WORK_SPEC), ctxWith([...NOISE, STATUS_GET_CALL("mt#2307")]))
+          ?.calibration?.["outcome"]
+      ).toBe("clean");
+    });
+  }
+
+  /** A new spec at birth — the one seam that carries no `taskId`. */
+  function createInput(spec: string): ToolHookInput {
+    return {
+      session_id: "sess-mt4299",
+      tool_name: "mcp__minsky__tasks_create",
+      tool_input: { spec },
+    } as unknown as ToolHookInput;
+  }
+
+  test("tasks_create: the deictic form has no referent, so it does not fire", () => {
+    // Not an oversight — a task being born has no id and no state anyone could
+    // have read, so the claim is not adjudicable.
+    expect(
+      run(createInput(DEICTIC_RIDER_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]
+    ).toBe("clean");
+  });
+
+  test("tasks_create: an EXPLICIT id in a new spec still fires", () => {
+    // The deictic exemption above must not turn `tasks_create` into a blind spot
+    // for the form that IS adjudicable there.
+    expect(
+      run(createInput(REMAINING_WORK_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]
+    ).toBe("matched");
   });
 });

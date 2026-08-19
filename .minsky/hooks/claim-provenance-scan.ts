@@ -489,12 +489,28 @@ const REMAINING_WORK_RE = new RegExp(
 );
 
 /**
- * A task id in this repo's two backends. `mem#N` / `ask#N` / `ws#N` are short ids
- * for OTHER entity kinds (ADR-029) and are deliberately not matched — a memory
- * has no status to read, so treating one as a subject would demand a call that
- * cannot exist.
+ * A task id, `mt#N` ONLY.
+ *
+ * `mem#N` / `ask#N` / `ws#N` are short ids for OTHER entity kinds (ADR-029) and
+ * are deliberately not matched — a memory has no status to read, so treating one
+ * as a subject would demand a call that cannot exist.
+ *
+ * `md#N` IS a documented task-id form (the markdown backend; `tasks_spec_patch`'s
+ * own parameter description says "e.g., mt#123, md#456") and was matched here
+ * until PR #3173 R1. It is excluded on measurement, not on principle. In this
+ * corpus `md#N` is overwhelmingly PLACEHOLDER text: 64 distinct tokens across
+ * `docs/`, `.minsky/`, `src/`, `packages/` and `scripts/`, led by `md#123` (110
+ * occurrences), `md#999` (66) and `md#456` (16) — the tool description's own
+ * examples and test fixtures. `refs_status` reports `md#1`, `md#100` and `md#456`
+ * all `absent`.
+ *
+ * So matching it manufactures subjects that NO status read can discharge, which
+ * is the one failure this class is built to avoid: a fire the author cannot clear
+ * by any action teaches the reader to discount the guard (mem#719). Excluding it
+ * costs at most a false NEGATIVE on a live `md#` task, which is the safe
+ * direction per this module's header.
  */
-const TASK_ID_RE = /\b(?:mt|md)#(\d+)\b/gi;
+const TASK_ID_RE = /\bmt#(\d+)\b/gi;
 
 /**
  * A deictic reference to the task whose spec is being written.
