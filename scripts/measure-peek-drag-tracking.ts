@@ -52,7 +52,28 @@ import { preflightCockpit } from "./lib/verify-preflight";
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
 const CDP = process.env["MINSKY_CDP_URL"] ?? "http://127.0.0.1:9222";
 const TASK_ID = process.env["MINSKY_PEEK_TASK_ID"] ?? "mt#4123";
-const RUNS = Number(process.env["MINSKY_TRACKING_RUNS"] ?? "30");
+/**
+ * Repetitions per mode. Validated rather than coerced, because the failure is
+ * silent and reads as a pass.
+ *
+ * `Number("")` is 0 and `Number("thirty")` is NaN. Either sends both loops to
+ * zero iterations, and the report then prints `0 runs, 0 missed (0%)` with a
+ * confident "NEITHER mode missed" attribution beneath it — a clean bill of
+ * health produced by a typo. A probe that cannot fail carries no information
+ * (mem#704), and this one would additionally deny it ever ran.
+ */
+const RUNS = (() => {
+  const raw = process.env["MINSKY_TRACKING_RUNS"] ?? "30";
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    console.error(
+      `FAIL: MINSKY_TRACKING_RUNS must be a positive integer; got ${JSON.stringify(raw)}. ` +
+        `Refusing to run — zero iterations would report "0 missed (0%)", which reads as a pass.`
+    );
+    process.exit(1);
+  }
+  return parsed;
+})();
 
 const VIEWPORT = { width: 1440, height: 900 };
 
@@ -61,6 +82,19 @@ const DRAG_PX = 120;
 const TOLERANCE_PX = 2;
 
 const EXIT_INCOMPLETE = 2;
+
+/**
+ * Thrown when the measurement could not be PERFORMED, as distinct from failing.
+ *
+ * The two need different exit codes because they call for different responses: a
+ * rerun can fix an absent precondition and cannot fix a broken script. Before
+ * this split, a peek that closed mid-run and a genuine crash both exited 1,
+ * which made a rerun look like the remedy for both.
+ *
+ * Note this is NOT a "the drag missed" signal — a miss is a RESULT and is
+ * reported in the table, not raised.
+ */
+class IncompleteMeasurement extends Error {}
 
 await preflightCockpit({ cockpitUrl: COCKPIT, cdpUrl: CDP });
 
@@ -180,7 +214,7 @@ async function readStable(ws: WebSocket): Promise<State> {
     previous = key;
     await sleep(120);
   }
-  throw new Error("geometry never stabilized within 8s");
+  throw new IncompleteMeasurement("geometry never stabilized within 8s");
 }
 
 /**
@@ -210,7 +244,23 @@ async function dragBy(
     if (mode === "sleep") {
       await sleep(30);
     } else {
-      await readStable(ws).catch(() => undefined);
+      // Do NOT swallow a stabilization timeout here.
+      //
+      // The entire attribution rests on `poll` waiting where `sleep` does not.
+      // Catching the timeout and continuing turns a poll step into a no-wait
+      // step, silently making the two modes identical — and the run would still
+      // print a tidy "poll 30 runs, 0 missed" that reads as evidence the drag is
+      // fine when what actually happened is that the experiment stopped running.
+      // A degraded mode must be loud: fail the run and say which step, so the
+      // number is absent rather than wrong.
+      await readStable(ws).catch((err: unknown) => {
+        throw new IncompleteMeasurement(
+          `poll mode could not settle after the step at ${step} of the drag ` +
+            `(${err instanceof Error ? err.message : String(err)}). Refusing to continue: ` +
+            `a poll step that does not wait is a sleep step, and the sleep-vs-poll ` +
+            `comparison would no longer attribute anything.`
+        );
+      });
     }
   }
   await cdp(ws, "Input.dispatchMouseEvent", {
@@ -254,9 +304,10 @@ async function measureMode(ws: WebSocket, mode: "sleep" | "poll"): Promise<Outco
   for (let run = 1; run <= RUNS; run++) {
     await resetToDefault(ws);
     const before = await readStable(ws);
-    if (before.paneCount === 0) throw new Error(`peek closed before run ${run} of mode ${mode}`);
+    if (before.paneCount === 0)
+      throw new IncompleteMeasurement(`peek closed before run ${run} of mode ${mode}`);
     if (before.zoom !== null && Math.abs(before.zoom - 1) > 0.01) {
-      throw new Error(
+      throw new IncompleteMeasurement(
         `page zoom is ${before.zoom} (mt#2603) — geometry is distorted, refusing to attribute`
       );
     }
@@ -278,6 +329,13 @@ async function measureMode(ws: WebSocket, mode: "sleep" | "poll"): Promise<Outco
 }
 
 function report(mode: string, outcomes: Outcome[]): void {
+  // An empty set has no rate and no distribution. `0/0` is NaN and `gains[0]` is
+  // undefined, both of which render as text that looks like a result. Say the
+  // thing that is true instead: nothing was measured.
+  if (outcomes.length === 0) {
+    console.log(`${mode.padEnd(6)}  NO RUNS RECORDED — nothing was measured for this mode.`);
+    return;
+  }
   const misses = outcomes.filter((o) => o.missed);
   const gains = outcomes.map((o) => o.gained).sort((a, b) => a - b);
   console.log(
@@ -371,7 +429,13 @@ try {
   await fetch(`${CDP}/json/close/${targetId}`);
   process.exit(0);
 } catch (err) {
-  console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
+  // Split "could not measure" from "failed", so the exit code tells the caller
+  // whether a rerun is the remedy. Both used to exit 1, which made every
+  // environment hiccup look like a broken script.
+  const incomplete = err instanceof IncompleteMeasurement;
+  console.error(
+    `${incomplete ? "INCOMPLETE" : "FAIL"}: ${err instanceof Error ? err.message : String(err)}`
+  );
   if (targetId) await fetch(`${CDP}/json/close/${targetId}`).catch(() => undefined);
-  process.exit(1);
+  process.exit(incomplete ? EXIT_INCOMPLETE : 1);
 }
