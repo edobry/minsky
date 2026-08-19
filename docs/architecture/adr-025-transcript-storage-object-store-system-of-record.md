@@ -160,7 +160,7 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
   blobs still consume the Postgres backup set (the bloat we are removing), get no independent
   HTTP-accessible URL (wanted for future cockpit direct-streaming), and cannot carry a separate
   retention/lifecycle policy (delete a session's raw without a PG migration). For a cold, immutable,
-  large-object workload these three tip to object storage. **⚠ The third leg does not hold on Supabase:
+  large-object workload these ~~three~~ **two** tip to object storage. **⚠ The third leg does not hold on Supabase:
   Supabase Storage does not support S3 lifecycle configuration either, so a retention policy is
   application code under both options — corrected 2026-08-18, see `## Corrections`.**
 - **(C) Accept lossy reconstruction from per-turn rows, fall back to JSONL.** Rejected: spike fact (1) —
