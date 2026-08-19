@@ -1010,12 +1010,14 @@ observed evidence in the spec's \`## Context\` (or a \`## Diagnosis\` section):
 3. **When the falsifier is a QUERY, the failing context is a SUBPOPULATION.** Step 2 in its
    data-shaped form: scope the query to the population the CLAIM is about. A statistic computed
    over a population in which the phenomenon is largely ABSENT is not evidence about where it is
-   PRESENT. Concretely — **before summarizing over a window, test whether the events you are
-   summarizing are uniformly distributed across it.** If they cluster, split at the cluster and
-   report per regime; a pooled statistic spanning a regime boundary is reported as such or not
-   reported at all, because it describes neither regime. Note this failure survives every check
-   step 2 imposes: the antecedent is real, the query runs against production, and the number it
-   returns is arithmetically correct.
+   PRESENT. Concretely — **before summarizing over a window, bucket the events by sub-interval
+   (day, or hour for a short window) and read the per-bucket counts.** This is not a statistical
+   test and does not need one: you are looking for a large share of the events sitting in a small
+   share of the window — visible by eye at the scale these questions arise. If they cluster, split
+   at the cluster and report per regime; a pooled statistic spanning a regime boundary is either
+   reported as such or not reported at all, because it describes neither regime. Note this failure
+   survives every check step 2 imposes: the antecedent is real, the query runs against production,
+   and the number it returns is arithmetically correct.
    (mt#1897, 2026-08-19: 30 days of per-round reviewer latency put p99 at 61s against a 120s cap,
    which became "the cap is 2x p99, so a timing-out round is stuck, not slow — do not raise the
    timeout," written into the spec as an instruction not to pursue that option. Splitting at one
