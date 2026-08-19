@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { anchorExcerpt, run, type StopHookInput } from "./turn-end-retro-scan";
-import { OVERRIDE_ENV_VAR } from "./retrospective-trigger-scanner";
+import { OVERRIDE_ENV_VAR, rungProvenance } from "./retrospective-trigger-scanner";
 import {
   flagKey,
   readFlagged,
@@ -177,12 +177,45 @@ describe("run() — firing and suppression", () => {
 // mt#4102 — the record has to say WHY it fired, and where the phrase came from
 // ---------------------------------------------------------------------------
 
+// PR #3163 R1 (BLOCKING): a raw-ENFORCED Rung-2 nomination reaches `matches`
+// without passing through the confirm stage, so it is in neither set the
+// original two-way `confirmedFamilies ? rung3 : rung1` test looked at — and got
+// labelled `rung1`, i.e. "this phrase IS the reason", for a nominated segment.
+// That is this task's own defect one level up, so it is pinned directly on the
+// classifier rather than only through `run()`.
+describe("rungProvenance — mt#4102 / PR #3163 R1", () => {
+  test("a confirmed family is rung3 and its phrase is a nomination artifact", () => {
+    expect(rungProvenance("R1", ["R1"], ["R1"])).toEqual({
+      rung: "rung3",
+      phrase_is_nomination_artifact: true,
+    });
+  });
+
+  test("an ENFORCED nomination is rung2 — not rung1 — and still an artifact", () => {
+    // Nominated, never confirmed: the only way it reached `matches` is raw
+    // enforcement. The pre-fix code returned `rung1` here.
+    expect(rungProvenance("R1", ["R1"], [])).toEqual({
+      rung: "rung2",
+      phrase_is_nomination_artifact: true,
+    });
+  });
+
+  test("a family in neither list is rung1, with no artifact flag", () => {
+    expect(rungProvenance("R1", [], [])).toEqual({ rung: "rung1" });
+  });
+
+  test("a Rung-1 family is unaffected by OTHER families being nominated", () => {
+    expect(rungProvenance("R1", ["R4"], ["R4"])).toEqual({ rung: "rung1" });
+  });
+});
+
 describe("anchorExcerpt — mt#4102", () => {
   test("a Rung-1 phrase anchors in the raw turn text", () => {
     const text = `Deploying now. ${DEPLOY_MISTAKE} Continuing.`;
     const result = anchorExcerpt(text, DEPLOY_MISTAKE);
     expect(result.text).toContain(DEPLOY_MISTAKE);
     expect(result.text).toContain("Deploying now.");
+    expect(result.surface).toBe("raw");
     expect(result.unanchoredReason).toBeUndefined();
   });
 
@@ -201,11 +234,15 @@ describe("anchorExcerpt — mt#4102", () => {
     expect(result.text).not.toBe("");
     expect(result.text).toContain("One check before I answer");
     expect(result.unanchoredReason).toBeUndefined();
+    // PR #3163 R1 (non-blocking): quoted/code spans in this excerpt are blanked,
+    // so it must not be read as raw transcript context.
+    expect(result.surface).toBe("elided");
   });
 
   test("a phrase in neither text reports WHY rather than emitting a bare empty string", () => {
     const result = anchorExcerpt("some unrelated turn text", "a phrase that is simply not present");
     expect(result.text).toBe("");
+    expect(result.surface).toBe("none");
     expect(result.unanchoredReason).toBe("phrase not found in raw or elided turn text");
   });
 });

@@ -42,6 +42,7 @@ import {
   detectTriggerPhrasesWithNomination,
   hasRetrospectiveSkillInvocation,
   OVERRIDE_ENV_VAR,
+  rungProvenance,
 } from "./retrospective-trigger-scanner";
 import type { TriggerMatch } from "./retrospective-trigger-scanner";
 import { flagKey, readFlagged, turnKeyFor, writeFlagged } from "./turn-end-scan-store";
@@ -60,6 +61,12 @@ export interface StopHookInput extends ClaudeHookInput {
 
 /** Characters of surrounding turn text kept on each side of the anchored phrase. */
 const EXCERPT_CONTEXT_CHARS = 80;
+
+/**
+ * Which text an excerpt was cut from (mt#4102). `"elided"` means quoted and code
+ * spans in it are blanked — it is the residual Rung 2 scored, not the transcript.
+ */
+export type ExcerptSurface = "raw" | "elided" | "none";
 
 /**
  * Anchor a matched phrase in the turn text and cut the surrounding excerpt.
@@ -87,7 +94,7 @@ const EXCERPT_CONTEXT_CHARS = 80;
 export function anchorExcerpt(
   text: string,
   matchedPhrase: string
-): { text: string; unanchoredReason?: string } {
+): { text: string; surface: ExcerptSurface; unanchoredReason?: string } {
   const cut = (haystack: string, idx: number): string =>
     haystack.slice(
       Math.max(0, idx - EXCERPT_CONTEXT_CHARS),
@@ -95,14 +102,15 @@ export function anchorExcerpt(
     );
 
   const rawIdx = text.indexOf(matchedPhrase);
-  if (rawIdx >= 0) return { text: cut(text, rawIdx) };
+  if (rawIdx >= 0) return { text: cut(text, rawIdx), surface: "raw" };
 
   const elided = elideQuotedAndCodeContexts(text);
   const elidedIdx = elided.indexOf(matchedPhrase);
-  if (elidedIdx >= 0) return { text: cut(elided, elidedIdx) };
+  if (elidedIdx >= 0) return { text: cut(elided, elidedIdx), surface: "elided" };
 
   return {
     text: "",
+    surface: "none",
     unanchoredReason: "phrase not found in raw or elided turn text",
   };
 }
@@ -213,10 +221,9 @@ export async function run(
   writeFlagged(sessionId, flagged, storeDir);
 
   const firstMatch = newMatches[0];
-  const confirmedFamilies = new Set<string>(detected.confirmedFamilies);
   const excerpt = firstMatch
     ? anchorExcerpt(text, firstMatch.matchedPhrase)
-    : { text: "", unanchoredReason: undefined };
+    : { text: "", surface: "none" as ExcerptSurface, unanchoredReason: undefined };
 
   return {
     calibration: {
@@ -231,22 +238,25 @@ export async function run(
       matches: newMatches.map((m) => ({
         family: m.family,
         phrase: m.matchedPhrase,
-        // mt#4102: WHERE the phrase came from, recorded per match. A Rung-1
-        // phrase IS the sentence that matched a pattern. A Rung-3 phrase is
-        // Rung 2's nominated SEGMENT, which is routinely not the sentence that
-        // justified the fire — `calibration-review` requires recovering the
-        // judged turn for exactly that reason (mt#3931 measured the
-        // classify-from-phrase error inverting the verdict 4 times out of 4).
-        // Writing both kinds identically is what let a genuine R1 admission be
-        // read as a false positive for six days and produce a wrongly-scoped
-        // tune task. Family-level is sound here: the scanner's `alreadyMatched`
-        // set means a family Rung 1 already matched is never nominated, so
-        // confirmed and Rung-1 families are disjoint within one detection.
-        ...(confirmedFamilies.has(m.family)
-          ? { rung: "rung3", phrase_is_nomination_artifact: true }
-          : { rung: "rung1" }),
+        // mt#4102: WHERE the phrase came from, recorded per match, so a
+        // reviewer knows whether it is the reason or a nomination artifact.
+        // Three-way, not two — see `rungProvenance`. PR #3163 R1: an earlier
+        // revision derived this from `confirmedFamilies` alone, which labelled
+        // a raw-ENFORCED Rung-2 nomination `rung1`. Those bypass the confirm
+        // stage entirely, so they are in neither set the two-way test looked
+        // at — mislabelling a nominated segment as a pattern hit on precisely
+        // the path where provenance is load-bearing, which is this task's own
+        // defect reproduced one level up.
+        ...rungProvenance(m.family, detected.nominatedFamilies, detected.confirmedFamilies),
       })),
       transcript_excerpt: excerpt.text,
+      // mt#4102: which TEXT the excerpt was cut from. PR #3163 R1 (non-blocking):
+      // an elided-surface excerpt has its quoted and code spans blanked, and a
+      // reader taking it for raw transcript context would misread the very
+      // records this field exists to make readable. The prompt-time sibling
+      // keeps raw/elided identity separately via `captureInjectedInput`; this
+      // is the Stop path's equivalent, inline.
+      ...(excerpt.text !== "" ? { transcript_excerpt_surface: excerpt.surface } : {}),
       // mt#4102: an empty excerpt used to be indistinguishable from "no
       // context was available"; now it names which anchoring attempts failed.
       ...(excerpt.unanchoredReason !== undefined
