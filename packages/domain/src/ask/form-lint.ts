@@ -154,6 +154,77 @@ export const INCIDENT_VOCABULARY_PATTERN =
   /\b(outage|down|credits|failing|production|incident|429)\b/i;
 
 /**
+ * Prose by which an incident ask asserts its condition will NOT clear on its
+ * own (mt#4315) — matched case-insensitively against the question body.
+ *
+ * ## Why the trigger is the ASSERTION, not a missing observation window
+ *
+ * mt#4315 was specced to fire on an assertion made WITHOUT stating how long the
+ * author watched, on the theory that seeing "I watched this for 5 minutes"
+ * beside "it will not clear on its own" would prompt the author to reconsider.
+ * Planning measured that against the corpus and it does not hold: both
+ * originating asks stated their window, adjacently and prominently, and
+ * escalated anyway.
+ *
+ * - ask#9278: *"already held ~14 min with no sign of clearing"*
+ * - ask#9279: *"count held at exactly 16 across ~5 minutes while ages advanced
+ *   576s->858s"*
+ *
+ * Both conditions drained on their own roughly twenty minutes later. Neither
+ * claim was careless — each was accurate about the window measured and wrong as
+ * a PREDICTION, because the drain timescale exceeded the observation. A check
+ * keyed on the missing window would have fired on neither, which is a measured
+ * fire rate of 0 across every incident ask that has ever existed.
+ *
+ * So this fires on the assertion itself and says the thing the window was
+ * supposed to prompt: it is a prediction beyond any window you can have
+ * measured, and `work-completion.mdc §External self-resolving waits` calls that
+ * category (b) — arm a watcher, keep working, do not escalate.
+ *
+ * ## Corpus and fire rate (measured 2026-08-19, re-runnable)
+ *
+ * Corpus: all 12 asks with `severity: "incident"`, 2026-08-05 → 2026-08-19 —
+ * every one that has ever existed. This pattern matches **2 of 12**: ask#9278
+ * and ask#9279. The other 10 do not make the claim at all, and they span
+ * `authorization.approve`, `capability.escalate`, `direction.decide` and
+ * `coordination.notify`.
+ *
+ * **Read the ask#9278 fire precisely — it is not what it looks like.** Its
+ * STORED question is the RESOLVED rewrite, and the phrase that matches there is
+ * the correction quoting its own earlier claim: *I said the wedged connections
+ * showed "no sign of clearing."* The original assertion is gone from the record
+ * (edited twice; `editHistory` keeps field names, not prior values), so the live
+ * sweep's ask#9278 fire is coincidental. The pinned fixture in
+ * `form-lint.self-resolving-claim.test.ts` carries the real original, recovered
+ * from the authoring transcript, and it fires on `will not reap`.
+ *
+ * That coincidence names a real false-positive class: **an ask that QUOTES a
+ * prior persistence claim in order to RETRACT it will fire.** Accepted rather
+ * than patched — the check is advisory, a retraction is exactly where the
+ * category-(b) reminder is harmless, and a "unless it appears inside a quote"
+ * carve-out is the arms-race move this docblock argues against below.
+ *
+ * **The 2 positives are partly circular** — the pattern was written from those
+ * two cases, so their recall is fitted rather than predicted. The 10 negatives
+ * are the load-bearing half: they are the no-over-fire evidence. Re-measure
+ * rather than trusting these numbers:
+ * `bun scripts/verify-self-resolving-claim-check.ts`.
+ *
+ * ## Known false-negative class, stated rather than discovered later
+ *
+ * An author who asserts persistence WITHOUT this vocabulary — by implication,
+ * or by describing a flat measurement and letting the reader conclude it —
+ * produces no match. That is deliberate: the alternative is a phrase set that
+ * grows one family per miss, which is the arms race ADR-024 §Context describes.
+ * ADR-024 does not GOVERN this surface (its ladder scopes to `UserPromptSubmit`
+ * guidance hooks, and this is a domain check at `asks.create`), so its rungs are
+ * not available here — but its reasoning is why this set is deliberately small
+ * and why a miss should be answered by re-measuring, not by appending.
+ */
+export const NOT_SELF_RESOLVING_PATTERN =
+  /\b(wedged,?\s+not\s+(transient|draining)|not\s+(self.?resolving|transient|draining|clearing)|no\s+sign\s+of\s+clearing|will\s+not\s+(reap|clear|resolve|drain)|won'?t\s+(reap|clear|resolve|drain)|do(es)?\s+not\s+self.?clear|held\s+steady)\b/i;
+
+/**
  * The AskKinds this check's severity-transport rule applies to (mt#3436):
  * both are operator-only-shaped by design (`authorization.approve` routes
  * to the operator; `stuck.unblock` per `types.ts`'s kind table escalates
@@ -254,7 +325,8 @@ export type FormLintCheck =
   | "missing-decision-options"
   | "unlinkified-reference"
   | "unscoped-option-exception"
-  | "duplicate-open-incident";
+  | "duplicate-open-incident"
+  | "asserted-not-self-resolving";
 
 /**
  * Markers that only appear in a question when the tool call's own parameter
@@ -674,6 +746,33 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
           `different incident, say so and proceed`,
       });
     }
+  }
+
+  // mt#4315: an incident-marked ask asserting its condition will not clear on
+  // its own. Sibling of the check above and its other half — that one asks "has
+  // this already been raised?", this one asks "is the basis for raising it
+  // sound?". Advisory permanently, on the same direction-of-error argument: a
+  // suppressed real incident is worse than a warning the author overrides.
+  //
+  // Deliberately NOT conditioned on whether a window is stated. See
+  // NOT_SELF_RESOLVING_PATTERN's docblock — both originating asks stated one and
+  // escalated anyway, so keying on its absence measures 0 across the corpus.
+  if (severity === "incident" && NOT_SELF_RESOLVING_PATTERN.test(question)) {
+    matches.push({
+      check: "asserted-not-self-resolving",
+      message:
+        `this ask asserts the condition will not clear on its own. That is a PREDICTION, and it ` +
+        `reaches past any window you can have measured — the two asks that produced this check ` +
+        `each stated theirs (~14 minutes and ~5 minutes), and both conditions drained on their ` +
+        `own about twenty minutes later. Stating a longer window does not answer this; the drain ` +
+        `timescale is simply not observable from inside the outage. If the condition is external ` +
+        `and could resolve without you — a pool draining, a service restarting, CI finishing, a ` +
+        `rate limit resetting — that is category (b) in work-completion.mdc §External ` +
+        `self-resolving waits: arm a watcher and keep working rather than escalating. If you ` +
+        `have already armed one, or the condition genuinely cannot self-resolve (a revoked ` +
+        `credential, an exhausted quota, a permission that was never granted), say which in the ` +
+        `question and proceed`,
+    });
   }
 
   return matches;

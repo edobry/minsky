@@ -999,7 +999,15 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
       // incident page, which is strictly worse than the duplicate page it would
       // prevent — the whole subsystem exists to get the principal's attention
       // when it is warranted. Fire, name the other ask, let the author decide.
-      m.check !== "duplicate-open-incident"
+      m.check !== "duplicate-open-incident" &&
+      // mt#4315: advisory permanently, for the same reason as the check above
+      // and one of its own. Whether a condition will self-resolve is a
+      // PREDICTION about an external system — not something the author can
+      // settle before filing, and not something a matcher can adjudicate. The
+      // warning's job is to put category (b) in front of the author at the
+      // moment of escalation; blocking would let a wrong guess about someone
+      // else's infrastructure withhold a real page from the principal.
+      m.check !== "asserted-not-self-resolving"
   );
 }
 
