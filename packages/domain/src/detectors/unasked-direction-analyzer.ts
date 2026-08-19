@@ -519,6 +519,21 @@ export class UnaskedDirectionAnalyzer {
       provider: ANALYZER_PROVIDER,
       temperature: 0.2,
       maxTokens: MAX_TOKENS,
+      // mt#4317: ask for the object as a TOOL CALL rather than a JSON document.
+      //
+      // This analyzer lost a large minority of its live runs to the model returning a
+      // well-formed object MISSING a field the schema marks required — 17 of 39 full-window
+      // runs, flat across a 6x token-budget range, and once missing `findings`, the FIRST
+      // property, which truncation cannot produce. The emitted JSON Schema does carry
+      // `required: ["findings","summary"]`, so the model was being told and not complying.
+      //
+      // In `"tool"` mode the schema becomes a tool signature and the PROVIDER enforces the
+      // argument shape, instead of the model having to remember to fill every field of a free
+      // JSON document. That is the same move Minsky already made for the reviewer — see the
+      // position paper "Reviewer output as a structured channel", which argues that scraping a
+      // structured artifact out of a channel that must be parsed back is a channel mismatch
+      // rather than something to tune past, and answers it with output tools.
+      mode: "tool",
     });
 
     const output = result as AnalyzerOutput;

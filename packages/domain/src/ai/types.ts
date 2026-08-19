@@ -106,6 +106,19 @@ export interface AIObjectGenerationRequest {
   provider?: string;
   prompt?: string;
   maxTokens?: number;
+  /**
+   * Structured-output strategy the AI SDK uses to obtain the object (mt#4317).
+   *
+   * `"json"` asks the model to emit a JSON document matching the schema; `"tool"` exposes the
+   * schema as a TOOL the model calls, so the provider enforces the argument shape rather than
+   * the model remembering to. `"auto"` (the SDK default when this is unset, and what Minsky ran
+   * until mt#4317) lets the SDK pick.
+   *
+   * Exposed as a request field rather than hardcoded because the right strategy is a property
+   * of the SCHEMA being asked for, not of the service. mt#4317 measured one consumer whose
+   * schema the model kept under-filling; the others are untouched until they are measured too.
+   */
+  mode?: "auto" | "json" | "tool";
 }
 
 /**
