@@ -52,6 +52,9 @@ import {
   collisionParagraphs,
   citedPrNumbers,
   extractAuthoredSpecText,
+  remainingWorkParagraphs,
+  remainingWorkSubjects,
+  targetTaskId,
 } from "../.minsky/hooks/claim-provenance-scan";
 import type { DispatchContext } from "../.minsky/hooks/registry";
 import type { ToolHookInput } from "../.minsky/hooks/types";
@@ -89,7 +92,7 @@ const HOST_CAP_SEC = readHostCapSec();
 interface Tally {
   /** Calls carrying authored spec text at all. */
   considered: number;
-  /** Calls whose text carried a collision or ownership claim. */
+  /** Calls whose text carried a recognized claim of any class. */
   claims: number;
   /** Claims with no discharging call in the prefix — the guard injects here. */
   fired: number;
@@ -97,9 +100,32 @@ interface Tally {
   discharged: number;
   /** Claims the guard declined to adjudicate (no transcript prefix). */
   skipped: number;
+  /**
+   * Fires broken out by CLASS (mt#4299).
+   *
+   * An aggregate count cannot answer the question a new class's posture decision
+   * turns on — "how often does THIS one fire, and are those fires true?" — and
+   * the guard now carries three. A fire naming two classes increments both, so
+   * these sum to at least `fired` rather than exactly it.
+   */
+  firedByKind: Record<string, number>;
 }
 
-const EMPTY: Tally = { considered: 0, claims: 0, fired: 0, discharged: 0, skipped: 0 };
+/**
+ * A FACTORY, not a shared constant — the tally now holds a nested object.
+ *
+ * This was `const EMPTY: Tally = {…}` spread with `{ ...EMPTY }` at both call
+ * sites, which is a SHALLOW copy: every per-transcript tally aliased the one
+ * `firedByKind` object hanging off the constant, so each fire accumulated into
+ * it globally and `add()` then re-summed the same growing object once per file.
+ * The first sweep reported 18 fires and 319 class-fires — arithmetic that cannot
+ * happen, which is the only reason it was visible at all. Had the corpus been
+ * smaller the inflated numbers would have looked plausible and gone straight
+ * into a posture decision.
+ */
+function emptyTally(): Tally {
+  return { considered: 0, claims: 0, fired: 0, discharged: 0, skipped: 0, firedByKind: {} };
+}
 
 /**
  * Tool names this guard is registered on, normalized the way it normalizes.
@@ -167,8 +193,17 @@ interface ReportOptions {
  */
 const MAX_PARAGRAPH_CHARS = 900;
 
+/** One offending paragraph, labelled with the class that flagged it. */
+function printParagraph(label: string, para: string): void {
+  const trimmed = para.trim();
+  const shown =
+    trimmed.length > MAX_PARAGRAPH_CHARS ? `${trimmed.slice(0, MAX_PARAGRAPH_CHARS)}…` : trimmed;
+  process.stdout.write(`        --- ${label} paragraph ---\n`);
+  for (const line of shown.split("\n")) process.stdout.write(`        ${line}\n`);
+}
+
 function replayOne(path: string, opts: ReportOptions): Tally {
-  const tally: Tally = { ...EMPTY };
+  const tally: Tally = emptyTally();
   const lines = parseTranscript(path);
   for (const target of findTargets(lines)) {
     // The PREFIX, not the whole file — see the header.
@@ -203,8 +238,16 @@ function replayOne(path: string, opts: ReportOptions): Tally {
     if (verdict === "clean" && reason === "no provenance-bearing claim") continue;
     tally.claims += 1;
 
-    if (verdict === "matched") tally.fired += 1;
-    else if (verdict === "clean") tally.discharged += 1;
+    if (verdict === "matched") {
+      tally.fired += 1;
+      const kinds = Array.isArray(cal?.["kinds"]) ? (cal["kinds"] as string[]) : [];
+      // An unlabelled fire is counted under an explicit bucket rather than
+      // dropped: a class breakdown that silently loses rows would understate the
+      // very number the posture decision reads.
+      for (const kind of kinds.length > 0 ? kinds : ["(unlabelled)"]) {
+        tally.firedByKind[kind] = (tally.firedByKind[kind] ?? 0) + 1;
+      }
+    } else if (verdict === "clean") tally.discharged += 1;
     else tally.skipped += 1;
 
     if ((opts.list || opts.detail) && verdict === "matched") {
@@ -224,13 +267,17 @@ function replayOne(path: string, opts: ReportOptions): Tally {
           `        citedPRs: ${cited.length > 0 ? cited.join(",") : "(none)"}\n`
         );
         for (const para of collisionParagraphs(text)) {
-          const trimmed = para.trim();
-          const shown =
-            trimmed.length > MAX_PARAGRAPH_CHARS
-              ? `${trimmed.slice(0, MAX_PARAGRAPH_CHARS)}…`
-              : trimmed;
-          process.stdout.write(`        --- collision paragraph ---\n`);
-          for (const line of shown.split("\n")) process.stdout.write(`        ${line}\n`);
+          printParagraph("collision", para);
+        }
+        // The remaining-work class prints its resolved SUBJECTS alongside the
+        // prose (mt#4299). Without them a reader cannot tell an explicit-id claim
+        // from a deictic one resolved against the write's own target — which is
+        // the single judgement hand-classifying this class turns on.
+        const ownTaskId = targetTaskId(target.input);
+        for (const para of remainingWorkParagraphs(text)) {
+          const subjects = remainingWorkSubjects(para, ownTaskId);
+          if (subjects.length === 0) continue;
+          printParagraph(`remaining-work subjects=${subjects.join(",")}`, para);
         }
       }
     }
@@ -239,12 +286,17 @@ function replayOne(path: string, opts: ReportOptions): Tally {
 }
 
 function add(a: Tally, b: Tally): Tally {
+  const firedByKind: Record<string, number> = { ...a.firedByKind };
+  for (const [kind, n] of Object.entries(b.firedByKind)) {
+    firedByKind[kind] = (firedByKind[kind] ?? 0) + n;
+  }
   return {
     considered: a.considered + b.considered,
     claims: a.claims + b.claims,
     fired: a.fired + b.fired,
     discharged: a.discharged + b.discharged,
     skipped: a.skipped + b.skipped,
+    firedByKind,
   };
 }
 
@@ -259,6 +311,15 @@ function report(label: string, t: Tally): void {
       `  not adjudicable             : ${t.skipped}\n` +
       `  fire rate over claims       : ${rate}\n`
   );
+  // Printed even when empty, and that is the point: a class with ZERO fires is a
+  // finding (the ownership half's zero is what mt#4190 §SC4 had to explain), and
+  // omitting the line would make "did not fire" indistinguishable from "was not
+  // measured".
+  const kinds = Object.keys(t.firedByKind).sort();
+  process.stdout.write(`  fires by class              : ${kinds.length === 0 ? "(none)" : ""}\n`);
+  for (const kind of kinds) {
+    process.stdout.write(`    ${kind.padEnd(28)}: ${t.firedByKind[kind]}\n`);
+  }
 }
 
 const argv = process.argv.slice(2);
@@ -315,7 +376,7 @@ if (sweepAt !== -1) {
     exclude === null ? windowed : windowed.filter((p) => !basename(p).includes(exclude));
   const dropped = windowed.length - files.length;
 
-  let total: Tally = { ...EMPTY };
+  let total: Tally = emptyTally();
   for (const f of files) {
     try {
       total = add(total, replayOne(f, reportOptions));
