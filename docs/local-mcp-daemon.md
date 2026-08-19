@@ -127,6 +127,9 @@ contract:
   and adopts it only when the body asserts `service: "minsky-mcp"`. A 200 alone is not enough —
   every Minsky service answers `/health` the same way, and mt#3142 is the incident where that
   mattered.
+- **Readiness, separately from liveness.** `/health` carries a `ready` boolean alongside `status`.
+  They answer different questions and both are load-bearing: `status` (and the status code) says the
+  process booted; `ready` says it can serve DB-backed work. See §Liveness is not readiness.
 - **A `0600` bearer token** at `~/.config/minsky/local-mcp-token`, minted once and read by both the
   daemon and the shim. It is never rewritten, because rewriting it would invalidate the token every
   running shim already holds.
@@ -136,6 +139,32 @@ contract:
 
 `minsky setup local-http --execute` starts the daemon itself if nothing is already serving, so a
 migrated config is never left pointing at nothing.
+
+### Liveness is not readiness
+
+Check readiness before pointing anything at the daemon:
+
+```bash
+curl -s 127.0.0.1:48765/health | jq '.ready, .persistence.mode'
+# ready to serve:   true   "connected"
+# booted, no DB:    false  "unconfigured"
+```
+
+**A 200 does not mean the daemon can do anything.** `persistence.mode: "unconfigured"` is reported
+as _healthy_ on purpose — it is the expected offline/dev boot, and the `bundle-boot-smoke` CI gate
+asserts exactly that 200. So the status code cannot be the readiness signal without breaking a gate
+that depends on it, which is why `ready` exists as a separate field.
+
+The gap that produced it (mt#4297): a tray-supervised daemon ran for 31 hours serving `/health` 200
+with the right `service` identity and no database at all. Nothing was wrong with the endpoint — it
+was answering the question it was asked. Every DB-backed tool call against that daemon would have
+failed at call time, while the connection itself looked healthy, because tool registration does not
+need the database. Triage from a green connection points everywhere except the daemon.
+
+**`minsky setup local-http --execute` now refuses to migrate onto a not-ready daemon**, before it
+writes anything. That is the check that must fail loudly, rather than the operator discovering it
+when conversations start failing. A daemon built before `ready` existed is judged on
+`persistence.mode` instead, so an older daemon is classified correctly rather than refused outright.
 
 ### Which repo the daemon binds
 
@@ -152,6 +181,11 @@ command.
 **It refuses to start the daemon, naming something else on the port.** Another application holds
 `48765` and does not identify as `minsky-mcp`. Stop it and re-run; the command will not spawn a
 daemon that would lose the bind race and leave your config pointing at someone else's server.
+
+**It refuses to migrate, saying the daemon cannot reach the database.** The daemon on the port is a
+real `minsky-mcp` daemon but reports `ready: false` — it booted without a persistence provider, so
+its DB-backed tools would fail at call time. Nothing was written. Restart the daemon (the tray
+supervises it) and re-run once `/health` reports `"ready": true`. See §Liveness is not readiness.
 
 **A conversation still spawns the old server.** Claude Code reads the config at conversation start.
 Restart the conversation.
