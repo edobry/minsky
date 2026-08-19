@@ -461,8 +461,8 @@ async function persistUnrecoverableVerdict(
   row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
   reason: string,
   deps: LoadPersistedDrivenSessionsDeps
-): Promise<void> {
-  await persistBootTerminalVerdict(
+): Promise<boolean> {
+  return persistBootTerminalVerdict(
     db,
     row,
     { status: "unrecoverable", unrecoverableReason: reason, describedAs: "unrecoverable verdict" },
@@ -504,12 +504,12 @@ async function persistActuatorGoneVerdict(
   row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
   verdict: Extract<ProcessIdentityVerdict, "gone" | "not-ours">,
   deps: LoadPersistedDrivenSessionsDeps
-): Promise<void> {
+): Promise<boolean> {
   const because =
     verdict === "gone"
       ? `no process at recorded pid ${row.pid}`
       : `pid ${row.pid} was reused by an unrelated process`;
-  await persistBootTerminalVerdict(
+  return persistBootTerminalVerdict(
     db,
     row,
     {
@@ -553,13 +553,23 @@ interface BootTerminalVerdict {
  * abort startup. The cost of a miss is one more re-read next boot — the exact
  * status quo this fixes — which is strictly better than a daemon that will not
  * start.
+ *
+ * **Returns whether the write actually LANDED (PR #3126 R1, BLOCKING).**
+ * Non-throwing and best-effort are properties of the CONTROL FLOW; they are not
+ * a licence to keep the outcome from the caller. This used to return `void`
+ * while catching its own failure, so a caller could only assume success — and
+ * `reconcilePersistedDrivenSessions` did exactly that, counting a row as
+ * `retired` and rendering "retired N" in the operator's one boot line when the
+ * upsert had timed out and the row would be re-read on the very next boot. A
+ * swallowed error plus a `void` return is how a report comes to assert
+ * something nobody checked.
  */
 async function persistBootTerminalVerdict(
   db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
   row: import("@minsky/domain/storage/schemas/driven-sessions-schema").DrivenSessionRow,
   verdict: BootTerminalVerdict,
   deps: LoadPersistedDrivenSessionsDeps
-): Promise<void> {
+): Promise<boolean> {
   try {
     const upsert =
       deps.persistTerminalVerdict ??
@@ -586,11 +596,13 @@ async function persistBootTerminalVerdict(
       `[driven-session] boot reconciliation: persisted ${verdict.describedAs} for ${row.localId} ` +
         `(it will no longer be re-read at boot)`
     );
+    return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
       `[driven-session] could not persist the ${verdict.describedAs} for ${row.localId}: ${message}`
     );
+    return false;
   }
 }
 
@@ -632,7 +644,15 @@ export type ReconciliationOutcome =
        * once rendered identically.
        */
       count: number;
-      /** Rows persisted `exited` because their actuator was gone (mt#4255). */
+      /**
+       * Rows CONFIRMED persisted `exited` because their actuator was gone
+       * (mt#4255).
+       *
+       * Confirmed, not attempted (PR #3126 R1): a row whose write timed out or
+       * failed is counted in neither `retired` nor a silent gap — it is
+       * registered normally and its stage appears in `degraded`, because the
+       * database still holds it non-terminal and the next boot will re-read it.
+       */
       retired: number;
       degraded: ReconcileStage[];
     }
@@ -916,14 +936,28 @@ export async function reconcilePersistedDrivenSessions(
         // the same state as the 55 rows already sitting terminal in this table.
         // Skipping registration is what makes the phantom disappear on THIS
         // boot rather than the next one.
+        //
+        // BOTH of those depend on the write actually LANDING (PR #3126 R1,
+        // BLOCKING), so neither happens until it is confirmed. An unconfirmed
+        // write leaves the row non-terminal in the database, which means the
+        // next boot re-reads it — so counting it `retired` would put a claim in
+        // the operator's one boot line ("retired N") that the durable state
+        // contradicts, and skipping registration would additionally hide a row
+        // that is still live as far as persistence is concerned. On a failure
+        // this falls through to the ordinary registration below, leaving the
+        // registry consistent with what is actually stored and recording the
+        // stage in `degraded`.
         const verdict = await raceAgainstTimeout(
           persistActuatorGoneVerdict(db, row, actuatorVerdict, deps),
           rowTimeoutMs,
           deps.timeoutSignal
         );
-        if (verdict.timedOut) degraded.push("persist-verdict");
-        retired += 1;
-        continue;
+        if (verdict.timedOut || !verdict.value) {
+          degraded.push("persist-verdict");
+        } else {
+          retired += 1;
+          continue;
+        }
       }
       const record = buildReconnectingDrivenSessionRecord({
         localId: row.localId,

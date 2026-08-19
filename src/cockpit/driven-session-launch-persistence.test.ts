@@ -1259,6 +1259,55 @@ describe("boot reconciliation retires a row whose actuator is gone (mt#4255)", (
     expect(second.kind).toBe("empty");
   });
 
+  test("R1 — a persist that FAILS is not counted retired, and the row is registered", async () => {
+    // PR #3126 R1 (BLOCKING). The write is best-effort and swallows its own
+    // error, so before this the loop counted the row `retired` and skipped
+    // registering it regardless — putting "retired N" in the operator's one
+    // boot line for a row the database still held non-terminal and would re-read
+    // on the very next boot. Both halves are now gated on a confirmed write.
+    const registry = new DrivenSessionRegistry();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict: async () => {
+        throw new Error("simulated upsert failure");
+      },
+      probeActuator: async () => "gone",
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    // The claim the operator reads must match what is durably true.
+    expect(outcome.retired).toBe(0);
+    expect(outcome.degraded).toContain("persist-verdict");
+    // Registered, because persistence still holds it non-terminal — hiding it
+    // would desynchronize the registry from the row set the next boot reads.
+    expect(outcome.count).toBe(1);
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+  });
+
+  test("R1 — a persist that TIMES OUT is not counted retired either", async () => {
+    const registry = new DrivenSessionRegistry();
+
+    const outcome = await reconcilePersistedDrivenSessions({
+      getDb: async () => FAKE_DB,
+      listNonTerminal: async () => [LIVE_SHAPED_ROW],
+      registry,
+      persistTerminalVerdict: () => neverSettles<"written">(),
+      probeActuator: async () => "gone",
+      rowTimeoutMs: 5_000,
+      // Race 5: 1 resolve-db, 2 list-rows, 3 cwd probe, 4 actuator probe,
+      // 5 the verdict write.
+      timeoutSignal: tripRace(5),
+    });
+
+    if (outcome.kind !== "loaded") throw new Error("unreachable");
+    expect(outcome.retired).toBe(0);
+    expect(outcome.degraded).toContain("persist-verdict");
+    expect(registry.get("local-1")?.status).toBe("reconnecting");
+  });
+
   test("a MIXED batch splits correctly between count and retired", async () => {
     // Every other test here runs one row, where `count = rows.length - retired`
     // is right for either value and an off-by-one is invisible. This is the
