@@ -102,7 +102,66 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
 }
 
 /**
- * PR numbers whose changed-file list was actually read in this session.
+ * The SAME read, performed through the shell (mt#4190).
+ *
+ * `isPrFileListCall` recognizes exactly one spelling — the `pull_request_read`
+ * MCP tool — and the corpus demonstrably does not always use it. Two verbatim
+ * examples from fired specs, both gate-(g) work done correctly:
+ *
+ *   "Open PRs read via `gh api .../files`: #3070 … #3068 … #2945 …"
+ *   "PR #3098 via `get_files`, the other 11 via `git diff --name-only …`"
+ *
+ * The fallback is not a stylistic preference. mt#3779 records the standing
+ * cause: the github MCP server dies when the Docker daemon is down and
+ * `pull_request_read` answers "No such tool available", so the shell is what is
+ * left. A guard blind to it fires hardest at the authors doing the most careful
+ * parallel-work checking — the dangerous direction this module's header names,
+ * and the reason every discharge recognizer here is deliberately generous.
+ *
+ * The PR NUMBER is extracted rather than the call merely counted, so the join
+ * stays PR-specific. A read that cannot be tied to a number does not belong
+ * here; it discharges the merge-shaped claim below instead.
+ */
+/**
+ * Held as SOURCE STRINGS, and compiled fresh on each call (PR #3139 R1).
+ *
+ * A module-level `g`-flagged literal carries mutable `lastIndex` state shared by
+ * every caller. Today nothing here advances it — `matchAll` clones the regex
+ * rather than stepping the original, so repeated calls return identical results,
+ * and the reported skip does not reproduce. But that safety is a property of
+ * WHICH METHOD the call site happens to use: swap one `matchAll` for `.test()`
+ * or `.exec()` later and the shared state starts stepping, silently, in a
+ * discharge recognizer whose failure direction is firing at an author who did
+ * the work.
+ *
+ * Compiling per call removes the class instead of documenting it. The cost is a
+ * regex construction on a path that runs once per tool call in a transcript
+ * scan; the benefit is that no future edit to this function can reintroduce it.
+ */
+const CLI_PR_FILE_LIST_SOURCES: readonly string[] = [
+  // `gh api repos/<owner>/<repo>/pulls/<N>/files`, quoted or not, with or
+  // without a query string.
+  String.raw`\bgh\s+api\s+\S*?\bpulls\/(\d+)\/files`,
+  // `gh pr diff <N> --name-only` / `gh pr view <N> --json files`.
+  String.raw`\bgh\s+pr\s+(?:diff|view)\s+(\d+)\b[^\n]*?(?:--name-only|--json\s+[\w,]*files)`,
+];
+
+export function prNumbersFromCommandFileListRead(call: ToolCallWithResult): number[] {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  const out: number[] = [];
+  for (const source of CLI_PR_FILE_LIST_SOURCES) {
+    for (const m of command.matchAll(new RegExp(source, "gi"))) {
+      const n = Number.parseInt(m[1] ?? "", 10);
+      if (Number.isInteger(n)) out.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * PR numbers whose changed-file list was actually read in this session, through
+ * the MCP tool OR the shell.
  *
  * Returning the SET rather than a boolean is what makes the join specific: a
  * collision claim names a PR, and reading a DIFFERENT PR's files is not
@@ -112,9 +171,12 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
 export function prNumbersWithFileListRead(calls: readonly ToolCallWithResult[]): Set<number> {
   const out = new Set<number>();
   for (const call of calls) {
-    if (!isPrFileListCall(call)) continue;
-    const n = call.input["pullNumber"];
-    if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+    if (isPrFileListCall(call)) {
+      const n = call.input["pullNumber"];
+      if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+      continue;
+    }
+    for (const n of prNumbersFromCommandFileListRead(call)) out.add(n);
   }
   return out;
 }
@@ -134,9 +196,29 @@ export function isPathFilteredGitLogCall(call: ToolCallWithResult): boolean {
   return (typeof path === "string" && path !== "") || (typeof grep === "string" && grep !== "");
 }
 
+/**
+ * A branch-range file listing: `git diff --name-only <ref>...<ref>`.
+ *
+ * The same evidence class as the path-filtered `git_log` above — a file-level
+ * read of what some other work touched — reached through the shell. It names no
+ * PR, so it cannot discharge a claim ABOUT a numbered PR; it discharges the
+ * merge-shaped claim, which is exactly what `git_log --path` already does.
+ *
+ * The `--name-only` (or `--name-status`) flag is required. A plain `git diff`
+ * prints hunks and is used for a hundred unrelated reasons; the name-listing
+ * flags are what make the call a changed-file enumeration.
+ */
+const BRANCH_RANGE_FILE_DIFF_RE = /\bgit\s+diff\b[^\n]*--name-(?:only|status)\b/i;
+
+export function isBranchRangeFileDiffCall(call: ToolCallWithResult): boolean {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return false;
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  return BRANCH_RANGE_FILE_DIFF_RE.test(command);
+}
+
 /** True when any call in the transcript read a merge's file-level history. */
 export function sessionReadMergeHistory(calls: readonly ToolCallWithResult[]): boolean {
-  return calls.some(isPathFilteredGitLogCall);
+  return calls.some((c) => isPathFilteredGitLogCall(c) || isBranchRangeFileDiffCall(c));
 }
 
 // ---------------------------------------------------------------------------
