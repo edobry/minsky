@@ -336,6 +336,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "enumeration-scope-check",
+    {
+      description:
+        'Records when a PR changes a SERIALIZED contract — a `contract/*.json` fixture, a generated manifest, a `-shape.json` — and the session\'s consumer sweep never reached `docs/`, which gate (h) prescribes for that change type. The strictly stronger sibling of the did-a-search-happen guards: every recorded gate-(h) failure DID sweep and missed a prescribed directory. mt#4252 produced a correct six-row consumer table, ruled the Rust side out by reading `rustConsumedFields` rather than assuming, and grepped `docs/architecture/adr-*.md` — a glob that structurally could not reach `docs/principal-channel.md`, whose own "exhaustive per variant" sentence the change made false. Reviewer-confirmed BLOCKING on PR #3101. Record-only: 14 decided of 1134 PR-creates over 589 transcripts, 5 flagged.',
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("enumeration-scope-check"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "claim-provenance-scan",
     {
       description:
@@ -392,6 +402,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records a Bash or `session_exec` command string that pipes an outcome-bearing command (`session commit|update|pr create|pr merge`, `git push`) into `tail`/`head`, discarding the `pushed`/`pushUnconfirmed` fields a later claim rests on. Positional truncation only: `grep`/`jq` never fire, because a targeted field read is the remedy rather than the defect.",
       failureClasses: ["unfounded-claim"],
       provenance: [hook("truncated-outcome-read-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "nonexistent-search-path",
+    {
+      description:
+        "Records a Bash or `session_exec` search (`grep`/`rg`/`find`) whose PATH ARGUMENT does not exist. Such a search prints nothing, exactly like one that legitimately found nothing, and `2>/dev/null` deletes the stderr line separating them — so the empty result reads as an answer and the next claim asserts a false absence. The exit code does distinguish the two, but no hook can read it: Claude Code's `Bash` response carries only stdout, stderr, interrupted and isImage. Hence a pre-run stat. Stays silent whenever a path is not statically resolvable — a glob, a variable, a relative path under `session_exec` or behind a `cd` — because guessing is the very error this guard exists to prevent.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("nonexistent-search-path-detector"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],
@@ -681,6 +701,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
         "Records a turn-end report that violates the Tier-1 shape — over the word budget, or leading with a process-internal label instead of plain language.",
       failureClasses: ["lost-signal"],
       provenance: [hook("wall-of-text-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
+    "context-fill-gauge",
+    {
+      description:
+        "Records the session's own context fill against the model's window, every turn, alongside the turn count. The model has no introspective access to its token count, so this is the only channel that can supply one. Display-only: it reports and acts on nothing.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("context-fill-gauge"), HOOK_OBSERVERS_RULE],
       stratum: "registry",
     },
   ],

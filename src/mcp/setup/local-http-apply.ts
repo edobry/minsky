@@ -158,11 +158,38 @@ export function revertFromBackups(
  * application. mt#3142 is why identity is asserted rather than a 200 accepted
  * — every Minsky service answers `/health` the same way.
  */
-export type DaemonState = "running" | "absent" | "foreign";
+export type DaemonState = "running" | "absent" | "foreign" | "not-ready";
 
 export interface DaemonStatus {
   state: DaemonState;
   detail: string;
+}
+
+/**
+ * Is an identity-matching daemon actually able to serve DB-backed work?
+ *
+ * mt#4297: reads `ready` when present, and falls back to `persistence.mode` for
+ * a daemon predating that field. The fallback is what makes this safe to ship —
+ * keying on `ready` alone would classify EVERY daemon built before this change
+ * as not-ready, including during the rollout window, which turns a safety check
+ * into an outage. `persistence.mode` has been in the payload all along.
+ *
+ * Returns `undefined` when neither signal is present, which the caller treats as
+ * "cannot tell" rather than "not ready" — refusing on a payload we cannot parse
+ * would be the same over-reach in a different disguise.
+ */
+function readDaemonReadiness(body: unknown): boolean | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const record = body as Record<string, unknown>;
+
+  if (typeof record.ready === "boolean") return record.ready;
+
+  const persistence = record.persistence;
+  if (typeof persistence === "object" && persistence !== null) {
+    const mode = (persistence as Record<string, unknown>).mode;
+    if (typeof mode === "string") return mode === "connected";
+  }
+  return undefined;
 }
 
 export function classifyDaemonProbe(probe: HealthProbeOutcome): DaemonStatus {
@@ -174,6 +201,20 @@ export function classifyDaemonProbe(probe: HealthProbeOutcome): DaemonStatus {
   }
   const result = assertServiceIdentity(probe.body, SERVICE_IDENTITIES.mcp);
   if (result.ok) {
+    // mt#4297: identity is necessary and NOT sufficient. A Minsky MCP daemon
+    // with no persistence provider answers /health 200 with the right identity
+    // and cannot serve a single DB-backed tool call — the state this check
+    // exists to refuse, observed live for 31h before anything noticed. Adopting
+    // it would point every conversation at a Minsky whose tools fail.
+    if (readDaemonReadiness(probe.body) === false) {
+      return {
+        state: "not-ready",
+        detail:
+          `a ${result.service} daemon is serving the port but reports it cannot reach the ` +
+          `database — adopting it would migrate every conversation onto a daemon whose ` +
+          `DB-backed tools fail at call time`,
+      };
+    }
     return { state: "running", detail: `a ${result.service} daemon is already serving the port` };
   }
   return { state: "foreign", detail: describeHealthIdentityResult(result) };
@@ -362,6 +403,18 @@ export async function ensureDaemonRunning(
         `else — ${initial.detail}. Stop it first, then re-run.`
     );
   }
+  // mt#4297: must be refused BEFORE the spawn below, and separately from
+  // `foreign`. Falling through would spawn a second daemon against a port the
+  // incumbent still holds — it loses the bind race, adopts the incumbent and
+  // exits (ADR-014, one owner per port), and the migration proceeds onto the
+  // very daemon this check identified as unable to serve.
+  if (initial.state === "not-ready") {
+    throw new ConfigWriteError(
+      `Refusing to migrate onto the local MCP daemon at ${healthUrl}: ${initial.detail}. ` +
+        `Restart the daemon (the tray supervises it) and re-run once /health reports ` +
+        `"ready": true. Nothing has been written.`
+    );
+  }
 
   spawnDetached(spawnArgv);
 
@@ -379,6 +432,11 @@ export async function ensureDaemonRunning(
       return { spawned: true, status: { ...last, detail: "it is answering /health" } };
     }
     if (last.state === "foreign") break;
+    // mt#4297: the daemon WE just started came up without a database. Retrying
+    // cannot fix it — persistence is resolved once at boot — so stop here and
+    // let the error below report `last.detail` rather than burning the full
+    // attempt budget and then blaming the timeout.
+    if (last.state === "not-ready") break;
   }
 
   throw new ConfigWriteError(
@@ -438,7 +496,12 @@ export async function stopLocalDaemon(
   for (let i = 0; i < attempts; i++) {
     await sleep(intervalMs);
     const status = classifyDaemonProbe(await probe(healthUrl));
-    if (status.state !== "running") {
+    // mt#4297: enumerate the states that mean "our daemon is gone" rather than
+    // testing `!== "running"`. `not-ready` is a daemon that is STILL SERVING the
+    // port, so the negated form would have reported `stopped: true` for a
+    // process that is very much alive — a false success introduced by adding a
+    // member to the union, and invisible at this call site.
+    if (status.state === "absent" || status.state === "foreign") {
       return { stopped: true, detail: `pid ${record.pid} stopped; ${status.detail}` };
     }
   }

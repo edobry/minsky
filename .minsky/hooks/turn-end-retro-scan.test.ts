@@ -12,8 +12,8 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { run, type StopHookInput } from "./turn-end-retro-scan";
-import { OVERRIDE_ENV_VAR } from "./retrospective-trigger-scanner";
+import { anchorExcerpt, run, type StopHookInput } from "./turn-end-retro-scan";
+import { OVERRIDE_ENV_VAR, rungProvenance } from "./retrospective-trigger-scanner";
 import {
   flagKey,
   readFlagged,
@@ -69,6 +69,9 @@ const STOP_INPUT: StopHookInput = {
 /** Shared R1 admission fixture (matches R1's "I made a mistake" pattern). */
 const DEPLOY_MISTAKE = "I made a mistake in the deploy step.";
 
+/** The opening user prompt paired with {@link DEPLOY_MISTAKE}. */
+const DEPLOY_PROMPT = "deploy the service";
+
 function makeCtx(transcriptLines: TranscriptLine[]): DispatchContext {
   return {
     event: "Stop",
@@ -98,7 +101,7 @@ afterEach(() => {
 describe("run() — firing and suppression", () => {
   test("unaddressed R1 phrase in the final turn -> advisory + calibration (channel stop)", async () => {
     const lines = [
-      userPrompt("deploy the service", "u-open"),
+      userPrompt(DEPLOY_PROMPT, "u-open"),
       assistantText(`Deploying now. ${DEPLOY_MISTAKE} Continuing.`),
     ];
     const outcome = await run(STOP_INPUT, makeCtx(lines), storeDir);
@@ -127,7 +130,7 @@ describe("run() — firing and suppression", () => {
 
   test("same-turn /retrospective invocation -> silent", async () => {
     const lines = [
-      userPrompt("deploy the service"),
+      userPrompt(DEPLOY_PROMPT),
       assistantText(DEPLOY_MISTAKE),
       retroSkillInvocation(),
     ];
@@ -169,6 +172,111 @@ describe("run() — firing and suppression", () => {
 // ---------------------------------------------------------------------------
 // Dedup — one advisory beat per (turn, family, phrase)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// mt#4102 — the record has to say WHY it fired, and where the phrase came from
+// ---------------------------------------------------------------------------
+
+// PR #3163 R1 (BLOCKING): a raw-ENFORCED Rung-2 nomination reaches `matches`
+// without passing through the confirm stage, so it is in neither set the
+// original two-way `confirmedFamilies ? rung3 : rung1` test looked at — and got
+// labelled `rung1`, i.e. "this phrase IS the reason", for a nominated segment.
+// That is this task's own defect one level up, so it is pinned directly on the
+// classifier rather than only through `run()`.
+describe("rungProvenance — mt#4102 / PR #3163 R1", () => {
+  test("a confirmed family is rung3 and its phrase is a nomination artifact", () => {
+    expect(rungProvenance("R1", ["R1"], ["R1"])).toEqual({
+      rung: "rung3",
+      phrase_is_nomination_artifact: true,
+    });
+  });
+
+  test("an ENFORCED nomination is rung2 — not rung1 — and still an artifact", () => {
+    // Nominated, never confirmed: the only way it reached `matches` is raw
+    // enforcement. The pre-fix code returned `rung1` here.
+    expect(rungProvenance("R1", ["R1"], [])).toEqual({
+      rung: "rung2",
+      phrase_is_nomination_artifact: true,
+    });
+  });
+
+  test("a family in neither list is rung1, with no artifact flag", () => {
+    expect(rungProvenance("R1", [], [])).toEqual({ rung: "rung1" });
+  });
+
+  test("a Rung-1 family is unaffected by OTHER families being nominated", () => {
+    expect(rungProvenance("R1", ["R4"], ["R4"])).toEqual({ rung: "rung1" });
+  });
+});
+
+describe("anchorExcerpt — mt#4102", () => {
+  test("a Rung-1 phrase anchors in the raw turn text", () => {
+    const text = `Deploying now. ${DEPLOY_MISTAKE} Continuing.`;
+    const result = anchorExcerpt(text, DEPLOY_MISTAKE);
+    expect(result.text).toContain(DEPLOY_MISTAKE);
+    expect(result.text).toContain("Deploying now.");
+    expect(result.surface).toBe("raw");
+    expect(result.unanchoredReason).toBeUndefined();
+  });
+
+  // The 2026-08-13T15:55:49Z record's exact shape. Rung 2 scores the ELIDED
+  // text, so a confirmed phrase spanning a quoted span exists ONLY there —
+  // `text.indexOf` returns -1 and the old code wrote `""` with no reason. That
+  // empty excerpt is what made a genuine R1 admission read as a false positive
+  // for six days.
+  test("a phrase living only in the ELIDED text still anchors, via the fallback", () => {
+    const raw = `One check before I answer, since "nothing reconciles them" is a claim I have been asserting. And more text after it.`;
+    const elidedOnlyPhrase =
+      "One check before I answer, since                           is a claim I have been asserting.";
+    expect(raw.indexOf(elidedOnlyPhrase)).toBe(-1); // the pre-fix failure condition
+
+    const result = anchorExcerpt(raw, elidedOnlyPhrase);
+    expect(result.text).not.toBe("");
+    expect(result.text).toContain("One check before I answer");
+    expect(result.unanchoredReason).toBeUndefined();
+    // PR #3163 R1 (non-blocking): quoted/code spans in this excerpt are blanked,
+    // so it must not be read as raw transcript context.
+    expect(result.surface).toBe("elided");
+  });
+
+  test("a phrase in neither text reports WHY rather than emitting a bare empty string", () => {
+    const result = anchorExcerpt("some unrelated turn text", "a phrase that is simply not present");
+    expect(result.text).toBe("");
+    expect(result.surface).toBe("none");
+    expect(result.unanchoredReason).toBe("phrase not found in raw or elided turn text");
+  });
+});
+
+describe("run() — match provenance and nomination fields (mt#4102)", () => {
+  test("a Rung-1 fire records rung=rung1 and no nomination-artifact flag", async () => {
+    const lines = [
+      userPrompt(DEPLOY_PROMPT, "u-4102-rung1"),
+      assistantText(`Deploying now. ${DEPLOY_MISTAKE} Continuing.`),
+    ];
+    const outcome = await run(STOP_INPUT, makeCtx(lines), storeDir);
+    expect(outcome).not.toBeNull();
+
+    const matches = outcome?.calibration?.matches as
+      | { family: string; phrase: string; rung?: string; phrase_is_nomination_artifact?: boolean }[]
+      | undefined;
+    expect(matches?.[0]?.rung).toBe("rung1");
+    expect(matches?.[0]?.phrase_is_nomination_artifact).toBeUndefined();
+  });
+
+  // The firing path dropped `nominated_families` entirely while the non-firing
+  // path has always written it — so on exactly the records that FIRED, nothing
+  // showed what Rung 2 nominated. Absence-of-key is not absence-of-nomination.
+  test("the FIRING path writes nominated_families, not only the non-firing path", async () => {
+    const lines = [
+      userPrompt(DEPLOY_PROMPT, "u-4102-nomfields"),
+      assistantText(`Deploying now. ${DEPLOY_MISTAKE} Continuing.`),
+    ];
+    const outcome = await run(STOP_INPUT, makeCtx(lines), storeDir);
+    expect(outcome?.calibration).toHaveProperty("nominated_families");
+    expect(outcome?.calibration?.nominated_families).toEqual([]);
+    expect(outcome?.calibration).toHaveProperty("nomination_enforcing");
+  });
+});
 
 describe("run() — dedup", () => {
   test("second Stop invocation for the same turn -> silent (no continuation ping-pong)", async () => {

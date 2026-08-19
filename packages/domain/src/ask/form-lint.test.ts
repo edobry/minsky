@@ -14,9 +14,12 @@
  * The ORIGINAL fixture is a reconstruction from the task spec's Context
  * section description (title, opening justification shape, the `mcp__`
  * tool-call quote, "the implementer App" click-path with no URL, ~200
- * words) — `asks.edit`'s editHistory records only the touched field names,
- * not a diff, so the literal pre-edit text is not retrievable from the Ask
- * record itself. The reconstruction satisfies every property named in the
+ * words) — at the time this ask was edited, `asks.edit`'s editHistory recorded
+ * only the touched field names, so the literal pre-edit text was not retrievable
+ * from the Ask record itself. (mt#4329 now preserves it in
+ * `metadata.originalContent`, but only for asks edited AFTER it shipped;
+ * this fixture predates it and stays a reconstruction.)
+ * The reconstruction satisfies every property named in the
  * spec's Context section and the Acceptance Tests' synthetic-bad-ask
  * description (contains `mcp__`, > 150 words, authorization.approve with a
  * portal keyword, no URL).
@@ -651,8 +654,10 @@ describe("computeFormLintMatches — missing-decision-options check (mt#3477)", 
 // The REPAIRED question is verbatim from `asks_get ask#6589` at
 // implementation time (the in-place `asks_edit` on 2026-07-31T19:23:38Z per
 // its metadata.editHistory). The PRE-REPAIR body is a reconstruction — as
-// with the 6807fb14 fixtures above, editHistory records only touched field
-// names, so the literal prior text is not retrievable from the Ask record.
+// with the 6807fb14 fixtures above, editHistory recorded only touched field
+// names when this ask was edited, so the literal prior text is not retrievable
+// from the Ask record. (mt#4329 fixes that going forward via
+// `metadata.originalContent`; it cannot recover an edit that already happened.)
 // The reconstruction satisfies the property the incident turns on: the three
 // choices written as [a]/[b]/[c] prose inside the question, with no options
 // array.

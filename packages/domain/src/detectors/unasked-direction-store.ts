@@ -22,7 +22,11 @@
 
 import { promises as fs } from "node:fs";
 import { dirname, join } from "node:path";
-import type { AnalyzerOutput, UnaskedDirectionFinding } from "./unasked-direction-analyzer";
+import type {
+  AnalyzerOutput,
+  TranscriptSampling,
+  UnaskedDirectionFinding,
+} from "./unasked-direction-analyzer";
 import { DETECTOR_ID, DETECTOR_VERSION } from "./unasked-direction-analyzer";
 import { log } from "@minsky/shared/logger";
 
@@ -95,6 +99,24 @@ export interface FindingsRecord {
   analyzedAt: string;
   /** Analyzer's overall summary. */
   summary: string;
+  /**
+   * How the analyzed window was chosen (mt#4235).
+   *
+   * Optional because records written before mt#4235 do not have it, and a reader must be
+   * able to tell "this run predates the measurement" from "this run measured zero". A
+   * record with no `sampling` is one whose window shape is simply unknown.
+   */
+  sampling?: TranscriptSampling;
+  /**
+   * Set when the analyzer call FAILED and produced no findings (mt#4235).
+   *
+   * A failed run used to write nothing at all, so the corpus contained only the runs that
+   * succeeded — and anyone counting "N sessions analyzed, 0 findings" was reading a
+   * denominator that had silently dropped its failures. `findings: []` with this field set
+   * means "no answer"; `findings: []` without it means "analyzed, found nothing". Those
+   * are different results and the record has to be able to say which.
+   */
+  analyzerError?: string;
   /** All findings, indexed in insertion order. */
   findings: StoredFinding[];
 }
@@ -115,8 +137,9 @@ export interface FindingsRecord {
 export async function writeFindings(
   projectRoot: string,
   sessionId: string,
-  output: AnalyzerOutput,
-  context: { taskId?: string }
+  output: AnalyzerOutput & { sampling?: TranscriptSampling },
+  context: { taskId?: string },
+  analyzerError?: string
 ): Promise<boolean> {
   const path = findingsPathFor(projectRoot, sessionId);
 
@@ -127,6 +150,11 @@ export async function writeFindings(
     taskId: context.taskId,
     analyzedAt: new Date().toISOString(),
     summary: output.summary,
+    // Carried through from the analyzer run rather than re-derived here: the store has no
+    // transcript, and a second derivation could describe a different window than the one
+    // the model read (mt#4235 SC4).
+    sampling: output.sampling,
+    analyzerError,
     findings: output.findings.map((finding, findingIndex) => ({
       findingIndex,
       finding,
@@ -147,6 +175,33 @@ export async function writeFindings(
     });
     return false;
   }
+}
+
+/**
+ * Record a run whose analyzer call FAILED, so the corpus keeps its denominator.
+ *
+ * Same file, same shape, no findings — plus `analyzerError` and the sampling the run WOULD
+ * have analyzed. Without this a failure is invisible: the hook logged to stderr and exited,
+ * leaving nothing on disk, so a corpus reader saw only the successes (mt#4235).
+ */
+export async function writeFailedRun(
+  projectRoot: string,
+  sessionId: string,
+  sampling: TranscriptSampling,
+  error: string,
+  context: { taskId?: string }
+): Promise<boolean> {
+  return writeFindings(
+    projectRoot,
+    sessionId,
+    {
+      findings: [],
+      summary: `Analyzer call failed; no findings were produced. ${error}`,
+      sampling,
+    },
+    context,
+    error
+  );
 }
 
 /**

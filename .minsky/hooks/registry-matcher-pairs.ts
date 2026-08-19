@@ -194,6 +194,25 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["block-concurrent-bulk-mutation", "cli-mcp-substitution"],
   ["block-bulk-process-kill", "cli-mcp-substitution"],
   ["truncated-outcome-read", "cli-mcp-substitution"],
+  // Seventh question about the same command string (mt#4215), and the first
+  // asked about the command's INPUT. Every sibling reads the command alone or
+  // pairs it with session state; this one pairs it with the FILESYSTEM, asking
+  // whether the paths it names are there to be searched. That is a different
+  // false-positive surface from all six — it lives in an argument-grammar
+  // parser and in the resolution of a relative path against a cwd, neither of
+  // which any sibling touches — so it needs its own calibration log and its own
+  // override. Note the near-miss with `check-guessed-session-path`, which also
+  // stats a path: that one fires on a CONSTRUCTED session path anywhere in the
+  // command and denies; this one fires on a path in ARGUMENT POSITION of a
+  // search binary and only records. Independent overrides; running all seven is
+  // the point.
+  ["check-guessed-session-path", "nonexistent-search-path"],
+  ["block-secret-file-read", "nonexistent-search-path"],
+  ["chained-verification-commands", "nonexistent-search-path"],
+  ["block-concurrent-bulk-mutation", "nonexistent-search-path"],
+  ["block-bulk-process-kill", "nonexistent-search-path"],
+  ["truncated-outcome-read", "nonexistent-search-path"],
+  ["cli-mcp-substitution", "nonexistent-search-path"],
   // Two guards on `session_pr_create`, both reading the SAME branch diff and
   // both asking about operator-facing output — but about opposite failures, and
   // neither subsumes the other. `stale-signal-sweep` (mt#3959) fires on a label
@@ -232,6 +251,23 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["stale-signal-sweep", "new-surface-design-pass"],
   ["unrendered-result-field-scan", "new-surface-design-pass"],
   ["evidence-record-provenance", "new-surface-design-pass"],
+  // mt#4171's `enumeration-scope-check` is the fifth guard on this seam, and it
+  // asks a question none of the other four can reach: given that this branch
+  // changed a SERIALIZED contract, did the session's consumer sweep reach the
+  // directories gate (h) prescribes for that change type?
+  //
+  // Every sibling is quiet on it by construction. `stale-signal-sweep` compares
+  // operator-facing labels the branch stopped emitting; `unrendered-result-field-scan`
+  // asks whether a field the branch ADDED has a render site; `new-surface-design-pass`
+  // asks whether anyone looked at an ADDED render path; `evidence-record-provenance`
+  // asks whether a claimed run happened. A change can satisfy all four — mt#4252
+  // did, and shipped a documentation file whose own "exhaustive per variant"
+  // sentence it had just made false. That gap is only visible by joining the
+  // change against the SWEEP, which is this guard alone.
+  ["stale-signal-sweep", "enumeration-scope-check"],
+  ["unrendered-result-field-scan", "enumeration-scope-check"],
+  ["evidence-record-provenance", "enumeration-scope-check"],
+  ["new-surface-design-pass", "enumeration-scope-check"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */

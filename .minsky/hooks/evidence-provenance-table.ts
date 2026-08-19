@@ -31,6 +31,7 @@
 // @see mem#966 — the incident and the general rule
 
 import type { ToolCallWithResult } from "./transcript";
+import { nonFlagOperands, suppliesPattern } from "./command-shape";
 
 // ---------------------------------------------------------------------------
 // Tool-name normalization
@@ -102,7 +103,66 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
 }
 
 /**
- * PR numbers whose changed-file list was actually read in this session.
+ * The SAME read, performed through the shell (mt#4190).
+ *
+ * `isPrFileListCall` recognizes exactly one spelling — the `pull_request_read`
+ * MCP tool — and the corpus demonstrably does not always use it. Two verbatim
+ * examples from fired specs, both gate-(g) work done correctly:
+ *
+ *   "Open PRs read via `gh api .../files`: #3070 … #3068 … #2945 …"
+ *   "PR #3098 via `get_files`, the other 11 via `git diff --name-only …`"
+ *
+ * The fallback is not a stylistic preference. mt#3779 records the standing
+ * cause: the github MCP server dies when the Docker daemon is down and
+ * `pull_request_read` answers "No such tool available", so the shell is what is
+ * left. A guard blind to it fires hardest at the authors doing the most careful
+ * parallel-work checking — the dangerous direction this module's header names,
+ * and the reason every discharge recognizer here is deliberately generous.
+ *
+ * The PR NUMBER is extracted rather than the call merely counted, so the join
+ * stays PR-specific. A read that cannot be tied to a number does not belong
+ * here; it discharges the merge-shaped claim below instead.
+ */
+/**
+ * Held as SOURCE STRINGS, and compiled fresh on each call (PR #3139 R1).
+ *
+ * A module-level `g`-flagged literal carries mutable `lastIndex` state shared by
+ * every caller. Today nothing here advances it — `matchAll` clones the regex
+ * rather than stepping the original, so repeated calls return identical results,
+ * and the reported skip does not reproduce. But that safety is a property of
+ * WHICH METHOD the call site happens to use: swap one `matchAll` for `.test()`
+ * or `.exec()` later and the shared state starts stepping, silently, in a
+ * discharge recognizer whose failure direction is firing at an author who did
+ * the work.
+ *
+ * Compiling per call removes the class instead of documenting it. The cost is a
+ * regex construction on a path that runs once per tool call in a transcript
+ * scan; the benefit is that no future edit to this function can reintroduce it.
+ */
+const CLI_PR_FILE_LIST_SOURCES: readonly string[] = [
+  // `gh api repos/<owner>/<repo>/pulls/<N>/files`, quoted or not, with or
+  // without a query string.
+  String.raw`\bgh\s+api\s+\S*?\bpulls\/(\d+)\/files`,
+  // `gh pr diff <N> --name-only` / `gh pr view <N> --json files`.
+  String.raw`\bgh\s+pr\s+(?:diff|view)\s+(\d+)\b[^\n]*?(?:--name-only|--json\s+[\w,]*files)`,
+];
+
+export function prNumbersFromCommandFileListRead(call: ToolCallWithResult): number[] {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  const out: number[] = [];
+  for (const source of CLI_PR_FILE_LIST_SOURCES) {
+    for (const m of command.matchAll(new RegExp(source, "gi"))) {
+      const n = Number.parseInt(m[1] ?? "", 10);
+      if (Number.isInteger(n)) out.push(n);
+    }
+  }
+  return out;
+}
+
+/**
+ * PR numbers whose changed-file list was actually read in this session, through
+ * the MCP tool OR the shell.
  *
  * Returning the SET rather than a boolean is what makes the join specific: a
  * collision claim names a PR, and reading a DIFFERENT PR's files is not
@@ -112,9 +172,12 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
 export function prNumbersWithFileListRead(calls: readonly ToolCallWithResult[]): Set<number> {
   const out = new Set<number>();
   for (const call of calls) {
-    if (!isPrFileListCall(call)) continue;
-    const n = call.input["pullNumber"];
-    if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+    if (isPrFileListCall(call)) {
+      const n = call.input["pullNumber"];
+      if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+      continue;
+    }
+    for (const n of prNumbersFromCommandFileListRead(call)) out.add(n);
   }
   return out;
 }
@@ -134,9 +197,29 @@ export function isPathFilteredGitLogCall(call: ToolCallWithResult): boolean {
   return (typeof path === "string" && path !== "") || (typeof grep === "string" && grep !== "");
 }
 
+/**
+ * A branch-range file listing: `git diff --name-only <ref>...<ref>`.
+ *
+ * The same evidence class as the path-filtered `git_log` above — a file-level
+ * read of what some other work touched — reached through the shell. It names no
+ * PR, so it cannot discharge a claim ABOUT a numbered PR; it discharges the
+ * merge-shaped claim, which is exactly what `git_log --path` already does.
+ *
+ * The `--name-only` (or `--name-status`) flag is required. A plain `git diff`
+ * prints hunks and is used for a hundred unrelated reasons; the name-listing
+ * flags are what make the call a changed-file enumeration.
+ */
+const BRANCH_RANGE_FILE_DIFF_RE = /\bgit\s+diff\b[^\n]*--name-(?:only|status)\b/i;
+
+export function isBranchRangeFileDiffCall(call: ToolCallWithResult): boolean {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return false;
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  return BRANCH_RANGE_FILE_DIFF_RE.test(command);
+}
+
 /** True when any call in the transcript read a merge's file-level history. */
 export function sessionReadMergeHistory(calls: readonly ToolCallWithResult[]): boolean {
-  return calls.some(isPathFilteredGitLogCall);
+  return calls.some((c) => isPathFilteredGitLogCall(c) || isBranchRangeFileDiffCall(c));
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +407,40 @@ export function callNamesSubject(call: ToolCallWithResult, tokens: readonly stri
  * it cannot be produced without the run. A fabricated paste matches nothing and
  * still fires, which is the case this guard exists for.
  */
-const QUOTED_FAILURE_LINE_RE = /^.*\(fail\).+$/gm;
+const QUOTED_FAILURE_LINE_RE = /\(fail\)/;
+
+/**
+ * The other shapes a record pastes when it reports a run (mt#4067).
+ *
+ * MEASURED over the live window, not anticipated: 553 calibration records / 96
+ * fires, of which **58 (60.4%) had a FAILING test run in the same session before
+ * the call** and still fired — the run happened and neither join found it. The
+ * `(fail)` line above is the only paste the join accepted, and a large share of
+ * genuine controls do not paste one. They paste the runner's SUMMARY
+ * (`5466 pass`, `Ran 5456 tests across 153 files`) or a hand-rolled harness's
+ * result table (`PASS  expected=false ...`, `exit=0`).
+ *
+ * Widening the ACCEPTED SHAPES does not weaken the join, because the property
+ * that makes it sound is unchanged and lives at the other end: the line must
+ * still appear VERBATIM in a real failing run's output, and still clear
+ * {@link MIN_QUOTED_LINE_LENGTH}. A 30-plus-character line reproduced exactly
+ * cannot be produced without the run, whichever shape it has — while a fabricated
+ * paste matches nothing and still fires, which is the case this guard exists for.
+ *
+ * Deliberately NOT included: a bare tally with no other content (`3 fail`). It is
+ * under the length floor, and it is the one shape a fabricator could type from
+ * memory and have match a real run that happened for unrelated reasons.
+ */
+const QUOTED_RESULT_LINE_MARKERS: readonly RegExp[] = [
+  QUOTED_FAILURE_LINE_RE,
+  /\b\d+\s+(?:pass|fail)(?:ed|ing|ures?)?\b/i,
+  /^\s*(?:PASS|FAIL)\b/,
+  /\bRan\s+\d+\s+tests?\b/i,
+  /\bexit=\d+\b/,
+  /\bexpected=\S+/,
+  /\bAssertionError\b/,
+  /error:\s*expect\(/,
+];
 
 /**
  * Below this a quoted line is too short to be evidence of anything. A bare
@@ -333,10 +449,68 @@ const QUOTED_FAILURE_LINE_RE = /^.*\(fail\).+$/gm;
  */
 const MIN_QUOTED_LINE_LENGTH = 30;
 
-/** Failing-run lines the record quotes, as literal strings to look for. */
+/**
+ * ANSI SGR escapes, stripped from both sides before comparison (PR #3143 R1).
+ *
+ * Semantics-preserving by construction — a colour code carries no content — so
+ * this cannot merge two lines that differ in what they SAY, which is the
+ * property that makes it safe to apply to a join whose whole job is precision.
+ *
+ * MEASURED as currently inert: 0 of 186 real failing-run tool results across 12
+ * recent transcripts contain an escape sequence, because bun's output reaches
+ * the transcript already plain. It is forward-insurance against a runner that
+ * colourises, not a fix for an observed miss.
+ */
+
+// Matching the ESC control character IS the intent: ANSI SGR sequences are
+// DEFINED by it, so there is no non-control spelling to prefer.
+// eslint-disable-next-line no-control-regex -- see the two lines above
+const ANSI_ESCAPE_RE = /\u001b\[[0-9;]*[A-Za-z]/g;
+
+/** Strip decorations that carry no content, for verbatim comparison. */
+function normalizeForComparison(text: string): string {
+  return text.replace(ANSI_ESCAPE_RE, "");
+}
+
+/**
+ * Sanity bound on lines carried forward — NOT a recall bound (PR #3143 R1).
+ *
+ * The first cut capped this at 20, which could drop the one line that would have
+ * discharged when a record pastes a long run: the opposite of this change's
+ * purpose. The cap now sits far above any real paste (the largest judged artifact
+ * in the live window is ~12KB, a few hundred lines) and exists only so a
+ * pathological input cannot make the join unbounded. Cost is bounded at the join
+ * instead, which short-circuits on the first match.
+ */
+const MAX_QUOTED_LINES = 500;
+
+/**
+ * The STRICT subset: only `(fail)` lines (mt#4067).
+ *
+ * Adjudicability and discharge are deliberately asymmetric, and the asymmetry is
+ * measured. Widening {@link extractQuotedFailures} to summaries and harness
+ * tables let more records DISCHARGE — and also dragged 22 records out of
+ * `unadjudicable` into `undischarged`, because the verdict treats "carries a
+ * quotable line" as "is judgeable". Net effect on the live corpus was fires
+ * 108 -> 129: worse, not better.
+ *
+ * So the widened shapes are a discharge SIGNAL, never grounds to condemn. A
+ * summary line that MATCHES a real run is proof the run happened; a summary line
+ * that matches nothing is not proof it did not, because the summary is weak
+ * evidence either way. Only a pasted `(fail)` line is distinctive enough to make
+ * a record judgeable on its absence — which is the direction-of-error rule this
+ * module's header states: an unrecognized shape must not fire the guard at an
+ * author who ran their tests.
+ */
+export function extractStrictQuotedFailures(record: string): string[] {
+  return extractQuotedFailures(record).filter((l) => QUOTED_FAILURE_LINE_RE.test(l));
+}
+
+/** Run-output lines the record quotes, as literal strings to look for. */
 export function extractQuotedFailures(record: string): string[] {
   const out: string[] = [];
-  for (const raw of record.match(QUOTED_FAILURE_LINE_RE) ?? []) {
+  for (const raw of record.split("\n")) {
+    if (!QUOTED_RESULT_LINE_MARKERS.some((re) => re.test(raw))) continue;
     // Drop the runner's per-test duration: the paste and the live result agree
     // on the name but a re-run's timing differs, and the timing is the tail of
     // the line, so keeping it would defeat every comparison.
@@ -345,14 +519,353 @@ export function extractQuotedFailures(record: string): string[] {
       .replace(/\s*\[[\d.]+m?s\]\s*$/, "")
       .trim();
     if (line.length >= MIN_QUOTED_LINE_LENGTH && !out.includes(line)) out.push(line);
+    if (out.length >= MAX_QUOTED_LINES) break;
   }
   return out;
 }
 
-/** True when the call's output contains one of the record's quoted failure lines. */
+/**
+ * True when the call's output contains one of the record's quoted lines.
+ *
+ * Both sides are ANSI-stripped first (PR #3143 R1). Deliberately NOT
+ * whitespace-collapsed: measured over the live corpus, collapsing bought ZERO
+ * additional discharges (69 records carrying quoted lines with a failing output
+ * in-session: 52 matched exactly, 52 with whitespace collapsed, 52 with a
+ * trailing stack suffix stripped), while it CAN merge two lines that differ only
+ * in spacing — a real loosening of a join whose job is precision, for no measured
+ * gain. `.some()` short-circuits, which is what bounds the cost.
+ */
 export function callContainsQuotedFailure(
   call: ToolCallWithResult,
   quoted: readonly string[]
 ): boolean {
-  return quoted.some((line) => call.resultText.includes(line));
+  const haystack = normalizeForComparison(call.resultText);
+  return quoted.some((line) => haystack.includes(normalizeForComparison(line)));
+}
+
+// ---------------------------------------------------------------------------
+// Discharge: a claimed CONSUMER SWEEP — which directories did it cover?
+// (mt#4171, gate (h))
+// ---------------------------------------------------------------------------
+//
+// The section above answers "did a search run?" (mt#4004). This one answers the
+// strictly stronger question gate (h) turns on: "the sweep ran — did it reach
+// the directories the gate prescribes?" Same substrate, one more field read.
+//
+// WHY THIS PARSES A COMMAND STRING, when mt#4171's spec says the directories
+// arrive as structured arguments. They mostly do not. Measured over the 589
+// on-disk transcripts in this project (2026-08-19), by tool name:
+//
+//     Bash                       27561
+//     session_grep_search          339
+//     repo_search                  180
+//     Grep                          21
+//     git_search                     9
+//     Glob                           5
+//
+// So ~98% of this repo's search activity is a shell command, and a recognizer
+// reading only structured `path` arguments would be blind to nearly all of it —
+// the inert-probe shape of mem#1020, one level up from a test fixture. A
+// command string is still not a paraphrase axis: it is a structured artifact
+// matched against a FIXED directory list, the same matcher class as
+// `block-secret-file-read`'s reader+path pairs and the chained-verification
+// scanner, both of which ship denying. ADR-024's ladder does not govern it.
+//
+// DIRECTION OF ERROR, per this module's header, decides every judgment call
+// below: a directory this MISSES becomes a false POSITIVE — the guard telling
+// an author who swept `docs/` that they did not. So the recognizer is
+// deliberately over-generous in every ambiguous case, and the discriminating
+// weight sits on the join.
+
+/** Tools whose invocation can constitute part of a consumer sweep. */
+const SWEEP_TOOL_NAMES: readonly string[] = [
+  "bash",
+  "session_exec",
+  "grep",
+  "glob",
+  "session_grep_search",
+  "repo_search",
+  "git_search",
+  "session_search",
+];
+
+/**
+ * The shell commands that SEARCH, as opposed to ones that merely name a path.
+ *
+ * `cat`/`sed`/`head` are excluded on purpose: reading one file is not a sweep of
+ * its directory, and crediting it would discharge gate (h) on a single-file
+ * read — the exact "enumerated 25+ sites and missed a class" shape (mt#1610)
+ * this check exists to catch.
+ *
+ * `ls` WAS here and is removed (PR #3141 R1). Listing a directory is not
+ * searching it: `ls docs/` credited `docs` as swept and would turn a real miss
+ * into a false `clean`. That is the direction that costs this guard its purpose,
+ * and it contradicted this docblock's own first sentence — the reviewer read the
+ * contract against the constant and found them disagreeing.
+ */
+const SWEEP_COMMAND_RE = /\b(?:grep|rg|ugrep|ag|ack|find|fd|fgrep|egrep)\b/;
+
+/**
+ * Searchers whose FIRST non-flag operand is the pattern and whose remaining
+ * operands are paths. `find` is deliberately absent — its path comes FIRST
+ * (`find src -name x`), which is why operand role is resolved per command rather
+ * than by position alone.
+ */
+const PATTERN_FIRST_COMMANDS: readonly string[] = [
+  "grep",
+  "fgrep",
+  "egrep",
+  "rg",
+  "ugrep",
+  "ag",
+  "ack",
+  "fd",
+];
+
+/** Searchers whose operands are ALL paths, with the pattern in a flag. */
+const PATH_FIRST_COMMANDS: readonly string[] = ["find"];
+
+/**
+ * The top-level directories gate (h)'s consumer table can prescribe.
+ *
+ * A FIXED list, which is what keeps this a lookup rather than a parse. Anything
+ * outside it is not a directory the gate ever asks about, so there is nothing to
+ * be wrong about.
+ */
+export const PRESCRIBABLE_DIRECTORIES: readonly string[] = [
+  "src",
+  "tests",
+  "services",
+  "scripts",
+  "docs",
+  "packages",
+  ".github",
+  ".claude",
+  ".minsky",
+  "contract",
+];
+
+/**
+ * A search naming no path at all sweeps the whole tree from cwd, so it covers
+ * every prescribable directory. Recognizing this is what keeps the common
+ * `grep -rn "<sym>" .` and a bare `rg <sym>` from reading as zero coverage —
+ * the single largest false-positive source if it were missed.
+ *
+ * THE FIRST VERSION OF THIS WAS A CAN'T-FAIL PROBE, and the replay is what said
+ * so. It ended in `…(?:\s\.\s|\s\.$|$)/m`, and that trailing `$` matches the end
+ * of any line — so EVERY grep took the whole-tree branch and credited all ten
+ * directories. The measured output was the tell rather than the code: `contract`
+ * came back swept in 86.4% of READY transitions, which is not a thing anyone
+ * does. mem#704 — a probe returning the same result whether or not the system
+ * did the work is not verification — and the same shape mem#1020 records one
+ * level down at the fixture.
+ *
+ * `grep` is deliberately NOT in the no-operand list below. With no path operand
+ * `grep` reads STDIN (it is the tail of a pipe), which sweeps nothing; `rg`,
+ * `ag`, `ack` and `fd` default to the working tree. Treating them alike is what
+ * produced the 86% above.
+ */
+/**
+ * Split a command string into the segments a shell would run separately.
+ *
+ * A SINGLE `|` is deliberately NOT a separator, and this cost a real defect. A
+ * grep alternation carries literal pipes — `grep -rn "A\s*=\|B\s*=" src/foo.ts`
+ * is one command — so splitting on `|` tore the pattern away from its path
+ * operand, leaving a segment with a search verb and no directory and another
+ * with a directory and no verb. The guard's own liveness test caught it on a
+ * fixture quoted verbatim from the mt#4252 session (mem#1020: assert a fixture
+ * matches SOMETHING before asserting what it does not match).
+ *
+ * Keeping a pipeline whole is also the right reading: in `grep -rn foo src/ |
+ * head`, the path belongs to the searcher, and a path introduced later in the
+ * pipeline only ever over-credits, which is the safe direction here.
+ */
+function commandSegments(command: string): string[] {
+  return command.split(/(?:\n|;|&&|\|\|)/);
+}
+
+/**
+ * Tokenize a shell segment, honouring simple single/double quoting.
+ *
+ * Enough of a shell lexer to tell an operand from a flag from a quoted pattern,
+ * and no more. It does not expand variables or handle nested quoting — both
+ * degrade toward "no operands found", which routes to the tree-defaulting branch
+ * below rather than to a silent wrong directory.
+ */
+function tokenize(segment: string): string[] {
+  const tokens: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(segment)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3] ?? "");
+  }
+  return tokens;
+}
+
+/**
+ * The operands of a search segment that are PATHS — not flags, not the pattern.
+ *
+ * THIS REPLACED A SLASH HEURISTIC, and the heuristic was wrong in the dangerous
+ * direction (PR #3141 R1). The previous test for "does this segment name a path"
+ * required a `/`, so `rg foo src` — a perfectly ordinary path-scoped search whose
+ * operand has no trailing slash — read as having NO path operand, took the
+ * tree-defaulting branch, and credited every prescribable directory including
+ * `docs`. A path-scoped search was therefore recorded as a whole-tree sweep,
+ * which is exactly how a real `docs/` miss becomes a false `clean`.
+ *
+ * Resolving the operand ROLE also fixes a second over-credit the token scan had:
+ * a bare `docs` inside a PATTERN (`rg "docs" src/`) can no longer credit `docs`,
+ * because only operands after the pattern are considered paths.
+ */
+function pathOperands(segment: string): string[] {
+  const tokens = tokenize(segment);
+  let cmdIndex = -1;
+  let command = "";
+  for (let i = 0; i < tokens.length; i++) {
+    const bare = (tokens[i] ?? "").replace(/^.*\//, "");
+    if (PATTERN_FIRST_COMMANDS.includes(bare) || PATH_FIRST_COMMANDS.includes(bare)) {
+      cmdIndex = i;
+      command = bare;
+      break;
+    }
+  }
+  if (cmdIndex === -1) return [];
+
+  // Slice from the command so `nonFlagOperands` sees it at index 0, which is
+  // where it expects the program name.
+  const argv = tokens.slice(cmdIndex);
+  const isFind = PATH_FIRST_COMMANDS.includes(command);
+  const operands = nonFlagOperands(argv, { findStyle: isFind });
+  if (isFind) return operands;
+
+  // Pattern-first: drop the positional pattern — but ONLY when there is one.
+  // `-e` / `-f` supply the pattern themselves, and then every operand is a path;
+  // dropping the first would consume a real one. (mt#4320)
+  const patternSuppliedByFlag = argv.some((t, i) => i > 0 && suppliesPattern(t));
+  return patternSuppliedByFlag ? operands : operands.slice(1);
+}
+
+/**
+ * True when a segment searches the whole tree: it names `.` explicitly, or it
+ * runs a tree-defaulting searcher with no path operand at all.
+ *
+ * `grep` is deliberately NOT tree-defaulting. With no path operand `grep` reads
+ * STDIN (it is the tail of a pipe), which sweeps nothing; `rg`, `ag`, `ack` and
+ * `fd` default to the working tree. Treating them alike is what produced an
+ * earlier revision's measured 86.4% `contract/` sweep rate — a can't-fail probe
+ * (mem#704).
+ */
+const TREE_DEFAULTING_COMMANDS: readonly string[] = ["rg", "ugrep", "ag", "ack", "fd"];
+
+function sweepsWholeTree(segment: string): boolean {
+  if (!SWEEP_COMMAND_RE.test(segment)) return false;
+  const operands = pathOperands(segment);
+  if (operands.some((o) => o === "." || o === "./")) return true;
+  const runsTreeDefaulting = TREE_DEFAULTING_COMMANDS.some((c) =>
+    new RegExp(`(?:^|[\\s|(/])${c}\\b`).test(segment)
+  );
+  return runsTreeDefaulting && operands.length === 0;
+}
+
+/**
+ * Directories this ONE call demonstrably searched.
+ *
+ * Resolved from the search's PATH OPERANDS, not by scanning the command text.
+ * The scan was the earlier design and it over-credited in two ways the reviewer
+ * and the replay each caught: a directory named anywhere in the string counted
+ * (so a pattern mentioning `docs` credited `docs`), and a bare operand without a
+ * trailing slash did not count at all (so `rg foo src` looked pathless and
+ * credited EVERYTHING). Both produce a false `clean`, which is the direction that
+ * costs this guard its purpose.
+ */
+export function sweptDirectories(call: ToolCallWithResult): string[] {
+  if (!SWEEP_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
+
+  const isShell = ["bash", "session_exec"].includes(normalizeToolName(call.toolName));
+
+  if (isShell) {
+    const command = call.input["command"];
+    if (typeof command !== "string" || command === "") return [];
+    // PER SEGMENT, and this is the whole correctness of the shell path.
+    //
+    // An earlier version asked "does ANY segment run a search?" and then pulled
+    // directory tokens from the WHOLE command string. That pairs a verb from one
+    // segment with a path from another — the same defect CLAUDE.md records for a
+    // `grep -E` over a test log, where the filter dropped the structure binding a
+    // line to its block and the pairing read as one record.
+    //
+    // Measured on the mt#4252 session (2026-08-19): one `Bash` call ran
+    // `grep -rn … src/cockpit/principal-channel-poller.ts` in one segment and
+    // `sed -n '1,80p' docs/architecture/adr-035-….md` in another. `docs` was
+    // credited as SWEPT off a single-file `sed` read that shares a command with
+    // an unrelated grep — and that false credit is precisely what suppressed the
+    // guard on its own originating incident.
+    const covered = new Set<string>();
+    for (const segment of commandSegments(command)) {
+      if (!SWEEP_COMMAND_RE.test(segment)) continue;
+      if (sweepsWholeTree(segment)) {
+        for (const dir of PRESCRIBABLE_DIRECTORIES) covered.add(dir);
+        continue;
+      }
+      for (const operand of pathOperands(segment)) {
+        const dir = directoryFromOperand(operand);
+        if (dir !== null) covered.add(dir);
+      }
+    }
+    return [...covered];
+  }
+
+  // A structured search tool: every field it exposes is part of ONE search, so
+  // there are no segments to keep apart and no pattern/path ambiguity to resolve.
+  const covered = new Set<string>();
+  for (const field of ["path", "include_pattern", "glob"]) {
+    const value = call.input[field];
+    if (typeof value !== "string" || value === "") continue;
+    const dir = directoryFromOperand(value);
+    if (dir !== null) covered.add(dir);
+  }
+  return [...covered];
+}
+
+/**
+ * The prescribable directory a single path operand SWEEPS, or null.
+ *
+ * A SUBTREE IS NOT THE DIRECTORY, and this distinction is the whole check. An
+ * operand of `docs/architecture/adr-*.md` has not swept `docs/` — it has read one
+ * subtree under a glob that structurally cannot reach `docs/principal-channel.md`.
+ * Crediting it would be mt#4215's defect inside the guard: a path argument that
+ * names a directory is not proof the directory was searched.
+ *
+ * Measured (2026-08-19): this is exactly how mt#4252 escaped an earlier revision.
+ * That session ran
+ * `grep -rln "principal-channel\|principal channel" docs/architecture/adr-*.md`,
+ * which credited `docs` and suppressed the guard on its own originating incident
+ * — while the file the change falsified sits at the `docs/` root, one level above
+ * everything that grep could see.
+ *
+ * So an operand counts only when it addresses the directory ITSELF: `docs`,
+ * `docs/`, `docs/*`, `docs/**`, or a file directly inside it. `docs/<subdir>/…`
+ * does not. This trades a small false-positive risk (an author who sweeps several
+ * subtrees separately reads as not having swept the root) for not silently
+ * discharging the claim the gate exists to check — and the guard is record-only,
+ * so that risk costs a calibration record rather than a denial.
+ */
+function directoryFromOperand(operand: string): string | null {
+  const cleaned = operand.replace(/^["']|["']$/g, "").replace(/^\.\//, "");
+  for (const dir of PRESCRIBABLE_DIRECTORIES) {
+    if (cleaned === dir || cleaned === `${dir}/`) return dir;
+    if (!cleaned.startsWith(`${dir}/`)) continue;
+    // Directly inside the directory (a file or a single-level glob) counts; a
+    // further path component means a subtree, which does not.
+    const remainder = cleaned.slice(dir.length + 1);
+    if (remainder !== "" && !remainder.includes("/")) return dir;
+  }
+  return null;
+}
+
+/** Every prescribable directory the session's sweep calls reached, unioned. */
+export function sessionSweptDirectories(calls: readonly ToolCallWithResult[]): Set<string> {
+  const covered = new Set<string>();
+  for (const call of calls) for (const dir of sweptDirectories(call)) covered.add(dir);
+  return covered;
 }

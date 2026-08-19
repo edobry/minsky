@@ -283,6 +283,7 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "cli-mcp-substitution",
         "code-mechanism-assertion-detector",
         "constructed-identifier-batch-detector",
+        "context-fill-gauge",
         "duplicate-check-candidate-read",
         "flakiness-control-detector",
         "guard-health-escalation-detector",
@@ -295,6 +296,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "mcp-daemon-staleness-detector",
         "negative-existence-claim-detector",
         "memory-search",
+        // mt#4215 — also a `renderProbe` producer, per the note above.
+        "nonexistent-search-path",
         "operator-deferral-ask-surface",
         "operator-deferral-detector",
         "pre-narration-detector",
@@ -398,6 +401,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // guard injects on real turns and belongs in the budget bucket.
   "duplicate-check-candidate-read": "capped",
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
+  // mt#4215: capped on BOTH rendered axes — MAX_RENDERED_PATHS with an `…and N
+  // more` line, and MAX_SUGGESTIONS per entry — but the path STRINGS themselves
+  // are unbounded, so the probe is a saturated sample rather than a proved
+  // ceiling. Same classification, and same reason, as its sibling above.
+  "nonexistent-search-path": RENDER_PROBE_SAMPLE,
   // mt#4096: two interpolations, both bounded — the command is the pipeline stage
   // (itself bounded by the shell) and the filter is one of two literal tokens.
   "truncated-outcome-read": "capped",
@@ -407,6 +415,12 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   "cli-mcp-substitution": "capped",
   [CHECK_GUESSED_SESSION_PATH]: "fixed",
   "code-mechanism-assertion-detector": "capped", // slice(0, 6) claims
+  // mt#4291. Every interpolation is a NUMBER except the model id on the
+  // unknown-model path, which appends `assumed (model <id> not in the window
+  // table)`. No list, no excerpt, no finding enumeration — so the canary's
+  // render is the ceiling for any realistic model id (measured 269 known / 355
+  // fallback against the declared 400), not a sample of an unbounded axis.
+  "context-fill-gauge": "capped",
   "guard-health-escalation-detector": WORST_CASE_CANARY, // two capped sections + a truncated interpolation
   "inject-current-time": "fixed",
   "inject-dispatch-watchdog": "capped", // MAX_ENUMERATED_FLAGS (mt#3485)

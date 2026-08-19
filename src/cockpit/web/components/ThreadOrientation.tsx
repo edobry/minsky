@@ -39,12 +39,26 @@ export function TurnSeparatorRow({ separator }: { separator: TurnSeparator }) {
 /**
  * What sits above the oldest rendered turn.
  *
- * Exactly one of three things renders, always — and that totality is the point.
+ * Exactly one of five things renders, always — and that totality is the point.
  * Before mt#3688 the top of a fully-revealed thread was simply blank, so "this
  * is the first message of the conversation" and "there is more above, still
  * coming" were the same picture, and the operator had no way to tell which one
- * they were looking at. Naming all three states costs one row and removes the
+ * they were looking at. Naming every state costs one row and removes the
  * ambiguity outright.
+ *
+ * ## The two states are about DIFFERENT things (mt#4263)
+ *
+ * `hiddenBefore` counts turns the client HAS and has not mounted — a render
+ * budget. `unfetchedBefore` counts turns the SERVER has and the client has not
+ * asked for — a fetch budget. Until mt#4263 only the first existed, because the
+ * client always held the whole transcript.
+ *
+ * Keeping them separate is not tidiness. Collapsing them would put this
+ * component back in exactly the state its own history warns about: with the
+ * window applied, a reader who has mounted everything they fetched is at
+ * `hiddenBefore === 0` while 2,186 turns still sit on the server, and the old
+ * three-state version answers that with "Beginning of conversation" — the same
+ * false picture, arrived at by a different route.
  */
 export function ThreadStartBoundary({
   hiddenBefore,
@@ -53,6 +67,9 @@ export function ThreadStartBoundary({
   firstTurnAt,
   onRevealOlder,
   onRevealFromStart,
+  unfetchedBefore = 0,
+  isLoadingOlder = false,
+  onLoadOlder,
 }: {
   hiddenBefore: number;
   isRevealing: boolean;
@@ -60,6 +77,15 @@ export function ThreadStartBoundary({
   firstTurnAt: string | undefined;
   onRevealOlder: () => void;
   onRevealFromStart: () => void;
+  /**
+   * Turns the SERVER still holds beyond what has been fetched (mt#4263).
+   * `0` — the default — is the pre-window behaviour: the client has everything.
+   */
+  unfetchedBefore?: number;
+  /** A fetch for older turns is in flight. */
+  isLoadingOlder?: boolean;
+  /** Fetch the next page of older turns. Absent when the host does not window. */
+  onLoadOlder?: () => void;
 }) {
   if (isRevealing) {
     return (
@@ -76,6 +102,23 @@ export function ThreadStartBoundary({
         <span className="tabular-nums">
           Revealing {revealingCount} older {revealingCount === 1 ? "turn" : "turns"}…
         </span>
+      </div>
+    );
+  }
+
+  if (isLoadingOlder) {
+    return (
+      <div
+        className="flex items-center justify-center gap-2 py-2 text-[11px] text-muted-foreground"
+        data-testid="thread-loading-older"
+        role="status"
+      >
+        <span className="h-3 w-3 animate-spin rounded-full border border-border border-t-foreground/60" />
+        {/* Deliberately worded as FETCHING, not revealing. The two waits have
+            different causes and different durations — one is a render, the
+            other is a round trip — and a reader who sees the same copy for both
+            cannot tell a slow network from a slow mount. */}
+        <span>Loading earlier turns…</span>
       </div>
     );
   }
@@ -107,6 +150,28 @@ export function ThreadStartBoundary({
           className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
         >
           jump to the beginning
+        </button>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+    );
+  }
+
+  if (unfetchedBefore > 0 && onLoadOlder) {
+    return (
+      <div
+        className="flex items-center gap-3 py-2 text-[11px] text-muted-foreground/80"
+        data-testid="thread-unfetched-above"
+      >
+        <span className="h-px flex-1 bg-border" />
+        <span className="tabular-nums">
+          {unfetchedBefore} earlier {unfetchedBefore === 1 ? "turn" : "turns"} not loaded
+        </span>
+        <button
+          type="button"
+          onClick={onLoadOlder}
+          className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
+        >
+          load earlier turns
         </button>
         <span className="h-px flex-1 bg-border" />
       </div>

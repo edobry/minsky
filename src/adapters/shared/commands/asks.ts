@@ -54,6 +54,7 @@ import {
 } from "@minsky/domain/ask/edit";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
 import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
+import { getOpenIncidentAsks } from "@minsky/domain/ask/queries";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
@@ -909,8 +910,18 @@ export function validateAuthorizationApproveOptions(params: {
  * distinction, not at the point that computes matches.
  *
  * The exclusion list stays a DENYLIST, deliberately: a new check blocks
- * unless it is added here. Two are excluded. `unlinkified-reference`
- * (mt#2918) is the second: the transform beside it is best-effort by design
+ * unless it is added here.
+ *
+ * **No count is stated here on purpose (PR #3158 R1).** This paragraph used to
+ * open "Two are excluded", and it was wrong by the time anyone read it: mt#4148
+ * and mt#4312 each added an exclusion without touching the sentence, and mt#4315
+ * made it a third off. A hand-maintained tally beside a list that only grows is
+ * a stale comment waiting to happen, so the reader is pointed at the filter body
+ * — which cannot drift from itself — and each exclusion carries its own reason
+ * at its own line. `asks.advisory-form-lint.test.ts` enumerates the current set
+ * as executable assertions.
+ *
+ * `unlinkified-reference` (mt#2918): the transform beside it is best-effort by design
  * — it linkifies a CUED external reference and warns about the rest — and an
  * ask carrying a citation it could not resolve is still a decidable ask, so
  * rejecting the create would withhold a decision over a formatting gap. The
@@ -995,7 +1006,21 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
       // whether an exemption set is complete, which no matcher can decide, so
       // blocking on it would only teach authors to reword the label. The fire
       // is the prompt; the judgment stays with the author.
-      m.check !== "unscoped-option-exception"
+      m.check !== "unscoped-option-exception" &&
+      // mt#4312: advisory permanently, and the direction is chosen rather than
+      // inherited. Blocking would mean a mis-scored overlap can SUPPRESS a real
+      // incident page, which is strictly worse than the duplicate page it would
+      // prevent — the whole subsystem exists to get the principal's attention
+      // when it is warranted. Fire, name the other ask, let the author decide.
+      m.check !== "duplicate-open-incident" &&
+      // mt#4315: advisory permanently, for the same reason as the check above
+      // and one of its own. Whether a condition will self-resolve is a
+      // PREDICTION about an external system — not something the author can
+      // settle before filing, and not something a matcher can adjudicate. The
+      // warning's job is to put category (b) in front of the author at the
+      // moment of escalation; blocking would let a wrong guess about someone
+      // else's infrastructure withhold a real page from the principal.
+      m.check !== "asserted-not-self-resolving"
   );
 }
 
@@ -1520,6 +1545,12 @@ export async function createAskWithFormLint(
   // Minsky id-set, and a Notion page id is in no Minsky index.
   const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
 
+  // mt#4312: read the open incident asks BEFORE creating this one, so the
+  // comparison set never contains the ask being created. Only for an incident
+  // create — an ordinary ask pays no read.
+  const openIncidentAsks =
+    params.severity === "incident" ? await getOpenIncidentAsks(repo) : undefined;
+
   const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
@@ -1533,6 +1564,11 @@ export async function createAskWithFormLint(
     // forceImmediate feeds the missing-force-immediate check (mt#3436) —
     // calibration-first, never blocking (see validateFormLintNotViolated).
     forceImmediate: params.forceImmediate,
+    // mt#4312: the counterweight to the check above. `severity` and the open
+    // incident set together drive `duplicate-open-incident`; both are absent
+    // for a non-incident create, which keeps that check silent.
+    severity: params.severity,
+    openIncidentAsks,
   });
   return {
     ask,
@@ -1635,7 +1671,7 @@ export const asksEditParams = {
   metadata: {
     schema: z.record(z.string(), z.unknown()).optional(),
     description:
-      "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+      "Metadata keys to shallow-merge over existing metadata (editHistory and originalContent are reserved — provenance and the pre-edit content capture; caller-supplied values for either are ignored)",
     required: false,
   },
   editor: {
@@ -2374,7 +2410,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "to metadata, and preserves each content field's PRE-EDIT value once, under " +
+        "metadata.originalContent — so the text an ask was originally escalated with survives a " +
+        "correction (mt#4329). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
         "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as

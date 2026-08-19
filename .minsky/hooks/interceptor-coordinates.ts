@@ -409,6 +409,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "nonexistent-search-path",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same quote-aware command-string split as its siblings, and the closest kin is `check-guessed-session-path` rather than the other recorders: both extract paths and decide with an `existsSync`. Two differences make it a separate coordinate. It extracts by ARGUMENT POSITION — walking each search binary's own grammar to tell a path from a pattern, a flag, and a `--include` filter value — where the session-path gate matches a literal substring anywhere in the command. And it records rather than denies, because that grammar walk is the false-positive surface, and its precision is a claim the calibration log has to settle. No prose and no paraphrase axis in either leg; the only judgment is which tokens are paths.",
+    },
+  ],
+  [
     "cli-mcp-substitution",
     {
       interventions: [recordReview],
@@ -426,6 +435,11 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["code-mechanism-assertion-detector", lexicalDetector],
   ["constructed-identifier-batch-detector", structuralRecorder],
+  // A numeric threshold comparison over transcript state — no prose is read, so
+  // there is no paraphrase exposure to flag. Records only while log-only; when
+  // it graduates, its interventions gain `injectAgent` alongside `recordReview`
+  // (the silent-stretch-detector shape).
+  ["context-fill-gauge", structuralRecorder],
   [
     "duplicate-check-search-provenance",
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
@@ -496,6 +510,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       mechanism: "lexical",
       role: "judge",
       note: "Joins two exact reads with no paraphrase axis: git status `A` on a render-path path, and a `Skill` tool_use name against a fixed six-skill list. Neither half is a matcher over prose, which is why it ships without ADR-024's ladder above rung 1. The transcript half is what makes it a judge rather than a diff scanner — and why an absent transcript records `skipped` rather than a fire.",
+    },
+  ],
+  [
+    "enumeration-scope-check",
+    {
+      interventions: [recordReview],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Joins two exact reads over the same PR window with no paraphrase axis: the session's own edit-call paths against a fixed serialized-surface list, and its search-call command strings against a fixed directory list. The strictly stronger sibling of the did-a-search-happen shape — it asks whether the sweep that RAN reached the prescribed directory, which is what every recorded gate-(h) failure missed. A subtree does not count as its directory (mt#4215), which is the discrimination that lets it see mt#4252.",
     },
   ],
   [

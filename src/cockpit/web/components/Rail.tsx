@@ -77,6 +77,7 @@ import {
   PanelLeftOpen,
   Share2,
   ShieldCheck,
+  Shield,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useOpenAskCount } from "../hooks/useOpenAskCount";
@@ -137,6 +138,15 @@ const BROWSE: NavItem[] = [
   // drill-down — the older, file-walk view of the same corpus — WAS in the
   // rail. Sits beside Plant because that drill-down now redirects here.
   { to: "/interceptors", label: "Interceptors", icon: ShieldCheck },
+  // mt#4287 — the OPERATOR rendering of the same corpus the entry above
+  // renders for the maintainer (mem#802's two-audience split). Both are in the
+  // rail deliberately: they answer different questions for the same person
+  // wearing different hats — "is the corpus healthy and what needs tuning"
+  // above, "what is this protecting me from and what is it charging me" here —
+  // and routing the second through the first would make the operator read the
+  // machinery to reach the outcome, which is the split's whole point.
+  // Route name is a PLACEHOLDER pending the naming ask (SC7).
+  { to: "/protection", label: "Protection", icon: Shield },
   { to: "/vitals", label: "Vitals", icon: Activity },
 ];
 

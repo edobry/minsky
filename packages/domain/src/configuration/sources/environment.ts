@@ -271,6 +271,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_SUBAGENT_MODEL_CHECK: "operator-override", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
   MINSKY_SKIP_CHAINED_VERIFICATION_SCAN: "operator-override", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
   MINSKY_SKIP_TRUNCATED_OUTCOME_READ: "operator-override", // .claude/hooks/truncated-outcome-read-detector.ts (mt#4096) — truncated-outcome-read observer override
+  MINSKY_SKIP_NONEXISTENT_SEARCH_PATH: "operator-override", // .claude/hooks/nonexistent-search-path-detector.ts (mt#4215) — nonexistent-search-path observer override
   MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK: "operator-override", // .claude/hooks/guard-events-ingest-on-session-end.ts (mt#4035) — SessionEnd guard-events sweep-tick override
   MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS: "tunable", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
   MINSKY_TEST_WATCHDOG_MS: "tunable", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog
@@ -439,6 +440,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_SEARCH_PROVENANCE: "operator-override", // .claude/hooks/duplicate-check-search-provenance.ts (mt#4004) — duplicate-check record claiming a search that never ran
   MINSKY_SKIP_CANDIDATE_READ_PROVENANCE: "operator-override", // .claude/hooks/duplicate-check-candidate-read.ts (mt#4167) — duplicate-check record distinguishing candidates whose specs were never opened
   MINSKY_SKIP_CLAIM_PROVENANCE: "operator-override", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
+  MINSKY_SKIP_ENUMERATION_SCOPE: "operator-override", // .claude/hooks/enumeration-scope-check.ts (mt#4171) — a PR changing a serialized contract whose gate-(h) consumer sweep never reached docs/
   MINSKY_SKIP_EVIDENCE_PROVENANCE: "operator-override", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
   MINSKY_ACK_TASK_HIJACK: "operator-override", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
@@ -479,6 +481,9 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_WALL_OF_TEXT: "operator-override", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
   MINSKY_SKIP_TERMINAL_LINKIFY: "operator-override", // .claude/hooks/linkify-message-display.ts (mt#2565) — display every streaming delta unchanged instead of linkifying entity refs
   MINSKY_SILENT_STRETCH_GAP_MINUTES: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
+  MINSKY_SKIP_CONTEXT_FILL_GAUGE: "operator-override", // .claude/hooks/context-fill-gauge.ts (mt#4291) — override for the context-fill gauge
+  MINSKY_CONTEXT_FILL_WARN_RATIO_PCT: "tunable", // .claude/hooks/context-fill-gauge.ts (mt#4291) — preference-class threshold: warn tier as % of context window (default 80)
+  MINSKY_CONTEXT_FILL_CRITICAL_RATIO_PCT: "tunable", // .claude/hooks/context-fill-gauge.ts (mt#4291) — preference-class threshold: critical tier as % of context window (default 95)
   MINSKY_SILENT_STRETCH_TOOL_CALLS: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
   MINSKY_WALL_OF_TEXT_WORD_BUDGET: "tunable", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
   MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER: "operator-override", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface
@@ -566,6 +571,9 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
   MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
   MINSKY_PEEK_TASK_ID: "tunable", // scripts/verify-peek-pane-layout.ts — task rendered in the peek pane
+  MINSKY_PROTECTION_PREVIEW_DEGRADED: "tunable", // scripts/preview-protection-surface.ts — force one broken check so the degraded render is previewable (default off)
+  MINSKY_PROTECTION_PREVIEW_PORT: "tunable", // scripts/preview-protection-surface.ts — port the no-database design preview serves on (default 4310)
+  MINSKY_PROTECTION_SHOT: "tunable", // scripts/verify-protection-surface.ts — screenshot output path (default /tmp/mt4287-protection.png)
   MINSKY_PROBE_TASK_ID: "tunable", // scripts/verify-similarity-terminal-visibility.ts — task the probe queries
   MINSKY_REQUIRE_DERIVED_LINK_PROBE: "tunable", // scripts/verify-derived-conversation-link.ts — fail instead of skipping when preconditions are absent
   MINSKY_REQUIRE_PRESENCE_DERIVATION_PROBE: "tunable", // scripts/verify-presence-conversation-derivation.ts — same, for the presence probe

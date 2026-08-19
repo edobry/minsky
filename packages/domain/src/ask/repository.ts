@@ -20,6 +20,9 @@
  */
 
 import { injectable } from "tsyringe";
+// Value import, and safe from a cycle: `edit.ts`'s only import from this module
+// is `import type`, which is erased at runtime (PR #3162 R1).
+import { stripReservedProvenanceKeys } from "./edit";
 import {
   and,
   count,
@@ -165,7 +168,11 @@ function toInsert(input: CreateAskInput): AskInsert {
     // claim a page it never sent, which is exactly what the marker exists to
     // prevent (mt#3595).
     principalPagedAt: null,
-    metadata: input.metadata ?? {},
+    // editHistory / originalContent are the substrate's record, not a caller's
+    // input — same rule as principalPagedAt above (PR #3162 R1). Stripping here
+    // is what makes the reservation real: a planted "original" would otherwise
+    // survive to the first edit and pre-empt the genuine capture.
+    metadata: stripReservedProvenanceKeys(input.metadata ?? {}),
   };
 }
 
@@ -1339,7 +1346,10 @@ export class FakeAskRepository implements AskRepository {
       // NOT initialized from input — same rule as the Drizzle backend: only
       // claimPrincipalPage writes it.
       severity: input.severity,
-      metadata: input.metadata ?? {},
+      // Mirrors the Drizzle backend's reservation (PR #3162 R1) — the fake must
+      // not be more permissive than the real thing, or a test would pass against
+      // behaviour production does not have.
+      metadata: stripReservedProvenanceKeys(input.metadata ?? {}),
     };
     this.store.set(id, ask);
     return { ...ask };

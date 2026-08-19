@@ -415,6 +415,52 @@ describe("PostgresVectorPersistenceProvider", () => {
 
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
+
+  // mt#4298 regression. Vector storage runs EVERY query through `.unsafe()` —
+  // the `<-> $1::vector` search, store, delete — which is precisely the surface
+  // mt#2773's pooler guard bounds. Handing it the raw client left that traffic
+  // as unguarded fan-out at the Supavisor transaction pooler, whose wedge leaves
+  // postgres-js promises permanently unsettled: tasks_search hung with no error
+  // for 81 minutes across three sessions on 2026-08-19.
+  test("getVectorStorageForDomain() hands vector storage the guarded client, not the raw one", async () => {
+    const rawSqlFunction = mock((strings: TemplateStringsArray, ..._values: any[]) => {
+      const queryString = (strings as unknown as string[])[0] ?? "";
+      if (queryString.includes("pg_extension") && queryString.includes("vector")) {
+        return Promise.resolve([{ exists: true }]);
+      }
+      return Promise.resolve([]);
+    });
+    const rawSql = Object.assign(rawSqlFunction, {
+      options: { parsers: {}, serializers: {}, max: 10 },
+      query: mock(() => Promise.resolve([])),
+      end: mock(() => Promise.resolve()),
+      unsafe: mock(() => Promise.resolve([])),
+    });
+
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: TEST_CONNECTION_STRING,
+        connectTimeout: 15,
+        idleTimeout: 60,
+      },
+    };
+    const provider = new PostgresVectorPersistenceProvider(config);
+    await provider.initialize({ sqlClient: rawSql as any });
+
+    const guarded = await provider.getRawSqlConnection();
+    const storage = provider.getVectorStorageForDomain("tasks" as never, 1536);
+    const storageSql = (storage as unknown as { sql: unknown }).sql;
+
+    // The fix: vector storage gets the SAME memoized guarded instance every
+    // other `.unsafe()` consumer gets. Identity matters — the guard's bound is
+    // a shared in-flight counter, so a second wrap would admit `max` again.
+    expect(storageSql).toBe(guarded);
+
+    // Negative control: this is the assertion that fails pre-fix, where
+    // getVectorStorageForDomain passed `this.sql` straight through.
+    expect(storageSql).not.toBe(rawSql);
+  });
 });
 
 // ---------------------------------------------------------------------------

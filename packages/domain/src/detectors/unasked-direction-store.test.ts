@@ -19,6 +19,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   writeFindings,
+  writeFailedRun,
   readFindings,
   listFindingsSessions,
   updateFindingVerdict,
@@ -29,7 +30,7 @@ import {
   __TEST_ONLY,
   type FindingsRecord,
 } from "./unasked-direction-store";
-import type { AnalyzerOutput } from "./unasked-direction-analyzer";
+import type { AnalyzerOutput, TranscriptSampling } from "./unasked-direction-analyzer";
 
 const FIXTURE_SIGNATURE = "ts:dependency:redis";
 
@@ -45,6 +46,20 @@ function makeOutput(): AnalyzerOutput {
   return {
     findings: [FIXTURE_FINDING, { ...FIXTURE_FINDING, label: "second", severity: "low" }],
     summary: "Two findings",
+  };
+}
+
+function makeSampling(overrides: Partial<TranscriptSampling> = {}): TranscriptSampling {
+  return {
+    strategy: "text-bearing-even",
+    totalMessages: 900,
+    textBearingMessages: 130,
+    analyzedMessages: 60,
+    emptyTextRatio: 0,
+    nonTextRatio: 0,
+    firstIndex: 0,
+    lastIndex: 899,
+    ...overrides,
   };
 }
 
@@ -136,6 +151,62 @@ describe("writeFindings / readFindings", () => {
 // ---------------------------------------------------------------------------
 // listFindingsSessions
 // ---------------------------------------------------------------------------
+
+describe("sampling + failed-run records (mt#4235)", () => {
+  it("carries the analyzer run's sampling into the record", async () => {
+    const sampling = makeSampling();
+    await writeFindings(tempRoot, "session-A", { ...makeOutput(), sampling }, {});
+
+    const record = await readFindings(tempRoot, "session-A");
+    expect(record?.sampling).toEqual(sampling);
+  });
+
+  it("writeFailedRun records a run that produced no answer", async () => {
+    await writeFailedRun(
+      tempRoot,
+      "session-A",
+      makeSampling({ analyzedMessages: 60 }),
+      "AI completion failed: summary missing",
+      { taskId: "mt#4235" }
+    );
+
+    const record = await readFindings(tempRoot, "session-A");
+    expect(record?.findings).toEqual([]);
+    expect(record?.analyzerError).toContain("summary missing");
+    expect(record?.sampling?.analyzedMessages).toBe(60);
+    expect(record?.taskId).toBe("mt#4235");
+  });
+
+  it("distinguishes 'no answer' from 'analyzed, found nothing'", async () => {
+    // The whole point of `analyzerError`: both records have `findings: []`, and before
+    // mt#4235 the failing one was not written at all — so a corpus reader counting
+    // zero-finding sessions silently dropped every failure from the denominator.
+    await writeFailedRun(tempRoot, "failed", makeSampling(), "boom", {});
+    await writeFindings(
+      tempRoot,
+      "quiet",
+      { findings: [], summary: "Nothing unasked here.", sampling: makeSampling() },
+      {}
+    );
+
+    const failed = await readFindings(tempRoot, "failed");
+    const quiet = await readFindings(tempRoot, "quiet");
+
+    expect(failed?.findings).toEqual([]);
+    expect(quiet?.findings).toEqual([]);
+    expect(failed?.analyzerError).toBeDefined();
+    expect(quiet?.analyzerError).toBeUndefined();
+  });
+
+  it("omits sampling for a run that did not supply one, rather than inventing zeros", async () => {
+    // A record predating mt#4235 must read as "window shape unknown", not as a window of
+    // zero messages — those would be indistinguishable, which is the bug one level up.
+    await writeFindings(tempRoot, "legacy", makeOutput(), {});
+
+    const record = await readFindings(tempRoot, "legacy");
+    expect(record?.sampling).toBeUndefined();
+  });
+});
 
 describe("listFindingsSessions", () => {
   it("returns [] when the directory is missing", async () => {
