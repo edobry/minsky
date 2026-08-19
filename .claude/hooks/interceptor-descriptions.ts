@@ -709,6 +709,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "context-fill-gauge",
+    {
+      description:
+        "Records the session's own context fill against the model's window, every turn, alongside the turn count. The model has no introspective access to its token count, so this is the only channel that can supply one. Display-only: it reports and acts on nothing.",
+      failureClasses: ["lost-signal"],
+      provenance: [hook("context-fill-gauge"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "build-claim-injection-detector",
     {
       description:

@@ -481,6 +481,9 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_WALL_OF_TEXT: "operator-override", // .claude/hooks/wall-of-text-detector.ts (mt#2870) — override for the turn-report wall-of-text shape detector
   MINSKY_SKIP_TERMINAL_LINKIFY: "operator-override", // .claude/hooks/linkify-message-display.ts (mt#2565) — display every streaming delta unchanged instead of linkifying entity refs
   MINSKY_SILENT_STRETCH_GAP_MINUTES: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat gap minutes (default 10)
+  MINSKY_SKIP_CONTEXT_FILL_GAUGE: "operator-override", // .claude/hooks/context-fill-gauge.ts (mt#4291) — override for the context-fill gauge
+  MINSKY_CONTEXT_FILL_WARN_RATIO_PCT: "tunable", // .claude/hooks/context-fill-gauge.ts (mt#4291) — preference-class threshold: warn tier as % of context window (default 80)
+  MINSKY_CONTEXT_FILL_CRITICAL_RATIO_PCT: "tunable", // .claude/hooks/context-fill-gauge.ts (mt#4291) — preference-class threshold: critical tier as % of context window (default 95)
   MINSKY_SILENT_STRETCH_TOOL_CALLS: "tunable", // .claude/hooks/silent-stretch-detector.ts (mt#3518) — preference-class threshold: heartbeat call count (default 15)
   MINSKY_WALL_OF_TEXT_WORD_BUDGET: "tunable", // .claude/hooks/wall-of-text-detector.ts (mt#3518) — preference-class threshold: turn-report lead word budget (default 200)
   MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER: "operator-override", // .claude/hooks/substrate-bypass-detector.ts (mt#2303) — skip the log-only operator-instruction-as-feature-delivery calibration surface

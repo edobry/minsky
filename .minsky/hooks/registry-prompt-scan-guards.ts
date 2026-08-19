@@ -749,4 +749,89 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4291 — context-fill gauge. Reads the last assistant record's `usage`
+  // and reports the session's own context fill back to the agent, which has no
+  // other way to see it (no API exposes a token count to the model).
+  //
+  // DISPLAY-ONLY by principal decision (ask#8878): it records and, once
+  // graduated, reports. Nothing acts on the signal.
+  //
+  // `UserPromptSubmit` per ADR-031 ("anchor at Stop; detect and inject at
+  // UserPromptSubmit") and transcript.ts's own note that this event is where the
+  // file has had the MOST time to flush. It needs no Stop anchor: unlike
+  // silent-stretch / wall-of-text above, it reads ONE usage record rather than a
+  // bounded turn window, so there is no turn boundary to locate.
+  //
+  // `contextPriority: 10` joins the always-on ground-truth bucket
+  // (registry-prompt-injection-guards.ts) for one specific reason: the merged
+  // context block drops its LOWEST-priority fragments when over budget, so a
+  // saturation reading at a lower tier would be dropped exactly when it becomes
+  // worth reading. Its steady-state cost is zero — below threshold it emits no
+  // additionalContext at all.
+  //
+  // Ships LIVE rather than calibration-first (PR #3144 R4). The default exists
+  // to hold back an unproven PHRASE MATCHER; this is a numeric comparison with
+  // no paraphrase axis, and log-only would have made the feature inert — the
+  // agent would stay as blind as before, which is the whole thing it exists to
+  // fix. See the flag's own docblock in `context-fill-gauge.ts`.
+  //
+  // `MERGED_CONTEXT_BUDGET_CHARS` is deliberately UNCHANGED: the bucket holds
+  // the five heaviest ACTUAL injectors, whose current floor is 600, and this
+  // guard's measured ceiling is 400 — it does not enter the top five.
+  // -------------------------------------------------------------------------
+  {
+    name: "context-fill-gauge",
+    effects: [advisoryEffect(), recorderEffect()],
+    tuningOwnership: "preference",
+    event: "UserPromptSubmit",
+    module: () => import("./context-fill-gauge").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "context-fill-gauge",
+    denyCapable: false,
+    needsTranscript: true,
+    contextPriority: 10,
+    // MEASURED (2026-08-18), not estimated: 269 chars on a known model, 355 on
+    // the unknown-model path, which appends `assumed (model <id> not in the
+    // window table)` and so grows with the MODEL ID's length. Every other
+    // interpolation is a number, and there is no list or finding enumeration —
+    // so 400 is a ceiling against a realistic id, not a proved bound. See
+    // `docs/architecture/hooks/context-fill-gauge.md` §Graduating it.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt4291-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "working" }],
+            model: "claude-opus-5",
+            // 970,000 of the 1,000,000 window = 97%, above the critical tier.
+            usage: {
+              input_tokens: 2,
+              cache_creation_input_tokens: 8,
+              cache_read_input_tokens: 969_990,
+              output_tokens: 100,
+            },
+            // The cast is the point, not an escape: `TranscriptLine.message`
+            // declares only `role`/`content`, while `parseTranscript` casts each
+            // line and so preserves `model`/`usage` at RUNTIME. This canary needs
+            // the runtime fields the declared type omits — the same gap
+            // context-fill-gauge.ts documents at its own read site. Widening the
+            // shared type is deliberately out of scope here (transcript.ts is in
+            // flight on mt#2544 / mt#3650).
+          } as { role?: string; content?: unknown },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // "warn" asserts the reading is actually EMITTED. That is the stronger
+      // assertion and the one that matters: "calibration" would pass on both
+      // sides of the INJECTION_ENABLED branch, so it could not catch injection
+      // silently stopping — which for this guard means the agent going blind
+      // again with every test still green.
+      expects: "warn",
+    },
+  },
 ];

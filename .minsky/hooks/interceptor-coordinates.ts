@@ -435,6 +435,11 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ],
   ["code-mechanism-assertion-detector", lexicalDetector],
   ["constructed-identifier-batch-detector", structuralRecorder],
+  // A numeric threshold comparison over transcript state — no prose is read, so
+  // there is no paraphrase exposure to flag. Records only while log-only; when
+  // it graduates, its interventions gain `injectAgent` alongside `recordReview`
+  // (the silent-stretch-detector shape).
+  ["context-fill-gauge", structuralRecorder],
   [
     "duplicate-check-search-provenance",
     { interventions: [injectAgent, recordReview], mechanism: "structural", role: "judge" },
