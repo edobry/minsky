@@ -22,6 +22,7 @@ import {
   prNumbersInParagraph,
   run,
 } from "./claim-provenance-scan";
+import { prNumbersFromCommandFileListRead } from "./evidence-provenance-table";
 import type { DispatchContext } from "./registry";
 import type { ToolHookInput } from "./types";
 import type { TranscriptLine } from "./transcript";
@@ -261,6 +262,30 @@ describe("shell-performed file-list reads discharge", () => {
       ])
     );
     expect(out?.calibration?.["outcome"]).toBe("clean");
+  });
+
+  test("repeated calls are stable, and a command naming two PRs yields both (PR #3139 R1)", () => {
+    // The recognizer's patterns used to be module-level `g`-flagged literals,
+    // i.e. shared mutable `lastIndex`. `matchAll` clones rather than stepping
+    // the original, so the reported skip did not reproduce — but the safety was
+    // a property of which METHOD the call site used, and one later `.test()`
+    // would have started it stepping silently, in a recognizer whose failure
+    // direction is firing at an author who did the work. They are compiled per
+    // call now; this pins both halves of that.
+    const twoPrs = {
+      toolName: "Bash",
+      input: {
+        command:
+          "gh api repos/edobry/minsky/pulls/3098/files && gh api repos/edobry/minsky/pulls/3128/files",
+      },
+      resultText: "",
+    } as unknown as Parameters<typeof prNumbersFromCommandFileListRead>[0];
+
+    const first = prNumbersFromCommandFileListRead(twoPrs);
+    expect(first).toEqual([3098, 3128]);
+    for (let i = 0; i < 3; i += 1) {
+      expect(prNumbersFromCommandFileListRead(twoPrs)).toEqual(first);
+    }
   });
 
   test("a plain git diff is not a changed-file enumeration", () => {

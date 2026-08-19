@@ -101,7 +101,20 @@ interface Tally {
 
 const EMPTY: Tally = { considered: 0, claims: 0, fired: 0, discharged: 0, skipped: 0 };
 
-/** Tool names this guard is registered on, normalized the way it normalizes. */
+/**
+ * Tool names this guard is registered on, normalized the way it normalizes.
+ *
+ * Derived from the guard's own map rather than restated, so the sweep can only
+ * ever consider the population the guard considers.
+ *
+ * It reads the `.minsky/hooks` SOURCE while the live guard runs the generated
+ * `.claude/hooks` copy, and that is deliberate rather than a drift risk
+ * (PR #3139 R1). Pre-commit's `regenerateStagedClaudeHooks` (mt#2977)
+ * regenerates and re-STAGES the generated tree whenever a hook source is staged,
+ * so the two cannot disagree in a committed tree. The only window where they
+ * differ is between an edit and its commit — which is precisely when a replay
+ * must measure the edit you just made, not the copy that predates it.
+ */
 const TARGET_TOOLS = new Set(Object.keys(SPEC_TEXT_FIELD_BY_TOOL));
 
 function normalize(name: string): string {

@@ -106,14 +106,6 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
 }
 
 /**
- * PR numbers whose changed-file list was actually read in this session.
- *
- * Returning the SET rather than a boolean is what makes the join specific: a
- * collision claim names a PR, and reading a DIFFERENT PR's files is not
- * evidence about this one. mem#892 is precisely that failure with the read
- * missing entirely; accepting any file-read at all would rebuild it one step up.
- */
-/**
  * The SAME read, performed through the shell (mt#4190).
  *
  * `isPrFileListCall` recognizes exactly one spelling — the `pull_request_read`
@@ -134,22 +126,36 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
  * stays PR-specific. A read that cannot be tied to a number does not belong
  * here; it discharges the merge-shaped claim below instead.
  */
-const CLI_PR_FILE_LIST_PATTERNS: readonly RegExp[] = [
+/**
+ * Held as SOURCE STRINGS, and compiled fresh on each call (PR #3139 R1).
+ *
+ * A module-level `g`-flagged literal carries mutable `lastIndex` state shared by
+ * every caller. Today nothing here advances it — `matchAll` clones the regex
+ * rather than stepping the original, so repeated calls return identical results,
+ * and the reported skip does not reproduce. But that safety is a property of
+ * WHICH METHOD the call site happens to use: swap one `matchAll` for `.test()`
+ * or `.exec()` later and the shared state starts stepping, silently, in a
+ * discharge recognizer whose failure direction is firing at an author who did
+ * the work.
+ *
+ * Compiling per call removes the class instead of documenting it. The cost is a
+ * regex construction on a path that runs once per tool call in a transcript
+ * scan; the benefit is that no future edit to this function can reintroduce it.
+ */
+const CLI_PR_FILE_LIST_SOURCES: readonly string[] = [
   // `gh api repos/<owner>/<repo>/pulls/<N>/files`, quoted or not, with or
   // without a query string.
-  /\bgh\s+api\s+\S*?\bpulls\/(\d+)\/files/gi,
+  String.raw`\bgh\s+api\s+\S*?\bpulls\/(\d+)\/files`,
   // `gh pr diff <N> --name-only` / `gh pr view <N> --json files`.
-  /\bgh\s+pr\s+(?:diff|view)\s+(\d+)\b[^\n]*?(?:--name-only|--json\s+[\w,]*files)/gi,
+  String.raw`\bgh\s+pr\s+(?:diff|view)\s+(\d+)\b[^\n]*?(?:--name-only|--json\s+[\w,]*files)`,
 ];
 
 export function prNumbersFromCommandFileListRead(call: ToolCallWithResult): number[] {
   if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
   const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
   const out: number[] = [];
-  for (const pattern of CLI_PR_FILE_LIST_PATTERNS) {
-    // `matchAll` needs a fresh lastIndex per use; the literals are module-level
-    // and `g`-flagged, so iterate rather than calling `.exec` in a loop.
-    for (const m of command.matchAll(pattern)) {
+  for (const source of CLI_PR_FILE_LIST_SOURCES) {
+    for (const m of command.matchAll(new RegExp(source, "gi"))) {
       const n = Number.parseInt(m[1] ?? "", 10);
       if (Number.isInteger(n)) out.push(n);
     }
@@ -157,6 +163,15 @@ export function prNumbersFromCommandFileListRead(call: ToolCallWithResult): numb
   return out;
 }
 
+/**
+ * PR numbers whose changed-file list was actually read in this session, through
+ * the MCP tool OR the shell.
+ *
+ * Returning the SET rather than a boolean is what makes the join specific: a
+ * collision claim names a PR, and reading a DIFFERENT PR's files is not
+ * evidence about this one. mem#892 is precisely that failure with the read
+ * missing entirely; accepting any file-read at all would rebuild it one step up.
+ */
 export function prNumbersWithFileListRead(calls: readonly ToolCallWithResult[]): Set<number> {
   const out = new Set<number>();
   for (const call of calls) {
