@@ -274,9 +274,20 @@ export function ProtectionPage() {
             />
           </div>
 
+          {/* Two things a reader would otherwise have to reverse-engineer, and
+              one of them looks like a bug: the per-row times sum to MORE than
+              the total above, because a check covering three of these is one
+              check in the total and three rows here. Saying so costs a line and
+              turns an apparent arithmetic error into a fact about coverage.
+
+              The ordering sentence names INTERRUPTIONS specifically rather than
+              "cost", because time is a visible column that varies
+              independently — a row with less time can sit above one with more,
+              and a vaguer word would read as contradicting the column. */}
           <p className="text-[10px] font-mono text-muted-foreground/70 mb-2 m-0">
-            Last {summary.windowDays} days. Ordered by what cost you most, with anything not working
-            first.
+            Last {summary.windowDays} days. Ordered by how often they interrupted you, with anything
+            not working first. A check can cover more than one of these, so the rows overlap — the
+            totals above count each check once.
           </p>
 
           <ul className="list-none p-0 m-0" data-testid="protection-classes">
