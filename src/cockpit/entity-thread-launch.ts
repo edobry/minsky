@@ -64,6 +64,7 @@ import {
 } from "@minsky/domain/transcripts/entity-thread-store";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { pendingReplyBuffer, schedulePendingDrain } from "./entity-thread-reply-buffer";
+import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 
 // ---------------------------------------------------------------------------
 // Seeding (pure)
@@ -647,6 +648,7 @@ export async function startEntityThreadSession(
   log.debug(`startEntityThreadSession: spawning for ${localId}`);
   const result = startDrivenSession({
     localId,
+    mcpServerNames: drivenSessionMcpServerNames(),
     cwd: opts.cwd ?? process.cwd(),
     permissionMode: DEFAULT_PERMISSION_MODE,
     // mt#3402: the SAME observer set ./routes/driven-sessions.ts wires for

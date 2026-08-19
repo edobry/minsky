@@ -23,6 +23,7 @@
 
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import { extractTextFromContent } from "./transcript-content";
 import { promises as fs } from "fs";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -47,11 +48,35 @@ const CORRECTION_PATTERNS = [
   /\brevert\b/i,
 ];
 
-/** A filtered transcript message stored in the database. */
+/**
+ * A transcript message as stored in the database.
+ *
+ * TWO shapes reach this type, and the difference is load-bearing (mt#4196):
+ *
+ * - **Raw harness JSONL** — what the live ingest path writes, and the only shape with rows
+ *   in prod. The text is nested at `message.content`; there is NO top-level `content` key.
+ * - **Pre-extracted (legacy)** — what the transitional `ingestTranscript` below writes,
+ *   with `content` flattened onto the message. Zero live rows carry it.
+ *
+ * Both fields are declared so neither read is undeclared, and so a reader is confronted
+ * with the choice rather than defaulting into the one that happens to be wrong. **Do not
+ * read either field directly** — call `resolveTranscriptMessageContent` (or
+ * `resolveMessageText`) from `./transcript-content`, which tries nested first and falls
+ * back to flat. Reading `.content` alone is what left three consumers blind for months.
+ */
 export interface TranscriptMessage {
   type: "user" | "assistant";
   role: string;
+  /**
+   * The pre-extracted (legacy) content payload. `undefined` on every live row — prefer
+   * `resolveTranscriptMessageContent`, which handles both shapes.
+   */
   content: unknown;
+  /**
+   * The raw harness line's nested payload — where the text actually lives on stored rows.
+   * Optional because the legacy shape omits it, not because it is rare: it is the common case.
+   */
+  message?: { role?: string; content?: unknown; [key: string]: unknown };
   timestamp?: string;
   uuid?: string;
   model?: string;
@@ -65,16 +90,21 @@ export interface MessageStats {
   corrections: number;
 }
 
-/** Extracts the text content from a message's content field (string or array). */
+/**
+ * Extracts the text content from an already-resolved content payload (string or array).
+ *
+ * Delegates to the shared extractor (mt#4196) rather than keeping a fourth copy of the
+ * same string-or-blocks logic. Behavior is unchanged: `""` for an unextractable payload,
+ * where the shared function returns `null`.
+ *
+ * NOTE: this extracts from whatever payload it is HANDED. `countCorrections` below still
+ * hands it `msg.content` — the flat field that is `undefined` on every live row — so
+ * `computeMessageStats` still reports 0 corrections for a stored transcript. Fixing that
+ * call site is mt#4225, which owns the remaining blind consumers; this task deliberately
+ * changed only the shared extraction, not who calls it with what.
+ */
 function extractTextContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    return content
-      .filter((block: { type?: string }) => block.type === "text")
-      .map((block: { text?: string }) => block.text ?? "")
-      .join(" ");
-  }
-  return "";
+  return extractTextFromContent(content) ?? "";
 }
 
 /** Counts correction signals in a sequence of messages. */

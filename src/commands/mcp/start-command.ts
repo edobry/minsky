@@ -1233,20 +1233,20 @@ async function buildEmbeddingsEventEmitter(
   container: AppContainerInterface
 ): Promise<EventEmitterWithTryEmit | null> {
   try {
-    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
-    if (!persistence) return null;
-
-    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
-    if (!(persistence instanceof PersistenceProvider)) return null;
-    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
-      return null;
-    }
-    const connection = await persistence.getDatabaseConnection();
-    if (!connection) return null;
-
-    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
-    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
-    return createEventEmitter(db);
+    // mt#4218: both halves now come from shared domain helpers that the cockpit
+    // and CLI hosts reach the same way — `resolveContainerPersistence` for the
+    // container lookup, `buildEventEmitterFromProvider` for the construction.
+    // The explicit `capabilities.sql` test is gone rather than relaxed: both
+    // helpers test `getDatabaseConnection` for callability and for a non-null
+    // result, which is the operative check and what every other emit site in
+    // the codebase already uses.
+    const { resolveContainerPersistence } = await import(
+      "@minsky/domain/ai/embeddings-health-wiring"
+    );
+    const { buildEventEmitterFromProvider } = await import(
+      "@minsky/domain/events/emit-best-effort"
+    );
+    return await buildEventEmitterFromProvider(await resolveContainerPersistence(container));
   } catch (err) {
     log.debug("[mt#2568] buildEmbeddingsEventEmitter threw", {
       error: getErrorMessage(err),
@@ -1751,12 +1751,14 @@ export function createStartCommand(
         // ordering fix.
         if (container) {
           try {
-            const { EmbeddingsHealthTracker } = await import(
-              "@minsky/domain/ai/embeddings-health-tracker"
-            );
-            EmbeddingsHealthTracker.registerEventEmitterBuilder(() =>
-              buildEmbeddingsEventEmitter(container)
-            );
+            // mt#4218: registered through the shared host-wiring helper, which
+            // the cockpit daemon and the CLI now call the same way. Registering
+            // the tracker's builder directly from a host is what this replaces —
+            // three hosts each doing it their own way is how two of them came to
+            // do it not at all.
+            const { registerEmbeddingsHealthEventEmitter, resolveContainerPersistence } =
+              await import("@minsky/domain/ai/embeddings-health-wiring");
+            registerEmbeddingsHealthEventEmitter(() => resolveContainerPersistence(container));
           } catch (err) {
             log.debug(
               "[mt#2568] Could not register EmbeddingsHealthTracker event-emitter builder",

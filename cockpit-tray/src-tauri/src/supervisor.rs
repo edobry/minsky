@@ -17,7 +17,7 @@ use tokio::sync::mpsc;
 use crate::launchd::try_evict_legacy_launchd;
 use crate::port::cockpit_port;
 use crate::watcher_backend::{
-    cockpit_backend_root, cockpit_backend_src, newest_backend_mtime, start_backend_watcher,
+    cockpit_backend_root, cockpit_backend_roots, newest_backend_mtime_across, start_backend_watcher,
 };
 use crate::watcher_web::{
     cockpit_source_root, cockpit_web_src, format_hms_utc, preflight_rebuild, reload_cockpit_window,
@@ -555,7 +555,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgids, path: &str) 
             // entry with no watched source tree.
             sup.daemon.daemon_started_at = Some(SystemTime::now());
             let mtime = cockpit_backend_root(path)
-                .and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
+                .and_then(|r| newest_backend_mtime_across(&cockpit_backend_roots(&r)));
             sup.set_source_mtime(mtime);
             record_spawned(spawned, sup.id.slug(), pid);
             let starting = sup.daemon.labels.starting;
@@ -1235,7 +1235,7 @@ fn run_supervisor(
         // Both watchers are COCKPIT policy and stay wired to the cockpit entry:
         // the MCP daemon has no bundle and no watched tree.
         let _backend_watcher = cockpit_backend_root(&path)
-            .and_then(|root| start_backend_watcher(&app, &cockpit_backend_src(&root)));
+            .and_then(|root| start_backend_watcher(&app, &cockpit_backend_roots(&root)));
         // pool_max_idle_per_host(0) disables keep-alive reuse: each poll opens a
         // fresh connection. Without this a pooled connection can go stale
         // (daemon idle-close / half-open socket) and every poll fails its 2s
@@ -1487,8 +1487,8 @@ fn adopt_decision(sup: &Sup, path: &str) -> AdoptDecision {
             source_mtime: None,
         };
     }
-    let source_mtime =
-        cockpit_backend_root(path).and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
+    let source_mtime = cockpit_backend_root(path)
+        .and_then(|r| newest_backend_mtime_across(&cockpit_backend_roots(&r)));
     if let (Some(st), Some(sm)) = (started, source_mtime) {
         if sm > st {
             return AdoptDecision::Stale;

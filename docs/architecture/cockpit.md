@@ -37,15 +37,27 @@ Three properties are load-bearing and easy to break:
 
 - **The pathname never changes.** Pane state lives entirely in a `?peek=` query parameter,
   derived on every render with no second copy (`lib/peek.ts`). That is simultaneously why the
-  peek is URL-addressable, why Back closes it, why it is ephemeral with nothing persisted —
-  and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
+  peek is URL-addressable, why Back closes it, why the pane LIST is ephemeral with nothing
+  persisted — and why it opens no tab, since `TabsProvider`'s open-on-visit effect keys on
   `matchEntityRoute(pathname)` and a search-only change cannot reach it. **A peek therefore
   cannot be implemented as a route change**; that is the constraint the whole design turns on.
-- **The panes are non-modal, and do not dismiss on outside interaction.** Coexisting with a
-  live page is the feature. Radix's default treats any outside click as a dismissal, which
-  silently breaks the hold gesture — a shift-click lands outside the open pane, so the pane
-  closes at the same moment the hold opens the next one. `PeekHost` prevents all three
-  outside-interaction events. Non-modal also means panes do NOT trap focus (verified in
+
+  Read "nothing persisted" as scoped to the pane list, which is what the URL contract is about.
+  The pane WIDTH is a separate dimension and deliberately does persist, in `localStorage` via
+  `lib/peek-width.ts` (mt#4261) — a durable preference about this screen rather than part of the
+  peek's address, so a copied peek link carries which entities are open and never the copier's
+  window size.
+
+- **The panes are non-modal, and an outside CLICK dismisses the whole assembly.** Coexisting
+  with a live page is the feature, so there is no scrim and clicks reach the page behind. What
+  "outside" means is the load-bearing part: Radix computes it PER PANE, and taking that reading
+  literally would break the hold gesture — a shift-click lands outside the open pane, so the
+  pane would close at the same moment the hold opened the next one. `lib/peek-dismiss.ts` owns
+  the verdict instead, exempting every pane, every entity ref, and the assembly's own chrome
+  (mt#4143 per operator decision ask#8509; the chrome exemption is mt#4261's resize divider,
+  which is a flex sibling of the panes and so "outside" all of them). Esc remains the
+  one-pane-at-a-time unwind, and the FOCUS path never dismisses — tabbing behind a pane is not
+  a dismissal gesture. Non-modal also means panes do NOT trap focus (verified in
   `@radix-ui/react-dialog@1.1.15`: `DialogContentNonModal` sets `trapFocus: false`), which is
   unavoidable — a focus trap needs exactly one region to trap into, and the hold gesture
   allows two live panes.
@@ -129,25 +141,26 @@ not.
 
 ## Routes
 
-| Path                       | Page                | Purpose                                                                                                                                                                                                                                                                                                                  |
-| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/`                        | Home                | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398) |
-| `/agents`                  | Agents              | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                   |
-| `/agents/:id`              | Workspace detail    | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                |
-| `/conversation/:id`        | Conversation        | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                  |
-| `/context`                 | Context             | Agent context inspector                                                                                                                                                                                                                                                                                                  |
-| `/workstreams`             | Workstreams         | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                        |
-| `/tasks`                   | Tasks               | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                     |
-| `/asks`                    | Asks                | Interactive ask management                                                                                                                                                                                                                                                                                               |
-| `/proposals`               | Proposals           | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                               |
-| `/activity`                | Activity            | Event stream                                                                                                                                                                                                                                                                                                             |
-| `/embeddings`              | Embeddings          | Provider health + index coverage                                                                                                                                                                                                                                                                                         |
-| `/memories`                | Memories            | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                       |
-| `/settings`                | Settings            | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                      |
-| `/plant`                   | Plant Board         | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                   |
-| `/plant/interlock-history` | Interlock history   | Interlock provenance timeline: install date, commit link, linked `retrospective.fired` event (mt#2602; renamed from `/plant/weld-history`, mt#2626)                                                                                                                                                                      |
-| `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                  |
-| `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                           |
+| Path                       | Page                | Purpose                                                                                                                                                                                                                                                                                                                               |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                        | Home                | Triage radiator (mt#2881): needs-you band (all pending asks, tier-ranked, flood-collapsing, tier-distribution health chip) + fleet liveness strip + substrate band (one calm line when healthy; anomalous subsystems expand to their full status cards); the rail is the navigation surface (nav tiles removed, mt#2398)              |
+| `/agents`                  | Agents              | Workspaces in flight — rows open the workspace detail at `/agents/:id`                                                                                                                                                                                                                                                                |
+| `/agents/:id`              | Workspace detail    | Workspace entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919; `WorkspaceDetailPage`/`WorkspaceDetail`, renamed from `SessionDetailPage`/`SessionDetail` by mt#2686)                                                                                                                             |
+| `/conversation/:id`        | Conversation        | Conversation entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` verification host; path renamed from `/session/:id` by mt#2686)                                                                                                                                               |
+| `/context`                 | Context             | Agent context inspector                                                                                                                                                                                                                                                                                                               |
+| `/workstreams`             | Workstreams         | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                                                                                                                                                                                                                                     |
+| `/tasks`                   | Tasks               | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                                                                                                                                                                                                                                  |
+| `/asks`                    | Asks                | Interactive ask management                                                                                                                                                                                                                                                                                                            |
+| `/proposals`               | Proposals           | EngProd toil-miner curation gate (mt#3331): filed `engprod-proposal` tasks grouped by mining run, with evidence + Accept/Reject (task status + ledger verdict, atomically — see `src/cockpit/routes/engprod-proposals.ts`)                                                                                                            |
+| `/activity`                | Activity            | Event stream                                                                                                                                                                                                                                                                                                                          |
+| `/embeddings`              | Embeddings          | Provider health + index coverage                                                                                                                                                                                                                                                                                                      |
+| `/memories`                | Memories            | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                                                                                                                                                                                                                                    |
+| `/settings`                | Settings            | Cockpit configuration + credentials                                                                                                                                                                                                                                                                                                   |
+| `/plant`                   | Plant Board         | Whole-system VSM plant board (mt#2375+); S2 valve interlock count is derived (mt#2602)                                                                                                                                                                                                                                                |
+| `/plant/interlock-history` | (redirect)          | **Absorbed into `/interceptors` (mt#4229)** — redirects. Its install date / commit link / `retrospective.fired` correlation now render on the interceptor detail view, joined on the catalog's `sourceFile`. Two pages listed the same corpus with different memberships; the redirect is kept for bookmarks, per ADR-020's precedent |
+| `/interceptors`            | Interceptors        | The enforcement corpus: what intercepts, where on the turn, what it costs, and — since mt#4229 — when each one landed (mt#4010, mt#4056, mt#4057)                                                                                                                                                                                     |
+| `/shares`                  | Shared links        | Inventory of conversations published as public read-only links — live and revoked, with last-access time and a revoke control (mt#4024)                                                                                                                                                                                               |
+| `/s/:token`                | Shared conversation | **The only PUBLIC page.** One conversation, read-only, no account required, no cockpit chrome. Mounted as a sibling of `AuthGate`/`App` in `main.tsx`, not as a route in this table's tree (mt#4024) — see §Published conversation share links                                                                                        |
 
 ### HTTP error semantics: 503 is a database outage, 500 is a bug (mt#4125)
 
@@ -262,17 +275,17 @@ and must not be hardcoded into widget vocabularies.
 
 ### Widget catalog by route
 
-| Widget ID                                                                                     | Page                                 | Surface                                                                                                                                                                                                                                                                                                                     |
-| --------------------------------------------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                                  | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home. |
-| `basic-health`, `credentials`                                                                 | `/settings`                          | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                   |
-| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                      | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                              |
-| `memories-health`                                                                             | `/memories`                          | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                       |
-| `memories-stats`                                                                              | `/memories`                          | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                                                                                                                                                                   |
-| `memories-list`                                                                               | `/memories`                          | Browseable record table with type + scope filters                                                                                                                                                                                                                                                                           |
-| `memories-search`                                                                             | `/memories`                          | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                                                                                                                                                             |
-| `memories-detail`                                                                             | `/memories` (modal)                  | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                     |
-| `slow-topology`                                                                               | `/plant`, `/plant/interlock-history` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602)                                                                                                                                      |
+| Widget ID                                                                                     | Page                            | Surface                                                                                                                                                                                                                                                                                                                                       |
+| --------------------------------------------------------------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `attention`, `agents` (data), `mcp-server-status`, `reviewer-bot-status`, `embeddings-health` | `/`                             | Home triage radiator (mt#2881) — a FIXED curated composition, not a registry-driven grid: the needs-you band reads `/api/asks`, the fleet strip reads the `agents` widget, and the substrate band reads the three health widgets (anomalous ones expand to full cards). New registry widgets no longer auto-append to home.                   |
+| `basic-health`, `credentials`                                                                 | `/settings`                     | Receipts (uptime/version/widgets-loaded via `BasicHealthBody`) + credentials manager — moved off home by mt#2881 (anomaly-over-inventory)                                                                                                                                                                                                     |
+| `task-graph`, `task-list`, `workstreams`                                                      | Dedicated pages                 | Page route only; `workstreams` self-fetches with an `altitude` param (mt#2385)                                                                                                                                                                                                                                                                |
+| `memories-health`                                                                             | `/memories`                     | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card)                                                                                                                                                                                         |
+| `memories-stats`                                                                              | `/memories`                     | Stats panel: totals by type, recent count, top accessed, superseded count                                                                                                                                                                                                                                                                     |
+| `memories-list`                                                                               | `/memories`                     | Browseable record table with type + scope filters                                                                                                                                                                                                                                                                                             |
+| `memories-search`                                                                             | `/memories`                     | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                                                                                                                                                                                                               |
+| `memories-detail`                                                                             | `/memories` (modal)             | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                                                                                                                                                                                                                       |
+| `slow-topology`                                                                               | `/plant`, `/interceptors/:name` | Derived guard-hook registry + interlock history (install date, commit link, retrospective correlation); reads only the sweeper's in-process cache, never derives per-request (mt#2602). Second consumer moved from the interlock-history page to the interceptor detail view by mt#4229; the plant board's valve-inventory badge is unchanged |
 
 ### Reviewer Bot Status widget
 
@@ -955,6 +968,49 @@ a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
 - Out-of-process memory ceiling (mt#4105): every poll, the supervisor reads each spawned child's **swap-inclusive** memory and SIGKILLs one over 2048 MB — the same threshold `DEFAULT_MEMORY_CEILING_MB` (`src/mcp/orphan-exit.ts`) gives the in-process watcher, differing only in who runs the check. That difference is the point: mt#3886's ceiling, mt#3764's watchers and the `SIGTERM` handlers are all timers or handlers ON the loop they police, and mt#4099 measured two `mcp start` processes at 48.2 GB and 32 GB with every one of them armed and none of them running (a 3s `sample` put all 2483 main-thread samples in one unbroken JS stack, zero `kevent` process-wide). **A process that has wedged its own event loop cannot be the thing that notices.** Mechanism: `footprint -f bytes -p <pid>` on macOS and `VmRSS + VmSwap` from `/proc/<pid>/status` on Linux — the same two interfaces `packages/shared/src/process-memory.ts` reaches, and for the reason it records: `task_info(TASK_VM_INFO)` cannot read another process without `task_for_pid` (root or the debugger entitlement), so a native binding is not an option for a supervisor measuring its child. SIGKILL rather than SIGTERM because the wedged child's `SIGTERM` handler is JS that never runs. Bound: one `POLL_INTERVAL` (5s). A kill the supervisor ordered is classified `ExitClass::CeilingKill` and respawned WITHOUT counting toward the restart throttle — a SIGKILLed process reports the same exit status as any other signalled death, so the supervisor's own record is the only thing that can tell them apart. **Covers supervised children only**; the stdio-proxy population is mt#4112's, and daemons spawned directly by Claude Desktop have no Minsky supervisor at all.
 - mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
 
+### Port recovery: displacing a wedged incumbent (mt#4205)
+
+When `cockpit start` cannot bind, it classifies the port holder
+(`src/cockpit/port-recovery.ts`). A holder matching **this workspace's** recorded pid+port is a
+`recognized-zombie`; a holder that does not — including another workspace's cockpit — is
+`unrecognized` and is never terminated.
+
+A recognized holder used to be refused outright unless the operator passed `--force`. That was the
+wrong default: every known daemon-wedge mechanism (mt#3039 / mt#3051 / mt#3060 / mt#3682) leaves the
+process **alive and still holding the port**, so the refusal turned any wedge into an outage lasting
+until a human intervened. It fired on 2026-08-06 and again on 2026-08-16.
+
+The guard now probes before deciding, mirroring the predicate ADR-014's supervisor already uses
+(`daemon_core.rs`'s `is_ours`). **Displacement requires a positive finding that nothing answered;
+every other outcome preserves the incumbent:**
+
+| Probe result at `GET /api/health`                                                 | Outcome                         |
+| --------------------------------------------------------------------------------- | ------------------------------- |
+| Answers with `service: "minsky-cockpit"` — **at any status, including 503**       | preserve                        |
+| Answers without a `service`, or with a different one                              | preserve (fail-closed, mt#3148) |
+| Nothing answers, but the holder's start time contradicts the recorded `startedAt` | preserve (recycled pid)         |
+| Nothing answers, start time corroborates                                          | **displace**, then bind         |
+
+A **503 preserves deliberately**: the daemon answers 503 while persistence is unhealthy (mt#2949)
+and mt#3638's pool-recycle self-heals it, so reading a degraded answer as absence would kill a live
+process for correctly reporting a problem.
+
+The probe targets the host the bind was **attempted** on, and tries both loopback families for a
+wildcard or `localhost` bind. `localhost` alone is not safe here: `findPortHolder` identifies the
+holder with `lsof -i tcp@localhost`, chosen in mt#3787 because it reaches both families, so it can
+name a holder that a single-family probe never reaches — and that miss reads as absence, on the
+branch that kills.
+
+`--force` remains the operator override and is now meaningful in both directions: it displaces even
+a preserving disposition. It is **not** needed to clear a silent incumbent.
+
+Each displacement emits a `cockpit.port_displaced` system event carrying the displaced pid, command,
+port, and whether `--force` was used. It is emitted after the replacement binds, because the guard
+runs before this process has any persistence provider — and it is the first daemon-lifecycle event
+type in that enum, which is why mt#4154 could not reconstruct the 2026-08-06 outage from
+`system_events`: every other type is agent-triggered, so a quiet window meant "nobody was working",
+not "nothing happened to the daemon".
+
 ## Cross-references
 
 - `src/cockpit/CLAUDE.md` — design vocabulary, engineering standards, IA posture (auto-loaded)
@@ -976,4 +1032,7 @@ a raw PTY/xterm.js terminal view, and the cloud relay (Rung 3, mt#2238).
   UI copy; "weld" survives only as a verb ("welding an interlock"). See
   `src/cockpit/CLAUDE.md` §Vocabulary. The `/plant/weld-history` route was
   renamed to `/plant/interlock-history` as part of this change (breaking,
-  local-only cockpit — no external consumers).
+  local-only cockpit — no external consumers). mt#4229 later absorbed that route
+  into `/interceptors`; the VOCABULARY decision is untouched — "interlock" is
+  still the plant-UI noun, and the plant board's drill-down link still says
+  "interlock history". Only the destination moved.

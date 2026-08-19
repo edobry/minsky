@@ -68,6 +68,10 @@ import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli
 import { validateError } from "@minsky/domain/schemas/error";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import {
+  registerEmbeddingsHealthEventEmitter,
+  resolveContainerPersistence,
+} from "@minsky/domain/ai/embeddings-health-wiring";
+import {
   isMcpStartStdio,
   isCompletionInvocation,
   isCockpitInvocation,
@@ -99,6 +103,17 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // Make the container available to CLI command execution contexts (mt#761).
   // Execute handlers access it via context.container.get("serviceName").
   cliFactory.setContainer(container);
+
+  // mt#4218: an embeddings degradation inside a CLI process was recorded
+  // nowhere. `minsky tasks index-embeddings` and its siblings run real
+  // embedding calls, so `EmbeddingsHealthTracker.recordError` fires here — but
+  // only `mcp start` ever registered an emitter, so the event resolved null and
+  // was dropped. Registered here, at CLI construction, rather than in the
+  // preAction hook below: registration only stores a closure, and
+  // `resolveContainerPersistence` returns `undefined` until the container
+  // actually has persistence, so registering before init is both safe and what
+  // keeps a degradation during init itself recordable.
+  registerEmbeddingsHealthEventEmitter(() => resolveContainerPersistence(container));
 
   // Setup common command customizations with the CLI instance
   setupCommonCommandCustomizations(cli);

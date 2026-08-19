@@ -20,6 +20,7 @@
 import { z } from "zod";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "../provenance/transcript-service";
+import { detectBlindRendering, resolveMessageText } from "../provenance/transcript-content";
 import type { DetectionSignal } from "./types";
 import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
@@ -115,26 +116,22 @@ For each finding, return:
 
 If the session has NO unasked directions, return an empty findings array.`;
 
-/** Render a single transcript message into prompt-friendly form. */
+/**
+ * Render a single transcript message into prompt-friendly form.
+ *
+ * Content resolution goes through the shared resolver (mt#4196). This function used to
+ * read `msg.content` directly, which is `undefined` on every stored row — so every message
+ * rendered as `[non-text content]` and the model was asked to analyze a transcript of
+ * nothing but markers. 496 recorded runs, 0 findings, no error on any of them.
+ */
 function summarizeMessage(msg: TranscriptMessage, index: number): string {
   const role = msg.type === "user" ? "Human" : "Agent";
-  let content: string;
-
-  if (typeof msg.content === "string") {
-    content = msg.content;
-  } else if (Array.isArray(msg.content)) {
-    content = (msg.content as Array<{ type?: string; text?: string }>)
-      .filter((b) => b.type === "text")
-      .map((b) => b.text ?? "")
-      .join(" ");
-  } else {
-    content = "[non-text content]";
-  }
+  const { text } = resolveMessageText(msg);
 
   const truncated =
-    content.length > MESSAGE_TRUNCATE_CHARS
-      ? `${safeTruncate(content, MESSAGE_TRUNCATE_CHARS, "head")}…`
-      : content;
+    text.length > MESSAGE_TRUNCATE_CHARS
+      ? `${safeTruncate(text, MESSAGE_TRUNCATE_CHARS, "head")}…`
+      : text;
   return `[${index + 1}] ${role}: ${truncated}`;
 }
 
@@ -237,6 +234,24 @@ export class UnaskedDirectionAnalyzer {
     if (messages.length === 0) {
       log.debug("UnaskedDirectionAnalyzer: empty transcript, returning empty findings");
       return { findings: [], summary: "No transcript messages available." };
+    }
+
+    // mt#4196: the transcript this analyzer was handed rendered as nothing but
+    // `[non-text content]` markers for 496 consecutive runs, and reported "no findings"
+    // every time — the failure and a genuinely clean session produce identical output.
+    // Measure the rendering before spending an LLM call on it, so a recurrence is loud.
+    const blindness = detectBlindRendering(messages.slice(0, TRANSCRIPT_MESSAGE_CAP));
+    if (blindness.blind) {
+      log.warn(
+        "UnaskedDirectionAnalyzer: transcript rendered almost entirely as non-text — " +
+          "findings from this run carry no information about the session (mt#4196)",
+        {
+          sessionId: context.sessionId,
+          taskId: context.taskId,
+          nonTextRatio: blindness.ratio,
+          messageCount: blindness.messageCount,
+        }
+      );
     }
 
     const userPrompt = buildUserPrompt(messages, context);

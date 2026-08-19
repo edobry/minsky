@@ -85,8 +85,134 @@ enforcement at the two closeout surfaces where R3/R4 occurred.
 **Fail-open posture:** any error reading the transcript or running detection
 exits 0. The hook never blocks the user prompt.
 
+## The offer shape as a structural trigger (mt#3801)
+
+The `deferral-menu` sub-class above is an enumerated phrase corpus. It is
+interrogative or imperative throughout — "what's your call?", "say the word",
+"want me to X or Y?" — and a **negated default** matches none of it:
+
+> Next step is `/plan-task mt#3799` unless you'd rather I go straight at it.
+
+That sentence hands the continue/redirect decision over exactly as squarely as
+asking would, and on 2026-08-05 it closed a turn with this detector silent. The
+Stop sibling (`turn-end-untaken-action-scan`) did fire, but on its COMMITMENT
+branch — it matched the `next-up` family and told the agent to "take it now",
+because its `deferralShaped` flag is derived from `detectDeferralPhrases`, which
+had nothing to say. mt#3767 had built an offer branch for precisely this
+sentence six days earlier; the classification never reached it.
+
+**The recognizer already existed.** `hasMenuShape` tests for `?`, a disjunction,
+`unless`, and `if you'd rather` — offer STRUCTURE rather than an enumerated
+phrase — and its own docblock named the `unless` case. It was reachable only as
+a confirming GATE for the single `PAUSE_STOP_SELF_REPORT` pattern, so it could
+narrow an existing match and never produce one.
+
+### The conjunction, and why one is required
+
+`hasMenuShape` cannot be promoted unguarded, and the reason is measurable rather
+than cautious. It returns **true** for:
+
+> The migration ran cleanly unless a row was locked, in which case it retried.
+
+— a factual qualifier with no offer in it and no actor at all. So the trigger is
+a conjunction of two constituents on the SAME line:
+
+1. **A menu shape** — `hasMenuShape`, unchanged.
+2. **An agent-action clause** — `namesAgentAction`: a first-person modal
+   (`I'll`, `I can`, `I would`), a bare verb governed by a preference token
+   (`you'd rather I go`), or its object form (`want me to file it`).
+
+Every agent-action form is **non-past by construction**, which is what separates
+an offer from a report: _"I fixed it unless a row was locked"_ names a
+first-person action and offers nothing.
+
+### Polarity is checked, not assumed
+
+Tense is not the only axis on which the shape lies. A first-person action clause
+reads identically whether the agent is offering to act or saying it will **not**
+— _"I can take it"_ and _"I can't reproduce it"_ differ by two characters, and
+`\b` sits between `can` and `'t`, so the modal leg matches both. Every such
+sentence also satisfies `hasMenuShape` through a bare `unless`, so without a
+polarity check the conjunction fires on all of them, into a live-injecting guard.
+
+`namesAgentAction` therefore rejects three forms, each measured against the live
+matcher:
+
+| Form                                   | Example                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------- |
+| A contraction directly after the match | _"I can't reproduce it unless you give me the log."_                   |
+| An explicit `not` directly after it    | _"I would not rerun it unless the logs show errors."_                  |
+| A governing negator just before it     | _"There is no need for me to rerun this unless the logs show errors."_ |
+
+The lead window is bounded to a few words because the negation has to GOVERN the
+clause — a `not` two sentences back does not. This mirrors
+`operator-deferral-detector`'s `NEGATION_LEAD_PATTERN`; it is declared locally
+rather than imported because that module imports THIS one, so sharing it would
+close an import cycle.
+
+`for` is **not** in the object-form alternation for a related reason: _"for me
+to"_ is the DESCRIPTIVE form, not an offer. _"It would be unusual for me to
+change that"_ proposes nothing, and _"there is no need for me to rerun this"_ is
+its negation. Every other member takes `me` as a direct object of a volition
+verb, which `for` does not.
+
+Origin: PR #3088 R1, where the reviewer flagged the object-form leg. The
+contraction and explicit-`not` cases came from scanning for the same class rather
+than waiting to be handed each one; all six are pinned as regression cases, each
+asserted alongside `hasMenuShape` so a future change cannot make them pass by
+breaking the menu leg instead.
+
+This is deliberately **not** a ninth entry in the phrase corpus. ADR-024 §Context
+names serial regex-family additions as the arms race it exists to end, and five
+sibling tasks against these two files were each adding or removing one phrase.
+Both constituents already lived in this file; what was missing was the relation
+between them, which is why the fix is a wiring change rather than a corpus
+addition. The Rung-2 escalation ADR-024 would otherwise assign is unwarranted for
+a match the code can already make.
+
+### What it reports, and why not the sentence
+
+The trigger reports a stable label — `offer-shape:unless`,
+`offer-shape:if-you-rather`, `offer-shape:or`, `offer-shape:question` — never the
+matched text. The sweep's diversity axis keys on `matches[].phrase`, and the
+disjunction leg's own match (`"mt3799 or I"`) is near-unique per turn; reporting
+it would make every record distinct and stall the count that decides when this
+log gets reviewed. The sentence is still recoverable from `context`, which is
+what a calibration reviewer classifies from.
+
+### Ordering: additive by construction
+
+The structural trigger runs only when the literal corpus produced nothing for
+this class. A turn that already matches a literal pattern keeps that pattern's
+phrase, so no pre-existing record changes shape — _"I'll stop here unless you
+want more"_ satisfies both and still reports `I'll stop here`.
+
+### Known miss: a comma before `or`
+
+`hasMenuShape`'s disjunction leg needs a bare space before `or`, so
+_"Next step is mt#3799, or I can go straight at it."_ is not recognized. This is
+**recorded rather than closed**, and pinned by a test so it stays a decision
+rather than a belief. Closing it means widening `hasMenuShape` — which is also
+the pause/stop suppression gate, where a wider menu shape suppresses LESS and
+fires MORE. That is the false-positive direction on a live-injecting guard, and
+it needs its own evidence rather than riding along with a recall change.
+
+### Interaction with the open tunes on this file
+
+mt#4175 is removing a `deferral-menu` class this trigger can also produce: the
+**revisability offer** ("I decided, I acted, and you can reverse it"), which can
+carry the offer shape without any literal phrase — _"I went with the second one
+unless you'd rather I switch."_ The sibling surface already suppresses that
+sentence (`operator-deferral-detector`'s `SETTLED_DECISION_PATTERNS`); this
+detector has no settled-decision suppression at all, which is mt#4175's subject.
+Whatever discriminator that task lands on should apply to the family, not to the
+literal patterns alone. mt#4201 and mt#3932 target the `principal-reserved`
+family and do not interact.
+
 **Cross-references:**
 
+- mt#3801 — the offer-shape trigger (this section); R9 of the operator-deferral
+  family, mem#831
 - mt#2471 — this hook's tracking task
 - Memory `3e3f29d8` — escalation-packaging family (R1–R4); names mt#2471 as
   the live structural target

@@ -318,6 +318,27 @@ describe("mt#3336 — dedup against ask-routing-deferral", () => {
       expect(ctxText).not.toContain("OFFERED");
     });
 
+    // mt#3801 AT2. mt#3767 built this offer branch for exactly this sentence
+    // and the classification never reached it: the shape matched the `next-up`
+    // COMMITMENT family, while `deferralShaped` — which comes from
+    // `detectDeferralPhrases` — was false, because neither deferral corpus had
+    // an entry for a negated default. So the guard told an OFFER to "take it
+    // now". The branch did not change; what changed is that the sibling now
+    // recognizes the shape, which is the whole of the fix on this surface.
+    test("mt#3801: the negated-default offer now selects the offer directive", () => {
+      const offerShaped =
+        "Next step is /plan-task mt#3799 unless you'd rather I go straight at it.";
+
+      // Both halves, so a failure says WHICH one broke: the guard must still
+      // fire on this sentence at all, and it must pick the offer branch.
+      expect(detectUntakenAction(offerShaped).length).toBeGreaterThan(0);
+
+      const ctxText = run(inputFor(offerShaped), ctx, storeDir)?.additionalContext ?? "";
+      expect(ctxText).toContain("OFFERED");
+      expect(ctxText).toContain("drop the offer");
+      expect(ctxText).not.toContain("Take it now");
+    });
+
     // The ceiling is enforced corpus-wide by guard-feedback-shape.test.ts against
     // the registry's worstCaseCanary. This asserts the SATURATING shape locally,
     // so a future edit to either directive fails here — next to the text — rather

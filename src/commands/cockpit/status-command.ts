@@ -44,10 +44,14 @@ export function createStatusCommand(): Command {
           console.log(`  Plist:  ${status.plistPath}`);
         } else {
           console.log(`  Owner:  not launchd (the tray app or a manual run)`);
-          // No PID: launchd is this command's only PID source and /api/health
-          // carries none. Say so, rather than printing nothing and leaving the
-          // operator to guess whether it is unknown or genuinely absent.
-          console.log(`  PID:    unknown (only launchd-managed daemons report one here)`);
+          // Only when the daemon would not name itself (mt#4232). Since
+          // `/api/health` gained `pid`, the external case usually DOES report
+          // one — printed by the `status.pid` line above — and emitting this
+          // unconditionally then contradicted it two lines later. What remains
+          // is the genuine gap: a daemon whose build predates that field.
+          if (!status.pid) {
+            console.log(`  PID:    unknown (this daemon's build predates the health pid field)`);
+          }
           if (!status.installed) {
             // Name the path checked, so "no agent found" is falsifiable rather
             // than a bare assertion about the machine's whole configuration.

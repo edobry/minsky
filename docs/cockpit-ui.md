@@ -82,6 +82,8 @@ is cheap.
 | Browser Back                   | Close the newest pane                                     |
 | Header pin control             | Hold this pane, same as `⇧`-click                         |
 | Header ↗ control              | Open this pane's entity as a full page                    |
+| Drag the peek's left edge      | Resize the peek; the width is remembered                  |
+| Double-click that edge, `Home` | Forget your width and go back to the default              |
 
 **Holding is how you compare two things.** By default one pane is open at a time
 and each click reuses it, so reading down a conversation never accumulates panes.
@@ -97,7 +99,16 @@ the peek as a whole — clicking one pane never closes the pane beside it, and
 clicking an entity reference opens that entity rather than closing anything, so
 neither reading a held pair nor walking from one entity to the next can dismiss
 the assembly out from under you. Tabbing into the page behind is not a dismissal
-either; only a click is.
+either; only a click is — and neither is dragging the peek's own edge to resize it.
+
+**How wide the peek gets is yours.** Drag the seam along its left edge, or focus
+it and use the arrow keys (`⇧` for bigger steps); the width you land on is
+remembered for next time. Double-click the seam, or press `Home`, to forget it and
+go back to the default. Two bounds you cannot drag past: the peek never gets so
+narrow that it stops being readable, and it never takes so much of the window that
+the page behind loses its majority — the second one tightens as you hold more
+panes, since the whole row has to fit. If you want a full-width view of something,
+that is what the header's ↗ control is for.
 
 **A peek is addressable and disposable.** The open panes live in the URL as a
 `?peek=` parameter, so copying the link, sharing it, or reloading brings the same
@@ -209,8 +220,9 @@ constant.
   ~48); the DONE valve instead shows a small **`N interlocks`** badge with
   the derived total. Before the first slow-clock sweep completes, the badge
   is honestly absent rather than showing a fabricated zero.
-- **Interlock history** (`/plant/interlock-history`, reached via the Learning Loop
-  node's "interlock history →" link) — a table of every derived interlock with:
+- **Interlock history** (absorbed into `/interceptors` by mt#4229; still reached
+  via the Learning Loop node's "interlock history →" link, which now lands on the
+  catalog, and per-entry on `/interceptors/:name`) — for every derived interlock:
   its **install date** (from `git log`, oldest add-commit per hook file),
   a **commit link** to GitHub, and — where derivable — the **originating
   `retrospective.fired` event** (mt#2537) that produced it. Retrospective
@@ -266,13 +278,36 @@ operator's own credentials + the operator's own machine.
   This is required because the child's working directory is a workspace clone,
   and Claude Code resolves MCP servers per-project: the operator's `.mcp.json`
   lives in the main checkout and is gitignored, so a clone inherits none of it.
-  The server set is deliberately just `minsky` — `github`/`supabase` carry their
-  own credential paths, so granting them is a separate decision — and
   `--strict-mcp-config` keeps the surface from varying with whichever claude.ai
   connectors and plugins the operator happens to have configured. Each session
   costs one additional `minsky mcp start` process (~57 MB RSS, measured
   2026-07-30); if concurrent driven sessions routinely exceed ~4, revisit
   against the hosted-HTTP server option (mt#2141).
+- **Which servers (mt#4239)** — `cockpit.drivenSession.mcpServers` selects the
+  set, resolved by name against the operator's `.mcp.json` in the **daemon's**
+  checkout (not the session clone, which never has one) and copied verbatim.
+  Default `["minsky", "github"]`; override with
+  `MINSKY_COCKPIT_DRIVEN_SESSION_MCP_SERVERS` (comma-separated). `minsky` is
+  always present and always synthesized — it must point at the running build and
+  this session's repo path, so an inherited entry of the same name never shadows
+  it.
+
+  Two exclusions are deliberate. **`supabase` is resolvable but not a default**:
+  driven sessions run under `bypassPermissions` and can be triggered from a phone
+  unattended, and that server carries `execute_sql` / `apply_migration` against
+  the production project — adding it is an explicit operator decision.
+  **Remote/OAuth servers are refused outright**, with a log line naming the
+  server: a headless `claude -p` child cannot complete an OAuth flow (verified
+  live against claude 2.1.226; vendor-documented at
+  code.claude.com/docs/en/mcp), and because `-p` waits for pending servers before
+  the first turn, emitting one would cost up to `MCP_TIMEOUT` — 30s by default —
+  of dead latency on **every** spawn while still delivering no tools. Notion is
+  the motivating case and is tracked separately at mt#4242.
+
+  Verify a real spawn with
+  `bun scripts/verify-driven-session-mcp-config.ts <workspace> <daemon-checkout>`,
+  which probes a tool from every provisioned server rather than assuming a
+  declared server is a reachable one.
 
 ### Reading the run list
 

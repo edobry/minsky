@@ -391,7 +391,13 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     expect(screen.getByText("/cost")).toBeDefined();
     expect(screen.getByText("Set model to Fable 5 for this session only")).toBeDefined();
     expect(screen.getByText("Total cost: $1.23")).toBeDefined();
-    expect(turnLabels()).toEqual(["command", "command"]);
+    // ONE label, not two (mt#3845): both turns are the same actor — harness,
+    // origin `command` — so they share a run and its single header. The
+    // no-cross-wiring property this test is about is carried by the four
+    // assertions above, which show each command keeping its OWN output; the
+    // label count was only ever a proxy for "two turns rendered", and turns are
+    // no longer what carries a label.
+    expect(turnLabels()).toEqual(["command"]);
   });
 
   test("a command with no output of its own does not steal a later command's output", () => {
@@ -416,7 +422,10 @@ describe("ConversationView — slash-command invocation rendering (mt#3322)", ()
     // The output belongs to `/cost`, so it renders after it — not between the
     // two commands, which is where a stolen output would land.
     expect(outputAt).toBeGreaterThan(costAt);
-    expect(turnLabels()).toEqual(["command", "command"]);
+    // ONE label for the shared run (mt#3845) — see the sibling test above. The
+    // output-stealing property is carried by the ORDER assertions, which are
+    // unaffected by grouping.
+    expect(turnLabels()).toEqual(["command"]);
   });
 
   test("a turn that is not a command part ends the group (operator prose is never absorbed)", () => {

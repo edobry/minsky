@@ -7214,7 +7214,7 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | principal.message_rejected | principal.message_failed | ask.page_failed | task.status_changed | pr.merged | subagent.completed | session.started | memory.created | ask.answered | changeset.created | hook.fired | mcp.disconnect | retrospective.fired | deploy.build | deploy.smoke | deploy.live | deploy.fail | ask.policy_closed | authorization.policy_covered | task.bulk_edit.dry_run | task.bulk_edit.executed | guard.overridden | principal.message_received | principal.poll_advanced | cockpit.port_displaced)",
               "takesValue": true,
               "values": [
                 "ask.created",
@@ -7245,7 +7245,8 @@
                 "task.bulk_edit.executed",
                 "guard.overridden",
                 "principal.message_received",
-                "principal.poll_advanced"
+                "principal.poll_advanced",
+                "cockpit.port_displaced"
               ]
             },
             {
@@ -7306,7 +7307,7 @@
             {
               "name": "eventType",
               "required": true,
-              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced)"
+              "description": "Event type (one of: ask.created, task.auto_created, pr.review_posted, subagent.failed, embeddings.provider_degraded, principal.message_rejected, principal.message_failed, ask.page_failed, task.status_changed, pr.merged, subagent.completed, session.started, memory.created, ask.answered, changeset.created, hook.fired, mcp.disconnect, retrospective.fired, deploy.build, deploy.smoke, deploy.live, deploy.fail, ask.policy_closed, authorization.policy_covered, task.bulk_edit.dry_run, task.bulk_edit.executed, guard.overridden, principal.message_received, principal.poll_advanced, cockpit.port_displaced)"
             }
           ],
           "commandId": "events.emit"
@@ -8020,7 +8021,7 @@
             },
             {
               "flags": ["--force"],
-              "description": "If a previous cockpit instance is holding the port, terminate it and retry. Never terminates unrecognized processes."
+              "description": "Terminate a previous cockpit instance holding the port even when it is still answering /api/health. Not needed to clear one that has stopped answering — that is displaced automatically. Never terminates unrecognized processes."
             },
             {
               "flags": ["--open"],
@@ -8078,11 +8079,25 @@
         },
         {
           "name": "stop",
-          "description": "Stop the cockpit daemon (keeps the LaunchAgent plist installed)"
+          "description": "Stop the cockpit daemon (keeps a LaunchAgent plist installed)",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to stop on (default: the `cockpit.port` configuration value, else 3737)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "restart",
-          "description": "Restart the cockpit daemon (unload + reload the LaunchAgent plist)"
+          "description": "Restart the cockpit daemon under whichever supervisor is running it",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to restart on (default: the `cockpit.port` configuration value, else 3737)",
+              "takesValue": true
+            }
+          ]
         },
         {
           "name": "url",
