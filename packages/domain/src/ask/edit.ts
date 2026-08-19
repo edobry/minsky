@@ -314,8 +314,16 @@ export async function editAskContent(
   const capturedAnything = PRESERVED_CONTENT_FIELDS.some((f) => captured[f] !== undefined);
 
   const mergedMetadata: Record<string, unknown> = {
+    // The EXISTING side keeps its reserved keys — that is how accumulated
+    // provenance carries forward.
     ...sanitizeMetadata(existing.metadata),
-    ...sanitizeMetadata(params.metadata ?? {}),
+    // The CALLER side never may (PR #3162 R2). Making the capture write
+    // conditional in R1 opened this: on a metadata-only edit `capturedAnything`
+    // is false, the conditional spread below contributes nothing, and a
+    // caller-supplied `originalContent` would win the merge outright. Stripping
+    // here makes the reservation hold on every path rather than only the ones
+    // that happen to overwrite it afterwards.
+    ...stripReservedProvenanceKeys(sanitizeMetadata(params.metadata ?? {})),
     [EDIT_HISTORY_METADATA_KEY]: [...history, note],
     // Set AFTER the caller spread, exactly like the history above — a
     // caller-supplied "original" is ignored, because a mutable original is not

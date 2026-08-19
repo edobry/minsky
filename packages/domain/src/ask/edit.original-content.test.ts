@@ -367,6 +367,47 @@ describe("PR #3162 R1 — a metadata-only edit captures nothing", () => {
     expect(Array.isArray(ask.metadata[EDIT_HISTORY_METADATA_KEY])).toBe(true);
   });
 
+  test("a metadata-only edit cannot PLANT one either (PR #3162 R2)", async () => {
+    // The regression R1's own fix introduced. Making the capture write
+    // conditional means that on a metadata-only edit the conditional spread
+    // contributes nothing — so before this, the caller's `metadata` spread won
+    // the merge outright and the planted key landed. Note the create-side strip
+    // does not help here: this arrives through EDIT params, not create.
+    const repo = new FakeAskRepository();
+    const seeded = await seedEscalatedAsk(repo);
+
+    const { ask } = await editAskContent(repo, {
+      id: seeded.id,
+      metadata: { [ORIGINAL_CONTENT_METADATA_KEY]: PLANTED_ORIGINAL, keepMe: "yes" },
+    });
+
+    expect(ask.metadata[ORIGINAL_CONTENT_METADATA_KEY]).toBeUndefined();
+    expect(ask.metadata.keepMe).toBe("yes"); // unrelated keys still merge
+  });
+
+  test("nor can it overwrite a capture a previous edit made", async () => {
+    // Measured, not assumed: this case passes WITH OR WITHOUT the params-side
+    // strip, so it is not evidence for that fix and is not offered as such.
+    // The reason is worth knowing — when a prior edit already captured
+    // something, `captured` is populated from it, so `capturedAnything` is true
+    // and the conditional write re-asserts the real value over anything the
+    // caller planted. The hole is reachable only when there is NOTHING to
+    // carry forward, which is the case above.
+    //
+    // Kept as a regression pin: a future change that stops carrying the prior
+    // capture into `captured` would silently make this path plantable too.
+    const repo = new FakeAskRepository();
+    const seeded = await seedEscalatedAsk(repo);
+
+    await editAskContent(repo, { id: seeded.id, question: FIRST_CORRECTION });
+    const { ask } = await editAskContent(repo, {
+      id: seeded.id,
+      metadata: { [ORIGINAL_CONTENT_METADATA_KEY]: PLANTED_ORIGINAL },
+    });
+
+    expect(originalOf(ask)?.question).toBe(ESCALATED_QUESTION);
+  });
+
   test("a metadata-only edit AFTER a content edit preserves the existing capture", async () => {
     // The other direction: suppressing the write must not drop what a prior
     // edit captured.
