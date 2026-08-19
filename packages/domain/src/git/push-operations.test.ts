@@ -180,6 +180,87 @@ describe("pushImpl", () => {
     );
   });
 
+  // mt#3264: both rewrites above used to REPLACE git's stderr. Two rejections
+  // with different causes and different fixes produced one identical sentence,
+  // so the surfaced error could not distinguish them — the reporting half of the
+  // incident this task was filed for.
+  test("keeps git's own reason alongside the '[rejected]' guidance (mt#3264)", async () => {
+    class GitExecError extends Error {
+      stderr =
+        "! [rejected]   task/mt-3264 -> task/mt-3264 (cannot lock ref 'refs/heads/task/mt-3264': is at 2e5c5d427 but expected dd17eaf22)";
+    }
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3264\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, new GitExecError("push failed")],
+    ]);
+
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+
+    const message = (caught as Error).message;
+    expect(message).toMatch(/Push was rejected by the remote/);
+    // The part that used to be discarded: a ref-lock conflict is NOT fixed by
+    // pulling or force-pushing, and this is the only text that says so.
+    expect(message).toContain("cannot lock ref");
+    expect(message).toContain("expected dd17eaf22");
+  });
+
+  test("keeps git's own reason alongside the 'no upstream' guidance (mt#3264)", async () => {
+    class GitExecError extends Error {
+      stderr =
+        "fatal: The current branch task/mt-3264 has no upstream branch.\nTo push the current branch and set the remote as upstream, use\n\n    git push --set-upstream origin task/mt-3264";
+    }
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3264\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, new GitExecError("push failed")],
+    ]);
+
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+
+    const message = (caught as Error).message;
+    expect(message).toMatch(/No upstream branch is set/);
+    expect(message).toContain("git push --set-upstream origin task/mt-3264");
+  });
+
+  test("redacts the injected credential when lifting stderr into the message (mt#3264)", async () => {
+    // The stderr is being copied into a NEW Error, which `redactPushError` never
+    // sees — so the redaction has to happen here or mt#3219's leak reopens on
+    // this path.
+    class GitExecError extends Error {
+      stderr =
+        "! [rejected] task/mt-3264 -> task/mt-3264\nCommand failed: git -c http.https://github.com/.extraheader='AUTHORIZATION: basic eC1hY2Nlc3MtdG9rZW46Z2hzX3NlY3JldA==' push origin task/mt-3264";
+    }
+    const { deps } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-3264\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [RX_PUSH, new GitExecError("push failed")],
+    ]);
+
+    let caught: unknown;
+    try {
+      await pushImpl({ repoPath: WORKDIR }, deps);
+    } catch (e) {
+      caught = e;
+    }
+
+    const message = (caught as Error).message;
+    expect(message).not.toContain("eC1hY2Nlc3MtdG9rZW46Z2hzX3NlY3JldA==");
+    expect(message).toMatch(/AUTHORIZATION: basic/);
+    // Still diagnostic: the rejection line survives redaction.
+    expect(message).toContain("task/mt-3264 -> task/mt-3264");
+  });
+
   test("succeeds for normal attached HEAD on a fresh branch", async () => {
     const { deps, calls } = makeDeps([
       [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-994\n" }],
