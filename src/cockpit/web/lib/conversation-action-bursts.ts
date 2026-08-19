@@ -41,6 +41,8 @@
  * falsified by those specimens, which fold MCP calls wholesale. Read that
  * section before changing {@link STANDALONE_TOOLS}.
  */
+import { classifyTool } from "@minsky/shared/tool-effect";
+
 import { classifyOutcome } from "./conversation-outcome";
 import { formatDurationShort } from "./format-duration";
 import { parseToolName } from "./tool-name";
@@ -219,14 +221,19 @@ interface Tally {
   reads: number;
   searches: number;
   shell: number;
-  /** MCP calls, keyed by server, each carrying the distinct tool names seen. */
-  mcp: Map<string, { count: number; names: string[] }>;
+  /**
+   * MCP calls, keyed by server, split by effect (mt#3847's `classifyTool`).
+   *
+   * Split rather than one name list because the two halves have different
+   * summary rights: a MUTATION must always be named, and a read may be reduced
+   * to a count. An `unclassified` tool rides with the mutations — the
+   * classifier's own contract is that unknown is never coerced into a positive
+   * verdict, so treating it as a read would be exactly that coercion.
+   */
+  mcp: Map<string, { reads: number; named: string[]; mutatingCount: number }>;
   /** Native tools with no verb phrase of their own, keyed by name. */
   other: Map<string, number>;
 }
-
-/** How many distinct MCP tool names the summary will name before aggregating. */
-const MAX_NAMED_TOOLS = 3;
 
 function plural(n: number, one: string, many: string): string {
   return n === 1 ? `${n} ${one}` : `${n} ${many}`;
@@ -252,9 +259,17 @@ function tallyBurst(turns: PreparedTurn[]): Tally {
 
       const { server, name } = parseToolName(element.call.name);
       if (server !== null) {
-        const entry = tally.mcp.get(server) ?? { count: 0, names: [] };
-        entry.count += 1;
-        if (!entry.names.includes(name)) entry.names.push(name);
+        const entry = tally.mcp.get(server) ?? { reads: 0, named: [], mutatingCount: 0 };
+        // Classify by the RAW name: `classifyTool` handles the `mcp__` prefix
+        // and the underscore/dot spellings itself, so stripping first would
+        // hand it a form its own canonicaliser is written to accept anyway.
+        const effect = classifyTool(element.call.name);
+        if (effect === "reads") {
+          entry.reads += 1;
+        } else {
+          if (effect === "mutates") entry.mutatingCount += 1;
+          if (!entry.named.includes(name)) entry.named.push(name);
+        }
         tally.mcp.set(server, entry);
         continue;
       }
@@ -319,8 +334,14 @@ export function burstElapsedMs(turns: PreparedTurn[]): number | null {
  * `tasks_spec_patch mt#3842` is precisely the thing a supervisor needs."* The
  * reference optimises for someone watching their own agent live; this surface is
  * read by someone auditing a run afterwards, often not the person who launched
- * it. So distinct tool names are named up to {@link MAX_NAMED_TOOLS}, and only
- * past that does the line fall back to a count.
+ * it.
+ *
+ * Which names render is decided by mt#3847's `classifyTool`, not by parsing:
+ * a `mutates` or `unclassified` tool is NAMED, always and uncapped; a `reads`
+ * tool becomes a count. `unclassified` rides with the named half because that
+ * classifier's contract is that unknown is never coerced into a positive
+ * verdict, and calling it a read would be that coercion. mt#4238 consumes the
+ * same table for row weighting — this reads it, it does not re-derive it.
  */
 export function summarizeBurst(turns: PreparedTurn[]): string {
   const tally = tallyBurst(turns);
@@ -332,12 +353,17 @@ export function summarizeBurst(turns: PreparedTurn[]): string {
   if (tally.shell > 0) parts.push(`ran ${plural(tally.shell, "shell command", "shell commands")}`);
 
   for (const [server, entry] of tally.mcp) {
-    if (entry.names.length <= MAX_NAMED_TOOLS) {
-      parts.push(`called ${server} ${entry.names.join(", ")}`);
-    } else {
-      const named = entry.names.slice(0, MAX_NAMED_TOOLS).join(", ");
-      parts.push(`called ${server} ${named} +${entry.names.length - MAX_NAMED_TOOLS} more`);
-    }
+    // EVERY name in `entry.named` renders — no cap. The earlier draft capped
+    // this list at three and the reviewer of PR #3125 caught the consequence:
+    // with four or more distinct tools, a mutation could fall past the cap
+    // while reads survived, which inverts the very thing SC6 asks for. A read
+    // may become a number; a mutation may not.
+    const segments: string[] = [];
+    if (entry.named.length > 0) segments.push(entry.named.join(", "));
+    if (entry.reads > 0) segments.push(plural(entry.reads, "read", "reads"));
+    parts.push(
+      segments.length > 0 ? `called ${server} ${segments.join(", ")}` : `called ${server}`
+    );
   }
 
   for (const [name, count] of tally.other) {

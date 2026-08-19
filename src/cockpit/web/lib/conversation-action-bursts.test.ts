@@ -59,6 +59,13 @@ function prose(text = "Reading the auth module now."): PreparedElement {
   return { kind: "text", text };
 }
 
+// Named rather than repeated inline: these two are the read-only tools the
+// summary tests lean on, and a typo in one copy would silently change what the
+// classifier returns — `classifyTool` answers `unclassified` for an unknown
+// name, so the test would still pass while asserting something else.
+const READ_TOOL = "mcp__minsky__tasks_get";
+const OTHER_READ_TOOL = "mcp__minsky__git_log";
+
 /** Every turn the grouping returned, in order — the losslessness witness. */
 function flatten(nodes: ReturnType<typeof groupActionBursts>): PreparedTurn[] {
   return nodes.flatMap((node) => (node.kind === "turn" ? [node.turn] : node.turns));
@@ -212,34 +219,69 @@ describe("summarizeBurst (mt#4250)", () => {
     expect(many).toContain("read 2 files");
   });
 
-  test("NAMES the MCP tools rather than collapsing them to a server count (mt#3845 SC6)", () => {
+  test("NAMES mutating MCP tools and reduces reads to a count (mt#3845 SC6)", () => {
     const turns = [
-      turn([toolCall("mcp__minsky__tasks_get")]),
-      turn([toolCall("mcp__minsky__tasks_spec_patch")]),
-      turn([toolCall("mcp__minsky__git_log")]),
+      turn([toolCall(READ_TOOL)]), // reads
+      turn([toolCall("mcp__minsky__tasks_spec_patch")]), // mutates
+      turn([toolCall(OTHER_READ_TOOL)]), // reads
     ];
 
     const summary = summarizeBurst(turns);
 
     // The deviation from the reference terminal: it renders "called minsky",
-    // which is exactly what SC6 names as discarding "which tool ran".
+    // which is exactly what SC6 names as discarding "which tool ran" — and
+    // `tasks_spec_patch mt#3842` is SC6's own example of what a supervisor
+    // needs to see.
     expect(summary).toContain("tasks_spec_patch");
-    expect(summary).toContain("tasks_get");
-    expect(summary).toContain("git_log");
+    // Reads carry no such claim on the reader's attention; they become a number.
+    expect(summary).toContain("2 reads");
+    expect(summary).not.toContain("tasks_get");
   });
 
-  test("falls back to a count once there are more distinct tools than it can name", () => {
+  test("a mutation is NAMED however many reads surround it — no cap can drop it", () => {
+    // Regression guard for PR #3125 R1. The first implementation named up to
+    // three distinct tools by parsing, so a burst with four or more could push
+    // the mutation past the cap while reads survived — the exact inversion of
+    // what SC6 asks for. The mutation here is deliberately LAST.
     const turns = [
-      turn([toolCall("mcp__minsky__a")]),
-      turn([toolCall("mcp__minsky__b")]),
-      turn([toolCall("mcp__minsky__c")]),
-      turn([toolCall("mcp__minsky__d")]),
-      turn([toolCall("mcp__minsky__e")]),
+      turn([toolCall(READ_TOOL)]),
+      turn([toolCall(OTHER_READ_TOOL)]),
+      turn([toolCall("mcp__minsky__memory_search")]),
+      turn([toolCall("mcp__minsky__tasks_list")]),
+      turn([toolCall("mcp__minsky__session_commit")]), // mutates
     ];
 
     const summary = summarizeBurst(turns);
 
-    expect(summary).toContain("+2 more");
+    expect(summary).toContain("session_commit");
+  });
+
+  test("every mutation is named, not just the first", () => {
+    const turns = [
+      turn([toolCall("mcp__minsky__tasks_spec_patch")]),
+      turn([toolCall("mcp__minsky__tasks_status_set")]),
+      turn([toolCall("mcp__minsky__session_commit")]),
+    ];
+
+    const summary = summarizeBurst(turns);
+
+    expect(summary).toContain("tasks_spec_patch");
+    expect(summary).toContain("tasks_status_set");
+    expect(summary).toContain("session_commit");
+  });
+
+  test("an UNCLASSIFIED tool is named, never silently counted as a read", () => {
+    // `classifyTool`'s contract is that unknown is never coerced into a
+    // positive verdict. Rendering it as a read would be that coercion, and
+    // would hide a tool that may well mutate.
+    const summary = summarizeBurst([
+      turn([toolCall("mcp__minsky__some_unregistered_tool")]),
+      turn([toolCall(READ_TOOL)]),
+      turn([toolCall(OTHER_READ_TOOL)]),
+    ]);
+
+    expect(summary).toContain("some_unregistered_tool");
+    expect(summary).toContain("2 reads");
   });
 
   test("leads with the burst's own elapsed span", () => {
