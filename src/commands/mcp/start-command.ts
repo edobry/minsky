@@ -640,6 +640,25 @@ async function startHttpServer(
         mode: persistenceHealth.mode,
         ...(persistenceHealth.reason ? { reason: persistenceHealth.reason } : {}),
       },
+      // mt#4297: LIVENESS and READINESS are different questions, and this
+      // endpoint answered only the first. `status`/the status code say "the
+      // process booted"; `ready` says "it can serve DB-backed work".
+      //
+      // They diverge precisely in the `unconfigured` case, which is reported as
+      // healthy ON PURPOSE — it is the expected local/dev/offline boot and the
+      // bundle-boot-smoke CI gate's exact state, and that gate asserts a 200 and
+      // never reads this body. So the status code must NOT change. What was
+      // missing was any field a CUTOVER check could read: a shared daemon with
+      // no persistence provider served 200 for 31 hours while every DB-backed
+      // call failed, and `minsky setup local-http` would have pointed every
+      // conversation at it, because "a Minsky daemon answered" was the whole
+      // test (`classifyDaemonProbe`).
+      //
+      // Deliberately derived from `mode` alone rather than from the process's
+      // own mode flags: a reader asking "can this serve me?" should not have to
+      // know how the process was launched, and a future transport gets the
+      // right answer here without touching this line.
+      ready: persistenceHealth.mode === "connected",
     });
   });
 
