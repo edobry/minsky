@@ -225,6 +225,38 @@ Error and skip reasons are sanitized before posting to the PR. Only recognized s
 
 Draft PRs are skipped at all entry points — webhook handler, `/review` comment command, and `/retrigger` endpoint. No status comment is created for draft PRs.
 
+## In-flight marker: the current acquisition contract (mt#4267)
+
+Concurrent review attempts for the same `(owner, repo, pr_number, head_sha)` arbitrate through a
+row in `reviewer_inflight_reviews`. **The current mechanism is a conditional takeover:**
+
+```sql
+INSERT INTO reviewer_inflight_reviews (...)
+VALUES (...)
+ON CONFLICT (owner, repo, pr_number, head_sha) DO UPDATE
+   SET acquired_by = EXCLUDED.acquired_by, delivery_id = EXCLUDED.delivery_id,
+       acquired_at = EXCLUDED.acquired_at, expires_at  = EXCLUDED.expires_at
+ WHERE reviewer_inflight_reviews.expires_at < now()
+RETURNING id
+```
+
+- A **live** row fails the `WHERE`, so nothing is updated and `RETURNING` is empty — the caller is
+  refused, exactly as before (mt#1907 AT-4/AT-5).
+- An **expired** row is taken over in the same statement, keeping its id.
+
+**Read this rather than the migration header.** `migrations/pg/0002_inflight_reviews.sql` describes
+the original mt#1907 shape, `ON CONFLICT ... DO NOTHING`, and that comment is left alone as the
+historical record of what that migration shipped — a migration is applied once and its text is not
+a live contract. The current contract is this section plus the module docblock in
+`src/inflight-marker.ts`.
+
+Expiry is enforced at **two** points, and both are load-bearing: acquire-time (above) makes a
+marker orphaned by a killed process recoverable by the next caller, whichever entry point that is;
+`pruneStaleMarkers`, run by the sweeper at the top of each cycle, reclaims rows for PRs nobody
+retriggers. Before mt#4267 only the second existed, so a marker orphaned by a redeploy refused
+every direct `/retrigger` until a sweeper cycle happened to sweep it — up to `SWEEPER_INTERVAL_MS`
+(default 10 min) away, and invisible to the caller.
+
 ## Re-running the harness (mt#1515)
 
 Two scripts under `services/reviewer/scripts/` codify the acceptance tests for the reviewer service fidelity and latency:
