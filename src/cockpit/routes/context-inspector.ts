@@ -14,9 +14,20 @@ import {
   WRONG_ID_SPACE_MESSAGE,
 } from "../conversation-id-space";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+// The window bound is IMPORTED, not restated. The assembler clamps to the same
+// value; two literals would drift silently, with the smaller one winning and
+// nothing reporting the disagreement (PR #3148 R2). Its own module so reading it
+// does not pull in the assembler's drizzle/schema graph, which this route loads
+// dynamically and only on a cache miss.
+import { MAX_SNAPSHOT_WINDOW_LIMIT as MAX_WINDOW_TURNS } from "@minsky/domain/transcripts/snapshot-window-limit";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import { ServerTimingRecorder } from "../server-timing";
-import { ifNoneMatchSatisfies, SnapshotCache, snapshotEtag } from "../snapshot-cache";
+import {
+  ifNoneMatchSatisfies,
+  SnapshotCache,
+  snapshotEtag,
+  StructureCache,
+} from "../snapshot-cache";
 import { sendJsonMaybeCompressed } from "../compressed-json";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
@@ -26,6 +37,90 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
  * the mechanism; a per-request cache would be a no-op.
  */
 const snapshotCache = new SnapshotCache();
+
+/**
+ * Derived conversation structure, keyed by conversation id ALONE (mt#4263).
+ *
+ * Deliberately not window-keyed, unlike `snapshotCache` above: the abandoned-id
+ * set and the tool-name map describe the whole conversation and are identical
+ * for every window over it. Keying them by window would defeat the entire point,
+ * which is that scroll-back — a sequence of DIFFERENT windows over one
+ * conversation — stops re-deriving them. Validity still comes from the same
+ * version token, so a conversation that gains a turn invalidates both caches
+ * together.
+ */
+const structureCache = new StructureCache();
+
+/**
+ * The window a request asked for, plus the key that keeps it from colliding
+ * with a differently-windowed request for the same conversation (mt#4263).
+ *
+ * ## Why the key exists, and why it goes into BOTH the ETag and the cache key
+ *
+ * mt#4258's validator and cache are keyed on `(conversationId, versionToken)`,
+ * and that token describes the CONVERSATION — turn count, attachment count,
+ * `ended_at`. It says nothing about how much of the conversation a particular
+ * response carried, which was fine while there was only ever one answer.
+ *
+ * With a window there are many, and every one of them shares that token. Left
+ * alone, two silent failures follow: a client holding the full snapshot asks
+ * for a window and is told `304 Not Modified`, so it renders all 2,236 turns
+ * and believes it got 50; and `snapshotCache` hands a windowed request the full
+ * cached snapshot under the same key. Neither errors — both produce a
+ * well-formed response of the wrong size — which is why this is folded in
+ * rather than left to a test to notice.
+ *
+ * `null` means no window was requested; its key is the empty string, so an
+ * unwindowed request's ETag is byte-identical to what mt#4258 issued and
+ * already-cached clients keep revalidating.
+ */
+interface ParsedSnapshotWindow {
+  window: { limit: number; before?: number } | null;
+  /** Appended to the version token (ETag) and to the cache key. */
+  key: string;
+}
+
+/**
+ * Read `?turns=` / `?before=` off the request.
+ *
+ * Fails LOUD on a malformed value rather than falling back to the unwindowed
+ * response: silently ignoring `?turns=abc` would ship 8 MB to a client that
+ * asked for 50 turns, which is the failure this endpoint exists to remove and
+ * is invisible from the client's side.
+ */
+function parseSnapshotWindow(query: unknown): ParsedSnapshotWindow | { error: string } {
+  const params = (query ?? {}) as Record<string, unknown>;
+  const rawTurns = params["turns"];
+  const rawBefore = params["before"];
+
+  if (rawTurns === undefined) {
+    if (rawBefore !== undefined) {
+      return { error: "`before` requires `turns` — a cursor without a bound is not a window." };
+    }
+    return { window: null, key: "" };
+  }
+
+  if (typeof rawTurns !== "string") return { error: "`turns` must be a single integer." };
+  const turns = Number.parseInt(rawTurns, 10);
+  if (!Number.isFinite(turns) || String(turns) !== rawTurns.trim() || turns < 1) {
+    return { error: "`turns` must be a positive integer." };
+  }
+  if (turns > MAX_WINDOW_TURNS) {
+    return { error: `\`turns\` must be at most ${MAX_WINDOW_TURNS}.` };
+  }
+
+  if (rawBefore === undefined) {
+    return { window: { limit: turns }, key: `|w${turns}` };
+  }
+
+  if (typeof rawBefore !== "string") return { error: "`before` must be a single integer." };
+  const before = Number.parseInt(rawBefore, 10);
+  if (!Number.isFinite(before) || String(before) !== rawBefore.trim() || before < 0) {
+    return { error: "`before` must be a non-negative integer." };
+  }
+
+  return { window: { limit: turns, before }, key: `|w${turns}|b${before}` };
+}
 
 /**
  * A token identifying the current state of one conversation's stored rows.
@@ -85,6 +180,7 @@ async function readSnapshotVersion(
 // client.
 type ContextInspectorErrorCode =
   | "missing_field"
+  | "invalid_window"
   | "unsupported_provider"
   | "session_not_found"
   | "wrong_id_space"
@@ -122,6 +218,22 @@ export function mountContextInspectorRoutes(app: express.Express): void {
    *
    * Query params:
    *   ?sessionId=<agent_session_id>   — required; the harness-native session UUID.
+   *   ?turns=<n>                      — optional (mt#4263); return only the most
+   *                                     recent N renderable turns, applied IN SQL.
+   *                                     1..500. Omitting it returns the full
+   *                                     response byte-for-byte as before.
+   *   ?before=<turnIndex>             — optional; with `turns`, page backwards from
+   *                                     an ORIGINAL transcript-array index. Pass the
+   *                                     previous response's `window.nextBefore` —
+   *                                     NOT `oldestTurnIndex`, which is the oldest
+   *                                     turn RENDERED and is null when a page's
+   *                                     entries were all non-renderable (PR #3148 R1).
+   *                                     Rejected without `turns`.
+   *
+   * A windowed response additionally carries `window` (totalTurns / returnedTurns /
+   * oldestTurnIndex / nextBefore / hasMore) and `toolNamesByUseId` (over the FULL transcript, so
+   * a windowed tool-result can still name the call it answers). Both are absent
+   * from an unwindowed response.
    *
    * Response: SessionContextSnapshot JSON (categorized chronological block list);
    *   404 `session_not_found` when no transcript exists for a syntactically
@@ -173,6 +285,17 @@ export function mountContextInspectorRoutes(app: express.Express): void {
       return;
     }
 
+    const parsedWindow = parseSnapshotWindow(req.query);
+    if ("error" in parsedWindow) {
+      contextInspectorError(res, 400, "invalid_window", parsedWindow.error);
+      return;
+    }
+    const { window: snapshotWindow, key: windowKey } = parsedWindow;
+    // Every cache and validator identity below is (conversation + window), never
+    // conversation alone. `windowKey` is "" for an unwindowed request, so that
+    // path's ETag and cache key are unchanged from mt#4258.
+    const cacheKey = `${sessionId}${windowKey}`;
+
     try {
       // Lazy-cached SQL DB connection — mirrors the agents.ts singleton
       // pattern. Avoids constructing a fresh `PersistenceService` (and
@@ -217,7 +340,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         // STRONG etag, which would in turn have to change whenever the
         // compression level did — a worse trade for a route whose client is the
         // cockpit SPA.
-        const etag = snapshotEtag(version);
+        const etag = snapshotEtag(`${version}${windowKey}`);
         res.setHeader("ETag", etag);
         // Declare Vary HERE, not only inside `sendJsonMaybeCompressed` (PR #3104
         // R3). The 304 branch below never calls that helper, so it would emit a
@@ -238,7 +361,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
           return;
         }
 
-        const cached = snapshotCache.get(sessionId, version);
+        const cached = snapshotCache.get(cacheKey, version);
         if (cached !== undefined) {
           timing.record("cache", 0, `hit ${cached.blocks.length} blocks`);
           await sendJsonMaybeCompressed(res, cached, {
@@ -248,17 +371,46 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         }
       }
 
-      const { assembleSessionContextSnapshot } = await import(
+      const { assembleSessionContextSnapshot, computeSnapshotStructure } = await import(
         "@minsky/domain/transcripts/session-context-snapshot"
       );
+
+      // Only the windowed path needs derived structure — the unwindowed response
+      // carries every block, so its renderer derives both itself and this stays
+      // exactly the code path mt#4258 shipped.
+      //
+      // Started WITHOUT awaiting on a miss: the assembler folds it into its own
+      // `Promise.all`, so the structure query and the window query run
+      // concurrently rather than as two round trips against a remote database.
+      const cachedStructure =
+        snapshotWindow !== null && version !== null
+          ? structureCache.get(sessionId, version)
+          : undefined;
+      if (cachedStructure !== undefined) timing.record("structure", 0, "hit");
+      const structure =
+        snapshotWindow === null
+          ? undefined
+          : (cachedStructure ?? computeSnapshotStructure(db, sessionId as AgentSessionId));
       // mt#3131 (D3): bound the assembly call itself — a DB pool under
       // contention must not hang this response forever.
       const snapshot = await timing.time("assemble", () =>
         withBoundedTimeout(
-          assembleSessionContextSnapshot(db, sessionId as AgentSessionId),
+          assembleSessionContextSnapshot(
+            db,
+            sessionId as AgentSessionId,
+            snapshotWindow ?? undefined,
+            structure
+          ),
           SNAPSHOT_ASSEMBLY_TIMEOUT_MS
         )
       );
+
+      // Stored only on a miss, and only once the assembly it fed succeeded —
+      // caching a structure whose sibling query threw would leave the next
+      // request revalidating against a token no response was ever built under.
+      if (cachedStructure === undefined && structure !== undefined && version !== null) {
+        structureCache.set(sessionId, version, await structure);
+      }
       if (snapshot !== null) {
         // Block count is the size driver this route's latency tracks, and it is
         // not recoverable from the header's durations alone — a 2s assemble over
@@ -266,7 +418,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         timing.record("blocks", 0, `${snapshot.blocks.length} blocks`);
         // Only cacheable when the probe produced a token to validate against;
         // without one there is no way to know later whether it went stale.
-        if (version !== null) snapshotCache.set(sessionId, version, snapshot);
+        if (version !== null) snapshotCache.set(cacheKey, version, snapshot);
       }
 
       if (snapshot === null) {

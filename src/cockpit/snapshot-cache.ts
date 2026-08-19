@@ -36,26 +36,33 @@
  */
 
 import type { SessionContextSnapshot } from "@minsky/domain/context/types";
+import type { SnapshotStructure } from "@minsky/domain/transcripts/session-context-snapshot";
 
 /** Entries retained before LRU eviction begins. See the module docblock. */
 export const DEFAULT_MAX_ENTRIES = 6;
 
-interface CacheEntry {
-  /** The version token this snapshot was assembled under. */
+interface CacheEntry<T> {
+  /** The version token this value was derived under. */
   readonly token: string;
-  readonly snapshot: SessionContextSnapshot;
+  readonly value: T;
 }
 
 /**
- * Bounded LRU keyed by conversation id, validated by version token.
+ * Bounded LRU keyed by a string, validated by version token.
  *
  * Recency is tracked by `Map` insertion order — a `Map` iterates in insertion
  * order, so re-inserting on read moves an entry to the back and the eviction
  * victim is always the first key. This avoids a parallel recency structure that
  * could drift out of sync with the entry map.
+ *
+ * Generic since mt#4263: the windowed path caches a second thing under the same
+ * discipline — the DERIVED STRUCTURE of a conversation (its abandoned-branch id
+ * set and its tool-name map), which is a pure function of the same version token
+ * and is what makes scroll-back cheap. Same validity rule, very different size
+ * class, so each gets its own instance and its own bound rather than sharing one.
  */
-export class SnapshotCache {
-  private readonly entries = new Map<string, CacheEntry>();
+export class VersionedLruCache<T> {
+  private readonly entries = new Map<string, CacheEntry<T>>();
   private readonly maxEntries: number;
 
   constructor(maxEntries: number = DEFAULT_MAX_ENTRIES) {
@@ -71,13 +78,13 @@ export class SnapshotCache {
   }
 
   /**
-   * The cached snapshot for `key`, but ONLY if it was assembled under `token`.
+   * The cached value for `key`, but ONLY if it was derived under `token`.
    *
-   * A token mismatch is a miss AND a delete: the stored snapshot is known-stale
+   * A token mismatch is a miss AND a delete: the stored value is known-stale
    * from this moment on, and keeping it would hold megabytes that can never be
    * served again while occupying a slot a live conversation needs.
    */
-  get(key: string, token: string): SessionContextSnapshot | undefined {
+  get(key: string, token: string): T | undefined {
     const entry = this.entries.get(key);
     if (entry === undefined) return undefined;
     if (entry.token !== token) {
@@ -88,15 +95,15 @@ export class SnapshotCache {
     // insertion order, so it is no longer the eviction candidate.
     this.entries.delete(key);
     this.entries.set(key, entry);
-    return entry.snapshot;
+    return entry.value;
   }
 
-  /** Store `snapshot` under `key`, evicting the least-recently-used entry if full. */
-  set(key: string, token: string, snapshot: SessionContextSnapshot): void {
+  /** Store `value` under `key`, evicting the least-recently-used entry if full. */
+  set(key: string, token: string, value: T): void {
     // Delete first so an overwrite also refreshes recency rather than leaving
     // the key at its original insertion position.
     this.entries.delete(key);
-    this.entries.set(key, { token, snapshot });
+    this.entries.set(key, { token, value });
 
     while (this.entries.size > this.maxEntries) {
       const oldest = this.entries.keys().next();
@@ -113,6 +120,33 @@ export class SnapshotCache {
   /** Drop everything. For tests and for a provider recycle. */
   clear(): void {
     this.entries.clear();
+  }
+}
+
+/** Assembled snapshots. Bounded small — each entry is the multi-megabyte response. */
+export class SnapshotCache extends VersionedLruCache<SessionContextSnapshot> {}
+
+/**
+ * Entries retained by `StructureCache`.
+ *
+ * An order of magnitude larger than `DEFAULT_MAX_ENTRIES` because the size class
+ * is an order of magnitude smaller in the other direction: a structure entry is
+ * an id array plus a tool-name map — 714 names and an empty abandoned set on the
+ * 2,236-turn conversation measured for mt#4263, against ~8 MB for that same
+ * conversation's snapshot. The bound is what makes scroll-back free: paging back
+ * through a long conversation must not evict the structure the next page needs.
+ */
+export const DEFAULT_MAX_STRUCTURE_ENTRIES = 32;
+
+/**
+ * Derived conversation structure (mt#4263) — keyed by conversation id, NOT by
+ * window, because it describes the whole conversation and is identical for every
+ * window over it. That is the whole point: the first page pays for it, every
+ * scroll-back page after it does not.
+ */
+export class StructureCache extends VersionedLruCache<SnapshotStructure> {
+  constructor(maxEntries: number = DEFAULT_MAX_STRUCTURE_ENTRIES) {
+    super(maxEntries);
   }
 }
 
