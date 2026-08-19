@@ -296,17 +296,38 @@ const INSTALL_PROBE = `(() => {
   // So measure it the only way that stays true to the quantity: stamp each
   // pointermove as the page receives it, then close it out on the next rendered
   // frame. move -> next paint IS the lag the operator sees between cursor and pane.
+  // Take the LAST move before the paint, not the first.
+  //
+  // The distinction is the whole measurement at high input rates, and getting it
+  // wrong manufactures precisely the effect this script was built to look for.
+  // With input at 120Hz and the page painting at ~30fps, about four moves land
+  // per frame. Stamping the FIRST one measures from an input the browser already
+  // superseded — an age that grows with the input rate purely because more moves
+  // fit in a frame. That is not lag the operator can perceive: the pane paints
+  // the position of the most recent move, so the felt lag is that move's age.
+  //
+  // Both are recorded so the gap between them stays visible rather than being a
+  // claim in a comment: moveLatencies (last, the real quantity) and
+  // staleMoveLatencies (first, kept only to show what the wrong choice costs).
   const moveLatencies = [];
-  let pendingMove = null;
+  const staleMoveLatencies = [];
+  let newestPending = null;
+  let oldestPending = null;
+  let movesObserved = 0;
   const onMove = (ev) => {
-    if (pendingMove === null) pendingMove = ev.timeStamp;
+    movesObserved++;
+    newestPending = ev.timeStamp;
+    if (oldestPending === null) oldestPending = ev.timeStamp;
   };
   document.addEventListener("pointermove", onMove, { capture: true, passive: true });
   const latencyTick = () => {
     if (!running) return;
-    if (pendingMove !== null) {
-      moveLatencies.push(performance.now() - pendingMove);
-      pendingMove = null;
+    if (newestPending !== null) {
+      const now = performance.now();
+      moveLatencies.push(now - newestPending);
+      if (oldestPending !== null) staleMoveLatencies.push(now - oldestPending);
+      newestPending = null;
+      oldestPending = null;
     }
     requestAnimationFrame(latencyTick);
   };
@@ -338,6 +359,8 @@ const INSTALL_PROBE = `(() => {
         loaf,
         events,
         moveLatencies,
+        staleMoveLatencies,
+        movesObserved,
         eventsSeenTotal,
         eventNames,
         loafSupported: loafObs !== null,
@@ -353,6 +376,8 @@ type ProbeResult = {
   loaf: { duration: number; blockingDuration: number }[];
   events: { name: string; duration: number; processing: number; delay: number }[];
   moveLatencies: number[];
+  staleMoveLatencies: number[];
+  movesObserved: number;
   eventsSeenTotal: number;
   eventNames: Record<string, number>;
   loafSupported: boolean;
@@ -373,7 +398,15 @@ function round(n: number): number {
 
 type RateReport = {
   requestedHz: number;
-  achievedHz: number;
+  /** Rate of CDP messages SENT — an upper bound on what the page could receive. */
+  sentHz: number;
+  /** Rate of pointermove events the PAGE actually received. The real input rate. */
+  observedHz: number;
+  /** Refresh interval derived from the fastest frames observed, not assumed. */
+  nativeIntervalMs: number;
+  /** Latency computed from the FIRST move in a frame — kept only as a contrast. */
+  staleLatencyP95: number;
+  movesObserved: number;
   movesSent: number;
   elapsedMs: number;
   frameCount: number;
@@ -401,7 +434,20 @@ function summarize(
     intervals.push((probe.frames[i] as number) - (probe.frames[i - 1] as number));
   }
   const sortedIntervals = [...intervals].sort((a, b) => a - b);
-  const dropped = intervals.filter((d) => d > FRAME_BUDGET_MS * DROPPED_FACTOR).length;
+
+  // Derive the display's refresh interval instead of assuming 60Hz.
+  //
+  // A hardcoded 16.67ms budget misreports on any other panel, and the machine
+  // this was written on is 120Hz: an idle 8.3ms cadence is four frames per
+  // 33.3ms, not "two dropped frames" against a 60Hz yardstick. The 5th
+  // percentile is the fastest cadence the display actually delivered in this
+  // sample — a floor the hardware demonstrated rather than one assumed.
+  const nativeIntervalMs = sortedIntervals.length
+    ? percentile(sortedIntervals, 5)
+    : FRAME_BUDGET_MS;
+  const dropped = intervals.filter((d) => d > nativeIntervalMs * DROPPED_FACTOR).length;
+
+  const staleLatencies = [...probe.staleMoveLatencies].sort((a, b) => a - b);
 
   // From the in-page move->next-paint recorder, NOT from Event Timing — see the
   // long note in the probe for why Event Timing cannot answer this for a drag.
@@ -410,7 +456,15 @@ function summarize(
 
   return {
     requestedHz,
-    achievedHz: round((movesSent / elapsedMs) * 1000),
+    // Sent vs observed are different quantities and the gap is the interesting
+    // part: sends are what this script emitted, observed is what the page's own
+    // listener counted. Reporting sends as "achieved" would credit the harness
+    // for input the browser coalesced away.
+    sentHz: round((movesSent / elapsedMs) * 1000),
+    observedHz: round((probe.movesObserved / elapsedMs) * 1000),
+    nativeIntervalMs: round(nativeIntervalMs),
+    staleLatencyP95: round(percentile(staleLatencies, 95)),
+    movesObserved: probe.movesObserved,
     movesSent,
     elapsedMs: round(elapsedMs),
     frameCount: probe.frames.length,
@@ -728,25 +782,30 @@ try {
 
   const pad = (s: string | number, n: number) => String(s).padStart(n);
   console.log(
-    "rate(req/ach Hz)  moves  frames  interval p50/p95/max ms   dropped   LoAF n/max/block ms   pointer→paint p95/max ms"
+    "Hz req/sent/OBSERVED   moves s/o   frames  interval p50/p95/max ms  refresh  dropped   LoAF n/max  pointer→paint p95/max  (first-move p95)"
   );
   for (const r of reports) {
     console.log(
-      `${pad(r.requestedHz, 4)}/${pad(r.achievedHz, 6)}  ` +
-        `${pad(r.movesSent, 5)}  ${pad(r.frameCount, 6)}  ` +
-        `${pad(r.intervalP50, 8)}/${pad(r.intervalP95, 6)}/${pad(r.intervalMax, 6)}  ` +
+      `${pad(r.requestedHz, 4)}/${pad(r.sentHz, 6)}/${pad(r.observedHz, 7)}  ` +
+        `${pad(r.movesSent, 5)}/${pad(r.movesObserved, 4)}  ${pad(r.frameCount, 6)}  ` +
+        `${pad(r.intervalP50, 7)}/${pad(r.intervalP95, 6)}/${pad(r.intervalMax, 6)}  ` +
+        `${pad(r.nativeIntervalMs, 6)}  ` +
         `${pad(r.droppedFrames, 4)} (${pad(r.droppedPct, 5)}%)  ` +
-        `${pad(r.loafCount, 4)}/${pad(r.loafMaxDuration, 6)}/${pad(r.loafMaxBlocking, 6)}  ` +
-        `${pad(r.pointerLatencyP95, 10)}/${pad(r.pointerLatencyMax, 6)}`
+        `${pad(r.loafCount, 4)}/${pad(r.loafMaxDuration, 6)}  ` +
+        `${pad(r.pointerLatencyP95, 10)}/${pad(r.pointerLatencyMax, 6)}  ` +
+        `${pad(r.staleLatencyP95, 8)}`
     );
   }
+  console.log(
+    `\n"refresh" is the 5th-percentile inter-frame interval — the fastest cadence the\n` +
+      `display actually delivered — and a gap over ${DROPPED_FACTOR}x it counts as dropped.\n` +
+      `"first-move p95" is the same latency computed from the FIRST move in each frame\n` +
+      `instead of the last. It is NOT the operator's lag: it grows with input rate purely\n` +
+      `because more moves fit in a frame. Shown so the gap between the two stays visible.`
+  );
 
   const cadenceConfounded = Math.abs(idle.intervalP50 - (reports[0]?.intervalP50 ?? 0)) < 5;
-  console.log(
-    `\nFrame budget at 60Hz is ${round(FRAME_BUDGET_MS)}ms; a gap over ` +
-      `${round(FRAME_BUDGET_MS * DROPPED_FACTOR)}ms is counted dropped.\n` +
-      `Exit 0 means the measurement RAN. Read the numbers — it is not a verdict.`
-  );
+  console.log(`\nExit 0 means the measurement RAN. Read the numbers — it is not a verdict.`);
   if (cadenceConfounded) {
     console.log(
       `\nREAD THE CADENCE COLUMNS WITH THE IDLE ROW, NOT ALONE.\n` +
@@ -756,7 +815,10 @@ try {
         `  timestamps / SSE), not by the drag. Attributing them to the drag would be\n` +
         `  the same error in the other direction as mt#4274's summed totals.\n` +
         `  The drag-attributable signal here is POINTER->PAINT, which idles at zero\n` +
-        `  by construction (no moves) and rises with the input rate.`
+        `  by construction (no moves). Expect it to FALL as the input rate rises —\n` +
+        `  more moves per frame means the last one before a paint is fresher. A\n` +
+        `  latency that CLIMBS with rate is the signature of measuring the first\n` +
+        `  move in each frame instead of the last, not of a slow drag.`
     );
   }
 
