@@ -1011,7 +1011,27 @@ observed evidence in the spec's `## Context` (or a `## Diagnosis` section):
 2. **Run it against the ACTUAL failing context**, not a simulation. A simulation (`env PATH=... cmd`)
    proves a CONDITIONAL ("IF the PATH lacks X THEN it fails"), NOT the ANTECEDENT ("the hook's PATH
    lacks X"). A "reproduced (definitive)" claim whose repro is a conditional is not verified.
-3. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
+3. **When the falsifier is a QUERY, the failing context is a SUBPOPULATION.** Step 2 in its
+   data-shaped form: scope the query to the population the CLAIM is about. A statistic computed
+   over a population in which the phenomenon is largely ABSENT is not evidence about where it is
+   PRESENT. Concretely — **before summarizing over a window, bucket the events by sub-interval
+   (day, or hour for a short window) and read the per-bucket counts.** This is not a statistical
+   test and does not need one: you are looking for a large share of the events sitting in a small
+   share of the window — visible by eye at the scale these questions arise. If they cluster, split
+   at the cluster and report per regime; a pooled statistic spanning a regime boundary is either
+   reported as such or not reported at all, because it describes neither regime. Note this failure
+   survives every check step 2 imposes: the antecedent is real, the query runs against production,
+   and the number it returns is arithmetically correct.
+   (mt#1897, 2026-08-19: 30 days of per-round reviewer latency put p99 at 61s against a 120s cap,
+   which became "the cap is 2x p99, so a timing-out round is stuck, not slow — do not raise the
+   timeout," written into the spec as an instruction not to pursue that option. Splitting at one
+   3.5-hour degraded window put the in-window p95 at 126.6s — the cap sits BELOW it — with 29 of
+   the 30-day total of 40 over-cap rounds inside that window; the same pooling had also
+   manufactured a concurrency correlation that goes flat once the window is excluded. The tell was
+   already written down two paragraphs above the percentiles: 15 of 25 timeout-carrying reviews
+   fell on a single day. The clustering was measured, recorded, and then not applied to the choice
+   of window — which is why this is a step rather than a caution.)
+4. **Record the observed result** — pass/fail, exit code, the live signal — as the evidence the fix
    rests on. If the observed behavior contradicts the spec's claim, the problem statement is wrong:
    surface the gap and re-scope BEFORE designing a fix.
 
