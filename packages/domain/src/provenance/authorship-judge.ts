@@ -29,8 +29,27 @@ const JUDGING_MODEL = "claude-haiku-4-5-20251001";
 /** Provider for tier judging. */
 const JUDGING_PROVIDER = "anthropic";
 
-/** Maximum tokens to generate — keep it tight for fast, cheap classification. */
-const MAX_TOKENS = 500;
+/**
+ * Maximum tokens to generate.
+ *
+ * **Raised 500 → 2000 by mt#4314, because 500 was never actually enforced.**
+ * `DefaultAICompletionService.generateObject` dropped `maxTokens` for the life of this
+ * module, so every judgment this judge has ever produced ran against the SDK's provider
+ * default. mt#4314 connects the knob, which makes this number bind for the first time.
+ *
+ * Measured before raising it, with the forwarding fix in place
+ * (`bun scripts/verify-authorship-judge-cap.ts --limit 10`): at 500, **1 of 10 judgments
+ * failed to parse** and the answer text of those that succeeded ran 850–1681 characters —
+ * the largest already ~420+ tokens of prose before JSON field names, quoting and escaping.
+ * The schema carries two open-ended prose fields plus a `trajectoryChanges` array, so this
+ * is not a tail case; "keep it tight" was safe only while it did nothing.
+ *
+ * A truncated structured response does not raise a truncation error — it fails schema
+ * validation on whichever field the model had not reached, which is exactly the signature
+ * mt#4314 was diagnosed from. 2000 is ~4x the largest observed answer, and a cap is a
+ * CEILING rather than a spend: raising it costs nothing on a judgment that stays short.
+ */
+const MAX_TOKENS = 2000;
 
 /** Zod schema for the structured AI response. */
 const authorshipJudgmentSchema = z.object({
