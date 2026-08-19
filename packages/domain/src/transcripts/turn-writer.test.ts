@@ -92,6 +92,12 @@ function turnKey(sid: string, idx: number): string {
  * do NOT cover the conditional; its behavior against real Postgres is covered by
  * `scripts/verify-turn-embedding-invalidation.ts`. What they still cover is the
  * unchanged-text case, which must keep the vector either way.
+ *
+ * Same split for mt#4345's skip-if-unchanged `setWhere` predicate: the fake's
+ * `onConflictDoUpdate(_opts)` below ignores `_opts` entirely and always applies
+ * the write, so it cannot exhibit "Postgres skipped this row because nothing
+ * changed" — that requires a real `ON CONFLICT ... WHERE` evaluation, which is
+ * covered live by `scripts/verify-turn-write-skip-if-unchanged.ts` instead.
  */
 function makeDb(
   transcriptRows: FakeTranscriptRow[],

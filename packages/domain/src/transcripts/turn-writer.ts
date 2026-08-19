@@ -379,6 +379,46 @@ async function writeTurnsLocked(
               isSpawnBoundary: sql`EXCLUDED.is_spawn_boundary`,
               embedding: sql`CASE WHEN ${agentTranscriptTurnsTable.userText} IS DISTINCT FROM EXCLUDED.user_text OR ${agentTranscriptTurnsTable.assistantText} IS DISTINCT FROM EXCLUDED.assistant_text THEN NULL ELSE ${agentTranscriptTurnsTable.embedding} END`,
             },
+            // Skip-if-unchanged guard (mt#4345): without this, EVERY conflicting
+            // row is rewritten on every re-ingest, even when nothing about it
+            // changed — 19.2M updates against 327k live rows in prod, ~59
+            // rewrites/row. An UPDATE that writes back identical bytes still
+            // produces a new row version (a dead tuple autovacuum must later
+            // reclaim) and, because the indexed `embedding` column sits in the
+            // SET list above, cannot take the HOT-update fast path — so it also
+            // churns the GIN `fts_text` index and the HNSW `embedding` index on
+            // every write.
+            //
+            // Compares every column the SET block above writes directly from
+            // EXCLUDED (i.e. NOT `embedding`, whose SET value is itself derived
+            // from userText/assistantText via the CASE above — comparing the
+            // source columns already covers whether that derived value would
+            // change). If none of them differ, DO UPDATE fires no-op — Postgres
+            // skips the write (and the WHERE-false rows never touch an index).
+            //
+            // MUST be `IS DISTINCT FROM`, never `<>`: every column here is
+            // nullable (a tool-only turn has no assistant_text), and SQL's `<>`
+            // returns NULL — not TRUE — when either side is NULL, so `NULL <>
+            // NULL` is NULL rather than "these are not the same." A predicate
+            // built from `<>` would therefore never evaluate the whole OR chain
+            // to TRUE on any row carrying a NULL in a changed column, silently
+            // turning this guard into a no-op for the common case. `IS DISTINCT
+            // FROM` treats NULL as a comparable value (`NULL IS DISTINCT FROM
+            // NULL` is FALSE; `NULL IS DISTINCT FROM 'x'` is TRUE), which is
+            // exactly the "did this column's value change" semantics we want.
+            //
+            // Every SET column is included, not just the text pair the embedding
+            // CASE reads — `is_spawn_boundary` flipping with identical text is a
+            // real change (mt#4345's spec counter-case) that a text-only
+            // predicate would silently drop.
+            setWhere: sql`(
+              ${agentTranscriptTurnsTable.userText} IS DISTINCT FROM EXCLUDED.user_text
+              OR ${agentTranscriptTurnsTable.assistantText} IS DISTINCT FROM EXCLUDED.assistant_text
+              OR ${agentTranscriptTurnsTable.toolCalls} IS DISTINCT FROM EXCLUDED.tool_calls
+              OR ${agentTranscriptTurnsTable.startedAt} IS DISTINCT FROM EXCLUDED.started_at
+              OR ${agentTranscriptTurnsTable.endedAt} IS DISTINCT FROM EXCLUDED.ended_at
+              OR ${agentTranscriptTurnsTable.isSpawnBoundary} IS DISTINCT FROM EXCLUDED.is_spawn_boundary
+            )`,
           });
       });
       written += chunk.length;
