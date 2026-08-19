@@ -13,6 +13,7 @@ import {
   MATCH_CONTEXT_MAX_CHARS,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
+  SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
   SUPPRESSION_SAME_TURN_TOOL_CALL,
   SUPPRESSION_WINDOW_TOOL_CALL,
   TRAILING_WINDOW_TURNS,
@@ -720,6 +721,38 @@ describe("mt#3864 Cause A — reading a PR's state is evidence about THAT PR's s
     // the agent verified it by reading. Both claims were true.
     const turn = [makeAssistantLine(MERGED_CLAIM)];
     expect(detectPreNarration(turn as never, READ_TOOLS, mergedEvidence(3033)).length).toBe(0);
+  });
+
+  test("R3: an identity-backed suppression names its OWN reason, not the window's", () => {
+    // The reason strings exist so a calibration reviewer can tell the sources
+    // apart from the record alone. Identity-scoped is reached only when NO
+    // `requiredTools` call was in window, so recording it as `window-tool-call`
+    // would name a call that never happened.
+    const turn = [makeAssistantLine(MERGED_CLAIM)];
+    const detection = detectPreNarrationWithSuppression(
+      turn as never,
+      READ_TOOLS,
+      mergedEvidence(3033)
+    );
+    expect(detection.matches).toEqual([]);
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([
+      SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
+    ]);
+  });
+
+  test("a same-turn merge tool still names the same-turn reason, not the identity one", () => {
+    // Negative control for the ordering: identity evidence present AND a real
+    // merge call in the turn must still record the stronger source.
+    const turn = [
+      makeAssistantToolUseLine("mcp__minsky__session_pr_merge"),
+      makeAssistantLine(MERGED_CLAIM),
+    ];
+    const detection = detectPreNarrationWithSuppression(
+      turn as never,
+      undefined,
+      mergedEvidence(3033)
+    );
+    expect(detection.suppressed.map((s) => s.reason)).toEqual([SUPPRESSION_SAME_TURN_TOOL_CALL]);
   });
 
   test("session_pr_get counts as the same evidence", () => {

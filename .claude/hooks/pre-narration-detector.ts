@@ -314,14 +314,22 @@ export interface ClaimMatch {
 /**
  * Reason strings for this detector's suppression gate (mt#3207).
  *
- * The gate is one condition — the category's `requiredTools` appear — but it
- * has two sources with different FP profiles, so they get different reasons:
- * a same-turn tool call is proof the claim was backed as it was written, while
- * a trailing-window hit (mt#2671) is the weaker back-reference inference. A
- * calibration reviewer needs to tell them apart from the record alone.
+ * The gate has sources with different FP profiles, so they get different
+ * reasons: a same-turn tool call is proof the claim was backed as it was
+ * written, while a trailing-window hit (mt#2671) is the weaker back-reference
+ * inference. A calibration reviewer needs to tell them apart from the record
+ * alone.
+ *
+ * PR #3096 R3 (non-blocking) added the third. Identity-scoped suppression is a
+ * DIFFERENT condition from the other two — not `requiredTools` presence but a
+ * read of the PR the claim NAMES — and recording it as `window-tool-call` made
+ * the two indistinguishable in the log, which is the thing this docblock says
+ * must not happen. Its FP profile is its own: it is the only source that can be
+ * defeated by a claim naming the wrong number.
  */
 export const SUPPRESSION_SAME_TURN_TOOL_CALL = "same-turn-tool-call";
 export const SUPPRESSION_WINDOW_TOOL_CALL = "window-tool-call";
+export const SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL = "identity-scoped-tool-call";
 
 /** A claim that matched its category's patterns but was backed by a real tool call. */
 export interface SuppressedClaimMatch extends ClaimMatch {
@@ -537,9 +545,18 @@ export function detectPreNarrationWithSuppression(
       claimedPr !== null && (evidencePrNumbers?.get(category.key)?.has(claimedPr) ?? false);
 
     if (sameTurn || inWindow || identityBacked) {
+      // Ordered by strength of evidence, so the recorded reason names the
+      // source that actually carried the suppression: a same-turn call is the
+      // strongest, and identity-scoped is only reached when NO `requiredTools`
+      // call was present at all — which is precisely the case a calibration
+      // reviewer needs to see distinctly (PR #3096 R3).
       suppressed.push({
         ...matched,
-        reason: sameTurn ? SUPPRESSION_SAME_TURN_TOOL_CALL : SUPPRESSION_WINDOW_TOOL_CALL,
+        reason: sameTurn
+          ? SUPPRESSION_SAME_TURN_TOOL_CALL
+          : inWindow
+            ? SUPPRESSION_WINDOW_TOOL_CALL
+            : SUPPRESSION_IDENTITY_SCOPED_TOOL_CALL,
       });
       continue;
     }
