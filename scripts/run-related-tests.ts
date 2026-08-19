@@ -193,6 +193,42 @@ async function runBunTest(
  * unit testing the orchestration logic without spawning real `bun test`
  * processes (tests inject `runner`).
  */
+/**
+ * Render the gate's SELECTION so a later reader can act on it (mt#4303).
+ *
+ * The PASS path has always joined `related` into its reason; the FAILURE and
+ * TIMEOUT paths reported only `related.length` — a number. That asymmetry put
+ * the file list on the one path where nobody needs it and withheld it on the
+ * two where someone does, which is why three consecutive mt#3501
+ * investigations (its sixth, seventh and eighth instances) each independently
+ * recorded that the N-file list "was again not printed" and could not bisect.
+ * The list was never missing because an investigator forgot to look; it was
+ * never produced.
+ *
+ * Space-separated rather than comma-separated (the pass path's form) so the
+ * tail can be pasted after a `bun test` invocation directly. Note the gate may
+ * PARTITION the set — `src/mcp` files run isolated, `src/cockpit/web` gets the
+ * dom-setup preload, `services/*` runs from the service directory — so a single
+ * pasted command reproduces the selection, not necessarily every partition's
+ * exact flags.
+ *
+ * Rendered through `toBunTestPath`, the same anchoring the runner itself uses
+ * (PR #3150 R1). Space-separation alone does NOT make the list pasteable: bun
+ * reads a bare dot-directory argument such as `.minsky/hooks/guard.test.ts` as
+ * a NAME filter rather than a path, so it matches nothing and the run emits no
+ * completion summary — a command that looks correct and silently does nothing,
+ * which is the failure `toBunTestPath` exists to prevent. Emitting a list the
+ * reader cannot actually paste would reintroduce it at the diagnostic layer.
+ *
+ * The PASS path deliberately keeps its own unanchored, comma-joined rendering:
+ * leaving it untouched is one of this task's success criteria, and it reads as
+ * a report rather than as arguments.
+ */
+function describeSelection(related: string[]): string {
+  const args = related.map(toBunTestPath).join(" ");
+  return `${related.length} related test file(s) selected: ${args}`;
+}
+
 export async function runFastRelatedTestGate(
   changedFiles: string[],
   repoRoot: string,
@@ -253,7 +289,7 @@ export async function runFastRelatedTestGate(
     reason:
       `related tests TIMED OUT, not failed -- ${detail} ` +
       `Deferred to the authoritative full-suite gate (.husky/pre-push + CI); ` +
-      `the commit is NOT blocked. ${related.length} related file(s) were selected.`,
+      `the commit is NOT blocked. ${describeSelection(related)}`,
     relatedCount: related.length,
     elapsedMs: Date.now() - startMs,
   });
@@ -269,7 +305,7 @@ export async function runFastRelatedTestGate(
     if (!gate.ok) {
       return {
         ok: false,
-        reason: `${failLabel}: ${gate.reason}`,
+        reason: `${failLabel}: ${gate.reason} -- ${describeSelection(related)}`,
         relatedCount: related.length,
         elapsedMs: Date.now() - startMs,
       };

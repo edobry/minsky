@@ -130,6 +130,117 @@ Injecting at this precision is the mem#719 failure mode: noise teaches the reade
 true positives, and here it would fire hardest at the authors doing the most careful gate-(g) work
 — the exact behavior mt#3806 shipped its prose half to produce.
 
+## The tune (mt#4190, 2026-08-19)
+
+The dominant false class was never a vocabulary gap, which is why three passes had each bought a
+fraction and left it standing. This guard was built straight to a matcher and never got **ADR-024's
+Rung 1** — the quotation/citation-aware prefilter that prescribes eliding "prose-quoted spans and
+explicit discussion-framing" before matching. A gate-(g) verdict block IS explicit
+discussion-framing: it is the recorded OUTPUT of the very check this guard demands. Match / extend /
+deviate: **MATCH**, phase 2 of RFC 383937f0's roadmap ("propagate Rung 1 to the other existing
+hooks").
+
+### What discriminates, and what deliberately does not
+
+- **An audit RECORD is not a claim.** A markdown table, a majority of list items opening with a
+  parenthesized gate letter, or three distinct inline enumeration markers in one paragraph.
+- **Counted by ITEM, not by line.** This repo wraps at 100 columns, so a gate bullet spans three or
+  four lines. On lines, the real mt#4275 block scored 7 markers against 10 wrapped continuations and
+  failed its own majority — the rule was correct about every line and wrong about the paragraph.
+  Same wrapped-line trap mem#1067 §2 records one subsystem over.
+- **`(same file, line 43)` is a citation parenthetical**, elided before the verb test. `same file`
+  is the weakest member of the verb list — unlike "collides", it is not inherently relational.
+- **Discharge is per-PARAGRAPH.** The union across paragraphs made a PR named in one a required read
+  for a claim made in another. PR #3050 R1 fixed this one level up and stopped at the SET of
+  collision paragraphs collectively.
+- **NOT eliding inline code spans.** The obvious reading of Rung 1 is "run `elideMarkdownNonProse`
+  and match the residual", and that pass blanks code spans — which is where this corpus keeps its
+  filenames. Both recall controls name their files in backticks, so the wholesale version would
+  delete the file-token half of the conjunction and drive the fire rate toward zero: a result that
+  reads as a precision win and is the guard switched off. `claim-provenance-corpus-fixtures.ts`
+  pins this.
+
+### Rejected: requiring a counterparty
+
+A collision is a relation, so "does the paragraph name a `PR #N` / `mt#N` / a branch?" looks like
+the structural rule here. It is wrong, and recorded in-code so a later pass does not re-derive it: a
+counterparty is routinely named DESCRIPTIVELY — "this conflicts with a merge that landed on
+`src/thing.ts` yesterday" — which is the entire merge-shaped class `sessionReadMergeHistory` exists
+to discharge. The existing AT2 test caught it within a minute of the rule going in.
+
+### The join's misses, diagnosed (SC2)
+
+Confirmed with evidence rather than left as candidates. The read was performed through a tool the
+discharge table could not see. Verbatim, from two fired specs — both gate-(g) work done correctly:
+
+> Open PRs read via `gh api .../files`: **#3070** … **#3068** … **#2945** …
+
+> every one of the 12 open PRs checked … PR #3098 via `get_files`, the other 11 via
+> `git diff --name-only origin/main...origin/task/<branch>`
+
+**mt#3779** records the standing cause: the github MCP server dies when the Docker daemon is down
+and `pull_request_read` answers "No such tool available", so the shell is what is left. The
+discharge table now recognizes `gh api …/pulls/N/files`, `gh pr diff N --name-only`, and
+branch-range `git diff --name-only` (the last discharges the merge-shaped claim only, since it names
+no PR). This is the DISCHARGE axis, which this module's header says is deliberately generous — not
+the recognition axis ADR-024 governs. The remaining candidate cause the spec named,
+prior-conversation reads, was **not observed** in any fire.
+
+### Measured before/after
+
+Same 40-transcript window, seconds apart, the tuning session excluded via `--exclude` (it writes
+collision prose into specs and would otherwise count itself — mem#1022):
+
+|                  | before | after |
+| ---------------- | ------ | ----- |
+| considered       | 410    | 413   |
+| carrying a claim | 70     | 57    |
+| **fired**        | **12** | **7** |
+| fire rate        | 17.1%  | 12.3% |
+
+Hand-classified, both runs: **false fires 10 → 5**; the two defensible fires still fire. Precision
+~17% → ~29%. **This is short of ADR-024's signed-off sufficiency bar (0 known-FP, RFC 383937f0
+Phase-0 (b)), and is recorded as a result rather than presented as a pass.**
+
+### The residual five, and why each survives
+
+1. **A second PR named in the same long paragraph** (mt#4281). Per-paragraph scoping is as far as
+   the join goes; the author read one of the two PRs the paragraph names. Sentence-level scoping is
+   the next granularity and was not attempted.
+2. **A bolded disposition label** (mt#4287) — "**Signature-scan candidates dispositioned** (…the
+   path collides without the work colliding)". A record with no enumeration markers to count.
+3. **Conditional mood** (mt#4191) — "two concurrent edits … is exactly the collision this batch
+   exists to avoid". A hazard to prevent, not a collision asserted to exist. No ready mechanism.
+4. **Duplicate-check reconciliation prose** (mt#4266), where the overlap claimed is conceptual.
+5. **This guard's own spec**, describing its own false classes. The self-referential case RFC
+   383937f0 §Threats names outright.
+
+Classes 2 and 4 are label-shaped; answering them with a label list is the arms race, so they are
+left as residue rather than patched.
+
+### The ownership half's zero fires, explained (SC4)
+
+Not rarity, and not a broken recognizer — the JOIN. Over the same 40 transcripts, **25 spec-writes
+carried a recognized ownership claim (6.7% of 372) and all 25 discharged.** Caught examples include
+"No task owns the ADR text" and "**Phase placement: Phase 7, and it is unowned**". They discharge
+because `sessionRanASearch` is **subject-blind and session-wide**: any `tasks_search` /
+`tasks_similar` / `refs_status` anywhere in the prefix discharges any ownership claim, and a
+planning session essentially always runs one. So the spec's either/or — "genuinely rare" vs
+"recognizer misses them" — was a false dichotomy.
+
+The subject-binding primitives already exist on the shared table (`extractSubjectTokens` /
+`callNamesSubject`). Binding the ownership discharge to them is left UNDONE deliberately: it would
+convert a half that currently never fires into one that fires at an unmeasured rate, and this task's
+budget went to the collision half. Same shape one guard over: **mt#3594** (subject-blind
+same-turn-read suppression on `code-mechanism-assertion`).
+
+### Posture (SC5)
+
+Unchanged — RECORD-ONLY. ADR-042 labels this guard's rows `advisory`, and **ADR-032 is the standing
+reason a log-only → live flip cannot be justified from outcome data alone**: "the labeled response
+signal that tuning would run on does not exist." No precision number this task produces can license
+the flip, so none is proposed.
+
 ## Two more defects, found at review (PR #3050 R1)
 
 1. **PR extraction was not scoped to the collision paragraph.** `citedPrNumbers` scanned the whole

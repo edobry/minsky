@@ -16,8 +16,25 @@
  * judgement below is made against the prefix ending at the target call's own
  * index, which is what the live guard gets.
  *
- *   bun scripts/replay-claim-provenance.ts <transcript.jsonl> [--list]
- *   bun scripts/replay-claim-provenance.ts --sweep <dir> [--limit N]
+ *   bun scripts/replay-claim-provenance.ts <transcript.jsonl> [--list] [--detail]
+ *   bun scripts/replay-claim-provenance.ts --sweep <dir> [--limit N] [--exclude S]
+ *
+ * `--detail` prints, per fire, the transcript, the task id, the cited PR numbers
+ * and each offending paragraph. Without it a fire is a bare line number, which
+ * cannot be hand-classified — and hand-classification is the ONLY way to tell a
+ * true fire from a false one here, so a replay that does not support it forces
+ * every tuning pass to hand-roll its own reader (mem#1022's tell: an ad-hoc query
+ * where a vetted one should exist).
+ *
+ * `--exclude <substring>` drops transcripts whose FILENAME contains the
+ * substring, and it is a correctness control rather than a convenience. The
+ * corpus this sweeps ingests the agent's own conversations, so a session spent
+ * tuning THIS guard writes collision prose into specs and then counts itself:
+ * the pre-fix baseline for mt#4190 contained a fire that was mt#4190's own spec.
+ * Contamination lands entirely in the newest window, which is the window a
+ * write-triggered guard is measured on (mem#1067), so it moves a before/after
+ * comparison in the flattering direction. Report both numbers, or name the
+ * exclusion.
  *
  * A missing path is a SKIP (exit 0), not a failure — transcripts are local
  * artifacts and CI has none.
@@ -26,10 +43,16 @@
  * @see scripts/replay-evidence-provenance.ts — the sibling this mirrors
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseTranscript } from "../.minsky/hooks/transcript";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
-import { run, SPEC_TEXT_FIELD_BY_TOOL } from "../.minsky/hooks/claim-provenance-scan";
+import {
+  run,
+  SPEC_TEXT_FIELD_BY_TOOL,
+  collisionParagraphs,
+  citedPrNumbers,
+  extractAuthoredSpecText,
+} from "../.minsky/hooks/claim-provenance-scan";
 import type { DispatchContext } from "../.minsky/hooks/registry";
 import type { ToolHookInput } from "../.minsky/hooks/types";
 import { deriveBudgets } from "../.minsky/hooks/types";
@@ -78,7 +101,20 @@ interface Tally {
 
 const EMPTY: Tally = { considered: 0, claims: 0, fired: 0, discharged: 0, skipped: 0 };
 
-/** Tool names this guard is registered on, normalized the way it normalizes. */
+/**
+ * Tool names this guard is registered on, normalized the way it normalizes.
+ *
+ * Derived from the guard's own map rather than restated, so the sweep can only
+ * ever consider the population the guard considers.
+ *
+ * It reads the `.minsky/hooks` SOURCE while the live guard runs the generated
+ * `.claude/hooks` copy, and that is deliberate rather than a drift risk
+ * (PR #3139 R1). Pre-commit's `regenerateStagedClaudeHooks` (mt#2977)
+ * regenerates and re-STAGES the generated tree whenever a hook source is staged,
+ * so the two cannot disagree in a committed tree. The only window where they
+ * differ is between an edit and its commit — which is precisely when a replay
+ * must measure the edit you just made, not the copy that predates it.
+ */
 const TARGET_TOOLS = new Set(Object.keys(SPEC_TEXT_FIELD_BY_TOOL));
 
 function normalize(name: string): string {
@@ -115,7 +151,23 @@ function findTargets(lines: TranscriptLine[]): Target[] {
   return out;
 }
 
-function replayOne(path: string, list: boolean): Tally {
+interface ReportOptions {
+  /** Print one line per fire. */
+  list: boolean;
+  /** Print the offending paragraphs too, so a fire can be hand-classified. */
+  detail: boolean;
+}
+
+/**
+ * The paragraph excerpt cap.
+ *
+ * Long enough that a gate-verdict block's shape is recognizable — which is the
+ * whole judgement a reader makes here — and short enough that a 40-transcript
+ * sweep stays readable in one screenful per fire.
+ */
+const MAX_PARAGRAPH_CHARS = 900;
+
+function replayOne(path: string, opts: ReportOptions): Tally {
   const tally: Tally = { ...EMPTY };
   const lines = parseTranscript(path);
   for (const target of findTargets(lines)) {
@@ -155,11 +207,32 @@ function replayOne(path: string, list: boolean): Tally {
     else if (verdict === "clean") tally.discharged += 1;
     else tally.skipped += 1;
 
-    if (list && verdict === "matched") {
+    if ((opts.list || opts.detail) && verdict === "matched") {
       const kinds = Array.isArray(cal?.["kinds"]) ? (cal["kinds"] as string[]).join("+") : "?";
+      // The transcript is part of the identity of a fire. Without it a caller
+      // holding a sweep's output cannot get back to the text that fired, which
+      // is the one thing hand-classification needs.
+      const taskId = typeof target.input["taskId"] === "string" ? target.input["taskId"] : "-";
       process.stdout.write(
-        `  FIRE  line ${target.index + 1}  ${normalize(target.toolName)}  [${kinds}]\n`
+        `  FIRE  ${basename(path)}:${target.index + 1}  ${normalize(target.toolName)}  ` +
+          `task=${taskId}  [${kinds}]\n`
       );
+      if (opts.detail) {
+        const text = extractAuthoredSpecText(target.toolName, target.input) ?? "";
+        const cited = citedPrNumbers(text);
+        process.stdout.write(
+          `        citedPRs: ${cited.length > 0 ? cited.join(",") : "(none)"}\n`
+        );
+        for (const para of collisionParagraphs(text)) {
+          const trimmed = para.trim();
+          const shown =
+            trimmed.length > MAX_PARAGRAPH_CHARS
+              ? `${trimmed.slice(0, MAX_PARAGRAPH_CHARS)}…`
+              : trimmed;
+          process.stdout.write(`        --- collision paragraph ---\n`);
+          for (const line of shown.split("\n")) process.stdout.write(`        ${line}\n`);
+        }
+      }
     }
   }
   return tally;
@@ -189,8 +262,22 @@ function report(label: string, t: Tally): void {
 }
 
 const argv = process.argv.slice(2);
-const list = argv.includes("--list");
+const reportOptions: ReportOptions = {
+  list: argv.includes("--list"),
+  detail: argv.includes("--detail"),
+};
 const sweepAt = argv.indexOf("--sweep");
+const excludeAt = argv.indexOf("--exclude");
+const excludeRaw = excludeAt === -1 ? null : (argv[excludeAt + 1] ?? "");
+// An `--exclude` with no operand would silently exclude nothing, and the sweep
+// would then report a contaminated number under a heading that claims the
+// contamination was removed. Refuse instead — the same fail-closed reading the
+// `--limit` guard below already applies.
+if (excludeRaw !== null && (excludeRaw === "" || excludeRaw.startsWith("--"))) {
+  process.stderr.write(`--exclude needs a filename substring; got "${excludeRaw}"\n`);
+  process.exit(2);
+}
+const exclude: string | null = excludeRaw;
 
 if (sweepAt !== -1) {
   const dir = argv[sweepAt + 1];
@@ -209,7 +296,7 @@ if (sweepAt !== -1) {
     process.stdout.write(`SKIP: sweep dir not found: ${dir ?? "(none)"}\n`);
     process.exit(0);
   }
-  const files = readdirSync(dir)
+  const windowed = readdirSync(dir)
     .filter((f) => f.endsWith(".jsonl"))
     .map((f) => join(dir, f))
     .map((p) => ({ p, mtime: statSync(p).mtimeMs }))
@@ -217,17 +304,29 @@ if (sweepAt !== -1) {
     .slice(0, limit)
     .map((x) => x.p);
 
+  // Exclusion applies AFTER the window is taken, never before. Filtering first
+  // would backfill the window with OLDER transcripts to reach `limit`, quietly
+  // changing the population — and the population is the whole point of the
+  // recency ordering (mem#1067: a write-triggered guard is measured against what
+  // is currently being written). So the excluded run has a SMALLER denominator
+  // than the unexcluded one, and the drop count is printed rather than left for
+  // the reader to infer from a total that moved.
+  const files =
+    exclude === null ? windowed : windowed.filter((p) => !basename(p).includes(exclude));
+  const dropped = windowed.length - files.length;
+
   let total: Tally = { ...EMPTY };
   for (const f of files) {
     try {
-      total = add(total, replayOne(f, list));
+      total = add(total, replayOne(f, reportOptions));
     } catch {
       // A malformed transcript is skipped, not fatal — the sweep's value is the
       // aggregate, and one unreadable file must not lose the other 39.
       continue;
     }
   }
-  report(`swept ${files.length} transcript(s) in ${dir}`, total);
+  const suffix = exclude === null ? "" : ` (excluded ${dropped} matching "${exclude}")`;
+  report(`swept ${files.length} transcript(s) in ${dir}${suffix}`, total);
   process.exit(0);
 }
 
@@ -236,4 +335,4 @@ if (!path || !existsSync(path)) {
   process.stdout.write(`SKIP: transcript not found: ${path ?? "(none)"}\n`);
   process.exit(0);
 }
-report(path, replayOne(path, list));
+report(path, replayOne(path, reportOptions));
