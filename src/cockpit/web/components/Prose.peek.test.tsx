@@ -133,6 +133,48 @@ describe("Prose — authored entity links open the peek (mt#4351)", () => {
     expect(location()).not.toContain("peek=");
   });
 
+  test("AT4: middle-click does NOT peek either", () => {
+    renderProse(`see [${MEMORY_SHORT_ID}](minsky://memory/${MEMORY_UUID}) for the detail`);
+    fireEvent.click(theLink(), { button: 1 });
+    expect(location()).not.toContain("peek=");
+  });
+
+  test("AT4: shift-click HOLDS, so the next click lands beside it", () => {
+    // The gestures come from `classifyRefClick`, which authored links now reach
+    // for the first time — so "inherited" is asserted, not assumed.
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={[ORIGIN]}>
+          <Routes>
+            <Route
+              path="*"
+              element={
+                <div>
+                  <Prose entityIndex={makeIndex()}>
+                    {`[${MEMORY_SHORT_ID}](minsky://memory/${MEMORY_UUID}) and ` +
+                      "[mt#4351](minsky://task/mt%234351)"}
+                  </Prose>
+                  <LocationProbe />
+                </div>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    const [memoryLink, taskLink] = screen.getAllByRole("link");
+    // Order matters, and getting it wrong is how this test first failed:
+    // shift-click holds the pane that is ALREADY open, so the ordinary click
+    // comes first. Shift-clicking into an empty peek has nothing to hold.
+    fireEvent.click(memoryLink!, { button: 0 });
+    fireEvent.click(taskLink!, { button: 0, shiftKey: true });
+    // Both panes present: the second landed BESIDE the held first rather than
+    // replacing it.
+    const search = location();
+    expect(search).toContain(`memory%3A${MEMORY_UUID}`);
+    expect(search).toContain("task%3Amt%25234351");
+  });
+
   test("AT5: the author's own label is rendered verbatim — no appended title", () => {
     renderProse(`see [${MEMORY_SHORT_ID}](minsky://memory/${MEMORY_UUID}) for the detail`);
     // `appendLabel` is deliberately off on this path: the author chose the
