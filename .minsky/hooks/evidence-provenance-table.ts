@@ -324,7 +324,40 @@ export function callNamesSubject(call: ToolCallWithResult, tokens: readonly stri
  * it cannot be produced without the run. A fabricated paste matches nothing and
  * still fires, which is the case this guard exists for.
  */
-const QUOTED_FAILURE_LINE_RE = /^.*\(fail\).+$/gm;
+const QUOTED_FAILURE_LINE_RE = /\(fail\)/;
+
+/**
+ * The other shapes a record pastes when it reports a run (mt#4067).
+ *
+ * MEASURED over the live window, not anticipated: 553 calibration records / 96
+ * fires, of which **58 (60.4%) had a FAILING test run in the same session before
+ * the call** and still fired — the run happened and neither join found it. The
+ * `(fail)` line above is the only paste the join accepted, and a large share of
+ * genuine controls do not paste one. They paste the runner's SUMMARY
+ * (`5466 pass`, `Ran 5456 tests across 153 files`) or a hand-rolled harness's
+ * result table (`PASS  expected=false ...`, `exit=0`).
+ *
+ * Widening the ACCEPTED SHAPES does not weaken the join, because the property
+ * that makes it sound is unchanged and lives at the other end: the line must
+ * still appear VERBATIM in a real failing run's output, and still clear
+ * {@link MIN_QUOTED_LINE_LENGTH}. A 30-plus-character line reproduced exactly
+ * cannot be produced without the run, whichever shape it has — while a fabricated
+ * paste matches nothing and still fires, which is the case this guard exists for.
+ *
+ * Deliberately NOT included: a bare tally with no other content (`3 fail`). It is
+ * under the length floor, and it is the one shape a fabricator could type from
+ * memory and have match a real run that happened for unrelated reasons.
+ */
+const QUOTED_RESULT_LINE_MARKERS: readonly RegExp[] = [
+  QUOTED_FAILURE_LINE_RE,
+  /\b\d+\s+(?:pass|fail)(?:ed|ing|ures?)?\b/i,
+  /^\s*(?:PASS|FAIL)\b/,
+  /\bRan\s+\d+\s+tests?\b/i,
+  /\bexit=\d+\b/,
+  /\bexpected=\S+/,
+  /\bAssertionError\b/,
+  /error:\s*expect\(/,
+];
 
 /**
  * Below this a quoted line is too short to be evidence of anything. A bare
@@ -333,10 +366,40 @@ const QUOTED_FAILURE_LINE_RE = /^.*\(fail\).+$/gm;
  */
 const MIN_QUOTED_LINE_LENGTH = 30;
 
-/** Failing-run lines the record quotes, as literal strings to look for. */
+/**
+ * Cap on lines carried forward. A record pasting a whole run would otherwise
+ * make the join quadratic against every failing call's output; the first N
+ * distinctive lines settle it either way.
+ */
+const MAX_QUOTED_LINES = 20;
+
+/**
+ * The STRICT subset: only `(fail)` lines (mt#4067).
+ *
+ * Adjudicability and discharge are deliberately asymmetric, and the asymmetry is
+ * measured. Widening {@link extractQuotedFailures} to summaries and harness
+ * tables let more records DISCHARGE — and also dragged 22 records out of
+ * `unadjudicable` into `undischarged`, because the verdict treats "carries a
+ * quotable line" as "is judgeable". Net effect on the live corpus was fires
+ * 108 -> 129: worse, not better.
+ *
+ * So the widened shapes are a discharge SIGNAL, never grounds to condemn. A
+ * summary line that MATCHES a real run is proof the run happened; a summary line
+ * that matches nothing is not proof it did not, because the summary is weak
+ * evidence either way. Only a pasted `(fail)` line is distinctive enough to make
+ * a record judgeable on its absence — which is the direction-of-error rule this
+ * module's header states: an unrecognized shape must not fire the guard at an
+ * author who ran their tests.
+ */
+export function extractStrictQuotedFailures(record: string): string[] {
+  return extractQuotedFailures(record).filter((l) => QUOTED_FAILURE_LINE_RE.test(l));
+}
+
+/** Run-output lines the record quotes, as literal strings to look for. */
 export function extractQuotedFailures(record: string): string[] {
   const out: string[] = [];
-  for (const raw of record.match(QUOTED_FAILURE_LINE_RE) ?? []) {
+  for (const raw of record.split("\n")) {
+    if (!QUOTED_RESULT_LINE_MARKERS.some((re) => re.test(raw))) continue;
     // Drop the runner's per-test duration: the paste and the live result agree
     // on the name but a re-run's timing differs, and the timing is the tail of
     // the line, so keeping it would defeat every comparison.
@@ -345,6 +408,7 @@ export function extractQuotedFailures(record: string): string[] {
       .replace(/\s*\[[\d.]+m?s\]\s*$/, "")
       .trim();
     if (line.length >= MIN_QUOTED_LINE_LENGTH && !out.includes(line)) out.push(line);
+    if (out.length >= MAX_QUOTED_LINES) break;
   }
   return out;
 }
