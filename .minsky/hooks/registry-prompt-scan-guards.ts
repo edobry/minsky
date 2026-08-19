@@ -138,10 +138,15 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
   },
   {
     name: "pre-narration-detector",
-    effects: [advisoryEffect(), recorderEffect()],
+    // mt#4286: quieted to log-only per ask#9219, so the advisory effect is gone
+    // and only the recorder remains — matching `causal-premise-detector` below.
+    // The guard still detects and still writes its calibration record; mt#4256
+    // is the retirement condition for the quieting.
+    effects: [recorderEffect()],
     tuningOwnership: "advisory",
     event: "UserPromptSubmit",
     module: () => import("./pre-narration-detector").then((m) => ({ run: m.run })),
+    renderProbe: () => import("./pre-narration-detector").then((m) => m.renderWorstCase()),
     timeoutMs: 10000,
     calibrationLog: "pre-narration",
     denyCapable: false,
@@ -152,7 +157,24 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     // in the rationale paragraph and its restatement inside the directive, both
     // of which the authoring standard keeps out of advisory text; they now live
     // in buildReminder's doc comment. The matched-claim evidence is untouched.
-    attentionCost: { denialMessageSizeChars: 650, optionCount: 1 },
+    //
+    // mt#4286: 650 -> 1800. The 650 above was measured against the ONE-match
+    // canary below (581 chars), and this guard emits one line PER MATCHED
+    // CATEGORY — so 650 was never its worst case, only its cheapest. MEASURED
+    // via the new `renderProbe`: 1753 at all 4 `OUTCOME_CATEGORIES` matching
+    // with each phrase at the 200-char `MATCHED_PHRASE_MAX_CHARS` cap, 2.7x the
+    // declared figure. Unlike its `causal-premise` / `operator-deferral`
+    // siblings this is a proved CEILING rather than a saturated sample: both
+    // axes are bounded (one match per category; phrase length capped), so 1800
+    // is 1753 plus headroom and not a guess. The understatement was invisible
+    // while the guard injected, because `guard-feedback-shape.test.ts` measured
+    // the one-match canary; it is visible now only because the probe exists.
+    //
+    // This number no longer feeds `MERGED_CONTEXT_BUDGET_CHARS` — declaring a
+    // `renderProbe` excludes a guard from that bucket (mt#4002), which is
+    // correct here: a quieted guard contributes zero chars to any real turn.
+    // Un-quieting must re-derive that constant against 1753, NOT 650.
+    attentionCost: { denialMessageSizeChars: 1800, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -166,7 +188,12 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
         },
         { type: "user", message: { role: "user", content: "second turn" } },
       ],
-      expects: "warn",
+      // mt#4286: `calibration`, not `warn` — the guard is log-only now. Asserting
+      // the calibration outcome rather than `additionalContext` also means a
+      // future INJECTION_ENABLED flip does not silently break this canary; it
+      // would simply gain an ADDITIONAL warn outcome. Same reasoning the
+      // `causal-premise-detector` canary below records for itself.
+      expects: "calibration",
     },
   },
   {
