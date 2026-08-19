@@ -212,6 +212,15 @@ export const INCIDENT_VOCABULARY_PATTERN =
  *
  * ## Known false-negative class, stated rather than discovered later
  *
+ * `held steady` was in this set and was REMOVED (PR #3158 R2), on the evidence
+ * rather than on the reviewer's say-so. It contributed 0 of the 2 corpus fires —
+ * both matched other terms — while describing a flat measurement, which is a
+ * shape benign incident prose takes constantly ("rate held steady at 2/s for
+ * three minutes"). A term carrying no recall and a real false-positive surface
+ * is exactly what the paragraph below says not to accumulate. Note where it came
+ * from: ask#9279's *withdrawal* says "16 held steady", its escalation does not —
+ * the term was sampled from a retraction and never earned its place.
+ *
  * An author who asserts persistence WITHOUT this vocabulary — by implication,
  * or by describing a flat measurement and letting the reader conclude it —
  * produces no match. That is deliberate: the alternative is a phrase set that
@@ -222,7 +231,7 @@ export const INCIDENT_VOCABULARY_PATTERN =
  * and why a miss should be answered by re-measuring, not by appending.
  */
 export const NOT_SELF_RESOLVING_PATTERN =
-  /\b(wedged,?\s+not\s+(transient|draining)|not\s+(self.?resolving|transient|draining|clearing)|no\s+sign\s+of\s+clearing|will\s+not\s+(reap|clear|resolve|drain)|won'?t\s+(reap|clear|resolve|drain)|do(es)?\s+not\s+self.?clear|held\s+steady)\b/i;
+  /\b(wedged,?\s+not\s+(transient|draining)|not\s+(self.?resolving|transient|draining|clearing)|no\s+sign\s+of\s+clearing|will\s+not\s+(reap|clear|resolve|drain)|won'?t\s+(reap|clear|resolve|drain)|do(es)?\s+not\s+self.?clear)\b/i;
 
 /**
  * The AskKinds this check's severity-transport rule applies to (mt#3436):

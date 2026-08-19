@@ -187,6 +187,23 @@ describe("the pattern itself", () => {
     expect(NOT_SELF_RESOLVING_PATTERN.test("I am waiting for the pool to drain")).toBe(false);
   });
 
+  test("a flat MEASUREMENT is not an assertion of permanence (PR #3158 R2)", () => {
+    // `held steady` was in the pattern and is gone. It matched 0 of the 2 corpus
+    // fires while describing a shape benign incident prose takes constantly, so
+    // it was pure false-positive surface. These pin the removal: reporting that
+    // a number did not move is a measurement, and the check is about the
+    // PREDICTION someone draws from it.
+    expect(NOT_SELF_RESOLVING_PATTERN.test("the rate held steady at 2/s for three minutes")).toBe(
+      false
+    );
+    expect(NOT_SELF_RESOLVING_PATTERN.test("the count held steady at 16")).toBe(false);
+    // …and the assertion drawn FROM that measurement still fires, so removing
+    // the term cost no recall on the case that matters.
+    expect(
+      NOT_SELF_RESOLVING_PATTERN.test("the count held steady at 16 — wedged, not draining")
+    ).toBe(true);
+  });
+
   test("is stateless across calls — no lastIndex carryover", () => {
     // A /g regex would alternate true/false here. It has no `g` flag; this
     // pins that, because the check calls .test() once per ask and a carryover
