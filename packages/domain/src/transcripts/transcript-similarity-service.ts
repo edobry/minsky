@@ -46,6 +46,27 @@
  * The operator↔opclass correspondence is now checked mechanically for every
  * vector namespace by `storage/vector/operator-class-alignment.ts`.
  *
+ * ## Why this file does not route through `postgres-vector-storage.ts`
+ *
+ * Every other vector namespace does, which is why every other one stayed
+ * aligned — so the bypass is the root cause and is worth justifying rather
+ * than merely noting. That layer's `search` is single-table, single-id and
+ * equality-filter-only: it selects `${idColumn} AS id` plus a score, builds
+ * `WHERE key = $n` against ONE table, and returns `{id, score}`. Transcript
+ * search needs four things it cannot express — a JOIN to `agent_transcripts`
+ * for `projectId` scoping and parent-session metadata (mt#2417); a composite
+ * `(agent_session_id, turn_index)` identity rather than one id column;
+ * `IS NOT NULL` role predicates rather than equality; and a date window bound
+ * to the TURN's `started_at`, not the parent session's (mt#2319).
+ *
+ * Adopting it therefore means EXTENDING it (join support, composite ids,
+ * richer predicates), not switching a call site. That work is owned by
+ * **mt#2331**, which already owns transcripts adopting the canonical
+ * persistence pattern; mt#4344 deliberately did not attempt it. Until then the
+ * alignment check above is what keeps this hand-written SQL from diverging
+ * again — it is the substitute for the shared layer's structural guarantee,
+ * not an argument that the bypass is fine.
+ *
  * @see mt#1352 — PerTurnEmbeddingPipeline (per-turn embeddings populated)
  * @see mt#1353 — SummaryPipeline (session-level summary_embedding populated)
  * @see mt#1354 — this file
