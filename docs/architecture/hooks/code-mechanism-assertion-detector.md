@@ -540,6 +540,21 @@ untouched. The Rung-2 pass is a separate, injected seam beside it:
 `run()` is now `async`. The dispatcher already did `await mod.run(...)`, so this is
 backward-compatible; the change to callers was mechanical (`await` at 14 test call sites).
 
+### On a hook importing domain modules directly
+
+This hook now imports `packages/domain/src/detectors/embedding-nomination{,-factory}`. That is the
+ESTABLISHED direction for this family, not a new boundary crossing: ADR-024 places the ladder "on
+the shared `packages/domain/src/detectors/` framework so all guidance hooks consume one mechanism
+instead of divergent regex copies", and `knowledge-acquisition-detector.ts` already imports the
+same two modules the same way (mt#3772). A hook-local copy of the nomination logic is the outcome
+that ADR would forbid.
+
+What the crossing costs is real and is paid explicitly: a hook is its own entry point, inheriting
+neither the reflect polyfill nor process-global configuration, which is why the nominator resolves
+its deps behind `ensureHookDomainBootstrap` inside a try/catch. `custom/require-hook-domain-bootstrap`
+enforces exactly that for this tree, so the layering constraint is mechanized rather than left to
+review.
+
 ### Enforcement posture
 
 Ships DISABLED. The nominator is constructed only when `MINSKY_CMA_RUNG2_NOMINATION` is set
