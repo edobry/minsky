@@ -236,6 +236,23 @@ export const INTENTIONAL_MATCHER_PAIRS: ReadonlyArray<readonly [string, string]>
   ["stale-signal-sweep", "new-surface-design-pass"],
   ["unrendered-result-field-scan", "new-surface-design-pass"],
   ["evidence-record-provenance", "new-surface-design-pass"],
+  // mt#4171's `enumeration-scope-check` is the fifth guard on this seam, and it
+  // asks a question none of the other four can reach: given that this branch
+  // changed a SERIALIZED contract, did the session's consumer sweep reach the
+  // directories gate (h) prescribes for that change type?
+  //
+  // Every sibling is quiet on it by construction. `stale-signal-sweep` compares
+  // operator-facing labels the branch stopped emitting; `unrendered-result-field-scan`
+  // asks whether a field the branch ADDED has a render site; `new-surface-design-pass`
+  // asks whether anyone looked at an ADDED render path; `evidence-record-provenance`
+  // asks whether a claimed run happened. A change can satisfy all four — mt#4252
+  // did, and shipped a documentation file whose own "exhaustive per variant"
+  // sentence it had just made false. That gap is only visible by joining the
+  // change against the SWEEP, which is this guard alone.
+  ["stale-signal-sweep", "enumeration-scope-check"],
+  ["unrendered-result-field-scan", "enumeration-scope-check"],
+  ["evidence-record-provenance", "enumeration-scope-check"],
+  ["new-surface-design-pass", "enumeration-scope-check"],
 ];
 
 /** Is this pair declared as an intentional co-registration? */
