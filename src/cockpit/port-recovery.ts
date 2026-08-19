@@ -368,6 +368,24 @@ export function parseElapsedSeconds(raw: string): number | null {
  * The parse itself stays faithful — `parseElapsedSeconds` still returns the
  * number the string denotes. Rejecting it is the consumer's call, because only
  * the consumer knows the value becomes a timestamp.
+ *
+ * ## Integer precision at these magnitudes (R1)
+ *
+ * `elapsedSec * 1000` for the observed reading is 3.81e16, which is past
+ * `Number.MAX_SAFE_INTEGER` (9.01e15) — so the product is imprecise. Measured:
+ * `Number.isSafeInteger(38_109_073_018_720 * 1000)` is `false`.
+ *
+ * That does not weaken the bound, and the reason is worth stating rather than
+ * assuming: float error at this scale perturbs low-order digits, never the
+ * MAGNITUDE or the SIGN. `nowMs` is ~1.79e12 against a subtrahend of ~3.81e16,
+ * so the difference is negative by four orders of magnitude — no rounding
+ * reaches that. The check is a sign test, and a sign test is exactly the kind
+ * that survives precision loss.
+ *
+ * The reverse case needs no guard either: a reading small enough to produce a
+ * plausible timestamp is far inside the safe range (a decade is 3.15e11 ms), so
+ * every value this function ACCEPTS is exact. Imprecision is confined to values
+ * it rejects.
  */
 export function startedAtMsFromElapsed(raw: string, nowMs: number): number | null {
   const elapsedSec = parseElapsedSeconds(raw);

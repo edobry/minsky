@@ -241,7 +241,7 @@ describe("startedAtMsFromElapsed — the epoch bound (mt#4275)", () => {
     expect(startedAtMsFromElapsed("99:00", NOW_MS)).toBeNull();
   });
 
-  test("a live process yields a plausible start time, and a dead pid yields null", () => {
+  test("a live process yields a plausible start time, and a dead pid yields null", async () => {
     // The end-to-end shell-out — the exact check that caught the `etimes` bug.
     const child = Bun.spawn(["sleep", "30"]);
     try {
@@ -277,7 +277,20 @@ describe("startedAtMsFromElapsed — the epoch bound (mt#4275)", () => {
     } finally {
       child.kill();
     }
-    expect(realIncumbentProbes.processStartedAtMs(4_194_302)).toBeNull();
+    // mt#4275 R1: don't GUESS a dead pid — make one.
+    //
+    // This was `processStartedAtMs(4_194_302)`, picked to sit just under Linux's
+    // usual `pid_max` of 4,194,304. That reasoning is backwards: being under
+    // pid_max is exactly what makes it ALLOCATABLE, so on a busy runner the pid
+    // can be live, `ps` answers, and the assertion fails. It is the same
+    // ambient-machine-state dependency this file has been bitten by twice today.
+    //
+    // Spawning and reaping gives a pid that is definitively gone: `exited`
+    // resolves only after the child is reaped, so the pid is free at that point.
+    const doomed = Bun.spawn(["sleep", "30"], { stdout: "ignore", stderr: "ignore" });
+    doomed.kill();
+    await doomed.exited;
+    expect(realIncumbentProbes.processStartedAtMs(doomed.pid)).toBeNull();
   });
 });
 
