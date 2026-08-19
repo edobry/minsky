@@ -261,4 +261,62 @@ export const PR_CREATE_GUARDS: GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4171 — gate (h)'s enumeration-scope backstop.
+  //
+  // ADR-042's table assigns this row to the READY seam. It is here instead,
+  // because the ADR's own DISCRIMINATOR — "place each mechanizable one at the
+  // seam where its evidence first exists" — points here once two of that
+  // assignment's premises are measured rather than assumed: the sweep's
+  // directories are a shell command string (~98% of searches), and the change
+  // type is not inferable at READY because the spec does not yet name the
+  // artifact. mt#4252's spec at its own READY transition contains zero route
+  // paths, zero `contract/` references and zero `docs/` paths. The guard's module
+  // header carries the full measurement; mt#4293 owns amending the ADR text and
+  // re-pricing mt#4172, which was to inherit the `tasks_status_set` wiring this
+  // row no longer pays for.
+  //
+  // This is the same move §Sibling reconciliation already made for gate (n):
+  // "No diff exists at plan time. It moves to the `pr` seam."
+  // -------------------------------------------------------------------------
+  {
+    name: "enumeration-scope-check",
+    // RECORDER ONLY. ADR-042 §Posture puts every new row at calibration-first,
+    // and this is a provenance check: a missed sweep-call shape is a false
+    // positive fired at an author who did the work (mem#719). Measured over 589
+    // transcripts: 14 decided of 1134 PR-creates, 5 flagged — one of them
+    // reviewer-confirmed (mt#4252 / PR #3101 BLOCKING), the rest unclassified
+    // pending live calibration.
+    effects: [recorderEffect()],
+    // `advisory`: "which consumer directories does THIS change prescribe?" is a
+    // judgment the serialized-surface path proxy stands in for.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "mcp__minsky__session_pr_create",
+    module: () => import("./enumeration-scope-check").then((m) => ({ run: m.run })),
+    // A pass over transcript lines the dispatcher already parsed, with no git
+    // subprocess and no DB round trip — cheaper than its diff-reading siblings.
+    timeoutMs: 10000,
+    calibrationLog: "enumeration-scope",
+    // NEVER denies — a missed consumer class is a prompt to go look.
+    denyCapable: false,
+    // Record-only: no injected text today, so the frame is the calibration
+    // record rather than a rendered message.
+    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // LOAD-BEARING (PR #2886 R1 on the sibling): `ctx.transcriptLines` is
+    // populated ONLY for a registration that declares this (D6), and the
+    // session's edit and sweep calls are this guard's ENTIRE input. Without it
+    // the guard records `skipped` on every live run — present, tested, green,
+    // inert.
+    needsTranscript: true,
+    // The canary process gets no transcript, so the healthy outcome is a
+    // RECORDED skip (mt#3824 R2), short-circuited before any call is read.
+    canary: {
+      input: {
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "canary enumeration scope check", type: "chore" },
+      },
+      expects: "calibration",
+    },
+  },
 ];
