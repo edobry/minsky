@@ -244,13 +244,3 @@ export class AgentTranscriptService {
     return updated > 0;
   }
 }
-
-/**
- * Test-only surface (mt#4225), mirroring `unasked-direction-analyzer.ts`'s convention.
- *
- * `countCorrections` is private and both its callers are DB-bound, so exercising it through
- * `computeMessageStats` would mean stubbing a drizzle query chain — a test coupled to the
- * shape of the query rather than to the behavior being fixed. Exporting the pure function is
- * the cheaper seam and asserts the thing that actually changed: which field it resolves from.
- */
-export const __TEST_ONLY = { countCorrections, extractTextContent } as const;
