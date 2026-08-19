@@ -197,9 +197,49 @@ export interface OperatorUsage {
   file: string;
   /** 1-indexed. */
   line: number;
+  /** 0-indexed offset of the operator within its line; the attribution key. */
+  operatorIndex: number;
   operator: VectorDistanceOperator;
   /** The trimmed source line, for a finding a reader can act on. */
   snippet: string;
+}
+
+/**
+ * Every distance expression in a file, regardless of which column it is over.
+ *
+ * The counterpart to {@link scanOperatorUsages}, which only sees the columns
+ * the registry knows to ask about. Comparing the two answers the question a
+ * token-driven scan cannot answer on its own — "is there a distance expression
+ * here that no registered namespace claims?" — which is the false-negative half
+ * of relying on a registry at all (PR #3179 review, NON-BLOCKING).
+ *
+ * Keyed on `}` + operator: every distance expression in this codebase is built
+ * by interpolating a column into a template literal, so the operator always
+ * follows an interpolation close. Prose mentions of the operators (this file
+ * and the transcript service's header both discuss `<=>` at length) are written
+ * inside backticks and never follow a `}`, so they are not matched — which is
+ * what lets the check live in the same files it describes.
+ */
+export function scanDistanceExpressions(source: string, file: string): OperatorUsage[] {
+  const found: OperatorUsage[] = [];
+
+  source.split("\n").forEach((lineText, index) => {
+    const pattern = /\}\s*(<->|<=>|<#>)/g;
+    let match = pattern.exec(lineText);
+    while (match) {
+      const operator = match[1] as VectorDistanceOperator;
+      found.push({
+        file,
+        line: index + 1,
+        operatorIndex: match.index + match[0].length - operator.length,
+        operator,
+        snippet: lineText.trim(),
+      });
+      match = pattern.exec(lineText);
+    }
+  });
+
+  return found;
 }
 
 /**
@@ -229,6 +269,7 @@ export function scanOperatorUsages(
         usages.push({
           file,
           line: index + 1,
+          operatorIndex: searchFrom + match.index,
           operator: match[0] as VectorDistanceOperator,
           snippet: lineText.trim(),
         });
@@ -252,7 +293,9 @@ export type AlignmentFindingKind =
   /** A registered query site no longer contains a distance expression. */
   | "query-site-not-found"
   /** The schema no longer declares the opclass this registry claims. */
-  | "opclass-declaration-drift";
+  | "opclass-declaration-drift"
+  /** A distance expression in a covered file belongs to no registered namespace. */
+  | "unattributed-distance-expression";
 
 export interface AlignmentFinding {
   namespace: string;
@@ -354,12 +397,64 @@ function describeExpectation(
     : `this unindexed column is declared to use \`${expected}\``;
 }
 
+/**
+ * Every distance expression in a registered query file must belong to some
+ * registered namespace.
+ *
+ * Without this, adding a new vector query over an UNREGISTERED column inside an
+ * already-covered file is invisible: the per-namespace scan asks only about the
+ * column tokens it already knows, so a new one is not "unmatched", it is
+ * unasked-about. That is the same silence this whole module exists to break,
+ * one level in — so it fails rather than passing quietly.
+ */
+export function checkQueryFileCoverage(
+  file: string,
+  columnTokens: readonly string[],
+  readFile: ReadRepoFile
+): AlignmentFinding[] {
+  const source = readFile(file);
+  const attributed = new Set(
+    columnTokens
+      .flatMap((token) => scanOperatorUsages(source, token, file))
+      .map((usage) => `${usage.line}:${usage.operatorIndex}`)
+  );
+
+  return scanDistanceExpressions(source, file)
+    .filter((expr) => !attributed.has(`${expr.line}:${expr.operatorIndex}`))
+    .map((expr) => ({
+      namespace: file,
+      kind: "unattributed-distance-expression" as const,
+      message:
+        `${expr.file}:${expr.line} contains a \`${expr.operator}\` distance expression that no ` +
+        "registered vector namespace claims. Either register the column it queries in " +
+        "VECTOR_NAMESPACES, or the operator here is unchecked against any index. " +
+        `Source: ${expr.snippet}`,
+    }));
+}
+
 /** Check every namespace. An empty array means every vector index is usable. */
 export function checkVectorOperatorAlignment(
   readFile: ReadRepoFile,
   namespaces: readonly VectorNamespace[] = VECTOR_NAMESPACES
 ): AlignmentFinding[] {
-  return namespaces.flatMap((namespace) => checkNamespace(namespace, readFile));
+  const namespaceFindings = namespaces.flatMap((namespace) => checkNamespace(namespace, readFile));
+
+  // One sweep per distinct query file, with the union of every token any
+  // namespace registers for it — several namespaces can share a file.
+  const tokensByFile = new Map<string, Set<string>>();
+  for (const namespace of namespaces) {
+    for (const site of namespace.querySites) {
+      const tokens = tokensByFile.get(site.file) ?? new Set<string>();
+      tokens.add(site.columnToken);
+      tokensByFile.set(site.file, tokens);
+    }
+  }
+
+  const coverageFindings = [...tokensByFile].flatMap(([file, tokens]) =>
+    checkQueryFileCoverage(file, [...tokens], readFile)
+  );
+
+  return [...namespaceFindings, ...coverageFindings];
 }
 
 /** Render findings for a test failure message or a CLI report. */

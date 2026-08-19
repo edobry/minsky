@@ -36,7 +36,9 @@ import {
   VECTOR_NAMESPACES,
   OPCLASS_OPERATOR,
   checkNamespace,
+  checkQueryFileCoverage,
   checkVectorOperatorAlignment,
+  scanDistanceExpressions,
   expectedOperatorFor,
   formatFindings,
   scanOperatorUsages,
@@ -70,6 +72,8 @@ function namespaceNamed(name: string): VectorNamespace {
 const TRANSCRIPT_SIMILARITY = "packages/domain/src/transcripts/transcript-similarity-service.ts";
 const SHARED_VECTOR_LAYER = "packages/domain/src/storage/vector/postgres-vector-storage.ts";
 const TURNS_NAMESPACE = "agent_transcript_turns";
+const TURNS_COLUMN_TOKEN = "agentTranscriptTurnsTable.embedding";
+const SUMMARY_COLUMN_TOKEN = "agentTranscriptsTable.summaryEmbedding";
 const MISMATCH: AlignmentFindingKind = "operator-opclass-mismatch";
 
 // ── 1. Real binding: the working tree is aligned ─────────────────────────────
@@ -102,16 +106,8 @@ describe("checkVectorOperatorAlignment — against the real working tree", () =>
 
   test("the transcript path — the one that diverged — now uses <-> at every site", () => {
     const source = readRepoFile(TRANSCRIPT_SIMILARITY);
-    const turnUsages = scanOperatorUsages(
-      source,
-      "agentTranscriptTurnsTable.embedding",
-      TRANSCRIPT_SIMILARITY
-    );
-    const summaryUsages = scanOperatorUsages(
-      source,
-      "agentTranscriptsTable.summaryEmbedding",
-      TRANSCRIPT_SIMILARITY
-    );
+    const turnUsages = scanOperatorUsages(source, TURNS_COLUMN_TOKEN, TRANSCRIPT_SIMILARITY);
+    const summaryUsages = scanOperatorUsages(source, SUMMARY_COLUMN_TOKEN, TRANSCRIPT_SIMILARITY);
 
     // search() + findSimilarTurn() over the turns column; findSimilarSession()
     // over the session summary column. Three distance expressions in all —
@@ -255,6 +251,57 @@ describe("scanOperatorUsages", () => {
   test("finds every occurrence when one line carries several", () => {
     const source = "ORDER BY ${c.vec} <-> $1::vector, ${c.vec} <-> $2::vector";
     expect(scanOperatorUsages(source, "c.vec", "fixture.ts").length).toBe(2);
+  });
+});
+
+// ── 5. Unattributed-expression sweep (PR #3179 review, NON-BLOCKING) ─────────
+
+describe("checkQueryFileCoverage", () => {
+  test("every distance expression in the real query files is claimed by a namespace", () => {
+    // The complement of the per-namespace scan: that one can only see columns
+    // the registry knows to ask about, so a NEW query over an unregistered
+    // column in a covered file would be unasked-about rather than unmatched.
+    const findings = checkVectorOperatorAlignment(readRepoFile).filter(
+      (f) => f.kind === "unattributed-distance-expression"
+    );
+    expect(findings).toEqual([]);
+  });
+
+  test("prose discussing the operators is not mistaken for a query", () => {
+    // Both real files discuss `<=>` at length in their headers. Backticked
+    // prose never follows an interpolation close, which is what lets the check
+    // live in the files it describes.
+    const proseHeavy = [
+      " * Why these queries use `<->` (L2) and not `<=>` (cosine).",
+      " * Ranking by `<->` and by `<=>` gives an identical top-10.",
+    ].join("\n");
+    expect(scanDistanceExpressions(proseHeavy, "fixture.ts")).toEqual([]);
+  });
+
+  test("a new distance expression over an UNREGISTERED column fires", () => {
+    const reader = readerWithRewrite(
+      TRANSCRIPT_SIMILARITY,
+      (source) =>
+        `${source}\n// added later:\nconst d = sql\`\${someOtherTable.newVector} <=> \${lit}::vector\`;\n`
+    );
+
+    const findings = checkQueryFileCoverage(
+      TRANSCRIPT_SIMILARITY,
+      [TURNS_COLUMN_TOKEN, SUMMARY_COLUMN_TOKEN],
+      reader
+    );
+
+    expect(findings.length).toBe(1);
+    expect(findings[0]?.kind).toBe("unattributed-distance-expression");
+    expect(findings[0]?.message).toContain("someOtherTable.newVector");
+  });
+
+  test("attribution is positional, so two expressions on one line are told apart", () => {
+    const source = "sql`${a.vec} <-> $1::vector, ${b.vec} <=> $2::vector`";
+    const findings = checkQueryFileCoverage("fixture.ts", ["a.vec"], () => source);
+
+    expect(findings.length).toBe(1);
+    expect(findings[0]?.message).toContain("`<=>`");
   });
 });
 
