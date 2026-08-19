@@ -6,9 +6,9 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 135,
+  "population": 136,
   "divergence": {
-    "declaredButNotDescribed": [],
+    "declaredButNotDescribed": ["context-fill-gauge"],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -1011,6 +1011,29 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "constructed-identifier-batch-detector"
+    },
+    {
+      "guardName": "context-fill-gauge",
+      "description": null,
+      "failureClasses": [],
+      "provenance": [],
+      "stratum": null,
+      "subject": "trajectory",
+      "provenanceStatus": "none",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": true,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [],
+      "mechanism": null,
+      "role": null,
+      "coordinateGaps": ["interventions", "mechanism", "role"],
+      "families": [],
+      "familyState": "unclassified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "denier",

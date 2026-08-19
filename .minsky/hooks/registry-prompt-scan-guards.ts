@@ -722,4 +722,81 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4291 — context-fill gauge. Reads the last assistant record's `usage`
+  // and reports the session's own context fill back to the agent, which has no
+  // other way to see it (no API exposes a token count to the model).
+  //
+  // DISPLAY-ONLY by principal decision (ask#8878): it records and, once
+  // graduated, reports. Nothing acts on the signal.
+  //
+  // `UserPromptSubmit` per ADR-031 ("anchor at Stop; detect and inject at
+  // UserPromptSubmit") and transcript.ts's own note that this event is where the
+  // file has had the MOST time to flush. It needs no Stop anchor: unlike
+  // silent-stretch / wall-of-text above, it reads ONE usage record rather than a
+  // bounded turn window, so there is no turn boundary to locate.
+  //
+  // `contextPriority: 10` joins the always-on ground-truth bucket
+  // (registry-prompt-injection-guards.ts) for one specific reason: the merged
+  // context block drops its LOWEST-priority fragments when over budget, so a
+  // saturation reading at a lower tier would be dropped exactly when it becomes
+  // worth reading. Its steady-state cost is zero — below threshold it emits no
+  // additionalContext at all.
+  //
+  // NOT in `guard-feedback-shape.test.ts`'s two receipts, deliberately: both are
+  // keyed on guards that actually PRODUCE feedback text, and this one produces
+  // none while INJECTION_ENABLED is false. Adding it now fails them. The
+  // graduation change adds it to BOTH (classification `"fixed"` — every
+  // interpolation is a number or a short model id, so no axis grows with the
+  // input) and flips the canary's `expects` below from "calibration" to "warn".
+  // -------------------------------------------------------------------------
+  {
+    name: "context-fill-gauge",
+    effects: [recorderEffect()],
+    tuningOwnership: "preference",
+    event: "UserPromptSubmit",
+    module: () => import("./context-fill-gauge").then((m) => ({ run: m.run })),
+    timeoutMs: 10000,
+    calibrationLog: "context-fill-gauge",
+    denyCapable: false,
+    needsTranscript: true,
+    contextPriority: 10,
+    // Sized for the one-line reading plus its two-sentence framing; the render
+    // has no unbounded axis (no file list, no finding enumeration), so this is a
+    // ceiling rather than a sample.
+    attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
+    canary: {
+      input: { transcript_path: "mt4291-canary-transcript" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "working" }],
+            model: "claude-opus-5",
+            // 970,000 of the 1,000,000 window = 97%, above the critical tier.
+            usage: {
+              input_tokens: 2,
+              cache_creation_input_tokens: 8,
+              cache_read_input_tokens: 969_990,
+              output_tokens: 100,
+            },
+            // The cast is the point, not an escape: `TranscriptLine.message`
+            // declares only `role`/`content`, while `parseTranscript` casts each
+            // line and so preserves `model`/`usage` at RUNTIME. This canary needs
+            // the runtime fields the declared type omits — the same gap
+            // context-fill-gauge.ts documents at its own read site. Widening the
+            // shared type is deliberately out of scope here (transcript.ts is in
+            // flight on mt#2544 / mt#3650).
+          } as { role?: string; content?: unknown },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      // "calibration", not "warn": INJECTION_ENABLED is false at ship, so the
+      // calibration record is the only observable. Flip this to "warn" in the
+      // same change that graduates the flag.
+      expects: "calibration",
+    },
+  },
 ];
