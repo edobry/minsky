@@ -407,7 +407,20 @@ export function suppliesPattern(token: string): boolean {
     return /^--(regexp|file)(=|$)/.test(token);
   }
   if (!token.startsWith("-") || token.length < 2) return false;
-  for (const ch of token.slice(1)) {
+
+  const body = token.slice(1);
+
+  // DETACHED form: the run ENDS in `e`/`f`, so its value is the next token.
+  // Unambiguous — no letter set can help or hurt here, and requiring one is what
+  // broke `-Se` and `-uue` (PR #3161 R2). Decided before the scan below so a
+  // ripgrep flag the set never knew about cannot suppress a real detection.
+  const last = body[body.length - 1] as string;
+  if (last === "e" || last === "f") return true;
+
+  // ATTACHED form: `e`/`f` sits mid-run and consumes the REST as the value
+  // (`-rnePATTERN`). This is the only genuinely ambiguous case, and the only one
+  // the letter bound is for — a stray `-notaflag` must not read as `-f`.
+  for (const ch of body) {
     if (ch === "e" || ch === "f") return true;
     if (!KNOWN_SHORT_FLAGS.has(ch)) return false;
   }
@@ -459,13 +472,13 @@ export function nonFlagOperands(
         if (!FIND_VALUELESS_PREDICATES.has(token)) i++;
         continue;
       }
-      if (FIND_VALUE_TAKING_PREDICATES.has(token)) {
-        // Reached only when `findStyle` is off — a `find`-spelled predicate showing
-        // up in a grep/rg command. Checked BEFORE the bundled-run branch, which
-        // would otherwise read `-path` as the run `p,a,t,h` and decide on `h`.
-        i++;
-        continue;
-      }
+      // NOTE: there is deliberately no `FIND_VALUE_TAKING_PREDICATES` branch here.
+      // It was reachable only with `findStyle` OFF — i.e. on a grep/rg command —
+      // where a token like `-path` is not a predicate at all and skipping the next
+      // token is simply wrong (PR #3161 R2 NON-BLOCKING). With `findStyle` ON the
+      // branch above already covers every predicate via the valueless complement.
+      // The exported set remains, for a consumer that classifies find arguments
+      // without opting into the full grammar.
       if (token.startsWith("-") && token.length > 1) {
         // A bundled run (`-rniE`). Only its LAST character can take a detached
         // value, and only when no value is already attached (`-A3` carries its own).

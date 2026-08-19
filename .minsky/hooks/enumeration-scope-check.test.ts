@@ -7,6 +7,7 @@ import {
   OVERRIDE_ENV_VAR,
 } from "./enumeration-scope-check";
 import { sweptDirectories, sessionSweptDirectories } from "./evidence-provenance-table";
+import { suppliesPattern } from "./command-shape";
 import type { ToolCallWithResult, TranscriptLine } from "./transcript";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { ToolHookInput } from "./types";
@@ -323,6 +324,38 @@ describe("sweptDirectories", () => {
     expect(sweptDirectories(call("Bash", { command: "grep --newflag docs foo src/" }))).toEqual([
       "src",
     ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #3161 R2 — a bundled run ending in -e/-f, after an unknown letter
+  //
+  // `suppliesPattern` bounded its whole scan by a grep-only letter set, so a
+  // ripgrep flag the set never knew about (`-S`, `-u`) made it return false. The
+  // consequence was not a small mis-credit: the pattern-first rule then dropped
+  // the only path operand, leaving none, and a tree-defaulting searcher with no
+  // path operand is a WHOLE-TREE sweep. `rg -Se foo src` credited all ten
+  // prescribable directories — the false-`clean` direction, and the same shape as
+  // the slash heuristic mt#4171 replaced.
+  // -------------------------------------------------------------------------
+
+  test("R2: a run ending in -e is pattern-supplying even after an unknown letter", () => {
+    expect(sweptDirectories(call("Bash", { command: "rg -Se foo src" }))).toEqual(["src"]);
+    expect(sweptDirectories(call("Bash", { command: "rg -uue foo src" }))).toEqual(["src"]);
+  });
+
+  test("R2: the attached form still guards against a stray word", () => {
+    // `-notaflag` must not read as `-f`. The detached branch does not fire (it
+    // ends in `g`), so this falls to the letter-bounded scan — which is now the
+    // ONLY thing that set is responsible for.
+    expect(suppliesPattern("-notaflag")).toBe(false);
+    expect(suppliesPattern("-rnePATTERN")).toBe(true);
+    expect(suppliesPattern("-Se")).toBe(true);
+  });
+
+  test("R2: a find-style token in a grep command is not treated as a predicate", () => {
+    // Pre-fix the FIND_VALUE_TAKING_PREDICATES branch ran with findStyle off and
+    // skipped the token after `-path`, emptying the operand list.
+    expect(sweptDirectories(call("Bash", { command: "grep -path foo src/" }))).toEqual(["src"]);
   });
 });
 
