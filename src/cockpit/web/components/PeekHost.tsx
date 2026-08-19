@@ -42,7 +42,7 @@
  */
 import { PanelRightClose, Pin, SquareArrowOutUpRight } from "lucide-react";
 import { Link } from "react-router-dom";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type CSSProperties } from "react";
 import { usePeek, restorePeekOpenerFocus } from "../lib/peek";
 import {
   PEEK_PANE_ATTR,
@@ -65,6 +65,40 @@ import {
 import { PeekBody } from "./PeekBody";
 import { PaneDivider } from "./PaneDivider";
 import { ErrorBoundary } from "./ErrorBoundary";
+
+/**
+ * CSS custom property carrying the pane width (mt#4274).
+ *
+ * Set from React state on every render, and overwritten IMPERATIVELY during a
+ * drag so the pointer can be tracked without re-rendering the assembly. The two
+ * writers cannot disagree for long: a drag ends in a commit, which changes the
+ * state React renders from, which re-applies the property from the value that
+ * was just committed.
+ *
+ * ## The measured trade, stated so it is not rediscovered as a regression
+ *
+ * A custom property is INHERITED, so writing it invalidates style for every
+ * descendant that could read it. Measured per pointermove at 1440x900 with a
+ * task-detail body open, before → after:
+ *
+ *   script  11.82ms → 0.45ms      (the point of the change)
+ *   layout   1.22ms → 1.35ms      (unchanged; the pane still resizes)
+ *   recalc   0.30ms → 1.95ms      (the cost of this indirection)
+ *   total   13.34ms → 3.75ms
+ *
+ * Taken deliberately: recalc scales with the pane's descendant count, so a much
+ * larger body would push it up, but the total sits at ~22% of a 16.7ms frame
+ * and the blocking half — script — is 26x cheaper.
+ *
+ * The obvious alternative, writing `style.width` on each pane node directly,
+ * avoids the inherited-property invalidation and reintroduces the problem this
+ * indirection solves: React would then own `width` as a rendered prop AND the
+ * drag would overwrite it, and React diffs against its own previous value
+ * rather than the DOM, so a commit landing on the pre-drag number would leave
+ * the imperative value in place. The custom property is what lets both writers
+ * target the same declaration without fighting.
+ */
+const PEEK_WIDTH_VAR = "--peek-pane-width";
 
 /**
  * DOM id for a pane, so the divider's `aria-controls` can name what it sizes.
@@ -115,7 +149,46 @@ export function PeekHost() {
   const { panes, closePeek, holdPeek, closeAllPeeks } = usePeek();
   // Before the early return below — a hook cannot be called conditionally, and
   // this one has to see every render to keep tracking the viewport.
-  const { widthPx, minPx, maxPx, setWidth, resetWidth } = usePeekWidth(panes.length);
+  const { widthPx, minPx, maxPx, setWidth, resetWidth, previewWidth } = usePeekWidth(panes.length);
+
+  /**
+   * The assembly container, so a drag can repaint without a render (mt#4274).
+   *
+   * Routing every `pointermove` through `setWidth` re-rendered each pane's whole
+   * detail body — 498 of a pane's 518 elements — at a measured 11.82ms of
+   * scripting per move against a 16.7ms frame budget. Writing the width to a CSS
+   * custom property on this node instead does the same visual work with zero
+   * React reconciliation; `onCommit` then records the settled value once.
+   */
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  const paintWidth = useCallback(
+    (requestedPx: number) => {
+      hostRef.current?.style.setProperty(PEEK_WIDTH_VAR, `${previewWidth(requestedPx)}px`);
+    },
+    [previewWidth]
+  );
+
+  const commitWidth = useCallback(
+    (requestedPx: number) => {
+      setWidth(requestedPx);
+      // Repaint from the committed value too. React re-renders on the state
+      // change and re-applies the property — but it diffs against its OWN
+      // previous value, not against the DOM, so a drag that lands back on the
+      // starting width would leave the imperative value in place unnoticed.
+      paintWidth(requestedPx);
+    },
+    [setWidth, paintWidth]
+  );
+
+  const commitReset = useCallback(() => {
+    resetWidth();
+    // Same reason as above, and this path needs it more: `resetWidth` clears the
+    // preference rather than setting a number, so there is no new value for
+    // React to diff against — without this the pane would keep the dragged
+    // width until something else re-rendered it.
+    hostRef.current?.style.removeProperty(PEEK_WIDTH_VAR);
+  }, [resetWidth]);
 
   // Return focus to the link that opened the peek once the assembly empties
   // (mt#3694 R2). Keyed on the TRANSITION to zero panes rather than on any one
@@ -133,7 +206,11 @@ export function PeekHost() {
 
   return (
     <div
+      ref={hostRef}
       className="pointer-events-none fixed inset-y-0 right-0 z-40 flex"
+      // The width every pane reads. Rendered from state so a reload, a viewport
+      // change or a reset lands correctly; overwritten imperatively mid-drag.
+      style={{ [PEEK_WIDTH_VAR]: `${widthPx}px` } as CSSProperties}
       data-testid="peek-host"
       // Behavioral, not a test hook: this is the assembly region `peek-dismiss.ts`
       // exempts, which is what keeps the divider below from dismissing the peek
@@ -151,8 +228,9 @@ export function PeekHost() {
         max={maxPx}
         resizes="right"
         controls={panes.map((_, index) => peekPaneDomId(index)).join(" ")}
-        onChange={setWidth}
-        onReset={resetWidth}
+        onChange={paintWidth}
+        onCommit={commitWidth}
+        onReset={commitReset}
         label="Resize the peek"
         className="pointer-events-auto"
         data-testid="peek-divider"
@@ -185,7 +263,12 @@ export function PeekHost() {
               // the pane to full-width was the alternative then; it hides the
               // page entirely, which is a different failure rather than a fix.
               className="pointer-events-auto shrink-0"
-              style={{ width: widthPx }}
+              // Sized from the custom property, not from `widthPx` directly
+              // (mt#4274). That indirection is the whole fix: a drag repaints by
+              // writing the property on the host, which resizes every pane
+              // through CSS with no React render at all. The fallback keeps the
+              // pane correct if the property is ever absent.
+              style={{ width: `var(${PEEK_WIDTH_VAR}, ${widthPx}px)` }}
               // `shrink-0` above is as load-bearing as the width: without it the
               // flex row would squeeze panes below what the operator dragged as
               // soon as the assembly approached the viewport's edge, silently
