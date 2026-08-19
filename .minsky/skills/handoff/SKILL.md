@@ -125,8 +125,10 @@ someone could be assigned it — if yes, file it.
 those are covered. Nothing covers the rest: a backlog count, a queue depth, a review or deploy
 state, a service's health, "N items are unprocessed", "nobody has looked at X". Before writing one,
 either **re-derive it at write time** (run the sweep, read the endpoint, query the count) or
-**write it as an explicitly timestamped snapshot** — "as of 19:36Z, four logs were past threshold"
-— never as present-tense fact. Staleness cannot be detected against a baseline that was never
+**write it as an explicitly timestamped snapshot** — "as of 2026-08-18 19:36Z, four logs were past
+threshold" — never as present-tense fact. **Include the DATE, not just the time:** a handoff is often
+read hours or days later, and a bare `19:36Z` is ambiguous across a midnight boundary — which defeats
+the baseline it exists to provide. Staleness cannot be detected against a baseline that was never
 recorded.
 
 **This is the failure that survives doing the ref check correctly**, which is what makes it worth
@@ -227,7 +229,7 @@ Handoff recorded: [<short cluster description>](minsky://memory/<uuid>)
      not belong in this section — file the task first (step 4). Statuses are a write-time
      snapshot; state the as-of time once, above the list. -->
 
-Statuses as of <HH:MM>Z:
+Statuses as of YYYY-MM-DD HH:MMZ:
 
 - **mt#X** — READY — <one-sentence scope>
 - **mt#Y** — TODO — <one-sentence scope>
