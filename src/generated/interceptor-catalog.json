@@ -8,7 +8,7 @@
   ],
   "population": 136,
   "divergence": {
-    "declaredButNotDescribed": ["context-fill-gauge"],
+    "declaredButNotDescribed": [],
     "describedButNotDeclared": []
   },
   "failureClasses": {
@@ -1014,26 +1014,31 @@
     },
     {
       "guardName": "context-fill-gauge",
-      "description": null,
-      "failureClasses": [],
-      "provenance": [],
-      "stratum": null,
+      "description": "Records the session's own context fill against the model's window, every turn, alongside the turn count. The model has no introspective access to its token count, so this is the only channel that can supply one. Display-only: it reports and acts on nothing.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/context-fill-gauge.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
       "subject": "trajectory",
-      "provenanceStatus": "none",
+      "provenanceStatus": "implementation",
       "coverageGaps": [],
       "registered": true,
-      "undescribed": true,
+      "undescribed": false,
       "point": "UserPromptSubmit",
       "pointSource": "registry",
       "trajectory": null,
-      "interventions": [],
-      "mechanism": null,
-      "role": null,
-      "coordinateGaps": ["interventions", "mechanism", "role"],
-      "families": [],
-      "familyState": "unclassified",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
       "deliberatelyUnauthored": false,
-      "sourceFile": null
+      "sourceFile": "context-fill-gauge"
     },
     {
       "guardName": "denier",
