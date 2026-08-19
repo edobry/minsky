@@ -109,12 +109,59 @@ export function isPrFileListCall(call: ToolCallWithResult): boolean {
  * evidence about this one. mem#892 is precisely that failure with the read
  * missing entirely; accepting any file-read at all would rebuild it one step up.
  */
+/**
+ * The SAME read, performed through the shell (mt#4190).
+ *
+ * `isPrFileListCall` recognizes exactly one spelling — the `pull_request_read`
+ * MCP tool — and the corpus demonstrably does not always use it. Two verbatim
+ * examples from fired specs, both gate-(g) work done correctly:
+ *
+ *   "Open PRs read via `gh api .../files`: #3070 … #3068 … #2945 …"
+ *   "PR #3098 via `get_files`, the other 11 via `git diff --name-only …`"
+ *
+ * The fallback is not a stylistic preference. mt#3779 records the standing
+ * cause: the github MCP server dies when the Docker daemon is down and
+ * `pull_request_read` answers "No such tool available", so the shell is what is
+ * left. A guard blind to it fires hardest at the authors doing the most careful
+ * parallel-work checking — the dangerous direction this module's header names,
+ * and the reason every discharge recognizer here is deliberately generous.
+ *
+ * The PR NUMBER is extracted rather than the call merely counted, so the join
+ * stays PR-specific. A read that cannot be tied to a number does not belong
+ * here; it discharges the merge-shaped claim below instead.
+ */
+const CLI_PR_FILE_LIST_PATTERNS: readonly RegExp[] = [
+  // `gh api repos/<owner>/<repo>/pulls/<N>/files`, quoted or not, with or
+  // without a query string.
+  /\bgh\s+api\s+\S*?\bpulls\/(\d+)\/files/gi,
+  // `gh pr diff <N> --name-only` / `gh pr view <N> --json files`.
+  /\bgh\s+pr\s+(?:diff|view)\s+(\d+)\b[^\n]*?(?:--name-only|--json\s+[\w,]*files)/gi,
+];
+
+export function prNumbersFromCommandFileListRead(call: ToolCallWithResult): number[] {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  const out: number[] = [];
+  for (const pattern of CLI_PR_FILE_LIST_PATTERNS) {
+    // `matchAll` needs a fresh lastIndex per use; the literals are module-level
+    // and `g`-flagged, so iterate rather than calling `.exec` in a loop.
+    for (const m of command.matchAll(pattern)) {
+      const n = Number.parseInt(m[1] ?? "", 10);
+      if (Number.isInteger(n)) out.push(n);
+    }
+  }
+  return out;
+}
+
 export function prNumbersWithFileListRead(calls: readonly ToolCallWithResult[]): Set<number> {
   const out = new Set<number>();
   for (const call of calls) {
-    if (!isPrFileListCall(call)) continue;
-    const n = call.input["pullNumber"];
-    if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+    if (isPrFileListCall(call)) {
+      const n = call.input["pullNumber"];
+      if (typeof n === "number" && Number.isInteger(n)) out.add(n);
+      continue;
+    }
+    for (const n of prNumbersFromCommandFileListRead(call)) out.add(n);
   }
   return out;
 }
@@ -134,9 +181,29 @@ export function isPathFilteredGitLogCall(call: ToolCallWithResult): boolean {
   return (typeof path === "string" && path !== "") || (typeof grep === "string" && grep !== "");
 }
 
+/**
+ * A branch-range file listing: `git diff --name-only <ref>...<ref>`.
+ *
+ * The same evidence class as the path-filtered `git_log` above — a file-level
+ * read of what some other work touched — reached through the shell. It names no
+ * PR, so it cannot discharge a claim ABOUT a numbered PR; it discharges the
+ * merge-shaped claim, which is exactly what `git_log --path` already does.
+ *
+ * The `--name-only` (or `--name-status`) flag is required. A plain `git diff`
+ * prints hunks and is used for a hundred unrelated reasons; the name-listing
+ * flags are what make the call a changed-file enumeration.
+ */
+const BRANCH_RANGE_FILE_DIFF_RE = /\bgit\s+diff\b[^\n]*--name-(?:only|status)\b/i;
+
+export function isBranchRangeFileDiffCall(call: ToolCallWithResult): boolean {
+  if (!COMMAND_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return false;
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  return BRANCH_RANGE_FILE_DIFF_RE.test(command);
+}
+
 /** True when any call in the transcript read a merge's file-level history. */
 export function sessionReadMergeHistory(calls: readonly ToolCallWithResult[]): boolean {
-  return calls.some(isPathFilteredGitLogCall);
+  return calls.some((c) => isPathFilteredGitLogCall(c) || isBranchRangeFileDiffCall(c));
 }
 
 // ---------------------------------------------------------------------------
