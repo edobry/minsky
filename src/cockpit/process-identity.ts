@@ -68,11 +68,119 @@ export async function readProcessCommandLine(
 }
 
 /**
+ * Narrowed `process` handle for `kill` (mt#4255).
+ *
+ * bun-types' resolved ambient `process` global doesn't expose `kill` in this
+ * project's type resolution — the same ambiguity {@link killIfIdentityMatches}
+ * documents inline below, and the same module-level const ./port-recovery.ts
+ * already uses for its own `kill` calls.
+ */
+// eslint-disable-next-line custom/no-excessive-as-unknown -- process.kill side-channel, no alternative typing (mirrors ./port-recovery.ts precedent)
+const proc = process as unknown as {
+  kill(pid: number, signal?: NodeJS.Signals | number): boolean;
+};
+
+/**
+ * Whether `pid` currently names a live process — THREE-valued, deliberately
+ * (mt#4255).
+ *
+ * `signal 0` is the POSIX existence check: it performs the permission and
+ * existence checks and delivers nothing. The three outcomes are genuinely
+ * different facts, and collapsing them is what makes a sweep unsafe:
+ *
+ *  - `ESRCH` — the kernel says no such process. DECISIVE.
+ *  - `EPERM` — the process exists but belongs to another user. Also decisive,
+ *    in the other direction: it is `present`.
+ *  - anything else — the probe itself could not answer. NOT the same as
+ *    `absent`, and a caller that retires a record on it is retiring on its own
+ *    malfunction.
+ *
+ * ./port-recovery.ts's `isProcessAlive` answers the same question with a
+ * boolean because its caller only needs "may I take this port?" — where
+ * "cannot tell" and "absent" lead to the same conservative move. This one is
+ * separate rather than a refactor of that: widening its return type would
+ * change a predicate three other call sites read as a boolean, for no benefit
+ * to them.
+ */
+export type PidPresence = "present" | "absent" | "unknown";
+
+export function readPidPresence(pid: number): PidPresence {
+  if (!Number.isInteger(pid) || pid <= 0) return "absent";
+  try {
+    proc.kill(pid, 0);
+    return "present";
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return "absent";
+    if (code === "EPERM") return "present";
+    return "unknown";
+  }
+}
+
+/** What a probe learned about the process a persisted record recorded. */
+export type ProcessIdentityVerdict =
+  /** Alive, and its command line still matches what we recorded. */
+  | "ours"
+  /** Alive, but it is a DIFFERENT process — PID reuse. */
+  | "not-ours"
+  /** No such process. */
+  | "gone"
+  /** The probe could not answer. Callers MUST fail open on this. */
+  | "unknown";
+
+/** Test seams for {@link probeProcessIdentity}. */
+export interface ProbeProcessIdentityDeps {
+  execFileFn?: ExecFileFn;
+  readPresence?: (pid: number) => PidPresence;
+}
+
+/**
+ * Full four-way identity probe (mt#4255) — the read {@link verifyProcessIdentity}
+ * collapses.
+ *
+ * That predicate answers one question ("may I kill this?") and returns `false`
+ * for every reason not to, which is correct for a kill and wrong for a sweep:
+ * "the process is gone" and "`ps` could not answer" are the same `false`, so a
+ * caller retiring records on it would retire the whole table the first time
+ * `ps` misbehaved.
+ *
+ * Presence is established FIRST, and that ordering is what makes the rest
+ * unambiguous: once the kernel has confirmed the PID exists, a command line we
+ * then fail to read is a failure of OUR probe, never evidence about the
+ * process — so it resolves to `unknown` rather than to a verdict. Without that
+ * ordering the same empty read would have to be disambiguated from `ps`'s exit
+ * status, which varies by platform.
+ *
+ * `expectedCmdSubstring` follows the same convention as the sibling functions:
+ * callers pass the full persisted command line when they have one and fall
+ * back to the bare binary name.
+ */
+export async function probeProcessIdentity(
+  pid: number,
+  expectedCmdSubstring: string,
+  deps: ProbeProcessIdentityDeps = {}
+): Promise<ProcessIdentityVerdict> {
+  const presence = (deps.readPresence ?? readPidPresence)(pid);
+  if (presence === "absent") return "gone";
+  if (presence === "unknown") return "unknown";
+
+  const cmdline = await readProcessCommandLine(pid, deps.execFileFn ?? prodExecFile);
+  if (cmdline === null) return "unknown";
+  return cmdline.includes(expectedCmdSubstring) ? "ours" : "not-ours";
+}
+
+/**
  * Verify `pid` is (a) still alive AND (b) its live command line contains
  * `expectedCmdSubstring` — the practical substring every caller in this
  * codebase passes is the binary name (`"claude"`), rather than a full argv
  * match, which would be brittle against argument reordering across CLI
  * versions. Never throws; a lookup failure resolves to `false`.
+ *
+ * Deliberately NOT re-expressed on {@link probeProcessIdentity} (mt#4255):
+ * its `false` is load-bearing for the kill path — every reason not to kill
+ * must produce it — and routing through the richer probe would add a
+ * `kill(pid, 0)` syscall to that path while changing nothing its callers can
+ * observe.
  */
 export async function verifyProcessIdentity(
   pid: number,
