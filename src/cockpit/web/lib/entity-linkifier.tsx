@@ -493,11 +493,29 @@ export function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
   type: RoutableEntityType;
   id: string;
 } | null {
-  // `to` is `/<segment>/<encodedId>` — first path segment maps 1:1 to a
+  return pathToEntity(tok.to);
+}
+
+/**
+ * The inverse itself, over a bare path (mt#4351).
+ *
+ * Split out of {@link tokenEntity} so a caller holding an href rather than a
+ * token can ask the same question — specifically `<Prose>`'s `a` override,
+ * which must decide whether a markdown-AUTHORED link (`[label](/memory/<uuid>)`)
+ * names an entity. Hand-rolling a second segment map there is the drift this
+ * function's own docblock warns about; there is now exactly one.
+ *
+ * Returns null for any path that is not an entity route, so a link to
+ * `/activity` or `/settings` is left as an ordinary in-SPA link.
+ */
+export function pathToEntity(path: string): {
+  type: RoutableEntityType;
+  id: string;
+} | null {
+  // `/<segment>/<encodedId>` — first path segment maps 1:1 to a
   // RoutableEntityType (entityToPath's switch, inverted).
-  const match = /^\/(tasks|ask|memory|agents|changeset|conversation|interceptors)\/(.+)$/.exec(
-    tok.to
-  );
+  const match =
+    /^\/(tasks|ask|memory|agents|changeset|conversation|interceptors)\/(.+)$/.exec(path);
   if (!match) return null;
   const [, segment, encodedId] = match;
   const SEGMENT_TO_TYPE: Record<string, RoutableEntityType> = {

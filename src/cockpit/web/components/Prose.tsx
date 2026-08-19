@@ -28,8 +28,8 @@ import remarkGfm from "remark-gfm";
 import type { PluggableList } from "unified";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
-import { rehypeEntityLinks, type EntityIndex } from "../lib/entity-linkifier";
-import { minskyUriToPath, type RoutableEntityType } from "../lib/entity-codec";
+import { rehypeEntityLinks, pathToEntity, type EntityIndex } from "../lib/entity-linkifier";
+import { parseMinskyUri, type RoutableEntityType } from "../lib/entity-codec";
 import { EntityRef } from "./EntityRef";
 import { Check } from "lucide-react";
 
@@ -71,21 +71,28 @@ const COMPONENTS: Components = {
     if (!href) {
       return <span className={cn("text-primary", className)}>{children}</span>;
     }
-    // minsky:// deeplinks (admitted by urlTransformWithMinsky) resolve to SPA
-    // routes via the shared entity codec; an unparseable URI degrades to the
-    // same non-link span as the no-href case (mt#2797).
+    // minsky:// deeplinks (admitted by urlTransformWithMinsky) resolve to an
+    // entity via the shared codec; an unparseable URI degrades to the same
+    // non-link span as the no-href case (mt#2797).
+    //
+    // Resolved, they render through <EntityRef> exactly like a linkifier-built
+    // anchor does (mt#4351). Until then this branch produced a plain <Link>,
+    // so the SAME entity peeked when a bare `mem#728` was linkified and
+    // navigated away when an agent had written `[mem#728](minsky://memory/…)`
+    // — and the second form is the one `cockpit-deeplinks.mdc` instructs agents
+    // to emit, so every reference in a stored conversation was the losing case.
+    // The linkifier cannot repair it from its side: `SKIP_TAGS` contains `a`,
+    // because re-tokenizing inside an authored link would nest one link in
+    // another.
     if (href.startsWith("minsky://")) {
-      const path = minskyUriToPath(href);
-      if (!path) {
+      const entity = parseMinskyUri(href);
+      if (!entity) {
         return <span className={cn("text-primary", className)}>{children}</span>;
       }
       return (
-        <Link
-          to={path}
-          className={cn("text-primary underline-offset-2 hover:underline", className)}
-        >
+        <EntityRef type={entity.type} id={entity.id} className={className}>
           {children}
-        </Link>
+        </EntityRef>
       );
     }
     // Entity links carrying resolved (type, id) identity (mt#3174): render
@@ -109,10 +116,25 @@ const COMPONENTS: Components = {
         </EntityRef>
       );
     }
-    // Entity links and internal markdown links resolve to SPA routes (href
-    // starts with "/", always produced by entityToPath); render as react-router
+    // Internal markdown links resolve to SPA routes; render as react-router
     // <Link>. Everything else is an external link → open in a new tab.
+    //
+    // One that ADDRESSES AN ENTITY goes through <EntityRef> first (mt#4351).
+    // The trigger for the peek is "this href names an entity", not "this href
+    // is spelled `minsky://`" — an authored `[the note](/memory/<uuid>)` points
+    // at the same entity as the deeplink above and has no business behaving
+    // differently. `pathToEntity` is the linkifier's own inverse of
+    // `entityToPath`, reused rather than re-derived; a path naming no entity
+    // (`/activity`) returns null and falls through unchanged.
     if (href.startsWith("/")) {
+      const entity = pathToEntity(href);
+      if (entity) {
+        return (
+          <EntityRef type={entity.type} id={entity.id} className={className}>
+            {children}
+          </EntityRef>
+        );
+      }
       return (
         <Link
           to={href}
