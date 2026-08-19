@@ -561,6 +561,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_CDP_URL: "tunable", // scripts/verify-*.ts (14 render probes) — Chrome DevTools endpoint the probe drives
   MINSKY_CLAUDE_PROJECTS_DIR: "tunable", // scripts/measure-transcript-discovery-cost.ts + verify-postgres-text-safety.ts — harness transcript root
   MINSKY_CONVERSATION_ID: "tunable", // scripts/verify-conversation-{orientation,turn-target,weight}.ts — conversation under test
+  MINSKY_EXPAND_BURSTS: "tunable", // scripts/verify-conversation-weight.ts (mt#4250) — click every action-burst fold open before measuring, so a collapsed/expanded pair proves folding hides rows rather than dropping them
   MINSKY_FILM_CONVERSATION_ID: "tunable", // scripts/verify-session-film-camera.ts — conversation for the session-film probe
   MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
   MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
@@ -568,7 +569,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_PROBE_TASK_ID: "tunable", // scripts/verify-similarity-terminal-visibility.ts — task the probe queries
   MINSKY_REQUIRE_DERIVED_LINK_PROBE: "tunable", // scripts/verify-derived-conversation-link.ts — fail instead of skipping when preconditions are absent
   MINSKY_REQUIRE_PRESENCE_DERIVATION_PROBE: "tunable", // scripts/verify-presence-conversation-derivation.ts — same, for the presence probe
-  MINSKY_SCREENSHOT_PATH: "tunable", // scripts/verify-{interceptors-axes,terminal-ask}-render.ts — where the probe writes its PNG
+  MINSKY_SCREENSHOT_PATH: "tunable", // scripts/verify-{interceptors-axes,terminal-ask}-render.ts and verify-conversation-weight.ts (mt#4250) — where the probe writes its PNG
   MINSKY_TRANSCRIPTS_DIR: "tunable", // scripts/measure-*.ts + replay-*.ts (5 files) — transcript corpus root
   MINSKY_TRANSCRIPT_CORPUS: "tunable", // scripts/audit-unknown-harness-tags.ts — corpus selector
 

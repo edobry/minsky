@@ -19,13 +19,20 @@
  * `ConversationElementRenderers.tsx` (mt#3262), the pure assembly passes went
  * to `lib/conversation-turn-assembly.ts` (mt#3791).
  */
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { cn } from "../lib/utils";
+import {
+  groupActionBursts,
+  summarizeBurst,
+  SYNTHETIC_MODEL,
+  type BurstNode,
+} from "../lib/conversation-action-bursts";
 import type { ConversationTurn } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import {
   ElementView,
+  FOCUS_RING,
   SpawnBadge,
   type ExpandSignal,
   type PreparedElement,
@@ -107,13 +114,11 @@ function turnOutcome(turn: PreparedTurn): ConversationOutcome | null {
   });
 }
 
-/**
- * The model value Claude Code records on a harness-generated retry turn rather
- * than a real model response (mt#3260). Mirrors `SYNTHETIC_MODEL_SENTINEL` in
- * `packages/domain/src/subagent/transcript-metrics.ts`; declared here because
- * that module is subagent-metrics code, not a render dependency.
- */
-const SYNTHETIC_MODEL = "<synthetic>";
+// `SYNTHETIC_MODEL` moved to `lib/conversation-action-bursts.ts` (mt#4250) and
+// is imported above. It was declared here first, but the burst predicate needs
+// it too, and re-declaring it there would have made a FOURTH hand-copy of a
+// string mt#4237 already tracks as copied three times without a check. Its
+// reasoning for not importing domain's `SYNTHETIC_MODEL_SENTINEL` moved with it.
 
 /**
  * A context-compaction boundary (mt#3260).
@@ -355,39 +360,39 @@ function TurnSegment({
         the density win: the common segment is now just its elements.
       */}
       {(turn.isSpawnBoundary || isRetry || outcome !== null) && (
-      <div
-        className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground"
-        data-testid="turn-chips"
-      >
-        {turn.isSpawnBoundary && (
-          <SpawnBadge
-            spawn={{
-              agentKind: turn.spawnAgentKind,
-              childAgentSessionId: turn.spawnChildAgentSessionId,
-            }}
-          />
-        )}
-        {isRetry && (
-          <span
-            className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium normal-case text-muted-foreground"
-            title="Harness-generated retry turn (model: <synthetic>), not a model response"
-            data-testid="turn-retrying"
-          >
-            Retrying…
-          </span>
-        )}
-        {outcome && (
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[10px] font-medium normal-case",
-              OUTCOME_TONE[outcome]
-            )}
-            data-testid="turn-outcome"
-          >
-            {outcome}
-          </span>
-        )}
-      </div>
+        <div
+          className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground"
+          data-testid="turn-chips"
+        >
+          {turn.isSpawnBoundary && (
+            <SpawnBadge
+              spawn={{
+                agentKind: turn.spawnAgentKind,
+                childAgentSessionId: turn.spawnChildAgentSessionId,
+              }}
+            />
+          )}
+          {isRetry && (
+            <span
+              className="rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-medium normal-case text-muted-foreground"
+              title="Harness-generated retry turn (model: <synthetic>), not a model response"
+              data-testid="turn-retrying"
+            >
+              Retrying…
+            </span>
+          )}
+          {outcome && (
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-medium normal-case",
+                OUTCOME_TONE[outcome]
+              )}
+              data-testid="turn-outcome"
+            >
+              {outcome}
+            </span>
+          )}
+        </div>
       )}
       <div className="flex flex-col gap-2">{rendered}</div>
       {/*
@@ -408,6 +413,98 @@ function TurnSegment({
           className="absolute right-0 top-0 group-hover/turn:opacity-100"
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Shared by {@link RunView} and {@link BurstFold} — everything a `TurnSegment`
+ * needs that is a property of the RUN rather than of the turn.
+ */
+interface SegmentContext {
+  entityIndex: EntityIndex;
+  expandSignal: ExpandSignal;
+  turnIndexByBlockId: Map<string, number>;
+  address?: TurnAddress;
+  addressedBlockId?: string;
+  filmPath?: string;
+}
+
+function renderSegment(turn: PreparedTurn, ctx: SegmentContext): ReactNode {
+  return (
+    <TurnSegment
+      key={turn.blockId}
+      turn={turn}
+      entityIndex={ctx.entityIndex}
+      expandSignal={ctx.expandSignal}
+      turnIndex={ctx.turnIndexByBlockId.get(turn.blockId)}
+      address={turn.blockId === ctx.addressedBlockId ? ctx.address : undefined}
+      filmPath={ctx.filmPath}
+    />
+  );
+}
+
+/**
+ * A folded stretch of machinery turns, standing behind one summary line (mt#4250).
+ *
+ * Collapsed by default; expanding renders the very same `TurnSegment`s the
+ * thread would have rendered without the fold, which is what makes expansion
+ * lossless rather than a second, lossier rendering of the same turns.
+ *
+ * The control stays visible when open so the burst can be closed again, and it
+ * carries a hover treatment because — unlike the reference terminal, which
+ * expands via a global `ctrl+o` — a fold line here IS the only way in. mt#4220
+ * removed the border that used to delimit rows as objects, and mt#4251 is
+ * restoring that affordance for the per-call rows; this control ships with it
+ * from the start rather than inheriting the gap.
+ */
+function BurstFold({ turns, ctx }: { turns: PreparedTurn[]; ctx: SegmentContext }) {
+  // A deep link that lands inside a fold must not land on a closed one — the
+  // reader navigated to a specific call, and hiding it is the worst version of
+  // this feature. Recomputed rather than captured so an address arriving after
+  // mount (the resolve-then-scroll path) still opens it.
+  const containsAddressed =
+    ctx.addressedBlockId !== undefined &&
+    turns.some((turn) => turn.blockId === ctx.addressedBlockId);
+
+  const [open, setOpen] = useState(containsAddressed);
+
+  useEffect(() => {
+    if (containsAddressed) setOpen(true);
+  }, [containsAddressed]);
+
+  // Re-sync on a NEW expand-all/collapse-all broadcast only (epoch), never on
+  // every `expandSignal.open` identity change — the same discipline
+  // `ToolInvocation` uses, and for the same reason: the signal is a fresh
+  // object per click by design.
+  const expandEpoch = ctx.expandSignal?.epoch;
+  useEffect(() => {
+    if (ctx.expandSignal) setOpen(ctx.expandSignal.open);
+  }, [expandEpoch]);
+
+  const summary = useMemo(() => summarizeBurst(turns), [turns]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        data-testid="action-burst-toggle"
+        className={cn(
+          "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs",
+          // Dim at rest so a fold recedes exactly as far as the rows it
+          // replaced; legible the moment a pointer is over it.
+          "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+          FOCUS_RING
+        )}
+      >
+        <span aria-hidden className="shrink-0 text-muted-foreground/60">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{summary}</span>
+      </button>
+      {open && turns.map((turn) => renderSegment(turn, ctx))}
     </div>
   );
 }
@@ -454,6 +551,20 @@ function RunView({
   // minute, shows one clock rather than `14:12 → 14:12`.
   const timeLabel = endTime === startTime ? startTime : `${startTime} → ${endTime}`;
 
+  const ctx: SegmentContext = {
+    entityIndex,
+    expandSignal,
+    turnIndexByBlockId,
+    address,
+    addressedBlockId,
+    filmPath,
+  };
+  // Computed on every render rather than memoized: this component sits after an
+  // early return, so a hook here would be conditional. The pass is a single
+  // linear walk over turns already in hand — cheaper than the memo's own
+  // dependency comparison on a `turns` array that is a fresh slice each render.
+  const nodes: BurstNode[] = groupActionBursts(turns);
+
   return (
     <div className={cn("flex flex-col gap-2 border-l-2 pl-3", runAccentOf(key))}>
       <div
@@ -467,17 +578,16 @@ function RunView({
         )}
         <span className="ml-auto tabular-nums text-muted-foreground/60">{timeLabel}</span>
       </div>
-      {turns.map((turn) => (
-        <TurnSegment
-          key={turn.blockId}
-          turn={turn}
-          entityIndex={entityIndex}
-          expandSignal={expandSignal}
-          turnIndex={turnIndexByBlockId.get(turn.blockId)}
-          address={turn.blockId === addressedBlockId ? address : undefined}
-          filmPath={filmPath}
-        />
-      ))}
+      {nodes.map((node) =>
+        node.kind === "turn" ? (
+          renderSegment(node.turn, ctx)
+        ) : (
+          // Keyed on the first turn's blockId: a burst's identity is where it
+          // starts, and that is stable across re-renders in a way an index is
+          // not (a burst gained or lost at the top would remap every key).
+          <BurstFold key={`burst:${node.turns[0]?.blockId}`} turns={node.turns} ctx={ctx} />
+        )
+      )}
     </div>
   );
 }
