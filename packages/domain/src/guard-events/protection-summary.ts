@@ -168,6 +168,30 @@ const EMPTY_LEDGER: ProtectionLedger = {
   unmeasuredFires: 0,
 };
 
+/**
+ * Sum a row set into one ledger.
+ *
+ * **Invariant: `measuredFires + unmeasuredFires` equals the sum of
+ * `fireLog.window.fires` over the SAME row set — exactly, never more.**
+ * (PR #3147 R1 asked for this stated and pinned.) It holds because the two
+ * branches below partition each row's fires rather than counting them twice: a
+ * row WITH a duration contributes `measuredFires` plus
+ * `deriveInterceptorCost`'s residual `unmeasuredFires`, which is defined as
+ * `fires - measuredFires`; a row WITHOUT one contributes its whole `fires` to
+ * the unmeasured side and nothing to the measured side.
+ *
+ * The invariant matters because the rendered hint is "(over MEASURED of
+ * MEASURED+UNMEASURED)". If the two sides could overlap, that denominator
+ * would exceed the fires that actually exist and the surface would print
+ * something like "over 2,900 of 2,600" — a figure that destroys trust in every
+ * other number beside it. `protection-summary.test.ts` pins it for the mixed
+ * case and for a guard carried by several classes.
+ *
+ * Note `fires` is ALL fires — `allow` and `other` included, not just the
+ * interruptions. That is deliberate for a COST figure: a check that allowed the
+ * call still spent the operator's wall-clock, so the time is measured over
+ * everything that ran, not only over what interrupted.
+ */
 function accumulate(rows: readonly InterceptorAggregateRow[]): ProtectionLedger {
   let stopped = 0;
   let flagged = 0;

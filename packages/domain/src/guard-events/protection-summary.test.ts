@@ -154,6 +154,92 @@ describe("deriveProtectionSummary — unknown is never zero, and never working",
     expect(summary.totals.unmeasuredFires).toBe(6);
   });
 
+  test("MIXED measured/unmeasured rows: measured + unmeasured equals total fires exactly", () => {
+    // The reviewer's BLOCKING finding on PR #3147 claimed the totals
+    // double-count unmeasured fires in exactly this shape. Pinning the
+    // invariant rather than arguing it: row A carries a duration (10 fires, 6
+    // measured), row B carries none (5 fires). Correct is measured 6,
+    // unmeasured (10-6)+5 = 9, summing to the 15 fires that exist. A
+    // double-count would make unmeasured 19 (adding A's 10 again) or the sum
+    // exceed 15.
+    const withDuration = row({
+      guardName: "measured",
+      windowFires: 10,
+      deny: 10,
+      duration: { avgMs: 5, p95Ms: 8, maxMs: 9, totalMs: 30, measuredFires: 6 },
+    });
+    const withoutDuration = row({
+      guardName: "unmeasured",
+      windowFires: 5,
+      deny: 5,
+      duration: null,
+    });
+
+    const summary = deriveProtectionSummary(
+      snapshot([withDuration, withoutDuration]),
+      [
+        { guardName: "measured", failureClasses: ["lost-signal"] },
+        { guardName: "unmeasured", failureClasses: ["lost-signal"] },
+      ],
+      QUESTIONS
+    );
+
+    const { measuredFires, unmeasuredFires, timeMs } = summary.totals;
+    expect(measuredFires).toBe(6);
+    expect(unmeasuredFires).toBe(9);
+    expect(measuredFires + unmeasuredFires).toBe(15);
+    expect(timeMs).toBe(30);
+
+    // Same invariant on the class row, which shares the accumulator.
+    const cls = onlyClass(summary.classes);
+    expect(cls.ledger.measuredFires + cls.ledger.unmeasuredFires).toBe(15);
+  });
+
+  test("the denominator invariant survives a partially-measured guard in THREE classes", () => {
+    // The other half of PR #3147 R1's requested coverage: mixed measurement AND
+    // multi-class membership together, which is where a totals dedupe keyed on
+    // names could plausibly disagree with the per-class rows.
+    //
+    // `multi` (20 fires, 12 measured) sits in three classes; `solo` (7 fires,
+    // no duration) sits in one. Totals must see 12 measured + (8 + 7) = 27, the
+    // sum of fires over the DISTINCT set — not 20 counted three times.
+    const summary = deriveProtectionSummary(
+      snapshot([
+        row({
+          guardName: "multi",
+          windowFires: 20,
+          deny: 20,
+          duration: { avgMs: 3, p95Ms: 6, maxMs: 9, totalMs: 36, measuredFires: 12 },
+        }),
+        row({ guardName: "solo", windowFires: 7, deny: 7, duration: null }),
+      ]),
+      [
+        {
+          guardName: "multi",
+          failureClasses: [UNREVIEWED_MERGE, "secret-exposure", "lost-signal"],
+        },
+        { guardName: "solo", failureClasses: ["lost-signal"] },
+      ],
+      QUESTIONS
+    );
+
+    const distinctFireSum = 20 + 7;
+    expect(summary.totals.measuredFires).toBe(12);
+    expect(summary.totals.unmeasuredFires).toBe(15);
+    expect(summary.totals.measuredFires + summary.totals.unmeasuredFires).toBe(distinctFireSum);
+    // "cannot exceed it" — the explicit wording of the review finding.
+    expect(summary.totals.measuredFires + summary.totals.unmeasuredFires).toBeLessThanOrEqual(
+      distinctFireSum
+    );
+    expect(summary.totals.checkCount).toBe(2);
+
+    // Every per-class row satisfies the same invariant over ITS own row set.
+    for (const cls of summary.classes) {
+      const rowsInClass = cls.classId === "lost-signal" ? 20 + 7 : 20;
+      expect(cls.ledger.measuredFires + cls.ledger.unmeasuredFires).toBe(rowsInClass);
+    }
+  });
+
   test("a measured zero is 0, distinguishable from the null above", () => {
     const summary = deriveProtectionSummary(
       snapshot([
