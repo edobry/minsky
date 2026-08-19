@@ -2082,6 +2082,35 @@ export function surfaceOnlyReasons(
  * where the cohort ran and nominated nothing — the same distinction mt#4155
  * added `identityDetectionRung` for.
  */
+/**
+ * The WARN line a symbol-free nomination surfaces (mt#3726, PR #3178 R1).
+ *
+ * AT4 requires that a fire in log-only posture "writes a calibration record and
+ * surfaces a WARN, and blocks nothing." The first draft shipped the record and
+ * the blocks-nothing half and no WARN — a cohort that fires into a file nobody
+ * is watching, which is the ADR-024 coverage-receipt failure the calibration
+ * ladder exists to prevent. The reviewer caught it as BLOCKING.
+ *
+ * STDERR, via `auditLines` on the dispatcher path and a direct write on the
+ * standalone path — deliberately NOT `additionalContext`, which is the
+ * operator-facing injection channel this cohort must stay off until its
+ * false-positive rate is measured.
+ *
+ * Names the FAMILIES rather than the excerpts: the excerpt is the agent's own
+ * prose and is already in the calibration record, whereas the family is what a
+ * reader needs in order to know which claim shape just fired.
+ */
+export function buildSymbolFreeWarning(
+  claims: ReadonlyArray<{ family: string; excerpt: string }>
+): string {
+  const families = claims.map((c) => c.family).join(", ");
+  return (
+    `[code-mechanism-assertion-detector] WARN: symbol-free claim nominated ` +
+    `(${claims.length}; families: ${families}) — recorded only, not injected; ` +
+    `this cohort has no suppression yet (mt#3726, mt#3594)\n`
+  );
+}
+
 export function collectSymbolFreeClaims(
   ...results: ReadonlyArray<CodeMechanismDetectionResult | undefined>
 ): Array<{ family: string; excerpt: string }> | undefined {
@@ -2420,6 +2449,15 @@ export async function run(
     outcome.additionalContext = buildInjectionReminder(result.claims, relayReasons.length > 0);
   }
 
+  // mt#3726 (PR #3178 R1) — AT4's WARN half. Emitted whenever the cohort
+  // nominated anything, INDEPENDENT of `matched` and of the injection branch
+  // above: a symbol-free nomination on a turn that also carries a symbol-bearing
+  // claim is still a fire of this cohort, and gating the WARN on
+  // symbol-free-ONLY would hide exactly the mixed turns where both shapes appear.
+  if (symbolFreeClaims !== undefined) {
+    outcome.auditLines = [...(outcome.auditLines ?? []), buildSymbolFreeWarning(symbolFreeClaims)];
+  }
+
   return outcome;
 }
 
@@ -2651,6 +2689,15 @@ export async function main(): Promise<void> {
       [CAPTURE_SCHEMA_FIELD]: CAPTURE_SCHEMA_VERSION,
       judgedInput: captureArtifact(judgedText),
     });
+  }
+
+  // mt#3726 (PR #3178 R1) — AT4's WARN, before the injection early-exit below.
+  // Order is load-bearing: that exit fires on every symbol-free-only turn (it
+  // keeps `matched` false by design), so a WARN written after it would never run
+  // on exactly the turns this cohort exists for. run() reaches the same
+  // behaviour through `auditLines`, which the dispatcher writes to STDERR.
+  if (symbolFreeClaims !== undefined) {
+    process.stderr.write(buildSymbolFreeWarning(symbolFreeClaims));
   }
 
   // `!result.matched` is required, not implied — see run()'s matching comment.

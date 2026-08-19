@@ -19,6 +19,7 @@ import {
   augmentWithIdentityNomination,
   dedupeSymbolFreeClaims,
   collectSymbolFreeClaims,
+  buildSymbolFreeWarning,
   isSymbolFreeFamily,
   isSymbolFreeCohortDisabled,
   activeExemplarSets,
@@ -74,6 +75,28 @@ const NEGATIVE_CONTROL = "The `transcripts spawns-extract --all` command runs th
 /** Nominates every fixture sentence it is handed, tagged with that class's family. */
 function nominatorFor(family: string): IdentityClaimNominator {
   return async (prose) => ({ kind: "nominated", segments: [{ family, segment: prose }] });
+}
+
+/**
+ * Run `fn` with one env var set, restoring whatever was there before.
+ *
+ * Extracted per PR #3178 R1 (non-blocking): three call sites across two files
+ * were each hand-rolling save/set/finally-restore, and a later early return or
+ * an added assertion above the `finally` would silently leak the mutation into
+ * every test that ran after it. Exported so the identity tests use the same one
+ * rather than keeping their own copy — the point of the nit was the duplication,
+ * so fixing it in one file only would have missed it.
+ */
+export function withEnv<T>(name: string, value: string | undefined, fn: () => T): T {
+  const prior = process.env[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+  try {
+    return fn();
+  } finally {
+    if (prior === undefined) delete process.env[name];
+    else process.env[name] = prior;
+  }
 }
 
 describe("symbol-free claim cohort (mt#3726)", () => {
@@ -209,21 +232,40 @@ describe("symbol-free claim cohort (mt#3726)", () => {
   });
 
   test("the cohort is on by default once Rung 2 is, and the per-class override turns it off", () => {
-    const prior = process.env[SYMBOL_FREE_SKIP_ENV_VAR];
-    try {
-      delete process.env[SYMBOL_FREE_SKIP_ENV_VAR];
+    withEnv(SYMBOL_FREE_SKIP_ENV_VAR, undefined, () => {
       expect(isSymbolFreeCohortDisabled()).toBe(false);
       expect(activeExemplarSets()).toHaveLength(6); // identity + five
-
-      process.env[SYMBOL_FREE_SKIP_ENV_VAR] = "1";
+    });
+    withEnv(SYMBOL_FREE_SKIP_ENV_VAR, "1", () => {
       expect(isSymbolFreeCohortDisabled()).toBe(true);
       // The override quiets THIS cohort without reverting mt#4155's family.
       expect(activeExemplarSets()).toEqual([
         expect.objectContaining({ family: IDENTITY_CLAIM_FAMILY }),
       ]);
-    } finally {
-      if (prior === undefined) delete process.env[SYMBOL_FREE_SKIP_ENV_VAR];
-      else process.env[SYMBOL_FREE_SKIP_ENV_VAR] = prior;
-    }
+    });
+  });
+
+  // AT4's WARN half (PR #3178 R1). The first draft shipped the calibration
+  // record and the blocks-nothing invariant and no WARN, so the cohort fired
+  // into a file nobody watches — caught as BLOCKING.
+  test("a symbol-free nomination surfaces a WARN naming the families that fired", () => {
+    const line = buildSymbolFreeWarning([
+      { family: INVOCATION_PATH_POSITIVE_FAMILY, excerpt: "self-heals on the next scheduled run" },
+      { family: LOG_ATTRIBUTION_FAMILY, excerpt: "the log shows an unhandled rejection" },
+    ]);
+    expect(line).toContain("WARN");
+    expect(line).toContain(INVOCATION_PATH_POSITIVE_FAMILY);
+    expect(line).toContain(LOG_ATTRIBUTION_FAMILY);
+    expect(line).toContain("recorded only, not injected");
+    expect(line.endsWith("\n")).toBe(true);
+  });
+
+  test("the WARN names families, not the agent's own prose", () => {
+    // The excerpt is already in the calibration record; repeating it on STDERR
+    // widens where the operator's own sentences get written for no added signal.
+    const line = buildSymbolFreeWarning([
+      { family: SUBSYSTEM_PROPERTY_FAMILY, excerpt: "two of the three daemons are stale" },
+    ]);
+    expect(line).not.toContain("two of the three daemons are stale");
   });
 });

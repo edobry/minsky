@@ -22,6 +22,8 @@ import {
   SYMBOL_FREE_SKIP_ENV_VAR,
 } from "./code-mechanism-assertion-detector";
 import type { IdentityClaimNominator } from "./code-mechanism-assertion-detector";
+// One helper, one definition — see its docblock for why it is not duplicated here.
+import { withEnv } from "./code-mechanism-assertion-symbol-free.test";
 
 /** The phantom symbol three of the four mt#4106 fixtures carry. */
 const PHANTOM_SYMBOL = "readResidentBytes";
@@ -177,9 +179,7 @@ describe("identity-claim nomination (mt#4155)", () => {
     // a symbol-free turn is correct when the identity family is the only thing
     // that could match, and wrong once the symbol-free cohort is active, whose
     // whole subject is turns exactly like this one.
-    const prior = process.env[SYMBOL_FREE_SKIP_ENV_VAR];
-    process.env[SYMBOL_FREE_SKIP_ENV_VAR] = "1";
-    try {
+    await withEnv(SYMBOL_FREE_SKIP_ENV_VAR, "1", async () => {
       let called = 0;
       const counting: IdentityClaimNominator = async (prose) => {
         called++;
@@ -190,10 +190,7 @@ describe("identity-claim nomination (mt#4155)", () => {
       const augmented = await augmentWithIdentityNomination(base, text, "", "", counting);
       expect(called).toBe(0);
       expect(augmented.detectionRung).toBe("1-lexical");
-    } finally {
-      if (prior === undefined) delete process.env[SYMBOL_FREE_SKIP_ENV_VAR];
-      else process.env[SYMBOL_FREE_SKIP_ENV_VAR] = prior;
-    }
+    });
   });
 
   test("the exemplar set is the identity family and names no concrete symbol", () => {
@@ -205,12 +202,14 @@ describe("identity-claim nomination (mt#4155)", () => {
   });
 
   test("Rung 2 is off unless the operator opts in", () => {
-    const prior = process.env[RUNG2_NOMINATION_ENV_VAR];
-    delete process.env[RUNG2_NOMINATION_ENV_VAR];
-    expect(isRung2NominationEnabled()).toBe(false);
-    process.env[RUNG2_NOMINATION_ENV_VAR] = "1";
-    expect(isRung2NominationEnabled()).toBe(true);
-    if (prior === undefined) delete process.env[RUNG2_NOMINATION_ENV_VAR];
-    else process.env[RUNG2_NOMINATION_ENV_VAR] = prior;
+    // Was the third hand-rolled env mutation, and the one with no `finally` at
+    // all — a throw between the two assertions leaked the var into every test
+    // after it. PR #3178 R1's nit named one site; this is the same class.
+    withEnv(RUNG2_NOMINATION_ENV_VAR, undefined, () => {
+      expect(isRung2NominationEnabled()).toBe(false);
+    });
+    withEnv(RUNG2_NOMINATION_ENV_VAR, "1", () => {
+      expect(isRung2NominationEnabled()).toBe(true);
+    });
   });
 });
