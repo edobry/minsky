@@ -331,6 +331,63 @@ export const FIND_VALUE_TAKING_PREDICATES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * `find` predicates and actions that take NO value.
+ *
+ * The complement of this set is what {@link nonFlagOperands} treats as
+ * value-taking, which is what makes an UNRECOGNIZED predicate degrade toward
+ * skipping its next token rather than crediting it (mt#4320 SC3). Enumerating the
+ * valueless ones is the only way round that: `find` has a long tail of predicates,
+ * and a list of the value-TAKING ones can only ever be a snapshot, so a predicate
+ * missing from it leaks its value as an apparent operand.
+ *
+ * Measured before this existed: `find src -newpath docs` returned `["src","docs"]`,
+ * because `-newpath` ends in `h`, which is not in {@link VALUE_TAKING_SHORT_OPTS}.
+ * `find src -unknownopt docs` returned `["src"]` — correct, but only because `t`
+ * IS in that set. Two unknown predicates, opposite outcomes, decided by their last
+ * letter.
+ *
+ * The cost is the mirror error: a valueless predicate MISSING from this set eats
+ * the token after it. That is the direction SC3 explicitly chooses, and it is
+ * bounded — `find`'s valueless predicates are a closed, slow-moving list, whereas
+ * its value-taking ones are not.
+ */
+const FIND_VALUELESS_PREDICATES: ReadonlySet<string> = new Set([
+  "-prune",
+  "-print",
+  "-print0",
+  "-ls",
+  "-delete",
+  "-depth",
+  "-empty",
+  "-executable",
+  "-readable",
+  "-writable",
+  "-follow",
+  "-nouser",
+  "-nogroup",
+  "-false",
+  "-true",
+  "-mount",
+  "-xdev",
+  "-noleaf",
+  "-daystart",
+  "-ignore_readdir_race",
+  "-noignore_readdir_race",
+  "-help",
+  "-version",
+  "-a",
+  "-o",
+  "-not",
+  "-and",
+  "-or",
+]);
+
+/** A single-dash, multi-letter token — `find`'s option spelling (`-name`, `-prune`). */
+function isFindStylePredicate(token: string): boolean {
+  return /^-[A-Za-z][A-Za-z_0-9-]+$/.test(token) && !token.startsWith("--");
+}
+
+/**
  * Short-option letters `grep` / `rg` actually define. Bounds {@link suppliesPattern}'s
  * scan so an arbitrary word starting with `-` cannot be read as a bundled option run.
  */
@@ -372,8 +429,16 @@ export function suppliesPattern(token: string): boolean {
  * value does NOT start with `-`, so a naive filter keeps it and the caller reads
  * it as an operand. `grep src/ -f docs/patterns.txt` is the worked case — without
  * this, `docs/patterns.txt` survives as an operand.
+ *
+ * `findStyle` opts into `find`'s option grammar, where a single-dash MULTI-LETTER
+ * token is one predicate rather than a bundled run. It must not be set for
+ * `grep`/`rg`, where `-rni` is exactly that shape and eating the token after it
+ * would drop the pattern.
  */
-export function nonFlagOperands(tokens: readonly string[]): string[] {
+export function nonFlagOperands(
+  tokens: readonly string[],
+  opts: { findStyle?: boolean } = {}
+): string[] {
   const operands: string[] = [];
   let flagsTerminated = false;
 
@@ -391,10 +456,17 @@ export function nonFlagOperands(tokens: readonly string[]): string[] {
         if (!token.includes("=") && VALUE_TAKING_LONG_OPTS.has(name)) i++;
         continue;
       }
+      if (opts.findStyle && isFindStylePredicate(token)) {
+        // Under `find`'s grammar, EVERY single-dash word is one predicate. Skip its
+        // value unless the predicate is known to take none — the complement test
+        // that makes an unrecognized predicate degrade safe (mt#4320 SC3).
+        if (!FIND_VALUELESS_PREDICATES.has(token)) i++;
+        continue;
+      }
       if (FIND_VALUE_TAKING_PREDICATES.has(token)) {
-        // `find`'s single-dash multi-letter predicates. Checked BEFORE the bundled
-        // -run branch, which would otherwise read `-path` as the run `p,a,t,h` and
-        // decide on `h`.
+        // Reached only when `findStyle` is off — a `find`-spelled predicate showing
+        // up in a grep/rg command. Checked BEFORE the bundled-run branch, which
+        // would otherwise read `-path` as the run `p,a,t,h` and decide on `h`.
         i++;
         continue;
       }

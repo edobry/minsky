@@ -738,8 +738,9 @@ function pathOperands(segment: string): string[] {
   // Slice from the command so `nonFlagOperands` sees it at index 0, which is
   // where it expects the program name.
   const argv = tokens.slice(cmdIndex);
-  const operands = nonFlagOperands(argv);
-  if (PATH_FIRST_COMMANDS.includes(command)) return operands;
+  const isFind = PATH_FIRST_COMMANDS.includes(command);
+  const operands = nonFlagOperands(argv, { findStyle: isFind });
+  if (isFind) return operands;
 
   // Pattern-first: drop the positional pattern — but ONLY when there is one.
   // `-e` / `-f` supply the pattern themselves, and then every operand is a path;

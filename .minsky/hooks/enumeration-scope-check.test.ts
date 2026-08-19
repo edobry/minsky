@@ -290,6 +290,40 @@ describe("sweptDirectories", () => {
       sweptDirectories(call("Bash", { command: "grep -rn 'x' --include docs/*.md src/" }))
     ).toEqual(["src"]);
   });
+
+  test("mt#4320 SC3: an UNRECOGNIZED find predicate degrades toward not crediting", () => {
+    // The criterion is that a spelling the tables miss cannot manufacture
+    // coverage. Before the valueless-complement test, this was decided by the
+    // predicate's LAST LETTER: `-newpath` (ends in `h`) leaked `docs`, while
+    // `-unknownopt` (ends in `t`) happened not to. Both are asserted so the
+    // property is structural rather than incidental.
+    expect(sweptDirectories(call("Bash", { command: "find src -newpath docs" }))).toEqual(["src"]);
+    expect(sweptDirectories(call("Bash", { command: "find src -unknownopt docs" }))).toEqual([
+      "src",
+    ]);
+  });
+
+  test("mt#4320 SC3: a valueless find predicate does NOT eat the token after it", () => {
+    // The mirror error the complement test introduces, and its bound. `-prune`
+    // takes no value, so a path following it survives.
+    expect(sweptDirectories(call("Bash", { command: "find src -prune docs" }))).toEqual([
+      "src",
+      "docs",
+    ]);
+  });
+
+  test("mt#4320: find-style grammar is NOT applied to grep, where -rni is a bundled run", () => {
+    // `findStyle` must stay off for pattern-first commands: `-rni` matches the
+    // same single-dash multi-letter shape as `-name`, and eating the next token
+    // would drop the pattern and promote the path into its slot.
+    expect(sweptDirectories(call("Bash", { command: "grep -rni foo src/" }))).toEqual(["src"]);
+  });
+
+  test("mt#4320 SC3: an unrecognized grep flag does not manufacture coverage", () => {
+    expect(sweptDirectories(call("Bash", { command: "grep --newflag docs foo src/" }))).toEqual([
+      "src",
+    ]);
+  });
 });
 
 // ---------------------------------------------------------------------------
