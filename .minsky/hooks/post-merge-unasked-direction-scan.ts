@@ -31,8 +31,15 @@ import type { ToolHookInput } from "./types";
 // dynamic import cannot install it retroactively.
 import { describeProviderResolutionFailure, ensureHookDomainBootstrap } from "./domain-bootstrap";
 
-import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
-import { writeFindings } from "../../packages/domain/src/detectors/unasked-direction-store";
+import {
+  UnaskedDirectionAnalyzer,
+  describeSampling,
+  selectAnalysisWindow,
+} from "../../packages/domain/src/detectors/unasked-direction-analyzer";
+import {
+  writeFailedRun,
+  writeFindings,
+} from "../../packages/domain/src/detectors/unasked-direction-store";
 import type { TranscriptMessage } from "../../packages/domain/src/provenance/transcript-service";
 import type { ConversationId } from "../../packages/domain/src/ids";
 
@@ -423,6 +430,20 @@ if (import.meta.main) {
     process.stderr.write(
       `[post-merge-unasked-direction-scan] Analyzer failed for ${ctx.sessionId}: ${message}\n`
     );
+
+    // Record the failure rather than vanishing (mt#4235). Exiting here used to leave
+    // nothing on disk, so the findings corpus held only the runs that SUCCEEDED and a
+    // reader counting "N sessions, 0 findings" was reading a denominator with its failures
+    // already removed. The sampling is re-derived from the same transcript through the same
+    // pure functions the analyzer would have used, so it describes the window this run
+    // would have read.
+    await writeFailedRun(
+      projectRoot,
+      ctx.sessionId,
+      describeSampling(transcript, selectAnalysisWindow(transcript)),
+      message,
+      { taskId: ctx.taskId }
+    );
     process.exit(0);
   }
 
@@ -432,8 +453,14 @@ if (import.meta.main) {
 
   if (wrote) {
     const findingCount = output.findings.length;
+    // The window shape rides along with the count (mt#4235). A zero from 7 text-bearing
+    // messages of session preamble and a zero from 60 spanning the whole session are
+    // different results, and until now they printed the same line.
+    const { analyzedMessages, totalMessages, emptyTextRatio, strategy } = output.sampling;
     process.stdout.write(
-      `[post-merge-unasked-direction-scan] Wrote ${findingCount} finding(s) for session ${ctx.sessionId}\n`
+      `[post-merge-unasked-direction-scan] Wrote ${findingCount} finding(s) for session ${ctx.sessionId} ` +
+        `(analyzed ${analyzedMessages} of ${totalMessages} messages via ${strategy}, ` +
+        `emptyTextRatio=${emptyTextRatio.toFixed(4)})\n`
     );
   }
 
