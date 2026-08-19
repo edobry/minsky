@@ -102,6 +102,12 @@ export interface TranscriptTurnResult {
    * matches the table's `vector_l2_ops` HNSW index (mt#4344). Lower = more
    * similar. On unit-normalized vectors this equals `sqrt(2 · cosine_distance)`
    * and ranks identically to cosine — see this module's header.
+   *
+   * **Producer-dependent.** `TranscriptFtsService` reuses this same result type
+   * and fills this field with Postgres `ts_rank` instead, where HIGHER is more
+   * relevant (it says so at its own module header). The two scales are not
+   * comparable and never were; do not write a threshold against this field
+   * without knowing which service produced the row.
    */
   score: number;
   sessionMetadata: TranscriptSessionMetadata;
