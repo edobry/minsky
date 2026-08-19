@@ -382,6 +382,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_DISABLE_RUNG2_NOMINATION: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — kill switch for the ADR-024 Rung-2 embedding nomination stage; Rung 1 keeps running
   MINSKY_RUNG2_NOMINATION_ENFORCE: "tunable", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
   MINSKY_KA_RUNG2_NOMINATION: "tunable", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
+  MINSKY_CMA_RUNG2_NOMINATION: "tunable", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#4155) — opt-in to Rung-2 embedding nomination for the identity/equivalence claim class ("X is the single reader"), which carries no behavior verb any PREDICATE_PATTERNS entry matches; default is the lexical path, because the 0.455 threshold was derived from the retrospective-trigger exemplar band and is unmeasured on this corpus
   MINSKY_DISABLE_RUNG3_CONFIRM: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
   MINSKY_ACK_PRE_NARRATION: "operator-override", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   MINSKY_SKIP_SESSION_PATH_CHECK: "operator-override", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
@@ -560,6 +561,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_CDP_URL: "tunable", // scripts/verify-*.ts (14 render probes) — Chrome DevTools endpoint the probe drives
   MINSKY_CLAUDE_PROJECTS_DIR: "tunable", // scripts/measure-transcript-discovery-cost.ts + verify-postgres-text-safety.ts — harness transcript root
   MINSKY_CONVERSATION_ID: "tunable", // scripts/verify-conversation-{orientation,turn-target,weight}.ts — conversation under test
+  MINSKY_EXPAND_BURSTS: "tunable", // scripts/verify-conversation-weight.ts (mt#4250) — click every action-burst fold open before measuring, so a collapsed/expanded pair proves folding hides rows rather than dropping them
   MINSKY_FILM_CONVERSATION_ID: "tunable", // scripts/verify-session-film-camera.ts — conversation for the session-film probe
   MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
   MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
@@ -570,7 +572,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_PROBE_TASK_ID: "tunable", // scripts/verify-similarity-terminal-visibility.ts — task the probe queries
   MINSKY_REQUIRE_DERIVED_LINK_PROBE: "tunable", // scripts/verify-derived-conversation-link.ts — fail instead of skipping when preconditions are absent
   MINSKY_REQUIRE_PRESENCE_DERIVATION_PROBE: "tunable", // scripts/verify-presence-conversation-derivation.ts — same, for the presence probe
-  MINSKY_SCREENSHOT_PATH: "tunable", // scripts/verify-{interceptors-axes,terminal-ask}-render.ts — where the probe writes its PNG
+  MINSKY_SCREENSHOT_PATH: "tunable", // scripts/verify-{interceptors-axes,terminal-ask}-render.ts and verify-conversation-weight.ts (mt#4250) — where the probe writes its PNG
   MINSKY_TRANSCRIPTS_DIR: "tunable", // scripts/measure-*.ts + replay-*.ts (5 files) — transcript corpus root
   MINSKY_TRANSCRIPT_CORPUS: "tunable", // scripts/audit-unknown-harness-tags.ts — corpus selector
 
