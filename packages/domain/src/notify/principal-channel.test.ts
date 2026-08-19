@@ -263,7 +263,11 @@ describe("notifyPrincipal", () => {
     deps({
       readPulumiToken: async () => "tok",
       readPulumiPlain: async () => "999",
-      ...(fetchFn ? { fetchFn } : {}),
+      // Passed straight through. It used to be guarded by `fetchFn ? ... : {}`,
+      // which was meaningful while `fetchFn` was optional and is now dead code
+      // — the parameter's type is non-optional, so the condition is always
+      // true. `tsgo` says so under `packages/domain/tsconfig.json` (TS2774).
+      fetchFn,
     });
 
   test("sends the message and reports the delivered id", async () => {
