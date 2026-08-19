@@ -460,11 +460,16 @@ async function readPulumiPlainFromStack(key: string): Promise<string | null> {
       const classified = classifyPulumiConfigGetFailure(proc.exitCode, stderr, keyPresent);
       // The absence-vs-failure CLASSIFICATION is unchanged and still lives in
       // the exported, separately-tested helper. Only the carrier changes: an
-      // absence becomes `null`, a failure becomes a throw. The bare reason is
-      // thrown rather than `classified.error`, because the caller
-      // (`readPulumiChatId`) adds the "chat-id read failed: " prefix and the
-      // helper already includes it — throwing the classified string would
-      // double it.
+      // absence becomes `null`, a failure becomes a throw.
+      //
+      // NO DIAGNOSTIC DETAIL IS LOST, and that is checkable rather than
+      // asserted (PR #3168 R1): the helper's error is exactly
+      // `"chat-id read failed: " + (stderr || "exit " + exitCode)`, and the
+      // caller `readPulumiChatId` re-adds that same prefix to whatever this
+      // throws. Throwing `classified.error` would therefore emit the prefix
+      // TWICE; throwing the bare reason reproduces the helper's string
+      // character-for-character. Both operands are read from the same `proc`,
+      // so the two cannot drift apart.
       if (classified.ok) return classified.value;
       throw new Error(stderr || `exit ${proc.exitCode ?? "unknown"}`);
     }

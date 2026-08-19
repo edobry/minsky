@@ -87,24 +87,26 @@ function getDbFromContainer(
  * so a test can register into an isolated `createSharedCommandRegistry()`
  * instance instead of the shared one every other test file also touches.
  *
- * `channelDeps` (mt#3557) is the seam a test needs to make the "not
- * configured" branch REACHABLE. Without it, a test asserting that branch
- * cannot guarantee it: `resolvePrincipalChannel` reads the real environment,
- * and when that is empty it falls through to spawning the `pulumi` CLI, so on
- * any machine with Pulumi config the resolution SUCCEEDS and `notifyPrincipal`
- * sends over the real global `fetch`. That is not hypothetical — it is what
- * this file's own tests were doing: every full-suite run on the principal's
- * machine delivered two live Telegram messages, and the two tests asserting
- * `delivered: false` failed with `delivered: true`.
+ * `channelDeps` is REQUIRED (mt#3609). It arrived as an optional seam in
+ * mt#3557, when a test asserting the "not configured" branch could not
+ * guarantee that branch: `resolvePrincipalChannel` read the real environment,
+ * and when that was empty it fell through to spawning the `pulumi` CLI, so on
+ * any machine with Pulumi config the resolution SUCCEEDED and
+ * `notifyPrincipal` sent over the real global `fetch`. That was not
+ * hypothetical — it is what this file's own tests were doing: every
+ * full-suite run on the principal's machine delivered two live Telegram
+ * messages, and the two tests asserting `delivered: false` failed with
+ * `delivered: true`.
+ *
+ * mt#3609 removed the fallbacks that made it possible, so the seam is no
+ * longer an affordance a caller may decline — every caller states its
+ * dependencies, production included. `./index.ts` passes
+ * `createRealPrincipalChannelDeps()`; tests pass fakes. Because the parameter
+ * is required it comes FIRST, ahead of the optional registry.
  *
  * The deps are MERGED under the taskId-derived `lookupTaskTopic` /
  * `markTopicDead` rather than replacing them, so injecting credential readers
  * does not silently disable topic routing.
- *
- * Note this is the seam only; the underlying `deps.X ?? <real implementation>`
- * shape inside `packages/domain/src/notify/principal-channel.ts` is the
- * ADR-026-banned fallback that made the failure possible in the first place —
- * tracked separately as mt#3609.
  */
 export function registerPrincipalCommands(
   channelDeps: PrincipalChannelDeps,

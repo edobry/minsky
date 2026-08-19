@@ -39,7 +39,12 @@ const SOAK_TEST_MESSAGE = "soak test is green";
  * than the global `fetch` that once delivered live Telegram messages to the
  * principal on every full-suite run (mt#3557).
  */
-const FETCH_MUST_NOT_BE_CALLED = (): Promise<Response> => {
+// `async` so the failure arrives as a REJECTED promise rather than a
+// synchronous throw. The declared type is `Promise<Response>`, and a caller
+// that does `fetchFn(...).catch(...)` rather than `await` inside `try` would
+// never see a synchronous throw — the tripwire would blow past the very
+// handler meant to catch it (PR #3168 R1).
+const FETCH_MUST_NOT_BE_CALLED = async (): Promise<Response> => {
   throw new Error("fetchFn was called without being injected by this test");
 };
 
