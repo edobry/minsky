@@ -1768,14 +1768,49 @@ function describeFetchTarget(input: unknown): string {
  * are unchanged. Logs the status and the request target — never headers, which
  * carry the API key.
  */
+/**
+ * Read the SDK's own attempt counter off an outgoing request.
+ *
+ * openai@4.104.0 `core.js#buildHeaders` stamps `x-stainless-retry-count` with
+ * `maxRetries - retriesRemaining` — a 0-based attempt index — on every request
+ * including the first. Returned 1-BASED, so `attempt: 1` is the original call
+ * and `attempt: 2` is the first retry, which is how a log reader will read it.
+ *
+ * Returns null rather than guessing when the header is absent: a fabricated
+ * attempt number is worse than a missing one, because it reads as measured.
+ */
+function readSdkAttempt(init: unknown): number | null {
+  if (init === null || typeof init !== "object" || !("headers" in init)) return null;
+  const headers = (init as { headers?: unknown }).headers;
+  if (headers === null || typeof headers !== "object") return null;
+
+  const raw =
+    typeof (headers as Headers).get === "function"
+      ? (headers as Headers).get("x-stainless-retry-count")
+      : ((headers as Record<string, unknown>)["x-stainless-retry-count"] ?? null);
+
+  if (raw === null || raw === undefined) return null;
+  const retryCount = Number(raw);
+  return Number.isInteger(retryCount) && retryCount >= 0 ? retryCount + 1 : null;
+}
+
 export function withSdkRetryVisibility(
   baseFetch: FetchLike,
-  onRetryableResponse: (info: { status: number; target: string }) => void
+  onRetryableResponse: (info: {
+    status: number;
+    target: string;
+    /** 1-based attempt; null when the SDK's header was absent. */
+    attempt: number | null;
+  }) => void
 ): FetchLike {
   return async (input, init) => {
     const response = await baseFetch(input, init);
     if (isSdkRetryableStatus(response.status)) {
-      onRetryableResponse({ status: response.status, target: describeFetchTarget(input) });
+      onRetryableResponse({
+        status: response.status,
+        target: describeFetchTarget(input),
+        attempt: readSdkAttempt(init),
+      });
     }
     return response;
   };
@@ -1793,11 +1828,12 @@ export function createReviewerOpenAIClient(apiKey: string, baseFetch: FetchLike 
     apiKey,
     maxRetries: OPENAI_SDK_MAX_RETRIES,
     timeout: OPENAI_SDK_TIMEOUT_MS,
-    fetch: withSdkRetryVisibility(baseFetch, ({ status, target }) => {
+    fetch: withSdkRetryVisibility(baseFetch, ({ status, target, attempt }) => {
       log.warn("openai.sdk_retryable_response", {
         event: "openai.sdk_retryable_response",
         status,
         target,
+        attempt,
         maxRetries: OPENAI_SDK_MAX_RETRIES,
       });
     }),

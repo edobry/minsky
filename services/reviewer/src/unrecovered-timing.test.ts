@@ -289,6 +289,20 @@ function callFetch(f: StubFetch, url: string): Promise<{ status: number }> {
   return (f as unknown as (u: string) => Promise<{ status: number }>)(url);
 }
 
+/** As {@link callFetch}, with the request headers the SDK would have stamped. */
+function callFetchWithHeaders(
+  f: StubFetch,
+  url: string,
+  headers: Record<string, string>
+): Promise<{ status: number }> {
+  return (
+    f as unknown as (
+      u: string,
+      init: { headers: Record<string, string> }
+    ) => Promise<{ status: number }>
+  )(url, { headers });
+}
+
 describe("withSdkRetryVisibility (mt#4281)", () => {
   test("a 429 — the rate-limit case — is reported", async () => {
     const seen: { status: number; target: string }[] = [];
@@ -310,6 +324,36 @@ describe("withSdkRetryVisibility (mt#4281)", () => {
     await callFetch(wrapped, TARGET_URL);
 
     expect(seen).toHaveLength(0);
+  });
+
+  test("reports the SDK's own 1-based attempt number, read off x-stainless-retry-count", async () => {
+    // openai@4.104.0 stamps this header with `maxRetries - retriesRemaining`,
+    // a 0-based index, so retryCount 1 is the SECOND attempt.
+    const seen: (number | null)[] = [];
+    const wrapped = withSdkRetryVisibility(fetchReturning(429), (info) => seen.push(info.attempt));
+
+    await callFetchWithHeaders(wrapped, TARGET_URL, { "x-stainless-retry-count": "1" });
+
+    expect(seen).toEqual([2]);
+  });
+
+  test("the FIRST attempt reads as 1, not as a retry", async () => {
+    const seen: (number | null)[] = [];
+    const wrapped = withSdkRetryVisibility(fetchReturning(500), (info) => seen.push(info.attempt));
+
+    await callFetchWithHeaders(wrapped, TARGET_URL, { "x-stainless-retry-count": "0" });
+
+    expect(seen).toEqual([1]);
+  });
+
+  test("reports null rather than fabricating a number when the header is absent", async () => {
+    // A made-up attempt number is worse than a missing one — it reads as measured.
+    const seen: (number | null)[] = [];
+    const wrapped = withSdkRetryVisibility(fetchReturning(429), (info) => seen.push(info.attempt));
+
+    await callFetch(wrapped, TARGET_URL);
+
+    expect(seen).toEqual([null]);
   });
 
   test("passes the response through untouched — it observes, it does not intervene", async () => {
