@@ -316,7 +316,9 @@ the surrounding paragraph felt.** Third tier for one failure class, which is the
 
 Two forms, and the second is what makes the class reach its own originating incident:
 
-- **Explicit** — the paragraph names `mt#N` / `md#N`. Those are the subjects.
+- **Explicit** — the paragraph names `mt#N`. Those are the subjects. (`md#N` is a documented task-id
+  form and is deliberately NOT one — see "Subject id form narrowed at review" below for the
+  measurement.)
 - **Deictic** — the paragraph says "this task" and names no id. The referent is the `taskId`
   argument of the write itself, which is on the call.
 
