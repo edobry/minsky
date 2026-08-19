@@ -53,11 +53,19 @@ function conversation(
  * counting — is the production code path. The `db` handle is never touched.
  */
 class StubbedTranscriptService extends AgentTranscriptService {
+  /** The id `computeMessageStats` actually threaded through, for the pass-through assertion. */
+  receivedSessionId: AgentSessionId | null = null;
+
   constructor(private readonly fixture: TranscriptMessage[] | null) {
     super({} as PostgresJsDatabase);
   }
 
-  override async getTranscript(): Promise<TranscriptMessage[] | null> {
+  // Takes the parameter rather than ignoring it (PR #3129 R2). Dropping it would make the stub
+  // accept any id silently — and passing the WRONG id space to this exact method is not a
+  // hypothetical: it is mt#3066, where a Minsky workspace id was looked up against the
+  // conversation keyspace and every call returned null.
+  override async getTranscript(sessionId: AgentSessionId): Promise<TranscriptMessage[] | null> {
+    this.receivedSessionId = sessionId;
     return this.fixture;
   }
 }
@@ -120,5 +128,13 @@ describe("computeMessageStats resolves both transcript shapes (mt#4225)", () => 
 
   test("returns null when no transcript is stored", async () => {
     expect(await statsFor(null)).toBeNull();
+  });
+
+  test("threads the session id through to the transcript lookup unchanged", async () => {
+    // mt#3066 was exactly this going wrong on this method — a workspace id looked up against the
+    // conversation keyspace, which returns null and is indistinguishable from an absent transcript.
+    const service = new StubbedTranscriptService(conversation(storedMessage, CORRECTION_REPLY));
+    await service.computeMessageStats(SESSION);
+    expect(service.receivedSessionId).toBe(SESSION);
   });
 });
