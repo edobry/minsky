@@ -313,12 +313,39 @@ export function run(
   ctx: DispatchContext,
   deps: RunDeps = {}
 ): GuardOutcome | null {
+  const logEvaluation = deps.logEvaluationRecordFn ?? logEvaluationRecord;
+
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
     overrideVal?.toLowerCase() === "true" ||
     overrideVal?.toLowerCase() === "yes";
   if (isOverride) {
+    // Record the override rather than returning silently (PR #3144 R2).
+    //
+    // The sibling guards this branch is modelled on return `auditLines` alone,
+    // and for a fire-detector that is defensible: a suppressed FIRE is a
+    // non-event. It is not defensible here. This guard's product is a
+    // CONTINUOUS distribution — every turn contributes a row, and the
+    // thresholds are meant to be re-derived from it. An override that writes
+    // nothing therefore does not suppress a fire; it punches a hole in the
+    // sample, and the hole is indistinguishable from "the session had no
+    // resolvable usage record". A later reader would silently under-count.
+    //
+    // So: mark the gap. No measurement is taken — the override means do not do
+    // the work — but the stream says plainly that a turn was skipped and why.
+    logEvaluation(
+      EVALUATION_LOG_NAME,
+      {
+        timestamp: new Date().toISOString(),
+        session_id: input.session_id,
+        guardName: "context-fill-gauge",
+        overridden: true,
+        overrideAck: overrideVal,
+        fired: false,
+      },
+      { fallbackCwd: input.cwd }
+    );
     return {
       auditLines: [
         `[context-fill-gauge] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`,
@@ -336,7 +363,6 @@ export function run(
   const measurement = measureFill(lines);
   if (measurement === null) return null;
 
-  const logEvaluation = deps.logEvaluationRecordFn ?? logEvaluationRecord;
   logEvaluation(
     EVALUATION_LOG_NAME,
     {

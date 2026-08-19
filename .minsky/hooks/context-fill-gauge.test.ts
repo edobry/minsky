@@ -311,6 +311,31 @@ describe("run", () => {
     expect(records).toHaveLength(0);
   });
 
+  // PR #3144 R2. An override must not be SILENT: this guard's product is a
+  // continuous distribution, so a skipped turn that writes nothing is
+  // indistinguishable from a turn that had no usage record, and a later reader
+  // under-counts without any signal that it is doing so.
+  test("an override is RECORDED, not silent — the gap is marked in the stream", () => {
+    const prior = process.env.MINSKY_SKIP_CONTEXT_FILL_GAUGE;
+    process.env.MINSKY_SKIP_CONTEXT_FILL_GAUGE = "1";
+    try {
+      const { outcome, records } = runWithCapture([
+        assistantLine("claude-opus-5", usageSummingTo(970_000)),
+      ]);
+      const record = mustFirst(records);
+      expect(record.overridden).toBe(true);
+      expect(record.overrideAck).toBe("1");
+      expect(record.fired).toBe(false);
+      // No measurement is taken — the override means do not do the work.
+      expect(record.fillTokens).toBeUndefined();
+      // And the audit line still goes out for the dispatcher to surface.
+      expect(mustOutcome(outcome).auditLines?.[0]).toContain("OVERRIDE");
+    } finally {
+      if (prior === undefined) delete process.env.MINSKY_SKIP_CONTEXT_FILL_GAUGE;
+      else process.env.MINSKY_SKIP_CONTEXT_FILL_GAUGE = prior;
+    }
+  });
+
   test("records the fallback window source for an unrecognized model", () => {
     const { records } = runWithCapture([assistantLine("mystery-model", usageSummingTo(50_000))]);
     const record = mustFirst(records);
