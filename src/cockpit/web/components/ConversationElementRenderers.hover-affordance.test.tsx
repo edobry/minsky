@@ -25,6 +25,8 @@
  * structurally — see the `<button>` test below for why a computed-style check
  * would be meaningless here.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, test, expect, afterEach } from "bun:test";
 import { render, screen, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -50,15 +52,24 @@ function wrap(node: React.ReactNode) {
 }
 
 /**
- * Every distinct `hover:bg-*` class currently in the DOM.
+ * Every distinct `hover:bg-*` class across the GIVEN control elements.
  *
- * The set, not the list: claim 3 above is that the whole class agrees on ONE
- * value, so a second entry here is the failure regardless of which control
- * introduced it.
+ * The set, not the list: claim 3 above is that the five controls agree on ONE
+ * value, so a second entry here is the failure regardless of which introduced it.
+ *
+ * Scoped to the controls rather than sweeping the whole DOM (PR #3171 R1, both
+ * reviews). A DOM-wide sweep asserts something this task never claimed — that
+ * NOTHING in the conversation view uses a different hover background — and that
+ * is false today: `SpawnBadge`, in this very module, uses
+ * `hover:bg-violet-500/25`, so any conversation containing a resolved Agent
+ * spawn would have failed the sweep. It passed only because the fixture had no
+ * spawns. Across `src/cockpit/web` the app legitimately uses `hover:bg-muted/30`,
+ * `/60`, `/70` and `hover:bg-accent` elsewhere, so filtering the sweep to the
+ * `muted` family would merely have narrowed a claim that was the wrong shape.
  */
-function hoverBackgroundClasses(container: HTMLElement): string[] {
+function hoverBackgroundClasses(elements: Element[]): string[] {
   const found = new Set<string>();
-  for (const el of Array.from(container.querySelectorAll<HTMLElement>("*"))) {
+  for (const el of elements) {
     for (const cls of Array.from(el.classList)) {
       if (cls.startsWith("hover:bg-")) found.add(cls);
     }
@@ -207,13 +218,79 @@ describe("disclosure-control hover affordance (mt#4251)", () => {
     expect(target.className).toContain("focus-visible:ring-2");
   });
 
-  test("the whole class agrees on ONE hover value, including mt#4250's fold toggle", () => {
+  test("a spawn badge's own hover colour does not enter the row's assertion", () => {
+    // The exact case PR #3171 R1 named. `SpawnBadge` renders INSIDE the row
+    // container carrying HOVER_ROW and uses `hover:bg-violet-500/25` — a
+    // deliberate, unrelated accent. A DOM-wide sweep would read it as drift.
+    const { container } = wrap(
+      <ToolInvocation
+        call={{
+          kind: "tool-call",
+          id: "call-spawn",
+          name: "Agent",
+          input: {},
+          spawn: { agentKind: "Explore", childAgentSessionId: "child-1" },
+        }}
+        entityIndex={EMPTY_INDEX}
+        expandSignal={undefined}
+      />
+    );
+
+    const badge = container.querySelector<HTMLElement>('[data-testid="spawn-child-link"]');
+    expect(badge).not.toBeNull();
+    expect(badge!.className).toContain("hover:bg-violet-500/25");
+    // The row's own affordance is still exactly one value, unaffected.
+    expect(hoverBackgroundClasses([hoverTarget(container)!])).toEqual([HOVER_ROW]);
+  });
+
+  test("all five controls agree on ONE hover value, including mt#4250's fold toggle", () => {
     // The fifth control lives in `ConversationTurnView` and only appears once a
-    // run of machinery turns is long enough to fold, so this case renders the
-    // real view rather than a component. Keeping it in THIS file is the point:
-    // the claim is that all five agree, and splitting the assertion across two
-    // files is what would let them drift apart again.
-    const { container } = render(
+    // run of machinery turns is long enough to fold, so it needs the real view;
+    // the other four are rendered directly. Keeping all five in ONE assertion is
+    // the point — splitting it across files is what would let them drift apart.
+    const controls: Element[] = [];
+
+    controls.push(
+      hoverTarget(
+        wrap(
+          <ToolInvocation
+            call={{ kind: "tool-call", id: "call-1", name: "Read", input: {} }}
+            entityIndex={EMPTY_INDEX}
+            expandSignal={undefined}
+          />
+        ).container
+      )!
+    );
+    controls.push(
+      hoverTarget(
+        wrap(
+          <InjectedContentBlock
+            span={{ kind: "system-reminder", label: "r", content: "c" }}
+            entityIndex={EMPTY_INDEX}
+            expandSignal={undefined}
+          />
+        ).container
+      )!
+    );
+    controls.push(
+      hoverTarget(wrap(<ThinkingBlock thinking="r" entityIndex={EMPTY_INDEX} />).container)!
+    );
+    controls.push(
+      hoverTarget(
+        wrap(
+          <CommandInvocation
+            element={{
+              kind: "command-invocation",
+              command: { kind: "command", label: "command: /plan", content: "/plan mt#1" },
+            }}
+            entityIndex={EMPTY_INDEX}
+            expandSignal={undefined}
+          />
+        ).container
+      )!
+    );
+
+    render(
       <MemoryRouter>
         <QueryClientProvider
           client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
@@ -222,9 +299,25 @@ describe("disclosure-control hover affordance (mt#4251)", () => {
         </QueryClientProvider>
       </MemoryRouter>
     );
+    const burstToggles = screen.getAllByTestId("action-burst-toggle");
+    expect(burstToggles).toHaveLength(1);
+    controls.push(burstToggles[0]!);
 
-    expect(screen.getAllByTestId("action-burst-toggle")).toHaveLength(1);
-    expect(hoverBackgroundClasses(container)).toEqual([HOVER_ROW]);
+    expect(controls).toHaveLength(5);
+    expect(hoverBackgroundClasses(controls)).toEqual([HOVER_ROW]);
+  });
+
+  test("HOVER_ROW's value stays tied to the design-system doc that chose it", () => {
+    // PR #3171 R2 asked for a contract on this exported constant beyond "one
+    // test scans the DOM for it". The contract that matters is not the literal
+    // string — it is that the string still matches what `docs/design-system.md`
+    // prescribes for a table row, since that doc is what `src/cockpit/CLAUDE.md`
+    // declares the authority on interaction states. Change either side alone and
+    // this fails, which is the coupling worth enforcing.
+    const doc = readFileSync(resolve(import.meta.dir, "../../../../docs/design-system.md"), "utf8");
+    const tableRow = doc.split("\n").find((line) => line.includes("| Table rows"));
+    expect(tableRow).toBeDefined();
+    expect(tableRow).toContain(HOVER_ROW);
   });
 });
 
