@@ -571,6 +571,9 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
   MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
   MINSKY_PEEK_TASK_ID: "tunable", // scripts/verify-peek-pane-layout.ts — task rendered in the peek pane
+  MINSKY_PROTECTION_PREVIEW_DEGRADED: "tunable", // scripts/preview-protection-surface.ts — force one broken check so the degraded render is previewable (default off)
+  MINSKY_PROTECTION_PREVIEW_PORT: "tunable", // scripts/preview-protection-surface.ts — port the no-database design preview serves on (default 4310)
+  MINSKY_PROTECTION_SHOT: "tunable", // scripts/verify-protection-surface.ts — screenshot output path (default /tmp/mt4287-protection.png)
   MINSKY_PROBE_TASK_ID: "tunable", // scripts/verify-similarity-terminal-visibility.ts — task the probe queries
   MINSKY_REQUIRE_DERIVED_LINK_PROBE: "tunable", // scripts/verify-derived-conversation-link.ts — fail instead of skipping when preconditions are absent
   MINSKY_REQUIRE_PRESENCE_DERIVATION_PROBE: "tunable", // scripts/verify-presence-conversation-derivation.ts — same, for the presence probe

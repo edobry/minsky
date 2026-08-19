@@ -10,8 +10,10 @@
  *
  * Two modes, and the safe one is not the whole script (§7a dual-mode discipline):
  *
- *   --render-only   Resolve and render each transcript; report the non-text ratio.
- *                   No LLM calls, no cost. This is the blindness measurement.
+ *   --render-only   Resolve and render each transcript; report the non-text ratio and
+ *                   the empty-text ratio under BOTH the pre-mt#4235 head window and the
+ *                   current selection. No LLM calls, no cost. This is the blindness
+ *                   measurement, and since mt#4235 also the window measurement.
  *   (default)       The above, plus a real analyzer call per transcript. Costs one
  *                   cheap-model completion per session.
  *
@@ -41,8 +43,11 @@ import {
 } from "../packages/domain/src/provenance/transcript-content";
 import {
   UnaskedDirectionAnalyzer,
+  describeSampling,
+  selectAnalysisWindow,
   __TEST_ONLY,
 } from "../packages/domain/src/detectors/unasked-direction-analyzer";
+import type { TranscriptSampling } from "../packages/domain/src/detectors/unasked-direction-analyzer";
 import type { ConversationId } from "../packages/domain/src/ids";
 
 interface ReplayRow {
@@ -50,7 +55,8 @@ interface ReplayRow {
   messageCount: number;
   nonTextRatio: number;
   /**
-   * Fraction of messages resolving to text that is empty or whitespace.
+   * Fraction of messages resolving to text that is empty or whitespace, over the window
+   * the analyzer ACTUALLY reads today.
    *
    * Distinct from `nonTextRatio`, and not covered by it: a tool-use-only assistant message
    * has a real block array with no `text` blocks, so it extracts to `""` — resolution
@@ -58,6 +64,28 @@ interface ReplayRow {
    * separately because the two have different causes and different fixes.
    */
   emptyTextRatio: number;
+  /**
+   * The same fraction over the PRE-mt#4235 window (`messages.slice(0, CAP)`) — the
+   * baseline, re-measured on THIS sample in THIS run.
+   *
+   * Both figures come from one run deliberately. The replay draws "the 20 most recently
+   * ingested" transcripts, so the sample moves between runs: mt#4235 was filed citing
+   * 0.8826 and the same command two days later pooled to ≈0.754 on different rows.
+   * Comparing a post-change figure against a number measured on a different sample would
+   * be a false comparison in either direction, so the baseline is computed here rather
+   * than quoted.
+   */
+  headBaselineEmptyTextRatio: number;
+  /** Messages actually fed to the model under the current selection. */
+  analyzedMessages: number;
+  /**
+   * Which rule produced the window — `head-fallback` means nothing in the transcript carried
+   * extractable text, so the row's other figures describe the unfiltered head rather than a
+   * sample. Recorded because without it those two cases are indistinguishable in the output.
+   */
+  strategy: TranscriptSampling["strategy"];
+  /** Transcript span the analyzed window covers, as `[firstIndex, lastIndex]`. */
+  windowSpan: [number, number] | null;
   blind: boolean;
   findingCount: number | null;
   summary: string | null;
@@ -70,6 +98,12 @@ function parseIntArg(flag: string, fallback: number): number {
   const raw = process.argv[idx + 1];
   const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/** Mean of a sample, rounded to 4dp. Returns 0 for an empty sample. */
+function mean(values: readonly number[]): number {
+  if (values.length === 0) return 0;
+  return Number((values.reduce((sum, v) => sum + v, 0) / values.length).toFixed(4));
 }
 
 function skip(reason: string): never {
@@ -166,6 +200,10 @@ async function main(): Promise<void> {
         messageCount: 0,
         nonTextRatio: 0,
         emptyTextRatio: 0,
+        headBaselineEmptyTextRatio: 0,
+        analyzedMessages: 0,
+        strategy: "head-fallback",
+        windowSpan: null,
         blind: false,
         findingCount: null,
         summary: null,
@@ -180,6 +218,10 @@ async function main(): Promise<void> {
         messageCount: 0,
         nonTextRatio: 0,
         emptyTextRatio: 0,
+        headBaselineEmptyTextRatio: 0,
+        analyzedMessages: 0,
+        strategy: "head-fallback",
+        windowSpan: null,
         blind: false,
         findingCount: null,
         summary: null,
@@ -188,21 +230,37 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // Measured over the window the analyzer ACTUALLY reads, not the whole transcript —
-    // these sessions run to thousands of messages and the analyzer caps at
-    // TRANSCRIPT_MESSAGE_CAP. Read from the analyzer's own constant rather than mirroring
-    // the number here, so the two cannot drift.
-    const window = messages.slice(0, __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP);
+    // Two windows over the SAME transcript, in the same run:
+    //
+    //   `window`        what the analyzer reads today — `selectAnalysisWindow` (mt#4235).
+    //   `headBaseline`  what it read before — the first CAP messages.
+    //
+    // Measuring both here is what makes the comparison honest. Read the cap from the
+    // analyzer's own constant rather than mirroring the number, so the two cannot drift.
+    const selected = selectAnalysisWindow(messages);
+    const sampling = describeSampling(messages, selected);
+    const window = selected.map((s) => s.message);
     const verdict = detectBlindRendering(window);
-    const emptyCount = window.reduce(
+
+    const headBaseline = messages.slice(0, __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP);
+    const headEmptyCount = headBaseline.reduce(
       (n, m) => (resolveMessageText(m).text.trim() === "" ? n + 1 : n),
       0
     );
+
     const row: ReplayRow = {
       conversationId,
       messageCount: messages.length,
       nonTextRatio: Number(verdict.ratio.toFixed(4)),
-      emptyTextRatio: window.length === 0 ? 0 : Number((emptyCount / window.length).toFixed(4)),
+      emptyTextRatio: Number(sampling.emptyTextRatio.toFixed(4)),
+      headBaselineEmptyTextRatio:
+        headBaseline.length === 0 ? 0 : Number((headEmptyCount / headBaseline.length).toFixed(4)),
+      analyzedMessages: sampling.analyzedMessages,
+      strategy: sampling.strategy,
+      windowSpan:
+        sampling.firstIndex === null || sampling.lastIndex === null
+          ? null
+          : [sampling.firstIndex, sampling.lastIndex],
       blind: verdict.blind,
       findingCount: null,
       summary: null,
@@ -222,6 +280,7 @@ async function main(): Promise<void> {
     rows.push(row);
     console.log(
       `[${rows.length}/${conversationIds.length}] ${conversationId} msgs=${row.messageCount} ` +
+        `analyzed=${row.analyzedMessages} emptyText=${row.headBaselineEmptyTextRatio}→${row.emptyTextRatio} ` +
         `nonTextRatio=${row.nonTextRatio}${row.blind ? " BLIND" : ""}${
           row.findingCount === null ? "" : ` findings=${row.findingCount}`
         }${row.error ? ` error=${row.error}` : ""}`
@@ -239,8 +298,22 @@ async function main(): Promise<void> {
     transcriptsWithMessages: rows.filter((r) => r.messageCount > 0).length,
     blindRenderings: blindCount,
     analyzedMessageWindow: __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP,
-    meanEmptyTextRatioInWindow: Number(
-      (rows.reduce((sum, r) => sum + r.emptyTextRatio, 0) / Math.max(rows.length, 1)).toFixed(4)
+    // Before and after, over the same rows, from this run. See `headBaselineEmptyTextRatio`
+    // for why the baseline is measured rather than quoted from the spec.
+    meanEmptyTextRatioHeadBaseline: mean(rows.map((r) => r.headBaselineEmptyTextRatio)),
+    meanEmptyTextRatioInWindow: mean(rows.map((r) => r.emptyTextRatio)),
+    // A stored transcript with zero messages contributes 0.0 to both means and is not a
+    // low-empty session — it is a degenerate row that drags the average DOWN. Reported
+    // separately so a reader is not misled by either figure alone (mt#4235 planning audit).
+    transcriptsWithZeroMessages: rows.filter((r) => r.messageCount === 0).length,
+    meanEmptyTextRatioHeadBaselineExcludingEmpty: mean(
+      rows.filter((r) => r.messageCount > 0).map((r) => r.headBaselineEmptyTextRatio)
+    ),
+    meanEmptyTextRatioInWindowExcludingEmpty: mean(
+      rows.filter((r) => r.messageCount > 0).map((r) => r.emptyTextRatio)
+    ),
+    meanAnalyzedMessages: mean(
+      rows.filter((r) => r.messageCount > 0).map((r) => r.analyzedMessages)
     ),
     analyzed: analyzed.length,
     totalFindings,

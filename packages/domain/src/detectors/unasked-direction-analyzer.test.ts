@@ -17,6 +17,8 @@ import { describe, it, expect } from "bun:test";
 import {
   UnaskedDirectionAnalyzer,
   findingToDetectionSignal,
+  describeSampling,
+  selectAnalysisWindow,
   DETECTOR_ID,
   DETECTOR_VERSION,
   __TEST_ONLY,
@@ -24,7 +26,7 @@ import {
   type UnaskedDirectionFinding,
 } from "./unasked-direction-analyzer";
 import type { TranscriptMessage } from "../provenance/transcript-service";
-import { NON_TEXT_MARKER } from "../provenance/transcript-content";
+import { NON_TEXT_MARKER, resolveMessageText } from "../provenance/transcript-content";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 
 // ---------------------------------------------------------------------------
@@ -94,7 +96,38 @@ describe("UnaskedDirectionAnalyzer.analyzeTranscript", () => {
       { sessionId: "s2", taskId: "mt#1543" }
     );
 
-    expect(out).toEqual(expected);
+    expect(out.findings).toEqual(expected.findings);
+    expect(out.summary).toEqual(expected.summary);
+  });
+
+  it("attaches the sampling record to the run (mt#4235 SC4)", async () => {
+    const analyzer = new UnaskedDirectionAnalyzer(makeStubCompletionService(makeAnalyzerOutput()));
+
+    const out = await analyzer.analyzeTranscript(
+      [makeMessage("user", "spec say"), makeMessage("assistant", "ok done")],
+      { sessionId: "s2" }
+    );
+
+    expect(out.sampling).toEqual({
+      strategy: "text-bearing-even",
+      totalMessages: 2,
+      textBearingMessages: 2,
+      analyzedMessages: 2,
+      emptyTextRatio: 0,
+      nonTextRatio: 0,
+      firstIndex: 0,
+      lastIndex: 1,
+    });
+  });
+
+  it("records the sampling even on the empty-transcript short-circuit", async () => {
+    const analyzer = new UnaskedDirectionAnalyzer(makeStubCompletionService(makeAnalyzerOutput()));
+    const out = await analyzer.analyzeTranscript([], { sessionId: "s1" });
+
+    // A run that read nothing must still SAY it read nothing, rather than producing a
+    // record indistinguishable from a session the analyzer genuinely found quiet.
+    expect(out.sampling.totalMessages).toBe(0);
+    expect(out.sampling.analyzedMessages).toBe(0);
   });
 
   it("propagates AI errors", async () => {
@@ -185,8 +218,14 @@ describe("buildUserPrompt", () => {
       makeMessage(i % 2 === 0 ? "user" : "assistant", `msg ${i}`)
     );
     const prompt = __TEST_ONLY.buildUserPrompt(many, { sessionId: "s1" });
-    // The prompt mentions the cap explicitly
-    expect(prompt).toContain(`first ${__TEST_ONLY.TRANSCRIPT_MESSAGE_CAP}`);
+
+    // The prompt states how many it sampled, and renders exactly that many lines.
+    expect(prompt).toContain(
+      `${__TEST_ONLY.TRANSCRIPT_MESSAGE_CAP} of ${many.length} text-bearing messages`
+    );
+    expect(prompt).toContain("sampled evenly across the whole session");
+    const rendered = prompt.split("\n").filter((line) => /^\[\d+] (Human|Agent):/.test(line));
+    expect(rendered).toHaveLength(__TEST_ONLY.TRANSCRIPT_MESSAGE_CAP);
   });
 });
 
@@ -283,5 +322,201 @@ describe("summarizeMessage on the stored transcript shape (mt#4196)", () => {
 
     const prompt = __TEST_ONLY.buildUserPrompt(storedRows, { sessionId: "s1" });
     expect(prompt).not.toContain(NON_TEXT_MARKER);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Window SELECTION (mt#4235)
+// ---------------------------------------------------------------------------
+
+/**
+ * A tool-use-only assistant message — a real block array with no `text` block.
+ *
+ * This is the shape mt#4235 is about, and it is NOT the mt#4196 shape: extraction
+ * SUCCEEDS here and returns `""`, so `nonTextRatio` correctly does not count it. Measured
+ * over 20 real transcripts, 75–93% of every head-60 window was this.
+ */
+function makeToolUseOnlyMessage(name = "Edit"): TranscriptMessage {
+  return makeStoredMessage("assistant", [{ type: "tool_use", name, input: {} }]);
+}
+
+describe("selectAnalysisWindow (mt#4235)", () => {
+  const CAP = __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP;
+
+  it("AT3 — reaches text-bearing messages sitting past a head of tool-use-only ones", () => {
+    // The session shape the measurement found: a long tool-use preamble, decisions later.
+    const preamble = Array.from({ length: CAP + 40 }, () => makeToolUseOnlyMessage());
+    const decisions = [
+      makeStoredMessage("assistant", "picked an in-memory LRU over Redis"),
+      makeStoredMessage("user", "why LRU?"),
+    ];
+    const messages = [...preamble, ...decisions];
+
+    // The pre-mt#4235 window over this same transcript carries no prose at all — so the
+    // old rule could not have seen the decision no matter what the model did with it.
+    const headWindow = messages.slice(0, CAP);
+    expect(headWindow.every((m) => resolveMessageText(m).text.trim() === "")).toBe(true);
+
+    const selected = selectAnalysisWindow(messages);
+    expect(selected).toHaveLength(decisions.length);
+    expect(selected.every(({ message }) => resolveMessageText(message).text.trim() !== "")).toBe(
+      true
+    );
+
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+    expect(prompt).toContain("picked an in-memory LRU over Redis");
+    expect(prompt).toContain("why LRU?");
+  });
+
+  it("spans first to last text-bearing message when it has to subsample", () => {
+    // 3x the cap in text-bearing messages, so the selector must drop some. The end of a
+    // session is where its decisions land, so the last one must survive.
+    const messages = Array.from({ length: CAP * 3 }, (_, i) =>
+      makeStoredMessage(i % 2 === 0 ? "user" : "assistant", `decision ${i}`)
+    );
+
+    const selected = selectAnalysisWindow(messages);
+
+    expect(selected).toHaveLength(CAP);
+    expect(selected[0]?.index).toBe(0);
+    expect(selected[selected.length - 1]?.index).toBe(messages.length - 1);
+    // Chronological and without duplicates — a repeated pick would silently shrink the
+    // effective window.
+    const indices = selected.map((s) => s.index);
+    expect([...indices].sort((a, b) => a - b)).toEqual(indices);
+    expect(new Set(indices).size).toBe(indices.length);
+  });
+
+  it("labels messages by TRANSCRIPT position, so evidenceMessages stay resolvable", () => {
+    const messages = [
+      makeToolUseOnlyMessage(),
+      makeToolUseOnlyMessage(),
+      makeStoredMessage("user", "the actual decision"),
+    ];
+
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+
+    // Position 3 in the transcript, not position 1 in the window.
+    expect(prompt).toContain("[3] Human: the actual decision");
+  });
+
+  it("takes every text-bearing message when there are fewer than the cap", () => {
+    const messages = [
+      makeStoredMessage("user", "one"),
+      makeToolUseOnlyMessage(),
+      makeStoredMessage("assistant", "two"),
+    ];
+
+    expect(selectAnalysisWindow(messages).map((s) => s.index)).toEqual([0, 2]);
+  });
+
+  it("falls back to the head when nothing in the transcript carries text", () => {
+    const messages = Array.from({ length: CAP + 5 }, () => makeToolUseOnlyMessage());
+
+    const selected = selectAnalysisWindow(messages);
+    const sampling = describeSampling(messages, selected);
+
+    expect(selected).toHaveLength(CAP);
+    expect(sampling.strategy).toBe("head-fallback");
+    expect(sampling.textBearingMessages).toBe(0);
+    expect(sampling.emptyTextRatio).toBe(1);
+  });
+});
+
+describe("describeSelection — the prompt's own account of its window (PR #3153 R1)", () => {
+  const CAP = __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP;
+
+  it("does not claim even sampling on the head-fallback path", () => {
+    // R1: the note was inferred from `selected.length < messages.length`, which is TRUE here
+    // and made the prompt say "sampled evenly across the whole session, skipping messages
+    // with no text" — false twice over. This window is the unfiltered head and skipped nothing.
+    const messages = Array.from({ length: CAP + 5 }, () => makeToolUseOnlyMessage());
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+
+    expect(prompt).not.toContain("sampled evenly");
+    expect(prompt).not.toContain("skipping messages with no text");
+    expect(prompt).toContain("this is the head of the transcript, not a sample");
+    expect(prompt).toContain("no message in this transcript carried extractable text");
+  });
+
+  it("says 'all' rather than 'sampled' when every text-bearing message fits", () => {
+    const messages = [
+      makeStoredMessage("user", "one"),
+      makeToolUseOnlyMessage(),
+      makeStoredMessage("assistant", "two"),
+    ];
+    const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+
+    expect(prompt).toContain("all 2 text-bearing messages shown");
+    expect(prompt).not.toContain("sampled evenly");
+  });
+
+  it("reads the recorded strategy, not the window's length", () => {
+    // The three notes are a function of `sampling` alone — so the prompt and the stored
+    // record cannot disagree about how the window was chosen.
+    expect(
+      __TEST_ONLY.describeSelection({
+        strategy: "head-fallback",
+        totalMessages: 100,
+        textBearingMessages: 0,
+        analyzedMessages: 60,
+        emptyTextRatio: 1,
+        nonTextRatio: 0,
+        firstIndex: 0,
+        lastIndex: 59,
+      })
+    ).toContain("not a sample");
+
+    expect(
+      __TEST_ONLY.describeSelection({
+        strategy: "text-bearing-even",
+        totalMessages: 500,
+        textBearingMessages: 200,
+        analyzedMessages: 60,
+        emptyTextRatio: 0,
+        nonTextRatio: 0,
+        firstIndex: 0,
+        lastIndex: 499,
+      })
+    ).toBe("60 of 200 text-bearing messages, sampled evenly across the whole session");
+  });
+});
+
+describe("describeSampling (mt#4235 SC4)", () => {
+  const CAP = __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP;
+
+  it("reports a window shape that distinguishes a thin run from a full one", () => {
+    // The exact pair SC4 names: 2 text-bearing messages vs a full window. A record that
+    // rendered these identically is what made 496 zero-finding runs uninterpretable.
+    const thin = [
+      ...Array.from({ length: CAP }, () => makeToolUseOnlyMessage()),
+      makeStoredMessage("user", "a"),
+      makeStoredMessage("user", "b"),
+    ];
+    const full = Array.from({ length: CAP }, (_, i) => makeStoredMessage("user", `m${i}`));
+
+    const thinSampling = describeSampling(thin, selectAnalysisWindow(thin));
+    const fullSampling = describeSampling(full, selectAnalysisWindow(full));
+
+    expect(thinSampling.analyzedMessages).toBe(2);
+    expect(fullSampling.analyzedMessages).toBe(CAP);
+    expect(thinSampling).not.toEqual(fullSampling);
+  });
+
+  it("drops the empty-text ratio the head window would have reported", () => {
+    // Head window: 60 empty. New window: the 6 that carry prose. Same transcript.
+    const messages = [
+      ...Array.from({ length: CAP }, () => makeToolUseOnlyMessage()),
+      ...Array.from({ length: 6 }, (_, i) => makeStoredMessage("user", `decision ${i}`)),
+    ];
+
+    const headWindow = messages.slice(0, CAP);
+    const headEmptyRatio =
+      headWindow.filter((m) => resolveMessageText(m).text.trim() === "").length / headWindow.length;
+
+    const sampling = describeSampling(messages, selectAnalysisWindow(messages));
+
+    expect(headEmptyRatio).toBe(1);
+    expect(sampling.emptyTextRatio).toBe(0);
   });
 });

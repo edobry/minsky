@@ -907,8 +907,18 @@ export function validateAuthorizationApproveOptions(params: {
  * distinction, not at the point that computes matches.
  *
  * The exclusion list stays a DENYLIST, deliberately: a new check blocks
- * unless it is added here. Two are excluded. `unlinkified-reference`
- * (mt#2918) is the second: the transform beside it is best-effort by design
+ * unless it is added here.
+ *
+ * **No count is stated here on purpose (PR #3158 R1).** This paragraph used to
+ * open "Two are excluded", and it was wrong by the time anyone read it: mt#4148
+ * and mt#4312 each added an exclusion without touching the sentence, and mt#4315
+ * made it a third off. A hand-maintained tally beside a list that only grows is
+ * a stale comment waiting to happen, so the reader is pointed at the filter body
+ * — which cannot drift from itself — and each exclusion carries its own reason
+ * at its own line. `asks.advisory-form-lint.test.ts` enumerates the current set
+ * as executable assertions.
+ *
+ * `unlinkified-reference` (mt#2918): the transform beside it is best-effort by design
  * — it linkifies a CUED external reference and warns about the rest — and an
  * ask carrying a citation it could not resolve is still a decidable ask, so
  * rejecting the create would withhold a decision over a formatting gap. The
@@ -999,7 +1009,15 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
       // incident page, which is strictly worse than the duplicate page it would
       // prevent — the whole subsystem exists to get the principal's attention
       // when it is warranted. Fire, name the other ask, let the author decide.
-      m.check !== "duplicate-open-incident"
+      m.check !== "duplicate-open-incident" &&
+      // mt#4315: advisory permanently, for the same reason as the check above
+      // and one of its own. Whether a condition will self-resolve is a
+      // PREDICTION about an external system — not something the author can
+      // settle before filing, and not something a matcher can adjudicate. The
+      // warning's job is to put category (b) in front of the author at the
+      // moment of escalation; blocking would let a wrong guess about someone
+      // else's infrastructure withhold a real page from the principal.
+      m.check !== "asserted-not-self-resolving"
   );
 }
 
