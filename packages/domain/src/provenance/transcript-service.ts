@@ -23,7 +23,7 @@
 
 import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { extractTextFromContent } from "./transcript-content";
+import { extractTextFromContent, resolveTranscriptMessageContent } from "./transcript-content";
 import { promises as fs } from "fs";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
@@ -97,17 +97,23 @@ export interface MessageStats {
  * same string-or-blocks logic. Behavior is unchanged: `""` for an unextractable payload,
  * where the shared function returns `null`.
  *
- * NOTE: this extracts from whatever payload it is HANDED. `countCorrections` below still
- * hands it `msg.content` — the flat field that is `undefined` on every live row — so
- * `computeMessageStats` still reports 0 corrections for a stored transcript. Fixing that
- * call site is mt#4225, which owns the remaining blind consumers; this task deliberately
- * changed only the shared extraction, not who calls it with what.
+ * It extracts from whatever payload it is HANDED — resolving WHICH payload is the caller's
+ * job, and `countCorrections` below now does that through `resolveTranscriptMessageContent`
+ * (mt#4225). Until then it handed over `msg.content`, the flat field absent from every live
+ * row, so `computeMessageStats` reported 0 corrections for any stored transcript.
  */
 function extractTextContent(content: unknown): string {
   return extractTextFromContent(content) ?? "";
 }
 
-/** Counts correction signals in a sequence of messages. */
+/**
+ * Counts correction signals in a sequence of messages.
+ *
+ * Serves BOTH shapes deliberately (mt#4225): `ingestTranscript` passes freshly-parsed lines
+ * carrying flat `content`, while `computeMessageStats` passes stored rows carrying nested
+ * `message.content`. The resolver tries nested first and falls back to flat, so the ingest
+ * path is unchanged and the stored path stops reading a field that is never there.
+ */
 function countCorrections(messages: TranscriptMessage[]): number {
   let corrections = 0;
   for (let i = 1; i < messages.length; i++) {
@@ -115,7 +121,7 @@ function countCorrections(messages: TranscriptMessage[]): number {
     const prev = messages[i - 1] as TranscriptMessage;
     // A user message after an assistant message that contains correction signals
     if (msg.type === "user" && prev.type === "assistant") {
-      const text = extractTextContent(msg.content);
+      const text = extractTextContent(resolveTranscriptMessageContent(msg));
       if (CORRECTION_PATTERNS.some((pattern) => pattern.test(text))) {
         corrections++;
       }
