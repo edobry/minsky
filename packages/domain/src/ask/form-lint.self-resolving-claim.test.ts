@@ -35,6 +35,11 @@ import {
  * and the field NAMES changed, but not the prior values, so the escalated text
  * survives only here and in the transcript. Pin it; do not re-read it from the
  * substrate.
+ *
+ * mt#4329 closed that gap — an ask edited today preserves its pre-edit content
+ * under `metadata.originalContent`. It is not retroactive, so ask#9278 stays
+ * unrecoverable from the record and this literal stays the source of truth for
+ * it. A future fixture from a POST-mt#4329 ask can read the substrate instead.
  */
 const ASK_9278_ORIGINAL = `**May I run \`pg_terminate_backend\` on the ~10 wedged Supavisor backends?** It fixes this in about a minute and aborts whatever those clients were mid-transaction on — possibly another agent's in-flight commit. Shared prod state, so it is your call.
 

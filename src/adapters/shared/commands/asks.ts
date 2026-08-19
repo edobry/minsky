@@ -1663,7 +1663,7 @@ export const asksEditParams = {
   metadata: {
     schema: z.record(z.string(), z.unknown()).optional(),
     description:
-      "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+      "Metadata keys to shallow-merge over existing metadata (editHistory and originalContent are reserved — provenance and the pre-edit content capture; caller-supplied values for either are ignored)",
     required: false,
   },
   editor: {
@@ -2402,7 +2402,9 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended " +
         "and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. " +
         "Every edit appends an editHistory provenance note (editor + timestamp + touched fields) " +
-        "to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
+        "to metadata, and preserves each content field's PRE-EDIT value once, under " +
+        "metadata.originalContent — so the text an ask was originally escalated with survives a " +
+        "correction (mt#4329). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), " +
         "or an `ask#N` short id (mt#2965).",
       // requiresSetup: false — asks.edit depends only on the persistence
       // provider, not on global Minsky configuration (same posture as

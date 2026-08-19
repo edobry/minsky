@@ -193,7 +193,9 @@ export const INCIDENT_VOCABULARY_PATTERN =
  * STORED question is the RESOLVED rewrite, and the phrase that matches there is
  * the correction quoting its own earlier claim: *I said the wedged connections
  * showed "no sign of clearing."* The original assertion is gone from the record
- * (edited twice; `editHistory` keeps field names, not prior values), so the live
+ * (edited twice BEFORE mt#4329 added value retention, so its `editHistory` kept
+ * field names and not prior values — an ask edited today keeps its original in
+ * `metadata.originalContent`), so the live
  * sweep's ask#9278 fire is coincidental. The pinned fixture in
  * `form-lint.self-resolving-claim.test.ts` carries the real original, recovered
  * from the authoring transcript, and it fires on `will not reap`.
