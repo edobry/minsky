@@ -27,6 +27,80 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
  */
 const snapshotCache = new SnapshotCache();
 
+/** Upper bound on `?turns=`; mirrors the assembler's own clamp. */
+const MAX_WINDOW_TURNS = 500;
+
+/**
+ * The window a request asked for, plus the key that keeps it from colliding
+ * with a differently-windowed request for the same conversation (mt#4263).
+ *
+ * ## Why the key exists, and why it goes into BOTH the ETag and the cache key
+ *
+ * mt#4258's validator and cache are keyed on `(conversationId, versionToken)`,
+ * and that token describes the CONVERSATION — turn count, attachment count,
+ * `ended_at`. It says nothing about how much of the conversation a particular
+ * response carried, which was fine while there was only ever one answer.
+ *
+ * With a window there are many, and every one of them shares that token. Left
+ * alone, two silent failures follow: a client holding the full snapshot asks
+ * for a window and is told `304 Not Modified`, so it renders all 2,236 turns
+ * and believes it got 50; and `snapshotCache` hands a windowed request the full
+ * cached snapshot under the same key. Neither errors — both produce a
+ * well-formed response of the wrong size — which is why this is folded in
+ * rather than left to a test to notice.
+ *
+ * `null` means no window was requested; its key is the empty string, so an
+ * unwindowed request's ETag is byte-identical to what mt#4258 issued and
+ * already-cached clients keep revalidating.
+ */
+interface ParsedSnapshotWindow {
+  window: { limit: number; before?: number } | null;
+  /** Appended to the version token (ETag) and to the cache key. */
+  key: string;
+}
+
+/**
+ * Read `?turns=` / `?before=` off the request.
+ *
+ * Fails LOUD on a malformed value rather than falling back to the unwindowed
+ * response: silently ignoring `?turns=abc` would ship 8 MB to a client that
+ * asked for 50 turns, which is the failure this endpoint exists to remove and
+ * is invisible from the client's side.
+ */
+function parseSnapshotWindow(query: unknown): ParsedSnapshotWindow | { error: string } {
+  const params = (query ?? {}) as Record<string, unknown>;
+  const rawTurns = params["turns"];
+  const rawBefore = params["before"];
+
+  if (rawTurns === undefined) {
+    if (rawBefore !== undefined) {
+      return { error: "`before` requires `turns` — a cursor without a bound is not a window." };
+    }
+    return { window: null, key: "" };
+  }
+
+  if (typeof rawTurns !== "string") return { error: "`turns` must be a single integer." };
+  const turns = Number.parseInt(rawTurns, 10);
+  if (!Number.isFinite(turns) || String(turns) !== rawTurns.trim() || turns < 1) {
+    return { error: "`turns` must be a positive integer." };
+  }
+  if (turns > MAX_WINDOW_TURNS) {
+    return { error: `\`turns\` must be at most ${MAX_WINDOW_TURNS}.` };
+  }
+
+  if (rawBefore === undefined) {
+    return { window: { limit: turns }, key: `|w${turns}` };
+  }
+
+  if (typeof rawBefore !== "string") return { error: "`before` must be a single integer." };
+  const before = Number.parseInt(rawBefore, 10);
+  if (!Number.isFinite(before) || String(before) !== rawBefore.trim() || before < 0) {
+    return { error: "`before` must be a non-negative integer." };
+  }
+
+  return { window: { limit: turns, before }, key: `|w${turns}|b${before}` };
+}
+
 /**
  * A token identifying the current state of one conversation's stored rows.
  *
@@ -85,6 +159,7 @@ async function readSnapshotVersion(
 // client.
 type ContextInspectorErrorCode =
   | "missing_field"
+  | "invalid_window"
   | "unsupported_provider"
   | "session_not_found"
   | "wrong_id_space"
@@ -122,6 +197,19 @@ export function mountContextInspectorRoutes(app: express.Express): void {
    *
    * Query params:
    *   ?sessionId=<agent_session_id>   — required; the harness-native session UUID.
+   *   ?turns=<n>                      — optional (mt#4263); return only the most
+   *                                     recent N renderable turns, applied IN SQL.
+   *                                     1..500. Omitting it returns the full
+   *                                     response byte-for-byte as before.
+   *   ?before=<turnIndex>             — optional; with `turns`, page backwards from
+   *                                     an ORIGINAL transcript-array index. Pass the
+   *                                     previous response's `window.oldestTurnIndex`.
+   *                                     Rejected without `turns`.
+   *
+   * A windowed response additionally carries `window` (totalTurns / returnedTurns /
+   * oldestTurnIndex / hasMore) and `toolNamesByUseId` (over the FULL transcript, so
+   * a windowed tool-result can still name the call it answers). Both are absent
+   * from an unwindowed response.
    *
    * Response: SessionContextSnapshot JSON (categorized chronological block list);
    *   404 `session_not_found` when no transcript exists for a syntactically
@@ -173,6 +261,17 @@ export function mountContextInspectorRoutes(app: express.Express): void {
       return;
     }
 
+    const parsedWindow = parseSnapshotWindow(req.query);
+    if ("error" in parsedWindow) {
+      contextInspectorError(res, 400, "invalid_window", parsedWindow.error);
+      return;
+    }
+    const { window: snapshotWindow, key: windowKey } = parsedWindow;
+    // Every cache and validator identity below is (conversation + window), never
+    // conversation alone. `windowKey` is "" for an unwindowed request, so that
+    // path's ETag and cache key are unchanged from mt#4258.
+    const cacheKey = `${sessionId}${windowKey}`;
+
     try {
       // Lazy-cached SQL DB connection — mirrors the agents.ts singleton
       // pattern. Avoids constructing a fresh `PersistenceService` (and
@@ -217,7 +316,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         // STRONG etag, which would in turn have to change whenever the
         // compression level did — a worse trade for a route whose client is the
         // cockpit SPA.
-        const etag = snapshotEtag(version);
+        const etag = snapshotEtag(`${version}${windowKey}`);
         res.setHeader("ETag", etag);
         // Declare Vary HERE, not only inside `sendJsonMaybeCompressed` (PR #3104
         // R3). The 304 branch below never calls that helper, so it would emit a
@@ -238,7 +337,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
           return;
         }
 
-        const cached = snapshotCache.get(sessionId, version);
+        const cached = snapshotCache.get(cacheKey, version);
         if (cached !== undefined) {
           timing.record("cache", 0, `hit ${cached.blocks.length} blocks`);
           await sendJsonMaybeCompressed(res, cached, {
@@ -255,7 +354,11 @@ export function mountContextInspectorRoutes(app: express.Express): void {
       // contention must not hang this response forever.
       const snapshot = await timing.time("assemble", () =>
         withBoundedTimeout(
-          assembleSessionContextSnapshot(db, sessionId as AgentSessionId),
+          assembleSessionContextSnapshot(
+            db,
+            sessionId as AgentSessionId,
+            snapshotWindow ?? undefined
+          ),
           SNAPSHOT_ASSEMBLY_TIMEOUT_MS
         )
       );
@@ -266,7 +369,7 @@ export function mountContextInspectorRoutes(app: express.Express): void {
         timing.record("blocks", 0, `${snapshot.blocks.length} blocks`);
         // Only cacheable when the probe produced a token to validate against;
         // without one there is no way to know later whether it went stale.
-        if (version !== null) snapshotCache.set(sessionId, version, snapshot);
+        if (version !== null) snapshotCache.set(cacheKey, version, snapshot);
       }
 
       if (snapshot === null) {

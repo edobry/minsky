@@ -439,7 +439,14 @@ async function assembleWindowedSessionContextSnapshot(
         from t, lateral jsonb_array_elements(t.transcript) with ordinality as e(line, ord)
       ),
       renderable as (
-        select turn_index, line
+        select
+          turn_index,
+          line,
+          -- Projected ONCE here rather than re-navigated in each leg below.
+          -- This CTE is referenced five times, so Postgres materializes it
+          -- (PG12+ multi-reference default) and every leg reads this column
+          -- instead of walking the message content path again.
+          line->'message'->'content' as parts
         from lines
         where line->>'type' in ('user', 'assistant')
           and line->>'timestamp' is not null
@@ -502,17 +509,12 @@ async function assembleWindowedSessionContextSnapshot(
                 'p', line->>'parentUuid',
                 't', line->>'timestamp',
                 'ty', line->>'type',
-                'tr', exists (
-                  select 1
-                  from jsonb_array_elements(
-                    case
-                      when jsonb_typeof(line->'message'->'content') = 'array'
-                      then line->'message'->'content'
-                      else '[]'::jsonb
-                    end
-                  ) as part
-                  where part->>'type' = 'tool_result'
-                )
+                -- Containment, not a per-row lateral + EXISTS. Measured on the
+                -- 2,236-turn conversation: the lateral form cost ~1.2s of
+                -- assembly (one correlated subquery per turn) and made the
+                -- windowed request no faster than the unwindowed one it
+                -- replaces. Containment answers it in a single operator.
+                'tr', coalesce(parts @> '[{"type": "tool_result"}]'::jsonb, false)
               ) order by turn_index
             )
             from renderable
@@ -537,14 +539,16 @@ async function assembleWindowedSessionContextSnapshot(
         coalesce(
           (
             select jsonb_agg(distinct jsonb_build_object('id', part->>'id', 'name', part->>'name'))
-            from renderable,
-              lateral jsonb_array_elements(
-                case
-                  when jsonb_typeof(line->'message'->'content') = 'array'
-                  then line->'message'->'content'
-                  else '[]'::jsonb
-                end
-              ) as part
+            -- Prune to the lines that actually carry a tool_use BEFORE the
+            -- lateral, so the expansion runs over the assistant turns that have
+            -- one rather than over every turn in the conversation.
+            from (
+              select parts
+              from renderable
+              where jsonb_typeof(parts) = 'array'
+                and parts @> '[{"type": "tool_use"}]'::jsonb
+            ) tu,
+              lateral jsonb_array_elements(tu.parts) as part
             where part->>'type' = 'tool_use' and part->>'id' is not null
           ),
           '[]'::jsonb
