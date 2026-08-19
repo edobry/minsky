@@ -25,7 +25,10 @@ import {
   detectCodeMechanismAssertion,
   elideBlocksAndQuotes,
   symbolsNear,
+  augmentWithIdentityNomination,
+  createIdentityClaimNominator,
 } from "../.minsky/hooks/code-mechanism-assertion-detector";
+import type { IdentityClaimNominator } from "../.minsky/hooks/code-mechanism-assertion-detector";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
 
 interface Fixture {
@@ -156,9 +159,24 @@ interface StageResult {
   extracted: boolean;
   matched: boolean;
   claims: Array<{ symbol: string; predicate: string }>;
+  /** Which rung produced `matched` (mt#4155). Absent when Rung 2 was not run. */
+  rung?: "1-lexical" | "2-embedding";
+  /** Why nomination degraded, when it did. */
+  degradedReason?: string;
 }
 
-function run(fixture: Fixture, body: string): StageResult {
+/**
+ * Rung-2 mode (mt#4155). Off by default so the script keeps reporting the
+ * mt#4106 baseline — four `MISS-AT-MATCHER` verdicts — which is the negative
+ * control this measurement rests on. With `--rung2` the same fixtures run
+ * through the real embedding nominator, which is what AT1 asserts.
+ */
+const RUNG2 = process.argv.includes("--rung2");
+const nominator: IdentityClaimNominator | undefined = RUNG2
+  ? createIdentityClaimNominator()
+  : undefined;
+
+async function run(fixture: Fixture, body: string): Promise<StageResult> {
   const corpus = buildArtifactProseCorpus(linesFor(fixture, body));
   // Empty verification and write-echo corpora: the question is whether the
   // claim is EXTRACTED at all, not whether a same-turn read would have backed
@@ -180,10 +198,13 @@ function run(fixture: Fixture, body: string): StageResult {
   // elides before tokenizing, so both stages judge the same text.
   const prose = elideBlocksAndQuotes(corpus);
   const tokens = symbolsNear(prose, Math.floor(prose.length / 2), prose.length);
+  const augmented = await augmentWithIdentityNomination(result, corpus, "", "", nominator);
   return {
     extracted: tokens.includes(fixture.symbol),
-    matched: result.matched,
-    claims: result.claims,
+    matched: augmented.matched,
+    claims: augmented.claims,
+    rung: RUNG2 ? augmented.detectionRung : undefined,
+    degradedReason: augmented.nominationDegradedReason,
   };
 }
 
@@ -191,8 +212,8 @@ let controlFailures = 0;
 const records: Array<Record<string, unknown>> = [];
 
 for (const fixture of FIXTURES) {
-  const asWritten = run(fixture, fixture.body);
-  const control = run(fixture, fixture.control);
+  const asWritten = await run(fixture, fixture.body);
+  const control = await run(fixture, fixture.control);
 
   if (!control.matched) controlFailures++;
 

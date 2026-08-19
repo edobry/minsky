@@ -899,7 +899,7 @@ export interface SharedCalibrationFields {
    * | `wall-of-text` | `depth-request-override`, `question-answer-override` |
    * | `untaken-action` | (none — see below) |
    * | `ask-routing-deferral` | `asks-create-this-turn`, `deduped-by-untaken-action-stop` |
-   * | `pre-narration` | `same-turn-tool-call`, `window-tool-call` |
+   * | `pre-narration` | `same-turn-tool-call`, `window-tool-call`, `identity-scoped-tool-call` |
    * | `knowledge-acquisition` | `propagation-in-window` |
    *
    * Records written by those detectors BEFORE mt#3207 carry no field and are

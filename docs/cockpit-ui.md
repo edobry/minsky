@@ -356,6 +356,50 @@ reachable on it — it never opens the driven WebSocket at all. Controllability
 lives on `/driven/:id` until mt#3095's liveness-refusal gate exists and mt#3325
 can mount a composer here safely.
 
+### Runs of agent actions fold behind one line (mt#4250)
+
+A stretch of **three or more consecutive machinery turns** between two things
+the agent said renders as a single dim summary line rather than as N rows:
+
+```
+▸ 1m · thought, ran 2 shell commands, called minsky tasks_spec_patch, 4 reads
+```
+
+Click anywhere on the line to expand it into the individual rows; click again to
+collapse. Expansion is **two-stage** — the fold opens to the per-call rows, and
+each of those still has its own payload disclosure (mt#2790) beneath it. The
+rows are genuinely absent while collapsed, not hidden with CSS, which is where
+the density comes from.
+
+**Nothing is ever lost.** Expanding a fold yields every action it stood for, in
+order. The summary is a view, never a replacement for the record (mt#3845 SC6).
+
+**What never folds**, so it cannot hide inside a calm-looking line:
+
+- anything the agent or the operator _said_ — prose and user turns
+- any call that **errored** or was interrupted. A failure SPLITS the run around
+  it: summary, open error row, summary
+- **spawn dispatches** — the violet badge is structure you orient by
+- compaction boundaries, and harness retry turns
+- `WebSearch`, `WebFetch` and `Skill` calls, which keep their own row
+- runs of one or two turns, where a fold would cost more than it saves
+
+**Mutating calls are always named.** The summary names every tool that CHANGED
+something (`tasks_spec_patch`, `session_commit`) and reduces read-only calls to
+a count. A tool the classifier does not recognise is named too, rather than
+assumed harmless. Classification comes from `packages/shared/src/tool-effect.ts`
+(mt#3847). This is deliberately unlike the Claude Code terminal, which renders
+`called minsky` and drops which tool ran — fine when you are watching your own
+agent live, wrong for someone auditing a run afterwards.
+
+**Deep links open the fold they land in.** A turn address or film-moment link
+that targets a call inside a collapsed run arrives with that run already open
+and the row marked.
+
+**Expand all / Collapse all** act on folds as well as on individual calls. Fold
+state is per-view only — nothing is remembered between visits, so a historical
+conversation reads the same on any day.
+
 ### Identity registration and deeplinks
 
 App-started sessions register their workspace↔conversation identity **at spawn

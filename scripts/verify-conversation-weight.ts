@@ -55,6 +55,8 @@
  * never mounted, a healthy row still enclosed). Sibling scripts whose CDP shape
  * this follows: `verify-cockpit-shell-scroll.ts`, `verify-conversation-live-tail.ts`.
  */
+import { writeFileSync } from "node:fs";
+
 import { preflightCockpit, skip } from "./lib/verify-preflight";
 
 const COCKPIT = process.env["MINSKY_COCKPIT_URL"] ?? "http://127.0.0.1:3737";
@@ -72,7 +74,12 @@ await preflightCockpit({ cockpitUrl: COCKPIT, cdpUrl: CDP });
 
 // --- CDP plumbing (shape follows verify-cockpit-shell-scroll.ts) ----------
 
-type CdpResult = { result?: { value?: string }; exceptionDetails?: unknown };
+type CdpResult = {
+  result?: { value?: string };
+  exceptionDetails?: unknown;
+  /** `Page.captureScreenshot` only (mt#4250) — base64 PNG bytes. */
+  data?: string;
+};
 
 let msgId = 0;
 function cdp(
@@ -114,6 +121,40 @@ async function evaluate(ws: WebSocket, expression: string): Promise<string> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Write a PNG of the current page to `MINSKY_SCREENSHOT_PATH`, if set (mt#4250).
+ *
+ * Every number this script produces points INWARD — heights, counts, computed
+ * luminance — and the complaint that produced both mt#4220 and mt#4250 was made
+ * by someone looking at the screen and describing what they saw. Whether the
+ * result reads better is the principal's call, not this script's, and they
+ * cannot make it from a luminance ratio (`humility.mdc §Subjective quality is
+ * not yours to certify`). So the artifact a render-path change owes its reader
+ * is a picture; mt#2421's calibration surface looks for exactly that.
+ *
+ * Full-page rather than viewport-cropped on purpose: a crop is an argument
+ * about which part to look at, and choosing the framing is what makes a
+ * screenshot evidence for the author rather than for the reader.
+ */
+async function screenshot(ws: WebSocket, path: string, label: string): Promise<void> {
+  try {
+    const shot = await cdp(ws, "Page.captureScreenshot", {
+      format: "png",
+      captureBeyondViewport: true,
+    });
+    if (shot.data === undefined) {
+      console.log(`screenshot: ${label} — CDP returned no data`);
+      return;
+    }
+    writeFileSync(path, Buffer.from(shot.data, "base64"));
+    console.log(`screenshot: ${path} (${label})`);
+  } catch (err) {
+    // Never fail the measurement over the picture: the numbers are the gate,
+    // the screenshot is the thing a human reads beside them.
+    console.log(`screenshot: ${label} unavailable (${err instanceof Error ? err.message : err})`);
+  }
+}
+
 // --- In-page measurement -------------------------------------------------
 
 type Measurement = {
@@ -145,6 +186,25 @@ type Measurement = {
   turnCount: number;
   toolRowCount: number;
   proseCount: number;
+  /**
+   * Folded action bursts currently rendered (mt#4250).
+   *
+   * Reported beside `turnCount` and `toolRowCount` for the same reason those
+   * two are reported beside `toolRowsHeight`: folding makes the thread shorter
+   * by REMOVING rows from the DOM, so a height drop here is expected and is not
+   * by itself evidence of anything. The pair of numbers is what distinguishes
+   * "N bursts are hiding rows that come back on expand" from "rows went
+   * missing" — run the script twice, once with `MINSKY_EXPAND_BURSTS=1`, and
+   * compare: `toolRowCount` and `turnCount` must RISE.
+   *
+   * Note what does NOT change: `burstFoldCount` stays the same when expanded.
+   * The fold's control remains rendered so the burst can be closed again, so
+   * this counts CONTROLS, not collapsed bursts. Measured 2026-08-18 on
+   * conversation `3c870316`: collapsed 8 rows / 566px / 7 folds → expanded 54
+   * rows / 1670px / 8 folds. (7 vs 8 is the live conversation growing between
+   * the two runs, not a fold appearing on expand.)
+   */
+  burstFoldCount: number;
   /** Tool rows painting a visible (non-zero, non-transparent) border. */
   enclosedToolRows: number;
   /** Tool rows whose name paints in the destructive tone — the expected enclosures. */
@@ -245,6 +305,7 @@ const MEASURE = `(() => {
     turnCount: thread.querySelectorAll('[data-turn-index]').length,
     toolRowCount: toolRows.length,
     proseCount: proseEls.length,
+    burstFoldCount: thread.querySelectorAll('[data-testid="action-burst-toggle"]').length,
     enclosedToolRows: enclosed,
     erroredToolRows: errored,
     proseLuminance: lum(proseColor),
@@ -283,7 +344,11 @@ async function measureWhenStable(ws: WebSocket): Promise<Measurement> {
     lastRaw = await evaluate(ws, MEASURE);
     const m = JSON.parse(lastRaw) as Measurement;
     if (m.hasThread) {
-      const key = `${m.toolRowCount}:${m.toolRowsHeight}:${m.proseCount}`;
+      // `burstFoldCount` joins the key (mt#4250): folds mount with the turns
+      // they wrap, so a measurement taken before they settle reports rows that
+      // are about to disappear — the same class of premature read the other
+      // three fields already guard against.
+      const key = `${m.toolRowCount}:${m.toolRowsHeight}:${m.proseCount}:${m.burstFoldCount}`;
       if (previousKey !== null && previousKey === key) return m;
       previousKey = key;
       last = m;
@@ -339,7 +404,40 @@ try {
     mobile: false,
   });
 
+  // mt#4250: with `MINSKY_EXPAND_BURSTS=1`, click every fold open before
+  // measuring. Run the script twice against the SAME build and the SAME
+  // conversation, seconds apart, and the pair is a controlled losslessness
+  // check: `toolRowCount` and `turnCount` must RISE by the rows the folds were
+  // standing for. `burstFoldCount` does NOT drop — the control stays rendered
+  // so the burst can be re-collapsed. That control matters because
+  // this script's own contract says a shorter thread with FEWER elements is a
+  // regression rather than a win — folding makes both numbers fall, so the
+  // collapsed reading alone cannot tell the two apart.
+  if (process.env["MINSKY_EXPAND_BURSTS"] === "1") {
+    await measureWhenStable(ws);
+    const clicked = await evaluate(
+      ws,
+      `(() => {
+        const toggles = Array.from(
+          document.querySelectorAll('[data-testid="action-burst-toggle"]')
+        );
+        for (const t of toggles) t.click();
+        return JSON.stringify({ clicked: toggles.length });
+      })()`
+    );
+    console.log(`expanded bursts: ${clicked}`);
+  }
+
   const m = await measureWhenStable(ws);
+
+  const shotPath = process.env["MINSKY_SCREENSHOT_PATH"];
+  if (shotPath !== undefined && shotPath.length > 0) {
+    await screenshot(
+      ws,
+      shotPath,
+      process.env["MINSKY_EXPAND_BURSTS"] === "1" ? "bursts expanded" : "bursts collapsed"
+    );
+  }
 
   console.log(JSON.stringify({ conversation: CONVERSATION_ID, viewport: VIEWPORT, ...m }, null, 2));
 
@@ -376,7 +474,8 @@ try {
 
   if (failures === 0) {
     console.log(
-      `PASS: ${m.turnCount} turns / ${m.toolRowCount} tool rows / ${m.proseCount} prose blocks; ` +
+      `PASS: ${m.turnCount} turns / ${m.toolRowCount} tool rows / ${m.proseCount} prose blocks / ` +
+        `${m.burstFoldCount} folded bursts; ` +
         `tool rows total ${m.toolRowsHeight}px (${(m.toolRowsHeight / m.toolRowCount).toFixed(1)}px each); ` +
         `prose luma ${m.proseLuminance.toFixed(3)} > tool-name luma ${m.toolNameLuminance.toFixed(3)}; ` +
         `${m.enclosedToolRows} enclosed rows (${m.erroredToolRows} errored). ` +

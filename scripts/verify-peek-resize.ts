@@ -256,6 +256,49 @@ async function readState(ws: WebSocket): Promise<ResizeState> {
 }
 
 /**
+ * Read the state once it has stopped changing (mt#4274).
+ *
+ * Every read here follows an action — a drag, a viewport change, a reset — whose
+ * effects land across a React render and a layout pass. A fixed sleep before
+ * such a read is a guess about how long that takes on this machine under this
+ * load; on a contended run it samples mid-flight and reports a geometry that
+ * never existed. This script shipped with fixed sleeps and they bit exactly that
+ * way: a post-reset read caught the pane at 421px on its way to 416px, and a
+ * post-resize read caught it before the resize listener had re-rendered, both
+ * reported as product regressions that a slower read showed were not there.
+ * `verify-peek-pane-layout.ts` learned this first; its `readWhenStable` carries
+ * the same reasoning.
+ *
+ * Polling until two consecutive samples agree makes the wait a function of the
+ * observed page rather than of the author's guess.
+ */
+async function readStableState(ws: WebSocket, what: string): Promise<ResizeState> {
+  const DEADLINE_MS = 8_000;
+  const started = Date.now();
+  let previousKey: string | null = null;
+  let last: ResizeState | null = null;
+
+  while (Date.now() - started < DEADLINE_MS) {
+    const state = await readState(ws);
+    last = state;
+    const key = `${state.paneWidth}:${state.pageColumnPx}:${state.storedWidth}:${state.paneWidths.join(",")}`;
+    if (key === previousKey) return state;
+    previousKey = key;
+    await sleep(120);
+  }
+  // FAIL rather than return the last sample. Returning it would hand every
+  // downstream assertion a geometry that was still moving when it was read,
+  // which is the same class of defect this function exists to remove — and
+  // worse, because a never-stabilizing page would then be reported as whatever
+  // it happened to look like rather than as a problem. A probe that cannot fail
+  // carries no information.
+  throw new Error(
+    `state never stabilized within ${DEADLINE_MS}ms while waiting for ${what} ` +
+      `(last sample: ${last ? JSON.stringify(last) : "none"})`
+  );
+}
+
+/**
  * Drag the handle with REAL input events.
  *
  * `Input.dispatchMouseEvent` drives the browser's own input pipeline, which
@@ -389,7 +432,7 @@ try {
   if (!(await openPeek())) {
     failures.push(`${startUrl} rendered no entity ref to click, or the peek never opened`);
   } else {
-    const before = await readState(ws);
+    const before = await readStableState(ws, "the default width");
     console.log(
       `default: pane=${before.paneWidth}px page=${before.pageColumnPx}px ` +
         `divider=${before.dividerWidth}x${before.dividerHeight} role=${before.role} ` +
@@ -432,7 +475,7 @@ try {
     if (before.dividerPresent) {
       // 2/3. A real drag widens the pane, and does not dismiss the peek.
       await dragBy(ws, before.dividerCenterX, before.dividerCenterY, -DRAG_PX);
-      const dragged = await readState(ws);
+      const dragged = await readStableState(ws, "the drag to settle");
       console.log(
         `after drag -${DRAG_PX}px: panes=${dragged.paneCount} pane=${dragged.paneWidth}px ` +
           `page=${dragged.pageColumnPx}px stored=${dragged.storedWidth}`
@@ -475,7 +518,7 @@ try {
       await cdp(ws, "Page.reload");
       await sleep(600);
       if (await openPeek()) {
-        const reloaded = await readState(ws);
+        const reloaded = await readStableState(ws, "the reload to restore the width");
         console.log(`after reload: pane=${reloaded.paneWidth}px stored=${reloaded.storedWidth}`);
         if (Math.abs(reloaded.paneWidth - widthBeforeReload) > CONSERVATION_TOLERANCE_PX) {
           failures.push(
@@ -485,7 +528,7 @@ try {
 
         // 5. Double-click forgets the preference.
         await doubleClickAt(ws, reloaded.dividerCenterX, reloaded.dividerCenterY);
-        const reset = await readState(ws);
+        const reset = await readStableState(ws, "the double-click reset");
         console.log(`after double-click: pane=${reset.paneWidth}px stored=${reset.storedWidth}`);
         if (reset.storedWidth !== null) {
           failures.push(
@@ -500,7 +543,7 @@ try {
 
         // 6. The clamp binds against a drag that asks for the whole frame.
         await dragBy(ws, reset.dividerCenterX, reset.dividerCenterY, -(VIEWPORT.width - 40));
-        const maxed = await readState(ws);
+        const maxed = await readStableState(ws, "the full-width drag to clamp");
         console.log(
           `after a full-width drag: pane=${maxed.paneWidth}px page=${maxed.pageColumnPx}px`
         );
@@ -527,7 +570,7 @@ try {
           mobile: false,
         });
         await sleep(400);
-        const narrow = await readState(ws);
+        const narrow = await readStableState(ws, "the narrow viewport to re-clamp");
         console.log(
           `at ${NARROW_VIEWPORT.width}px with an 800px preference: pane=${narrow.paneWidth}px ` +
             `page=${narrow.pageColumnPx}px stored=${narrow.storedWidth}`
@@ -585,7 +628,7 @@ try {
             10_000
           );
           await sleep(400);
-          const pair = await readState(ws);
+          const pair = await readStableState(ws, "the held pair to lay out");
           console.log(
             `held pair at ${VIEWPORT.width}px: widths=${JSON.stringify(pair.paneWidths)} ` +
               `page=${VIEWPORT.width - pair.paneWidths.reduce((a, b) => a + b, 0)}px`

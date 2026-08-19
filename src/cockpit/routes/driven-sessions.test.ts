@@ -25,11 +25,13 @@ import {
   type SpawnOptions,
 } from "../driven-session-host";
 import { mountDrivenSessionRoutes } from "./driven-sessions";
+import { reconcilePersistedDrivenSessions } from "../driven-session-launch";
 import type {
   ResolvedTaskWorkspace,
   DrivenSessionAttachOutcome,
   OrchestrateDrivenSessionAttachDeps,
 } from "../driven-session-launch";
+import type { DrivenSessionRow } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 
 // ---------------------------------------------------------------------------
 // Fakes (mirrors ../driven-session-host.test.ts's FakeClaudeProcess)
@@ -520,6 +522,78 @@ describe("POST /api/driven-session/attach (mt#3095)", () => {
     });
     await attachPost(h.url, { conversationId: CONVERSATION });
     expect(seen).toEqual([CONVERSATION]);
+  });
+});
+
+describe("GET /api/driven-session after boot reconciliation retires a row (mt#4255)", () => {
+  // PR #3126 R1: the spec's last criterion asks for the LIST, not the column —
+  // "verified by loading the surface". The reconciler's own tests assert
+  // `registry.get(...)` is undefined, which is the mechanism; this asserts the
+  // consequence at the surface the principal actually sees, over the real
+  // Express route and a real HTTP request.
+  const BASE: DrivenSessionRow = {
+    localId: "placeholder",
+    harnessSessionId: "harness-x",
+    cwd: TEST_DIR_ROOT,
+    permissionMode: "bypassPermissions",
+    taskId: null,
+    minskySessionId: null,
+    status: "running",
+    unrecoverableReason: null,
+    pid: 4242,
+    pidCmdline: "claude -p --input-format stream-json",
+    model: null,
+    actuatorGeneration: 0,
+    startedAt: new Date("2026-08-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+  };
+
+  test("the retired row is absent from the list; the live one is still there", async () => {
+    const h = await makeHarness();
+
+    await reconcilePersistedDrivenSessions({
+      getDb: async () => ({}) as never,
+      listNonTerminal: async () => [
+        { ...BASE, localId: "dead-actuator", pid: 1 },
+        { ...BASE, localId: "live-actuator", pid: 2 },
+      ],
+      registry: h.registry,
+      persistTerminalVerdict: async () => "written",
+      probeActuator: async (pid) => (pid === 1 ? "gone" : "ours"),
+    });
+
+    const res = await fetch(`${h.url}/api/driven-session`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: { sessionId: string; status: string }[] };
+    const ids = body.sessions.map((s) => s.sessionId);
+
+    // The phantom is gone from the surface, on the same boot that detected it.
+    expect(ids).not.toContain("dead-actuator");
+    // And the check can fail: a sweep that retired everything would drop this
+    // one too, and a change that retired nothing would leave both.
+    expect(ids).toContain("live-actuator");
+    expect(body.sessions.find((s) => s.sessionId === "live-actuator")?.status).toBe("reconnecting");
+  });
+
+  test("a row whose retirement write FAILED is still listed", async () => {
+    // The surface-level companion to the R1 blocking fix: an unconfirmed write
+    // leaves the row non-terminal in the database, so hiding it from the list
+    // would show the operator a session that is about to come back.
+    const h = await makeHarness();
+
+    await reconcilePersistedDrivenSessions({
+      getDb: async () => ({}) as never,
+      listNonTerminal: async () => [{ ...BASE, localId: "dead-but-unpersisted", pid: 1 }],
+      registry: h.registry,
+      persistTerminalVerdict: async () => {
+        throw new Error("simulated upsert failure");
+      },
+      probeActuator: async () => "gone",
+    });
+
+    const res = await fetch(`${h.url}/api/driven-session`);
+    const body = (await res.json()) as { sessions: { sessionId: string }[] };
+    expect(body.sessions.map((s) => s.sessionId)).toContain("dead-but-unpersisted");
   });
 });
 

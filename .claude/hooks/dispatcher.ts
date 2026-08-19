@@ -725,6 +725,22 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * exactly the pre-mt#3533 number is arithmetic, not coincidence: the same five
  * injecting guards were always the real bucket.
  *
+ * **And DOWN again, 6156 -> 6106 (mt#4286), for the reason the paragraph below
+ * anticipated — read in the other direction.** `pre-narration` was quieted to
+ * log-only per ask#9219 and now declares a `renderProbe`, so the exclusion rule
+ * above drops it out of the bucket. The fifth slot goes to the next-heaviest
+ * ACTUAL injector, `ask-routing-deferral` at 600 (it was already tied with
+ * `code-mechanism-assertion`), so the top five become dispatch-watchdog 1750,
+ * guard-health 1300, substrate-bypass 650, code-mechanism-assertion 600,
+ * ask-routing-deferral 600 = 4900, plus the same 1190 floor and 16 separators.
+ *
+ * **The re-entry cost is 1753, NOT the 650 named above.** `pre-narration`'s
+ * declared annotation was measured against its ONE-match canary; its `renderProbe`
+ * measures the saturated render — 4 categories, each phrase at the 200-char cap —
+ * at 1753, and the annotation was corrected to 1800. So if that guard is ever
+ * un-quieted, this bucket does not simply revert to 6156: it becomes
+ * 1190 + (1750 + 1753 + 1300 + 650 + 600) + 16. Re-derive rather than reverting.
+ *
  * **This constant is HAND-SET, and the exclusion above describes the DERIVATION,
  * not a computation performed here (PR #2889 R2).** Nothing reads `renderProbe`
  * at runtime to size the budget; the filter lives in `dispatcher.test.ts`, which
@@ -740,7 +756,7 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  * A guard re-enters the bucket the day its posture flips and its `renderProbe`
  * is deleted — at which point this number must be re-derived by hand again.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 6156;
+export const MERGED_CONTEXT_BUDGET_CHARS = 6106;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";
