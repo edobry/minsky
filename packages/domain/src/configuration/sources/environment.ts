@@ -567,6 +567,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_CLAUDE_PROJECTS_DIR: "tunable", // scripts/measure-transcript-discovery-cost.ts + verify-postgres-text-safety.ts — harness transcript root
   MINSKY_CONVERSATION_ID: "tunable", // scripts/verify-conversation-{orientation,turn-target,weight}.ts — conversation under test
   MINSKY_EXPAND_BURSTS: "tunable", // scripts/verify-conversation-weight.ts (mt#4250) — click every action-burst fold open before measuring, so a collapsed/expanded pair proves folding hides rows rather than dropping them
+  MINSKY_DRAG_RATES: "tunable", // scripts/measure-peek-drag-frames.ts — comma-separated input rates in Hz the drag is measured at (default 30,60,120)
   MINSKY_FILM_CONVERSATION_ID: "tunable", // scripts/verify-session-film-camera.ts — conversation for the session-film probe
   MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
   MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
