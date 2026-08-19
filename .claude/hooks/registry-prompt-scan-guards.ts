@@ -792,9 +792,12 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     denyCapable: false,
     needsTranscript: true,
     contextPriority: 10,
-    // Sized for the one-line reading plus its two-sentence framing; the render
-    // has no unbounded axis (no file list, no finding enumeration), so this is a
-    // ceiling rather than a sample.
+    // MEASURED (2026-08-18), not estimated: 269 chars on a known model, 355 on
+    // the unknown-model path, which appends `assumed (model <id> not in the
+    // window table)` and so grows with the MODEL ID's length. Every other
+    // interpolation is a number, and there is no list or finding enumeration —
+    // so 400 is a ceiling against a realistic id, not a proved bound. See
+    // `docs/architecture/hooks/context-fill-gauge.md` §Graduating it.
     attentionCost: { denialMessageSizeChars: 400, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt4291-canary-transcript" },

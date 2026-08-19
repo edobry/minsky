@@ -222,6 +222,14 @@ describe("buildGaugeLine", () => {
     expect(buildGaugeLine(measurement)).toContain("85%");
   });
 
+  // PR #3144 R3. "Exactly one line" is a spec criterion, and the first
+  // implementation returned three (content / blank / framing). Pinned here so
+  // the property is enforced rather than re-litigated.
+  test("is literally ONE line — no embedded newline", () => {
+    expect(buildGaugeLine(measurement)).not.toContain("\n");
+    expect(buildGaugeLine(measurement).split("\n")).toHaveLength(1);
+  });
+
   test("uses the /handoff skill's own auto-trigger vocabulary verbatim", () => {
     // Case-insensitive on purpose: the phrase is sentence-initial in the rendered
     // line, and the skill's trigger list is read by an LLM rather than matched by

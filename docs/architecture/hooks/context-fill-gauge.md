@@ -143,9 +143,16 @@ Flipping `INJECTION_ENABLED` is a calibration decision, not a cleanup. Read the 
 first and confirm the tiers land where intended. The same change must also:
 
 - add `context-fill-gauge` to BOTH receipts in `guard-feedback-shape.test.ts` (the producing-guard
-  list and the growth-shape map, classification `"fixed"` — every interpolation is a number or a
-  short model id, so no axis grows with the input). It is absent from both today because both are
-  keyed on guards that actually produce feedback text;
+  list and the growth-shape map). It is absent from both today because both are keyed on guards that
+  actually produce feedback text.
+
+  **Classify it `"fixed"` only after re-measuring.** Measured 2026-08-18: 269 chars on a known
+  model, 355 on the unknown-model path — which appends `assumed (model <id> not in the window
+table)` and therefore grows with the MODEL ID's length. Every other interpolation is a number.
+  So the render is fixed-shaped but not strictly constant, and the declared `attentionCost: 400`
+  is a measured ceiling against a 46-char model id rather than a proved bound. If a longer id is
+  ever plausible, either cap the id in the render or declare a `renderProbe`;
+
 - flip the registry canary's `expects` from `"calibration"` to `"warn"`;
 - re-derive `MERGED_CONTEXT_BUDGET_CHARS` in `dispatcher.ts`, which is hand-derived from the
   existing registrations and does not auto-propagate.

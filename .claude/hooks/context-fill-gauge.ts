@@ -279,14 +279,20 @@ export function buildGaugeLine(measurement: FillMeasurement): string {
       ? `${measurement.windowTokens.toLocaleString()} assumed (model ${measurement.model ?? "unknown"} not in the window table)`
       : measurement.windowTokens.toLocaleString();
 
-  return [
+  // ONE line, literally — no embedded newline (PR #3144 R3). The spec says
+  // "exactly one line", and a three-line render with a blank separator did not
+  // satisfy it. The framing clause is not padding and could not simply be cut:
+  // a bare percentage injected into an agent's context reads as a prompt to act
+  // on it, which is the one thing this guard must not do. So it rides on the
+  // same line. `context-fill-gauge.test.ts` pins both halves — single-line, and
+  // no imperative.
+  return (
     `[context-fill-gauge] Context-density indicator: ${measurement.fillRatioPct}% ` +
-      `(${measurement.fillTokens.toLocaleString()} of ${window} tokens, ` +
-      `${measurement.assistantTurnCount} assistant turns).`,
-    "",
-    "This is a reading, not an instruction — no action is required and nothing is wrong. " +
-      "`/handoff` exists if you want to checkpoint; whether to use it is yours to judge.",
-  ].join("\n");
+    `(${measurement.fillTokens.toLocaleString()} of ${window} tokens, ` +
+    `${measurement.assistantTurnCount} assistant turns) — a reading, not an instruction; ` +
+    "no action is required and nothing is wrong. `/handoff` is available if you want to " +
+    "checkpoint, and whether to use it is yours to judge."
+  );
 }
 
 // ---------------------------------------------------------------------------
