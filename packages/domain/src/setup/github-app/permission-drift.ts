@@ -30,9 +30,12 @@ export interface RequiredPermission {
  * what a FRESH App is created with; this one governs what an EXISTING App is
  * checked against. That lockstep is asserted by a test as of mt#3264
  * (`permission-drift.test.ts`); until then it was a claim in this comment only,
- * and it had been false for as long as both constants existed. `contents: write` is required by `session_commit`'s
- * App-token push (mt#1477) — the permission whose absence caused the
- * mt#3210 incident.
+ * and it had been false for as long as both constants existed.
+ *
+ * `contents: write` is required by `session_commit`'s App-token push (mt#1477)
+ * — the permission whose absence caused the mt#3210 incident. `workflows: write`
+ * is required for a push that touches `.github/workflows/**` at all, which is
+ * the mt#3264 incident.
  */
 export const REQUIRED_APP_PERMISSIONS: RequiredPermission[] = [
   { scope: "pull_requests", level: "write" },
