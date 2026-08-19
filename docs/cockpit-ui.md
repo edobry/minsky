@@ -362,7 +362,7 @@ A stretch of **three or more consecutive machinery turns** between two things
 the agent said renders as a single dim summary line rather than as N rows:
 
 ```
-▸ 1m · thought, called minsky tasks_spec_patch, 4 reads, ran 2 shell commands
+▸ 1m · thought, ran 2 shell commands, called minsky tasks_spec_patch, 4 reads
 ```
 
 Click anywhere on the line to expand it into the individual rows; click again to
