@@ -75,6 +75,48 @@ import {
 import type { DispatchContext, GuardOutcome } from "./registry";
 
 // ---------------------------------------------------------------------------
+// Enforcement posture — quieted to log-only (mt#4286)
+// ---------------------------------------------------------------------------
+
+/**
+ * When false, the detector still DETECTS and still writes its calibration
+ * record; it injects no `additionalContext`. Matches the shape
+ * `causal-premise-detector.ts` and `ask-routing-deferral-detector.ts` use.
+ *
+ * **Set false 2026-08-19 per ask#9219**, answered by the operator with the
+ * option "Quiet it until mt#4256 lands" — the same call they made on ask#9085,
+ * re-aimed at the class that actually remains. The quieting on ask#9085 was
+ * never applied, which is why the ask had to be asked twice.
+ *
+ * WHY, in the operator's terms: mt#3864's replay moved exactly 1 of 17 firing
+ * cases. Its dominant class (12 cases) was deliberately left untuned and three
+ * more went to mt#4256, so this detector was live at close to the rate the
+ * operator had already agreed to quiet.
+ *
+ * **Retirement condition (`work-completion.mdc §Temporary mechanism budget`):**
+ * tracking task **mt#4256**, which measures and tunes the three remaining
+ * false-positive classes. Escalation threshold: if mt#4256 is still TODO **5
+ * days** after this lands (i.e. 2026-08-24), surface it rather than leaving the
+ * detector quiet by inertia. ADR-032 is quoted by `/calibration-review` on
+ * exactly this hazard — "a guard tuned into permanent silence is
+ * indistinguishable from a dead one."
+ *
+ * **Flipping this back is an operator decision, not an implementer's.**
+ * `/calibration-review` Step 4 (mt#3769, ask#7031) reserves enforcement posture
+ * to the principal: "Anything that changes enforcement posture: log-only →
+ * live, live → blocking, retiring a detector ... These change whether a
+ * detector interrupts agents, which is the thing the principal reserves."
+ *
+ * Two things must move together when it flips back — see
+ * `dispatcher.ts`'s `MERGED_CONTEXT_BUDGET_CHARS` doc comment: delete the
+ * registration's `renderProbe` (which is what excludes this guard from the
+ * merged-context bucket) and re-derive that constant against **1753**, this
+ * guard's real saturated render, NOT the 650 it declared while nothing
+ * measured it.
+ */
+export const INJECTION_ENABLED = false;
+
+// ---------------------------------------------------------------------------
 // Public API: exported constants
 // ---------------------------------------------------------------------------
 
@@ -614,6 +656,10 @@ export function buildPreNarrationRecord(
   return {
     timestamp: new Date().toISOString(),
     session_id: sessionId,
+    // mt#4286: mirrors `ask-routing-deferral-detector.ts`. Without it a reviewer
+    // cannot tell a quiet window from a live one, and every record in the log
+    // predating the mt#4286 flip looks identical to one written after it.
+    injection_enabled: INJECTION_ENABLED,
     // mt#3607: this surface has captured its judged input since mt#3198; the
     // marker says so explicitly, so a corpus-wide auditability check reads the
     // same field everywhere instead of special-casing the surfaces that shipped
@@ -701,6 +747,41 @@ function buildReminder(matches: ClaimMatch[]): string {
   ].join("\n");
 }
 
+/**
+ * The largest `additionalContext` this guard could emit, for
+ * `guard-feedback-shape.test.ts`'s size-ceiling check (mt#4002 pattern).
+ *
+ * Required because mt#4286 quieted this guard: a guard that renders nothing on
+ * the live path has its declared ceiling enforced against the empty string,
+ * which is the blind spot mt#4002 found on five guards at once (declared
+ * 400-1650, all measuring 0, five of six understated by up to 3.6x).
+ *
+ * **This is a proved CEILING, not a saturated sample** — unlike its siblings on
+ * `causal-premise` and `operator-deferral`, whose count axes are unbounded.
+ * `detectPreNarrationWithSuppression` emits at most ONE match per category
+ * ("one match per category is enough"), so the count axis is bounded by
+ * `OUTCOME_CATEGORIES.length`, and each phrase is capped at
+ * `MATCHED_PHRASE_MAX_CHARS` by `safeTruncate`. `context` is recorded but never
+ * rendered here, so it does not enter the bound. Both axes are therefore posed
+ * at their true maxima below.
+ *
+ * Measured at 1753 chars when this shipped, against a declared 650 — that 650
+ * came from the ONE-match canary (581 chars), which is not this guard's worst
+ * case. Adding a category or raising the phrase cap moves this; the test reads
+ * the render rather than a literal, so it re-derives itself.
+ */
+export function renderWorstCase(): string {
+  const phrase = "x".repeat(MATCHED_PHRASE_MAX_CHARS);
+  return buildReminder(
+    OUTCOME_CATEGORIES.map((category) => ({
+      category: category.key,
+      matchedPhrase: phrase,
+      expectedTool: category.expectedTool,
+      context: "",
+    }))
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Dispatcher-compatible pure function (ADR-028 D1/D2 — mt#2652 Phase 2a)
 // ---------------------------------------------------------------------------
@@ -755,7 +836,7 @@ export function run(input: ClaudeHookInput, ctx: DispatchContext): GuardOutcome 
   const outcome: GuardOutcome = {
     calibration: buildPreNarrationRecord(input.session_id, detection),
   };
-  if (detection.matches.length > 0) {
+  if (INJECTION_ENABLED && detection.matches.length > 0) {
     outcome.additionalContext = buildReminder(detection.matches);
   }
   return outcome;
@@ -836,7 +917,9 @@ export async function main(): Promise<void> {
   appendCalibrationRecord(input.cwd, buildPreNarrationRecord(input.session_id, detection));
 
   // mt#3207: suppressed-only passes record but never inject (mirrors `run()`).
-  if (detection.matches.length === 0) {
+  // mt#4286: and while the posture is log-only, NO pass injects — the record
+  // above is written either way, which is the whole point of the quieting.
+  if (!INJECTION_ENABLED || detection.matches.length === 0) {
     process.exit(0);
   }
 

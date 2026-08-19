@@ -419,7 +419,12 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // posed at its bound, but the DONE-task-id axis is not — one id per cited DONE
   // task, no `…and N more`. Sample, not ceiling, until that cap lands.
   "negative-existence-claim-detector": RENDER_PROBE_SAMPLE,
-  "pre-narration-detector": "fixed", // one excerpt, slice(0, 200)
+  // mt#4286: was "fixed", with the comment "one excerpt, slice(0, 200)". That
+  // described the calibration record's `context`, which `buildReminder` never
+  // renders. The render emits one LINE PER MATCHED CATEGORY, so it scales with
+  // the count — bounded by OUTCOME_CATEGORIES.length, which is "capped". Both
+  // axes are genuinely bounded, so `renderWorstCase` is a proved ceiling.
+  "pre-narration-detector": "capped", // one line per category, phrase at 200
   "require-duplicate-check-record": "fixed",
   "retrospective-trigger-scanner": "capped", // cappedEvidenceLines x3 (mt#3705)
   "silent-stretch-detector": "fixed",
