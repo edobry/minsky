@@ -25,6 +25,7 @@ import { cn } from "../lib/utils";
 import {
   groupActionBursts,
   summarizeBurst,
+  SYNTHETIC_MODEL,
   type BurstNode,
 } from "../lib/conversation-action-bursts";
 import type { ConversationTurn } from "@minsky/domain/transcripts/conversation-elements";
@@ -113,13 +114,11 @@ function turnOutcome(turn: PreparedTurn): ConversationOutcome | null {
   });
 }
 
-/**
- * The model value Claude Code records on a harness-generated retry turn rather
- * than a real model response (mt#3260). Mirrors `SYNTHETIC_MODEL_SENTINEL` in
- * `packages/domain/src/subagent/transcript-metrics.ts`; declared here because
- * that module is subagent-metrics code, not a render dependency.
- */
-const SYNTHETIC_MODEL = "<synthetic>";
+// `SYNTHETIC_MODEL` moved to `lib/conversation-action-bursts.ts` (mt#4250) and
+// is imported above. It was declared here first, but the burst predicate needs
+// it too, and re-declaring it there would have made a FOURTH hand-copy of a
+// string mt#4237 already tracks as copied three times without a check. Its
+// reasoning for not importing domain's `SYNTHETIC_MODEL_SENTINEL` moved with it.
 
 /**
  * A context-compaction boundary (mt#3260).

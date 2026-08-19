@@ -81,8 +81,22 @@ export const STANDALONE_TOOLS: ReadonlySet<string> = new Set([
   "Agent",
 ]);
 
-/** The model value Claude Code records on a harness-generated retry turn. */
-const SYNTHETIC_MODEL = "<synthetic>";
+/**
+ * The model value Claude Code records on a harness-generated retry turn rather
+ * than a real model response (mt#3260).
+ *
+ * Lives here, and `ConversationTurnView` imports it, because BOTH need it and a
+ * second literal would have made this the FOURTH hand-copy of the same string —
+ * `mt#4237` exists precisely because it is already hand-copied into three
+ * modules with nothing checking they agree, and the honest response to landing
+ * on that task's surface is not to add to it. Unifying the web-side constant
+ * with domain's `SYNTHETIC_MODEL_SENTINEL`
+ * (`packages/domain/src/subagent/transcript-metrics.ts`) is mt#4237's job, not
+ * this task's: that module is subagent-metrics code rather than a render
+ * dependency, so importing it here would be a structural decision made in
+ * passing.
+ */
+export const SYNTHETIC_MODEL = "<synthetic>";
 
 /** A rendered thread node: either one turn, or a burst standing for several. */
 export type BurstNode =
