@@ -88,6 +88,34 @@ plenty" — so the advisory was asking for a link that was already there.
 that mt#4160's calibration pass hand-classified from transcripts, the
 suppression removes exactly the 16 rated false and none of the 10 rated real.
 
+### Rating a fire no longer needs the transcripts (mt#4161)
+
+The pass above had to recover each judged message by scanning session
+transcripts by timestamp, because the records carried `matches` and nothing to
+judge them WITH. That worked and was never guaranteed to: transcripts age out
+(mt#3821 measured 12 of 959 records with none left), so the archaeology step
+could simply fail for a later pass.
+
+Records now carry the message they judged. Each one has `captureSchema` (the
+mt#3607 marker) and `judgedMessage` — a bounded `captureArtifact` snapshot with
+`excerpt`, `hash`, `length` and `truncated`. A rating pass reads the record.
+
+The WHOLE message is captured rather than a per-match window, because two of the
+three questions that settle a fire are about the message as a whole: was this the
+FIRST mention of the ref, and was a UUID in hand somewhere else in the message.
+`extractMatchContext`'s 240-char window answers neither. `truncated` is recorded
+so a pass reading a capped capture reports partial rather than a verdict.
+
+**Reading the marker: it lives in the record's `detectorFields` passthrough, not
+at the top level.** No per-kind parse branch names `captureSchema`, so
+`parseDetectorFields` routes it there for every log kind, and
+`hasCaptureMarker` reads it from there and requires a NUMBER (mem#888).
+
+Retention: the captured text flows verbatim into shared `guard_events` like
+every other ingested stream, per ask#8908 — mt#3872's original "local-only"
+premise was falsified by mt#4035's ingest, and mt#4060 owns restating the posture
+corpus-wide.
+
 ### The bindings come from the transcript, not a lookup
 
 Resolving a short id the map does not hold cannot be done with a query.
