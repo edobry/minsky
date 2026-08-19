@@ -24,11 +24,16 @@ import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transc
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { AgentSessionId } from "./transcript-source";
-import { markAbandonedRewindBranches } from "./rewind-detection";
+import {
+  applyAbandonedBlockIds,
+  computeAbandonedBlockIds,
+  markAbandonedRewindBranches,
+} from "./rewind-detection";
 import type {
   ContextElement,
   SessionContextSnapshot,
   SessionContextSnapshotBlock,
+  SessionContextSnapshotWindow,
 } from "../context/types";
 
 /**
@@ -179,6 +184,28 @@ export function turnLineToBlock(
 }
 
 /**
+ * An opt-in bound on how much of a conversation the assembler returns (mt#4263).
+ *
+ * Opt-in because three of the four consumers of this snapshot read every block
+ * (`ContextBlockView` filters them, `ConversationOverviewPanel` aggregates them,
+ * `PublishConversationDialog` publishes them); only the conversation renderer
+ * wants a window. Omitting this returns the whole conversation exactly as before.
+ */
+export interface SnapshotWindowRequest {
+  /** Max renderable turn lines to return, counted back from the newest. */
+  limit: number;
+  /**
+   * Return only turns whose ORIGINAL transcript-array index is strictly less
+   * than this. Omit for the newest page; pass the previous response's
+   * `window.oldestTurnIndex` to page backwards.
+   */
+  before?: number;
+}
+
+/** Upper bound on `limit`, so a client cannot ask for the whole transcript through the windowed path. */
+export const MAX_SNAPSHOT_WINDOW_LIMIT = 500;
+
+/**
  * Assemble a `SessionContextSnapshot` for a given agent session.
  *
  * Reads from BOTH the canonical substrate's turn-jsonb (`agent_transcripts.transcript`)
@@ -192,8 +219,17 @@ export function turnLineToBlock(
  */
 export async function assembleSessionContextSnapshot(
   db: PostgresJsDatabase,
-  agentSessionId: AgentSessionId
+  agentSessionId: AgentSessionId,
+  window?: SnapshotWindowRequest
 ): Promise<SessionContextSnapshot | null> {
+  // The windowed path is a SEPARATE query rather than a parameterization of the
+  // one below, deliberately. The unwindowed response must stay byte-for-byte
+  // what it was (mt#4263 SC1), and the surest way to guarantee that is to leave
+  // its code path untouched.
+  if (window !== undefined) {
+    return assembleWindowedSessionContextSnapshot(db, agentSessionId, window);
+  }
+
   // 1. Issue every read as ONE wave. All four key on `agentSessionId` alone and
   //    none consumes another's output, so the three sequential waves this used
   //    to run (transcript row -> attachments -> the spawn pair) were serialized
@@ -277,6 +313,354 @@ export async function assembleSessionContextSnapshot(
     ...(spawnParent ? { spawnParent } : {}),
     assembledAt: new Date().toISOString(),
   };
+}
+
+/** One renderable turn line from the window, with its ORIGINAL array index. */
+interface WindowedLineRow {
+  i: number;
+  l: unknown;
+}
+
+/**
+ * Structure-only projection of one renderable turn line — no message content.
+ *
+ * `tr` is whether the line carries a `tool_result`, computed in SQL because
+ * `carriesToolResult` needs it and shipping the content array to find out would
+ * defeat the projection. Rebuilt into the minimal shape that predicate reads.
+ */
+interface StructureRow {
+  i: number;
+  u: string | null;
+  p: string | null;
+  t: string;
+  ty: string;
+  tr: boolean;
+}
+
+/** Structure-only projection of one attachment row. */
+interface AttachmentStructureRow {
+  i: number;
+  p: string | null;
+  t: string | null;
+  ty: string;
+}
+
+interface WindowedAttachmentRow {
+  lineIndex: number;
+  rawJsonlType: string;
+  attachmentType: string;
+  content: unknown;
+  parentUuid: string | null;
+  timestamp: string | null;
+}
+
+interface ToolNameRow {
+  id: string | null;
+  name: string | null;
+}
+
+// A TYPE alias, not an interface: `db.execute<T>` constrains T to
+// `Record<string, unknown>`, which an interface does not satisfy implicitly
+// (interfaces have no implicit index signature; type aliases do).
+type WindowedQueryRow = {
+  harness: string | null;
+  total_turns: number | string | null;
+  oldest_turn_index: number | string | null;
+  has_more: boolean | null;
+  lines: WindowedLineRow[] | null;
+  attachments: WindowedAttachmentRow[] | null;
+  structure: StructureRow[] | null;
+  attachment_structure: AttachmentStructureRow[] | null;
+  tools: ToolNameRow[] | null;
+};
+
+function toInt(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number.parseInt(value, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Windowed assembly (mt#4263) — the same snapshot, bounded to the most recent
+ * `limit` renderable turns, with the window applied IN SQL.
+ *
+ * ## Why one statement and not several
+ *
+ * Three of the four things this needs depend on the window's own extent: the
+ * turn lines, the attachments (bounded by the window's earliest TIMESTAMP,
+ * because attachment `line_index` and turn index are different index spaces),
+ * and the paging cursor. Splitting them would re-serialize round trips against
+ * a REMOTE database — the exact defect mt#4258 removed from this function — so
+ * the window is a CTE the later legs reference rather than a value passed
+ * between statements.
+ *
+ * ## What is deliberately NOT windowed
+ *
+ * Two passes read the whole conversation's STRUCTURE (ids, parent edges, tool
+ * ids) rather than its content, and a tail window gives each of them a wrong
+ * answer rather than a partial one:
+ *
+ * - **Rewind marking** compares sibling prompt SUBTREES to decide which branch
+ *   is live. Truncate both sides and the verdict changes with where the window
+ *   cut — see `computeAbandonedBlockIds`.
+ * - **Tool-call naming** lets a windowed `tool_result` name the call it answers
+ *   when that call is outside the window; the renderer has always built it over
+ *   all turns (`conversation-thread-model.ts`).
+ *
+ * Both therefore run over projections of the FULL transcript. They are cheap
+ * for the reason the window exists: the payload is dominated by message
+ * content, and neither pass reads any.
+ */
+async function assembleWindowedSessionContextSnapshot(
+  db: PostgresJsDatabase,
+  agentSessionId: AgentSessionId,
+  request: SnapshotWindowRequest
+): Promise<SessionContextSnapshot | null> {
+  const limit = Math.max(1, Math.min(MAX_SNAPSHOT_WINDOW_LIMIT, Math.trunc(request.limit)));
+  const before =
+    request.before === undefined || !Number.isFinite(request.before)
+      ? null
+      : Math.trunc(request.before);
+
+  // `renderable` mirrors `turnLineToBlock`'s own guard exactly (user/assistant
+  // with a timestamp). Windowing over raw array entries instead would return
+  // fewer blocks than the caller asked for whenever the transcript carries
+  // summary or meta lines, and make `hasMore` disagree with what renders.
+  const [rowsWindow, spawnChildrenByToolUseId, spawnParent] = await Promise.all([
+    db.execute<WindowedQueryRow>(sql`
+      with t as (
+        select harness, transcript
+        from agent_transcripts
+        where agent_session_id = ${agentSessionId}
+        limit 1
+      ),
+      lines as (
+        select (e.ord - 1)::int as turn_index, e.line
+        from t, lateral jsonb_array_elements(t.transcript) with ordinality as e(line, ord)
+      ),
+      renderable as (
+        select turn_index, line
+        from lines
+        where line->>'type' in ('user', 'assistant')
+          and line->>'timestamp' is not null
+      ),
+      win as (
+        select turn_index, line
+        from renderable
+        where ${before === null ? sql`true` : sql`turn_index < ${before}`}
+        order by turn_index desc
+        limit ${limit}
+      )
+      select
+        (select harness from t) as harness,
+        (select count(*)::int from renderable) as total_turns,
+        (select min(turn_index) from win) as oldest_turn_index,
+        (
+          select exists (
+            select 1 from renderable
+            where turn_index < coalesce((select min(turn_index) from win), 0)
+          )
+        ) as has_more,
+        coalesce(
+          (
+            select jsonb_agg(jsonb_build_object('i', turn_index, 'l', line) order by turn_index)
+            from win
+          ),
+          '[]'::jsonb
+        ) as lines,
+        coalesce(
+          (
+            select jsonb_agg(
+              jsonb_build_object(
+                'lineIndex', a.line_index,
+                'rawJsonlType', a.raw_jsonl_type,
+                'attachmentType', a.attachment_type,
+                'content', a.content,
+                'parentUuid', a.parent_uuid,
+                'timestamp', a.timestamp
+              ) order by a.line_index
+            )
+            from agent_transcript_attachments a
+            where a.agent_session_id = ${agentSessionId}
+              and a.timestamp >= coalesce(
+                (
+                  select min((line->>'timestamp')::timestamptz)
+                  from win
+                  where line->>'timestamp' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                ),
+                '-infinity'::timestamptz
+              )
+          ),
+          '[]'::jsonb
+        ) as attachments,
+        coalesce(
+          (
+            select jsonb_agg(
+              jsonb_build_object(
+                'i', turn_index,
+                'u', line->>'uuid',
+                'p', line->>'parentUuid',
+                't', line->>'timestamp',
+                'ty', line->>'type',
+                'tr', exists (
+                  select 1
+                  from jsonb_array_elements(
+                    case
+                      when jsonb_typeof(line->'message'->'content') = 'array'
+                      then line->'message'->'content'
+                      else '[]'::jsonb
+                    end
+                  ) as part
+                  where part->>'type' = 'tool_result'
+                )
+              ) order by turn_index
+            )
+            from renderable
+          ),
+          '[]'::jsonb
+        ) as structure,
+        coalesce(
+          (
+            select jsonb_agg(
+              jsonb_build_object(
+                'i', a.line_index,
+                'p', a.parent_uuid,
+                't', a.timestamp,
+                'ty', a.raw_jsonl_type
+              ) order by a.line_index
+            )
+            from agent_transcript_attachments a
+            where a.agent_session_id = ${agentSessionId}
+          ),
+          '[]'::jsonb
+        ) as attachment_structure,
+        coalesce(
+          (
+            select jsonb_agg(distinct jsonb_build_object('id', part->>'id', 'name', part->>'name'))
+            from renderable,
+              lateral jsonb_array_elements(
+                case
+                  when jsonb_typeof(line->'message'->'content') = 'array'
+                  then line->'message'->'content'
+                  else '[]'::jsonb
+                end
+              ) as part
+            where part->>'type' = 'tool_use' and part->>'id' is not null
+          ),
+          '[]'::jsonb
+        ) as tools
+    `),
+    resolveSpawnChildren(db, agentSessionId),
+    resolveSpawnParent(db, agentSessionId),
+  ]);
+
+  const row = rowsWindow[0];
+  // `harness` is null only when no `agent_transcripts` row matched — every
+  // other field defaults to an empty aggregate, so this is the miss signal and
+  // it must return null exactly as the unwindowed path does.
+  if (row === undefined || row.harness === null) return null;
+
+  const blocks: SessionContextSnapshotBlock[] = [];
+
+  for (const entry of row.lines ?? []) {
+    const block = turnLineToBlock(agentSessionId, entry.i, entry.l);
+    if (block !== null) blocks.push(block);
+  }
+
+  for (const attachment of row.attachments ?? []) {
+    const ts = typeof attachment.timestamp === "string" ? attachment.timestamp : "";
+    if (!ts) continue;
+    blocks.push({
+      id: attachmentBlockId(agentSessionId, attachment.lineIndex),
+      type: mapAttachmentTypeToBlockType(attachment.rawJsonlType, attachment.attachmentType),
+      source: "observed",
+      content: attachment.content,
+      parentUuid: attachment.parentUuid ?? undefined,
+      timestamp: new Date(ts).toISOString(),
+      rawJsonlType: attachment.rawJsonlType,
+    });
+  }
+
+  blocks.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  const abandoned = computeAbandonedBlockIds(
+    structureBlocks(agentSessionId, row.structure ?? [], row.attachment_structure ?? [])
+  );
+  const markedBlocks = applyAbandonedBlockIds(blocks, abandoned);
+
+  const toolNamesByUseId: Record<string, string> = {};
+  for (const tool of row.tools ?? []) {
+    if (typeof tool.id === "string" && typeof tool.name === "string") {
+      toolNamesByUseId[tool.id] = tool.name;
+    }
+  }
+
+  const window: SessionContextSnapshotWindow = {
+    totalTurns: toInt(row.total_turns) ?? 0,
+    returnedTurns: (row.lines ?? []).length,
+    oldestTurnIndex: toInt(row.oldest_turn_index),
+    hasMore: row.has_more === true,
+  };
+
+  return {
+    agentSessionId,
+    harness: typeof row.harness === "string" ? row.harness : "unknown",
+    blocks: markedBlocks,
+    ...(spawnChildrenByToolUseId ? { spawnChildrenByToolUseId } : {}),
+    ...(spawnParent ? { spawnParent } : {}),
+    window,
+    toolNamesByUseId,
+    assembledAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Rebuild the minimal block shape the rewind detector reads, from the
+ * structure-only projections of the FULL transcript.
+ *
+ * Only five fields are load-bearing there — `id`, `uuid`, `parentUuid`,
+ * `timestamp`, `rawJsonlType` — plus whether the line carries a `tool_result`,
+ * which `carriesToolResult` reads off `content`. That predicate looks for a
+ * `content` array holding a part of type `tool_result`, so a one-part stand-in
+ * answers it identically without shipping the real payload.
+ *
+ * The ids MUST be built with the same two id functions the real blocks use, or
+ * the set this feeds cannot address them.
+ */
+function structureBlocks(
+  agentSessionId: string,
+  turns: StructureRow[],
+  attachments: AttachmentStructureRow[]
+): SessionContextSnapshotBlock[] {
+  const blocks: SessionContextSnapshotBlock[] = [];
+
+  for (const turn of turns) {
+    blocks.push({
+      id: turnBlockId(agentSessionId, turn.i),
+      type: mapTurnTypeToBlockType(turn.ty, undefined),
+      source: "observed",
+      content: turn.tr ? { content: [{ type: "tool_result" }] } : {},
+      uuid: turn.u ?? undefined,
+      parentUuid: turn.p ?? undefined,
+      timestamp: turn.t,
+      turnIndex: turn.i,
+      rawJsonlType: turn.ty,
+    });
+  }
+
+  for (const attachment of attachments) {
+    blocks.push({
+      id: attachmentBlockId(agentSessionId, attachment.i),
+      type: "other",
+      source: "observed",
+      content: {},
+      parentUuid: attachment.p ?? undefined,
+      timestamp: attachment.t ?? "",
+      rawJsonlType: attachment.ty,
+    });
+  }
+
+  return blocks;
 }
 
 /**
