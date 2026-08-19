@@ -148,12 +148,24 @@ function ClassRow({ cls }: { cls: ProtectionClassSummary }) {
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-[10px] font-mono text-muted-foreground tabular-nums">
-        <span>
-          stopped <span className="text-foreground">{ledger.stopped.toLocaleString()}</span>
-        </span>
-        <span>
-          flagged <span className="text-foreground">{ledger.flagged.toLocaleString()}</span>
-        </span>
+        {/* A quiet class gets a SENTENCE, not `stopped 0  flagged 0` (AT2).
+            Zeros are the honest number and the wrong rendering: three of them
+            in a row read as an empty state or a broken feed, when what they
+            actually mean is the good outcome — nothing came up. The time still
+            renders beside it, because a check that cost you something while
+            catching nothing is exactly what the cost column is for. */}
+        {ledger.interruptions === 0 ? (
+          <span data-testid="protection-class-quiet">Nothing needed stopping here.</span>
+        ) : (
+          <>
+            <span>
+              stopped <span className="text-foreground">{ledger.stopped.toLocaleString()}</span>
+            </span>
+            <span>
+              flagged <span className="text-foreground">{ledger.flagged.toLocaleString()}</span>
+            </span>
+          </>
+        )}
         <span>
           {/* A null total is "never measured", NOT zero — the two mean opposite
               things and the snapshot already distinguishes them. */}

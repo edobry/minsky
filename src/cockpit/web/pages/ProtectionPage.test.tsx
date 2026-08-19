@@ -360,6 +360,53 @@ describe("ProtectionPage — ordering and figures", () => {
     expect(text).not.toContain("What tells me the guards themselves are still working?");
   });
 
+  test("AT2: a class with zero fires states the quiet result rather than showing zeros", async () => {
+    renderWith(
+      ProtectionPage,
+      payload({ entries: [entry({ guardName: "quiet", failureClasses: ["secret-exposure"] })] }),
+      READY(snapshot({ rows: [aggregateRow({ guardName: "quiet", deny: 0, warn: 0 })] }))
+    );
+    await screen.findByTestId("protection-classes");
+    const row = screen.getByTestId("protection-class-row");
+    expect(screen.getByTestId("protection-class-quiet").textContent).toContain(
+      "Nothing needed stopping here"
+    );
+    // Not an empty state, and not the zero triplet that reads like a broken feed.
+    expect(row.textContent).not.toContain("stopped 0");
+    expect(row.textContent).not.toContain("flagged 0");
+    // Still not an implied failure — the class is present and counted.
+    expect(row.textContent).toContain("1 check");
+    expect(screen.queryByTestId("protection-health-degraded")).toBeNull();
+  });
+
+  test("AT3: a rendered cost figure equals the snapshot's own value for the same set", async () => {
+    // Two checks in one class, 40 + 60 stops and 30 + 70 flags, so the row must
+    // read 100/100 — the sum of the snapshot rows, not either one and not the
+    // fire count.
+    renderWith(
+      ProtectionPage,
+      payload({
+        entries: [
+          entry({ guardName: "a", failureClasses: ["broken-main"] }),
+          entry({ guardName: "b", failureClasses: ["broken-main"] }),
+        ],
+      }),
+      READY(
+        snapshot({
+          rows: [
+            aggregateRow({ guardName: "a", deny: 40, warn: 30 }),
+            aggregateRow({ guardName: "b", deny: 60, warn: 70 }),
+          ],
+        })
+      )
+    );
+    await screen.findByTestId("protection-classes");
+    const row = screen.getByTestId("protection-class-row");
+    expect(row.textContent).toContain("stopped 100");
+    expect(row.textContent).toContain("flagged 100");
+    expect(screen.getByTestId("protection-total-stopped").textContent).toContain("100");
+  });
+
   test("an unmeasured duration reads as not-measured, not as 0ms", async () => {
     renderWith(
       ProtectionPage,
