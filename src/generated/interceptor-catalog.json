@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 136,
+  "population": 137,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -1011,6 +1011,34 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "constructed-identifier-batch-detector"
+    },
+    {
+      "guardName": "context-fill-gauge",
+      "description": "Records the session's own context fill against the model's window, every turn, alongside the turn count. The model has no introspective access to its token count, so this is the only channel that can supply one. Display-only: it reports and acts on nothing.",
+      "failureClasses": ["lost-signal"],
+      "provenance": [".minsky/hooks/context-fill-gauge.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "UserPromptSubmit",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "context-fill-gauge"
     },
     {
       "guardName": "denier",
