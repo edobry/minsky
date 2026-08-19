@@ -10,21 +10,43 @@
 import type { Command } from "commander";
 
 /**
- * mt#1751: detect `minsky mcp start` invocation in stdio mode (i.e. without
- * `--http`). Used by the preAction hook in `src/cli.ts` to skip eager DI
- * initialization for that specific command path — the action body kicks off
- * init in the background so the MCP `initialize` handshake can respond
- * before DI completes.
+ * mt#1751: detect `minsky mcp start` invocation in stdio mode. Used by the
+ * preAction hook in `src/cli.ts` to skip eager DI initialization for that
+ * specific command path — the action body kicks off init in the background so
+ * the MCP `initialize` handshake can respond before DI completes.
  *
- * Returns false for any non-`start` leaf, non-`mcp` parent, or when `--http`
- * is present. Defensive against the hook receiving a command without an
- * `opts()` method (some test harnesses).
+ * Returns false for any non-`start` leaf, non-`mcp` parent, or when any flag
+ * selecting a NON-stdio transport is present. Defensive against the hook
+ * receiving a command without an `opts()` method (some test harnesses).
+ *
+ * ## Why this tests two flags, not just `--http` (mt#4297)
+ *
+ * This predicate must answer "is the transport stdio?", and until mt#4297 it
+ * inferred that from the ABSENCE of `--http` alone. `--local-daemon` is a MODE
+ * flag that SUPPLIES the transport rather than naming it: `start-command.ts`
+ * sets `options.http = true` inside the action body, and the tray spawns the
+ * shared daemon with `--local-daemon` and no `--http` at all
+ * (`cockpit-tray/src-tauri/src/supervisor/registry.rs`, `mcp_spawn_args`).
+ *
+ * preAction runs BEFORE that action body, so the daemon classified as stdio and
+ * eager `container.initialize()` was skipped. The stdio background-init site
+ * then skipped too — by the time it ran, `transportType` was already `"http"`,
+ * and its own comment reads "For HTTP mode, preAction has already initialized",
+ * which was false here. Each path assumed the other had run, and the daemon
+ * came up with no persistence provider at all: `/health` served 200 with
+ * `persistence.mode: "unconfigured"` for 31 hours while every DB-backed call
+ * failed at call time.
+ *
+ * The generalizable rule for anyone adding another transport-selecting flag:
+ * **add it here too.** This predicate is the single place that decides whether
+ * DI is initialized eagerly, and a mode flag that implies a transport is
+ * indistinguishable — from here — from one that names it.
  */
 export function isMcpStartStdio(cmd: Command): boolean {
   if (cmd.name() !== "start") return false;
   if (cmd.parent?.name() !== "mcp") return false;
   const opts = typeof cmd.opts === "function" ? cmd.opts() : {};
-  return !opts.http;
+  return !opts.http && !opts.localDaemon;
 }
 
 /**
