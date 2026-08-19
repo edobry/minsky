@@ -253,7 +253,8 @@ export type FormLintCheck =
   | "missing-force-immediate"
   | "missing-decision-options"
   | "unlinkified-reference"
-  | "unscoped-option-exception";
+  | "unscoped-option-exception"
+  | "duplicate-open-incident";
 
 /**
  * Markers that only appear in a question when the tool call's own parameter
@@ -291,6 +292,122 @@ export function findSerializedParameterArtifact(question: string): string | null
     if (question.includes(marker)) return marker;
   }
   return null;
+}
+
+/**
+ * The counterweight to `missing-force-immediate` (mt#4312).
+ *
+ * `34a937f0` ("Companion principles: attention, humility, and noticing"), the
+ * page the Ask subsystem was designed from, names two attention failures and
+ * requires both to be prevented:
+ *
+ *   > **Waste** is the system asking when it shouldn't have. … It bothered the
+ *   > principal instead.
+ *   > **Usurp** is the system deciding when it shouldn't have. … The principal
+ *   > doesn't see this failure happen.
+ *   > Any design that protects attention has to prevent both, not just one.
+ *
+ * Usurpation was mechanized first, and the record says why — it is SILENT, so
+ * it has no other signal. Waste had nothing at any tier: `missing-force-immediate`
+ * above prompts an author TOWARD paging, the `turn-end-unescalated-incident`
+ * Stop-observer fires when a turn ends without one, and nothing anywhere asked
+ * whether a page was warranted.
+ *
+ * Originating incident (2026-08-19): ask#9278 at 03:01:32Z and ask#9279 at
+ * 03:02:12Z — two `authorization.approve` asks, both `severity: "incident"`,
+ * both `forceImmediate`, both paging the principal 40 seconds apart, both
+ * asking permission to `pg_terminate_backend` the same wedged Postgres
+ * backends. Neither agent could see the other's ask. Both premises expired
+ * within ~20 minutes when the backends drained on their own.
+ */
+
+/**
+ * Minimum length for a signature token. Mirrors the hooks tree's
+ * `MIN_SUBJECT_TOKEN_LENGTH` — same corpus, same problem, same answer.
+ */
+export const INCIDENT_SIGNATURE_MIN_TOKEN_LENGTH = 8;
+
+/**
+ * How many shared tokens make two incident asks the same incident.
+ *
+ * TWO, not one: a single shared identifier is how two genuinely different
+ * incidents in one subsystem look. Both originating asks shared THREE
+ * (`pg_terminate_backend`, `wait_event`, `ClientRead`), so the bar is met with
+ * margin on the case this exists for.
+ */
+export const MIN_SHARED_SIGNATURE_TOKENS = 2;
+
+/**
+ * Identifier-shaped runs of >= 8 chars, lowercased.
+ *
+ * IDENTIFIER-shaped, not merely long, and that restriction is the whole
+ * discriminator. A token qualifies only if it carries an underscore, a digit,
+ * or an interior capital — so `pg_terminate_backend`, `ECHECKOUTTIMEOUT` and
+ * `ClientRead` are signatures, while `production`, `connection`, `authorization`
+ * and `principal` are not. Those prose words are exactly what two UNRELATED
+ * incident asks share, and admitting them would make the check fire on any two
+ * incidents at once.
+ *
+ * Exact substring matching, no stemming and no similarity metric — mem#819
+ * records that similarity does not discriminate at the distances real
+ * duplicates sit at in this corpus.
+ *
+ * **Known false-negative class, stated rather than implied:** an incident ask
+ * written in plain prose — "the reviewer webhook is returning 502 and
+ * crash-looping" — yields NO signature tokens at all, so it is never compared
+ * against anything and this check can never fire for it. Found while writing
+ * the tests, where exactly that string turned out to be an inert fixture. The
+ * failure direction is the safe one (a missed duplicate, not a suppressed
+ * incident), and widening toward prose words is the trade this check exists to
+ * refuse — but a reader should not infer from silence that no duplicate exists.
+ */
+export function extractIncidentSignatureTokens(text: string): Set<string> {
+  const out = new Set<string>();
+  for (const raw of text.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []) {
+    if (raw.length < INCIDENT_SIGNATURE_MIN_TOKEN_LENGTH) continue;
+    const isIdentifierShaped = raw.includes("_") || /\d/.test(raw) || /[A-Z]/.test(raw.slice(1));
+    if (!isIdentifierShaped) continue;
+    out.add(raw.toLowerCase());
+  }
+  return out;
+}
+
+/** An already-open incident ask, as the overlap check needs to see it. */
+export interface OpenIncidentAskRef {
+  /** Human-readable id for the warning message (e.g. `ask#9278`). */
+  shortId: string;
+  question: string;
+}
+
+/** One open incident ask this question overlaps, and the tokens they share. */
+export interface IncidentOverlap {
+  shortId: string;
+  sharedTokens: string[];
+}
+
+/**
+ * Open incident asks whose question shares >= {@link MIN_SHARED_SIGNATURE_TOKENS}
+ * signature tokens with this one.
+ *
+ * Subject-keyed rather than task-keyed on purpose: ask#9278 carried
+ * `parentTaskId: mt#4190` and ask#9279 carried none, so `getOpenAskForTask`
+ * would not have linked the originating pair. Their entire overlap lived in the
+ * question text.
+ */
+export function findOverlappingIncidentAsks(
+  question: string,
+  openIncidentAsks: readonly OpenIncidentAskRef[]
+): IncidentOverlap[] {
+  const mine = extractIncidentSignatureTokens(question);
+  if (mine.size === 0) return [];
+  const out: IncidentOverlap[] = [];
+  for (const other of openIncidentAsks) {
+    const shared = [...extractIncidentSignatureTokens(other.question)].filter((t) => mine.has(t));
+    if (shared.length >= MIN_SHARED_SIGNATURE_TOKENS) {
+      out.push({ shortId: other.shortId, sharedTokens: shared.sort() });
+    }
+  }
+  return out;
 }
 
 /** A single fired check, with its human-readable warning message. */
@@ -341,6 +458,22 @@ export interface FormLintInput {
    * because this field was merely omitted.
    */
   forceImmediate?: boolean;
+  /**
+   * Whether this create carries `severity: "incident"` (mt#4312) — the marker
+   * that pages the principal. Optional; absent is treated as not-an-incident,
+   * matching the omission convention above.
+   */
+  severity?: string | undefined;
+  /**
+   * Open incident asks to check this one against (mt#4312).
+   *
+   * Passed IN rather than queried here, so this module stays a pure function of
+   * its input and the DB read lives in the imperative shell at
+   * `asks.create`. Omitting it is "the caller is not checking for duplicates",
+   * not "there are none" — the check stays silent, exactly as `options`'
+   * omission silences the label checks.
+   */
+  openIncidentAsks?: readonly OpenIncidentAskRef[];
 }
 
 // ---------------------------------------------------------------------------
@@ -396,7 +529,7 @@ export function countWords(text: string): number {
  * Check 7 (mt#3477) is NOT excluded: it blocks alongside the original five.
  */
 export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
-  const { kind, question, options, forceImmediate } = input;
+  const { kind, question, options, forceImmediate, severity, openIncidentAsks } = input;
   const matches: FormLintMatch[] = [];
 
   if (MCP_TOOL_ID_PATTERN.test(question)) {
@@ -514,6 +647,33 @@ export function computeFormLintMatches(input: FormLintInput): FormLintMatch[] {
         `one case that prompted this ask. An exemption written from the case in hand is how ` +
         `ask#8509 authorized a change that would have broken the feature (mem#258 R7)`,
     });
+  }
+
+  // mt#4312: an incident-marked ask whose subject already has an OPEN incident
+  // ask. Advisory permanently, and on `filterBlockingFormLintMatches`'s
+  // exclusion list for a reason this check owns rather than inherits: a
+  // suppressed real incident is strictly worse than a duplicate page, so the
+  // failure direction is chosen deliberately toward permitting. The fire is a
+  // prompt to READ the other ask, not a refusal.
+  if (severity === "incident" && openIncidentAsks && openIncidentAsks.length > 0) {
+    const overlaps = findOverlappingIncidentAsks(question, openIncidentAsks);
+    if (overlaps.length > 0) {
+      const rendered = overlaps
+        .map((o) => `${o.shortId} (shared: ${o.sharedTokens.join(", ")})`)
+        .join("; ");
+      matches.push({
+        check: "duplicate-open-incident",
+        message:
+          `an incident ask is already open on what looks like this subject — ${rendered}. ` +
+          `Read it before paging again: a second page for one incident spends the ` +
+          `principal's attention twice and tells them nothing new. If it IS the same ` +
+          `incident, add to that ask instead. If the condition is external and ` +
+          `self-resolving — a pool draining, a service restarting, CI finishing — arm a ` +
+          `watcher and keep working rather than escalating at all ` +
+          `(work-completion.mdc §External self-resolving waits). If it is genuinely a ` +
+          `different incident, say so and proceed`,
+      });
+    }
   }
 
   return matches;

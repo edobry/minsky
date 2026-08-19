@@ -54,6 +54,7 @@ import {
 } from "@minsky/domain/ask/edit";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
 import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
+import { getOpenIncidentAsks } from "@minsky/domain/ask/queries";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
@@ -992,7 +993,13 @@ export function filterBlockingFormLintMatches(matches: FormLintMatch[]): FormLin
       // whether an exemption set is complete, which no matcher can decide, so
       // blocking on it would only teach authors to reword the label. The fire
       // is the prompt; the judgment stays with the author.
-      m.check !== "unscoped-option-exception"
+      m.check !== "unscoped-option-exception" &&
+      // mt#4312: advisory permanently, and the direction is chosen rather than
+      // inherited. Blocking would mean a mis-scored overlap can SUPPRESS a real
+      // incident page, which is strictly worse than the duplicate page it would
+      // prevent — the whole subsystem exists to get the principal's attention
+      // when it is warranted. Fire, name the other ask, let the author decide.
+      m.check !== "duplicate-open-incident"
   );
 }
 
@@ -1512,6 +1519,12 @@ export async function createAskWithFormLint(
   // Minsky id-set, and a Notion page id is in no Minsky index.
   const persistedParams: CreateAskParams = normalizeQuestionForLint(params);
 
+  // mt#4312: read the open incident asks BEFORE creating this one, so the
+  // comparison set never contains the ask being created. Only for an incident
+  // create — an ordinary ask pays no read.
+  const openIncidentAsks =
+    params.severity === "incident" ? await getOpenIncidentAsks(repo) : undefined;
+
   const ask = await createAsk(repo, persistedParams, routerOptions);
   const formLintMatches = computeFormLintMatches({
     kind: params.kind,
@@ -1525,6 +1538,11 @@ export async function createAskWithFormLint(
     // forceImmediate feeds the missing-force-immediate check (mt#3436) —
     // calibration-first, never blocking (see validateFormLintNotViolated).
     forceImmediate: params.forceImmediate,
+    // mt#4312: the counterweight to the check above. `severity` and the open
+    // incident set together drive `duplicate-open-incident`; both are absent
+    // for a non-incident create, which keeps that check silent.
+    severity: params.severity,
+    openIncidentAsks,
   });
   return {
     ask,
