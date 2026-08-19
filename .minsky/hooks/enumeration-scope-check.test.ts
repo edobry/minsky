@@ -165,6 +165,44 @@ describe("sweptDirectories", () => {
     expect(sweptDirectories(call("Bash", { command: "bun test src/cockpit" }))).toEqual([]);
   });
 
+  // --- PR #3141 R1 regressions: each pins one BLOCKING finding ------------
+
+  test("R1: `ls` is NOT a search — listing a directory does not credit it", () => {
+    // `ls docs/` credited `docs` and would turn a real miss into a false clean,
+    // contradicting this constant's own "commands that SEARCH" contract.
+    expect(sweptDirectories(call("Bash", { command: "ls -la docs/" }))).toEqual([]);
+  });
+
+  test("R1: a bare directory operand with no trailing slash credits that directory", () => {
+    // `rg foo src` is a path-SCOPED search. The slash heuristic read it as
+    // pathless, took the tree-defaulting branch, and credited everything.
+    expect(sweptDirectories(call("Bash", { command: "rg principalChannel src" }))).toEqual(["src"]);
+  });
+
+  test("R1: a path-scoped rg does NOT credit docs", () => {
+    // The consequence that mattered: the over-credit above produced a false
+    // `clean` on exactly the gap this guard exists to find.
+    expect(sweptDirectories(call("Bash", { command: "rg principalChannel src" }))).not.toContain(
+      "docs"
+    );
+  });
+
+  test("R1: a bare `docs` inside a PATTERN does not credit docs", () => {
+    // Resolving operand ROLE fixes this second over-credit for free: only
+    // operands after the pattern are paths.
+    expect(sweptDirectories(call("Bash", { command: 'rg "docs" src/' }))).not.toContain("docs");
+  });
+
+  test("R1: rg with no operand at all IS a whole-tree sweep", () => {
+    // The behaviour the slash heuristic was reaching for, now decided by operand
+    // count rather than by punctuation.
+    expect(sweptDirectories(call("Bash", { command: "rg principalChannel" }))).toContain("docs");
+  });
+
+  test("R1: find takes its path FIRST, and is read that way", () => {
+    expect(sweptDirectories(call("Bash", { command: "find docs -name '*.md'" }))).toEqual(["docs"]);
+  });
+
   test("a structured search tool's path argument is read", () => {
     const c = call("mcp__minsky__session_grep_search", {
       sessionId: "s",
@@ -188,6 +226,24 @@ describe("callsSinceLastPr", () => {
     // The measured false positive: session `c1b904ea` created SEVEN PRs, and a
     // contract edit from an earlier task flagged mt#4232's PR.
     expect(editedPaths([CONTRACT_EDIT, PR_CREATE])).toEqual([]);
+  });
+
+  test("R1: a session_move_file of a contract counts as an edit", () => {
+    const move = call("mcp__minsky__session_move_file", {
+      sessionId: "s",
+      sourcePath: HEALTH_CONTRACT,
+      targetPath: "contract/renamed-health-shape.json",
+    });
+    expect(editedPaths([move])).toContain(HEALTH_CONTRACT);
+  });
+
+  test("R1: a session_rename_file of a contract counts as an edit", () => {
+    const rename = call("mcp__minsky__session_rename_file", {
+      sessionId: "s",
+      path: HEALTH_CONTRACT,
+      newName: "cockpit-health-shape-v2.json",
+    });
+    expect(editedPaths([rename])).toContain(HEALTH_CONTRACT);
   });
 
   test("includes edits made after the previous PR", () => {

@@ -53,7 +53,14 @@ function readHostCapSec(): number {
     const block = settings.hooks?.PreToolUse?.find(
       (b) => (b.matcher ?? "") === "mcp__minsky__session_pr_create"
     );
-    const timeout = block?.hooks?.[block.hooks.length - 1]?.timeout;
+    // Extracted stepwise rather than `block?.hooks?.[block.hooks.length - 1]`
+    // (PR #3141 R1 NON-BLOCKING). Optional chaining does short-circuit the whole
+    // chain, so the original could not actually throw — but it READS as though
+    // the index is evaluated unconditionally, and a reviewer had to work that out
+    // to clear it. Cheaper to write the version nobody has to reason about.
+    const hooks = block?.hooks;
+    const last = hooks && hooks.length > 0 ? hooks[hooks.length - 1] : undefined;
+    const timeout = last?.timeout;
     return typeof timeout === "number" && timeout > 0 ? timeout : FALLBACK_HOST_CAP_SEC;
   } catch {
     return FALLBACK_HOST_CAP_SEC;

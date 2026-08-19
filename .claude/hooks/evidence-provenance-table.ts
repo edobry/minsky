@@ -414,8 +414,34 @@ const SWEEP_TOOL_NAMES: readonly string[] = [
  * its directory, and crediting it would discharge gate (h) on a single-file
  * read — the exact "enumerated 25+ sites and missed a class" shape (mt#1610)
  * this check exists to catch.
+ *
+ * `ls` WAS here and is removed (PR #3141 R1). Listing a directory is not
+ * searching it: `ls docs/` credited `docs` as swept and would turn a real miss
+ * into a false `clean`. That is the direction that costs this guard its purpose,
+ * and it contradicted this docblock's own first sentence — the reviewer read the
+ * contract against the constant and found them disagreeing.
  */
-const SWEEP_COMMAND_RE = /\b(?:grep|rg|ugrep|ag|ack|find|fd|fgrep|egrep|ls)\b/;
+const SWEEP_COMMAND_RE = /\b(?:grep|rg|ugrep|ag|ack|find|fd|fgrep|egrep)\b/;
+
+/**
+ * Searchers whose FIRST non-flag operand is the pattern and whose remaining
+ * operands are paths. `find` is deliberately absent — its path comes FIRST
+ * (`find src -name x`), which is why operand role is resolved per command rather
+ * than by position alone.
+ */
+const PATTERN_FIRST_COMMANDS: readonly string[] = [
+  "grep",
+  "fgrep",
+  "egrep",
+  "rg",
+  "ugrep",
+  "ag",
+  "ack",
+  "fd",
+];
+
+/** Searchers whose operands are ALL paths, with the pattern in a flag. */
+const PATH_FIRST_COMMANDS: readonly string[] = ["find"];
 
 /**
  * The top-level directories gate (h)'s consumer table can prescribe.
@@ -457,10 +483,6 @@ export const PRESCRIBABLE_DIRECTORIES: readonly string[] = [
  * `ag`, `ack` and `fd` default to the working tree. Treating them alike is what
  * produced the 86% above.
  */
-const EXPLICIT_CWD_OPERAND_RE = /(?:^|\s)\.(?=\s|$)/;
-const TREE_DEFAULTING_COMMAND_RE = /(?:^|[\s|(])(?:rg|ugrep|ag|ack|fd)\b/;
-const PATH_OPERAND_RE = /(?:^|\s)(?:--include=)?["']?[\w@.][\w\-./]*\//;
-
 /**
  * Split a command string into the segments a shell would run separately.
  *
@@ -481,23 +503,95 @@ function commandSegments(command: string): string[] {
 }
 
 /**
- * True when a segment searches the whole tree: either it names `.` explicitly,
- * or it runs a tree-defaulting searcher with no path operand at all.
+ * Tokenize a shell segment, honouring simple single/double quoting.
+ *
+ * Enough of a shell lexer to tell an operand from a flag from a quoted pattern,
+ * and no more. It does not expand variables or handle nested quoting — both
+ * degrade toward "no operands found", which routes to the tree-defaulting branch
+ * below rather than to a silent wrong directory.
  */
+function tokenize(segment: string): string[] {
+  const tokens: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(segment)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3] ?? "");
+  }
+  return tokens;
+}
+
+/**
+ * The operands of a search segment that are PATHS — not flags, not the pattern.
+ *
+ * THIS REPLACED A SLASH HEURISTIC, and the heuristic was wrong in the dangerous
+ * direction (PR #3141 R1). The previous test for "does this segment name a path"
+ * required a `/`, so `rg foo src` — a perfectly ordinary path-scoped search whose
+ * operand has no trailing slash — read as having NO path operand, took the
+ * tree-defaulting branch, and credited every prescribable directory including
+ * `docs`. A path-scoped search was therefore recorded as a whole-tree sweep,
+ * which is exactly how a real `docs/` miss becomes a false `clean`.
+ *
+ * Resolving the operand ROLE also fixes a second over-credit the token scan had:
+ * a bare `docs` inside a PATTERN (`rg "docs" src/`) can no longer credit `docs`,
+ * because only operands after the pattern are considered paths.
+ */
+function pathOperands(segment: string): string[] {
+  const tokens = tokenize(segment);
+  let cmdIndex = -1;
+  let command = "";
+  for (let i = 0; i < tokens.length; i++) {
+    const bare = (tokens[i] ?? "").replace(/^.*\//, "");
+    if (PATTERN_FIRST_COMMANDS.includes(bare) || PATH_FIRST_COMMANDS.includes(bare)) {
+      cmdIndex = i;
+      command = bare;
+      break;
+    }
+  }
+  if (cmdIndex === -1) return [];
+
+  const operands: string[] = [];
+  for (let i = cmdIndex + 1; i < tokens.length; i++) {
+    const t = tokens[i] ?? "";
+    if (t.startsWith("-")) continue; // a flag, and any value it carries reads as one too
+    operands.push(t);
+  }
+  if (PATH_FIRST_COMMANDS.includes(command)) return operands;
+  // Pattern-first: drop the pattern, keep the rest.
+  return operands.slice(1);
+}
+
+/**
+ * True when a segment searches the whole tree: it names `.` explicitly, or it
+ * runs a tree-defaulting searcher with no path operand at all.
+ *
+ * `grep` is deliberately NOT tree-defaulting. With no path operand `grep` reads
+ * STDIN (it is the tail of a pipe), which sweeps nothing; `rg`, `ag`, `ack` and
+ * `fd` default to the working tree. Treating them alike is what produced an
+ * earlier revision's measured 86.4% `contract/` sweep rate — a can't-fail probe
+ * (mem#704).
+ */
+const TREE_DEFAULTING_COMMANDS: readonly string[] = ["rg", "ugrep", "ag", "ack", "fd"];
+
 function sweepsWholeTree(segment: string): boolean {
   if (!SWEEP_COMMAND_RE.test(segment)) return false;
-  if (EXPLICIT_CWD_OPERAND_RE.test(segment)) return true;
-  return TREE_DEFAULTING_COMMAND_RE.test(segment) && !PATH_OPERAND_RE.test(segment);
+  const operands = pathOperands(segment);
+  if (operands.some((o) => o === "." || o === "./")) return true;
+  const runsTreeDefaulting = TREE_DEFAULTING_COMMANDS.some((c) =>
+    new RegExp(`(?:^|[\\s|(/])${c}\\b`).test(segment)
+  );
+  return runsTreeDefaulting && operands.length === 0;
 }
 
 /**
  * Directories this ONE call demonstrably searched.
  *
- * Token-membership against {@link PRESCRIBABLE_DIRECTORIES}, NOT argument-position
- * parsing. A pattern that merely MENTIONS `src/` (`grep -rn "src/cockpit" .`)
- * credits `src` — which is over-crediting, and over-crediting is the safe
- * direction here. Argument-position parsing would be more precise and would fail
- * in the dangerous direction on every flag spelling it did not anticipate.
+ * Resolved from the search's PATH OPERANDS, not by scanning the command text.
+ * The scan was the earlier design and it over-credited in two ways the reviewer
+ * and the replay each caught: a directory named anywhere in the string counted
+ * (so a pattern mentioning `docs` credited `docs`), and a bare operand without a
+ * trailing slash did not count at all (so `rg foo src` looked pathless and
+ * credited EVERYTHING). Both produce a false `clean`, which is the direction that
+ * costs this guard its purpose.
  */
 export function sweptDirectories(call: ToolCallWithResult): string[] {
   if (!SWEEP_TOOL_NAMES.includes(normalizeToolName(call.toolName))) return [];
@@ -509,7 +603,7 @@ export function sweptDirectories(call: ToolCallWithResult): string[] {
     if (typeof command !== "string" || command === "") return [];
     // PER SEGMENT, and this is the whole correctness of the shell path.
     //
-    // The first version asked "does ANY segment run a search?" and then pulled
+    // An earlier version asked "does ANY segment run a search?" and then pulled
     // directory tokens from the WHOLE command string. That pairs a verb from one
     // segment with a path from another — the same defect CLAUDE.md records for a
     // `grep -E` over a test log, where the filter dropped the structure binding a
@@ -528,55 +622,60 @@ export function sweptDirectories(call: ToolCallWithResult): string[] {
         for (const dir of PRESCRIBABLE_DIRECTORIES) covered.add(dir);
         continue;
       }
-      for (const dir of directoriesNamedIn(segment)) covered.add(dir);
+      for (const operand of pathOperands(segment)) {
+        const dir = directoryFromOperand(operand);
+        if (dir !== null) covered.add(dir);
+      }
     }
     return [...covered];
   }
 
   // A structured search tool: every field it exposes is part of ONE search, so
-  // there are no segments to keep apart.
-  const parts: string[] = [];
-  for (const field of ["path", "pattern", "include_pattern", "query", "glob"]) {
+  // there are no segments to keep apart and no pattern/path ambiguity to resolve.
+  const covered = new Set<string>();
+  for (const field of ["path", "include_pattern", "glob"]) {
     const value = call.input[field];
-    if (typeof value === "string" && value !== "") parts.push(value);
+    if (typeof value !== "string" || value === "") continue;
+    const dir = directoryFromOperand(value);
+    if (dir !== null) covered.add(dir);
   }
-  if (parts.length === 0) return [];
-  return directoriesNamedIn(parts.join(" "));
+  return [...covered];
 }
 
 /**
- * The prescribable directories a single search expression sweeps.
+ * The prescribable directory a single path operand SWEEPS, or null.
  *
- * A SUBTREE IS NOT THE DIRECTORY, and this distinction is the whole check. A
- * search naming `docs/architecture/adr-*.md` has not swept `docs/` — it has read
- * one subtree under a glob that structurally cannot reach `docs/principal-channel.md`.
- * Crediting it would be mt#4215's defect in the guard itself: a path argument
- * that names a directory is not proof the directory was searched.
+ * A SUBTREE IS NOT THE DIRECTORY, and this distinction is the whole check. An
+ * operand of `docs/architecture/adr-*.md` has not swept `docs/` — it has read one
+ * subtree under a glob that structurally cannot reach `docs/principal-channel.md`.
+ * Crediting it would be mt#4215's defect inside the guard: a path argument that
+ * names a directory is not proof the directory was searched.
  *
  * Measured (2026-08-19): this is exactly how mt#4252 escaped an earlier revision.
  * That session ran
- * `grep -rln "principal-channel\\|principal channel" docs/architecture/adr-*.md`,
- * which credited `docs` and suppressed the guard on its own originating
- * incident — while the file the change falsified sits at the `docs/` root, one
- * level above everything that grep could see.
+ * `grep -rln "principal-channel\|principal channel" docs/architecture/adr-*.md`,
+ * which credited `docs` and suppressed the guard on its own originating incident
+ * — while the file the change falsified sits at the `docs/` root, one level above
+ * everything that grep could see.
  *
- * So a reference counts only when it addresses the directory ITSELF: `docs/`,
- * `docs/*`, `docs/**`, or a file directly inside it. `docs/<subdir>/…` does not.
- * This trades a small false-positive risk (an author who sweeps several subtrees
- * separately reads as not having swept the root) for not silently discharging the
- * claim the gate exists to check — and the guard is record-only, so that risk
- * costs a calibration record rather than a denial.
+ * So an operand counts only when it addresses the directory ITSELF: `docs`,
+ * `docs/`, `docs/*`, `docs/**`, or a file directly inside it. `docs/<subdir>/…`
+ * does not. This trades a small false-positive risk (an author who sweeps several
+ * subtrees separately reads as not having swept the root) for not silently
+ * discharging the claim the gate exists to check — and the guard is record-only,
+ * so that risk costs a calibration record rather than a denial.
  */
-function directoriesNamedIn(text: string): string[] {
-  const covered: string[] = [];
+function directoryFromOperand(operand: string): string | null {
+  const cleaned = operand.replace(/^["']|["']$/g, "").replace(/^\.\//, "");
   for (const dir of PRESCRIBABLE_DIRECTORIES) {
-    // `dir/` preceded by a separator (so `srcfoo` does not credit `src`, and a
-    // bare word `docs` in a pattern does not either — a directory reference
-    // carries a slash), and NOT followed by a further `<component>/`.
-    const re = new RegExp(`(?:^|[\\s"'=(])${dir.replace(".", "\\.")}/(?![\\w.-]+/)`);
-    if (re.test(text)) covered.push(dir);
+    if (cleaned === dir || cleaned === `${dir}/`) return dir;
+    if (!cleaned.startsWith(`${dir}/`)) continue;
+    // Directly inside the directory (a file or a single-level glob) counts; a
+    // further path component means a subtree, which does not.
+    const remainder = cleaned.slice(dir.length + 1);
+    if (remainder !== "" && !remainder.includes("/")) return dir;
   }
-  return covered;
+  return null;
 }
 
 /** Every prescribable directory the session's sweep calls reached, unioned. */

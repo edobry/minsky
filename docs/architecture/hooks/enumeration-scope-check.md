@@ -114,6 +114,30 @@ Each was found by measuring, and each is pinned by a test.
    assertion on a verbatim fixture (mem#1020) — the test that proves a fixture matches _something_
    before any test asserts what it does not match.
 
+## Three more defects, found by review rather than by replay (PR #3141 R1)
+
+The replay measured the guard against real transcripts; it could not tell that the RECOGNIZER's
+vocabulary was wrong, because a wrong recognizer produces a plausible number. All three were
+over-credits, and an over-credit here is a false `clean` — the direction that costs this guard its
+purpose.
+
+1. **`ls` was treated as a search.** `ls docs/` credited `docs` as swept. The constant's own
+   docblock said "commands that SEARCH, as opposed to ones that merely name a path", and `ls` sat
+   in the list contradicting it. Removed.
+2. **A path-scoped search read as a whole-tree sweep.** The test for "does this segment name a
+   path" required a `/`, so `rg foo src` — an ordinary directory operand without a trailing slash —
+   looked pathless, took the tree-defaulting branch, and credited every prescribable directory
+   including `docs`. Replaced with operand PARSING: tokenize the segment, drop flags, resolve the
+   command's operand role (pattern-first for `grep`/`rg`/`fd`, path-first for `find`), and take
+   what remains. Whole-tree is now decided by operand COUNT rather than by punctuation.
+3. **Path-level edits were invisible.** `EDIT_TOOL_NAMES` covered write/edit/search-replace only, so
+   renaming or moving a serialized contract returned `declined` — a silent gap in a trigger whose
+   whole premise is "what did this session change?". `session_move_file` and `session_rename_file`
+   are read now, both ends of a move.
+
+Resolving operand ROLE fixed a fourth over-credit for free: a bare `docs` inside a PATTERN
+(`rg "docs" src/`) can no longer credit `docs`, because only operands after the pattern are paths.
+
 ## A subtree is not its directory
 
 A search naming `docs/architecture/adr-*.md` has **not** swept `docs/`. It has read one subtree
@@ -134,18 +158,19 @@ a denial.
 
 ## Measured behavior
 
-Replay over all 589 on-disk transcripts (2026-08-19), running the shipped `run()` against the
-prefix before each `session_pr_create`:
+Replay over all on-disk transcripts, running the shipped `run()` against the prefix before each
+`session_pr_create`. Figures below are the post-R1 recognizer over 595 transcripts (2026-08-19);
+the corpus grows as sessions land, so re-run rather than quoting these as fixed:
 
 |                                                  | count | of    |
 | ------------------------------------------------ | ----- | ----- |
-| PR-create calls                                  | 1134  | —     |
-| `declined` (no serialized surface in the window) | 1120  | 98.8% |
-| `clean` (swept or edited `docs/`)                | 9     | 0.8%  |
-| `matched`                                        | 5     | 0.4%  |
+| PR-create calls                                  | 1142  | —     |
+| `declined` (no serialized surface in the window) | 1128  | 98.8% |
+| `clean` (swept or edited `docs/`)                | 8     | 0.7%  |
+| `matched`                                        | 6     | 0.5%  |
 
-**Classification is incomplete and is stated as such.** One of the five is confirmed: mt#4252,
-reviewer-caught as BLOCKING on PR #3101. The other four are unclassified pending live calibration —
+**Classification is incomplete and is stated as such.** One of the six is confirmed: mt#4252,
+reviewer-caught as BLOCKING on PR #3101. The rest are unclassified pending live calibration —
 which is the reason this ships record-only rather than injecting. Per mem#719, a detector emitting
 unmatchable output erodes trust in its correct output, and precision here is measured on a
 single confirmed case.

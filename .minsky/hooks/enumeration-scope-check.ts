@@ -115,9 +115,30 @@ const EDIT_TOOL_NAMES: readonly string[] = [
   "session_write_file",
   "session_search_replace",
   "session_edit_file",
+  "session_move_file",
+  "session_rename_file",
   "edit",
   "write",
   "notebookedit",
+];
+
+/**
+ * The input fields those tools carry a path in.
+ *
+ * `sourcePath`/`targetPath` (move) and `path`/`newName` (rename) are here because
+ * a PATH-LEVEL change to a serialized contract is still a change to it (PR #3141
+ * R1). Renaming `contract/foo.json` or moving a generated manifest alters the
+ * published shape's address, and reading only `path`/`file_path` returned
+ * `declined` for it — a silent coverage gap in a trigger whose whole premise is
+ * "what did this session change?". Both ends of a move are read: moving a
+ * contract OUT of `contract/` and moving one IN are both events this guard wants.
+ */
+const EDIT_PATH_FIELDS: readonly string[] = [
+  "path",
+  "file_path",
+  "sourcePath",
+  "targetPath",
+  "newName",
 ];
 
 /**
@@ -151,7 +172,7 @@ export function editedPaths(calls: readonly ToolCallWithResult[]): string[] {
   const out: string[] = [];
   for (const call of callsSinceLastPr(calls)) {
     if (!EDIT_TOOL_NAMES.includes(normalizeToolName(call.toolName))) continue;
-    for (const field of ["path", "file_path"]) {
+    for (const field of EDIT_PATH_FIELDS) {
       const value = call.input[field];
       if (typeof value === "string" && value !== "") out.push(value);
     }
