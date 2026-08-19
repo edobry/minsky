@@ -296,6 +296,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "mcp-daemon-staleness-detector",
         "negative-existence-claim-detector",
         "memory-search",
+        // mt#4215 — also a `renderProbe` producer, per the note above.
+        "nonexistent-search-path",
         "operator-deferral-ask-surface",
         "operator-deferral-detector",
         "pre-narration-detector",
@@ -399,6 +401,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // guard injects on real turns and belongs in the budget bucket.
   "duplicate-check-candidate-read": "capped",
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
+  // mt#4215: capped on BOTH rendered axes — MAX_RENDERED_PATHS with an `…and N
+  // more` line, and MAX_SUGGESTIONS per entry — but the path STRINGS themselves
+  // are unbounded, so the probe is a saturated sample rather than a proved
+  // ceiling. Same classification, and same reason, as its sibling above.
+  "nonexistent-search-path": RENDER_PROBE_SAMPLE,
   // mt#4096: two interpolations, both bounded — the command is the pipeline stage
   // (itself bounded by the shell) and the filter is one of two literal tokens.
   "truncated-outcome-read": "capped",

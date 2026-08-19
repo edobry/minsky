@@ -62,8 +62,14 @@ disqualifying: _"a check that cannot see it is not this check."_
 _"Its mechanism reads a diff and its title promises the gap 'surfaces at plan time.' No diff exists
 at plan time. It moves to the `pr` seam… Its value is unchanged; its claim about WHEN is not."_
 
-**mt#4293** owns amending ADR-042's (h) row and re-pricing **mt#4172**, which was to inherit the
-`tasks_status_set` family module and dispatcher wiring this row no longer pays for.
+**mt#4293 landed that amendment (2026-08-19).** ADR-042's (h) row now reads `pr` + `merge`, its
+§Sibling reconciliation carries the two measured premises above, and §Family placement names
+**mt#4172** as the owner of the `registry-status-set-guards.ts` family module and the
+`tasks_status_set` dispatcher wiring this row no longer pays for. One correction that amendment
+made to a claim in this page's neighbourhood: the (h) row's ADR-031 column stays **`match`**, not
+`deviate` — this guard reads `ctx.transcriptLines`, so it IS the transcript tool-call join ADR-031
+is about. What does not apply is ADR-031's REMEDY (move the read to `UserPromptSubmit` for more
+flush time), which is unavailable at a mid-turn PreToolUse boundary.
 
 ## Mechanism
 

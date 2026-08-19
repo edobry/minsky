@@ -31,6 +31,7 @@
 // @see mem#966 — the incident and the general rule
 
 import type { ToolCallWithResult } from "./transcript";
+import { nonFlagOperands, suppliesPattern } from "./command-shape";
 
 // ---------------------------------------------------------------------------
 // Tool-name normalization
@@ -730,15 +731,18 @@ function pathOperands(segment: string): string[] {
   }
   if (cmdIndex === -1) return [];
 
-  const operands: string[] = [];
-  for (let i = cmdIndex + 1; i < tokens.length; i++) {
-    const t = tokens[i] ?? "";
-    if (t.startsWith("-")) continue; // a flag, and any value it carries reads as one too
-    operands.push(t);
-  }
-  if (PATH_FIRST_COMMANDS.includes(command)) return operands;
-  // Pattern-first: drop the pattern, keep the rest.
-  return operands.slice(1);
+  // Slice from the command so `nonFlagOperands` sees it at index 0, which is
+  // where it expects the program name.
+  const argv = tokens.slice(cmdIndex);
+  const isFind = PATH_FIRST_COMMANDS.includes(command);
+  const operands = nonFlagOperands(argv, { findStyle: isFind });
+  if (isFind) return operands;
+
+  // Pattern-first: drop the positional pattern — but ONLY when there is one.
+  // `-e` / `-f` supply the pattern themselves, and then every operand is a path;
+  // dropping the first would consume a real one. (mt#4320)
+  const patternSuppliedByFlag = argv.some((t, i) => i > 0 && suppliesPattern(t));
+  return patternSuppliedByFlag ? operands : operands.slice(1);
 }
 
 /**

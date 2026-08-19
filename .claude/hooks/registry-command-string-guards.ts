@@ -190,6 +190,57 @@ export const COMMAND_STRING_GUARDS: readonly GuardRegistration[] = [
       expects: "calibration",
     },
   },
+  // -------------------------------------------------------------------------
+  // mt#4215 — a search whose TARGET PATH does not exist. Prints nothing, and
+  // `2>/dev/null` deletes the one signal that tells that apart from "searched,
+  // found nothing", so the empty result reads as an answer.
+  //
+  // The exit code DOES distinguish the two (2 vs 1, measured across ugrep,
+  // BSD grep and ripgrep) — but Claude Code's `Bash` tool response carries only
+  // `stdout`, `stderr`, `interrupted`, `isImage`, so no hook can read it. That
+  // rules out the cheaper PostToolUse design and leaves the pre-run stat.
+  // -------------------------------------------------------------------------
+  {
+    name: "nonexistent-search-path",
+    effects: [recorderEffect()],
+    // `advisory`: the zero-false-positive bar in mt#4215 §SC4 is a claim about
+    // an argument-grammar parser, and the calibration log exists to size it
+    // before any enforcement posture is considered.
+    tuningOwnership: "advisory",
+    event: "PreToolUse",
+    matcher: "Bash|mcp__minsky__session_exec",
+    module: () => import("./nonexistent-search-path-detector").then((m) => ({ run: m.run })),
+    renderProbe: () =>
+      import("./nonexistent-search-path-detector").then((m) => m.renderWorstCase()),
+    // Stats a handful of path prefixes plus at most one readdir per missing
+    // path — bounded filesystem work on a local tree.
+    timeoutMs: 5000,
+    calibrationLog: "nonexistent-search-path",
+    // NEVER denies. A false fire would block a legitimate search, and the
+    // parser's precision is unproven until the calibration data says otherwise.
+    denyCapable: false,
+    // MEASURED via `renderProbe`: 992 chars saturated on every axis at once
+    // (MAX_RENDERED_PATHS entries plus the overflow line, each with a long
+    // path, a long ancestor and a full suggestion list). The path strings are
+    // the one unbounded axis, so this is a saturated SAMPLE, not a proved
+    // ceiling — pinned against 1050 by the detector's own test.
+    attentionCost: { denialMessageSizeChars: 1050, optionCount: 1 },
+    // The originating incident's own command (mt#4215). Its three path
+    // arguments are the whole point: two do not exist, and `cockpit-tray/src`
+    // does — so a canary that fired on all three would be hiding the
+    // discrimination this guard is for.
+    canary: {
+      input: {
+        tool_name: "Bash",
+        tool_input: {
+          command:
+            "grep -rniE 'memory|ceiling' --include='*.ts' " +
+            "src/cockpit/tray src/tray cockpit-tray/src 2>/dev/null",
+        },
+      },
+      expects: "calibration",
+    },
+  },
   // mt#4144. Never denies; `attentionCost` MEASURED via `renderProbe` (mt#4002).
   // Detail: `docs/architecture/hooks/cli-mcp-substitution-detector.md`.
   {
