@@ -14,6 +14,7 @@
 import { z } from "zod";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "./transcript-service";
+import { resolveMessageText } from "./transcript-content";
 import type { TierSignals } from "./types";
 import { AuthorshipTier } from "./types";
 import { log } from "@minsky/shared/logger";
@@ -57,25 +58,20 @@ Evaluate based on:
 
 Be honest and precise. A human sending many messages doesn't mean high contribution — evaluate content quality, not quantity.`;
 
-/** Summarize a single message for the prompt (truncate long content). */
+/**
+ * Summarize a single message for the prompt (truncate long content).
+ *
+ * Content resolution goes through the shared resolver (mt#4225). This read `msg.content`
+ * directly until then — the flat field that no stored row carries — so every message the
+ * judge was handed rendered as `[non-text content]` and it graded authorship from a
+ * transcript of markers. Identical defect to mt#4196's analyzer, one consumer over.
+ */
 function summarizeMessage(msg: TranscriptMessage, index: number): string {
   const role = msg.type === "user" ? "Human" : "Agent";
-  let content: string;
-
-  if (typeof msg.content === "string") {
-    content = msg.content;
-  } else if (Array.isArray(msg.content)) {
-    // Extract text blocks from structured content
-    content = (msg.content as Array<{ type?: string; text?: string }>)
-      .filter((block) => block.type === "text")
-      .map((block) => block.text ?? "")
-      .join(" ");
-  } else {
-    content = "[non-text content]";
-  }
+  const { text } = resolveMessageText(msg);
 
   // Truncate to keep prompt compact (safeTruncate ensures no split surrogate pairs)
-  const truncated = content.length > 300 ? `${safeTruncate(content, 300, "head")}…` : content;
+  const truncated = text.length > 300 ? `${safeTruncate(text, 300, "head")}…` : text;
   return `[${index + 1}] ${role}: ${truncated}`;
 }
 
