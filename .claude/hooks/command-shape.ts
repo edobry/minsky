@@ -171,3 +171,246 @@ export function isReshapedRetry(denied: string, retry: string): boolean {
   if (leadingTokenOf(denied) !== leadingTokenOf(retry)) return true;
   return isCompoundCommand(denied) && !isCompoundCommand(retry);
 }
+
+// ---------------------------------------------------------------------------
+// Search-command ARGUMENT grammar (mt#4320)
+//
+// The primitives above answer "where does one command end and the next begin?".
+// These answer the next question down: within one search command, which tokens
+// are FLAGS, which are flag VALUES, and which are operands. Two consumers need
+// it, and the reason it lives here rather than in either of them is the reason
+// this module's header already gives for the splitters: ADR-024's decision
+// clause wants "one mechanism instead of divergent regex copies."
+//
+// The tables are lifted verbatim from `nonexistent-search-path-detector.ts`
+// (mt#4215, PR #3149), where they shipped first and were hardened by a reviewer
+// round — its R1 BLOCKING-1 was the attached-spelling bug in `suppliesPattern`,
+// fixed with a recorded negative control. That file still carries its own
+// copies: migrating it to import from here was ruled out this pass because
+// mt#4215 held a FRESH presence claim (refreshed 06:13:30Z) and editing it would
+// have raced a live peer. **The migration is owned, not merely noted** — see
+// mt#4320's `## Homing decision` and the follow-up filed there. Until it lands,
+// treat THIS module as canonical and that file's copies as pending.
+// ---------------------------------------------------------------------------
+
+/**
+ * Long options that consume the NEXT token as their value, in the detached form
+ * (`--include '*.ts'` rather than `--include='*.ts'`).
+ *
+ * Getting this list wrong in the direction of OMISSION turns a flag's value into
+ * an apparent operand, so it is deliberately generous across GNU grep, BSD grep,
+ * ugrep and ripgrep. An entry no binary actually takes costs nothing: it can only
+ * cause a token to be SKIPPED, which is the safe direction for both consumers —
+ * a skipped token cannot be credited as a swept directory, and cannot be stat'd
+ * as a nonexistent path.
+ */
+export const VALUE_TAKING_LONG_OPTS: ReadonlySet<string> = new Set([
+  "--regexp",
+  "--file",
+  "--include",
+  "--exclude",
+  "--include-dir",
+  "--exclude-dir",
+  "--exclude-from",
+  "--glob",
+  "--iglob",
+  "--glob-case-insensitive",
+  "--type",
+  "--type-not",
+  "--type-add",
+  "--type-clear",
+  "--max-count",
+  "--max-depth",
+  "--maxdepth",
+  "--max-filesize",
+  "--after-context",
+  "--before-context",
+  "--context",
+  "--context-separator",
+  "--color",
+  "--colour",
+  "--colors",
+  "--binary-files",
+  "--devices",
+  "--directories",
+  "--label",
+  "--encoding",
+  "--engine",
+  "--pre",
+  "--pre-glob",
+  "--replace",
+  "--sort",
+  "--sortr",
+  "--threads",
+  "--dfa-size-limit",
+  "--regex-size-limit",
+  "--ignore-file",
+  "--path-separator",
+  "--field-context-separator",
+  "--field-match-separator",
+]);
+
+/**
+ * Short options that consume the next token as their value. Checked against the
+ * LAST character of a bundled run (`-rnA 3` ends in `A`, which takes the `3`),
+ * because that is the only position a detached value can attach to.
+ */
+export const VALUE_TAKING_SHORT_OPTS: ReadonlySet<string> = new Set([
+  "e",
+  "f",
+  "m",
+  "A",
+  "B",
+  "C",
+  "D",
+  "d",
+  "g",
+  "t",
+  "T",
+  "M",
+  "j",
+  "b",
+]);
+
+/**
+ * `find` predicates that consume the NEXT token as their value.
+ *
+ * `find` spells multi-letter options with a SINGLE dash (`-name`, `-path`), so they
+ * are neither long options nor bundled short runs and fall through both branches
+ * above. Without this set, `find src -path docs -prune` yields `docs` as an operand
+ * — the exact over-credit mt#4320 was filed for.
+ *
+ * `-name` is worth noting as the near-miss: it ends in `e`, which IS in
+ * {@link VALUE_TAKING_SHORT_OPTS}, so the bundled-run branch below would skip its
+ * value for entirely the wrong reason. Both spellings are asserted separately in
+ * the tests so this set is observable rather than incidental.
+ *
+ * Generous in the same direction as the sets above: an entry `find` does not define
+ * can only cause a token to be skipped.
+ */
+export const FIND_VALUE_TAKING_PREDICATES: ReadonlySet<string> = new Set([
+  "-name",
+  "-iname",
+  "-path",
+  "-ipath",
+  "-wholename",
+  "-iwholename",
+  "-lname",
+  "-ilname",
+  "-regex",
+  "-iregex",
+  "-regextype",
+  "-type",
+  "-xtype",
+  "-perm",
+  "-user",
+  "-group",
+  "-uid",
+  "-gid",
+  "-size",
+  "-links",
+  "-inum",
+  "-samefile",
+  "-newer",
+  "-anewer",
+  "-cnewer",
+  "-mtime",
+  "-atime",
+  "-ctime",
+  "-mmin",
+  "-amin",
+  "-cmin",
+  "-used",
+  "-maxdepth",
+  "-mindepth",
+  "-printf",
+  "-fprintf",
+  "-fprint",
+  "-fprint0",
+  "-fls",
+]);
+
+/**
+ * Short-option letters `grep` / `rg` actually define. Bounds {@link suppliesPattern}'s
+ * scan so an arbitrary word starting with `-` cannot be read as a bundled option run.
+ */
+const KNOWN_SHORT_FLAGS = new Set("abcdDeEfFGhHiIlLmnoPqrRsUvVwxyzZ".split(""));
+
+/**
+ * Whether `token` supplies the PATTERN via `-e` / `-f` (or `--regexp` / `--file`),
+ * in EITHER spelling.
+ *
+ * The attached spelling is the whole reason this is not an equality test.
+ * `grep -ePATTERN src/tray` and `grep -rnePATTERN src/tray` are valid, and an
+ * earlier `/^-[A-Za-z]*[ef]$/` anchored on `$`, matching only the detached form.
+ * In a short-option run, `e` / `f` consumes the REST of the token as its value, so
+ * an occurrence anywhere in the run means the pattern is supplied. The scan stops
+ * at the first non-flag letter so a stray `-notaflag` (whose `f` sits inside a
+ * word) cannot be read as `-f` — that direction matters, because a false "pattern
+ * supplied" promotes the real pattern to an operand.
+ */
+export function suppliesPattern(token: string): boolean {
+  if (token.startsWith("--")) {
+    return /^--(regexp|file)(=|$)/.test(token);
+  }
+  if (!token.startsWith("-") || token.length < 2) return false;
+  for (const ch of token.slice(1)) {
+    if (ch === "e" || ch === "f") return true;
+    if (!KNOWN_SHORT_FLAGS.has(ch)) return false;
+  }
+  return false;
+}
+
+/**
+ * The non-flag tokens of an already-tokenized command, with each flag's VALUE
+ * skipped alongside the flag.
+ *
+ * `tokens[0]` is assumed to be the command itself and is not returned. `--`
+ * terminates flag processing, after which every remaining token is an operand.
+ *
+ * This is the half that a `startsWith("-")` filter gets wrong: a separated flag's
+ * value does NOT start with `-`, so a naive filter keeps it and the caller reads
+ * it as an operand. `grep src/ -f docs/patterns.txt` is the worked case — without
+ * this, `docs/patterns.txt` survives as an operand.
+ */
+export function nonFlagOperands(tokens: readonly string[]): string[] {
+  const operands: string[] = [];
+  let flagsTerminated = false;
+
+  for (let i = 1; i < tokens.length; i++) {
+    const token = tokens[i] as string;
+
+    if (!flagsTerminated) {
+      if (token === "--") {
+        flagsTerminated = true;
+        continue;
+      }
+      if (token.startsWith("--")) {
+        // `--include='*.ts'` carries its own value; `--include '*.ts'` eats the next token.
+        const name = token.split("=", 1)[0] as string;
+        if (!token.includes("=") && VALUE_TAKING_LONG_OPTS.has(name)) i++;
+        continue;
+      }
+      if (FIND_VALUE_TAKING_PREDICATES.has(token)) {
+        // `find`'s single-dash multi-letter predicates. Checked BEFORE the bundled
+        // -run branch, which would otherwise read `-path` as the run `p,a,t,h` and
+        // decide on `h`.
+        i++;
+        continue;
+      }
+      if (token.startsWith("-") && token.length > 1) {
+        // A bundled run (`-rniE`). Only its LAST character can take a detached
+        // value, and only when no value is already attached (`-A3` carries its own).
+        const body = token.slice(1);
+        const last = body[body.length - 1] as string;
+        const hasAttachedValue = /\d/.test(body);
+        if (!hasAttachedValue && VALUE_TAKING_SHORT_OPTS.has(last)) i++;
+        continue;
+      }
+    }
+
+    operands.push(token);
+  }
+
+  return operands;
+}
