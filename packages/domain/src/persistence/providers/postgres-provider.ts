@@ -673,8 +673,21 @@ export class PostgresPersistenceProvider
     // connection's promises. See raw-sql-pooler-guard.ts for the experiment
     // matrix and rationale. The underlying `this.sql` (used by drizzle and
     // sql.begin() transactions) is deliberately untouched.
+    return this.getGuardedSql(this.sql);
+  }
+
+  /**
+   * Memoized guarded view of `this.sql` (mt#2773; second consumer wired mt#4298).
+   *
+   * Every `.unsafe()` consumer MUST come through here rather than wrapping
+   * `this.sql` itself. The guard's protection is a SHARED in-flight counter
+   * bounded at the pool's `max`; two independently-constructed guards would
+   * each admit `max` concurrent queries, so wrapping twice doubles the very
+   * bound the cap exists to hold and reinstates the wedge it prevents.
+   */
+  protected getGuardedSql(sql: ReturnType<typeof postgres>): GuardedRawSql {
     if (!this.guardedSql) {
-      this.guardedSql = guardRawSqlAgainstPoolerWedge(this.sql);
+      this.guardedSql = guardRawSqlAgainstPoolerWedge(sql);
     }
     return this.guardedSql;
   }
@@ -935,7 +948,15 @@ export class PostgresVectorPersistenceProvider
     // createEmbeddingsTable() on every embeddings table; pass them through so
     // PostgresVectorStorage actually writes the values it's been given.
     // Pre-mt#1930 these were silently dropped on the floor.
-    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+    // mt#4298: hand vector storage the GUARDED instance. Its queries — the
+    // `<-> $1::vector` search, store, and delete — all go through `.unsafe()`,
+    // which is exactly the surface mt#2773's guard bounds. Passing the raw
+    // `this.sql` here left every tasks_search / *_similar / index write as
+    // unguarded raw fan-out at the Supavisor transaction pooler, whose wedge
+    // leaves postgres-js promises permanently unsettled — hangs with no error.
+    // The mt#2773 carve-out covers drizzle-driver traffic and sql.begin(), not
+    // this consumer.
+    return new PostgresVectorStorage(this.getGuardedSql(this.sql), this.db, dimension, {
       tableName: config.tableName,
       idColumn: config.idColumn,
       embeddingColumn: config.vectorColumn,
