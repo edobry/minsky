@@ -39,9 +39,37 @@ function isSnapshot(value: unknown): value is SessionContextSnapshot {
   );
 }
 
-export async function fetchSnapshot(sessionId: ConversationId): Promise<SessionContextSnapshot> {
+/**
+ * An opt-in bound on how much of a conversation to fetch (mt#4263).
+ *
+ * Only the conversation RENDERER wants one. The other three consumers of this
+ * endpoint read every block — `ContextBlockView` filters them,
+ * `ConversationOverviewPanel` aggregates them, `PublishConversationDialog`
+ * publishes them — so they call without a window and keep getting the whole
+ * transcript.
+ */
+export interface SnapshotWindowParams {
+  /** Max turns to fetch, counted back from the newest. */
+  turns: number;
+  /**
+   * Page back from this ORIGINAL turn index (exclusive). Omit for the newest
+   * page; pass the previous page's `window.oldestTurnIndex` to go further back.
+   */
+  before?: number;
+}
+
+function windowSearchParams(window: SnapshotWindowParams | undefined): string {
+  if (window === undefined) return "";
+  const before = window.before === undefined ? "" : `&before=${window.before}`;
+  return `&turns=${window.turns}${before}`;
+}
+
+export async function fetchSnapshot(
+  sessionId: ConversationId,
+  window?: SnapshotWindowParams
+): Promise<SessionContextSnapshot> {
   const res = await fetch(
-    `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}`
+    `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}${windowSearchParams(window)}`
   );
   if (!res.ok) {
     // The endpoint returns `{ error: { code, message } }`; fall back to the raw
@@ -67,9 +95,93 @@ export async function fetchSnapshot(sessionId: ConversationId): Promise<SessionC
   return json;
 }
 
-/** The ONE query key every snapshot consumer must share for cache dedup. */
-export function snapshotQueryKey(sessionId: ConversationId): readonly [string, string, string] {
-  return ["conversation", "snapshot", sessionId] as const;
+/**
+ * The ONE query key every snapshot consumer must share for cache dedup.
+ *
+ * Window-aware since mt#4263, and the `turns` suffix is not cosmetic: a windowed
+ * and an unwindowed request return DIFFERENT responses for the same
+ * conversation, so sharing a key would let whichever landed first serve the
+ * other — a full transcript rendered as if it were fifty turns, or fifty turns
+ * used as the whole conversation by the three consumers that aggregate over it.
+ *
+ * The unwindowed key is byte-identical to what mt#2768 established, so those
+ * three consumers keep deduping against each other exactly as before. Only
+ * `before` is excluded from the key: pages of one conversation accumulate under
+ * ONE infinite-query entry rather than becoming a separate cache entry each,
+ * which is what lets scroll-back keep everything it has already fetched.
+ */
+export function snapshotQueryKey(
+  sessionId: ConversationId,
+  window?: SnapshotWindowParams
+): readonly string[] {
+  return window === undefined
+    ? (["conversation", "snapshot", sessionId] as const)
+    : (["conversation", "snapshot", sessionId, `w${window.turns}`] as const);
+}
+
+/**
+ * Fold windowed pages into the one snapshot the renderer consumes (mt#4263).
+ *
+ * Pages arrive newest-first (page 0 is the tail, each subsequent page reaches
+ * further back), so blocks are concatenated in reverse page order to restore
+ * chronological order. Ids are deduped because the newest page's attachment
+ * bound is deliberately open at the top, so a live conversation can deliver the
+ * same trailing attachment on a refetch.
+ *
+ * `toolNamesByUseId` is UNIONED across pages rather than taken from one: it is
+ * whole-conversation data and identical on every page today, but a union is
+ * correct even if a later page is served from a moment when the conversation had
+ * grown. Whole-conversation fields (`harness`, spawn links) come from the newest
+ * page, which is the one that reflects the conversation's current state.
+ */
+export function mergeSnapshotPages(
+  pages: readonly SessionContextSnapshot[]
+): SessionContextSnapshot {
+  const newest = pages[0];
+  if (newest === undefined) {
+    throw new Error("mergeSnapshotPages requires at least one page");
+  }
+  if (pages.length === 1) return newest;
+
+  const blocks: SessionContextSnapshot["blocks"] = [];
+  const seen = new Set<string>();
+  const toolNamesByUseId: Record<string, string> = {};
+
+  for (let i = pages.length - 1; i >= 0; i--) {
+    const page = pages[i];
+    if (page === undefined) continue;
+    for (const block of page.blocks) {
+      if (seen.has(block.id)) continue;
+      seen.add(block.id);
+      blocks.push(block);
+    }
+    Object.assign(toolNamesByUseId, page.toolNamesByUseId ?? {});
+  }
+
+  // The pages are already chronological relative to one another, but a page's
+  // attachments are merged into it by timestamp — so a re-sort is what keeps the
+  // seam between two pages ordered the same way as the middle of one.
+  blocks.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  return {
+    ...newest,
+    blocks,
+    toolNamesByUseId,
+    // The OLDEST page's bound is the one that says how far back the client has
+    // reached, so that is the cursor and the hasMore that describe the merged
+    // whole. Taking the newest page's would claim history is unfetched that the
+    // reader is already looking at.
+    ...(newest.window
+      ? {
+          window: {
+            ...newest.window,
+            returnedTurns: blocks.filter((b) => b.turnIndex !== undefined).length,
+            oldestTurnIndex: pages[pages.length - 1]?.window?.oldestTurnIndex ?? null,
+            hasMore: pages[pages.length - 1]?.window?.hasMore ?? false,
+          },
+        }
+      : {}),
+  };
 }
 
 /**

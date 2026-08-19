@@ -10,7 +10,12 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { markAbandonedRewindBranches, isOperatorPrompt } from "./rewind-detection";
+import {
+  applyAbandonedBlockIds,
+  computeAbandonedBlockIds,
+  markAbandonedRewindBranches,
+  isOperatorPrompt,
+} from "./rewind-detection";
 import type { SessionContextSnapshotBlock } from "../context/types";
 
 let clock = 0;
@@ -255,5 +260,67 @@ describe("markAbandonedRewindBranches", () => {
 
     expect(markedIds).toHaveLength(new Set(markedIds).size);
     expect(markedIds.sort()).toEqual(["grandkid", "kid", "rewound"]);
+  });
+});
+
+describe("the window split (mt#4263)", () => {
+  /**
+   * A rewind whose two sibling branches sit far apart in the transcript, so a
+   * tail window can contain the abandoned prompt while the live branch that
+   * supersedes it falls outside.
+   */
+  function rewindWithDistantSiblings() {
+    const rewound = block("rewound", "root", "user", prompt("first draft"));
+    const live = block("live", "root", "user", prompt("second draft"));
+    const liveReply = block("liveReply", "live", "assistant", text("answer"));
+    return {
+      full: [block("root", undefined, "assistant", text("root")), rewound, live, liveReply],
+      // The tail a 2-turn window would return: the abandoned prompt is present,
+      // the live sibling that outranks it is not.
+      windowed: [rewound, liveReply],
+    };
+  }
+
+  test("AT9: the verdict computed over the FULL transcript still marks a windowed block", () => {
+    const { full, windowed } = rewindWithDistantSiblings();
+    const abandoned = computeAbandonedBlockIds(full);
+    const marked = applyAbandonedBlockIds(windowed, abandoned);
+    expect(marked.find((b) => b.uuid === "rewound")?.isAbandonedBranch).toBe(true);
+  });
+
+  test("AT9 NEGATIVE CONTROL: computed over the WINDOW alone, the same block is NOT marked", () => {
+    // This is the defect the split exists to prevent, and without this control
+    // the assertion above passes just as well against an implementation that
+    // marks everything. The rule picks the live branch by comparing SIBLING
+    // subtrees; truncate one side away and there is no sibling pair left to
+    // compare, so the rewind is invisible and the superseded prompt renders as
+    // an ordinary turn — mt#3323's original defect, reintroduced by windowing.
+    const { windowed } = rewindWithDistantSiblings();
+    const abandonedFromWindow = computeAbandonedBlockIds(windowed);
+    const marked = applyAbandonedBlockIds(windowed, abandonedFromWindow);
+    expect(marked.find((b) => b.uuid === "rewound")?.isAbandonedBranch).toBeUndefined();
+  });
+
+  test("ids, not object identity — the set crosses the window boundary", () => {
+    // The projection the windowed assembler runs the detector over builds
+    // DIFFERENT block objects from the ones it returns, so an identity-keyed set
+    // would silently mark nothing.
+    const { full, windowed } = rewindWithDistantSiblings();
+    const abandoned = computeAbandonedBlockIds(full);
+    const clones = windowed.map((b) => ({ ...b }));
+    expect(applyAbandonedBlockIds(clones, abandoned).some((b) => b.isAbandonedBranch)).toBe(true);
+  });
+
+  test("applying an empty set returns the SAME array reference", () => {
+    const blocks = [block("a", undefined, "user", prompt("hello"))];
+    expect(applyAbandonedBlockIds(blocks, new Set())).toBe(blocks);
+  });
+
+  test("applying a set that names nothing in this window returns the SAME reference", () => {
+    // The common path on a windowed page: the conversation HAS a rewind, but
+    // not in the fifty turns being rendered. Copying every block there would
+    // discard the memo-stability the unwindowed path relies on.
+    const blocks = [block("a", undefined, "user", prompt("hello"))];
+    expect(applyAbandonedBlockIds(blocks, new Set(["s:turn:elsewhere"]))).toBe(blocks);
   });
 });
