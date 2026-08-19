@@ -545,14 +545,21 @@ jobs:
             attempt_dir="$(mktemp -d)"
             (
               cd "${attempt_dir}" || exit 1
+              # mt#4288 — the two failures below get DIFFERENT exit codes, because
+              # they mean different things and the caller has to tell them apart.
+              # A failed link is the token being rejected or unable to resolve the
+              # target; a failed redeploy AFTER a successful link is a token that
+              # authenticated fine and a call that failed for some other reason.
+              # Collapsing both into `exit 1` is what let this step report every
+              # failure as a credential failure.
               if [ "${3:-}" = "link" ]; then
                 env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$2=${DEPLOY_TOKEN}" \
                   railway link --project "${PROJECT_ID}" \
                                --environment "${ENVIRONMENT_ID}" \
-                               --service "${service_id}" || exit 1
+                               --service "${service_id}" || exit 2
               fi
               env -u RAILWAY_TOKEN -u RAILWAY_API_TOKEN "$2=${DEPLOY_TOKEN}" \
-                railway redeploy --from-source --service "${service_id}" -y
+                railway redeploy --from-source --service "${service_id}" -y || exit 3
             )
           }
 
@@ -576,12 +583,26 @@ jobs:
           # is invisible from the outside. Failures are collected and the job
           # exits non-zero at the end.
           failed_services=""
+          # mt#4288 — services for which the token DEMONSTRABLY authenticated: it
+          # completed a 'railway link', which requires a valid credential that can
+          # resolve the project, environment and service. This is a locally
+          # observable fact, deliberately not a pattern-match on Railway's error
+          # prose (which is vendor text and can change without notice).
+          authenticated_services=""
           while read -r svc service_id; do
             [ -n "${svc}" ] || continue
             echo "Attempt 1/2 for ${svc} (${service_id}): treating the ${DEPLOY_TOKEN_SOURCE} token as ACCOUNT/WORKSPACE scope (RAILWAY_API_TOKEN + railway link)."
-            if redeploy_with "${service_id}" RAILWAY_API_TOKEN link; then
+            attempt1_rc=0
+            redeploy_with "${service_id}" RAILWAY_API_TOKEN link || attempt1_rc=$?
+            if [ "${attempt1_rc}" -eq 0 ]; then
               echo "Railway redeploy triggered successfully for ${svc} via the CLI (${DEPLOY_TOKEN_SOURCE}, account/workspace scope)."
               continue
+            fi
+            if [ "${attempt1_rc}" -eq 3 ]; then
+              authenticated_services="${authenticated_services} ${svc}"
+              echo "Attempt 1 for ${svc}: the ${DEPLOY_TOKEN_SOURCE} token AUTHENTICATED and linked the project — the redeploy call itself is what failed."
+            else
+              echo "Attempt 1 for ${svc}: could not authenticate or resolve the target under account/workspace scope."
             fi
             echo "Attempt 1 failed for ${svc} — retrying the ${DEPLOY_TOKEN_SOURCE} token as PROJECT scope (RAILWAY_TOKEN)."
             if redeploy_with "${service_id}" RAILWAY_TOKEN; then
@@ -593,11 +614,20 @@ jobs:
           done <<< "${REDEPLOY_SERVICES}"
 
           if [ -n "${failed_services}" ]; then
-            # mt#4075: this message names the TOKEN as the cause, so it may only
-            # be reached once the CLI is known to run — the probe after the
-            # install step above guarantees that. Do not weaken the probe without
-            # rewording this, or a broken install lands here again and reads as a
-            # credential problem.
-            echo "::error::railway redeploy failed for:${failed_services}. The CLI was verified runnable before this loop, so this is a CREDENTIAL failure: the token from the ${DEPLOY_TOKEN_SOURCE} secret is not valid for those services as either an account/workspace token or a project token — re-mint it against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
+            # mt#4075: this branch may only be reached once the CLI is known to
+            # run — the probe after the install step above guarantees that. Do not
+            # weaken the probe without rewording this, or a broken install lands
+            # here again and reads as a credential problem.
+            #
+            # mt#4288: "CLI runs + both attempts failed" does NOT entail a bad
+            # credential, and this branch asserted that it did. On 2026-08-19 the
+            # token logged in, linked the project, and only the redeploy call
+            # failed — and the message still told the operator to re-mint it, at
+            # 01:29, as a severity-incident page. Report only what was observed.
+            if [ -n "${authenticated_services}" ]; then
+              echo "::error::railway redeploy failed for:${failed_services}. This is NOT a credential failure: the ${DEPLOY_TOKEN_SOURCE} token authenticated and completed 'railway link' for:${authenticated_services}, so the secret is valid and can resolve the target — only the redeploy call failed. Look at Railway's status page and the per-attempt output above before re-minting anything."
+            else
+              echo "::error::railway redeploy failed for:${failed_services}, and the ${DEPLOY_TOKEN_SOURCE} token never completed a 'railway link' under either scope, so authentication was never demonstrated. The CLI was verified runnable before this loop, which makes a CREDENTIAL failure the leading explanation: re-mint the token against the minsky-mcp project and store it as RAILWAY_MCP_TOKEN."
+            fi
             exit 1
           fi
