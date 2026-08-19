@@ -271,6 +271,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_SUBAGENT_MODEL_CHECK: "operator-override", // .claude/hooks/verify-subagent-model.ts (mt#3257) — subagent model-verification observer override
   MINSKY_SKIP_CHAINED_VERIFICATION_SCAN: "operator-override", // .claude/hooks/chained-verification-commands-detector.ts (mt#3910) — chained-verification-command observer override
   MINSKY_SKIP_TRUNCATED_OUTCOME_READ: "operator-override", // .claude/hooks/truncated-outcome-read-detector.ts (mt#4096) — truncated-outcome-read observer override
+  MINSKY_SKIP_NONEXISTENT_SEARCH_PATH: "operator-override", // .claude/hooks/nonexistent-search-path-detector.ts (mt#4215) — nonexistent-search-path observer override
   MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK: "operator-override", // .claude/hooks/guard-events-ingest-on-session-end.ts (mt#4035) — SessionEnd guard-events sweep-tick override
   MINSKY_GUARD_EVENTS_SWEEP_INTERVAL_MS: "tunable", // src/cockpit/sweepers.ts (mt#4035) — cockpit guard-events sweep-backstop cadence override (positive integer ms)
   MINSKY_TEST_WATCHDOG_MS: "tunable", // scripts/spawn-with-watchdog.ts (mt#3156) — wall-clock budget override for the test-runner watchdog

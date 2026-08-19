@@ -172,6 +172,15 @@ export interface CalibrationLogEntry {
    *     outcome-status record, no `matches` array. The two extra fields carry
    *     the violation SHAPE (which command, which truncator), which is the
    *     sweep's diversity axis for this kind.
+   *   "nonexistent-search-path"       → {ts, sessionId, toolName, outcome,
+   *     binary?, missingCount?, unresolvedCount?, phrase?} (mt#4215
+   *     `nonexistent-search-path-detector.ts`, same D4 write path) — an
+   *     outcome-status record, no `matches` array. `phrase` carries the
+   *     diversity axis (binary + the path SEGMENTS that failed to resolve, not
+   *     the raw paths, which are near-unique). `unresolvedCount` is written on
+   *     CLEAN records too, and is the only measurement of what the detector's
+   *     deliberate silence rules cost — a relative path under `session_exec`, a
+   *     path behind a `cd`, a glob, a variable. Read it when reviewing recall.
    *   "duplicate-signature-scan"      → {timestamp, session_id, outcome,
    *     matches?: {taskId, status, token, rule, excerpt}[]} (mt#3722
    *     `duplicate-signature-scan.ts`, same D4 write path) — HAS a `matches`
@@ -222,6 +231,7 @@ export interface CalibrationLogEntry {
     | "agent-dispatch-record"
     | "chained-verification-commands"
     | "truncated-outcome-read"
+    | "nonexistent-search-path"
     | "block-concurrent-bulk-mutation"
     | "duplicate-signature-scan"
     | "generic-matches";
@@ -1529,6 +1539,25 @@ export function extractDistinctPhrases(records: CalibrationRecord[]): Set<string
       phrases.add(
         `${arm}|${rec.detectorFields["mutatingCommand"]}|${rec.detectorFields["filter"]}`
       );
+    } else if (
+      rec.detectorFields &&
+      typeof rec.detectorFields["binary"] === "string" &&
+      typeof rec.detectorFields["missingCount"] === "number"
+    ) {
+      // nonexistent-search-path (mt#4215): same shape and same reasoning as the clause above —
+      // an outcome-status record with no `matches`, which without a clause here would fall to the
+      // `else` and sit at zero diversity forever (the mt#3781 inert-sweep defect).
+      //
+      // Axis = the binary plus the SEGMENT that failed to resolve, never the raw path. A raw path
+      // is near-unique and would satisfy the distinct-phrase gate by construction; the failed
+      // segment is what repeats across genuinely similar mistakes (the same wrong `tray`, the same
+      // wrong root), which is exactly what a review needs to see clustered.
+      const phrase = rec.detectorFields["phrase"];
+      phrases.add(
+        typeof phrase === "string" && phrase.length > 0
+          ? phrase
+          : `${rec.detectorFields["binary"]}|${rec.detectorFields["missingCount"]}`
+      );
     } else {
       for (const m of rec.matches) {
         phrases.add(m.phrase);
@@ -1934,6 +1963,7 @@ const KNOWN_KIND_MEMBERSHIP: Record<CalibrationLogEntry["kind"], true> = {
   "agent-dispatch-record": true,
   "chained-verification-commands": true,
   "truncated-outcome-read": true,
+  "nonexistent-search-path": true,
   "block-concurrent-bulk-mutation": true,
   "duplicate-signature-scan": true,
   "generic-matches": true,

@@ -413,6 +413,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "nonexistent-search-path",
+    {
+      interventions: [recordReview],
+      mechanism: "structural",
+      role: "judge",
+      note: "Same quote-aware command-string split as its siblings, and the closest kin is `check-guessed-session-path` rather than the other recorders: both extract paths and decide with an `existsSync`. Two differences make it a separate coordinate. It extracts by ARGUMENT POSITION — walking each search binary's own grammar to tell a path from a pattern, a flag, and a `--include` filter value — where the session-path gate matches a literal substring anywhere in the command. And it records rather than denies, because that grammar walk is the false-positive surface, and its precision is a claim the calibration log has to settle. No prose and no paraphrase axis in either leg; the only judgment is which tokens are paths.",
+    },
+  ],
+  [
     "cli-mcp-substitution",
     {
       interventions: [recordReview],

@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 135,
+  "population": 136,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -2290,6 +2290,37 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": null
+    },
+    {
+      "guardName": "nonexistent-search-path",
+      "description": "Records a Bash or `session_exec` search (`grep`/`rg`/`find`) whose PATH ARGUMENT does not exist. Such a search prints nothing, exactly like one that legitimately found nothing, and `2>/dev/null` deletes the stderr line separating them — so the empty result reads as an answer and the next claim asserts a false absence. The exit code does distinguish the two, but no hook can read it: Claude Code's `Bash` response carries only stdout, stderr, interrupted and isImage. Hence a pre-run stat. Stays silent whenever a path is not statically resolvable — a glob, a variable, a relative path under `session_exec` or behind a `cd` — because guessing is the very error this guard exists to prevent.",
+      "failureClasses": ["unfounded-claim"],
+      "provenance": [
+        ".minsky/hooks/nonexistent-search-path-detector.ts",
+        ".minsky/rules/hook-observers.mdc"
+      ],
+      "stratum": "registry",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": [],
+      "registered": true,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "registry",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "nonexistent-search-path-detector"
     },
     {
       "guardName": "nul-byte-check",

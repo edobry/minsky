@@ -400,6 +400,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "nonexistent-search-path",
+    {
+      description:
+        "Records a Bash or `session_exec` search (`grep`/`rg`/`find`) whose PATH ARGUMENT does not exist. Such a search prints nothing, exactly like one that legitimately found nothing, and `2>/dev/null` deletes the stderr line separating them — so the empty result reads as an answer and the next claim asserts a false absence. The exit code does distinguish the two, but no hook can read it: Claude Code's `Bash` response carries only stdout, stderr, interrupted and isImage. Hence a pre-run stat. Stays silent whenever a path is not statically resolvable — a glob, a variable, a relative path under `session_exec` or behind a `cd` — because guessing is the very error this guard exists to prevent.",
+      failureClasses: ["unfounded-claim"],
+      provenance: [hook("nonexistent-search-path-detector"), HOOK_OBSERVERS_RULE],
+      stratum: "registry",
+    },
+  ],
+  [
     "cli-mcp-substitution",
     {
       description:
