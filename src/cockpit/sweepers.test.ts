@@ -148,6 +148,101 @@ describe("createIntervalSweeper", () => {
     }
   });
 
+  // ── mt#4335: an abandoned tick must not run CONCURRENTLY with its successor ──
+  //
+  // The defect this pins is not "the guard is never released" (mt#2625 above
+  // covers that) — it is the opposite. On timeout the guard was released while
+  // the abandoned tick was STILL RUNNING, so the next tick started beside it.
+  // Each overlapping tick opens its own database connection, and the abandoned
+  // one is never cancelled, so a persistently-slow tick leaks roughly one
+  // connection per cycle. Measured 2026-08-19: 16 backends in
+  // `state='active', wait_event='ClientRead'`, opened in a single ~40s burst.
+  //
+  // The observable here is CONCURRENCY, which is the framework-level cause;
+  // the stranded connection is its consequence one layer down. Asserting on
+  // concurrency keeps the test deterministic and free of a live Postgres.
+  test("an overrunning tick is not run concurrently with the next tick (mt#4335)", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    let starts = 0;
+
+    // Timings matter here and are chosen against the two deadlines, not picked
+    // round. The first tick must overrun `tickTimeoutMs` (so it IS abandoned)
+    // while settling comfortably before
+    // `tickTimeoutMs * ABANDONED_TICK_HARD_RELEASE_MULTIPLIER` (so the
+    // watchdog's ceiling does NOT fire and this test exercises the settle path
+    // rather than the force-release path). 50 / 100 / 150 gives 50ms of margin
+    // on both sides.
+    const TICK_TIMEOUT_MS = 50;
+    const FIRST_TICK_MS = 100; // > timeout, < 150ms ceiling
+    const stop = createIntervalSweeper({
+      name: "test-abandoned-no-overlap",
+      intervalMs: 20,
+      tickTimeoutMs: TICK_TIMEOUT_MS,
+      tick: async () => {
+        starts++;
+        inFlight++;
+        if (inFlight > maxInFlight) maxInFlight = inFlight;
+        try {
+          if (starts === 1) await new Promise((r) => setTimeout(r, FIRST_TICK_MS));
+        } finally {
+          inFlight--;
+        }
+      },
+    });
+
+    try {
+      // Wait past the first tick's settle plus several further intervals, so a
+      // regression has ample opportunity to start a second tick alongside it.
+      await waitFor(() => starts >= 2, 2000);
+      await new Promise((r) => setTimeout(r, 60));
+      expect(maxInFlight).toBe(1);
+      // The abandonment DID happen — otherwise this test would also pass on a
+      // build where the tick simply never overran, proving nothing (mem#704).
+      const snap = getSweepLivenessSnapshot().find((s) => s.name === "test-abandoned-no-overlap");
+      expect(snap?.abandonedTicks).toBeGreaterThanOrEqual(1);
+      // It settled on its own, so nothing is left outstanding and the ceiling
+      // never had to fire.
+      expect(snap?.abandonedTicksOutstanding).toBe(0);
+      expect(snap?.abandonedTickHardReleases).toBe(0);
+    } finally {
+      stop();
+    }
+  });
+
+  test("an abandoned tick that NEVER settles is still force-released at the ceiling (mt#4335 keeps mt#2625)", async () => {
+    // The complement of the test above, and the reason the ceiling exists:
+    // holding the guard until settle would starve the sweep forever if the
+    // tick never settles, which is precisely the mt#2625 bug. The ceiling
+    // bounds the wait instead of removing it.
+    let starts = 0;
+    const neverResolves = new Promise<void>(() => {
+      /* deliberately never settles */
+    });
+
+    const stop = createIntervalSweeper({
+      name: "test-abandoned-hard-release",
+      intervalMs: 10,
+      tickTimeoutMs: 20, // ceiling = 60ms
+      tick: async () => {
+        starts++;
+        if (starts === 1) await neverResolves;
+      },
+    });
+
+    try {
+      await waitFor(() => starts >= 2, 2000);
+      expect(starts).toBeGreaterThanOrEqual(2);
+      const snap = getSweepLivenessSnapshot().find((s) => s.name === "test-abandoned-hard-release");
+      // The distinguishing counter: this one never settled, so it was released
+      // by the ceiling rather than by its own completion.
+      expect(snap?.abandonedTickHardReleases).toBeGreaterThanOrEqual(1);
+      expect(snap?.abandonedTicksOutstanding).toBeGreaterThanOrEqual(1);
+    } finally {
+      stop();
+    }
+  });
+
   test("an unexpected throw from the tick callback does not crash the sweeper — next tick still runs", async () => {
     let callCount = 0;
     const stop = createIntervalSweeper({

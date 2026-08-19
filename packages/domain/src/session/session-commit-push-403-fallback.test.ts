@@ -35,6 +35,15 @@ const REAL_403_MESSAGE =
   "fatal: unable to access 'https://github.com/edobry/minsky.git/': " +
   "The requested URL returned error: 403";
 
+// The real server-side rejection text from mt#3264's originating incident
+// (2026-07-26). Structurally unlike REAL_403_MESSAGE: a REF rejection, not an
+// HTTP auth failure — no 403, no "denied".
+const WORKFLOWS_REJECTION_MESSAGE =
+  "! [remote rejected]  task/mt-3223 -> task/mt-3223\n" +
+  "   (refusing to allow a GitHub App to create or update workflow " +
+  "`.github/workflows/deploy-reviewer.yml` without `workflows` permission)\n" +
+  "error: failed to push some refs to 'https://github.com/edobry/minsky.git'";
+
 function makeStubTokenProvider(opts: {
   configured: boolean;
   getTokenImpl?: () => Promise<string>;
@@ -113,6 +122,14 @@ describe("isPermissionDeniedPushError", () => {
 
   test("returns false for undefined", () => {
     expect(isPermissionDeniedPushError(undefined)).toBe(false);
+  });
+
+  test("does NOT match the workflows-permission rejection (mt#3264)", () => {
+    // The rejection mt#3264 is named for. It carries the word "permission" but
+    // neither "denied" nor a 403, because it is a server-side REF rejection
+    // rather than an HTTP auth failure. Not matching is CORRECT — see the
+    // fallback test below for why widening this would be the wrong fix.
+    expect(isPermissionDeniedPushError(WORKFLOWS_REJECTION_MESSAGE)).toBe(false);
   });
 });
 
@@ -217,7 +234,13 @@ describe("pushSessionCommitWithFallback", () => {
     expect(result.pushed).toBe(false);
     expect(result.credentialPath).toBe("app-token");
     expect(result.appTokenPushError).toBeUndefined();
-    expect(spy.calls.length).toBe(0);
+
+    // mt#3264 changed this deliberately: the declined fallback used to be
+    // SILENT, which read the same in the logs as a fallback that never ran.
+    // The behavior under test — one attempt, outcome surfaced as-is — is
+    // unchanged; only its observability is new.
+    expect(spy.calls.length).toBe(1);
+    expect(spy.calls[0]?.context?.event).toBe("session.commit.push_fallback_declined");
   });
 
   test("app-token push TIMES OUT (ambiguous) → no retry, mt#3177's own remote-check handling is left alone", async () => {
@@ -292,6 +315,78 @@ describe("pushSessionCommitWithFallback", () => {
     expect(result.pushed).toBe(true);
     expect(result.credentialPath).toBe("app-token");
     expect(result.appTokenPushError).toBeUndefined();
+    expect(spy.calls.length).toBe(0);
+  });
+
+  test("workflows-permission rejection → NO keychain retry, reason surfaced, decision logged (mt#3264)", async () => {
+    // A regression guard on a deliberate design decision, not just on behavior.
+    // mt#3264's spec originally proposed WIDENING the fallback trigger to cover
+    // rejections like this one. That would swap the pushing identity from the
+    // App to the local keychain on any server-side block — the conflation the
+    // accepted dual-identity decision record rules out, and the same reason
+    // mem#721 gives for keeping the detector narrow. If someone widens the
+    // trigger, `calls.length` becomes 2 and this fails.
+    const spy = makeWarnSpy();
+    const calls: Array<{ authToken?: string }> = [];
+
+    const pushFromParamsWithConfirmation = async (params: {
+      repo?: string;
+      authToken?: string;
+    }): Promise<PushWithConfirmationResult> => {
+      calls.push({ authToken: params.authToken });
+      return {
+        workdir: params.repo ?? "",
+        pushed: false,
+        pushError: WORKFLOWS_REJECTION_MESSAGE,
+      };
+    };
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    // Exactly one attempt: no silent retry under a different identity.
+    expect(calls.length).toBe(1);
+    expect(calls[0]?.authToken).toBe("stub-app-token");
+
+    // The caller can see WHY, and which credential produced it.
+    expect(result.pushed).toBe(false);
+    expect(result.credentialPath).toBe("app-token");
+    expect(result.pushError).toContain("without `workflows` permission");
+
+    // The declined fallback is legible rather than silent.
+    expect(spy.calls.length).toBe(1);
+    expect(spy.calls[0]?.context?.event).toBe("session.commit.push_fallback_declined");
+    expect(spy.calls[0]?.context?.reason).toContain("without `workflows` permission");
+  });
+
+  test("a timed-out app-token push does not log the declined-fallback decision (mt#3264)", async () => {
+    // A timeout is not a rejection — there is no reason to report and nothing
+    // was declined. Keeps the new log from firing on mt#3556's failure mode,
+    // where the pre-push gate outruns the push budget.
+    const spy = makeWarnSpy();
+
+    const pushFromParamsWithConfirmation = async (params: {
+      repo?: string;
+    }): Promise<PushWithConfirmationResult> => ({
+      workdir: params.repo ?? "",
+      pushed: false,
+      pushTimedOut: true,
+      pushUnconfirmed: true,
+    });
+
+    const result = await pushSessionCommitWithFallback(
+      makeStubTokenProvider({ configured: true }),
+      { repo: "/tmp/fake-repo" },
+      { pushTimeoutMs: 5000 },
+      { pushFromParamsWithConfirmation, warn: spy.warn }
+    );
+
+    expect(result.pushUnconfirmed).toBe(true);
+    expect(result.credentialPath).toBe("app-token");
     expect(spy.calls.length).toBe(0);
   });
 });
