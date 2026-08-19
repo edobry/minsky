@@ -845,6 +845,38 @@ describe("mt#3864 — PR-identity helpers (PR #3096 R1)", () => {
     expect([...found]).toEqual([3033]);
   });
 
+  test("R4: a GENERIC number key is not identity evidence", () => {
+    // The key list is deliberately narrow. A spurious match manufactures
+    // evidence and SUPPRESSES a fire — the unsafe degrade, and a silent one.
+    // Re-widening to a generic key must be a deliberate edit that fails here.
+    const lines = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", name: PR_READ_TOOL_NAME, input: { number: 3033, pr: 3033 } },
+          ],
+        },
+      },
+    ];
+    expect([...extractPrNumbersForTools(lines as never, [PR_READ_TOOL_NAME])]).toEqual([]);
+  });
+
+  test("NEGATIVE CONTROL: the same call keyed `pullNumber` IS evidence", () => {
+    // Pins that the test above measures the KEY, not a broken helper.
+    const lines = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", name: PR_READ_TOOL_NAME, input: { pullNumber: 3033 } }],
+        },
+      },
+    ];
+    expect([...extractPrNumbersForTools(lines as never, [PR_READ_TOOL_NAME])]).toEqual([3033]);
+  });
+
   test("identityScopedToolNames is derived from the categories, not restated", () => {
     // Guards the wiring: a tool added to a category's identityScopedTools must
     // reach the evidence-gathering side automatically.

@@ -158,8 +158,27 @@ export function extractClaimedPrNumber(phrase: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** PR-number-ish input keys used across the PR-reading tools. */
-const PR_NUMBER_INPUT_KEYS = ["pullNumber", "prNumber", "number", "pr"];
+/**
+ * PR-number input keys read from the `identityScopedTools`' own inputs.
+ *
+ * Deliberately NOT generic (PR #3096 R4). This list held `"number"` and `"pr"`
+ * as forward-compat catches, and a generic key is the wrong risk to take here:
+ * a spurious match manufactures identity evidence, which SUPPRESSES a fire —
+ * the unsafe degrade under ADR-024's fail-to-Rung-1 invariant, and one that
+ * leaves no trace, since a suppressed claim is one the operator never sees.
+ *
+ * Audited against the tools that can reach this: `pull_request_read` takes
+ * `pullNumber`, and `session_pr_get` resolves by `task`/`sessionId` and carries
+ * no PR number at all. Neither has ever had a `number` or `pr` key. Measured,
+ * not assumed — replaying the 2026-08-13→18 corpus with and without the two
+ * generic keys produces identical tallies (1 identity-backed either way), so
+ * they contributed no evidence and only the hazard.
+ *
+ * A new identity-scoped tool whose input keys its PR number differently must
+ * add that key here deliberately; the missing-key failure is a fire, which is
+ * the safe direction.
+ */
+const PR_NUMBER_INPUT_KEYS = ["pullNumber", "prNumber"];
 
 /**
  * Every tool any category treats as identity-scoped. Derived from
