@@ -60,6 +60,7 @@ import {
   callContainsQuotedFailure,
   callNamesSubject,
   extractQuotedFailures,
+  extractStrictQuotedFailures,
   extractSubjectTokens,
   failingTestRuns,
   sessionRanTests,
@@ -151,9 +152,14 @@ export function judgeClaims(text: string, calls: readonly ToolCallWithResult[]):
     // A quoted failure is itself a checkable claim — a paste that appears in no
     // real result is the fabrication this guard exists for — so a record that
     // quotes but names no subject must not fall through to "cannot adjudicate".
+    // Adjudicability uses the STRICT `(fail)`-only set, not the widened one
+    // (mt#4067). The widened shapes discharge when they match and say nothing
+    // when they do not; treating them as grounds to condemn moved 22 records
+    // from `unadjudicable` to `undischarged` and made the live fire count worse.
+    const strict = extractStrictQuotedFailures(full);
     const verdict = discharged
       ? "discharged"
-      : quoted.length === 0 && tokens.length === 0
+      : strict.length === 0 && tokens.length === 0
         ? "unadjudicable"
         : "undischarged";
     verdicts.push({ kind: "negative-control", tokens, verdict });
