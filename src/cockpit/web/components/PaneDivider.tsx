@@ -237,10 +237,18 @@ export function PaneDivider({
       aria-orientation="vertical"
       aria-label={label}
       aria-controls={controls}
-      // The live value while dragging, the host's value otherwise (mt#4274).
-      // Without this the announced width would freeze at the pre-drag number,
-      // because the host deliberately does not re-render until release.
-      aria-valuenow={Math.round(liveValue ?? value)}
+      // The live value while dragging, the host's value otherwise (mt#4274),
+      // CLAMPED into the announced range.
+      //
+      // Two separate reasons for each half. Live, because the host deliberately
+      // does not re-render until release, so a raw `value` would freeze at the
+      // pre-drag number while the pane visibly moved. Clamped, because
+      // `liveValue` is what the POINTER asked for, not what the host will
+      // render — drag past the ceiling and it keeps climbing, which would
+      // announce a `valuenow` outside the `valuemin`/`valuemax` this same
+      // element reports. The host's own clamp is not visible from here, so the
+      // bound has to be applied where the number is announced.
+      aria-valuenow={Math.round(Math.min(max, Math.max(min, liveValue ?? value)))}
       aria-valuemin={min}
       aria-valuemax={max}
       data-dragging={isDragging ? "true" : undefined}

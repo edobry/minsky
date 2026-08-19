@@ -286,8 +286,16 @@ async function readStableState(ws: WebSocket, what: string): Promise<ResizeState
     previousKey = key;
     await sleep(120);
   }
-  if (last) return last;
-  throw new Error(`state never stabilized within ${DEADLINE_MS}ms while waiting for ${what}`);
+  // FAIL rather than return the last sample. Returning it would hand every
+  // downstream assertion a geometry that was still moving when it was read,
+  // which is the same class of defect this function exists to remove — and
+  // worse, because a never-stabilizing page would then be reported as whatever
+  // it happened to look like rather than as a problem. A probe that cannot fail
+  // carries no information.
+  throw new Error(
+    `state never stabilized within ${DEADLINE_MS}ms while waiting for ${what} ` +
+      `(last sample: ${last ? JSON.stringify(last) : "none"})`
+  );
 }
 
 /**

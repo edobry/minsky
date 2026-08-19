@@ -291,6 +291,27 @@ describe("PaneDivider — onChange is live, onCommit is settled (mt#4274)", () =
     expect(divider.getAttribute("aria-valuenow")).toBe(String(START_WIDTH));
   });
 
+  test("aria-valuenow never announces outside the range it also announces", () => {
+    // `liveValue` is what the POINTER asked for, not what the host will render.
+    // Dragging past the ceiling keeps climbing, so without a clamp the element
+    // would report a `valuenow` above its own `valuemax` — an announced range
+    // the pane can never be in. (PR #3121 R1, BLOCKING.)
+    const { divider, changes } = renderWithCommit();
+    const max = Number(divider.getAttribute("aria-valuemax"));
+    const min = Number(divider.getAttribute("aria-valuemin"));
+
+    fireEvent.pointerDown(divider, { clientX: 400, button: 0 });
+    fireEvent.pointerMove(window, { clientX: 400 + 5000 });
+    expect(Number(divider.getAttribute("aria-valuenow"))).toBe(max);
+
+    fireEvent.pointerMove(window, { clientX: 400 - 5000 });
+    expect(Number(divider.getAttribute("aria-valuenow"))).toBe(min);
+
+    // The REPORTED values are still the raw request — the host owns clamping
+    // what renders, and this clamp is only about what is announced.
+    expect(changes).toEqual([START_WIDTH + 5000, START_WIDTH - 5000]);
+  });
+
   test("a host that passes no onCommit still works — SessionFilm's shape", () => {
     const { divider, changes } = renderDivider();
 
