@@ -276,6 +276,244 @@ export function failingTestRuns(calls: readonly ToolCallWithResult[]): ToolCallW
 }
 
 // ---------------------------------------------------------------------------
+// Discharge, part 2: WHICH check, and did it observe the tree being shipped?
+// (mt#4236)
+// ---------------------------------------------------------------------------
+//
+// Everything above answers "did a run happen". This section answers the two
+// questions that come apart from it. Their ORDER is a correction mt#4236's
+// planning pass made after reading the source, not the order its spec was
+// originally written in:
+//
+//   1. GRANULARITY comes first. `Execution evidence:` names a BLOCK, and a block
+//      routinely asserts a test run, a typecheck, a lint pass and a format check
+//      at once. {@link sessionRanTests} collapses all of them into one boolean
+//      about tests, so a typecheck result pasted into that block is not
+//      adjudicated AT ALL — fresh, stale or fabricated alike. mt#4236's own
+//      originating instance is of this class: PR #3082 pasted
+//      `validate_typecheck … errorCount: 0` and CI then failed to compile a file
+//      that same run HAD covered.
+//   2. ORDERING second, and it applies to every kind including the test one: a
+//      run that really happened, before the last edit to the files it describes,
+//      discharges a record exactly as a fresh one does.
+//
+// DIRECTION OF ERROR SPLITS ACROSS THE TWO RECOGNIZERS HERE, and conflating them
+// would rebuild the failure this module's header warns about one level up:
+//
+//   - CLAIMING a kind (does this block assert a typecheck?) creates an
+//     OBLIGATION to find one, so recognizing a kind the block does not actually
+//     assert is a false POSITIVE — the guard telling an author who never claimed
+//     a typecheck that their typecheck is missing. The claim recognizers are
+//     therefore CONSERVATIVE: they key on invocation and result spellings a block
+//     can only carry by having PASTED a run, never on the English word. Prose
+//     reading "typecheck is clean" is deliberately invisible to them; that miss
+//     is a false negative, which is the safe direction.
+//   - RUNNING a kind (did this call run a typecheck?) is an ordinary discharge
+//     recognizer, so it follows the header's rule and is GENEROUS.
+//
+// The header states this asymmetry across RECORD TYPES; this is the same
+// asymmetry within ONE record, and it points the opposite way for the first half.
+
+/** A check whose result an `Execution evidence:` block can assert. */
+export type CheckKind = "test" | "typecheck" | "lint" | "format";
+
+/** Every kind, in the order a block's claims are judged. */
+export const CHECK_KINDS: readonly CheckKind[] = ["test", "typecheck", "lint", "format"];
+
+interface CheckKindSpec {
+  /** MCP tools whose invocation IS a run of this kind. */
+  toolNames: readonly string[];
+  /** Shell command shapes that run this kind. Generous — a miss fires the guard. */
+  commandRe: RegExp;
+  /** What a block must carry to be ASSERTING this kind. Conservative — see above. */
+  claimRe: RegExp;
+  /**
+   * Files a run of this kind reads, as a test on the written path.
+   *
+   * `null` means the kind's file set is NOT derivable from a path, so ordering
+   * against it records `not-comparable` rather than a guess. `format` is the
+   * real instance rather than a hypothetical one: prettier's file set is decided
+   * by `.prettierrc` and `.prettierignore`, spans nearly every extension in the
+   * tree, and this module does not read either — so any answer it gave would be
+   * invented.
+   *
+   * The included sets are deliberately NARROW, because this is the one place in
+   * this module where over-inclusion is the DANGEROUS direction: an extension
+   * wrongly listed turns an unrelated edit into a `stale-evidence` fire. A
+   * `tsconfig*.json` edit genuinely does invalidate a typecheck and is genuinely
+   * absent below for that reason — it is a known false negative, taken on
+   * purpose.
+   *
+   * None of these carry the `g` flag: a `g`-flagged literal shared across calls
+   * carries mutable `lastIndex` state, which PR #3139 R1 removed from this
+   * module's other recognizers for exactly the reason it would bite here.
+   */
+  coverageRe: RegExp | null;
+}
+
+const TS_ONLY_RE = /\.(?:ts|tsx|mts|cts)$/i;
+const TS_OR_JS_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/i;
+
+const CHECK_KIND_SPECS: Readonly<Record<CheckKind, CheckKindSpec>> = {
+  // `commandRe` IS `TEST_RUN_COMMAND_RE`, the same object {@link isTestRunningCall}
+  // uses — not a copy of it. That is what makes "these two agree" a structural
+  // property rather than a claim two literals could quietly stop honouring.
+  test: {
+    toolNames: [],
+    commandRe: TEST_RUN_COMMAND_RE,
+    claimRe: new RegExp(
+      `${TEST_RUN_COMMAND_RE.source}|\\bRan\\s+\\d+\\s+tests?\\b|\\b\\d+\\s+pass(?:ed|ing)?\\b`,
+      "i"
+    ),
+    coverageRe: TS_OR_JS_RE,
+  },
+  typecheck: {
+    toolNames: ["validate_typecheck"],
+    commandRe:
+      /\b(?:bun|bunx|npm|pnpm|yarn|npx)\s+(?:run\s+)?typecheck(?::[\w-]+)?\b|\btsgo\b|\btsc\b/i,
+    claimRe:
+      /\bvalidate_typecheck\b|\berrorCount\b|--noEmit\b|\b(?:bun|bunx|npm|pnpm|yarn|npx)\s+(?:run\s+)?typecheck(?::[\w-]+)?\b|\btsgo\b|\btsc\b/i,
+    coverageRe: TS_ONLY_RE,
+  },
+  lint: {
+    toolNames: ["validate_lint"],
+    commandRe: /\b(?:bun|bunx|npm|pnpm|yarn|npx)\s+(?:run\s+)?lint(?::[\w-]+)?\b|\beslint\b/i,
+    claimRe:
+      /\bvalidate_lint\b|\beslint\b|\b(?:bun|bunx|npm|pnpm|yarn|npx)\s+(?:run\s+)?lint(?::[\w-]+)?\b/i,
+    coverageRe: TS_OR_JS_RE,
+  },
+  format: {
+    toolNames: [],
+    commandRe: /\b(?:bun|bunx|npm|pnpm|yarn|npx)\s+(?:run\s+)?format(?::[\w-]+)?\b|\bprettier\b/i,
+    claimRe:
+      /\bprettier\b|\bformat:check\b|\b(?:bun|bunx|npm|pnpm|yarn|npx)\s+run\s+format(?::[\w-]+)?\b/i,
+    coverageRe: null,
+  },
+};
+
+/**
+ * The check kinds this record ASSERTS a result for.
+ *
+ * Empty when the block pastes nothing this module recognizes — which callers
+ * must NOT read as "claims nothing". See the default in the guard: an
+ * unrecognized block keeps mt#1459's own semantics (it claims a test run), so
+ * this change leaves such a block's verdict byte-identical to the pre-mt#4236
+ * one and stays off the recall axis mt#4067 owns.
+ */
+export function claimedCheckKinds(record: string): CheckKind[] {
+  return CHECK_KINDS.filter((kind) => CHECK_KIND_SPECS[kind].claimRe.test(record));
+}
+
+/** True when this call ran a check of `kind`, whatever it returned. */
+export function isCheckRunningCall(call: ToolCallWithResult, kind: CheckKind): boolean {
+  const spec = CHECK_KIND_SPECS[kind];
+  const name = normalizeToolName(call.toolName);
+  if (spec.toolNames.includes(name)) return true;
+  if (!COMMAND_TOOL_NAMES.includes(name)) return false;
+  const command = typeof call.input["command"] === "string" ? call.input["command"] : "";
+  return spec.commandRe.test(command);
+}
+
+/**
+ * The transcript index of the LAST run of `kind`, or null when none ran.
+ *
+ * The LAST, not the first: an author who re-runs a check after editing has a
+ * fresh run, and judging them on their earliest one would fire at exactly the
+ * careful behavior this check exists to encourage.
+ */
+export function lastRunIndexOfKind(
+  calls: readonly ToolCallWithResult[],
+  kind: CheckKind
+): number | null {
+  let last: number | null = null;
+  for (const call of calls) if (isCheckRunningCall(call, kind)) last = call.index;
+  return last;
+}
+
+// ---------------------------------------------------------------------------
+// The write side of the ordering join
+// ---------------------------------------------------------------------------
+
+/**
+ * Tools that WRITE a file, and the input fields naming what they wrote.
+ *
+ * SHELL WRITES ARE DELIBERATELY ABSENT — a `sed -i`, a heredoc redirect, a
+ * `cp`. Recognizing them means parsing a command string for an effect rather
+ * than for a verb, and getting it wrong invents a write that did not happen,
+ * which fires `stale-evidence` at an author whose evidence was fine. Missing
+ * one instead loses a staleness detection: a false negative, and the safe
+ * direction this module's header prescribes. The same reasoning excludes writes
+ * made by any process other than this conversation — they are not in the
+ * transcript at all, and no amount of recognizer widening would find them.
+ *
+ * Both `session_edit_file` and `session_edit-file` are listed because both are
+ * registered spellings and {@link normalizeToolName} does not fold `-` to `_`.
+ */
+const WRITE_TOOL_PATH_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  write: ["file_path"],
+  edit: ["file_path"],
+  notebookedit: ["notebook_path"],
+  session_write_file: ["path"],
+  session_search_replace: ["path"],
+  session_edit_file: ["path"],
+  "session_edit-file": ["path"],
+  session_move_file: ["sourcePath", "targetPath"],
+  session_rename_file: ["path", "newPath"],
+  session_delete_file: ["path"],
+};
+
+/** One file write, at the transcript index where it happened. */
+export interface FileWrite {
+  index: number;
+  path: string;
+}
+
+/** Every file write in the transcript given, in order. */
+export function fileWrites(calls: readonly ToolCallWithResult[]): FileWrite[] {
+  const out: FileWrite[] = [];
+  for (const call of calls) {
+    const fields = WRITE_TOOL_PATH_FIELDS[normalizeToolName(call.toolName)];
+    if (!fields) continue;
+    for (const field of fields) {
+      const value = call.input[field];
+      if (typeof value === "string" && value.trim() !== "") {
+        out.push({ index: call.index, path: value.trim() });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a discharging run OBSERVED the tree being shipped.
+ *
+ * `fresh` — no file the run reads was written after it.
+ * `stale-evidence` — one was, so the pasted result describes an EARLIER tree
+ *   than the diff it is attached to. This is the class mt#4236 exists to make
+ *   visible, and it is deliberately distinct from both undischarged classes:
+ *   the run is real and the session contains it.
+ * `not-comparable` — the kind's file set is not derivable from a path
+ *   ({@link CheckKindSpec.coverageRe}), so no comparison is made rather than a
+ *   guess recorded.
+ *
+ * Ordering is by TRANSCRIPT INDEX, not wall-clock: at PreToolUse the transcript
+ * holds exactly the calls that already happened, so index order IS happened-
+ * before, and it needs no timestamp to be present or parseable.
+ */
+export type OrderingVerdict = "fresh" | "stale-evidence" | "not-comparable";
+
+export function orderingAgainstWrites(
+  runIndex: number,
+  writes: readonly FileWrite[],
+  kind: CheckKind
+): OrderingVerdict {
+  const coverage = CHECK_KIND_SPECS[kind].coverageRe;
+  if (coverage === null) return "not-comparable";
+  const invalidated = writes.some((w) => w.index > runIndex && coverage.test(w.path));
+  return invalidated ? "stale-evidence" : "fresh";
+}
+
+// ---------------------------------------------------------------------------
 // The subject join
 // ---------------------------------------------------------------------------
 

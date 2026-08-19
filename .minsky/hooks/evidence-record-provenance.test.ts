@@ -65,6 +65,9 @@ const SUBJECT_FAILURE =
 
 const GREEN_RUN = "bun test v1.3.14\n\n 5 pass\n 0 fail\nRan 5 tests across 1 file. [447.00ms]";
 
+/** The claim kind, named once — three assertions across this file compare against it. */
+const NEGATIVE_CONTROL = "negative-control";
+
 let nextId = 0;
 
 /** One tool call plus its correlated result, as two transcript lines. */
@@ -298,7 +301,7 @@ describe("judgeClaims", () => {
       testRun(TEST_CMD, "(fail) Unrelated > other [1ms]\n 1 fail")
     );
     const v = judgeClaims(record, calls)[0];
-    expect(v?.kind).toBe("negative-control");
+    expect(v?.kind).toBe(NEGATIVE_CONTROL);
     expect(v?.verdict).toBe("unadjudicable");
     expect(v?.verdict).not.toBe("undischarged");
   });
@@ -409,6 +412,201 @@ describe("judgeClaims", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-claim granularity and the ordering axis (mt#4236)
+// ---------------------------------------------------------------------------
+
+/** A `session_search_replace` write to `path`. */
+function write(path: string): TranscriptLine[] {
+  const id = `tu_${++nextId}`;
+  return [
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id, name: "mcp__minsky__session_search_replace", input: { path } },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: id, content: [{ type: "text", text: "ok" }] },
+        ],
+      },
+    },
+  ] as unknown as TranscriptLine[];
+}
+
+/** A `validate_typecheck` MCP call reporting a clean run. */
+function typecheckRun(): TranscriptLine[] {
+  const id = `tu_${++nextId}`;
+  return [
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id,
+            name: "mcp__minsky__validate_typecheck",
+            input: { task: "mt#1" },
+          },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            content: [{ type: "text", text: "errorCount: 0" }],
+          },
+        ],
+      },
+    },
+  ] as unknown as TranscriptLine[];
+}
+
+/**
+ * The originating instance's shape (mt#4214 / PR #3082): ONE block asserting a
+ * typecheck AND a test run. Before mt#4236 the whole block was discharged by
+ * `sessionRanTests`, so the typecheck half was never adjudicated at all.
+ */
+const MIXED_EVIDENCE_BLOCK =
+  "## Execution evidence\n\n" +
+  "```\n" +
+  "$ bun test --preload ./tests/setup.ts ./.minsky/hooks/foo.test.ts\n" +
+  " 38 pass\n 0 fail\n" +
+  "\n" +
+  '$ validate_typecheck(task: "mt#4214")\n' +
+  " errorCount: 0\n" +
+  "```\n";
+
+describe("per-claim granularity (mt#4236)", () => {
+  test("one block asserting a typecheck AND a test yields one claim for EACH", () => {
+    const calls = findToolCallsWithResults([...typecheckRun(), ...testRun(TEST_CMD, GREEN_RUN)]);
+    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls);
+    expect(verdicts.map((v) => v.check).sort()).toEqual(["test", "typecheck"]);
+    expect(verdicts.every((v) => v.verdict === "discharged")).toBe(true);
+  });
+
+  test("a typecheck claim is NOT discharged by a test run — the pre-mt#4236 defect", () => {
+    // The session ran tests and nothing else. Before this change the block was
+    // discharged outright; the typecheck claim must now stand undischarged.
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    expect(typecheck).toMatchObject({ verdict: "undischarged", detail: "no-run-of-kind" });
+  });
+
+  test("`no-run-at-all` is a DIFFERENT class from `no-run-of-kind`", () => {
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, []).find((v) => v.check === "typecheck");
+    expect(typecheck?.detail).toBe("no-run-at-all");
+  });
+
+  test("a block claiming nothing recognizable keeps mt#1459's own semantics", () => {
+    // The compatibility guarantee: such a block is a test claim, discharged by
+    // any test run, exactly as before — this change must not move the recall
+    // axis mt#4067 owns.
+    const body = "## Execution evidence\n\nthe checks were run and were fine\n";
+    expect(judgeClaims(body, [])[0]).toMatchObject({ check: "test", verdict: "undischarged" });
+    const ran = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
+    expect(judgeClaims(body, ran)[0]?.verdict).toBe("discharged");
+  });
+
+  test("prose naming a check is NOT a claim — only a pasted invocation or result is", () => {
+    // The conservative direction: recognizing a kind creates an obligation to
+    // find a run of it, so an English mention must not manufacture one.
+    const body = "## Execution evidence\n\ntypecheck and lint are clean.\n 5 pass\n";
+    expect(judgeClaims(body, []).map((v) => v.check)).toEqual(["test"]);
+  });
+});
+
+describe("ordering against later writes (mt#4236)", () => {
+  test("a typecheck, then a .ts write, reports stale-evidence", () => {
+    const calls = findToolCallsWithResults([
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...write("src/thing.ts"),
+    ]);
+    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls);
+    const typecheck = verdicts.find((v) => v.check === "typecheck");
+    expect(typecheck).toMatchObject({ verdict: "discharged", ordering: "stale-evidence" });
+  });
+
+  test("the same run with the write BEFORE it is fresh", () => {
+    const calls = findToolCallsWithResults([
+      ...write("src/thing.ts"),
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+    ]);
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    expect(typecheck?.ordering).toBe("fresh");
+  });
+
+  test("a .md write after a typecheck does NOT flag it — per-kind coverage", () => {
+    const calls = findToolCallsWithResults([
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...write("docs/notes.md"),
+    ]);
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    expect(typecheck?.ordering).toBe("fresh");
+  });
+
+  test("a kind whose file set is not derivable from a path records not-comparable", () => {
+    // `format` is the real instance: prettier's file set comes from .prettierrc
+    // and .prettierignore, which this module does not read. Any ordering answer
+    // it gave would be invented, so it gives none.
+    const body =
+      "## Execution evidence\n\n```\n$ bun run format:check\nAll matched files use Prettier\n```\n";
+    const calls = findToolCallsWithResults([
+      ...testRun("bun run format:check", "All matched files use Prettier code style!"),
+      ...write("src/thing.ts"),
+    ]);
+    const format = judgeClaims(body, calls).find((v) => v.check === "format");
+    expect(format).toMatchObject({ verdict: "discharged", ordering: "not-comparable" });
+  });
+
+  test("a stale claim MATCHES, so a review filtering on `matched` can see it", () => {
+    const lines = [...typecheckRun(), ...testRun(TEST_CMD, GREEN_RUN), ...write("src/thing.ts")];
+    const outcome = run(
+      {
+        session_id: "sess-mt4236",
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "t", body: MIXED_EVIDENCE_BLOCK },
+      } as unknown as ToolHookInput,
+      ctxWith(lines)
+    );
+    expect(outcome?.calibration).toMatchObject({ outcome: "matched" });
+    expect(String(outcome?.calibration?.["reason"])).toContain("stale-evidence");
+    // The verdict is rendered per claim, so a reviewer can tell WHICH check.
+    const claims = outcome?.calibration?.["claims"] as Array<Record<string, unknown>>;
+    expect(claims.find((c) => c["check"] === "typecheck")).toMatchObject({
+      ordering: "stale-evidence",
+    });
+  });
+
+  test("a negative control records not-comparable — its restore is itself a write", () => {
+    // Measured, not reasoned: applying the ordering axis here reported stale on
+    // 30 of 33 discharged control records across 14 transcripts, because step 3
+    // of the procedure (restore the fix) is always a write after the red run.
+    const calls = findToolCallsWithResults([
+      ...testRun(TEST_CMD, SUBJECT_FAILURE),
+      ...write("src/cockpit/web/pages/SharedConversationPage.tsx"),
+    ]);
+    const control = judgeClaims(INCIDENT_MESSAGE, calls).find((v) => v.kind === NEGATIVE_CONTROL);
+    expect(control).toMatchObject({ verdict: "discharged", ordering: "not-comparable" });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Artifact resolution across the three seams
 // ---------------------------------------------------------------------------
 
@@ -431,7 +629,7 @@ describe("resolveArtifactText", () => {
       expect(text).toContain("a title");
       expect(text).toContain("Negative control");
       // And it reaches the judgement, not just the string.
-      expect(judgeClaims(text ?? "", [])[0]?.kind).toBe("negative-control");
+      expect(judgeClaims(text ?? "", [])[0]?.kind).toBe(NEGATIVE_CONTROL);
     } finally {
       // eslint-disable-next-line custom/no-real-fs-in-tests -- cleanup for the real file written above.
       rmSync(path, { force: true });
