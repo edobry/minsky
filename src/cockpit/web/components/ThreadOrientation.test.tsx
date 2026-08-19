@@ -88,3 +88,65 @@ describe("ThreadStartBoundary (mt#3688)", () => {
     expect(screen.getByTestId("thread-start").textContent).toContain("Beginning of conversation");
   });
 });
+
+describe("ThreadStartBoundary — the fetch boundary (mt#4263)", () => {
+  afterEach(cleanup);
+
+  test("BLOCKING CASE: everything mounted but the server has more does NOT claim the beginning", () => {
+    // The defect a server-side window would otherwise reintroduce, and the one
+    // this component's own history is about: with `hiddenBefore` at 0 the old
+    // three-state version said "Beginning of conversation" while 2,186 turns
+    // sat unfetched — the same false picture mt#3688 removed, reached by a
+    // different route.
+    renderBoundary({ hiddenBefore: 0, unfetchedBefore: 2186, onLoadOlder: noop });
+    expect(screen.queryByTestId("thread-start")).toBeNull();
+    expect(screen.getByTestId("thread-unfetched-above").textContent).toContain(
+      "2186 earlier turns not loaded"
+    );
+  });
+
+  test("NEGATIVE CONTROL: with nothing unfetched the beginning still renders", () => {
+    // Without this, the assertion above passes just as well against a component
+    // that stopped rendering `thread-start` at all.
+    renderBoundary({ hiddenBefore: 0, unfetchedBefore: 0, onLoadOlder: noop });
+    expect(screen.getByTestId("thread-start").textContent).toContain("Beginning of conversation");
+  });
+
+  test("the load control asks the host to fetch", () => {
+    let calls = 0;
+    renderBoundary({
+      hiddenBefore: 0,
+      unfetchedBefore: 50,
+      onLoadOlder: () => {
+        calls += 1;
+      },
+    });
+    fireEvent.click(screen.getByText("load earlier turns"));
+    expect(calls).toBe(1);
+  });
+
+  test("a host that does not window never reaches the fetch state", () => {
+    // `onLoadOlder` absent is how a caller holding the whole transcript is
+    // distinguished — the share page and the publish preview both pass a
+    // complete snapshot and must keep seeing the beginning.
+    renderBoundary({ hiddenBefore: 0, unfetchedBefore: 2186 });
+    expect(screen.getByTestId("thread-start")).toBeTruthy();
+  });
+
+  test("an in-flight FETCH is worded differently from an in-flight reveal", () => {
+    // One is a round trip and the other is a render; a reader who sees the same
+    // copy for both cannot tell a slow network from a slow mount.
+    renderBoundary({ hiddenBefore: 0, unfetchedBefore: 50, isLoadingOlder: true, onLoadOlder: noop });
+    expect(screen.getByTestId("thread-loading-older").textContent).toContain(
+      "Loading earlier turns"
+    );
+  });
+
+  test("mounting takes precedence over fetching when both are possible", () => {
+    // `hiddenBefore > 0` means turns are already in memory; spending a round
+    // trip before mounting what is already here would be strictly worse.
+    renderBoundary({ hiddenBefore: 30, unfetchedBefore: 2186, onLoadOlder: noop });
+    expect(screen.getByTestId("thread-hidden-above").textContent).toContain("30 earlier turns");
+    expect(screen.queryByTestId("thread-unfetched-above")).toBeNull();
+  });
+});
