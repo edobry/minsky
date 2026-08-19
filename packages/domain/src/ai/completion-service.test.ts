@@ -302,6 +302,67 @@ describe("DefaultAICompletionService — request-field forwarding contract (mt#4
     expect(Object.prototype.hasOwnProperty.call(callArgs, "maxTokens")).toBe(false);
   });
 
+  it("complete() omits maxTokens when the caller did not set one", async () => {
+    // PR #3156 R1: this path SET the key unconditionally, so an unset cap arrived as
+    // `maxTokens: undefined`. Fixing the omission on one method and leaving its siblings
+    // is the class-not-instance miss the reviewer caught.
+    const generateText = fakeGenerateText();
+    const service = makeService({ generateText });
+
+    await service.complete({ provider: "anthropic", model: "claude-sonnet-5", prompt: "hi" });
+
+    const callArgs = generateText.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "maxTokens")).toBe(false);
+  });
+
+  it("stream() omits maxTokens when the caller did not set one", async () => {
+    const streamText = fakeStreamText();
+    const service = makeService({ streamText });
+
+    for await (const _chunk of service.stream({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      prompt: "hi",
+    })) {
+      // draining
+    }
+
+    const callArgs = streamText.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "maxTokens")).toBe(false);
+  });
+
+  it("all three methods agree on omitting an unset maxTokens", async () => {
+    // The contract stated once over all three, so the next method cannot diverge quietly
+    // in EITHER direction — forwarding a set value, and omitting an unset one.
+    const generateText = fakeGenerateText();
+    const generateObject = fakeGenerateObject({ ok: true });
+    const streamText = fakeStreamText();
+    const service = makeService({ generateText, generateObject, streamText });
+
+    await service.complete({ provider: "anthropic", model: "m", prompt: "hi" });
+    await service.generateObject({
+      provider: "anthropic",
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+    });
+    for await (const _chunk of service.stream({
+      provider: "anthropic",
+      model: "m",
+      prompt: "hi",
+    })) {
+      // draining
+    }
+
+    const hasKey = [
+      generateText.mock.calls[0]?.[0],
+      generateObject.mock.calls[0]?.[0],
+      streamText.mock.calls[0]?.[0],
+    ].map((args) => Object.prototype.hasOwnProperty.call(args as object, "maxTokens"));
+
+    expect(hasKey).toEqual([false, false, false]);
+  });
+
   it("every method that accepts maxTokens actually forwards it", async () => {
     // The contract stated once, over all three, so adding a fourth method without
     // forwarding is a failing test rather than a silent drop.

@@ -133,7 +133,16 @@ export class DefaultAICompletionService implements AICompletionService {
         prompt: request.prompt,
         system: request.systemPrompt,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-        maxTokens: request.maxTokens,
+        // Conditional, matching `temperature` above and `generateObject` below (mt#4314
+        // PR #3156 R1). This path always SET the key, so an unset cap reached the SDK as
+        // `maxTokens: undefined` — the same shape mt#2733 recorded as being read downstream
+        // as a value rather than an absence.
+        //
+        // `system`, `tools` and `maxSteps` below are still unconditional. Same shape, and
+        // deliberately NOT changed here: mt#2733 converged `temperature` on evidence and
+        // this converges `maxTokens` on evidence, whereas flipping the rest would be an
+        // unmeasured behaviour change to fields nothing in this task exercises.
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
         tools,
         maxSteps: request.maxSteps,
       });
@@ -213,7 +222,16 @@ export class DefaultAICompletionService implements AICompletionService {
         prompt: request.prompt,
         system: request.systemPrompt,
         ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),
-        maxTokens: request.maxTokens,
+        // Conditional, matching `temperature` above and `generateObject` below (mt#4314
+        // PR #3156 R1). This path always SET the key, so an unset cap reached the SDK as
+        // `maxTokens: undefined` — the same shape mt#2733 recorded as being read downstream
+        // as a value rather than an absence.
+        //
+        // `system`, `tools` and `maxSteps` below are still unconditional. Same shape, and
+        // deliberately NOT changed here: mt#2733 converged `temperature` on evidence and
+        // this converges `maxTokens` on evidence, whereas flipping the rest would be an
+        // unmeasured behaviour change to fields nothing in this task exercises.
+        ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
         tools,
         maxSteps: request.maxSteps,
       });
