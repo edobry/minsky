@@ -7,6 +7,7 @@ import {
   OVERRIDE_ENV_VAR,
 } from "./enumeration-scope-check";
 import { sweptDirectories, sessionSweptDirectories } from "./evidence-provenance-table";
+import { suppliesPattern } from "./command-shape";
 import type { ToolCallWithResult, TranscriptLine } from "./transcript";
 import type { DispatchContext, GuardOutcome } from "./registry";
 import type { ToolHookInput } from "./types";
@@ -210,6 +211,151 @@ describe("sweptDirectories", () => {
       include_pattern: "docs/**",
     });
     expect(sweptDirectories(c)).toContain("docs");
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#4320 — a separated flag's VALUE is not an operand
+  //
+  // The pre-fix filter dropped tokens starting with `-` and kept everything
+  // else, so a detached flag value survived into the path list. The error runs
+  // in BOTH directions and each has its own case below: a value credited as a
+  // directory (false `clean`), and a real path consumed as "the pattern" when
+  // `-e`/`-f` had already supplied one (false `matched`).
+  // -------------------------------------------------------------------------
+
+  test("mt#4320 AT1: repeated -e values are not paths", () => {
+    expect(sweptDirectories(call("Bash", { command: "grep -e foo -e bar src/" }))).toEqual(["src"]);
+  });
+
+  test("mt#4320 AT2: a -f value naming a prescribable directory is not credited", () => {
+    expect(
+      sweptDirectories(call("Bash", { command: "grep -f docs/patterns.txt src/" }))
+    ).not.toContain("docs");
+  });
+
+  test("mt#4320 AT7: with the pattern supplied by -f, the positional is a PATH, not the pattern", () => {
+    // The under-credit direction. Pre-fix this returned ["docs"] — crediting the
+    // pattern FILE and losing the directory actually swept. A fix that only
+    // skipped flag values would return [] here, which is also wrong; asserting
+    // the value rather than `not.toContain("docs")` distinguishes the two.
+    expect(sweptDirectories(call("Bash", { command: "grep src/ -f docs/patterns.txt" }))).toEqual([
+      "src",
+    ]);
+  });
+
+  test("mt#4320 AT6: a numeric flag value does not shift the pattern slot", () => {
+    // `-A 3` keeps `3` as an operand pre-fix, so the pattern-first rule dropped
+    // `3` and credited `docs/` — the actual PATTERN — as a swept directory.
+    // -A/-B/-C are the most common value-taking grep flags in this corpus, which
+    // makes this the likeliest variant to occur in real usage.
+    const swept = sweptDirectories(call("Bash", { command: "grep -A 3 docs/ src/" }));
+    expect(swept).toEqual(["src"]);
+    expect(swept).not.toContain("docs");
+  });
+
+  test("mt#4320 AT3: a find predicate's value is not a path operand", () => {
+    expect(sweptDirectories(call("Bash", { command: "find src -path docs -prune" }))).toEqual([
+      "src",
+    ]);
+  });
+
+  test("mt#4320 AT3b: -name's value likewise", () => {
+    // Same defect as AT3, second spelling — measured pre-fix as ["src","docs"].
+    //
+    // Kept as its own case because the two spellings pass through DIFFERENT
+    // branches once FIND_VALUE_TAKING_PREDICATES exists: `-name` ends in `e`,
+    // which is in VALUE_TAKING_SHORT_OPTS, so an intermediate fix carrying only
+    // the grep tables would satisfy this one and still fail AT3. Asserting both
+    // is what makes the find-predicate set observable rather than incidental.
+    expect(sweptDirectories(call("Bash", { command: "find src -name docs" }))).toEqual(["src"]);
+  });
+
+  test("mt#4320: whole-tree defaulting is unchanged by the flag tables", () => {
+    // `find . …` sweeps the tree regardless of any predicate value, and
+    // `sweepsWholeTree` short-circuits before operands are classified. Asserted
+    // separately from AT3 so a fix that over-suppresses is caught rather than
+    // read as success.
+    expect(sweptDirectories(call("Bash", { command: "find . -path docs -prune" }))).toContain(
+      "docs"
+    );
+  });
+
+  test("mt#4320: joined long-option values still work", () => {
+    expect(sweptDirectories(call("Bash", { command: "grep -rn 'x' --include=*.md src/" }))).toEqual(
+      ["src"]
+    );
+  });
+
+  test("mt#4320: a detached long-option value is skipped too", () => {
+    expect(
+      sweptDirectories(call("Bash", { command: "grep -rn 'x' --include docs/*.md src/" }))
+    ).toEqual(["src"]);
+  });
+
+  test("mt#4320 SC3: an UNRECOGNIZED find predicate degrades toward not crediting", () => {
+    // The criterion is that a spelling the tables miss cannot manufacture
+    // coverage. Before the valueless-complement test, this was decided by the
+    // predicate's LAST LETTER: `-newpath` (ends in `h`) leaked `docs`, while
+    // `-unknownopt` (ends in `t`) happened not to. Both are asserted so the
+    // property is structural rather than incidental.
+    expect(sweptDirectories(call("Bash", { command: "find src -newpath docs" }))).toEqual(["src"]);
+    expect(sweptDirectories(call("Bash", { command: "find src -unknownopt docs" }))).toEqual([
+      "src",
+    ]);
+  });
+
+  test("mt#4320 SC3: a valueless find predicate does NOT eat the token after it", () => {
+    // The mirror error the complement test introduces, and its bound. `-prune`
+    // takes no value, so a path following it survives.
+    expect(sweptDirectories(call("Bash", { command: "find src -prune docs" }))).toEqual([
+      "src",
+      "docs",
+    ]);
+  });
+
+  test("mt#4320: find-style grammar is NOT applied to grep, where -rni is a bundled run", () => {
+    // `findStyle` must stay off for pattern-first commands: `-rni` matches the
+    // same single-dash multi-letter shape as `-name`, and eating the next token
+    // would drop the pattern and promote the path into its slot.
+    expect(sweptDirectories(call("Bash", { command: "grep -rni foo src/" }))).toEqual(["src"]);
+  });
+
+  test("mt#4320 SC3: an unrecognized grep flag does not manufacture coverage", () => {
+    expect(sweptDirectories(call("Bash", { command: "grep --newflag docs foo src/" }))).toEqual([
+      "src",
+    ]);
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #3161 R2 — a bundled run ending in -e/-f, after an unknown letter
+  //
+  // `suppliesPattern` bounded its whole scan by a grep-only letter set, so a
+  // ripgrep flag the set never knew about (`-S`, `-u`) made it return false. The
+  // consequence was not a small mis-credit: the pattern-first rule then dropped
+  // the only path operand, leaving none, and a tree-defaulting searcher with no
+  // path operand is a WHOLE-TREE sweep. `rg -Se foo src` credited all ten
+  // prescribable directories — the false-`clean` direction, and the same shape as
+  // the slash heuristic mt#4171 replaced.
+  // -------------------------------------------------------------------------
+
+  test("R2: a run ending in -e is pattern-supplying even after an unknown letter", () => {
+    expect(sweptDirectories(call("Bash", { command: "rg -Se foo src" }))).toEqual(["src"]);
+    expect(sweptDirectories(call("Bash", { command: "rg -uue foo src" }))).toEqual(["src"]);
+  });
+
+  test("R2: the attached form still guards against a stray word", () => {
+    // `-notaflag` must not read as `-f`. The detached branch does not fire (it
+    // ends in `g`), so this falls to the letter-bounded scan — which is now the
+    // ONLY thing that set is responsible for.
+    expect(suppliesPattern("-notaflag")).toBe(false);
+    expect(suppliesPattern("-rnePATTERN")).toBe(true);
+    expect(suppliesPattern("-Se")).toBe(true);
+  });
+
+  test("R2: a find-style token in a grep command is not treated as a predicate", () => {
+    // Pre-fix the FIND_VALUE_TAKING_PREDICATES branch ran with findStyle off and
+    // skipped the token after `-path`, emptying the operand list.
+    expect(sweptDirectories(call("Bash", { command: "grep -path foo src/" }))).toEqual(["src"]);
   });
 });
 
