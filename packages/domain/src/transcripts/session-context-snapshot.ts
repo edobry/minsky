@@ -728,11 +728,13 @@ async function assembleWindowedSessionContextSnapshot(
     totalTurns: toInt(row.total_turns) ?? 0,
     returnedTurns,
     oldestTurnIndex,
-    // Derived from the slice bound rather than a second query: anything before
-    // the oldest index this page reached is, by construction, unfetched. Falls
-    // back to `sliceStart` when the page came back empty, so an empty page in
-    // the middle of a transcript still reports that history remains.
-    hasMore: (oldestTurnIndex ?? sliceStart) > 0,
+    // Both derived from the SLICE, never from what it rendered. The slice
+    // consumed raw indices [sliceStart, hi), so the next page starts below
+    // sliceStart whether or not any of those entries produced a block — which
+    // is what keeps a page of purely non-renderable entries from dead-ending
+    // paging with `hasMore: true` and nothing to advance on (PR #3148 R1).
+    nextBefore: sliceStart > 0 ? sliceStart : null,
+    hasMore: sliceStart > 0,
   };
 
   return {

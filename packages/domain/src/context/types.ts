@@ -565,10 +565,33 @@ export interface SessionContextSnapshotWindow {
   /** Renderable turn lines actually returned. */
   returnedTurns: number;
   /**
-   * Original transcript-array index of the oldest turn in this window, or
-   * `null` when the window is empty.
+   * Original transcript-array index of the oldest turn RENDERED in this window,
+   * or `null` when the window produced no renderable blocks.
+   *
+   * Descriptive only — do NOT page with it. It answers "what is the oldest turn
+   * on screen", which is a different question from "where does the next request
+   * start", and the two diverge exactly when a slice contains only
+   * non-renderable entries. Use {@link nextBefore}.
    */
   oldestTurnIndex: number | null;
-  /** Whether renderable turns exist before `oldestTurnIndex`. */
+  /**
+   * The exclusive cursor for the next (older) page — pass it back as `before`.
+   * `null` when this window already reached index 0.
+   *
+   * Separate from `oldestTurnIndex` because it is derived from the SLICE the
+   * server read, not from what that slice happened to render. A slice whose
+   * every entry is non-renderable renders nothing and still consumed those raw
+   * indices, so paging must continue below them; keying the cursor on the
+   * oldest rendered turn instead made `hasMore: true` reachable with no cursor
+   * to act on, which dead-ends paging and — because the client derives its
+   * "N earlier turns not loaded" count from the same field — silently renders
+   * "Beginning of conversation" over unfetched history (PR #3148 R1).
+   */
+  nextBefore: number | null;
+  /**
+   * Whether any turn exists before this window. Equivalent to
+   * `nextBefore !== null`; kept as its own field because it is what the render
+   * path branches on.
+   */
   hasMore: boolean;
 }

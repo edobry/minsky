@@ -161,11 +161,17 @@ describe("mergeSnapshotPages (mt#4263)", () => {
   test("pages arrive newest-first and merge back into chronological order", () => {
     const newest = page({
       blocks: [turn("c", "2026-08-18T00:00:03.000Z", 2)],
-      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 2, hasMore: true },
+      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 2, nextBefore: 2, hasMore: true },
     });
     const older = page({
       blocks: [turn("a", "2026-08-18T00:00:01.000Z", 0), turn("b", "2026-08-18T00:00:02.000Z", 1)],
-      window: { totalTurns: 3, returnedTurns: 2, oldestTurnIndex: 0, hasMore: false },
+      window: {
+        totalTurns: 3,
+        returnedTurns: 2,
+        oldestTurnIndex: 0,
+        nextBefore: null,
+        hasMore: false,
+      },
     });
 
     const merged = mergeSnapshotPages([newest, older]);
@@ -177,11 +183,17 @@ describe("mergeSnapshotPages (mt#4263)", () => {
     // is already looking at, and paging would never terminate.
     const newest = page({
       blocks: [turn("c", "2026-08-18T00:00:03.000Z", 2)],
-      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 2, hasMore: true },
+      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 2, nextBefore: 2, hasMore: true },
     });
     const older = page({
       blocks: [turn("a", "2026-08-18T00:00:01.000Z", 0)],
-      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 0, hasMore: false },
+      window: {
+        totalTurns: 3,
+        returnedTurns: 1,
+        oldestTurnIndex: 0,
+        nextBefore: null,
+        hasMore: false,
+      },
     });
 
     const merged = mergeSnapshotPages([newest, older]);
@@ -195,27 +207,100 @@ describe("mergeSnapshotPages (mt#4263)", () => {
     const dup = turn("shared", "2026-08-18T00:00:02.000Z", 1);
     const newest = page({
       blocks: [dup, turn("c", "2026-08-18T00:00:03.000Z", 2)],
-      window: { totalTurns: 3, returnedTurns: 2, oldestTurnIndex: 1, hasMore: true },
+      window: { totalTurns: 3, returnedTurns: 2, oldestTurnIndex: 1, nextBefore: 1, hasMore: true },
     });
     const older = page({
       blocks: [turn("a", "2026-08-18T00:00:01.000Z", 0), dup],
-      window: { totalTurns: 3, returnedTurns: 2, oldestTurnIndex: 0, hasMore: false },
+      window: {
+        totalTurns: 3,
+        returnedTurns: 2,
+        oldestTurnIndex: 0,
+        nextBefore: null,
+        hasMore: false,
+      },
     });
 
     const merged = mergeSnapshotPages([newest, older]);
     expect(merged.blocks.filter((b) => b.id === "shared")).toHaveLength(1);
   });
 
+  test("BLOCKING R1: a page that rendered NOTHING still carries a usable cursor", () => {
+    // The reviewer's finding. A slice whose every raw entry is non-renderable
+    // produces no blocks, so `oldestTurnIndex` is null — but those indices WERE
+    // consumed, and history remains below them. Keying paging on
+    // `oldestTurnIndex` ended it here with `hasMore: true` and nothing to
+    // advance on; `nextBefore` is derived from the slice and survives.
+    const empty = page({
+      blocks: [],
+      window: {
+        totalTurns: 300,
+        returnedTurns: 0,
+        oldestTurnIndex: null,
+        nextBefore: 100,
+        hasMore: true,
+      },
+    });
+    expect(empty.window?.nextBefore).toBe(100);
+    expect(empty.window?.oldestTurnIndex).toBeNull();
+    // The client's own cursor expression, exercised directly.
+    expect(empty.window?.nextBefore ?? undefined).toBe(100);
+  });
+
+  test("NEGATIVE CONTROL: the OLD cursor expression dead-ends on that same page", () => {
+    // Without this, the assertion above passes against any implementation that
+    // merely has a `nextBefore` field. This pins WHY the field exists.
+    const empty = page({
+      blocks: [],
+      window: {
+        totalTurns: 300,
+        returnedTurns: 0,
+        oldestTurnIndex: null,
+        nextBefore: 100,
+        hasMore: true,
+      },
+    });
+    const oldCursor =
+      empty.window?.hasMore === true ? (empty.window.oldestTurnIndex ?? undefined) : undefined;
+    expect(oldCursor).toBeUndefined();
+  });
+
+  test("the merged window carries the OLDEST page's cursor, not the newest's", () => {
+    const newest = page({
+      blocks: [turn("c", "2026-08-18T00:00:03.000Z", 2)],
+      window: { totalTurns: 3, returnedTurns: 1, oldestTurnIndex: 2, nextBefore: 2, hasMore: true },
+    });
+    const older = page({
+      blocks: [turn("a", "2026-08-18T00:00:01.000Z", 0)],
+      window: {
+        totalTurns: 3,
+        returnedTurns: 1,
+        oldestTurnIndex: 0,
+        nextBefore: null,
+        hasMore: false,
+      },
+    });
+
+    const merged = mergeSnapshotPages([newest, older]);
+    expect(merged.window?.nextBefore).toBeNull();
+    expect(merged.window?.hasMore).toBe(false);
+  });
+
   test("tool names are UNIONED across pages", () => {
     const newest = page({
       blocks: [],
       toolNamesByUseId: { t1: "Bash" },
-      window: { totalTurns: 2, returnedTurns: 0, oldestTurnIndex: 1, hasMore: true },
+      window: { totalTurns: 2, returnedTurns: 0, oldestTurnIndex: 1, nextBefore: 1, hasMore: true },
     });
     const older = page({
       blocks: [],
       toolNamesByUseId: { t2: "Read" },
-      window: { totalTurns: 2, returnedTurns: 0, oldestTurnIndex: 0, hasMore: false },
+      window: {
+        totalTurns: 2,
+        returnedTurns: 0,
+        oldestTurnIndex: 0,
+        nextBefore: null,
+        hasMore: false,
+      },
     });
 
     expect(mergeSnapshotPages([newest, older]).toolNamesByUseId).toEqual({

@@ -167,16 +167,18 @@ export function mergeSnapshotPages(
     ...newest,
     blocks,
     toolNamesByUseId,
-    // The OLDEST page's bound is the one that says how far back the client has
-    // reached, so that is the cursor and the hasMore that describe the merged
-    // whole. Taking the newest page's would claim history is unfetched that the
-    // reader is already looking at.
+    // The OLDEST page's bounds describe the merged whole — taking the newest
+    // page's would claim history is unfetched that the reader is already
+    // looking at. `nextBefore` and `hasMore` travel together and BOTH come from
+    // that page: they are the paging state, and splitting them across pages is
+    // the same conflation PR #3148 R1 flagged inside the assembler.
     ...(newest.window
       ? {
           window: {
             ...newest.window,
             returnedTurns: blocks.filter((b) => b.turnIndex !== undefined).length,
             oldestTurnIndex: pages[pages.length - 1]?.window?.oldestTurnIndex ?? null,
+            nextBefore: pages[pages.length - 1]?.window?.nextBefore ?? null,
             hasMore: pages[pages.length - 1]?.window?.hasMore ?? false,
           },
         }

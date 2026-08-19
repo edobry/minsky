@@ -344,9 +344,12 @@ function ConversationThread({
    * suppression, and the server's cursor is an index into the raw transcript;
    * subtracting one from the other would produce a plausible wrong number.
    */
-  const unfetchedBefore = snapshot.window?.hasMore
-    ? Math.max(0, snapshot.window.oldestTurnIndex ?? 0)
-    : 0;
+  // `nextBefore` is the count as well as the cursor: indices are zero-based, so
+  // a cursor of 2186 means turns 0..2185 are unfetched. Reading
+  // `oldestTurnIndex` here collapsed to 0 on a page that rendered nothing, and
+  // a 0 falls through to "Beginning of conversation" over real history —
+  // exactly the false picture this boundary exists to prevent (PR #3148 R1).
+  const unfetchedBefore = Math.max(0, snapshot.window?.nextBefore ?? 0);
 
   /**
    * Where the rendered window STARTS, as an index into `visibleTurns` — `null`
@@ -957,8 +960,10 @@ function ConversationFetcher({
     // exactly what the endpoint's `before` is exclusive of. `undefined` stops
     // paging — TanStack's contract for "no next page" — and `hasMore` false is
     // the server saying it has nothing older.
-    getNextPageParam: (lastPage) =>
-      lastPage.window?.hasMore === true ? (lastPage.window.oldestTurnIndex ?? undefined) : undefined,
+    // `nextBefore`, NOT `oldestTurnIndex` — the latter describes what rendered
+    // and is null for a page of purely non-renderable entries, which would end
+    // paging while the server still reports history (PR #3148 R1).
+    getNextPageParam: (lastPage) => lastPage.window?.nextBefore ?? undefined,
     staleTime: 30_000,
     retry: snapshotRetry,
   });
