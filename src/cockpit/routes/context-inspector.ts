@@ -14,6 +14,12 @@ import {
   WRONG_ID_SPACE_MESSAGE,
 } from "../conversation-id-space";
 import type { AgentSessionId } from "@minsky/domain/transcripts/transcript-source";
+// The window bound is IMPORTED, not restated. The assembler clamps to the same
+// value; two literals would drift silently, with the smaller one winning and
+// nothing reporting the disagreement (PR #3148 R2). Its own module so reading it
+// does not pull in the assembler's drizzle/schema graph, which this route loads
+// dynamically and only on a cache miss.
+import { MAX_SNAPSHOT_WINDOW_LIMIT as MAX_WINDOW_TURNS } from "@minsky/domain/transcripts/snapshot-window-limit";
 import { getContextInspectorDb, getServerSessionProvider } from "../db-providers";
 import { ServerTimingRecorder } from "../server-timing";
 import {
@@ -44,9 +50,6 @@ const snapshotCache = new SnapshotCache();
  * together.
  */
 const structureCache = new StructureCache();
-
-/** Upper bound on `?turns=`; mirrors the assembler's own clamp. */
-const MAX_WINDOW_TURNS = 500;
 
 /**
  * The window a request asked for, plus the key that keeps it from colliding

@@ -24,6 +24,7 @@ import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transc
 import { agentSpawnsTable } from "../storage/schemas/agent-spawns-schema";
 import { getLoggableErrorSummary } from "../errors/index";
 import type { AgentSessionId } from "./transcript-source";
+import { MAX_SNAPSHOT_WINDOW_LIMIT } from "./snapshot-window-limit";
 import {
   applyAbandonedBlockIds,
   computeAbandonedBlockIds,
@@ -206,8 +207,9 @@ export interface SnapshotWindowRequest {
   before?: number;
 }
 
-/** Upper bound on `limit`, so a client cannot ask for the whole transcript through the windowed path. */
-export const MAX_SNAPSHOT_WINDOW_LIMIT = 500;
+// Re-exported so existing importers of this module keep resolving it, while the
+// value itself lives in a module the route can read without loading this one.
+export { MAX_SNAPSHOT_WINDOW_LIMIT };
 
 /**
  * Assemble a `SessionContextSnapshot` for a given agent session.
