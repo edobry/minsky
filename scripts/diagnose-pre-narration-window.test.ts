@@ -16,7 +16,11 @@
  * for the wrong reason and survives its own negative control.
  */
 import { describe, expect, test } from "bun:test";
-import { locateJudgedTurnEnd, replayCurrentDetector } from "./diagnose-pre-narration-window";
+import {
+  classifyFire,
+  locateJudgedTurnEnd,
+  replayCurrentDetector,
+} from "./diagnose-pre-narration-window";
 import { detectPreNarrationWithSuppression } from "../.minsky/hooks/pre-narration-detector";
 import type { TranscriptLine } from "../.minsky/hooks/transcript";
 
@@ -98,6 +102,83 @@ describe("locateJudgedTurnEnd — the judged turn is found by content, not by cl
       userLine("2026-08-17T18:02:00.000Z"),
     ];
     expect(locateJudgedTurnEnd(lines, "2026-08-17T18:01:30.000Z", "PR #3073 merged")).toBeNull();
+  });
+
+  test("a later-ONLY occurrence is refused, not adopted as the judged turn", () => {
+    // PR #3151 R1 (BLOCKING). The record is written when the turn's closing
+    // prompt is submitted, so judged text always precedes it. An occurrence
+    // that exists only AFTER the record instant is a different, future turn;
+    // adopting it would mis-locate the judged turn while still reporting
+    // `anchor: "phrase"`, i.e. claiming a reconstruction that was never
+    // verified. Null degrades to the timestamp fallback instead.
+    const lines = [
+      userLine("2026-08-17T18:00:00.000Z"),
+      assistantLine("no claim yet", "2026-08-17T18:01:00.000Z"),
+      userLine("2026-08-17T18:02:00.000Z"),
+      assistantLine(OWN_MERGE_CLAIM, "2026-08-17T18:30:00.000Z"),
+      userLine("2026-08-17T18:31:00.000Z"),
+    ];
+    expect(locateJudgedTurnEnd(lines, "2026-08-17T18:01:30.000Z", "PR #3073 merged")).toBeNull();
+  });
+});
+
+describe("locateJudgedTurnEnd -> replayCurrentDetector end to end", () => {
+  // PR #3151 R1 (inline). The unit tests above drive `replayCurrentDetector`
+  // with a hand-supplied anchor; production derives that anchor from an actual
+  // phrase search. This exercises the real seam, so the anchor and the turn
+  // content cannot drift apart unnoticed.
+  test("a located turn replays as a live fire on the same claim", () => {
+    const lines = [
+      userLine("2026-08-13T21:14:00.000Z"),
+      assistantLine("an earlier turn with no claim", "2026-08-13T21:15:00.000Z"),
+      userLine("2026-08-13T21:15:30.000Z"),
+      assistantLine(APPROVED_CLAIM, "2026-08-13T21:16:00.000Z"),
+      userLine("2026-08-13T21:18:00.000Z"),
+    ];
+    const end = locateJudgedTurnEnd(lines, "2026-08-13T21:17:37.821Z", "APPROVED");
+    expect(end).not.toBeNull();
+    const result = replayCurrentDetector(lines, end as number, "review-approved", "phrase");
+    expect(result.normalized).toBe("fires");
+    // The turn the anchor found is the turn that was judged — not the earlier one.
+    expect(result.currentContext).toContain("0 blocking");
+  });
+});
+
+describe("classifyFire — the three classes, and what a matcher cannot reach", () => {
+  // Every fixture is a real still-firing context from the measured window.
+  test("names the class for each lexically-marked shape", () => {
+    expect(classifyFire("And mt#4264's PR #3110 is up — its agent re-ran the measurement.")).toBe(
+      "third-party-subject"
+    );
+    expect(
+      classifyFire("mem#933's queue is actioned: the calibration review is complete and acked")
+    ).toBe("domain-literal");
+    expect(
+      classifyFire("The APPROVED claim came from 's result in that same turn, so no restatement.")
+    ).toBe("domain-literal");
+    expect(
+      classifyFire("Second read resolves it: **APPROVED** on my head, submitted 20:58:33Z")
+    ).toBe("past-dated");
+  });
+
+  test("an agent's OWN outcome is not any of the three", () => {
+    // Liveness is established by the four positive assertions above — this
+    // fixture is the discriminating counter-case, not an inert string.
+    expect(classifyFire("APPROVED, 0 blocking (1 non-blocking nit).")).toBe("unclassified");
+  });
+
+  test("the counter-example that rules out a task-id-beside-a-PR matcher", () => {
+    // These two have the same surface shape — a task id and a PR outcome in one
+    // sentence — and opposite truth: the first is a peer's work, the second is
+    // the agent's own. Both are `unclassified`, and that is the POINT: no
+    // lexical rule separates them, so the class's residual is structural rather
+    // than a phrase list nobody has written yet.
+    expect(
+      classifyFire("mt#3864 is **DONE** (PR #3096 merged) — the condition mt#4276 was blocked on.")
+    ).toBe("unclassified");
+    expect(classifyFire("**Shipped.** PR #3073 merged as abc1234; mt#4212 is DONE.")).toBe(
+      "unclassified"
+    );
   });
 });
 
