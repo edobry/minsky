@@ -215,6 +215,23 @@ export interface PeekWidthController {
   setWidth: (nextWidthPx: number) => void;
   /** Forget the preference, returning to the responsive default. */
   resetWidth: () => void;
+  /**
+   * Clamp a LIVE drag value to what the pane may actually render right now,
+   * without recording anything (mt#4274).
+   *
+   * The in-flight width of a drag is not state — it is 60-120 values per second
+   * that exist only until the pointer comes up. Routing them through `setWidth`
+   * puts them in React state on the host, which re-renders every pane body
+   * beneath it: measured at 11.82ms of scripting per pointermove against a
+   * 16.7ms frame budget, with the body accounting for 498 of a pane's 518
+   * elements. React's own guidance is to fix that structurally rather than
+   * memoize around it — *"Prefer local state and don't lift state up any
+   * further than necessary"* (https://react.dev/reference/react/memo) — so the
+   * host writes these straight to a CSS custom property and commits once on
+   * release. This is the clamp that path needs, and it is deliberately the
+   * RENDER clamp: the preference clamp in `setWidth` is a different bound.
+   */
+  previewWidth: (requestedPx: number) => number;
 }
 
 /**
@@ -262,8 +279,15 @@ export function usePeekWidth(paneCount: number): PeekWidthController {
     }
   }, []);
 
+  // Deliberately NOT a `useCallback`: it closes over `bounds`, which is derived
+  // from the live viewport and the pane count, and a memoized version would go
+  // stale exactly when the window is resized mid-drag. `PaneDivider` reads its
+  // callbacks through a ref refreshed every render, so a fresh closure per
+  // render is what that seam already expects.
+  const previewWidth = (requestedPx: number) => clampPaneWidth(requestedPx, bounds);
+
   // The REACHABLE floor and ceiling, not the static constants: both are what the
   // divider must announce, for the same reason PR #2632 R1 gave for the ceiling —
   // a range the pane cannot actually reach is a range that does not exist.
-  return { widthPx, minPx: Math.round(bounds.min), maxPx, setWidth, resetWidth };
+  return { widthPx, minPx: Math.round(bounds.min), maxPx, setWidth, resetWidth, previewWidth };
 }
