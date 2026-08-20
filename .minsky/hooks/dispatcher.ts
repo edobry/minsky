@@ -751,8 +751,33 @@ export const DEFAULT_CONTEXT_PRIORITY = 0;
  *
  * A guard re-enters the bucket the day its posture flips and its `renderProbe`
  * is deleted — at which point this number must be re-derived by hand again.
+ *
+ * **And UP, 6106 -> 6627 (mt#4234), because a bucket member's annotation was
+ * never a ceiling.** No guard entered or left this time — `ask-routing-deferral`
+ * was already the fifth slot per the paragraph above. What changed is its
+ * declared size, 600 -> 1121, and the paragraph above is exactly why that number
+ * was wrong: it was measured against a canary posing ONE match when the guard
+ * renders a directive per CLASS and both classes are reachable from one message.
+ * Worse, its rendered evidence line interpolated `m[0]` — a regex span bounded
+ * only by the next sentence terminator in the agent's own prose — so the render
+ * grew 1:1 with what the agent wrote and had no finite worst case at all: 2350
+ * chars from a single run-on sentence, against a declared 600.
+ *
+ * So this is NOT the mt#3533 shape (a bigger budget for text that is never
+ * sent), and it is not the mt#3705 shape (a member finally counted) either. It
+ * is a member whose declared size was a SAMPLE the whole time. The guard now
+ * caps its rendered phrase and poses a `worstCaseCanary` that saturates both
+ * classes at once, so 1121 is a measurement: the top five become
+ * dispatch-watchdog 1750, guard-health 1300, ask-routing-deferral 1121,
+ * substrate-bypass 650, code-mechanism-assertion 600 = 5421, plus the same 1190
+ * floor and 16 separators.
+ *
+ * The cheaper alternative — trimming that guard's two directive paragraphs
+ * instead — was considered and declined at its own site; its 879-char two-class
+ * body is the floor no phrase cap can lower, and the reasoning is recorded in
+ * `registry-prompt-scan-guards.ts` beside the annotation rather than here.
  */
-export const MERGED_CONTEXT_BUDGET_CHARS = 6106;
+export const MERGED_CONTEXT_BUDGET_CHARS = 6627;
 
 /** Separator between merged fragments — preserved from the pre-mt#3394 join. */
 const FRAGMENT_SEPARATOR = "\n\n";

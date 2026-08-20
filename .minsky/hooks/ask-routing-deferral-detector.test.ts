@@ -14,6 +14,7 @@ import {
   turnHasAsksCreate,
   elideQuotedContexts,
   buildReminder,
+  MAX_RENDERED_PHRASE_CHARS,
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
@@ -750,5 +751,85 @@ describe("offer-shape trigger (mt#3801)", () => {
     expect(namesAgentAction(commaOr)).toBe(true);
     expect(hasMenuShape(commaOr)).toBe(false);
     expect(findOfferShape(commaOr)).toBeNull();
+  });
+});
+
+describe("rendered evidence is bounded by the phrase cap (mt#4234)", () => {
+  // The defect: `buildReminder` interpolated `m.matchedPhrase`, which is `m[0]`
+  // — the regex's whole matched span. Two patterns in this file bound their span
+  // only by the next sentence terminator (`[^.?]*`), so the rendered advisory
+  // grew 1:1 with whatever the agent happened to write. The declared 600-char
+  // ceiling could not be a ceiling, because the axis had no finite worst case.
+
+  /** One clause, no `.` or `?`, so the unbounded legs keep swallowing it. */
+  const FILLER =
+    "we could rebase onto main and re-run the sweep and then re-measure the fires " +
+    "and then re-check the ceiling and then re-run the shape test";
+
+  /** A run-on turn carrying BOTH classes, `reps` clauses long. */
+  function runOnTurn(reps: number): string {
+    const body = Array(reps).fill(FILLER).join(" and ");
+    return `That decision is yours to make, so want me to ${body} or should we leave it?`;
+  }
+
+  // Named rather than inlined: `custom/no-magic-string-duplication` counts
+  // repeated literals across the whole file, and this block would otherwise push
+  // the class names past its threshold.
+  const PRINCIPAL_RESERVED: DeferralMatch["cls"] = "principal-reserved";
+  const DEFERRAL_MENU: DeferralMatch["cls"] = "deferral-menu";
+
+  const match = (cls: DeferralMatch["cls"], phrase: string): DeferralMatch => ({
+    cls,
+    matchedPhrase: phrase,
+    context: "",
+  });
+
+  test("the render does not grow with the length of the agent's prose", () => {
+    const renders = [1, 3, 10, 30].map(
+      (reps) => buildReminder(detectDeferralPhrases(runOnTurn(reps))).length
+    );
+
+    // The inputs really do differ by an order of magnitude — without this the
+    // assertion below would hold trivially for a probe that varied nothing
+    // (mem#704: a check that cannot fail is not verification).
+    expect(runOnTurn(30).length).toBeGreaterThan(runOnTurn(1).length * 5);
+
+    // Pre-fix these were 1072 / 1356 / 2350 / 5186.
+    expect(new Set(renders).size).toBe(1);
+  });
+
+  test("a phrase past the cap is truncated, and says so", () => {
+    const long = "z".repeat(MAX_RENDERED_PHRASE_CHARS * 3);
+    const rendered = buildReminder([match(DEFERRAL_MENU, long)]);
+
+    expect(rendered).not.toContain(long);
+    expect(rendered).toContain(`"${"z".repeat(MAX_RENDERED_PHRASE_CHARS)}…"`);
+  });
+
+  test("a phrase within the cap is rendered verbatim, un-truncated", () => {
+    // The longest phrase the live corpus produces (82 chars, the ask#6136
+    // sample) — the common case must be untouched by the cap.
+    const ordinary =
+      "Want me to run it, or would you rather I park mt#3151 and pick up mt#3171 instead?";
+    expect(ordinary.length).toBeLessThan(MAX_RENDERED_PHRASE_CHARS);
+
+    const rendered = buildReminder([match(DEFERRAL_MENU, ordinary)]);
+
+    expect(rendered).toContain(`"${ordinary}"`);
+    expect(rendered).not.toContain("…");
+  });
+
+  test("both classes at once, each past the cap, is the saturated worst case", () => {
+    // What `worstCaseCanary` poses in the registry, and what
+    // `attentionCost.denialMessageSizeChars` is set to exactly. Asserted as a
+    // ceiling over the two single-class renders so this stays true if the
+    // directive prose is ever edited.
+    const over = "q".repeat(MAX_RENDERED_PHRASE_CHARS * 2);
+    const saturated = buildReminder([match(PRINCIPAL_RESERVED, over), match(DEFERRAL_MENU, over)]);
+    const principalOnly = buildReminder([match(PRINCIPAL_RESERVED, over)]);
+    const menuOnly = buildReminder([match(DEFERRAL_MENU, over)]);
+
+    expect(saturated.length).toBeGreaterThan(principalOnly.length);
+    expect(saturated.length).toBeGreaterThan(menuOnly.length);
   });
 });
