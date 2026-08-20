@@ -89,6 +89,12 @@ const POSTGRES_IMAGE = "postgres:16-alpine";
  */
 const DDL = `
   create table guard_events (
+    -- gen_random_uuid() needs NO extension here. It moved into Postgres core in
+    -- 13 (pgcrypto was required only before that), and this image is 16 — so
+    -- there is no CREATE EXTENSION pgcrypto, deliberately. Raised twice in
+    -- review against PR #3191; recorded rather than "fixed", because adding an
+    -- extension to satisfy a pre-13 assumption would be cargo. If this DDL is
+    -- ever pointed at a pre-13 server, that is when the extension is needed.
     id uuid primary key default gen_random_uuid(),
     stream text not null,
     family text not null,
@@ -340,6 +346,24 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       const rows = await fetchFireLogLifetime(db, "beta-guard");
       expect(rows).toHaveLength(1);
       expect(rows[0]?.guardName).toBe("beta-guard");
+    });
+
+    test("filtering by the EMPTY-STRING guard name filters, rather than returning everything (PR #3191 R2)", async () => {
+      // The read-side half of R1's write-side bug, and a direct consequence of
+      // fixing it: making `""` a valid guard name turned a latent truthiness
+      // check into a live defect. `guardName ? eq(...) : undefined` drops the
+      // filter for `""`, so the query returns the WHOLE population while the
+      // caller believes it asked for one guard.
+      //
+      // This fails OPEN — more rows, all of them real — so nothing downstream
+      // errors and the result reads as plausible. That is why it needs a test
+      // rather than a careful reading.
+      const all = await fetchFireLogLifetime(db);
+      expect(all.length).toBeGreaterThan(1);
+
+      const filtered = await fetchFireLogLifetime(db, "");
+      expect(filtered).toHaveLength(1);
+      expect(filtered[0]?.guardName).toBe("");
     });
   });
 }

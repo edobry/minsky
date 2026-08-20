@@ -95,7 +95,14 @@ function fireLogWhere(since?: Date, guardName?: string, until?: Date): SQL | und
     isNotNull(guardEventsTable.guardName),
     ...(since ? [gte(guardEventsTable.occurredAt, since)] : []),
     ...(until ? [lte(guardEventsTable.occurredAt, until)] : []),
-    ...(guardName ? [eq(guardEventsTable.guardName, guardName)] : [])
+    // `!== undefined`, NOT truthiness (PR #3191 R2). The empty string is a
+    // VALID guard name here — `isNotNull` above admits it — so `guardName ? …`
+    // silently drops the filter for `""` and returns the WHOLE population
+    // where the caller asked for one guard. A missing filter fails open, which
+    // is why this reads as a plausible result rather than an error. The `since`
+    // and `until` guards above are safe under truthiness only because a Date
+    // is never falsy; do not copy their shape for a string.
+    ...(guardName !== undefined ? [eq(guardEventsTable.guardName, guardName)] : [])
   );
 }
 
@@ -204,7 +211,10 @@ export async function fetchFireLogLifetime(
       lastFireAt: guardEventFireLogRollupTable.lastFireAt,
     })
     .from(guardEventFireLogRollupTable)
-    .where(guardName ? eq(guardEventFireLogRollupTable.guardName, guardName) : undefined);
+    // `!== undefined`, not truthiness — see `fireLogWhere` (PR #3191 R2).
+    .where(
+      guardName !== undefined ? eq(guardEventFireLogRollupTable.guardName, guardName) : undefined
+    );
   return rows.map((r) => ({
     guardName: r.guardName,
     totalFires: r.totalFires,
