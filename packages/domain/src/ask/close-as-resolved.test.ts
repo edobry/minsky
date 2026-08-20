@@ -11,12 +11,14 @@ import {
   selectOpenReviewAsksForMergedPr,
   isAutomatedClosureResponder,
 } from "./close-as-resolved";
+import { CANCELLATION_METADATA_KEY } from "./edit";
 
 // Repeated literals extracted to satisfy custom/no-magic-string-duplication.
 const COMMIT_LANDED = "system:commit-landed";
 const PR_MERGED = "system:pr-merged";
 const ALREADY_TERMINAL = "already-terminal";
 const REVIEW_RESPONDER = "reviewer:service:bot";
+const AUTH_APPROVE: Ask["kind"] = "authorization.approve";
 
 /**
  * Seed an Ask into a specific lifecycle state by walking the state machine from
@@ -27,7 +29,7 @@ const REVIEW_RESPONDER = "reviewer:service:bot";
  */
 async function seed(repo: FakeAskRepository, target: AskState): Promise<string> {
   let ask = await repo.create({
-    kind: "authorization.approve",
+    kind: AUTH_APPROVE,
     classifierVersion: "v1",
     requestor: "test",
     title: "Commit authorization: test",
@@ -91,6 +93,87 @@ describe("closeAskAsResolved", () => {
   it("cancels a routed Ask", async () => {
     const id = await seed(repo, "routed");
     const outcome = await closeAskAsResolved(repo, id, { responder: PR_MERGED });
+    expect(outcome.kind).toBe("cancelled");
+    expect((await repo.getById(id))?.state).toBe("cancelled");
+  });
+
+  // mt#3353. `repo.transition(id, to)` writes `state` and `closedAt` and nothing
+  // else, so before this the cancel path recorded NOTHING about what retired the
+  // Ask — ask#5681 sits in `cancelled` with no closure record and no way to
+  // identify its actor. These assert the record now exists and carries the
+  // fields that make it attributable.
+  it("records who cancelled a routed Ask, and why (mt#3353)", async () => {
+    const id = await seed(repo, "routed");
+
+    await closeAskAsResolved(repo, id, {
+      responder: PR_MERGED,
+      payload: { reason: "premise falsified", cancelledVia: "asks.cancel" },
+    });
+
+    const ask = await repo.getById(id);
+    expect(ask?.state).toBe("cancelled");
+
+    const record = (ask?.metadata as Record<string, unknown> | undefined)?.[
+      CANCELLATION_METADATA_KEY
+    ] as Record<string, unknown> | undefined;
+    expect(record).toBeDefined();
+    expect(record?.responder).toBe(PR_MERGED);
+    // The state it was cancelled FROM — without it, a cancelled Ask cannot be
+    // distinguished from one that never reached a transport.
+    expect(record?.fromState).toBe("routed");
+    expect(record?.payload).toEqual({ reason: "premise falsified", cancelledVia: "asks.cancel" });
+    expect(typeof record?.cancelledAt).toBe("string");
+  });
+
+  it("records cancellation provenance from `detected` too, naming that state", async () => {
+    const id = await seed(repo, "detected");
+
+    await closeAskAsResolved(repo, id, { responder: COMMIT_LANDED });
+
+    const ask = await repo.getById(id);
+    const record = (ask?.metadata as Record<string, unknown> | undefined)?.[
+      CANCELLATION_METADATA_KEY
+    ] as Record<string, unknown> | undefined;
+    expect(record?.responder).toBe(COMMIT_LANDED);
+    expect(record?.fromState).toBe("detected");
+  });
+
+  it("preserves existing metadata when writing the cancellation record", async () => {
+    // The record is merged, not assigned — an Ask's edit provenance must survive
+    // its cancellation, which is the property ask#5681 demonstrates matters:
+    // its `[STALE]` edit history is the only thing that explains it.
+    const created = await repo.create({
+      kind: AUTH_APPROVE,
+      classifierVersion: "v1",
+      requestor: "test",
+      title: "Commit authorization: metadata merge",
+      question: "Authorize?",
+      metadata: { existingKey: "must survive" },
+    });
+    await repo.transition(created.id, "classified");
+    await repo.transition(created.id, "routed");
+
+    await closeAskAsResolved(repo, created.id, { responder: PR_MERGED });
+
+    const metadata = (await repo.getById(created.id))?.metadata as
+      | Record<string, unknown>
+      | undefined;
+    expect(metadata?.existingKey).toBe("must survive");
+    expect(metadata?.[CANCELLATION_METADATA_KEY]).toBeDefined();
+  });
+
+  it("still cancels when the provenance write fails (best-effort, never blocks)", async () => {
+    // The transition is the point of the call; the record is the audit trail.
+    // A repository that rejects the metadata write must not leave the Ask open —
+    // that would turn an audit-trail improvement into a cleanup regression.
+    const id = await seed(repo, "routed");
+    const failing = Object.create(repo) as typeof repo;
+    failing.updateContent = async () => {
+      throw new Error("metadata write unavailable");
+    };
+
+    const outcome = await closeAskAsResolved(failing, id, { responder: PR_MERGED });
+
     expect(outcome.kind).toBe("cancelled");
     expect((await repo.getById(id))?.state).toBe("cancelled");
   });
@@ -234,7 +317,7 @@ describe("selectOpenReviewAsksForMergedPr", () => {
 
   it("excludes non-quality.review kinds", async () => {
     const authz = await repo.create({
-      kind: "authorization.approve",
+      kind: AUTH_APPROVE,
       classifierVersion: "v1",
       requestor: "test",
       title: "Commit authorization: x",

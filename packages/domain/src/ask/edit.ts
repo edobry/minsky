@@ -126,9 +126,30 @@ const PRESERVED_CONTENT_FIELDS = ["title", "question", "options", "contextRefs"]
  * to prevent (mt#3595)."* A reserved field defended only at the edit boundary is
  * not reserved — the create boundary is the other half.
  */
+/**
+ * Reserved metadata key carrying who cancelled an Ask and why (mt#3353).
+ *
+ * The `cancelled` terminal is reached through `repo.transition(id, "cancelled")`,
+ * which writes `state` and `closedAt` and NOTHING ELSE — no responder, no
+ * payload. So a cancelled Ask has historically carried no record of what retired
+ * it: ask#5681 sits in `cancelled` with an intact edit history and no closure
+ * record, and three independent channels (the suspended-only sweep's own state
+ * filter, the `ask.policy_closed` event log, the elicitation transport) failed to
+ * identify the actor. That is not an investigative gap; it is what the mechanism
+ * records.
+ *
+ * Reserved rather than ordinary metadata for the same reason as the two keys
+ * below it: `metadata` arrives from the MCP edit surface as untrusted input, and
+ * an agent able to write this key could manufacture a cancellation record — or
+ * forge a `system:` responder onto an Ask it answered itself, which is precisely
+ * the provenance laundering mem#1122 documents.
+ */
+export const CANCELLATION_METADATA_KEY = "cancellation";
+
 export const RESERVED_PROVENANCE_METADATA_KEYS = [
   EDIT_HISTORY_METADATA_KEY,
   ORIGINAL_CONTENT_METADATA_KEY,
+  CANCELLATION_METADATA_KEY,
 ] as const;
 
 /**

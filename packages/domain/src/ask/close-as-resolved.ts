@@ -35,6 +35,7 @@ import { log } from "@minsky/shared/logger";
 import type { Ask } from "./types";
 import type { AskRepository } from "./repository";
 import { isTerminal } from "./state-machine";
+import { CANCELLATION_METADATA_KEY } from "./edit";
 import { findPrRef } from "./reconciler";
 import { buildAttentionCost } from "./accounting/index";
 
@@ -116,6 +117,36 @@ async function closeByCurrentState(
     await repo.close(ask.id, { response });
     return { kind: "closed", askId: ask.id };
   }
+  // mt#3353: record WHO cancelled and WHY before the transition, because the
+  // transition itself cannot. `repo.transition(id, to)` writes `state` and
+  // `closedAt` and nothing else — no responder, no payload — so every Ask
+  // cancelled before this change carries no trace of what retired it.
+  //
+  // Written BEFORE the state change, not after: `updateContent` only touches a
+  // row that is still non-terminal (its optimistic-concurrency `where`), so the
+  // order is forced. A failure here must not block the cancellation — the
+  // transition is the point of the call and the record is the audit trail, so
+  // this is best-effort and its failure is logged rather than thrown, matching
+  // the never-throws contract the rest of this module keeps.
+  try {
+    await repo.updateContent(ask.id, {
+      metadata: {
+        ...(ask.metadata ?? {}),
+        [CANCELLATION_METADATA_KEY]: {
+          responder: input.responder,
+          cancelledAt: new Date().toISOString(),
+          fromState: ask.state,
+          ...(input.payload ? { payload: input.payload } : {}),
+        },
+      },
+    });
+  } catch (err) {
+    log.debug("closeAskAsResolved: could not record cancellation provenance (best-effort)", {
+      askId: ask.id,
+      reason: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   await repo.transition(ask.id, "cancelled");
   return { kind: "cancelled", askId: ask.id };
 }
