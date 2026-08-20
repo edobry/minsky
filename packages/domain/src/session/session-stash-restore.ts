@@ -25,6 +25,19 @@ export interface StashRestoreOutcome {
   parkedFiles?: string[];
   /** Generated files whose post-rebase working-tree copy was discarded to unblock the pop. */
   autoRestoredFiles?: string[];
+  /**
+   * The pop CONFLICTED — git wrote `<<<<<<<` / `=======` / `>>>>>>>` markers into
+   * these paths and recorded them as unmerged — and we undid it, restoring the
+   * tree to its clean pre-pop state (mt#4307).
+   *
+   * Present only on the conflicted-pop path. `false` here means the conflict was
+   * detected but the rollback was REFUSED because the stash entry could not be
+   * confirmed still present — in that case the markers are still in the tree and
+   * are the only copy of the work, so `conflictedFiles` must be resolved by hand.
+   */
+  rolledBack?: boolean;
+  /** When the pop conflicted: the paths git left unmerged (marker-bearing). */
+  conflictedFiles?: string[];
   /** When `restored` is false: the error message from the failed pop. */
   error?: string;
   /** When `restored` is false: human-readable recovery instructions. */
@@ -165,6 +178,181 @@ async function listStashedFiles(
 }
 
 /**
+ * Paths git has recorded as UNMERGED — the ones it just wrote conflict markers
+ * into. Empty on every other kind of failure.
+ *
+ * This is what separates the two ways `git stash pop` can fail, which look
+ * identical from the thrown error but need opposite handling (mt#4307):
+ *
+ *  - **Refused** — "your local changes would be overwritten". git compared, did
+ *    not like what it saw, and touched NOTHING. Retrying after clearing the
+ *    blocker is correct, and is what the generated-file path below does.
+ *  - **Conflicted** — git ATTEMPTED the merge, wrote `<<<<<<<` / `=======` /
+ *    `>>>>>>>` into every overlapping file, and recorded them unmerged. The tree
+ *    is now corrupt, and retrying cannot help.
+ *
+ * Returns [] when the query itself fails, which deliberately routes to the
+ * refused branch: reporting parked work over an unchanged tree is the safe
+ * misclassification, whereas a spurious rollback would discard real state.
+ */
+async function listUnmergedPaths(workdir: string, git: StashRestoreGitDeps): Promise<string[]> {
+  try {
+    const out = await git.execInRepository(workdir, "git diff --name-only --diff-filter=U");
+    return out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch (diffError) {
+    log.debug("Could not list unmerged paths after a failed stash pop", {
+      workdir,
+      error: getErrorMessage(diffError),
+    });
+    return [];
+  }
+}
+
+/**
+ * True when the stash entry we tried to pop is still on the stack.
+ *
+ * `git stash pop` documents that a conflicted apply leaves the entry in place,
+ * so this is normally true — but it is CHECKED rather than trusted, because it
+ * is the entire safety precondition for the `git reset --hard` below. If the
+ * entry is gone, the marker-bearing working tree is the ONLY copy of the work
+ * and resetting would destroy it.
+ *
+ * Fails CLOSED: any error listing stashes reports "not confirmed present", which
+ * suppresses the rollback.
+ */
+async function stashEntryStillPresent(
+  workdir: string,
+  git: StashRestoreGitDeps,
+  expectedStashSha: string | undefined
+): Promise<boolean> {
+  try {
+    const entries = await listStashEntries(workdir, git);
+    if (expectedStashSha) return entries.some((entry) => entry.sha === expectedStashSha);
+    // No SHA captured (the positional-pop fallback). The best available check is
+    // that SOME stash entry survives — narrower than identity, but it still
+    // distinguishes "git kept the work" from "the stack is empty".
+    return entries.length > 0;
+  } catch (listError) {
+    log.debug("Could not confirm the stash entry survived a conflicted pop", {
+      workdir,
+      error: getErrorMessage(listError),
+    });
+    return false;
+  }
+}
+
+/**
+ * Undo a CONFLICTED `git stash pop`, putting the working tree back exactly as it
+ * was before the pop was attempted (mt#4307).
+ *
+ * Why `git reset --hard HEAD` is the right undo here, and why it is not the
+ * destructive operation it looks like: every caller of `restoreSessionStash`
+ * runs it immediately after an update or a merge commit, at a moment when the
+ * tree is CLEAN at HEAD. That is the pre-pop state. The only thing the reset
+ * discards is what the conflicted pop itself just wrote — the markers — and the
+ * work those markers were trying to merge is still parked in the stash, which is
+ * asserted before the reset rather than assumed.
+ *
+ * Returns the outcome to report, which is a FAILURE either way. The two
+ * dispositions differ in what the operator has to do next, so they are never
+ * collapsed into one message:
+ *
+ *  - rolled back → the tree is clean, the work is in the stash, pop it by hand.
+ *  - NOT rolled back → the markers are still there and are the only copy; the
+ *    files must be resolved in place.
+ */
+async function rollbackConflictedPop(
+  workdir: string,
+  git: StashRestoreGitDeps,
+  stashRef: string,
+  conflictedFiles: string[],
+  popError: unknown,
+  expectedStashSha: string | undefined
+): Promise<StashRestoreOutcome> {
+  const parkedFiles = await listStashedFiles(workdir, git, stashRef);
+  const stashSurvived = await stashEntryStillPresent(workdir, git, expectedStashSha);
+
+  if (!stashSurvived) {
+    // The work exists ONLY in the conflicted working tree. Resetting would
+    // destroy it, so the markers stay and the operator resolves them in place.
+    log.warn("Stash pop conflicted and the stash entry is gone — refusing to reset the tree", {
+      workdir,
+      conflictedFiles,
+    });
+    return {
+      stashed: true,
+      restored: false,
+      rolledBack: false,
+      stashRef,
+      parkedFiles,
+      conflictedFiles,
+      error: getErrorMessage(popError),
+      recovery:
+        `The stash pop CONFLICTED and left conflict markers in ${conflictedFiles.length} file(s): ` +
+        `${conflictedFiles.join(", ")}. The stash entry is no longer present, so this working ` +
+        `tree is the ONLY copy of that work — it was NOT rolled back. Resolve the markers in ` +
+        `place, then \`git add\` the resolved files.`,
+    };
+  }
+
+  try {
+    await git.execInRepository(workdir, "git reset --hard HEAD");
+  } catch (resetError) {
+    log.warn("Failed to roll back a conflicted stash pop", {
+      workdir,
+      error: getErrorMessage(resetError),
+    });
+    return {
+      stashed: true,
+      restored: false,
+      rolledBack: false,
+      stashRef,
+      parkedFiles,
+      conflictedFiles,
+      error: getErrorMessage(popError),
+      recovery:
+        `The stash pop CONFLICTED, and the attempt to undo it failed ` +
+        `(${getErrorMessage(resetError)}). Conflict markers are present in: ` +
+        `${conflictedFiles.join(", ")}. Your work is still parked in ${stashRef}. Reset the ` +
+        `tree with \`git reset --hard HEAD\`, then \`git stash pop ${stashRef}\` and resolve.`,
+    };
+  }
+
+  // Verify the OUTCOME, not the command's exit status: a reset that reported
+  // success but left unmerged entries would put us right back in the state this
+  // function exists to prevent.
+  const stillUnmerged = await listUnmergedPaths(workdir, git);
+  const rolledBack = stillUnmerged.length === 0;
+  if (!rolledBack) {
+    log.warn("Rolled back a conflicted stash pop but paths are still unmerged", {
+      workdir,
+      stillUnmerged,
+    });
+  }
+
+  return {
+    stashed: true,
+    restored: false,
+    rolledBack,
+    stashRef,
+    parkedFiles,
+    conflictedFiles,
+    error: getErrorMessage(popError),
+    recovery: rolledBack
+      ? `The stash pop CONFLICTED on ${conflictedFiles.length} file(s) ` +
+        `(${conflictedFiles.join(", ")}), so it was rolled back — the working tree is clean ` +
+        `and carries NO conflict markers. Your work is still parked in ${stashRef}. Run ` +
+        `\`git stash pop ${stashRef}\` in the session workspace and resolve the conflict there.`
+      : `The stash pop CONFLICTED on ${conflictedFiles.length} file(s) and the rollback did ` +
+        `not fully clean the tree (${stillUnmerged.join(", ")} still unmerged). Your work is ` +
+        `still parked in ${stashRef}. Resolve or reset the tree before committing.`,
+  };
+}
+
+/**
  * Describe the stash parked by this update WITHOUT touching it — the ref it
  * currently sits at and the files it holds.
  *
@@ -249,6 +437,11 @@ export async function restoreUpdateStashAfterCommit(
  * - Pop blocked by a generated-file collision (the post-rebase tree regenerated
  *   a file the stash also touched) → discard the generated file's working-tree
  *   copy and retry once; on success → `{ restored: true, autoRestoredFiles }`.
+ * - Pop CONFLICTED (git wrote conflict markers and recorded paths unmerged) →
+ *   the pop is UNDONE and the tree returned to its clean pre-pop state, with
+ *   `{ restored: false, rolledBack: true, conflictedFiles }`. Leaving the markers
+ *   in place is what mt#4307 is about: the next gate to run then failed on a file
+ *   the change never touched, and named that downstream symptom as the cause.
  * - Pop still cannot complete → NON-silent `{ restored: false, stashRef,
  *   parkedFiles, error, recovery }` so the caller can surface the parked work.
  *
@@ -298,6 +491,22 @@ export async function restoreSessionStash(
     await git.popStash(workdir);
     return { stashed: true, restored: true, stashRef };
   } catch (popError) {
+    // Did git ATTEMPT the merge and write markers, or did it refuse and touch
+    // nothing? Ask before doing anything else — every branch below assumes an
+    // intact working tree, and one of the two failure modes has already broken
+    // that assumption (mt#4307).
+    const conflictedFiles = await listUnmergedPaths(workdir, git);
+    if (conflictedFiles.length > 0) {
+      return rollbackConflictedPop(
+        workdir,
+        git,
+        stashRef,
+        conflictedFiles,
+        popError,
+        expectedStashSha
+      );
+    }
+
     const parkedFiles = await listStashedFiles(workdir, git, stashRef);
     const generatedBlockers = parkedFiles.filter(isGeneratedPath);
 
@@ -331,6 +540,20 @@ export async function restoreSessionStash(
           workdir,
           error: getErrorMessage(retryError),
         });
+        // The retry can conflict where the first attempt merely refused —
+        // discarding the generated blockers is exactly what lets git get far
+        // enough to ATTEMPT the merge. Same check, same undo (mt#4307).
+        const retryConflicts = await listUnmergedPaths(workdir, git);
+        if (retryConflicts.length > 0) {
+          return rollbackConflictedPop(
+            workdir,
+            git,
+            stashRef,
+            retryConflicts,
+            retryError,
+            expectedStashSha
+          );
+        }
       }
     } else {
       // Negative path: the pop failed but no generated-file blockers were found,
