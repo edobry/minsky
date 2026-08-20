@@ -90,6 +90,14 @@ export function truncateToCodePoints(value: string, max: number): string {
  *
  * Returns the input unchanged when it already fits, so the common case allocates
  * nothing.
+ *
+ * KNOWN REMAINING CONSUMER: `guard-health-escalation-detector` still bounds its
+ * interpolated `Error.message` with `truncateToCodePoints` under a `.length`-
+ * enforced ceiling of 1300 — the same mismatch, on a different guard, and worse
+ * per-render because it emits one such line per failing guard. Adopting this
+ * there is mt#4359, filed rather than folded into mt#4234 because that task's
+ * scope explicitly excludes other guards. Until it lands, this file has one
+ * caller of each function and the difference between them is load-bearing.
  */
 export function truncateToRenderedLength(value: string, max: number): string {
   if (value.length <= max) return value;
