@@ -6,7 +6,7 @@ import { SessionPrResult, SessionProviderInterface } from "../types";
 import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { readTextFile } from "@minsky/shared/fs";
-import { isAbsolute, resolve as resolvePath } from "path";
+import { isAbsolute, relative, resolve as resolvePath } from "path";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -152,7 +152,28 @@ export async function sessionPr(
     // session workspace and passing `.pr-body-mt4215.md` addressed a file that
     // does not exist there. A session-relative path is what such a caller means;
     // an absolute path is still honored unchanged.
-    const resolvedBodyPath = isAbsolute(bodyPath) ? bodyPath : resolvePath(workdir, bodyPath);
+    const bodyPathIsRelative = !isAbsolute(bodyPath);
+    const resolvedBodyPath = bodyPathIsRelative ? resolvePath(workdir, bodyPath) : bodyPath;
+
+    // A relative path is CONTAINED to the session workspace (PR #3201 R1). Saying
+    // "relative means inside the session" and then following `../../` out of it
+    // would be a contradiction, and a silent one — the read would succeed and the
+    // caller would never learn the body came from somewhere else. An ABSOLUTE
+    // path is still honored anywhere: that is the explicit way to say "elsewhere",
+    // so the containment costs no capability.
+    if (bodyPathIsRelative) {
+      const relativeToWorkdir = relative(workdir, resolvedBodyPath);
+      if (relativeToWorkdir.startsWith("..") || isAbsolute(relativeToWorkdir)) {
+        throw new ValidationError(
+          `bodyPath '${bodyPath}' escapes the session workspace (resolves to ${resolvedBodyPath}). ` +
+            `A relative bodyPath is read inside the session workspace; pass an absolute path to ` +
+            `read a file outside it.`,
+          "bodyPath",
+          bodyPath
+        );
+      }
+    }
+
     try {
       bodyContent = await readTextFile(resolvedBodyPath);
       if (debug) {

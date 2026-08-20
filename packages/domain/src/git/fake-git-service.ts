@@ -211,7 +211,11 @@ export class FakeGitService implements GitServiceInterface {
     // failed-pop test look like a CONFLICTED pop. That is this fake's standing
     // hazard: it answers any command, so an unmodelled query returns something
     // plausible rather than failing.
-    if (command.includes("--diff-filter=U")) return "";
+    // Narrowed to a `git diff` whose filter is exactly `U` (PR #3201 R1). A bare
+    // `includes` also swallowed any command that merely CONTAINED the substring —
+    // including a longer filter list like `--diff-filter=UXB` — which is the same
+    // over-matching this fake is already prone to.
+    if (/\bgit\s+diff\b.*--diff-filter=U(\s|$)/.test(command)) return "";
     return "mock git output";
   }
 

@@ -1269,9 +1269,26 @@ export class PreCommitHook {
     }
 
     try {
+      // `R` as well as `ACM` (PR #3201 R1). A renamed file is still staged
+      // content about to become a commit, and `ACM` alone skips it — so a file
+      // that was resolved-then-renamed, or renamed while still conflicted, would
+      // pass unchecked. `--name-only` reports a rename by its NEW path, which is
+      // exactly the path `git show :<path>` needs.
+      //
+      // Scoped to THIS check deliberately: five sibling steps in this file use
+      // `ACM` and share the gap, but widening their input is a behaviour change
+      // for each of them and belongs in its own change, not smuggled in here.
+      // Tracked at mt#4366, which carries the measurement below.
+      //
+      // The gap is real only where rename DETECTION fires. Measured in a
+      // throwaway repo: a small file renamed with a big edit is recorded
+      // `D`+`A` and `ACM` lists it anyway; a 300-line file renamed with a
+      // conflict block added is recorded `R`, and `ACM` returns EMPTY while
+      // `ACMR` returns the new path. Invisible, not mislabelled — which is why
+      // nothing downstream notices.
       const result = await execGitWithTimeout(
         "diff",
-        "diff --cached --name-only --diff-filter=ACM",
+        "diff --cached --name-only --diff-filter=ACMR",
         { workdir: this.projectRoot, timeout: 5000 }
       );
 

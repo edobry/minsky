@@ -124,6 +124,52 @@ describe("sessionPr — a relative bodyPath resolves against the session workspa
     expect(error.message).not.toContain("No session detected");
   });
 
+  test("a relative bodyPath that escapes the workspace via `..` is refused (PR #3201 R1)", async () => {
+    const workdir = await makeWorkdir();
+    // A file that genuinely exists OUTSIDE the workspace, so a passing read would
+    // be a real escape rather than a missing-file error wearing the same clothes.
+    const outside = await makeWorkdir();
+    await writeFile(join(outside, "secret.md"), "not yours\n");
+    const escaping = join("..", outside.split("/").pop() ?? "", "secret.md");
+
+    const deps = makeDeps(workdir);
+    const error = await capture(() =>
+      sessionPr(
+        { session: SESSION_ID, title: "A title", bodyPath: escaping } as never,
+        deps as never
+      )
+    );
+
+    expect(error).toBeInstanceOf(ValidationError);
+    expect(error.message).toContain("escapes the session workspace");
+    // The refusal must not be mistakable for "the file isn't there".
+    expect(error.message).not.toContain("Failed to read body content");
+  });
+
+  test("an ABSOLUTE path outside the workspace is still honored", async () => {
+    // Containment applies to the RELATIVE branch only: an absolute path is the
+    // explicit way to say "elsewhere", so the check costs no capability. This
+    // very PR's body was passed that way.
+    const workdir = await makeWorkdir();
+    const outside = await makeWorkdir();
+    const absolute = join(outside, "body.md");
+    await writeFile(absolute, BODY_TEXT);
+
+    let seenBody: string | undefined;
+    const deps = makeDeps(workdir);
+    deps.sessionPrImpl = (async (params: { body?: string }) => {
+      seenBody = params.body;
+      return { prBranch: "pr/task/mt-4307", baseBranch: "main" };
+    }) as never;
+
+    await sessionPr(
+      { session: SESSION_ID, title: "A title", bodyPath: absolute } as never,
+      deps as never
+    );
+
+    expect(seenBody).toBe(BODY_TEXT);
+  });
+
   test("the error names BOTH the given path and the one actually read", async () => {
     const workdir = await makeWorkdir();
     const deps = makeDeps(workdir);

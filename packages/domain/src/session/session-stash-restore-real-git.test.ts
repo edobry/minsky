@@ -27,6 +27,7 @@ import { execSync } from "child_process";
 import {
   describeParkedStash,
   findSessionUpdateStash,
+  restoreSessionStash,
   restoreUpdateStashAfterCommit,
   SESSION_UPDATE_STASH_MESSAGE,
   type StashRestoreGitDeps,
@@ -398,5 +399,29 @@ describe("restoreSessionStash — a CONFLICTED pop is rolled back (mt#4307)", ()
     // The markers are still there — deliberately. Destroying unrecoverable work
     // to satisfy a cleanliness invariant would be the worse failure.
     expect(MARKER_RE.test(await readFile(join(dir, "conflict.txt"), "utf8"))).toBe(true);
+  });
+
+  test("refuses to roll back when no stash SHA was captured, even though a stash exists", async () => {
+    // PR #3201 R1 (BLOCKING): the presence check used to ask "is there ANY stash
+    // entry?" when no SHA had been captured. An unrelated stash — one the operator
+    // pushed by hand — would then green-light `git reset --hard` over a conflicted
+    // tree whose work that stash does not contain. Existence of *a* stash is not
+    // evidence that *this* work is in it.
+    const dir = await makeRepoWherePopWillConflict();
+
+    // No SHA passed — the positional-pop fallback, where the code cannot tell OUR
+    // entry from anyone else's. The fix refuses on that basis alone, which is what
+    // makes the unrelated-stash case safe too: mere existence is no longer
+    // consulted, so there is nothing for a foreign stash to satisfy.
+    const outcome = await restoreSessionStash(dir, realGitDeps(), undefined);
+
+    expect(outcome.restored).toBe(false);
+    expect(outcome.rolledBack).toBe(false);
+    expect(outcome.recovery).toContain("could not be identified");
+    // Fail closed: the tree keeps its markers rather than being reset against a
+    // stash that may belong to someone else.
+    expect(MARKER_RE.test(await readFile(join(dir, "conflict.txt"), "utf8"))).toBe(true);
+    // The work is still parked, so nothing was destroyed by refusing.
+    expect(git(dir, "stash list").trim()).toContain(SESSION_UPDATE_STASH_MESSAGE);
   });
 });

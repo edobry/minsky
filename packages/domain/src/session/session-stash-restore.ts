@@ -212,36 +212,54 @@ async function listUnmergedPaths(workdir: string, git: StashRestoreGitDeps): Pro
 }
 
 /**
- * True when the stash entry we tried to pop is still on the stack.
+ * Whether OUR stash entry — the one we just failed to pop — is still on the
+ * stack. This is the entire safety precondition for the `git reset --hard`
+ * below, so it is a three-state answer rather than a boolean: the two ways of
+ * being unsure need different words to the operator, and neither may reset.
  *
- * `git stash pop` documents that a conflicted apply leaves the entry in place,
- * so this is normally true — but it is CHECKED rather than trusted, because it
- * is the entire safety precondition for the `git reset --hard` below. If the
- * entry is gone, the marker-bearing working tree is the ONLY copy of the work
- * and resetting would destroy it.
+ * - `present` — identified by SHA, still there. Safe to roll back.
+ * - `absent` — identified by SHA, gone. The marker-bearing tree is the ONLY copy
+ *   of that work; resetting would destroy it.
+ * - `unidentifiable` — no SHA was captured, or the stash list could not be read,
+ *   so we cannot tell OUR entry from an operator's. Also refuses.
  *
- * Fails CLOSED: any error listing stashes reports "not confirmed present", which
- * suppresses the rollback.
+ * The `unidentifiable` state exists because of PR #3201 R1 (BLOCKING): this
+ * previously answered "is there ANY stash entry?" when no SHA was captured, so
+ * an unrelated stash the operator pushed by hand would green-light a
+ * `git reset --hard` over a conflicted tree whose work that stash does not
+ * contain. Existence of *a* stash is not evidence that *this* work is in it —
+ * the same identity-vs-presence conflation `resolveOwnStashRef` already refuses
+ * to make when deciding whether to pop positionally.
  */
-async function stashEntryStillPresent(
+type OwnStashPresence = "present" | "absent" | "unidentifiable";
+
+async function confirmOwnStashPresent(
   workdir: string,
   git: StashRestoreGitDeps,
   expectedStashSha: string | undefined
-): Promise<boolean> {
+): Promise<OwnStashPresence> {
+  if (!expectedStashSha) return "unidentifiable";
   try {
     const entries = await listStashEntries(workdir, git);
-    if (expectedStashSha) return entries.some((entry) => entry.sha === expectedStashSha);
-    // No SHA captured (the positional-pop fallback). The best available check is
-    // that SOME stash entry survives — narrower than identity, but it still
-    // distinguishes "git kept the work" from "the stack is empty".
-    return entries.length > 0;
+    return entries.some((entry) => entry.sha === expectedStashSha) ? "present" : "absent";
   } catch (listError) {
     log.debug("Could not confirm the stash entry survived a conflicted pop", {
       workdir,
       error: getErrorMessage(listError),
     });
-    return false;
+    return "unidentifiable";
   }
+}
+
+/**
+ * The opening sentence every conflicted-pop report shares: what happened, and to
+ * which files. What FOLLOWS it differs per disposition, and that is the part the
+ * operator has to act on.
+ */
+function conflictMarkerPrefix(conflictedFiles: readonly string[]): string {
+  const names = conflictedFiles.join(", ");
+  const count = conflictedFiles.length;
+  return `The stash pop CONFLICTED and left conflict markers in ${count} file(s): ${names}. `;
 }
 
 /**
@@ -273,13 +291,14 @@ async function rollbackConflictedPop(
   expectedStashSha: string | undefined
 ): Promise<StashRestoreOutcome> {
   const parkedFiles = await listStashedFiles(workdir, git, stashRef);
-  const stashSurvived = await stashEntryStillPresent(workdir, git, expectedStashSha);
+  const presence = await confirmOwnStashPresent(workdir, git, expectedStashSha);
 
-  if (!stashSurvived) {
-    // The work exists ONLY in the conflicted working tree. Resetting would
+  if (presence !== "present") {
+    // The work may exist ONLY in the conflicted working tree. Resetting could
     // destroy it, so the markers stay and the operator resolves them in place.
-    log.warn("Stash pop conflicted and the stash entry is gone — refusing to reset the tree", {
+    log.warn("Stash pop conflicted and our entry is not confirmed present — refusing to reset", {
       workdir,
+      presence,
       conflictedFiles,
     });
     return {
@@ -290,11 +309,17 @@ async function rollbackConflictedPop(
       parkedFiles,
       conflictedFiles,
       error: getErrorMessage(popError),
-      recovery:
-        `The stash pop CONFLICTED and left conflict markers in ${conflictedFiles.length} file(s): ` +
-        `${conflictedFiles.join(", ")}. The stash entry is no longer present, so this working ` +
-        `tree is the ONLY copy of that work — it was NOT rolled back. Resolve the markers in ` +
-        `place, then \`git add\` the resolved files.`,
+      recovery: `${conflictMarkerPrefix(conflictedFiles)}${
+        presence === "absent"
+          ? "The stash entry is no longer present, so this working tree is the ONLY copy of that " +
+            "work — it was NOT rolled back. Resolve the markers in place, then `git add` the " +
+            "resolved files."
+          : "This update's stash entry could not be identified, so it is not safe to reset the " +
+            "tree — a stash that exists may belong to someone else, and resetting would discard " +
+            "work that is only here. The tree was NOT rolled back. Check `git stash list`, then " +
+            "either resolve the markers in place or reset once you have confirmed the work is " +
+            "parked."
+      }`,
     };
   }
 
