@@ -16,6 +16,7 @@ import { guardEventsTable, type GuardEventInsert } from "../storage/schemas/guar
 import { conversationRunStateTable } from "../storage/schemas/conversation-run-state-schema";
 import { GUARD_EVENT_STREAM_SOURCES, type GuardEventStreamSource } from "./stream-sources";
 import { HWM_STATE_FILENAME, readHwmState, writeHwmState } from "./hwm-store";
+import { foldFireLogRowsIntoRollup } from "./fire-log-rollup";
 import type { GuardEventsIngestDeps, GuardEventInsertRow } from "./ingest-service";
 
 /** Batched inserts are chunked so one sweep tick never issues a single
@@ -99,7 +100,14 @@ function chunk<T>(items: T[], size: number): T[][] {
  * the returned set, so `rows.length` after `.returning()` IS the real
  * insert count.
  */
-function buildInsertBatch(
+/**
+ * Exported for the mt#4294 integration test, which must exercise THIS function
+ * rather than a re-implementation of it: the property under test is that the
+ * append and the rollup fold share a transaction and that re-ingest folds
+ * nothing, and a mirror of the insert in the test would be free to get both
+ * right while this one got them wrong.
+ */
+export function buildInsertBatch(
   db: PostgresJsDatabase
 ): (rows: GuardEventInsertRow[]) => Promise<number> {
   return async (rows) => {
@@ -120,11 +128,36 @@ function buildInsertBatch(
     }));
     let insertedCount = 0;
     for (const batch of chunk(inserts, INSERT_CHUNK_SIZE)) {
-      const returned = await db
-        .insert(guardEventsTable)
-        .values(batch)
-        .onConflictDoNothing({ target: guardEventsTable.dedupeKey })
-        .returning({ id: guardEventsTable.id });
+      // The append and the rollup fold share ONE transaction, and that is
+      // load-bearing rather than tidiness (mt#4294).
+      //
+      // `ON CONFLICT (dedupe_key) DO NOTHING` makes the insert idempotent, so
+      // the obvious "insert, then fold" shape looks safe and is not: if the
+      // insert commits and the fold then throws, the rows exist in
+      // `guard_events` but were never counted, and the RETRY re-inserts
+      // nothing and therefore folds nothing. Those fires would be missing from
+      // the rollup permanently, with no error left behind to notice — the
+      // idempotency that protects the append is exactly what makes the gap
+      // unrecoverable. Sharing a transaction means a failed fold rolls the
+      // append back, so the retry genuinely re-does both.
+      const returned = await db.transaction(async (tx) => {
+        // RETURNING carries the three columns the rollup folds on, not just
+        // `id` — the returned set is exactly the rows the insert actually
+        // appended, which is what makes the rollup exact under re-ingest
+        // rather than approximately-right.
+        const rows = await tx
+          .insert(guardEventsTable)
+          .values(batch)
+          .onConflictDoNothing({ target: guardEventsTable.dedupeKey })
+          .returning({
+            id: guardEventsTable.id,
+            stream: guardEventsTable.stream,
+            guardName: guardEventsTable.guardName,
+            occurredAt: guardEventsTable.occurredAt,
+          });
+        await foldFireLogRowsIntoRollup(tx, rows);
+        return rows;
+      });
       insertedCount += returned.length;
     }
     return insertedCount;

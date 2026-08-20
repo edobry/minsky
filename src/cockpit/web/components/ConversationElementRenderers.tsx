@@ -93,6 +93,84 @@ export const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded";
 
 /**
+ * Hover affordance for this module's disclosure controls (mt#4251).
+ *
+ * mt#4220's border was carrying two jobs — excess visual weight, and
+ * delimiting the row as a clickable object. Removing it was right for the
+ * first and took the second with it: the principal reported (2026-08-18, with
+ * a screenshot) that "its not obvious to me that i can click on the entire row
+ * to expand it as there's no visual guides affording the row as an object."
+ *
+ * Answered on HOVER rather than at rest, so mt#4220's calm-at-rest result
+ * survives: nothing changes until a pointer is over the row, which is the
+ * moment the reader is asking the question. `bg-muted/50` is
+ * `docs/design-system.md`'s documented table-row convention, not a fresh
+ * pick — that doc is declared by `src/cockpit/CLAUDE.md` as the authority on
+ * component interaction states, and mt#4250's action-burst toggle shipped a
+ * near-miss `/40` which this task brings into line rather than propagating.
+ *
+ * Background only, deliberately. A `hover:text-foreground` alongside it would
+ * be inert on the tool row, whose every child span sets its own colour; the
+ * controls that DO have inheriting text pair it with this constant at their
+ * own call sites.
+ *
+ * Distinct from {@link FOCUS_RING} and never a replacement for it: they answer
+ * different questions ("is this clickable" vs "where am I") for different
+ * input modes.
+ */
+export const HOVER_ROW = "hover:bg-muted/50";
+
+/**
+ * The disclosure marker every expandable control in this view shares (mt#4348).
+ *
+ * Before this, the view drew disclosure markers three different ways at two
+ * different positions: `BurstFold` rendered its own glyph as a LEADING child,
+ * `ThinkingBlock` rendered none at all and inherited the browser's native
+ * `<summary>` marker, and the tool row, injected span and command control each
+ * pinned their own glyph to the right edge with `ml-auto`. The principal, on the
+ * mt#4251 render: *"this looks weird, esp since the information hierarchy for the
+ * collapsible section's outer and inner elements is non obvious, and the chevrons
+ * are on opposite sides."*
+ *
+ * **Leading, not trailing, and that is load-bearing rather than a preference.**
+ * A right-pinned marker cannot express depth: indenting a nested row shifts its
+ * text while leaving its marker in the same column as its parent's siblings, so
+ * no amount of indentation reads as containment. A leading marker turns the
+ * column itself into the depth indicator — which is why file trees, `<details>`
+ * and every outline UI put it there, and why this ships alongside
+ * {@link BURST_CHILDREN} rather than as a separate tidy-up.
+ *
+ * mt#4251's PR argued the opposite (a right-aligned column as a scanning aid).
+ * That holds only if the rows in a run SHARE the placement, and they did not.
+ */
+/**
+ * The container an expanded group puts its children in (mt#4348).
+ *
+ * `RunView` already expresses "these turns belong to one actor" with
+ * `border-l-2 pl-3` plus an accent hue. An expanded `BurstFold` expressed its
+ * own containment with NOTHING — `{open && turns.map(...)}` inside a bare
+ * `flex flex-col gap-2` — so a turn revealed by opening a fold rendered
+ * identically to a top-level turn, and the reader had no way to see that it sat
+ * inside the fold above it. That is the "information hierarchy … is non obvious"
+ * half of the mt#4348 report.
+ *
+ * Deliberately ONE step lighter than the run rail it nests inside: a hairline
+ * `border-l` against `border-2`, and a border token rather than an actor accent.
+ * A fold is subordinate to the run containing it, so its rail must not compete
+ * with the run's — two rails of equal weight would flatten exactly the hierarchy
+ * this exists to show.
+ */
+export const BURST_CHILDREN = "flex flex-col gap-2 border-l border-border/40 pl-3";
+
+export function DisclosureChevron({ open }: { open: boolean }) {
+  return (
+    <span aria-hidden className="shrink-0 select-none text-muted-foreground/60">
+      {open ? "▾" : "▸"}
+    </span>
+  );
+}
+
+/**
  * The `→ subagent (kind)` marker on an Agent tool call.
  *
  * Links to the conversation this specific call spawned when one resolved
@@ -202,12 +280,21 @@ export function ThinkingBlock({
     >
       <summary
         className={cn(
-          "cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          "flex cursor-pointer select-none items-center gap-2 rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          // Suppress the USER AGENT's disclosure triangle (mt#4348). This was
+          // the only control in the view whose marker we did not draw — the
+          // browser's default `<summary>` marker, in its glyph, its size and
+          // its colour, none of which matched the three we render ourselves.
+          // `list-none` covers the standard `::marker`; the webkit
+          // pseudo-element covers Safari/older Chrome, which ignore it.
+          "list-none [&::-webkit-details-marker]:hidden",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
+        <DisclosureChevron open={open} />
         <span className="italic">thinking</span>
-        <span className="ml-1 text-muted-foreground/60 group-open:hidden">
+        <span className="text-muted-foreground/60 group-open:hidden">
           ({thinking.length} chars — click to expand)
         </span>
       </summary>
@@ -322,7 +409,19 @@ export function ToolInvocation({
         inconsistently — so the row is a flex container holding the toggle and the
         badge as siblings, rather than one button wrapping both.
       */}
-      <div className="group/call flex w-full items-center">
+      {/*
+        The hover affordance (mt#4251) sits HERE, on the row-spanning flex
+        container, not on the toggle button and not on the anchored wrapper
+        above. The button is `flex-1`, so a background on it stops short of the
+        spawn badge and film link — the row would highlight in part, which is
+        the opposite of "this row is one object." The wrapper is the element
+        `ConversationView.weight-hierarchy.test.tsx` asserts carries no `bg-`
+        class at rest (mt#4220), and `hover:bg-*` matches that assertion's
+        regex; putting it there would fail the at-rest guarantee this task must
+        preserve. This div is the only element that is both full-width and
+        outside that assertion.
+      */}
+      <div className={cn("group/call flex w-full items-center rounded", HOVER_ROW)}>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -332,6 +431,7 @@ export function ToolInvocation({
             FOCUS_RING
           )}
         >
+          <DisclosureChevron open={open} />
           <Icon
             aria-hidden
             className={cn(
@@ -355,9 +455,6 @@ export function ToolInvocation({
             )}
           >
             {digest}
-          </span>
-          <span aria-hidden className="ml-auto shrink-0 pl-1.5 text-muted-foreground/60">
-            {open ? "▾" : "▸"}
           </span>
         </button>
         {call.spawn && <SpawnBadge spawn={call.spawn} />}
@@ -490,16 +587,15 @@ export function InjectedContentBlock({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className={cn(
-          "flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground",
+          "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
+        <DisclosureChevron open={open} />
         <span className="italic">{span.label}</span>
         <span className="text-muted-foreground/50">
           ({span.content.length.toLocaleString()} chars)
-        </span>
-        <span aria-hidden className="ml-auto text-muted-foreground/60">
-          {open ? "▾" : "▸"}
         </span>
       </button>
       {open && (
@@ -556,6 +652,31 @@ export function CommandInvocation({
   return (
     <div className="rounded">
       <div className="flex items-start gap-2 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls={detailsId}
+          aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
+          // Unlike its three siblings this control is NOT the row: the command
+          // line beside it is content, and only this chevron toggles anything.
+          // So the affordance covers the chevron's own hit-area — widening what
+          // is clickable would be a behaviour change, not an affordance fix
+          // (mt#4251). `px-1` gives the glyph enough box for the background to
+          // read as a control rather than a smudge.
+          //
+          // Leading rather than `ml-auto` (mt#4348): this row sits in the same
+          // column as the tool rows and the fold summary, and a marker that
+          // wanders to the right edge on one of them is what made the set read
+          // as three positions instead of one.
+          className={cn(
+            "shrink-0 rounded px-1 text-xs hover:text-foreground",
+            HOVER_ROW,
+            FOCUS_RING
+          )}
+        >
+          <DisclosureChevron open={open} />
+        </button>
         <span aria-hidden className="select-none font-mono text-xs text-muted-foreground/60">
           &gt;
         </span>
@@ -565,16 +686,6 @@ export function CommandInvocation({
             <div className="mt-0.5 font-mono text-xs text-muted-foreground">{output.content}</div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-expanded={open}
-          aria-controls={detailsId}
-          aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
-          className={cn("ml-auto shrink-0 text-xs text-muted-foreground/60", FOCUS_RING)}
-        >
-          {open ? "▾" : "▸"}
-        </button>
       </div>
       {open && (
         <div id={detailsId} className="space-y-1 border-t border-border/40 px-2 py-1">

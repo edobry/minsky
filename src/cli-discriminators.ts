@@ -50,6 +50,50 @@ export function isMcpStartStdio(cmd: Command): boolean {
 }
 
 /**
+ * mt#4338: decide whether an `mcp start` invocation is the HOSTED server —
+ * the remote, metadata-only deployment that ships no `git` binary and has no
+ * local session workspace.
+ *
+ * ## Hosted is not the same question as HTTP
+ *
+ * `start-command.ts` called `setHostedMode(true)` for every HTTP-transport
+ * start. `--local-daemon` implies `--http` (the mode branch sets
+ * `options.http = true`), so the tray-supervised daemon running on the
+ * developer's own laptop — bound to `--repo`, with `git` on PATH and the
+ * session workspaces on local disk — classified itself as hosted.
+ * `guardHostedCapability` then refused every `git.*` command and every
+ * `session.*` command outside `HOSTED_SAFE_SESSION_COMMANDS`, with an error
+ * telling the operator to "use the local server for this command" while
+ * running ON the local server. Observed live 2026-08-19: `git_blame` worked
+ * through the proxy at 18:35Z, failed through the daemon at 19:13Z, and
+ * worked again after reverting at 19:16Z.
+ *
+ * ADR-038 §Question 2 keeps this daemon "local and per-developer", so
+ * classifying it as hosted contradicts the architecture it implements.
+ *
+ * ## Why `--local-daemon` is the discriminator
+ *
+ * The genuinely hosted server is started by `Dockerfile`'s CMD as
+ * `mcp start --http --host 0.0.0.0 --port $PORT --require-auth` — no
+ * `--local-daemon`. So the flag already separates the two deployments in
+ * argv, with no new configuration surface.
+ *
+ * Takes the RESOLVED options object rather than a `Command`, because the
+ * caller reads it after the mode branch has mutated `options.http` —
+ * re-deriving from the Command's own option values would see a different
+ * (pre-mutation) state. Pure and side-effect-free so the derivation can be
+ * asserted directly, rather than by patching the `setHostedMode` collaborator.
+ *
+ * Second instance of the shape {@link isMcpStartStdio} documents above: a
+ * transport fact re-derived at a site far from the flags that decide it.
+ * mt#4322 owns single-sourcing the decision so a third consumer cannot drift
+ * the same way.
+ */
+export function isHostedMcpServer(opts: { http?: boolean; localDaemon?: boolean }): boolean {
+  return Boolean(opts.http) && !opts.localDaemon;
+}
+
+/**
  * mt#1892: detect the hidden `minsky completion-server` invocation — fired by
  * the user's shell on TAB. Used by the preAction hook in `src/cli.ts` to skip
  * eager DI initialization; the handler reads only the build-time-generated

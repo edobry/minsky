@@ -88,6 +88,7 @@ to one task; the task ID in the name or header is the primary cross-reference.
 | `verify-peek-pane-layout.ts`             | peek pane gutters, single scrollport and page column in a real browser (mt#4123)              |
 | `verify-mt1721-detectors-mcp.ts`         | `registerDetectorsTools` MCP surface (mt#1721)                                                |
 | `verify-session-film-panes.ts`           | film ribbon/stage drag + clamp and cockpit scrollbar chrome in a real browser (mt#3701)       |
+| `verify-turn-write-skip-if-unchanged.ts` | turn upsert's skip-if-unchanged `setWhere` guard against real Postgres (mt#4345)              |
 
 ### Running the browser-driving scripts
 

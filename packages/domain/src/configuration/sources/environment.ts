@@ -385,6 +385,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_RUNG2_NOMINATION_ENFORCE: "tunable", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
   MINSKY_KA_RUNG2_NOMINATION: "tunable", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
   MINSKY_CMA_RUNG2_NOMINATION: "tunable", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#4155) — opt-in to Rung-2 embedding nomination for the identity/equivalence claim class ("X is the single reader"), which carries no behavior verb any PREDICATE_PATTERNS entry matches; default is the lexical path, because the 0.455 threshold was derived from the retrospective-trigger exemplar band and is unmeasured on this corpus
+  MINSKY_SKIP_SYMBOL_FREE_CLAIMS: "operator-override", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#3726) — turn the symbol-FREE Rung-2 cohort (invocation-path both signs, subsystem-property, external-system-mechanism, log-attribution) back off while leaving mt#4155's identity family running, so a calibration review that finds this cohort noisy can quiet it without reverting a family whose records are clean; the cohort ships with NO suppression (its claims carry no symbol to look up), which is its known over-fire source
   MINSKY_DISABLE_RUNG3_CONFIRM: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
   MINSKY_ACK_PRE_NARRATION: "operator-override", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   MINSKY_SKIP_SESSION_PATH_CHECK: "operator-override", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
@@ -568,7 +569,9 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_CLAUDE_PROJECTS_DIR: "tunable", // scripts/measure-transcript-discovery-cost.ts + verify-postgres-text-safety.ts — harness transcript root
   MINSKY_CONVERSATION_ID: "tunable", // scripts/verify-conversation-{orientation,turn-target,weight}.ts — conversation under test
   MINSKY_EXPAND_BURSTS: "tunable", // scripts/verify-conversation-weight.ts (mt#4250) — click every action-burst fold open before measuring, so a collapsed/expanded pair proves folding hides rows rather than dropping them
+  MINSKY_DRAG_RATES: "tunable", // scripts/measure-peek-drag-frames.ts — comma-separated input rates in Hz the drag is measured at (default 30,60,120)
   MINSKY_FILM_CONVERSATION_ID: "tunable", // scripts/verify-session-film-camera.ts — conversation for the session-film probe
+  MINSKY_TRACKING_RUNS: "tunable", // scripts/measure-peek-drag-tracking.ts — repetitions per drag mode (default 30)
   MINSKY_LATENCY_OUT: "tunable", // scripts/verify-cockpit-navigation-latency.ts — results file path
   MINSKY_LATENCY_RUNS: "tunable", // scripts/verify-cockpit-navigation-latency.ts — iteration count
   MINSKY_PEEK_TASK_ID: "tunable", // scripts/verify-peek-pane-layout.ts — task rendered in the peek pane

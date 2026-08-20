@@ -329,6 +329,33 @@ export async function pushSessionCommitWithFallback(
     isPermissionDeniedPushError(pushOutcome.pushError);
 
   if (!appTokenWasDenied) {
+    // mt#3264: an App-token push that FAILED but did not match the denial
+    // signature above is a case the fallback deliberately declines to handle —
+    // and until now it declined silently, indistinguishable in the logs from a
+    // fallback that never ran at all. The canonical instance is a server-side
+    // rejection (`! [remote rejected] ... without 'workflows' permission`),
+    // which carries neither a 403 nor the word "denied".
+    //
+    // The remedy is legibility, NOT a wider trigger. Swapping to keychain
+    // credentials on any rejection would convert a deliberate server-side block
+    // into a successful push under a DIFFERENT IDENTITY — which is what the
+    // narrowness exists to prevent (mem#721), and what the accepted
+    // dual-identity decision record forbids: "don't conflate dimensions just
+    // because a fallback is convenient." So name the reason and stop; the
+    // caller already receives it as `pushError`.
+    if (pushCredential.credentialPath === "app-token" && pushOutcome.pushError) {
+      warn(
+        "[session.commit] App-token push failed without a permission-denial signature; " +
+          "keychain fallback deliberately NOT attempted (mt#3264) — pushing under a different " +
+          "identity could mask a server-side block. Git's reason is in `pushError`.",
+        {
+          event: "session.commit.push_fallback_declined",
+          session: config.session,
+          stage: "push-failed",
+          reason: pushOutcome.pushError,
+        }
+      );
+    }
     return { ...pushOutcome, credentialPath: pushCredential.credentialPath };
   }
 

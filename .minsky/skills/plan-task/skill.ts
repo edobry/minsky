@@ -960,11 +960,13 @@ stronger, and no weaker than its discipline-tier peers.
 
 **Disambiguation from the deploy-surface merge gate (mt#2353).** The deploy-surface gate asks
 "can this deploy CRASH?" (Dockerfile breakage, config-as-code resolution error, container
-crash-on-start) and fires on \`infra/**\`, \`services/*/Dockerfile\`, \`services/*/railway.json\`,
-etc. Gate (n) asks "will this deployed feature actually WORK?" and fires on the external-system
-integration surface regardless of whether the change touches deploy-config files at all — the
-mt#2435 diff touched only \`services/reviewer/src/*\` application code, not deploy config. Do not
-conflate the two; a change can trip one, both, or neither.
+crash-on-start) and fires on whatever \`packages/domain/src/deployment/deploy-surface.ts\` matches
+— application SOURCE included, not only the platform's own config files (mt#4269). Gate (n) asks
+"will this deployed feature actually WORK?" and fires on the external-system integration surface,
+which is a different QUESTION about the same diff rather than a different set of files: the
+mt#2435 diff touched \`services/reviewer/src/*\`, which IS deploy surface, and its deploy was
+healthy while the integration sat inert behind a missing permission. Do not conflate the two; a
+change can trip one, both, or neither.
 
 Cross-reference: this task (mt#2740) formalizes the gate; bridge memory \`2de33884\`. Sibling
 verify-time enforcement: \`/implement-task\` §7a/§10 (live-exercise requirement, same task).

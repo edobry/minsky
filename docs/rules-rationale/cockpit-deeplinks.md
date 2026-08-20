@@ -199,6 +199,78 @@ wearing an ADR's authority — an instance of the pattern `claim-confidence.mdc 
 agent-authored` names. The header now states the accept-vs-emit split directly and records what
 the ADR does and does not say.
 
+## Ghostty ≤ 1.3.1 does not dispatch custom schemes (mt#4333, 2026-08-20)
+
+A `minsky://` deeplink on Ghostty ≤ 1.3.1 renders and then silently does nothing on click. That is
+worse than the plain-label degradation the rule promises for non-OSC-8 terminals: a plain label
+looks like text and is read as text, while this looks actionable, absorbs the click, and returns no
+signal — so the reader concludes their own setup is broken. `https://` links in the same message
+open normally, which is the diagnostic tell.
+
+### The cause is a missing capability, already fixed upstream
+
+Ghostty routes terminal-supplied URLs through `macos/Sources/Helpers/UntrustedURL.swift`, which
+sorts each into `.allow` / `.confirm` / `.deny`. `http`, `https`, `mailto` and `file` are handled
+explicitly; the `default:` branch — every other scheme — returns `.confirm`, with this comment:
+
+> A custom scheme can invoke any application registered with Launch Services. The caller must show
+> the target and handler before allowing that dispatch.
+
+So current Ghostty **does** dispatch `minsky://`, behind a confirmation naming the target and its
+handler. The file does not exist at tag `v1.3.1`; it was added by
+[commit `77537c806`](https://github.com/ghostty-org/ghostty/commit/77537c806) on 2026-08-05
+([file on `main`](https://github.com/ghostty-org/ghostty/blob/main/macos/Sources/Helpers/UntrustedURL.swift)).
+`v1.3.1` is still the newest release, so the capability ships only on unreleased `main`/`tip`.
+
+Re-check the boundary — this is what retires the caveat, so it is written to be run rather than
+trusted:
+
+```sh
+for r in v1.3.1 main; do
+  printf '%s ' "$r"
+  curl -sL -o /dev/null -w '%{http_code}\n' \
+    "https://raw.githubusercontent.com/ghostty-org/ghostty/$r/macos/Sources/Helpers/UntrustedURL.swift"
+done
+```
+
+`404` then `200` means the boundary still holds; two `200`s mean a release now carries the fix.
+One URL per `curl`, deliberately: `-o` binds to the FIRST url only, so passing both to a single
+invocation prints the first status and then dumps the second file to stdout. The loop form is also
+plain POSIX `sh`, so it runs wherever it is pasted.
+
+### Why nothing changes on the emission side
+
+The scheme (ADR-023), the UUID-as-sole-target rule (ADR-029), the entity codec, and the display
+linkifier are all correct, and iTerm2 dispatches them today. Four approaches were considered and
+withdrawn:
+
+| Approach                         | Why not                                                                                                                                                                                 |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Copyable URL alongside the label | A permanent cost on every message against a temporary upstream gap.                                                                                                                     |
+| Terminal-aware emission          | Cannot satisfy its own requirement — it needed a capability PROBE rather than `TERM_PROGRAM` matching, and no probe exists: the emitting side cannot observe whether a click activated. |
+| Upstream request                 | Moot; the work is merged.                                                                                                                                                               |
+| Accept and document              | Closest to correct, and is what this section is — minus the resignation, since the boundary is dated and checkable.                                                                     |
+
+Ghostty's own `link` config cannot substitute either: its docstring reads
+`TODO: This can't currently be set!` (`src/config/Config.zig:1461`). And `link-osc8` defaults to
+`true`, so OSC-8 support was never the missing piece — scheme dispatch was.
+
+### Two corrections this replaces
+
+From 2026-07-23 (`5e184e8a9b`) until 2026-08-20 this rule asserted a Cmd+click bug with a
+context-menu workaround, citing
+[ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907). Both halves were wrong.
+Cmd+click works fine for `https` on the same build, so it is not a Cmd+click bug; and the workaround
+appears nowhere in the cited issue and is falsified by observation — no menu appears. The remedy's
+exact phrasing is deliberately not reproduced anywhere, so a future `grep` cannot resurface it as
+advice. ghostty#11907 is a real report of the symptom on 1.3.1, closed as not planned, consistent
+with the above but not the explanation.
+
+The reusable lesson: the earlier pass answered this question with `WebFetch`, whose summary was
+accurate about `link` and silent about `UntrustedURL.swift` entirely. A summarizer cannot tell you
+about a file it did not surface. Fetching the raw sources and checking tag existence via the API is
+what found the fix.
+
 ## Cross-references
 
 - mt#3800 — `conversation` added to the accept set; the `/cockpit` command; the accept-vs-emit split.

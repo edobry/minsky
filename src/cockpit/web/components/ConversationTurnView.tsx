@@ -31,8 +31,11 @@ import {
 import type { ConversationTurn } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import {
+  BURST_CHILDREN,
+  DisclosureChevron,
   ElementView,
   FOCUS_RING,
+  HOVER_ROW,
   SpawnBadge,
   type ExpandSignal,
   type PreparedElement,
@@ -508,17 +511,32 @@ function BurstFold({ turns, ctx }: { turns: PreparedTurn[]; ctx: SegmentContext 
         className={cn(
           "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs",
           // Dim at rest so a fold recedes exactly as far as the rows it
-          // replaced; legible the moment a pointer is over it.
-          "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+          // replaced; legible the moment a pointer is over it. The background
+          // half moved to the shared HOVER_ROW (mt#4251) — this control shipped
+          // a hand-picked `bg-muted/40` one task before the four disclosure
+          // controls beside it gained the same affordance, and two adjacent
+          // values in one view is the drift that constant exists to stop.
+          "text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
-        <span aria-hidden className="shrink-0 text-muted-foreground/60">
-          {open ? "▾" : "▸"}
-        </span>
+        <DisclosureChevron open={open} />
         <span className="min-w-0 flex-1 truncate">{summary}</span>
       </button>
-      {open && turns.map((turn) => renderSegment(turn, ctx))}
+      {open && (
+        // The children are CONTAINED, not merely revealed (mt#4348). Before
+        // this they were plain siblings of the toggle in the same column, so an
+        // expanded fold's turns rendered identically to top-level turns and the
+        // reader could not see which fold they belonged to — the principal's
+        // "information hierarchy for the collapsible section's outer and inner
+        // elements is non obvious". `BURST_CHILDREN` carries the rail and the
+        // indent; the leading chevron above is what makes that indent legible
+        // as depth rather than as a stray margin.
+        <div className={BURST_CHILDREN} data-testid="action-burst-children">
+          {turns.map((turn) => renderSegment(turn, ctx))}
+        </div>
+      )}
     </div>
   );
 }

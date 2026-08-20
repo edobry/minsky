@@ -58,15 +58,40 @@
 // correct and present; only the invocation was missing. That is the fact this
 // keys on.
 //
-// ## Narrowing: ADDED surfaces only
+// ## Narrowing: two triggers, because file-add was the wrong proxy (mt#4356)
 //
 // Skill invocation is too blunt unqualified — a one-line CSS tweak on a render
-// path should not demand a design pass. So this fires only when the branch ADDS a
-// render-path file. `git diff --name-status main...HEAD` yields A/M status, so
-// "adds a new user-facing surface" is decidable without a semantic guess, and a
-// tweak to an existing component is `M` and never fires. PR #2942 added
-// `PeekBody.tsx`, `PeekHost.tsx` and `ui/sheet.tsx`, so the worked example
-// survives the narrowing.
+// path should not demand a design pass. The FIRST version of this module answered
+// that by firing only on an ADDED render-path file: `git diff --name-status
+// main...HEAD` yields A/M status, so "adds a new user-facing surface" was
+// decidable without a semantic guess, and a tweak to an existing component is `M`
+// and never fired.
+//
+// **That proxy misses the largest class of design work: changing how an existing
+// surface looks.** mt#4251's entire deliverable was a visual treatment across
+// five controls; it MODIFIED two render-path files and added none, so this module
+// could not fire, and the principal reported the appearance of the merged result
+// — the second instance of exactly the failure this module exists to prevent
+// (R1 mem#1026 / mt#3694, R2 mem#1156 / mt#4251). mt#4220, mt#4250, mt#4251 and
+// mt#4348 are all `M`-only and all purely visual: the whole cockpit redesign
+// sequence was invisible to the detector built for it.
+//
+// So there are now TWO triggers, and the second carries its own discriminator
+// rather than widening the first into "any render-path change":
+//
+//   1. The branch ADDS a render-path file. Unchanged — a new surface is a design
+//      decision by construction. PR #2942 (`PeekBody.tsx`, `PeekHost.tsx`,
+//      `ui/sheet.tsx`) still fires here.
+//   2. The branch MODIFIES a render-path file AND the bound task's spec declares
+//      the change is visually judged — a screenshot criterion, "for the principal
+//      to judge", a viewport, a design review. See {@link SPEC_VISUAL_PHRASES}.
+//
+// Trigger 2's discriminator is the spec rather than the diff because the diff
+// cannot answer it: a one-line functional fix and a one-line visual retreatment
+// produce identical `M` status and similar hunks, and only the spec says which
+// one the author was making. A functional tweak's spec does not ask anyone to
+// look at a screenshot. That keeps the false-positive protection the original
+// narrowing was written for, without keeping its blind spot.
 //
 // ## Posture: log-only, fail-open, and SILENT on an absent transcript
 //
@@ -139,6 +164,47 @@ export function normalizeSkillName(raw: string): string {
   const withoutSlash = trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
   const colon = withoutSlash.lastIndexOf(":");
   return colon >= 0 ? withoutSlash.slice(colon + 1) : withoutSlash;
+}
+
+/**
+ * Phrases by which a spec DECLARES that its change is judged by eye (mt#4356).
+ *
+ * This is trigger 2's whole discriminator, so its failure directions are worth
+ * naming. A false NEGATIVE (a visual task whose spec uses none of these) leaves
+ * the pre-mt#4356 blind spot in place for that task — no worse than before. A
+ * false POSITIVE fires a log-only advisory on a functional change, which costs a
+ * line in a calibration record. The asymmetry is deliberate: the list stays
+ * literal and small rather than reaching for coverage it cannot verify.
+ *
+ * Enumerated, not regex-matched, for the same reason {@link DESIGN_SKILLS} is:
+ * this is a claim about how specs in THIS repo are written, and the honest way to
+ * widen it is a measured replay, not a cleverer pattern. Every entry is drawn
+ * from a real criterion in the four `M`-only visual specs this task was filed
+ * from (mt#4220, mt#4250, mt#4251, mt#4348) — not invented.
+ */
+export const SPEC_VISUAL_PHRASES: readonly string[] = [
+  "screenshot",
+  "for the principal to judge",
+  "aesthetic acceptance",
+  "viewport",
+  "design pass",
+  "design review",
+  "at rest",
+  "looks right",
+];
+
+/**
+ * Does the bound spec declare that this change is visually judged?
+ *
+ * Case-folded substring matching over the whole spec. Deliberately NOT scoped to
+ * `## Success Criteria`: mt#4251 carried its screenshot requirement in the
+ * criteria, but mt#4220 carried the equivalent in `## Approach`, and a scoped
+ * match would have missed it — the question is whether the TASK is visual, not
+ * which heading the author filed the sentence under.
+ */
+export function specDeclaresVisualJudgment(specContent: string): boolean {
+  const haystack = specContent.toLowerCase();
+  return SPEC_VISUAL_PHRASES.some((p) => haystack.includes(p));
 }
 
 /** Design skills invoked, given every skill name called in the session. */
@@ -219,7 +285,7 @@ export function decideOutcome(
   result: NewSurfaceDesignPassResult,
   hasTranscript: boolean
 ): DesignPassOutcome {
-  if (!result.applicable) return { kind: "clean", reason: "no added surface" };
+  if (!result.applicable) return { kind: "clean", reason: "no applicable trigger" };
 
   // LOAD-BEARING ORDER: the transcript check comes AFTER applicability but BEFORE
   // the verdict. An empty transcript means this module could not see whether a
@@ -235,68 +301,182 @@ export function decideOutcome(
   return { kind: "matched" };
 }
 
+/** Which of the two triggers made the check applicable (mt#4356). */
+export type DesignPassTrigger = "added-surface" | "modified-surface-visual-spec";
+
 /** Result of the new-surface design-pass check. */
 export interface NewSurfaceDesignPassResult {
-  /** False when the branch adds no render-path file — the check does not apply. */
+  /** False when neither trigger fired — the check does not apply. */
   applicable: boolean;
-  /** Render-path files this branch ADDS (status `A`), not merely modifies. */
-  addedSurfaces: string[];
+  /**
+   * The render-path files the applicable trigger is ABOUT — added files for
+   * `added-surface`, modified files for `modified-surface-visual-spec`.
+   *
+   * Named `surfaces` rather than `addedSurfaces` since mt#4356: the old name
+   * became a lie the moment a modified file could carry the finding, and a field
+   * whose name contradicts its contents is how the next reader inherits the
+   * original blind spot.
+   */
+  surfaces: string[];
+  /** Which trigger applied, or null when none did. Rendered in the warning and the record. */
+  trigger: DesignPassTrigger | null;
   /** Design skills invoked in the authoring session. */
   designSkillsInvoked: string[];
 }
 
 /**
- * The pure core: does this branch add a user-facing surface with no design pass?
+ * The pure core: does this branch put a user-facing surface in front of someone
+ * with no design pass behind it?
  *
- * Both inputs are lists the shell reads — the branch's added files and the
- * session's skill invocations — so the whole decision is testable without a git
- * tree or a transcript.
+ * Every input is a list the shell reads — the branch's added and modified files,
+ * the session's skill invocations, and whether the bound spec declares the change
+ * visually judged — so the whole decision is testable without a git tree, a
+ * transcript, or a task-service round trip.
+ *
+ * Trigger 1 is checked first and wins: when a branch both adds and modifies
+ * surfaces, the addition is the stronger signal and needs no spec evidence, so
+ * the shell can skip the spec fetch entirely in that case.
  */
 export function checkNewSurfaceDesignPass(
   addedFiles: readonly string[],
-  skillNames: readonly string[]
+  modifiedFiles: readonly string[],
+  skillNames: readonly string[],
+  specIsVisual: boolean
 ): NewSurfaceDesignPassResult {
   const addedSurfaces = addedFiles.filter((f) => isRenderPathFile(f));
-  if (addedSurfaces.length === 0) {
-    return { applicable: false, addedSurfaces: [], designSkillsInvoked: [] };
+  if (addedSurfaces.length > 0) {
+    return {
+      applicable: true,
+      surfaces: addedSurfaces,
+      trigger: "added-surface",
+      designSkillsInvoked: findDesignSkillsInvoked(skillNames),
+    };
   }
-  return {
-    applicable: true,
-    addedSurfaces,
-    designSkillsInvoked: findDesignSkillsInvoked(skillNames),
-  };
+
+  const modifiedSurfaces = modifiedFiles.filter((f) => isRenderPathFile(f));
+  if (modifiedSurfaces.length > 0 && specIsVisual) {
+    return {
+      applicable: true,
+      surfaces: modifiedSurfaces,
+      trigger: "modified-surface-visual-spec",
+      designSkillsInvoked: findDesignSkillsInvoked(skillNames),
+    };
+  }
+
+  return { applicable: false, surfaces: [], trigger: null, designSkillsInvoked: [] };
 }
 
 /**
- * Files this branch ADDS, from `git diff --name-status main...HEAD`.
+ * Split `git diff --name-status` output into added and modified paths.
+ *
+ * Exported and pure because this is where PR #3189 R1's defect lived: the parse,
+ * not the decision. `checkNewSurfaceDesignPass` was always correct given the
+ * right lists — the shell was handing it the wrong ones, and a test that only
+ * exercised the core could not see that.
+ */
+export function parseNameStatus(stdout: string): { added: string[]; modified: string[] } {
+  const added: string[] = [];
+  const modified: string[] = [];
+  for (const line of stdout.split("\n")) {
+    const parts = line.split("\t");
+    const status = parts[0];
+    if (!status) continue;
+
+    // A rename emits THREE fields — `R<similarity>\told\tnew` — so the new path
+    // is `parts[2]`, and a two-field read would silently take the OLD path.
+    // `R100` is a pure move with no content change and stays excluded from both
+    // lists, per the original rationale: relocating a component is not designing
+    // a surface. Anything below 100 moved AND changed the file, which is a
+    // modification of an existing surface and belongs to trigger 2.
+    if (status.startsWith("R")) {
+      const newPath = parts[2]?.trim();
+      const similarity = Number(status.slice(1));
+      if (newPath && Number.isFinite(similarity) && similarity < 100) modified.push(newPath);
+      continue;
+    }
+
+    const path = parts[1]?.trim();
+    if (!path) continue;
+    if (status === "A") added.push(path);
+    else if (status === "M") modified.push(path);
+  }
+  return { added, modified };
+}
+
+/**
+ * Files this branch ADDS and MODIFIES, from `git diff --name-status main...HEAD`.
  *
  * `main...HEAD` (three dots) rather than `main..HEAD`: the two-dot form
  * re-reports everything main has done since the branch diverged, which would
- * make this fire on surfaces the PR never added.
+ * make this fire on surfaces the PR never touched.
  *
- * Only status `A` is kept. A rename (`R`) is deliberately NOT counted as an
- * addition: moving an existing component is not designing a new surface, and
- * counting it would fire on every refactor that relocates a file.
+ * Status `A` and `M` are kept SEPARATE, because they feed different triggers —
+ * an addition fires on its own, a modification only alongside a visual spec.
+ * A rename splits on its similarity score, which is the part the first draft of
+ * this change got wrong (PR #3189 R1). A PURE move (`R100`) is counted as
+ * NEITHER: relocating a component is not designing a new surface, and counting it
+ * would fire on every refactor that shuffles files. A rename BELOW 100 moved and
+ * changed the file in one step, which is a modification of an existing surface
+ * and feeds trigger 2 — a component moved and restyled together is precisely the
+ * design work this module exists to notice, and dropping it would have left a
+ * silent hole inside the very trigger mt#4356 added.
  */
-function readAddedFiles(repoRoot: string): { files: string[]; failed?: string } {
+function readTouchedFiles(repoRoot: string): {
+  added: string[];
+  modified: string[];
+  failed?: string;
+} {
   const res = execWithPath(["git", "diff", "--name-status", "main...HEAD"], {
     cwd: repoRoot,
     timeout: 10_000,
   });
-  if (res.timedOut) return { files: [], failed: "git diff timed out" };
+  if (res.timedOut) return { added: [], modified: [], failed: "git diff timed out" };
   if (res.exitCode !== 0) {
     // git's stderr on a failed `diff` is ASCII diagnostic text (ref names,
     // "unknown revision"), and this only ever reaches a calibration record.
     // eslint-disable-next-line custom/no-unsafe-string-truncation -- known-ASCII, see above
     const detail = res.stderr.trim().slice(0, 200);
-    return { files: [], failed: `git diff exited ${res.exitCode}: ${detail}` };
+    return { added: [], modified: [], failed: `git diff exited ${res.exitCode}: ${detail}` };
   }
-  const files: string[] = [];
-  for (const line of res.stdout.split("\n")) {
-    const [status, path] = line.split("\t");
-    if (status === "A" && path) files.push(path.trim());
+  return parseNameStatus(res.stdout);
+}
+
+/** Budget for the spec fetch. Mirrors `inject-success-criteria.ts`'s allowance for the same call. */
+const SPEC_FETCH_TIMEOUT_MS = 15_000;
+
+/**
+ * Fetches the bound task's spec markdown via the `minsky` CLI (mt#4356).
+ *
+ * Returns `null` on ANY failure — no task id, a non-zero exit, an unparseable
+ * response — and the caller treats `null` as "not visual", which means trigger 2
+ * cannot fire. That direction is deliberate: a spec this module could not read is
+ * not evidence that the change is visual, and firing on an unreadable spec would
+ * make every fetch failure look like a finding.
+ *
+ * Deliberately NOT imported from `inject-success-criteria.ts`, matching that
+ * module's own note about `fetchTaskSpecForAtCoverage`: these hooks are separate
+ * processes with separate failure budgets, and a shared helper would couple their
+ * timeouts.
+ */
+function fetchSpecContent(task: string, cwd: string): string | null {
+  const res = execWithPath(["minsky", "tasks", "spec", "get", task, "--json"], {
+    cwd,
+    timeout: SPEC_FETCH_TIMEOUT_MS,
+  });
+  if (res.timedOut || res.exitCode !== 0) return null;
+  try {
+    const parsed = JSON.parse(res.stdout) as { content?: unknown; task?: { spec?: unknown } };
+    const content = parsed.content ?? parsed.task?.spec;
+    return typeof content === "string" && content.length > 0 ? content : null;
+  } catch {
+    return null;
   }
-  return { files };
+}
+
+/** The bound task id from a `session_pr_create` tool input, when it carries one. */
+export function taskIdFromInput(input: ToolHookInput): string | null {
+  const raw = input.tool_input?.["task"];
+  return typeof raw === "string" && raw.trim().length > 0 ? raw.trim() : null;
 }
 
 /**
@@ -304,10 +484,16 @@ function readAddedFiles(repoRoot: string): { files: string[]; failed?: string } 
  * tripped it, an imperative directive, and the branch under which NOT acting is
  * correct.
  */
-export function buildDesignPassWarning(surfaces: readonly string[]): string {
+export function buildDesignPassWarning(
+  surfaces: readonly string[],
+  trigger: DesignPassTrigger
+): string {
   const lines = [
     "[new-surface-design-pass] CALIBRATION (log-only, mt#4124 — would advise if graduated):",
-    "this branch ADDS a user-facing surface, and no design skill ran while it was built.",
+    trigger === "added-surface"
+      ? "this branch ADDS a user-facing surface, and no design skill ran while it was built."
+      : "this branch CHANGES how an existing surface looks — its spec asks for a visual " +
+        "judgment — and no design skill ran while it was built.",
     "",
   ];
   for (const s of surfaces.slice(0, MAX_REPORTED_SURFACES)) lines.push(`  - ${s}`);
@@ -322,7 +508,10 @@ export function buildDesignPassWarning(surfaces: readonly string[]): string {
     "against criteria that a badly-styled pane satisfies. Invoke `/impeccable` or",
     "`/cockpit-design` and look at the surface against what they ask, before creating the PR.",
     "",
-    `Leave it if the added file renders no new surface of its own. Override: ${OVERRIDE_ENV_VAR}=1.`
+    trigger === "added-surface"
+      ? `Leave it if the added file renders no new surface of its own. Override: ${OVERRIDE_ENV_VAR}=1.`
+      : `Leave it if the change is functional and the spec's visual language is about something ` +
+          `else. Override: ${OVERRIDE_ENV_VAR}=1.`
   );
   return lines.join("\n");
 }
@@ -352,7 +541,7 @@ export async function run(
     return {
       calibration: {
         ...base,
-        addedSurfaces: [],
+        surfaces: [],
         outcome: "skipped",
         reason: "canary mode — branch diff and transcript not read",
       },
@@ -362,20 +551,36 @@ export async function run(
   const repoRoot = findRepoRoot(process.cwd(), DEFAULT_FS);
   if (!repoRoot) {
     return {
-      calibration: { ...base, addedSurfaces: [], outcome: "skipped", reason: "no repo root" },
+      calibration: { ...base, surfaces: [], outcome: "skipped", reason: "no repo root" },
     };
   }
 
-  const added = readAddedFiles(repoRoot);
-  if (added.failed) {
+  const touched = readTouchedFiles(repoRoot);
+  if (touched.failed) {
     // A scan that could not run is recorded, so a sustained infra outage is
     // visible in the calibration data rather than reading as a clean pass.
     return {
-      calibration: { ...base, addedSurfaces: [], outcome: "skipped", reason: added.failed },
+      calibration: { ...base, surfaces: [], outcome: "skipped", reason: touched.failed },
     };
   }
 
-  const result = checkNewSurfaceDesignPass(added.files, extractSkillNames(ctx.transcriptLines));
+  // The spec fetch is a CLI round trip, so it runs only when it can change the
+  // answer: trigger 1 wins outright, and with no modified render-path file
+  // trigger 2 has nothing to apply to. On the common PR — no render-path files at
+  // all — this costs nothing (mt#4356).
+  const modifiedSurfaces = touched.modified.filter((f) => isRenderPathFile(f));
+  const needsSpec =
+    touched.added.filter((f) => isRenderPathFile(f)).length === 0 && modifiedSurfaces.length > 0;
+  const taskId = needsSpec ? taskIdFromInput(input) : null;
+  const specContent = taskId ? fetchSpecContent(taskId, repoRoot) : null;
+  const specIsVisual = specContent !== null && specDeclaresVisualJudgment(specContent);
+
+  const result = checkNewSurfaceDesignPass(
+    touched.added,
+    touched.modified,
+    extractSkillNames(ctx.transcriptLines),
+    specIsVisual
+  );
   const outcome = decideOutcome(result, ctx.transcriptLines.length > 0);
 
   // Every evaluation is recorded, fired or not, so the MISS rate is measurable
@@ -383,16 +588,20 @@ export async function run(
   // decision (`hook-observers.mdc`).
   const record = {
     ...base,
-    addedSurfaces: result.addedSurfaces,
+    surfaces: result.surfaces,
+    // Rendered so a calibration reviewer can split the two triggers' rates —
+    // they are separate claims about the corpus and a pooled number describes
+    // neither (mt#4356).
+    trigger: result.trigger,
     designSkillsInvoked: result.designSkillsInvoked,
     outcome: outcome.kind,
     ...(outcome.kind !== "matched" && outcome.reason ? { reason: outcome.reason } : {}),
   };
 
-  if (outcome.kind !== "matched") return { calibration: record };
+  if (outcome.kind !== "matched" || result.trigger === null) return { calibration: record };
 
   return {
-    additionalContext: buildDesignPassWarning(result.addedSurfaces),
+    additionalContext: buildDesignPassWarning(result.surfaces, result.trigger),
     calibration: record,
   };
 }

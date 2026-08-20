@@ -162,3 +162,4 @@ supabase/
 # the run, not of the repo: committing them would produce a large diff on every
 # run and invite reading one machine's numbers as a project-wide baseline.
 /scripts/cockpit-navigation-latency-results.json
+/scripts/peek-drag-frames-results.json
