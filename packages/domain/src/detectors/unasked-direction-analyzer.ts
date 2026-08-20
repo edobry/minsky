@@ -20,6 +20,7 @@
 import { z } from "zod";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "../provenance/transcript-service";
+import { classifyUserLineOrigin, OPERATOR_ORIGIN } from "../transcripts/user-line-origin";
 import {
   detectBlindRendering,
   nonTextRatio,
@@ -304,7 +305,17 @@ If the session has NO unasked directions, return an empty findings array.`;
  * finding's `evidenceMessages` stay resolvable against the transcript.
  */
 function summarizeMessage(msg: TranscriptMessage, index: number): string {
-  const role = msg.type === "user" ? "Human" : "Agent";
+  // mt#4289: `Human` means the OPERATOR, not any `user`-role line. This detector
+  // asks a model whether the agent took a direction nobody asked for, so a
+  // harness-written line rendered as `Human:` is the exact input that
+  // manufactures a request — and the compact summary is the worst case, being
+  // ~15KB of model prose whose SUBJECT is what the operator asked for. Labelled
+  // rather than dropped: the window is position-indexed against the full
+  // transcript (see `index` above), and removing rows would desynchronize
+  // `evidenceMessages`.
+  const origin = msg.type === "user" ? classifyUserLineOrigin(msg) : null;
+  const role =
+    msg.type !== "user" ? "Agent" : origin === OPERATOR_ORIGIN ? "Human" : `Harness(${origin})`;
   const { text } = resolveMessageText(msg);
 
   const truncated =

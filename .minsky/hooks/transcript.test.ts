@@ -424,6 +424,36 @@ describe("isRealUserPrompt — skill-body exclusion (mt#2357)", () => {
     ).toBe(false);
   });
 
+  // mt#4289: the auto-compaction summary is harness-written too, but carries
+  // `isCompactSummary` and NO `isMeta` — so the exclusion above never reached
+  // it, and its `message.content` is a plain STRING, which took the branch that
+  // excludes only interrupt-marker and skill-body text. Every detector reading
+  // `isRealUserPrompt` therefore saw a compaction boundary as an operator
+  // prompt: a turn boundary the operator never created.
+  test("a compact-summary line is NOT a real prompt (mt#4289)", () => {
+    const compactSummary: TranscriptLine = {
+      type: "user",
+      isCompactSummary: true,
+      message: {
+        role: "user",
+        content: "This session is being continued from a previous conversation…",
+      },
+    };
+    expect(isRealUserPrompt(compactSummary)).toBe(false);
+  });
+
+  test("a compact summary carries no isMeta — the mt#2357 exclusion cannot cover it", () => {
+    // Pins the reason the check above has to exist separately. If a future
+    // harness version starts stamping isMeta on the boundary record, this test
+    // fails and tells the next reader the two checks have merged.
+    const compactSummary: TranscriptLine = {
+      type: "user",
+      isCompactSummary: true,
+      message: { role: "user", content: "This session is being continued…" },
+    };
+    expect(compactSummary.isMeta).toBeUndefined();
+  });
+
   test("any isMeta: true user line (e.g. a skill re-invocation notice) is excluded", () => {
     const reinvocation: TranscriptLine = {
       type: "user",

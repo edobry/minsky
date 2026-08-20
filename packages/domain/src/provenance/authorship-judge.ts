@@ -15,6 +15,7 @@ import { z } from "zod";
 import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "./transcript-service";
 import { resolveMessageText } from "./transcript-content";
+import { classifyUserLineOrigin, OPERATOR_ORIGIN } from "../transcripts/user-line-origin";
 import type { TierSignals } from "./types";
 import { AuthorshipTier } from "./types";
 import { log } from "@minsky/shared/logger";
@@ -78,6 +79,27 @@ Evaluate based on:
 Be honest and precise. A human sending many messages doesn't mean high contribution — evaluate content quality, not quantity.`;
 
 /**
+ * The speaker label this message is rendered under in the judge's prompt (mt#4289).
+ *
+ * `Human` is reserved for genuine operator speech. A `user`-role line the
+ * harness wrote gets `Harness(<kind>)` — labelled rather than dropped, because
+ * this judge is grading how much of the work the human drove, and silently
+ * removing turns would distort the conversation's shape as badly as
+ * mis-attributing them.
+ *
+ * The failure this replaces is the sharpest in the consumer inventory: an
+ * auto-compaction summary is ~15KB of model prose NARRATING what the operator
+ * asked for, and it was handed to the judge under the label `Human:` — the
+ * model's account of the human's intent, presented as the human's own words, to
+ * a grader whose entire question is how much the human contributed.
+ */
+function roleLabelFor(msg: TranscriptMessage): string {
+  if (msg.type !== "user") return "Agent";
+  const origin = classifyUserLineOrigin(msg);
+  return origin === OPERATOR_ORIGIN ? "Human" : `Harness(${origin})`;
+}
+
+/**
  * Summarize a single message for the prompt (truncate long content).
  *
  * Content resolution goes through the shared resolver (mt#4225). This read `msg.content`
@@ -86,7 +108,7 @@ Be honest and precise. A human sending many messages doesn't mean high contribut
  * transcript of markers. Identical defect to mt#4196's analyzer, one consumer over.
  */
 function summarizeMessage(msg: TranscriptMessage, index: number): string {
-  const role = msg.type === "user" ? "Human" : "Agent";
+  const role = roleLabelFor(msg);
   const { text } = resolveMessageText(msg);
 
   // Truncate to keep prompt compact (safeTruncate ensures no split surrogate pairs)
@@ -102,7 +124,11 @@ function buildUserPrompt(messages: TranscriptMessage[], signals: TierSignals): s
     `initiation_mode=${signals.initiationMode ?? "unknown"}`,
   ].join(", ");
 
-  const humanMessages = messages.filter((m) => m.type === "user");
+  // mt#4289: the count the judge is told, like the labels above, means OPERATOR
+  // messages — not every `user`-role line.
+  const humanMessages = messages.filter(
+    (m) => m.type === "user" && classifyUserLineOrigin(m) === OPERATOR_ORIGIN
+  );
   const totalMessages = messages.length;
 
   const transcriptText = messages
@@ -155,7 +181,9 @@ export class AuthorshipJudge {
 
     log.debug("AuthorshipJudge: evaluating transcript", {
       messageCount: messages.length,
-      humanMessages: messages.filter((m) => m.type === "user").length,
+      humanMessages: messages.filter(
+        (m) => m.type === "user" && classifyUserLineOrigin(m) === OPERATOR_ORIGIN
+      ).length,
     });
 
     const result = await this.completionService.generateObject({
