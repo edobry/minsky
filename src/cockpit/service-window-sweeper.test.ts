@@ -121,9 +121,39 @@ describe("runServiceWindowTick", () => {
     expect(outcome.dispatched).toBe(3);
   });
 
+  // mt#4364: the shipped tick logged its failures and returned normally, so
+  // `createIntervalSweeper` recorded every one of ~390 failing ticks as a
+  // success and `/api/sweeps` read `consecutiveFailures: 0, lastErrorAt: null`.
+  test("a failed auto-close is reported as a domain failure, not just logged", async () => {
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        listOpenWindows: () => [
+          { windowKey: "ask-hours", expectedCloseAt: new Date(NOW.getTime() - 1_000) },
+        ],
+        closeWindow: async () => {
+          throw new Error("config missing");
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.closeFailures).toBe(1);
+  });
+
+  test("a healthy tick reports ok", async () => {
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        fireCronWindows: async () => ["ask-hours"],
+        pollDeadlineBound: async () => 1,
+      })
+    );
+
+    expect(outcome.ok).toBe(true);
+  });
+
   test("a quiet tick reports nothing happened rather than throwing", async () => {
     const outcome = await runServiceWindowTick(inertDeps());
 
-    expect(outcome).toEqual({ opened: [], closed: [], closeFailures: 0, dispatched: 0 });
+    expect(outcome).toEqual({ ok: true, opened: [], closed: [], closeFailures: 0, dispatched: 0 });
   });
 });

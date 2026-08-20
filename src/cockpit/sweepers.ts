@@ -1265,34 +1265,55 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
   // cron minute is still current from re-firing on the very next tick.
   const lastFiredAt = new Map<string, Date>();
 
-  // Resolved on the first tick that finds its dependencies rather than at
-  // registration: the daemon starts sweepers before persistence is guaranteed
-  // up, which is why every sibling resolves per-tick too.
-  let reaper: import("@minsky/domain/ask/service-window-reaper").ServiceWindowReaper | null = null;
+  // The reaper is REBUILT every tick around a freshly-resolved repository, and
+  // this box is what the NOTIFY handlers read (mt#4364).
+  //
+  // The original mt#4313 wiring built it once and let it hold its repository
+  // for the process lifetime. Every sibling sweeper in this file re-resolves
+  // `getServerAskRepository()` per tick, and that is not incidental: the pool
+  // recycles (`/api/health` reported `recycleCount: 10` within four hours), and
+  // a handle captured before a recycle raises for the rest of the process. The
+  // shipped sweep succeeded for six minutes and then failed on every one of its
+  // next ~390 ticks, all on `listByState("suspended")`.
+  //
+  // Rebuilding is cheap — the reaper holds references, not connections — but
+  // the miss counter must NOT be rebuilt with it, hence the hoisted store.
+  const reaperRef: { current: ServiceWindowReaperInstance | null } = { current: null };
+  let counterStore: unknown = null;
   let unsubscribe: (() => Promise<void>) | null = null;
+  let subscribed = false;
 
   const stopInterval = createIntervalSweeper({
     name: "service window",
     intervalMs: intervalMs ?? SERVICE_WINDOW_SWEEP_INTERVAL_MS,
-    tick: async () => {
+    tick: async (): Promise<SweepTickResult> => {
       try {
         const repo = await getServerAskRepository();
-        if (!repo) return;
+        // No repository yet is "nothing to do", not a failure — the daemon
+        // starts sweepers before persistence is guaranteed up.
+        if (!repo) return { ok: true };
 
         const [
           { ServiceWindowReaper },
-          { createPostgresWindowNotifier },
+          { createProviderWindowNotifier },
+          { InMemoryForceImmediateCounterStore },
           { loadAttentionWindowsOrThrow },
           windowCommands,
         ] = await Promise.all([
           import("@minsky/domain/ask/service-window-reaper"),
           import("@minsky/domain/ask/attention-windows/notify"),
+          import("@minsky/domain/ask/force-immediate-counters"),
           import("@minsky/domain/ask/attention-windows/loader"),
           import("../adapters/shared/commands/window/index"),
         ]);
 
-        if (!reaper) {
-          reaper = new ServiceWindowReaper(repo, async (ask, reason) => {
+        // Survives the per-tick rebuild so `window_missed_count` bookkeeping is
+        // not reset every 60 seconds.
+        counterStore ??= new InMemoryForceImmediateCounterStore();
+
+        reaperRef.current = new ServiceWindowReaper(
+          repo,
+          async (ask, reason) => {
             // Log-only dispatch (see docblock). The state transition IS the
             // delivery for the window surfaces; a transport belongs to mt#1545.
             log.info("service window: ask awakened", {
@@ -1301,15 +1322,25 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
               windowKey: ask.windowKey,
               reason,
             });
-          });
-          await subscribeReaperToWindowEvents(reaper).then(
+          },
+          {},
+          counterStore as ConstructorParameters<typeof ServiceWindowReaper>[3]
+        );
+
+        // Subscribe ONCE. The handlers read `reaperRef.current`, so they keep
+        // working across the per-tick rebuild above without re-registering
+        // LISTEN on every tick.
+        if (!subscribed) {
+          subscribed = true;
+          await subscribeReaperToWindowEvents(reaperRef).then(
             (unsub) => {
               unsubscribe = unsub;
             },
             (err) => {
-              // Subscription failure is not fatal: the cron/close/deadline
-              // halves below still run. Logged loudly because without it the
-              // window-open awakening silently does not happen.
+              // Retry on a later tick rather than latching: a subscription that
+              // failed because persistence was still coming up must not leave
+              // window-open awakening off for the process lifetime.
+              subscribed = false;
               const message = err instanceof Error ? err.message : String(err);
               log.warn("service window: NOTIFY subscription failed; window-open wake is inactive", {
                 message,
@@ -1318,16 +1349,16 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
           );
         }
 
-        const container = await getCachedPersistenceProvider().catch(() => null);
-        const notifier = createPostgresWindowNotifier(
-          // The notifier reads the container lazily per emit; a null provider
-          // degrades to a logged no-op inside `pgNotify` rather than throwing.
-          container as never
+        const provider = await getCachedPersistenceProvider().catch(() => null);
+        const notifier = createProviderWindowNotifier(
+          // A null provider degrades to a logged no-op inside the notifier
+          // rather than throwing.
+          (provider ?? undefined) as Parameters<typeof createProviderWindowNotifier>[0]
         );
         const registry = windowCommands.globalRegistry;
-        const boundReaper = reaper;
+        const boundReaper = reaperRef.current;
 
-        await runServiceWindowTick({
+        return await runServiceWindowTick({
           now: () => new Date(),
           fireCronWindows: (now) =>
             windowCommands.checkAndFireCronWindows(notifier, registry, lastFiredAt, now),
@@ -1342,8 +1373,17 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
           pollDeadlineBound: (nowMs) => boundReaper.pollDeadlineBoundAsks(nowMs),
         });
       } catch (err) {
+        // Report the DOMAIN failure, do not just log it (mt#4364).
+        //
+        // This catch previously returned normally, so `createIntervalSweeper`
+        // recorded a successful tick and `/api/sweeps` showed
+        // `consecutiveFailures: 0, lastErrorAt: null` while 100% of ticks were
+        // failing. mt#4313 shipped this sweep to stop unobservable background
+        // loops and then made itself one — the liveness entry was the evidence
+        // offered for its own health criterion.
         const message = err instanceof Error ? err.message : String(err);
         log.warn("service window sweep failed", { message });
+        return { ok: false };
       }
     },
   });
@@ -1357,8 +1397,12 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
   };
 }
 
+/** The reaper instance type, named once so the ref box below stays readable. */
+type ServiceWindowReaperInstance =
+  import("@minsky/domain/ask/service-window-reaper").ServiceWindowReaper;
+
 /** What one service-window tick did. */
-export interface ServiceWindowTickOutcome {
+export interface ServiceWindowTickOutcome extends SweepTickResult {
   /** Window keys opened because their cron schedule came due. */
   opened: string[];
   /** Window keys closed because their duration elapsed. */
@@ -1395,6 +1439,7 @@ export async function runServiceWindowTick(deps: {
 }): Promise<ServiceWindowTickOutcome> {
   const now = deps.now();
   const outcome: ServiceWindowTickOutcome = {
+    ok: true,
     opened: [],
     closed: [],
     closeFailures: 0,
@@ -1417,6 +1462,9 @@ export async function runServiceWindowTick(deps: {
       log.info("service window: closed on duration elapse", { windowKey: open.windowKey });
     } catch (err) {
       outcome.closeFailures++;
+      // A window that should have closed and did not is a domain failure, even
+      // though the tick continues past it to the other windows and the poll.
+      outcome.ok = false;
       const message = err instanceof Error ? err.message : String(err);
       log.warn("service window: auto-close failed", { windowKey: open.windowKey, message });
     }
@@ -1442,9 +1490,9 @@ export async function runServiceWindowTick(deps: {
  * @throws when the provider is not Postgres-backed or the LISTEN connection
  *   cannot be obtained — the caller degrades rather than failing the tick.
  */
-async function subscribeReaperToWindowEvents(
-  reaper: import("@minsky/domain/ask/service-window-reaper").ServiceWindowReaper
-): Promise<() => Promise<void>> {
+async function subscribeReaperToWindowEvents(reaperRef: {
+  current: ServiceWindowReaperInstance | null;
+}): Promise<() => Promise<void>> {
   const [{ PostgresChannelListener }, { CHANNEL_OPENED, CHANNEL_CLOSED }] = await Promise.all([
     import("@minsky/domain/mesh/postgres-channel-listener"),
     import("@minsky/domain/ask/attention-windows/notify"),
@@ -1469,10 +1517,18 @@ async function subscribeReaperToWindowEvents(
   // Both handlers discard their return value: `onWindowClosed` resolves to a
   // summary the listener contract has no channel for, and `ChannelListenerFn`
   // is `void | Promise<void>`.
+  //
+  // They read `reaperRef.current` at CALL time rather than closing over one
+  // instance, so the per-tick rebuild (mt#4364) does not leave this
+  // subscription pointed at a reaper holding a dead repository handle.
   const onOpened = async (_channel: string, payload: unknown): Promise<void> => {
+    const reaper = reaperRef.current;
+    if (!reaper) return;
     await reaper.onWindowOpened(payload as Parameters<typeof reaper.onWindowOpened>[0]);
   };
   const onClosed = async (_channel: string, payload: unknown): Promise<void> => {
+    const reaper = reaperRef.current;
+    if (!reaper) return;
     await reaper.onWindowClosed(payload as Parameters<typeof reaper.onWindowClosed>[0]);
   };
 
