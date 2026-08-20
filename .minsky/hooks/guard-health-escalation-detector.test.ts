@@ -433,8 +433,11 @@ describe("the error-message cap is bounded in the unit the ceiling counts (mt#43
 
     expect(ascii).not.toBeNull();
     expect(emoji).not.toBeNull();
-    // Pre-fix: 1207 vs 1327.
-    expect((emoji as string).length).toBeLessThanOrEqual((ascii as string).length);
+    // EQUAL, not merely <=. Once the cap counts the same unit the ceiling does,
+    // a 60-unit bound admits 60 units of either alphabet, so the two renders are
+    // the same size — that identity IS the fix, and `<=` would also pass for a
+    // cap that over-trimmed emoji. Pre-fix: 1207 vs 1327.
+    expect((emoji as string).length).toBe((ascii as string).length);
   });
 
   test("the saturated render stays under the declared ceiling for both", () => {
