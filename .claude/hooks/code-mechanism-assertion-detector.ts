@@ -2078,14 +2078,6 @@ export function surfaceOnlyReasons(
 }
 
 /**
- * Collect every symbol-free claim across the three surfaces (mt#3726).
- *
- * Returns `undefined` rather than `[]` when the cohort produced nothing, so a
- * calibration record written before this shipped stays distinguishable from one
- * where the cohort ran and nominated nothing — the same distinction mt#4155
- * added `identityDetectionRung` for.
- */
-/**
  * The WARN line a symbol-free nomination surfaces (mt#3726, PR #3178 R1).
  *
  * AT4 requires that a fire in log-only posture "writes a calibration record and
@@ -2114,6 +2106,14 @@ export function buildSymbolFreeWarning(
   );
 }
 
+/**
+ * Collect every symbol-free claim across the three surfaces (mt#3726).
+ *
+ * Returns `undefined` rather than `[]` when the cohort produced nothing, so a
+ * calibration record written before this shipped stays distinguishable from one
+ * where the cohort ran and nominated nothing — the same distinction mt#4155
+ * added `identityDetectionRung` for.
+ */
 export function collectSymbolFreeClaims(
   ...results: ReadonlyArray<CodeMechanismDetectionResult | undefined>
 ): Array<{ family: string; excerpt: string }> | undefined {
