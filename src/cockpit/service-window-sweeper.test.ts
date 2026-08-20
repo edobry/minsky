@@ -140,6 +140,60 @@ describe("runServiceWindowTick", () => {
     expect(outcome.closeFailures).toBe(1);
   });
 
+  // PR #3198 R2: containing only `closeWindow` left the contract inconsistent —
+  // the other three dependency calls escaped to the caller's outer catch, which
+  // reports ok:false but discards the counts collected before the throw.
+  test("a throwing deadline poll degrades the outcome instead of escaping", async () => {
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        fireCronWindows: async () => ["ask-hours"],
+        pollDeadlineBound: async () => {
+          throw new Error("pool recycled");
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    // The step that already succeeded is still reported.
+    expect(outcome.opened).toEqual(["ask-hours"]);
+  });
+
+  test("a throwing cron open degrades the outcome and the poll still runs", async () => {
+    let polled = false;
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        fireCronWindows: async () => {
+          throw new Error("config unreadable");
+        },
+        pollDeadlineBound: async () => {
+          polled = true;
+          return 0;
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(polled).toBe(true);
+  });
+
+  test("a throwing open-window enumeration degrades the outcome and the poll still runs", async () => {
+    let polled = false;
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        listOpenWindows: () => {
+          throw new Error("registry unavailable");
+        },
+        pollDeadlineBound: async () => {
+          polled = true;
+          return 0;
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(polled).toBe(true);
+  });
+
   test("a healthy tick reports ok", async () => {
     const outcome = await runServiceWindowTick(
       inertDeps({

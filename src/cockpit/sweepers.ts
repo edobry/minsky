@@ -1450,15 +1450,40 @@ export async function runServiceWindowTick(deps: {
     dispatched: 0,
   };
 
+  // Every dependency call below is contained, so ONE failing step degrades this
+  // tick's outcome without cancelling the others and without discarding the
+  // counts already collected (PR #3198 R2 BLOCKING).
+  //
+  // Containing only the auto-close, as the first cut did, left the contract
+  // inconsistent: a throwing `pollDeadlineBound` escaped to the caller's outer
+  // catch, which reports `ok: false` correctly but loses `opened`/`closed`, and
+  // a direct caller of this exported function got a throw where the return type
+  // promises an outcome.
+
   // 1. Open any window whose cron schedule is due (mt#1489's criterion).
-  outcome.opened = await deps.fireCronWindows(now);
-  if (outcome.opened.length > 0) {
-    log.info("service window: opened on schedule", { windows: outcome.opened });
+  try {
+    outcome.opened = await deps.fireCronWindows(now);
+    if (outcome.opened.length > 0) {
+      log.info("service window: opened on schedule", { windows: outcome.opened });
+    }
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: cron open failed", { message });
   }
 
   // 2. Close any open window past its expected close time. Nothing did this
   //    before, so `onWindowClosed` never fired without an operator typing it.
-  for (const open of deps.listOpenWindows()) {
+  let openWindows: { windowKey: string; expectedCloseAt: Date }[] = [];
+  try {
+    openWindows = deps.listOpenWindows();
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: could not enumerate open windows", { message });
+  }
+
+  for (const open of openWindows) {
     if (open.expectedCloseAt.getTime() > now.getTime()) continue;
     try {
       await deps.closeWindow(open.windowKey);
@@ -1476,7 +1501,13 @@ export async function runServiceWindowTick(deps: {
 
   // 3. Deadline-bound poll. Driven here rather than by the reaper's own timer
   //    so this sweep's liveness entry covers it (see the sweeper's docblock).
-  outcome.dispatched = await deps.pollDeadlineBound(now.getTime());
+  try {
+    outcome.dispatched = await deps.pollDeadlineBound(now.getTime());
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: deadline poll failed", { message });
+  }
 
   return outcome;
 }
