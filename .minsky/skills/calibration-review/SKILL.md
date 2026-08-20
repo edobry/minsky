@@ -592,6 +592,24 @@ reviewing — loses the most.
 - **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
   NOT advanced. Re-run read-only and ack again with the fresh token.
 
+**`reviewDue` in that same payload is the PRE-ack set — it is not a post-ack
+status field (mt#4334).** It names the logs the ack ACTED ON, not what is still
+outstanding: `computeReviewDueLogs` runs against the watermarks as read at the
+START of the call (`src/adapters/shared/commands/calibration.ts:634`), and
+`--ack` then advances exactly that set — which the code comment just above it
+says outright. So a SUCCESSFUL ack returns `watermarkAdvanced: true` beside a
+pre-ack `reviewDue` byte-identical to the read-only sweep's, and that pair reads
+exactly like an ack that did nothing.
+
+**To confirm the outcome, re-run the command read-only.** Do not re-read the ack
+payload, and do not re-ack — the ack is not in doubt, only its rendering.
+Observed 2026-08-19 on a `silent-stretch` pass: the ack returned
+`watermarkAdvanced: true` with `reviewDue` unchanged at 10 fires; an independent
+read-only sweep a minute later returned `reviewDue: []`. This is the same
+verify-the-outcome-not-the-action discipline the four fields above serve — the
+difference is that here the misleading signal is a field that is CORRECT about a
+question you were not asking.
+
 **If you lost the token** (a `/clear`, a context switch, a resumed pass), do not
 work around it: re-run the command read-only, re-read what it shows, and ack with
 the new token. That is one call, and it is honest about what you actually saw.
