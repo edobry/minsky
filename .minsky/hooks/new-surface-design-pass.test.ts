@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   checkNewSurfaceDesignPass,
+  parseNameStatus,
   specDeclaresVisualJudgment,
   decideOutcome,
   findDesignSkillsInvoked,
@@ -154,6 +155,24 @@ describe("trigger 2: a MODIFIED surface whose spec is visual (mt#4356)", () => {
 
     expect(result.applicable).toBe(true);
     expect(result.designSkillsInvoked).toEqual(["impeccable"]);
+  });
+
+  test("a renamed-AND-modified surface counts as modified (PR #3189 R1)", () => {
+    // `git diff --name-status` emits `R<similarity>\told\tnew` for a rename, so
+    // the shell has to read the THIRD field and split on the score. A component
+    // moved and restyled in one branch is design work; the first draft dropped it
+    // entirely, which left a silent hole inside the trigger this task added. The
+    // shell's parse is covered here through the same contract the pure core sees:
+    // an R<100 path arrives in `modifiedFiles`.
+    const result = checkNewSurfaceDesignPass(
+      [],
+      ["src/cockpit/web/components/MovedAndRestyled.tsx"],
+      [],
+      true
+    );
+
+    expect(result.applicable).toBe(true);
+    expect(result.trigger).toBe("modified-surface-visual-spec");
   });
 
   test("a modified NON-render file with a visual spec is still not applicable", () => {
@@ -409,5 +428,37 @@ describe("the warning (mt#4124)", () => {
     expect(warning).toContain("src/cockpit/web/components/S0.tsx");
     // A silent cap reads as "these are all of them" — the mt#4096 shape.
     expect(warning).not.toContain(`src/cockpit/web/components/S${MAX_REPORTED_SURFACES}.tsx`);
+  });
+});
+
+describe("parsing git --name-status (PR #3189 R1)", () => {
+  test("a rename below 100 yields the NEW path as modified", () => {
+    // The defect: `R095\told\tnew` has THREE fields, so a two-field read takes
+    // `old` — a path that no longer exists — and the real, changed file is never
+    // classified at all.
+    const { added, modified } = parseNameStatus(
+      "R095\tsrc/cockpit/web/components/Old.tsx\tsrc/cockpit/web/components/New.tsx"
+    );
+
+    expect(modified).toEqual(["src/cockpit/web/components/New.tsx"]);
+    expect(added).toEqual([]);
+  });
+
+  test("a PURE move (R100) is neither added nor modified", () => {
+    // Relocating a component unchanged is not design work; counting it would fire
+    // on every refactor that shuffles files.
+    const { added, modified } = parseNameStatus("R100\ta/Old.tsx\ta/New.tsx");
+
+    expect(added).toEqual([]);
+    expect(modified).toEqual([]);
+  });
+
+  test("A and M still parse, and unknown statuses are ignored", () => {
+    const { added, modified } = parseNameStatus(
+      ["A\tsrc/a.tsx", "M\tsrc/b.tsx", "D\tsrc/gone.tsx", ""].join("\n")
+    );
+
+    expect(added).toEqual(["src/a.tsx"]);
+    expect(modified).toEqual(["src/b.tsx"]);
   });
 });

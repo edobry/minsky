@@ -371,6 +371,43 @@ export function checkNewSurfaceDesignPass(
 }
 
 /**
+ * Split `git diff --name-status` output into added and modified paths.
+ *
+ * Exported and pure because this is where PR #3189 R1's defect lived: the parse,
+ * not the decision. `checkNewSurfaceDesignPass` was always correct given the
+ * right lists — the shell was handing it the wrong ones, and a test that only
+ * exercised the core could not see that.
+ */
+export function parseNameStatus(stdout: string): { added: string[]; modified: string[] } {
+  const added: string[] = [];
+  const modified: string[] = [];
+  for (const line of stdout.split("\n")) {
+    const parts = line.split("\t");
+    const status = parts[0];
+    if (!status) continue;
+
+    // A rename emits THREE fields — `R<similarity>\told\tnew` — so the new path
+    // is `parts[2]`, and a two-field read would silently take the OLD path.
+    // `R100` is a pure move with no content change and stays excluded from both
+    // lists, per the original rationale: relocating a component is not designing
+    // a surface. Anything below 100 moved AND changed the file, which is a
+    // modification of an existing surface and belongs to trigger 2.
+    if (status.startsWith("R")) {
+      const newPath = parts[2]?.trim();
+      const similarity = Number(status.slice(1));
+      if (newPath && Number.isFinite(similarity) && similarity < 100) modified.push(newPath);
+      continue;
+    }
+
+    const path = parts[1]?.trim();
+    if (!path) continue;
+    if (status === "A") added.push(path);
+    else if (status === "M") modified.push(path);
+  }
+  return { added, modified };
+}
+
+/**
  * Files this branch ADDS and MODIFIES, from `git diff --name-status main...HEAD`.
  *
  * `main...HEAD` (three dots) rather than `main..HEAD`: the two-dot form
@@ -379,10 +416,14 @@ export function checkNewSurfaceDesignPass(
  *
  * Status `A` and `M` are kept SEPARATE, because they feed different triggers —
  * an addition fires on its own, a modification only alongside a visual spec.
- * A rename (`R`) is still counted as NEITHER: moving an existing component is
- * not designing a new surface, and counting it would fire on every refactor that
- * relocates a file. Since mt#4356 that exclusion is narrower than it sounds — a
- * rename whose branch also modifies a render-path file still reaches trigger 2.
+ * A rename splits on its similarity score, which is the part the first draft of
+ * this change got wrong (PR #3189 R1). A PURE move (`R100`) is counted as
+ * NEITHER: relocating a component is not designing a new surface, and counting it
+ * would fire on every refactor that shuffles files. A rename BELOW 100 moved and
+ * changed the file in one step, which is a modification of an existing surface
+ * and feeds trigger 2 — a component moved and restyled together is precisely the
+ * design work this module exists to notice, and dropping it would have left a
+ * silent hole inside the very trigger mt#4356 added.
  */
 function readTouchedFiles(repoRoot: string): {
   added: string[];
@@ -401,15 +442,7 @@ function readTouchedFiles(repoRoot: string): {
     const detail = res.stderr.trim().slice(0, 200);
     return { added: [], modified: [], failed: `git diff exited ${res.exitCode}: ${detail}` };
   }
-  const added: string[] = [];
-  const modified: string[] = [];
-  for (const line of res.stdout.split("\n")) {
-    const [status, path] = line.split("\t");
-    if (!path) continue;
-    if (status === "A") added.push(path.trim());
-    else if (status === "M") modified.push(path.trim());
-  }
-  return { added, modified };
+  return parseNameStatus(res.stdout);
 }
 
 /** Budget for the spec fetch. Mirrors `inject-success-criteria.ts`'s allowance for the same call. */
