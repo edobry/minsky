@@ -130,19 +130,26 @@ would let a bookkeeping question override direct evidence.
 
 ## Measured behaviour
 
-`bun scripts/replay-gate-walk-provenance.ts`, run 2026-08-19 against the live substrate. The
-population is every task with status DONE — by construction, every task under whose id code has
-merged, which is the historical population of `session_pr_merge` invocations this guard would have
-seen.
+`bun scripts/replay-gate-walk-provenance.ts`, run against the live substrate. The population is
+every task with status DONE — by construction, every task under whose id code has merged, which is
+the historical population of `session_pr_merge` invocations this guard would have seen.
 
 ```
-emission horizon  2026-06-10T18:28:16.479Z
-examined          2954
-gated             1204
-ungated            180
-skipped           1570   (all pre-horizon)
-adjudicable       1384   (ungated 13.0%)
+                  2026-08-19   2026-08-20
+emission horizon  2026-06-10T18:28:16.479Z (both runs)
+examined                2954         2984
+gated                   1204         1232
+ungated                  180          182
+skipped                 1570         1570   (all pre-horizon, both runs)
+adjudicable             1384         1414
+ungated rate           13.0%        12.9%
 ```
+
+Two runs a day apart are reported rather than one, because a single number cannot show whether the
+rate is stable or drifting — and a posture decision would be made from the rate. The `skipped`
+count is identical across both, which is the expected shape: its membership is fixed by a horizon
+that does not move, so every new task lands in `gated` or `ungated` and the bucket can only shrink
+as a share.
 
 Note what the `skipped` column is: **53% of the corpus is outside this substrate's reach**, entirely
 because it predates emission. That fraction shrinks on its own as history advances, and reporting it
@@ -172,7 +179,7 @@ joins a claim against a record, and a missed record is a false positive fired at
 the work. Property 3 above names two independent ways that can happen here.
 
 Posture is operator-reserved. A flip to injecting or denying is a decision, not an implementation
-step — and the 13.0% adjudicable-population rate above is the input it would be made from, not a
+step — and the ~13% adjudicable-population rate above is the input it would be made from, not a
 verdict on it.
 
 ## Cross-references
