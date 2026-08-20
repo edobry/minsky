@@ -188,6 +188,66 @@ describe("Prose — authored entity links open the peek (mt#4351)", () => {
     expect(screen.getByText("thing").tagName).toBe("SPAN");
   });
 
+  test("R1: an authored label keeps the body face — EntityRef's mono is for ids", () => {
+    renderProse(`see [the note](${MEMORY_PATH}) for the detail`);
+    // `EntityRef`'s LINK_CLASS hard-codes `font-mono` because every call site
+    // before this one rendered an id. An author's prose label is not an id, and
+    // the branch this replaced rendered it in the body face — so routing it
+    // through EntityRef silently re-typeset it (PR #3181 R1).
+    expect(theLink().className).not.toContain("font-mono");
+  });
+
+  test("R1: a linkified bare ref is STILL mono", () => {
+    renderProse(`see ${MEMORY_SHORT_ID} for the detail`);
+    // The control for the case above: the opt-out must not leak into the path
+    // where mono is correct, or the fix trades one silent restyle for another.
+    expect(theLink().className).toContain("font-mono");
+  });
+
+  test("R2: an internal path with a QUERY keeps its href and does not peek", () => {
+    const href = `${MEMORY_PATH}?tab=details`;
+    renderProse(`see [the note](${href}) for the detail`);
+    const link = theLink();
+    // Resolving this would swallow `?tab=details` INTO the id and re-encode it
+    // to `/memory/<uuid>%3Ftab%3Ddetails` — corrupt id, query gone from both
+    // the peek and the Cmd-click. The plain <Link> is what preserves it.
+    expect(link.getAttribute("href")).toBe(href);
+    expect(link.getAttribute(ENTITY_REF_ATTR)).toBeNull();
+    fireEvent.click(link, { button: 0 });
+    expect(location()).toBe(href);
+    expect(location()).not.toContain("peek=");
+  });
+
+  test("R2: an internal path with a FRAGMENT does the same", () => {
+    const href = "/tasks/mt%234351#section";
+    renderProse(`see [that section](${href}) for the detail`);
+    const link = theLink();
+    expect(link.getAttribute("href")).toBe(href);
+    fireEvent.click(link, { button: 0 });
+    expect(location()).not.toContain("peek=");
+  });
+
+  test("R2 sibling: a TASK deeplink still peeks — its id legitimately holds a '#'", () => {
+    // The guard above must read the RAW URI, not the decoded id: `mt%234351`
+    // decodes to `mt#4351`, so an id-side check calls every task deeplink
+    // fragment-bearing and silently stops it peeking. Written after doing
+    // exactly that.
+    renderProse("see [mt#4351](minsky://task/mt%234351) for the detail");
+    fireEvent.click(theLink(), { button: 0 });
+    expect(location()).toBe(`${ORIGIN}?peek=task%3Amt%25234351`);
+  });
+
+  test("R2 sibling: a minsky:// URI whose id swallowed a query does not peek", () => {
+    // The same defect one branch up, which the review did not flag:
+    // `parseMinskyUri` takes everything after the type as the id, so this
+    // yields `<uuid>?tab=x` — peekable-looking, addressing nothing.
+    renderProse(`see [the note](minsky://memory/${MEMORY_UUID}?tab=x) for the detail`);
+    const link = theLink();
+    expect(link.getAttribute(ENTITY_REF_ATTR)).toBeNull();
+    fireEvent.click(link, { button: 0 });
+    expect(location()).not.toContain("peek=");
+  });
+
   test("AT7: the anchor carries the outside-dismiss exemption attribute", () => {
     renderProse(`see [${MEMORY_SHORT_ID}](minsky://memory/${MEMORY_UUID}) for the detail`);
     // Without it (mt#4143) the same click that opens the assembly would also
