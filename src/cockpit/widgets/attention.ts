@@ -123,9 +123,19 @@ async function loadCohort(repo: AskRepository, windowKey: string | null): Promis
     return pendingAsksForWindow(repo, windowKey, nowMs);
   }
 
-  // Fallback: all suspended asks routed to operator (no active window)
-  const suspended = await repo.listByState("suspended");
-  const operatorAsks = suspended.filter(
+  // Fallback: pending operator asks (no active window).
+  //
+  // Covers `routed` as well as `suspended` (mt#4313). `pendingAsksForWindow`
+  // above already spans both states, and once the reaper actually runs, a woken
+  // ask sits in `routed` from the moment its window opens until it is answered.
+  // Reading only `suspended` here would drop exactly those asks the moment the
+  // window closed — windows are open 30-60 minutes a day, so this branch is the
+  // widget's normal state and the ask would be invisible until the next one.
+  const [routed, suspended] = await Promise.all([
+    repo.listByState("routed"),
+    repo.listByState("suspended"),
+  ]);
+  const operatorAsks = [...routed, ...suspended].filter(
     (a) => a.routingTarget === "operator" && !isTerminal(a.state)
   );
   operatorAsks.sort(compareAskPriority);

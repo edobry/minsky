@@ -59,8 +59,8 @@ export interface WindowNotifier {
 // Postgres implementation
 // ---------------------------------------------------------------------------
 
-const CHANNEL_OPENED = "minsky.attention_window_opened";
-const CHANNEL_CLOSED = "minsky.attention_window_closed";
+export const CHANNEL_OPENED = "minsky.attention_window_opened";
+export const CHANNEL_CLOSED = "minsky.attention_window_closed";
 
 /**
  * Emit `pg_notify` via the raw postgres connection.
