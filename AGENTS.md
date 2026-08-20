@@ -1488,7 +1488,14 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/conflict-marker/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+  Conflict-marker (mt#4307) blocks a staged file carrying git's `<{7}`/`={7}`/`>{7}` line-anchored
+  markers, and unlike several siblings does NOT skip `src/generated/**` — that is where the
+  originating corruption hid. An open/close marker fires alone (measured: zero repo-wide); a bare
+  separator needs a corroborating marker, because a 7-char Markdown setext underline is otherwise
+  indistinguishable. In Markdown-family files an isolated marker inside a fenced block is exempt so
+  docs can quote one, but a COMPLETE block fires even fenced.
+  `MINSKY_SKIP_CONFLICT_MARKER_CHECK`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
   `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
@@ -1604,6 +1611,10 @@ Detail: `guard-dispatcher-framework.md`.
 - **Enumeration-scope check** (mt#4171) — `session_pr_create` changing a serialized contract with
   no `docs/` sweep; a SUBTREE is not its directory. At `pr`, not ADR-042's READY seam (mt#4293).
   Calibration-first. `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
+- **Gate-walk provenance** (mt#1880) — `session_pr_merge` on a task with no `task.status_changed`
+  → READY row: was it gated at ALL? The existence half of the pair above, at the only seam
+  mem#416's four bypass paths share. `skipped` (pre-horizon, unreadable) is kept strictly apart
+  from `ungated`. Record-only. `MINSKY_SKIP_GATE_WALK_PROVENANCE`. Detail: `gate-walk-provenance.md`.
 - **New-surface design pass** (mt#4124) — `session_pr_create` on a branch that ADDS a render-path file, or (mt#4356) MODIFIES one when the bound spec declares the change visually judged, with no design skill invoked in the authoring conversation. The judgment half of mt#2421. The second trigger exists because file-add proxied for "this is a design decision" and missed the largest class of design work — changing how an existing surface looks; the whole cockpit redesign sequence is modify-only and was invisible to it. Calibration-first. `MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS`. Detail: `new-surface-design-pass.md`.
 - **Flakiness-control detector** (mt#3658) — `tasks_create` whose spec claims a failure MODE with no isolation control recorded. Fires on the ATTRIBUTION and equally on the DENIAL (mt#4166). Calibration-first. `MINSKY_SKIP_FLAKINESS_CONTROL`. Detail: `flakiness-control-detector.md`.
 - **Unowned-finding scan** (mt#4246) — a `tasks_status_set` → DONE whose spec's findings section holds an item declaring neither `[owner: mt#N]` nor `[no-owner: reason]`. Calibration-first. `MINSKY_SKIP_UNOWNED_FINDING_SCAN`. Detail: `unowned-finding-scan.md`.

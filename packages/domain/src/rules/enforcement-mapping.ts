@@ -822,6 +822,11 @@ export const NON_ENFORCEMENT_CLAUDE_HOOKS: NonEnforcementHook[] = [
       "Reminds the agent to walk READY -> /implement-task — advisory, no permission decision (hook-observers.mdc)",
   },
   {
+    configPath: ".claude/hooks/gate-walk-provenance.ts",
+    reason:
+      'Merge-seam recorder (mt#1880): reads whether the bound task has a task.status_changed → READY row and writes one calibration record. Record-only by ADR-042 §Posture — never denies, never injects, and its fire-log decision is the literal type "allow" — so it is not any rule\'s enforcement mechanism. Registered at BOTH merge surfaces (session_pr_merge and the gh-api bypass) because the bypass is where an ungated task most plausibly reaches main; a posture flip is operator-reserved, and this entry moves to ENFORCEMENT_MAPPINGS if that ever happens',
+  },
+  {
     configPath: ".claude/hooks/unowned-finding-scan.ts",
     reason:
       "Records findings-section items with no declared owner at the DONE transition — log-only calibration, no permission decision (mt#4246, hook-observers.mdc)",
