@@ -15,6 +15,9 @@ import {
   elideQuotedContexts,
   buildReminder,
   MAX_RENDERED_PHRASE_CHARS,
+  citesFiledAsk,
+  resolveAskCitation,
+  SUPPRESSION_CITES_FILED_ASK,
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
@@ -172,6 +175,7 @@ describe("reminder + rollout gate", () => {
         cls: PRINCIPAL_RESERVED,
         matchedPhrase: "needs your call",
         context: "Naming the surface needs your call.",
+        sentence: "Naming the surface needs your call.",
       },
     ];
     const reminder = buildReminder(m);
@@ -185,6 +189,7 @@ describe("reminder + rollout gate", () => {
         cls: DEFERRAL_MENU,
         matchedPhrase: "what's your call?",
         context: "I could do A or B — what's your call?",
+        sentence: "I could do A or B — what's your call?",
       },
     ];
     const reminder = buildReminder(m);
@@ -782,6 +787,7 @@ describe("rendered evidence is bounded by the phrase cap (mt#4234)", () => {
     cls,
     matchedPhrase: phrase,
     context: "",
+    sentence: "",
   });
 
   test("the render does not grow with the length of the agent's prose", () => {
@@ -856,5 +862,200 @@ describe("rendered evidence is bounded by the phrase cap (mt#4234)", () => {
 
     expect(saturated.length).toBeGreaterThan(principalOnly.length);
     expect(saturated.length).toBeGreaterThan(menuOnly.length);
+  });
+});
+
+describe("a sentence citing a filed ask is reporting, not deferring (mt#4201)", () => {
+  // The inversion mem#719 names: the fire lands on the COMPLIANT behaviour. The
+  // message routed the decision through the Ask substrate and is now reporting
+  // its state at turn end — which `communication-contract.mdc` requires — and the
+  // remedy the guard emits ("file an ask") is already done.
+  //
+  // Measured across three windows: 2 of 2 principal-reserved matches
+  // (2026-08-10, via the subsumed mt#3932), 2 of 3 false (2026-08-17), 1 of 10
+  // injected (2026-08-20).
+
+  /** AT1's verbatim sentence, from the 2026-08-17 pass. */
+  const REPORTS_ASK =
+    "Still open and unchanged: [ask#8752](minsky://ask/7f206ca7-fe58-481f-bae9-46346acc1992) " +
+    "needs your call on the policy-coverage detector.";
+
+  /** AT2: the same sentence with the citation removed. */
+  const REPORTS_ASK_WITHOUT_CITATION =
+    "Still open and unchanged: the policy-coverage detector needs your call.";
+
+  test("AT1 — the verbatim reported-ask sentence does not survive the filter", () => {
+    const matches = detectDeferralPhrases(REPORTS_ASK);
+
+    // Guards the discrimination: if the phrase never matched, the suppression
+    // below would pass for the wrong reason (mem#704).
+    expect(matches.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+    expect(remaining).toEqual([]);
+    expect(suppressedAll).toBe(true);
+  });
+
+  test("AT2 — the same sentence WITHOUT the ask citation still fires", () => {
+    const matches = detectDeferralPhrases(REPORTS_ASK_WITHOUT_CITATION);
+    expect(matches.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+    expect(remaining.length).toBe(matches.length);
+    expect(suppressedAll).toBe(false);
+  });
+
+  test("AT3 — a real positive, offering routine work instead of doing it, still fires", () => {
+    // The 2026-08-17 pass's 5 true positives were all this shape: the agent
+    // handing back work that was its own to do. None cites an ask, because there
+    // is no ask — that is exactly why they are true.
+    const realPositives = [
+      "Want me to file those two tasks now, or would you rather I batch them?",
+      "Say the word and I'll run the queued sweep.",
+      "I'll pause here unless you want me to continue the chain-walk.",
+    ];
+
+    for (const text of realPositives) {
+      const matches = detectDeferralPhrases(text);
+      expect(matches.length).toBeGreaterThan(0);
+      expect(resolveAskCitation(matches).remaining.length).toBe(matches.length);
+    }
+  });
+
+  test("a bare ask#N with no deeplink counts — the unlinked form is documented", () => {
+    // `cockpit-deeplinks.mdc` concedes the bare short id when the uuid is not at
+    // hand, and the cockpit linkifies it. Requiring the markdown link would fire
+    // on the exact case the rule already permits.
+    expect(citesFiledAsk("ask#9275 is still yours to decide.")).toBe(true);
+    expect(citesFiledAsk("Waiting on your call for minsky://ask/23a57be2-36c1-41d7")).toBe(true);
+  });
+
+  test("an unrelated hash reference does NOT count as an ask citation", () => {
+    // The discrimination that keeps this from suppressing everything: a task or
+    // PR reference in the same sentence is not a routed decision.
+    expect(citesFiledAsk("mt#4201 needs your call.")).toBe(false);
+    expect(citesFiledAsk("PR #3192 — you decide whether to merge.")).toBe(false);
+    expect(citesFiledAsk("Ask me later.")).toBe(false);
+  });
+
+  test("suppression is PER-MATCH — a reported ask does not silence a real deferral beside it", () => {
+    // The scope decision that makes this safe: one paragraph may report a filed
+    // ask while another defers something genuinely undone. Only the reporting
+    // sentence goes quiet.
+    const mixed =
+      "Still yours: [ask#9275](minsky://ask/23a57be2-36c1-41d7-9ffa-e74c452e8adb), whether the " +
+      "detector starts speaking. Want me to file the follow-up task, or should I leave it?";
+
+    const matches = detectDeferralPhrases(mixed);
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+
+    // At least one match survives — the genuine offer — and the turn is NOT
+    // wholly suppressed.
+    expect(remaining.length).toBeGreaterThan(0);
+    expect(suppressedAll).toBe(false);
+    expect(remaining.every((m) => !citesFiledAsk(m.sentence))).toBe(true);
+  });
+});
+
+describe("AT4 — mt#4175's revisability class is untouched by the ask-citation filter", () => {
+  // The two false classes measured in the same 2026-08-17 window are independent:
+  // this task suppresses a sentence that CITES a filed ask; mt#4175 owns a
+  // revisability offer that FOLLOWS a decision the agent already took. A
+  // revisability offer carries no ask id, so the filter cannot reach it — which
+  // is what keeps mt#4175's remedy free to be designed on its own terms.
+
+  test("a revisability offer with no ask citation survives the filter unchanged", () => {
+    const revisability = "I went with the second option unless you'd rather I switch.";
+
+    const matches = detectDeferralPhrases(revisability);
+    expect(matches.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+    expect(remaining.length).toBe(matches.length);
+    expect(suppressedAll).toBe(false);
+  });
+});
+
+describe("PR #3205 R1 — the filter reads the captured sentence, never the wider context", () => {
+  test("an ask cited in the context's LEAD sentence does not suppress a match in the next one", () => {
+    // The blocking finding: re-deriving the sentence by searching `context` for
+    // `matchedPhrase` picks the first occurrence, and `context` deliberately
+    // carries a lead sentence. Here the ask lives in that lead; the match does
+    // not. Reading the context suppresses (wrong); reading `sentence` fires.
+    const match: DeferralMatch = {
+      cls: "deferral-menu",
+      matchedPhrase: "your call?",
+      context: "[ask#9275](minsky://ask/23a57be2) is filed. So what's your call?",
+      sentence: "So what's your call?",
+    };
+
+    // The citation IS present in the wider window — without this the test would
+    // pass on a fixture that never posed the hazard (mem#704).
+    expect(match.context).toContain("ask#9275");
+    expect(citesFiledAsk(match.context)).toBe(true);
+
+    // …and absent from the sentence the match actually sits in.
+    expect(citesFiledAsk(match.sentence)).toBe(false);
+
+    const { remaining, suppressedAll } = resolveAskCitation([match]);
+    expect(remaining).toEqual([match]);
+    expect(suppressedAll).toBe(false);
+  });
+
+  test("detectDeferralPhrases captures a sentence narrower than its context", () => {
+    // Pins the capture itself rather than a hand-built fixture: the two windows
+    // must actually differ on real input, or the distinction above is theatre.
+    const text =
+      "The migration is queued and reviewed. Want me to run it now, or would you rather wait?";
+
+    const matches = detectDeferralPhrases(text);
+    expect(matches.length).toBeGreaterThan(0);
+
+    const [match] = matches as [DeferralMatch];
+    expect(match.sentence.length).toBeLessThan(match.context.length);
+    expect(match.context).toContain("migration is queued");
+    expect(match.sentence).not.toContain("migration is queued");
+  });
+});
+
+describe("PR #3205 R1 — run() wires the suppression, not just the helper", () => {
+  // Non-blocking finding: unit-testing `resolveAskCitation` proves the HELPER,
+  // not that anything calls it. This is the caller direction of the mt#2508
+  // production-wiring check, applied to a detector's own entrypoint.
+
+  const REPORTED_ASK_TURN =
+    "Still open and unchanged: [ask#8752](minsky://ask/7f206ca7) needs your call on the detector.";
+  const UNCITED_DEFERRAL_TURN = "The rail-axis question needs your call.";
+
+  test("a reported-ask turn records the detection and injects NOTHING", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(REPORTED_ASK_TURN),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+
+    expect(outcome?.calibration).toBeDefined();
+    // Detected — the record still carries it (mt#3207 detect-first).
+    const cal = outcome?.calibration as {
+      matches: unknown[];
+      suppressionReasons: string[];
+    };
+    expect(cal.matches.length).toBeGreaterThan(0);
+    expect(cal.suppressionReasons).toContain(SUPPRESSION_CITES_FILED_ASK);
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("the same phrase WITHOUT a citation still injects — the wiring discriminates", () => {
+    const transcriptLines = [
+      makeRunUserLine(),
+      makeRunAssistantLine(UNCITED_DEFERRAL_TURN),
+      makeRunUserLine(),
+    ];
+    const outcome = run(RUN_HOOK_INPUT, makeCtx(transcriptLines));
+
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).not.toContain(SUPPRESSION_CITES_FILED_ASK);
+    expect(outcome?.additionalContext).toBeDefined();
   });
 });

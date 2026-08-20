@@ -100,6 +100,20 @@ export const SUPPRESSION_ASKS_CREATE_THIS_TURN = "asks-create-this-turn";
  */
 export const SUPPRESSION_STOP_GUARD_ALREADY_INJECTED = "deduped-by-untaken-action-stop";
 
+/**
+ * Reason string for the mt#4201 suppression: the matched sentence CITES an ask
+ * that is already filed, so the message is REPORTING a routed decision rather
+ * than deferring one in prose.
+ *
+ * This is the inversion mem#719 names in its sharpest form — the fire lands on
+ * the compliant behaviour, so the reader most likely to see it is the one who
+ * did the right thing, and the remedy it emits ("file an ask") is already done.
+ * Measured across three independent windows: 2 of 2 `principal-reserved` matches
+ * (2026-08-10, via the subsumed mt#3932), 2 of 3 false (2026-08-17), and 1 of 10
+ * injected (2026-08-20).
+ */
+export const SUPPRESSION_CITES_FILED_ASK = "cites-filed-ask";
+
 /** Short sha1, matching the Stop guard's key derivation. */
 function sha1Short(input: string): string {
   return createHash("sha1").update(input).digest("hex").slice(0, 16);
@@ -132,6 +146,23 @@ export interface DeferralMatch {
    * them.
    */
   context: string;
+  /**
+   * JUST the sentence containing the match (mt#4201, PR #3205 R1).
+   *
+   * Captured here, at match time, where `m.index` is known — NOT re-derived
+   * later by searching {@link context} for {@link matchedPhrase}. The reviewer
+   * caught why that mattered: a phrase recurring in the captured window makes a
+   * substring search select the WRONG occurrence's sentence, and `context`
+   * deliberately carries a lead sentence (`leadSentences: 1`) for exactly the
+   * kind of prose where a deferral phrase repeats. Same extractor, one fewer
+   * lead sentence, zero ambiguity.
+   *
+   * SEPARATE from `context` rather than replacing it: `context` is what a
+   * calibration reviewer classifies from and its width was chosen deliberately
+   * (see above). This is the narrower window the ask-citation suppression tests,
+   * and only that.
+   */
+  sentence: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -428,6 +459,9 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
         // is byte-identical between a real deferral and a courtesy offer. See
         // `MatchContextOptions.leadSentences` for the measured distribution.
         context: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 1 }),
+        // mt#4201: the same extractor with no lead sentence IS the containing
+        // sentence — the forward scan already stops at the first `.`/`!`/`?`.
+        sentence: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 0 }),
       });
       break;
     }
@@ -443,6 +477,7 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
         cls: "deferral-menu",
         matchedPhrase: offer.label,
         context: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 1 }),
+        sentence: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 0 }),
       });
     }
   }
@@ -644,6 +679,81 @@ export function resolveStopOverlap(
   return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
+/**
+ * An already-filed ask, cited the two ways this corpus cites one (mt#4201).
+ *
+ * `ask#N` is the short-id label form and `minsky://ask/<uuid>` is the deeplink
+ * target; `cockpit-deeplinks.mdc` prescribes writing BOTH as
+ * `[ask#N](minsky://ask/<uuid>)`, so either alone is enough to recognize a
+ * citation and neither is required to accompany the other.
+ *
+ * Deliberately NOT anchored to a markdown link: an unlinked bare `ask#N` is the
+ * documented fallback when the uuid is not at hand, and it linkifies in the
+ * cockpit anyway. Requiring the link would fire on exactly the case the deeplink
+ * rule already concedes.
+ */
+// ADR-024 **Rung 1 — quotation/citation-aware deterministic prefilter**, which
+// that ADR names as "the default stopping point" and clause (a) says the ladder
+// stops at "by default; Rungs 2-3 are strictly evidence-gated". A literal
+// ask-citation token test is precisely citation-aware deterministic
+// prefiltering — the ADR's own words for it — so no rung escalation is argued
+// and none is needed. Recorded HERE, at the mechanism, because SC2 asks for the
+// rung to be named in the implementation and a PR body does not survive merge.
+const ASK_CITATION_RE = /\bask#\d+\b|minsky:\/\/ask\/[0-9a-f-]{8,}/i;
+
+/**
+ * Whether a matched sentence is REPORTING a filed ask rather than deferring.
+ *
+ * Takes {@link DeferralMatch.sentence} — the containing sentence, captured at
+ * match time — NOT the turn and NOT the wider `context`. That scope is the whole
+ * discrimination, and getting it wrong in either direction has a cost:
+ *
+ * - Too WIDE (the `context`, which carries a lead sentence) suppresses a genuine
+ *   deferral sitting beside a reported ask. Found by a failing test:
+ *   *"Still yours: [ask#9275](…), whether the detector starts speaking. Want me
+ *   to file the follow-up task, or should I leave it?"* — the second sentence is
+ *   real work the agent could just do, and context granularity silences it.
+ * - Too CLEVER (re-deriving the sentence later by searching the context for the
+ *   phrase) picks the wrong occurrence when the phrase repeats — PR #3205 R1.
+ *   Hence the capture at match time, where the offset is known.
+ *
+ * The value read is the ELIDED text, so an ask id inside a code fence or a
+ * quoted span is blanked and does NOT suppress. That is correct rather than
+ * incidental: quoted text is not this turn's citation, and honoring it would let
+ * a pasted transcript silence a live deferral (PR #3205 R1, non-blocking).
+ *
+ * **The id is MATCHED, never verified to exist, and that is a decision with a
+ * stated failure mode (SC5).** Verifying would mean a substrate lookup inside a
+ * `UserPromptSubmit` hook: latency on every turn, and — the deciding half — a
+ * DB outage would silently flip the detector back to firing on compliant
+ * behaviour, which is precisely the inversion this suppression exists to end.
+ * Failing OPEN toward suppression is the safe direction here.
+ *
+ * What match-only concedes: a fabricated `ask#9999` would suppress a real
+ * deferral. That costs the fabricator and nobody else — this guard injects to
+ * the agent that wrote the sentence, so gaming it is self-deception with no
+ * downstream victim, and the ask substrate remains the source of truth for
+ * whether a decision was actually routed.
+ */
+export function citesFiledAsk(sentence: string): boolean {
+  return ASK_CITATION_RE.test(sentence);
+}
+
+/**
+ * Drop matches whose sentence cites a filed ask (mt#4201).
+ *
+ * Mirrors {@link resolveStopOverlap}'s shape deliberately — same per-match
+ * filter, same `suppressedAll` signal — so the two suppressions compose without
+ * either needing to know about the other.
+ */
+export function resolveAskCitation(matches: DeferralMatch[]): {
+  remaining: DeferralMatch[];
+  suppressedAll: boolean;
+} {
+  const remaining = matches.filter((m) => !citesFiledAsk(m.sentence));
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
+}
+
 /** `storeDir` is a test seam; the dispatcher never passes it. */
 export function run(
   input: ClaudeHookInput,
@@ -706,10 +816,24 @@ export function run(
   // failure is the one that speaks. Fails open — an unreadable store or a
   // mismatched key means no suppression, i.e. the pre-mt#3336 double injection,
   // never a dropped warning.
+  // mt#4201: a sentence that CITES a filed ask is reporting a routed decision,
+  // not deferring one. Runs BEFORE the stop-overlap filter so the two compose on
+  // the same per-match footing; `matches` itself is untouched, so the calibration
+  // record still carries every detection (the mt#3207 detect-first discipline).
+  //
+  // Only an all-suppressed turn records a reason, matching the stop-overlap
+  // convention immediately below: a reason string gates injection entirely, so
+  // pushing one on a PARTIAL suppression would silence the genuine deferrals that
+  // survived alongside the reported ask.
+  const askCited = resolveAskCitation(matches);
+  if (askCited.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
+  }
+
   const { remaining, suppressedAll } = resolveStopOverlap(
     input.session_id,
     assistantText,
-    matches,
+    askCited.remaining,
     storeDir
   );
   if (suppressedAll) {
@@ -811,7 +935,18 @@ export async function main(): Promise<void> {
   // mt#3270 R1 shape. `suppressedAll` feeds the shared
   // `suppressionReasons.length > 0` exit below, which is what actually withholds
   // the injection.
-  const { remaining, suppressedAll } = resolveStopOverlap(input.session_id, assistantText, matches);
+  // mt#4201, mirroring `run()` above — this file's two write paths must not
+  // disagree about what suppresses (the mt#3607 declared-once discipline).
+  const askCited = resolveAskCitation(matches);
+  if (askCited.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
+  }
+
+  const { remaining, suppressedAll } = resolveStopOverlap(
+    input.session_id,
+    assistantText,
+    askCited.remaining
+  );
   if (suppressedAll) {
     suppressionReasons.push(SUPPRESSION_STOP_GUARD_ALREADY_INJECTED);
   }

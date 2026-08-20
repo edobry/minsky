@@ -246,6 +246,46 @@ posed worst case (**1121**) and `MERGED_CONTEXT_BUDGET_CHARS` re-derived
 (6106 → 6627), with the prose trim left as the follow-up if budget pressure
 justifies it.
 
+## A sentence citing a filed ask is suppressed (mt#4201)
+
+The guard fires on prose that defers a decision to the principal instead of routing it. Its sharpest
+false positive is the inversion of that: a closing message that NAMES an ask already filed, by
+`ask#N` or a `minsky://ask/<uuid>` deeplink. The decision is IN the substrate — the message is
+reporting its state, which is what `communication-contract.mdc` requires at turn end — and the
+remedy the guard emits ("file an ask") is already done. mem#719's cost applies at full strength: the
+fire lands on the compliant behaviour, so the reader most likely to see it is the one who did the
+right thing.
+
+Measured across three independent windows: **2 of 2** `principal-reserved` matches (2026-08-10, the
+window recorded on the subsumed mt#3932), **2 of 3** false (2026-08-17), **1 of 10** injected
+(2026-08-20). The 2026-08-20 window is the only one that postdates mt#3801's trigger widening, so
+the three are not summable into one rate.
+
+`SUPPRESSION_CITES_FILED_ASK` drops such a match. Three properties worth knowing before changing it:
+
+**It is per-MATCH and per-SENTENCE, not per-turn.** The filter reads the sentence containing the
+matched phrase, extracted from `DeferralMatch.context`. That narrowing is load-bearing and was found
+by a failing test: `extractMatchContext` runs with `leadSentences: 1` and walks backward across
+`leadSentences + 1` boundaries, so the context deliberately carries the sentence BEFORE the match.
+Testing the whole context suppressed a genuine deferral sitting beside a reported ask —
+
+> Still yours: [ask#9275](…), whether the detector starts speaking. Want me to file the follow-up
+> task, or should I leave it?
+
+— where the second sentence is real. Sentence granularity fires on it; context granularity does not.
+
+**The id is matched, never verified to exist.** Verifying would put a substrate lookup inside a
+`UserPromptSubmit` hook — latency every turn, and a DB outage would silently flip the guard back to
+firing on compliant behaviour, the exact inversion this suppression ends. What match-only concedes:
+a fabricated `ask#9999` suppresses a real deferral, which costs the fabricator alone, since this
+guard injects to the agent that wrote the sentence.
+
+**Only an all-suppressed turn records a reason.** A reason string gates injection entirely, so
+recording one on a PARTIAL suppression would silence the genuine deferrals that survived. This
+matches the `deduped-by-untaken-action-stop` convention beside it. `matches` itself is never
+filtered, so the calibration record still carries every detection — the mt#3207 detect-first
+discipline.
+
 **Cross-references:**
 
 - mt#3801 — the offer-shape trigger (this section); R9 of the operator-deferral
