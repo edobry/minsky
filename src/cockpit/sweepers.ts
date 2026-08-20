@@ -1311,7 +1311,11 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
         // not reset every 60 seconds.
         counterStore ??= new InMemoryForceImmediateCounterStore();
 
-        reaperRef.current = new ServiceWindowReaper(
+        // Bound to a local const, then published to the ref. Reading it back
+        // off `reaperRef.current` typechecked only through assignment
+        // narrowing, which any statement inserted between would silently break
+        // (PR #3198 R1 BLOCKING #1).
+        const reaper = new ServiceWindowReaper(
           repo,
           async (ask, reason) => {
             // Log-only dispatch (see docblock). The state transition IS the
@@ -1326,6 +1330,7 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
           {},
           counterStore as ConstructorParameters<typeof ServiceWindowReaper>[3]
         );
+        reaperRef.current = reaper;
 
         // Subscribe ONCE. The handlers read `reaperRef.current`, so they keep
         // working across the per-tick rebuild above without re-registering
@@ -1356,7 +1361,6 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
           (provider ?? undefined) as Parameters<typeof createProviderWindowNotifier>[0]
         );
         const registry = windowCommands.globalRegistry;
-        const boundReaper = reaperRef.current;
 
         return await runServiceWindowTick({
           now: () => new Date(),
@@ -1370,7 +1374,7 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
           closeWindow: async (windowKey) => {
             await windowCommands.closeWindow(windowKey, loadAttentionWindowsOrThrow(), notifier);
           },
-          pollDeadlineBound: (nowMs) => boundReaper.pollDeadlineBoundAsks(nowMs),
+          pollDeadlineBound: (nowMs) => reaper.pollDeadlineBoundAsks(nowMs),
         });
       } catch (err) {
         // Report the DOMAIN failure, do not just log it (mt#4364).
@@ -1532,10 +1536,42 @@ async function subscribeReaperToWindowEvents(reaperRef: {
     await reaper.onWindowClosed(payload as Parameters<typeof reaper.onWindowClosed>[0]);
   };
 
-  await listener.subscribe(CHANNEL_OPENED, onOpened);
-  await listener.subscribe(CHANNEL_CLOSED, onClosed);
+  // Roll back a PARTIAL subscription (PR #3198 R1 BLOCKING #2).
+  //
+  // These are two separate `subscribe` calls. If the second throws, the first
+  // stays registered on the listener and the caller never receives an
+  // unsubscribe handle for it — so the registration leaks, and the caller's
+  // retry-on-failure path would then register it a SECOND time, delivering
+  // every window-open event twice.
+  const registered: string[] = [];
+  try {
+    await listener.subscribe(CHANNEL_OPENED, onOpened);
+    registered.push(CHANNEL_OPENED);
+    await listener.subscribe(CHANNEL_CLOSED, onClosed);
+    registered.push(CHANNEL_CLOSED);
+  } catch (err) {
+    for (const channel of registered) {
+      await listener
+        .unsubscribe(channel, channel === CHANNEL_OPENED ? onOpened : onClosed)
+        .catch((cleanupErr: unknown) => {
+          // Report, never mask the original failure that is about to rethrow.
+          const message = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+          log.warn("service window: rollback of partial NOTIFY subscription failed", {
+            channel,
+            message,
+          });
+        });
+    }
+    throw err;
+  }
 
+  let torn = false;
   return async () => {
+    // Idempotent: the caller may invoke this on stop after having already
+    // dropped the handle, and double-unsubscribing is not a no-op on every
+    // listener implementation.
+    if (torn) return;
+    torn = true;
     await listener.unsubscribe(CHANNEL_OPENED, onOpened);
     await listener.unsubscribe(CHANNEL_CLOSED, onClosed);
   };
