@@ -209,8 +209,12 @@ export interface InterceptorCatalog {
   readonly _generated: string;
   /** Repo-relative sources this artifact distills, so drift is auditable. */
   readonly generatedFrom: readonly string[];
-  /** Entry count — the DECLARED population. */
-  readonly population: number;
+  // NO `population` field (mt#4208). The declared population is `entries.length`,
+  // and storing a second copy of it is what broke main twice: git unions two
+  // branches' entry additions while resolving the single count line without a
+  // conflict, so the artifact lands self-inconsistent and the source-keyed regen
+  // hook never re-fires on the merge commit that did it. `parseCatalog` derives
+  // the number at read time; consumers see it unchanged.
   readonly divergence: CatalogDivergence;
   /** The 11-class taxonomy, so the cockpit renders definitions without a second copy. */
   readonly failureClasses: Readonly<Record<string, FailureClassDefinition>>;
@@ -317,7 +321,6 @@ export function buildCatalog(sources: CatalogSources): InterceptorCatalog {
       ".minsky/hooks/known-guard-names.ts",
       ".minsky/hooks/registry.ts",
     ],
-    population: names.length,
     divergence: { declaredButNotDescribed, describedButNotDeclared },
     failureClasses: FAILURE_CLASSES,
     entries: names.map((name) => {
@@ -434,10 +437,10 @@ async function main(): Promise<void> {
   console.log(
     [
       `Wrote interceptor catalog: ${OUT_PATH_REL}`,
-      `  Population: ${catalog.population}`,
+      `  Population: ${catalog.entries.length}`,
       `  Declared but not described: ${declaredButNotDescribed.length}${names(declaredButNotDescribed)}`,
       `  Described but not declared: ${describedButNotDeclared.length}${names(describedButNotDeclared)}`,
-      `  Interception point resolved: ${withPoint}/${catalog.population}`,
+      `  Interception point resolved: ${withPoint}/${catalog.entries.length}`,
       `  Families: guard ${family("guard")} · detector ${family("detector")} · injector ${family("injector")}`,
       `  Family state: classified ${state("classified")} · out-of-model ${state("out-of-model")} · unclassified ${state("unclassified")}`,
     ].join("\n")
