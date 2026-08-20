@@ -31,12 +31,25 @@
  */
 import { and, eq, gte, isNotNull, lte, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { guardEventsTable } from "../storage/schemas/guard-events-schema";
+import {
+  guardEventFireLogRollupTable,
+  guardEventsTable,
+} from "../storage/schemas/guard-events-schema";
 
 /** Catalog above-the-fold window (AT1: "denials per guard per week"). */
 export const CATALOG_WINDOW_DAYS = 7;
 
-const FIRE_LOG_STREAM = "fire-log";
+/**
+ * The fire-log stream discriminator.
+ *
+ * Exported so `fire-log-rollup.ts` uses THIS value rather than its own copy
+ * (PR #3191 R1). The rollup's fold and `fireLogWhere` below must select the
+ * same population or the maintained value drifts from the rebuild — the same
+ * hazard the reviewer caught in the guard-name predicate, one constant over.
+ * Two string literals that must stay equal are a latent divergence; one export
+ * is not.
+ */
+export const FIRE_LOG_STREAM = "fire-log";
 
 // ---------------------------------------------------------------------------
 // Fetched row shapes
@@ -82,7 +95,14 @@ function fireLogWhere(since?: Date, guardName?: string, until?: Date): SQL | und
     isNotNull(guardEventsTable.guardName),
     ...(since ? [gte(guardEventsTable.occurredAt, since)] : []),
     ...(until ? [lte(guardEventsTable.occurredAt, until)] : []),
-    ...(guardName ? [eq(guardEventsTable.guardName, guardName)] : [])
+    // `!== undefined`, NOT truthiness (PR #3191 R2). The empty string is a
+    // VALID guard name here — `isNotNull` above admits it — so `guardName ? …`
+    // silently drops the filter for `""` and returns the WHOLE population
+    // where the caller asked for one guard. A missing filter fails open, which
+    // is why this reads as a plausible result rather than an error. The `since`
+    // and `until` guards above are safe under truthiness only because a Date
+    // is never falsy; do not copy their shape for a string.
+    ...(guardName !== undefined ? [eq(guardEventsTable.guardName, guardName)] : [])
   );
 }
 
@@ -165,9 +185,19 @@ export async function fetchFireLogDurations(
 
 /**
  * All-time per-guard totals + first/last fire. This is the POPULATION query
- * (SC3: the population is fire-log-derived distinct `guardName`) — a full
- * fire-log-stream scan, which is why it runs only inside the off-request
- * refresh, never per request.
+ * (SC3: the population is fire-log-derived distinct `guardName`).
+ *
+ * Reads the MAINTAINED rollup (`guard_event_fire_log_rollup`), not
+ * `guard_events` — a primary-key lookup when `guardName` is given, a ~109-row
+ * seq scan when it is not. It used to be a full `GROUP BY` over the whole
+ * corpus, which cost 2,193 ms / ~404 MB per refresh and 10,972 ms for the
+ * single-guard form (mt#4294). Because it is now cheap in BOTH forms, the
+ * "off-request refresh only, never per request" restriction this comment used
+ * to carry no longer applies — the per-guard detail path calls it directly.
+ *
+ * The rollup is maintained at ingest and rebuilt by
+ * `rebuildFireLogLifetimeRollup`; see `guardEventFireLogRollupTable`'s doc
+ * comment for why it cannot drift.
  */
 export async function fetchFireLogLifetime(
   db: PostgresJsDatabase,
@@ -175,16 +205,18 @@ export async function fetchFireLogLifetime(
 ): Promise<FireLogLifetimeRow[]> {
   const rows = await db
     .select({
-      guardName: guardEventsTable.guardName,
-      totalFires: sql<number>`count(*)::int`,
-      firstFireAt: sql<unknown>`min(${guardEventsTable.occurredAt})`,
-      lastFireAt: sql<unknown>`max(${guardEventsTable.occurredAt})`,
+      guardName: guardEventFireLogRollupTable.guardName,
+      totalFires: guardEventFireLogRollupTable.totalFires,
+      firstFireAt: guardEventFireLogRollupTable.firstFireAt,
+      lastFireAt: guardEventFireLogRollupTable.lastFireAt,
     })
-    .from(guardEventsTable)
-    .where(fireLogWhere(undefined, guardName))
-    .groupBy(guardEventsTable.guardName);
+    .from(guardEventFireLogRollupTable)
+    // `!== undefined`, not truthiness — see `fireLogWhere` (PR #3191 R2).
+    .where(
+      guardName !== undefined ? eq(guardEventFireLogRollupTable.guardName, guardName) : undefined
+    );
   return rows.map((r) => ({
-    guardName: r.guardName as string,
+    guardName: r.guardName,
     totalFires: r.totalFires,
     firstFireAt: toIsoOrNull(r.firstFireAt),
     lastFireAt: toIsoOrNull(r.lastFireAt),

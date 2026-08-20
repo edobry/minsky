@@ -49,11 +49,11 @@ duplicate-check records, and nothing asked whether the run happened.
 Which tool calls discharge which claim lives in `.minsky/hooks/evidence-provenance-table.ts`,
 shared with the mt#4004 sibling (which consumes its search half).
 
-| Record                | Claims                 | Discharged by                                                                        |
-| --------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
-| `Duplicate check:`    | a search ran           | a `tasks_search` / `tasks_similar` / `refs_status` call (mt#4004, unchanged)         |
-| `Execution evidence:` | a test run             | any test-running call                                                                |
-| `Negative control:`   | a run observed FAILING | a FAILING run that either quotes back into the record, or names the record's subject |
+| Record                | Claims                               | Discharged by                                                                        |
+| --------------------- | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| `Duplicate check:`    | a search ran                         | a `tasks_search` / `tasks_similar` / `refs_status` call (mt#4004, unchanged)         |
+| `Execution evidence:` | one claim PER CHECK the block pastes | a run of THAT kind — test, typecheck, lint or format (mt#4236)                       |
+| `Negative control:`   | a run observed FAILING               | a FAILING run that either quotes back into the record, or names the record's subject |
 
 ### Why the negative-control rule is the odd one
 
@@ -76,10 +76,89 @@ Two joins, either of which discharges:
 A record offering neither is recorded `unadjudicable` — never `clean`. A record that quotes but
 whose quote matches nothing is `undischarged`, not unadjudicable: the quote is a checkable claim.
 
-### Ordering is free
+### Granularity, and the ordering the free version did NOT buy (mt#4236)
 
 At `PreToolUse` the transcript holds exactly the calls that already happened, so "before this
-write" is a property of the input rather than logic the guard implements.
+write" is a property of the input rather than logic the guard implements. That much is free, and
+this section used to stop there — which quietly conflated two different orderings. The free one is
+_the run happened before the COMMIT_. The one that matters is _the run happened before the last
+EDIT it describes_, and nothing computed it.
+
+**The originating instance (mt#4214 / PR #3082, 2026-08-17).** `validate_typecheck` ran and
+returned `errorCount: 0` across eight projects. Tests were written afterwards. The PR body pasted
+that `errorCount: 0` as its typecheck evidence, and CI's `build` job then failed on
+`.minsky/hooks/success-criteria-coverage.test.ts(593,49): error TS2353` — in `tsconfig.hooks.json`,
+a project the earlier local run HAD covered. The evidence was accurate about the tree it observed
+and false about the diff it was attached to. Replayed against the real transcript, the pre-mt#4236
+guard is SILENT on it.
+
+Two gaps, and their order is the correction mt#4236's planning pass made after reading the source:
+
+1. **Granularity comes first.** `Execution evidence:` names a BLOCK, and a block routinely asserts
+   a test run, a typecheck, a lint pass and a format check at once. `sessionRanTests` collapsed all
+   of them into one boolean about tests, so a typecheck pasted into that block was not adjudicated
+   at all — fresh, stale or fabricated alike. **The originating instance is of THIS class**, not
+   the ordering one. `hasExecutionEvidence` is now a wrapper over
+   `extractExecutionEvidenceRecords`, the same move mt#4044 made on the negative-control matcher,
+   so the accepted forms stay stated once (the mt#4070 hazard).
+2. **Ordering second**, per kind. Each claim's LAST matching run is compared by transcript index
+   against writes that follow it, filtered by what a run of that kind actually reads. `.ts` for a
+   typecheck, `.ts`/`.js` for lint and tests. A `.md` edit after a typecheck is therefore `fresh`,
+   not a fire.
+
+`stale-evidence` is a third finding class, deliberately distinct from both undischarged ones
+(`no-run-at-all`, `no-run-of-kind`): the run is real and the session contains it, it simply did not
+observe the shipped tree. It contributes to `outcome: "matched"` — a detection recorded under
+`clean` is invisible to every review that filters on fires.
+
+**`format` records `not-comparable` rather than guessing.** Prettier's file set comes from
+`.prettierrc` and `.prettierignore`, which this module does not read, so any ordering answer it
+gave would be invented.
+
+#### Why a negative control is exempt
+
+The task spec expected ordering to apply to negative controls too. Built that way and swept over
+the 14 most recent transcripts (2026-08-19), it reported `stale-evidence` on **30 of 33** discharged
+control records — 91%.
+
+That is not a finding, it is the PROCEDURE. A control is (1) revert the fix, (2) run the test and
+observe it red, (3) RESTORE the fix, (4) commit. Step 3 is a write to a file the run reads, always
+after step 2, for every correctly-run control. So the comparison returned `stale-evidence` whether
+or not the evidence was stale — mem#704's can't-fail probe. The three that came back fresh are the
+tell: those restored via `git stash pop`, a shell command `fileWrites` deliberately does not
+recognize, so the axis was measuring HOW THE AUTHOR RESTORED. Negative-control claims now record
+`not-comparable`.
+
+Measured in the same sweep, the execution-evidence half discriminates: test **0/39** stale,
+typecheck **6/17** (35%), lint **4/18** (22%). Re-swept after the R1 narrowing below, over the same
+14 transcript FILES — which had grown in the interim, so the totals are larger and cross-run deltas
+are not attributable to the change: typecheck **9/23** (39%), lint **4/24** (17%), test **0/45**,
+format **0/1**, negative-control **0/41**.
+
+#### What counts as CLAIMING a kind (PR #3165 R1)
+
+The first cut recognized claims by bare tool nouns — `tsc`, `eslint`, `prettier` — plus a bare
+`errorCount`. Every one of those matches ordinary prose, which is the exact opposite of the
+conservative contract stated above, and `errorCount` was not even kind-specific: `validate_lint`
+reports it too, so a lint-only block was read as claiming a TYPECHECK. That PR's own body was the
+instance.
+
+A claim now requires something a block can only carry by having PASTED a run: a runner prefix
+(`bun run lint`, `bunx eslint`), a flag-bearing invocation (`tsc --noEmit`), a script-name shape
+(`format:check`), a tool name that is not an English word (`validate_typecheck`), or a distinctive
+output token (`error TS2353`). The originating instance still fires with identical verdicts after
+the narrowing, which is what says recall survived.
+
+The `test` kind needed the same treatment for a different reason, and it cannot be asserted the
+same way: a block claiming nothing recognizable DEFAULTS to `test`, so "does prose yield a test
+claim?" is undecidable in isolation. The decidable form — and the case the narrowing is for — is
+whether prose ADDS a `test` claim beside a real one.
+
+**Known false negatives, taken on purpose.** Shell writes (`sed -i`, a heredoc redirect) are not
+recognized — parsing a command for an EFFECT rather than a verb invents writes that did not happen,
+and firing at an author whose evidence was fine is the dangerous direction this subsystem's
+direction-of-error rule forbids. A `tsconfig*.json` edit genuinely does invalidate a typecheck and
+is genuinely absent from the coverage set for the same reason.
 
 ## Why it injects nothing
 

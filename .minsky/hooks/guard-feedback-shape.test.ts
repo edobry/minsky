@@ -296,6 +296,8 @@ describe("guard feedback — coverage receipt (mt#3479)", () => {
         "mcp-daemon-staleness-detector",
         "negative-existence-claim-detector",
         "memory-search",
+        // mt#4215 — also a `renderProbe` producer, per the note above.
+        "nonexistent-search-path",
         "operator-deferral-ask-surface",
         "operator-deferral-detector",
         "pre-narration-detector",
@@ -371,7 +373,17 @@ type FeedbackShape =
   | "render-probe-sample";
 
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
-  "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
+  // mt#4234: was `"capped"`, citing `cappedEvidenceLines x2` — which caps the
+  // LINE COUNT (3) and never binds, because `detectDeferralPhrases` breaks after
+  // one match per class. The PHRASE was uncapped: `matchedPhrase` is the regex's
+  // whole matched span and two patterns bound theirs only by the next sentence
+  // terminator, so the render grew 1:1 with the agent's prose. That is precisely
+  // the laundering this receipt's `RENDER_PROBE_SAMPLE` doc warns about — an
+  // annotation reading as a ceiling when it is a sample. Now genuinely bounded on
+  // both axes (`MAX_RENDERED_PHRASE_CHARS` per line, `cappedEvidenceLines` on the
+  // count) AND posed saturated by a `worstCaseCanary`, so it earns the stronger
+  // value rather than the one it used to assert.
+  "ask-routing-deferral-detector": WORST_CASE_CANARY,
   // Fixed body plus at most six PIDs (`pids.slice(0, 6)` then `…`) — the cap is
   // in `buildDenialReason`, so the message cannot grow with the kill's size.
   "block-bulk-process-kill": "capped",
@@ -399,6 +411,11 @@ const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
   // guard injects on real turns and belongs in the budget bucket.
   "duplicate-check-candidate-read": "capped",
   "chained-verification-commands": "capped", // MAX_LISTED_COMMANDS (mt#3910)
+  // mt#4215: capped on BOTH rendered axes — MAX_RENDERED_PATHS with an `…and N
+  // more` line, and MAX_SUGGESTIONS per entry — but the path STRINGS themselves
+  // are unbounded, so the probe is a saturated sample rather than a proved
+  // ceiling. Same classification, and same reason, as its sibling above.
+  "nonexistent-search-path": RENDER_PROBE_SAMPLE,
   // mt#4096: two interpolations, both bounded — the command is the pipeline stage
   // (itself bounded by the shell) and the filter is one of two literal tokens.
   "truncated-outcome-read": "capped",

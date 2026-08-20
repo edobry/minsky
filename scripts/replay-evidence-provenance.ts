@@ -134,9 +134,13 @@ function describeVerdicts(verdicts: ClaimVerdict[]): string {
   return verdicts
     .map(
       (v) =>
-        `    ${v.verdict.toUpperCase().padEnd(14)} ${v.kind}${
-          v.tokens.length > 0 ? `  subject: ${v.tokens.slice(0, 4).join(" | ")}` : ""
-        }`
+        `    ${v.verdict.toUpperCase().padEnd(14)} ${v.kind}${v.check ? `/${v.check}` : ""}` +
+        // The ordering axis is rendered beside the discharge one (mt#4236): a
+        // DISCHARGED record with `stale-evidence` is the finding this script has
+        // to be able to SHOW, since the task's replay criterion is discharged by
+        // reading its output.
+        `  ordering=${v.ordering}${v.detail ? `  (${v.detail})` : ""}` +
+        `${v.tokens.length > 0 ? `  subject: ${v.tokens.slice(0, 4).join(" | ")}` : ""}`
     )
     .join("\n")
     .concat("\n");
@@ -175,7 +179,11 @@ if (opts.list) {
 if (opts.all) {
   // Per-outcome, not just fired/not: `unadjudicable` is the population a future
   // widening would target, and folding it into either bucket hides it.
-  const tally = { records: 0, fired: 0, discharged: 0, unadjudicable: 0, noRecord: 0 };
+  // `stale` is counted SEPARATELY from `fired` and NOT folded into `discharged`
+  // (mt#4236): it is a discharged record with a real run behind it, so counting
+  // it as a discharge would hide exactly the population this sweep now exists to
+  // size, and counting it as a fire would merge it with "no run happened".
+  const tally = { records: 0, fired: 0, discharged: 0, stale: 0, unadjudicable: 0, noRecord: 0 };
   for (const c of candidates) {
     if (c.text === null) continue;
     const priorCalls = findToolCallsWithResults(lines.slice(0, c.lineIndex));
@@ -186,20 +194,27 @@ if (opts.all) {
     }
     tally.records += verdicts.length;
     for (const v of verdicts) {
+      if (v.ordering === "stale-evidence") tally.stale++;
       if (v.verdict === "undischarged") tally.fired++;
       else if (v.verdict === "discharged") tally.discharged++;
       else tally.unadjudicable++;
     }
     process.stdout.write(
       `  [${String(c.index).padStart(2)}] ${(c.sha || "-").padEnd(10)} ` +
-        `${verdicts.map((v) => `${v.kind}=${v.verdict}`).join(" ")}\n`
+        `${verdicts
+          .map(
+            (v) =>
+              `${v.kind}${v.check ? `/${v.check}` : ""}=${v.verdict}` +
+              `${v.ordering === "stale-evidence" ? "(stale)" : ""}`
+          )
+          .join(" ")}\n`
     );
   }
   process.stdout.write(
     `${opts.transcript}\n  calls=${candidates.length} with-record=${
       candidates.length - tally.noRecord
     } records=${tally.records} fired=${tally.fired} discharged=${tally.discharged} ` +
-      `unadjudicable=${tally.unadjudicable}\n`
+      `stale=${tally.stale} unadjudicable=${tally.unadjudicable}\n`
   );
   process.exit(0);
 }
@@ -226,8 +241,12 @@ if (target.text === null) {
 const cutoff = opts.asOfLine ?? target.lineIndex;
 const priorCalls = findToolCallsWithResults(lines.slice(0, cutoff));
 const verdicts = judgeClaims(target.text, priorCalls);
+// Mirrors `run()`'s own outcome rule, including the mt#4236 stale class — a
+// replay that reported SILENT where the live guard records `matched` would be a
+// probe measuring a different thing than the mechanism it stands in for.
 const undischarged = verdicts.filter((v) => v.verdict === "undischarged");
-const fires = undischarged.length > 0;
+const staleVerdicts = verdicts.filter((v) => v.ordering === "stale-evidence");
+const fires = undischarged.length > 0 || staleVerdicts.length > 0;
 
 process.stdout.write(
   `transcript : ${opts.transcript}\n` +

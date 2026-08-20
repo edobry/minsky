@@ -100,6 +100,66 @@ new surface, and counting it would fire on every refactor that moves a file.
 PR #2942 added `PeekBody.tsx`, `PeekHost.tsx` and `ui/sheet.tsx`, so the worked example survives the
 narrowing — which is the point of choosing it.
 
+## The second trigger, and why the first one was not enough (mt#4356)
+
+The original module fired only on an **ADDED** render-path file, deliberately: a one-line tweak to
+an existing component should not demand a design pass, and `A` vs `M` decides that without a
+semantic guess.
+
+**That proxy missed the largest class of design work — changing how an existing surface looks.**
+mt#4251's whole deliverable was a visual treatment across five controls; it modified two
+render-path files and added none, so this module could not fire, and the principal reported the
+appearance of the merged result. That is the SECOND instance of the exact failure this module
+exists to prevent (R1 mem#1026 / mt#3694; R2 mem#1156 / mt#4251) — a recurrence after the fix
+shipped DONE, which makes it a containment gap rather than a diligence one. The whole cockpit
+redesign sequence — mt#4220, mt#4250, mt#4251, mt#4348 — is `M`-only and purely visual, and every
+one of them was invisible to the detector built for it.
+
+So there are two triggers now:
+
+1. **`added-surface`** — the branch ADDS a render-path file. Unchanged.
+2. **`modified-surface-visual-spec`** — the branch MODIFIES one AND the bound task's spec declares
+   the change is visually judged (`SPEC_VISUAL_PHRASES`: screenshot, viewport, "for the principal
+   to judge", "aesthetic acceptance", …).
+
+Trigger 2's discriminator is the SPEC, not the diff, because the diff cannot answer it: a one-line
+functional fix and a one-line visual retreatment produce identical `M` status and similar hunks,
+and only the spec says which the author was making. Trigger 1 is checked first and wins, so the
+spec fetch — a CLI round trip — runs only when it can change the answer.
+
+### Measured split
+
+Replayed over three real transcripts (`scripts/replay-new-surface-design-pass.ts`), reading each
+PR's real per-file statuses from `gh api` and each bound spec from the `minsky` CLI:
+
+| Verdict                          | Count | PRs                                               |
+| -------------------------------- | ----- | ------------------------------------------------- |
+| FIRES                            | 3     | #3171 (mt#4251), #3180 (mt#4348), #3086 (mt#4250) |
+| NOT-APPLICABLE                   | 6     | #3074, #3085, #3129, #3090, #3098, #3099          |
+| UNKNOWN (PR number unresolvable) | 3     | —                                                 |
+
+3 of 9 measured calls fire, and all three are cockpit visual work; the six silent ones are ordinary
+non-render PRs. **Both directions are represented** — the discriminator is not firing on
+everything, which is the property a widened trigger most needs to demonstrate. UNKNOWN is reported
+separately and excluded from the rate rather than counted as a pass.
+
+Note what this corpus does NOT establish: it is nine calls from three transcripts, not a systematic
+sample, and it contains no example of a MODIFIED render-path file whose spec is non-visual — the
+false-positive case trigger 2 is designed to exclude. That case is covered by fixture
+(`new-surface-design-pass.test.ts`, "does NOT fire on the same diff when the spec is not visual")
+and remains unmeasured against real PRs. The posture stays log-only; the calibration log is what
+supplies the larger sample.
+
+### Harness note worth keeping
+
+The first run of this measurement reported `NOT-APPLICABLE` for both mt#4251 and mt#4348 — a clean
+zero that was entirely an artifact. The replay derived the bound task id from the PR **title**, and
+`session_pr_create` titles are description-only by convention (the `fix(mt#NNNN):` prefix is added
+by the tool afterwards), so the id was always `null`, no spec was ever fetched, and trigger 2 could
+never fire. The live guard reads `tool_input.task` and was never affected. The replay now reads the
+same param. A measurement harness that cannot reproduce a known positive is not measuring anything,
+and its zero is indistinguishable from a clean corpus.
+
 ## Why this seam and not the merge gate
 
 The discriminator's input is a `Skill` tool_use in the conversation that **wrote the code**. At merge

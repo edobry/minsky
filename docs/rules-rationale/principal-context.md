@@ -311,6 +311,29 @@ thin per-session but grows continuously and costs nothing to accumulate. The bui
 doing when the hand-maintained confirmed-known list starts to rot — that is the trigger to
 watch, not a date.
 
+**Update 2026-08-19 (mt#4289): requirement 1 now exists as a column, and it does not need
+markers.** `agent_transcript_turns.user_origin` records who authored each turn's `user_text`,
+classified at extraction from the harness's OWN fields — `isCompactSummary`, `isMeta`,
+`origin.kind`, `promptSource` — rather than from the text. So the authorship filter this section
+calls for is `user_origin = 'human'` (exposed as `originKind` on `transcripts_search-text` /
+`transcripts_search`), and the marker list plus its size-ceiling backstop are no longer the best
+available instrument: both are heuristics over the text, and the structural fields say the same
+thing without guessing.
+
+Two things are worth carrying forward rather than discarding. **The magnitude cross-validates.**
+mt#4289 measured 43.5% harness-authored across the whole production corpus by an entirely
+independent method (prefix classes over `user_text`, prod-wide, 8,245 of 18,948 rows); this
+section's 43.2% came from marker-matching over 25 local transcripts. Two methods, two
+populations, the same number — which is the strongest evidence either has. **The 99.1%-of-chars
+figure is the one that still matters**, and `user_origin` does not supersede it: the point was
+never the turn count but that the residue is 0.9% of the characters, and that remains the
+argument for a term-extraction pass being cheap.
+
+The caveat on `user_origin` for THIS use: it fails open to `human` for a line carrying no
+markers, which is the right default for search and the wrong one for a vocabulary derivation —
+where a false CONFIRMED-KNOWN is exactly the silent error this section warns about. A build
+should treat `user_origin = 'human'` as necessary and not sufficient, and keep a size backstop.
+
 ### Substrates deliberately NOT used
 
 - **`principal_corpus`** (`packages/domain/src/principal-corpus/`, mt#1930) is the **tweet

@@ -31,8 +31,11 @@ import {
 import type { ConversationTurn } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import {
+  BURST_CHILDREN,
+  DisclosureChevron,
   ElementView,
   FOCUS_RING,
+  HOVER_ROW,
   SpawnBadge,
   type ExpandSignal,
   type PreparedElement,
@@ -50,6 +53,7 @@ import {
 import {
   ADDRESSED_MARK_CLASS,
   TURN_ANCHOR_ATTR,
+  TURN_ELEMENTS_TESTID,
   type TurnAddress,
 } from "../lib/conversation-turn-address";
 import { FilmMomentLink } from "./FilmMomentLink";
@@ -394,7 +398,20 @@ function TurnSegment({
           )}
         </div>
       )}
-      <div className="flex flex-col gap-2">{rendered}</div>
+      {/*
+        `data-testid` is load-bearing, not a test convenience (mt#4278).
+        `scripts/verify-conversation-weight.ts` needs to address THIS wrapper to
+        find assistant speech, and it used to do so positionally, as
+        `[data-turn-index] > div:last-child`. mt#3845 then moved the film link
+        below this div, so the last child became an `<a>`, no div matched, and
+        the script's prose count silently went to zero — taking with it the one
+        assertion no unit test can make. A named anchor survives any number of
+        trailing siblings; a positional one waits for the next change to add
+        one.
+      */}
+      <div data-testid={TURN_ELEMENTS_TESTID} className="flex flex-col gap-2">
+        {rendered}
+      </div>
       {/*
         Turn-grain film link (mt#3794). Gated on a KNOWN `turnIndex`: a
         live-tail block the snapshot never stamped has no address, so there is
@@ -494,17 +511,32 @@ function BurstFold({ turns, ctx }: { turns: PreparedTurn[]; ctx: SegmentContext 
         className={cn(
           "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs",
           // Dim at rest so a fold recedes exactly as far as the rows it
-          // replaced; legible the moment a pointer is over it.
-          "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+          // replaced; legible the moment a pointer is over it. The background
+          // half moved to the shared HOVER_ROW (mt#4251) — this control shipped
+          // a hand-picked `bg-muted/40` one task before the four disclosure
+          // controls beside it gained the same affordance, and two adjacent
+          // values in one view is the drift that constant exists to stop.
+          "text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
-        <span aria-hidden className="shrink-0 text-muted-foreground/60">
-          {open ? "▾" : "▸"}
-        </span>
+        <DisclosureChevron open={open} />
         <span className="min-w-0 flex-1 truncate">{summary}</span>
       </button>
-      {open && turns.map((turn) => renderSegment(turn, ctx))}
+      {open && (
+        // The children are CONTAINED, not merely revealed (mt#4348). Before
+        // this they were plain siblings of the toggle in the same column, so an
+        // expanded fold's turns rendered identically to top-level turns and the
+        // reader could not see which fold they belonged to — the principal's
+        // "information hierarchy for the collapsible section's outer and inner
+        // elements is non obvious". `BURST_CHILDREN` carries the rail and the
+        // indent; the leading chevron above is what makes that indent legible
+        // as depth rather than as a stray margin.
+        <div className={BURST_CHILDREN} data-testid="action-burst-children">
+          {turns.map((turn) => renderSegment(turn, ctx))}
+        </div>
+      )}
     </div>
   );
 }

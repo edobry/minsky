@@ -187,6 +187,29 @@ type Measurement = {
   toolRowCount: number;
   proseCount: number;
   /**
+   * `div.break-words` anywhere under an element stack (mt#4278).
+   *
+   * Not an assertion of its own — it exists so a `proseCount` of 0 can be
+   * ATTRIBUTED. Zero prose with zero here is a specimen with no speech in it;
+   * zero prose with a positive count is the direct-child step failing, i.e. the
+   * instrument. Those want opposite responses, and for the whole life of this
+   * script they produced the same sentence.
+   *
+   * Scoped to the stack rather than the thread (PR #3140 R1): a thread-wide
+   * count includes blocks the selector could never reach in any version, so a
+   * specimen carrying only those would be misreported as instrument breakage.
+   */
+  stackProseTotal: number;
+  /**
+   * How many element stacks rendered at all (mt#4278).
+   *
+   * Distinguishes the third case the two counts above cannot: the anchor itself
+   * being gone. Zero stacks in a thread that HAS turns means the `data-testid`
+   * was renamed or removed, which is a different repair from a selector that
+   * matches nothing inside a stack that exists.
+   */
+  turnElementStacks: number;
+  /**
    * Folded action bursts currently rendered (mt#4250).
    *
    * Reported beside `turnCount` and `toolRowCount` for the same reason those
@@ -258,9 +281,31 @@ const MEASURE = `(() => {
   // is nested inside its own block wrapper. Structural, not a class match on
   // \`text-foreground\` — keying on the class under test would make the assertion
   // circular.
+  //
+  // Anchored on \`[data-testid="turn-elements"]\`, NOT on \`> div:last-child\`
+  // (mt#4278). The positional form expressed the same intent and stopped being
+  // true 38 minutes after it was written: mt#3845 moved the film link below the
+  // element stack, so a turn's last child became an \`<a>\`, no div matched, and
+  // this count sat at 0 on every conversation — the script failing at the
+  // has-no-prose branch below without anyone reading it as instrument breakage.
+  // The direct-child \`>\` is retained because it is what does the discriminating.
   const proseEls = Array.from(
-    thread.querySelectorAll('[data-turn-index] > div:last-child > div.break-words')
+    thread.querySelectorAll('[data-testid="turn-elements"] > div.break-words')
   );
+  // Prose-bearing blocks ANYWHERE UNDER an element stack — the same subtree the
+  // selector above searches, without its direct-child restriction. Its only job
+  // is to tell the two zero-cases apart below: a specimen with no speech in it,
+  // and a selector that has stopped matching.
+  //
+  // Scoped to the stack, NOT to the whole thread (PR #3140 R1). A thread-wide
+  // count includes \`div.break-words\` that no version of the selector could ever
+  // reach, so a specimen carrying only those would be blamed on the instrument —
+  // a false "the probe is broken" on a probe that is working. Sharing the
+  // subtree makes the difference between the two numbers exactly the direct-child
+  // step, which is the only thing in dispute when the count goes to zero.
+  const stackProseTotal = thread.querySelectorAll(
+    '[data-testid="turn-elements"] div.break-words'
+  ).length;
 
   // Alpha-0 in ANY notation, not just the one literal form. getComputedStyle
   // returns \`rgba(0, 0, 0, 0)\` for \`transparent\` on most engines, but a token
@@ -305,6 +350,8 @@ const MEASURE = `(() => {
     turnCount: thread.querySelectorAll('[data-turn-index]').length,
     toolRowCount: toolRows.length,
     proseCount: proseEls.length,
+    stackProseTotal,
+    turnElementStacks: thread.querySelectorAll('[data-testid="turn-elements"]').length,
     burstFoldCount: thread.querySelectorAll('[data-testid="action-burst-toggle"]').length,
     enclosedToolRows: enclosed,
     erroredToolRows: errored,
@@ -448,8 +495,35 @@ try {
       "conversation has no tool calls — pick a tool-dense conversation, this run proves nothing"
     );
   }
+  // A zero prose count has two causes that want OPPOSITE responses, and until
+  // mt#4278 both printed the same sentence — which is how a broken selector
+  // survived as "pick a better conversation" for as long as it did.
   if (m.proseCount === 0) {
-    fail("conversation has no prose blocks — the hierarchy comparison has no left-hand side");
+    if (m.turnElementStacks === 0 && m.turnCount > 0) {
+      // The anchor itself is gone, in a thread that HAS turns. A different
+      // repair from the branch below: the attribute was renamed or removed,
+      // rather than the selector failing to reach inside it.
+      fail(
+        `THE INSTRUMENT IS BROKEN: ${m.turnCount} turns rendered but 0 carry ` +
+          `\`[data-testid="turn-elements"]\`. The anchor was renamed or removed — see ` +
+          `TURN_ELEMENTS_TESTID in src/cockpit/web/lib/conversation-turn-address.ts, whose ` +
+          `docblock lists this script as a consumer`
+      );
+    } else if (m.stackProseTotal > 0) {
+      fail(
+        `THE INSTRUMENT IS BROKEN, not the conversation: the prose selector matched 0 of ` +
+          `${m.stackProseTotal} \`div.break-words\` blocks that ARE inside an element stack. ` +
+          `Speech is addressed as a DIRECT child of \`[data-testid="turn-elements"]\`, so a ` +
+          `wrapper was likely introduced between the stack and the prose — check ` +
+          `TurnSegment's element rendering before re-running against another conversation`
+      );
+    } else {
+      fail(
+        `conversation has no speech at all (${m.turnElementStacks} element stacks, none ` +
+          `carrying prose) — the hierarchy comparison has no left-hand side. This one is the ` +
+          `SPECIMEN, not the instrument: pick a conversation containing assistant speech`
+      );
+    }
   }
 
   // 2. The hierarchy itself: prose paints brighter than machinery.

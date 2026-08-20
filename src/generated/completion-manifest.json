@@ -5517,6 +5517,30 @@
               "commandId": "asks.respond"
             },
             {
+              "name": "cancel",
+              "description": "Terminally cancel an Ask that was never dispatched (mt#3353, ADR-008). Covers the pre-suspended states — detected/classified/routed — which `asks.respond` rejects and which neither existing sweep reads: `advancement.ts` sweeps `detected` and `stale-suspended-close.ts` sweeps `suspended`, so `classified` and `routed` debris accumulates unreachable. This command is the terminal PRIMITIVE for those states; whether a RECURRING sweep may safely retire them, and under which rule, is mt#4361 — parent-terminal is not a safe trigger there, because a parent can go terminal by concluding the work is operator-only while that work is still outstanding. Silent to the operator: this is debris cleanup, not a decision. Idempotent — an already-terminal Ask is a no-op. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+              "options": [
+                {
+                  "flags": ["--reason"],
+                  "description": "Why this Ask is being retired — persisted as the cancellation disposition. Required: a cancellation with no reason is indistinguishable from the unattributed cancellations this command exists to replace.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--responder"],
+                  "description": "Who is cancelling — conventionally `system:<event>`. Defaults to `system:agent-cancelled`. The literal `operator` is REJECTED: cancelling is not answering, and recording the principal as the responder is the provenance laundering this command exists to end.",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID to cancel. Accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id."
+                }
+              ],
+              "commandId": "asks.cancel"
+            },
+            {
               "name": "create",
               "description": "Create an Ask and route it via the policy-first router (ADR-008)",
               "options": [
@@ -5631,7 +5655,7 @@
             },
             {
               "name": "edit",
-              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
+              "description": "Edit a non-terminal Ask's content (question/title/options/contextRefs/metadata) in place WITHOUT consuming it (mt#2668). State is never changed — a suspended Ask stays suspended and stays in the operator queue. Terminal asks (closed/cancelled/expired) are rejected. Every edit appends an editHistory provenance note (editor + timestamp + touched fields) to metadata, and preserves each content field's PRE-EDIT value once, under metadata.originalContent — so the text an ask was originally escalated with survives a correction (mt#4329). `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars, mt#2696), or an `ask#N` short id (mt#2965).",
               "options": [
                 {
                   "flags": ["--title"],
@@ -5655,7 +5679,7 @@
                 },
                 {
                   "flags": ["--metadata"],
-                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory is reserved for provenance)",
+                  "description": "Metadata keys to shallow-merge over existing metadata (editHistory and originalContent are reserved — provenance and the pre-edit content capture; caller-supplied values for either are ignored)",
                   "takesValue": true
                 },
                 {
@@ -6793,7 +6817,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -6805,6 +6829,11 @@
               "description": "Filter to turns by role: 'user' or 'assistant'",
               "takesValue": true,
               "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--origin-kind"],
+              "description": "Filter by who authored the turn's user text: 'human' for operator speech only, or a harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). NOT the same axis as `role`: `role: \"user\"` only means the turn HAS user text, and 43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+              "takesValue": true
             },
             {
               "flags": ["--from"],
@@ -6906,6 +6935,11 @@
               "description": "Filter to turns by role: 'user' or 'assistant'",
               "takesValue": true,
               "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--origin-kind"],
+              "description": "Filter by who authored the turn's user text: 'human' for operator speech only, or a harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). NOT the same axis as `role`: `role: \"user\"` only means the turn HAS user text, and 43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+              "takesValue": true
             },
             {
               "flags": ["--from"],

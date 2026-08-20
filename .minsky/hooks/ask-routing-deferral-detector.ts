@@ -53,7 +53,7 @@ import {
   extractMatchContext,
 } from "./judged-input-capture";
 import { createHash } from "node:crypto";
-import { cappedEvidenceLines } from "./guard-feedback-format";
+import { cappedEvidenceLines, truncateToRenderedLength } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
@@ -491,6 +491,53 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // Reminder builder (only used when INJECTION_ENABLED)
 // ---------------------------------------------------------------------------
 
+/**
+ * Longest evidence phrase this guard will RENDER, in UTF-16 code units (mt#4234).
+ *
+ * The unit is deliberate and was wrong in the first cut (PR #3187 R1). Bounding
+ * CODE POINTS leaves the render unbounded in the unit that is actually enforced
+ * and actually spent: `guard-feedback-shape.test.ts` compares `.length` against
+ * the declared ceiling, and `composeAdditionalContext` spends `.length` against
+ * `MERGED_CONTEXT_BUDGET_CHARS`. One emoji is one code point and two units, so a
+ * 120-code-point cap admitted a 240-unit phrase and the ceiling was not a
+ * ceiling for emoji-bearing prose — which is the agent's own text, and routinely
+ * contains it. `truncateToRenderedLength` bounds units while never splitting a
+ * surrogate pair; see its docblock for why the fix goes here rather than
+ * re-denominating the ceiling.
+ *
+ * The evidence line exists so the agent can recognize which of its own phrases
+ * tripped the guard — recognition, not reproduction. 120 is comfortably above
+ * the longest phrase the live corpus produces (82 chars, the ask#6136 sample),
+ * so no real match is truncated today and the bound is a ceiling rather than an
+ * active trim.
+ *
+ * **Why a cap is REQUIRED here and not merely tidy.** `matchedPhrase` is
+ * `m[0]` — the regex's whole matched span — and two patterns in this file match
+ * spans bounded only by the next sentence terminator in the agent's own prose:
+ * `/\b(want\s+me\s+to|should\s+I)\b[^.?]*\bor\b[^.?]*\?/i` and the
+ * `before (encoding|committing to|locking in) … decision is yours` shape, both
+ * via an unbounded `[^.?]*`. Rendering that span raw made the advisory grow 1:1
+ * with whatever the agent wrote: measured 2026-08-19 against the live matcher,
+ * a 1484-char run-on sentence carrying both classes rendered 2350 chars against
+ * a declared ceiling of 600. There is no finite worst case to pose for an
+ * unbounded axis, so `attentionCost` could not be a ceiling until this existed
+ * — `registry.ts` says as much ("a guard that CAPS its own output is bounded by
+ * construction"), and `guard-feedback-authoring.mdc` prefers the cap to raising
+ * the annotation.
+ *
+ * Applied at RENDER time, deliberately NOT in `detectDeferralPhrases`.
+ * `calibrationMatches` feeds `matches[].phrase` to the calibration sweep's
+ * diversity axis (see {@link DeferralMatch.context} for why that axis is
+ * sensitive), so truncating at match time would change which records count as
+ * distinct and move the count that decides when this log gets reviewed.
+ */
+export const MAX_RENDERED_PHRASE_CHARS = 120;
+
+/** One evidence line, with the phrase bounded per {@link MAX_RENDERED_PHRASE_CHARS}. */
+function evidenceLine(match: DeferralMatch): string {
+  return `  - "${truncateToRenderedLength(match.matchedPhrase, MAX_RENDERED_PHRASE_CHARS)}"`;
+}
+
 export function buildReminder(matches: DeferralMatch[]): string {
   const lines: string[] = [
     "[ask-routing-deferral-detector] Your prior turn deferred a decision to the principal in chat prose.",
@@ -507,7 +554,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "§Escalation packaging and file it via `mcp__minsky__asks_create` (kind direction.decide) " +
         "NOW — or cite the id of an existing open ask."
     );
-    lines.push(...cappedEvidenceLines(principal, (m) => `  - "${m.matchedPhrase}"`));
+    lines.push(...cappedEvidenceLines(principal, evidenceLine));
     lines.push("");
   }
   if (menu.length > 0) {
@@ -518,7 +565,7 @@ export function buildReminder(matches: DeferralMatch[]): string {
         "Class C (genuinely principal-reserved → package + asks_create). Run the lookups first; " +
         "most menus collapse to one obvious action."
     );
-    lines.push(...cappedEvidenceLines(menu, (m) => `  - "${m.matchedPhrase}"`));
+    lines.push(...cappedEvidenceLines(menu, evidenceLine));
     lines.push("");
   }
 

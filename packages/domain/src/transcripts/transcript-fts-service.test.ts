@@ -83,12 +83,57 @@ function isExistenceSelectCols(cols: unknown): boolean {
  * @param countRows    Rows returned for count/groupBy queries.
  * @param existenceRows Rows returned for existence-check queries (single agentSessionId col).
  */
+/**
+ * WHERE conditions the fake was handed, most recent first (mt#4289).
+ *
+ * The fake deliberately IGNORES conditions when deciding what to return — that
+ * is what keeps it simple. But a filter that is never applied and a filter
+ * applied correctly produce identical canned rows here, so a result-only
+ * assertion cannot tell them apart. Recording the argument lets a test assert
+ * the condition was BUILT, which is the half of the filter this fake can see.
+ */
+let capturedWhereConditions: unknown[] = [];
+
+/**
+ * True iff a captured WHERE tree filters on a column with this DB name.
+ *
+ * Two cheaper probes were tried first and BOTH were can't-fail (mem#704):
+ *
+ * - A plain recursive column-name search returns true either way, because every
+ *   condition carries a `Column`, every `Column` back-references its `Table`,
+ *   and the table object holds every column of the table. Hence `SKIP_KEYS`.
+ * - `queryChunks.length` does not vary: drizzle's `and()` renders as a fixed
+ *   3-chunk shape (open paren, joined body, close paren) whatever the condition
+ *   count. Measured directly, 2 conditions and 3 conditions both give 3.
+ *
+ * The version below was checked against a positive control (`user_text`, which
+ * IS filtered in both arms) before being used to assert a negative.
+ */
+const SKIP_KEYS = new Set(["table"]);
+
+function whereTreeFiltersOn(trees: unknown[], columnName: string): boolean {
+  const seen = new WeakSet<object>();
+  const walk = (node: unknown, depth: number): boolean => {
+    if (depth > 14 || node === null || typeof node !== "object") return false;
+    if (seen.has(node)) return false;
+    seen.add(node);
+    if ((node as { name?: unknown }).name === columnName) return true;
+    for (const [key, value] of Object.entries(node)) {
+      if (SKIP_KEYS.has(key)) continue;
+      if (walk(value, depth + 1)) return true;
+    }
+    return false;
+  };
+  return trees.some((tree) => walk(tree, 0));
+}
+
 function makeFakeDb(
   turnRows: FakeRow[],
   countRows: FakeRow[] = [],
   existenceRows: FakeRow[] = []
 ): DrizzlePgDb {
   let selectedCols: unknown = null;
+  capturedWhereConditions = [];
 
   // We store cols at select() time and read them at limit()/resolve time.
   const resolveFn = (n?: number): Promise<FakeRow[]> => {
@@ -114,12 +159,15 @@ function makeFakeDb(
   const groupByFn = (_col: unknown) => ({
     then: (resolve: (v: FakeRow[]) => unknown) => resolveFn().then(resolve),
   });
-  const whereFn = (_cond: unknown) => ({
-    orderBy: orderByFn,
-    limit: limitFn,
-    groupBy: groupByFn,
-    then: (resolve: (v: FakeRow[]) => unknown) => resolveFn().then(resolve),
-  });
+  const whereFn = (cond: unknown) => {
+    capturedWhereConditions.unshift(cond);
+    return {
+      orderBy: orderByFn,
+      limit: limitFn,
+      groupBy: groupByFn,
+      then: (resolve: (v: FakeRow[]) => unknown) => resolveFn().then(resolve),
+    };
+  };
   const innerJoinFn = (_table: unknown, _on: unknown) => ({
     where: whereFn,
     orderBy: orderByFn,
@@ -359,5 +407,59 @@ describe("TranscriptFtsService", () => {
         "cd '/Users/dev/Projects/minsky' && claude --resume session-x"
       );
     });
+  });
+});
+
+// ── user_origin: the provenance field and its filter (mt#4289) ────────────────
+
+describe("TranscriptFtsService — userOrigin (mt#4289)", () => {
+  test("searchText carries userOrigin through to the result", async () => {
+    const db = makeFakeDb([makeTurnRow({ userOrigin: "compact_summary" })]);
+    const svc = new TranscriptFtsService(db);
+
+    const results = await svc.searchText("anything");
+
+    expect(results[0]?.userOrigin).toBe("compact_summary");
+  });
+
+  test("getSession carries it too — a whole-session read is a labelling surface as well", async () => {
+    const db = makeFakeDb(
+      [makeTurnRow({ agentSessionId: "session-o", userOrigin: "human" })],
+      [],
+      [makeExistenceRow("session-o")]
+    );
+    const svc = new TranscriptFtsService(db);
+
+    const results = await svc.getSession(conv("session-o"));
+
+    expect(results[0]?.userOrigin).toBe("human");
+  });
+
+  test("a row predating the column reports null, not a fabricated 'human'", async () => {
+    // The BACKFILL decides what pre-mt#4289 rows say. Until it runs they are
+    // NULL, and the read path must pass that through — inventing `human` here
+    // would make "not yet classified" indistinguishable from "verified operator".
+    const db = makeFakeDb([makeTurnRow({ userOrigin: null })]);
+    const svc = new TranscriptFtsService(db);
+
+    const results = await svc.searchText("anything");
+
+    expect(results[0]?.userOrigin).toBeNull();
+  });
+
+  test("originKind filters on user_origin; omitting it does not", async () => {
+    // The fake ignores conditions when choosing rows, so BOTH calls return the
+    // same canned row — a result assertion cannot tell an applied filter from a
+    // dropped one. The condition tree is the only place the difference shows.
+    const svc = new TranscriptFtsService(makeFakeDb([makeTurnRow()]));
+    await svc.searchText("anything", { role: "user" });
+    expect(whereTreeFiltersOn(capturedWhereConditions, "user_origin")).toBe(false);
+    // Positive control for the probe itself: `role: "user"` DOES filter on
+    // user_text, so a probe that can see anything must see this.
+    expect(whereTreeFiltersOn(capturedWhereConditions, "user_text")).toBe(true);
+
+    const svc2 = new TranscriptFtsService(makeFakeDb([makeTurnRow()]));
+    await svc2.searchText("anything", { role: "user", originKind: "human" });
+    expect(whereTreeFiltersOn(capturedWhereConditions, "user_origin")).toBe(true);
   });
 });
