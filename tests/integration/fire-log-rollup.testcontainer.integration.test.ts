@@ -88,13 +88,19 @@ const POSTGRES_IMAGE = "postgres:16-alpine";
  * `0101_brave_stardust.sql`.
  */
 const DDL = `
+  -- Idempotent, and NOT required on this image (PR #3191 R1-R4).
+  --
+  -- The review's stated mechanism is wrong and the record should say so:
+  -- gen_random_uuid() moved into Postgres CORE in 13, so on postgres:16-alpine
+  -- it needs no extension, and this suite's tables were created and asserted
+  -- against on six runs before this line existed. It is kept anyway for a
+  -- reason that stands on its own: POSTGRES_IMAGE is a constant one edit away
+  -- from an older tag, and a DDL that only works because of the pinned
+  -- version's defaults is coupled to that pin without saying so. This makes it
+  -- self-sufficient at the cost of a no-op.
+  create extension if not exists pgcrypto;
+
   create table guard_events (
-    -- gen_random_uuid() needs NO extension here. It moved into Postgres core in
-    -- 13 (pgcrypto was required only before that), and this image is 16 — so
-    -- there is no CREATE EXTENSION pgcrypto, deliberately. Raised twice in
-    -- review against PR #3191; recorded rather than "fixed", because adding an
-    -- extension to satisfy a pre-13 assumption would be cargo. If this DDL is
-    -- ever pointed at a pre-13 server, that is when the extension is needed.
     id uuid primary key default gen_random_uuid(),
     stream text not null,
     family text not null,
