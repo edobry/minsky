@@ -186,11 +186,27 @@ function toAskListRow(a: Ask) {
  *
  * Both endpoints used to call `repo.transition(askId, "routed")`, on the
  * expectation that something would re-dispatch the Ask into the operator
- * queue on the next service window. Nothing does: `ServiceWindowReaper`
- * (packages/domain/src/ask/service-window-reaper.ts) — the only component
- * that performs `routed -> suspended` — has no production callsite.
+ * queue on the next service window. Nothing did — `ServiceWindowReaper`
+ * (packages/domain/src/ask/service-window-reaper.ts) had no production
+ * callsite until mt#4313 gave it one.
  *
- * Meanwhile an operator-bound Ask never legitimately reaches `routed` at all.
+ * Two corrections to this docblock's original wording (mt#4313). It said the
+ * reaper "performs `routed -> suspended`"; the direction is the opposite —
+ * the reaper's only `transition()` call targets `"routed"`, moving a windowed
+ * cohort `suspended -> routed` when its window opens. And the reaper now DOES
+ * run, in the cockpit daemon's service-window sweep.
+ *
+ * That does not revive these two buttons. What made them harmful was never
+ * `routed` itself but that they were an entrance to it with no window context
+ * and nothing to bring the Ask back — a `routed` ask they created belonged to
+ * no cohort, so no window-open would ever pick it up. Restoring a real defer
+ * (a `snoozedUntil` column plus something that fires when it elapses) is still
+ * the delivery-layer work described at the end of this docblock.
+ *
+ * The visibility half of the original problem IS fixed: the unfiltered
+ * `GET /api/asks` below now lists operator asks in `routed` as well as
+ * `suspended`, so an ask in `routed` is no longer invisible to the operator.
+ *
  * `routeResultToOutcomeWrite` maps the inbox/elicitation transports straight
  * to `suspended` ("'Dispatch' for the inbox transport IS landing on the
  * operator surface" — ask/advancement.ts); only subagent/mesh/retriever
