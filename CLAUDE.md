@@ -726,6 +726,10 @@ Detail: `guard-dispatcher-framework.md`.
 - **Enumeration-scope check** (mt#4171) — `session_pr_create` changing a serialized contract with
   no `docs/` sweep; a SUBTREE is not its directory. At `pr`, not ADR-042's READY seam (mt#4293).
   Calibration-first. `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
+- **Gate-walk provenance** (mt#1880) — `session_pr_merge` on a task with no `task.status_changed`
+  → READY row: was it gated at ALL? The existence half of the pair above, at the only seam
+  mem#416's four bypass paths share. `skipped` (pre-horizon, unreadable) is kept strictly apart
+  from `ungated`. Record-only. `MINSKY_SKIP_GATE_WALK_PROVENANCE`. Detail: `gate-walk-provenance.md`.
 - **New-surface design pass** (mt#4124) — `session_pr_create` on a branch that ADDS a render-path file, or (mt#4356) MODIFIES one when the bound spec declares the change visually judged, with no design skill invoked in the authoring conversation. The judgment half of mt#2421. The second trigger exists because file-add proxied for "this is a design decision" and missed the largest class of design work — changing how an existing surface looks; the whole cockpit redesign sequence is modify-only and was invisible to it. Calibration-first. `MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS`. Detail: `new-surface-design-pass.md`.
 - **Flakiness-control detector** (mt#3658) — `tasks_create` whose spec claims a failure MODE with no isolation control recorded. Fires on the ATTRIBUTION and equally on the DENIAL (mt#4166). Calibration-first. `MINSKY_SKIP_FLAKINESS_CONTROL`. Detail: `flakiness-control-detector.md`.
 - **Unowned-finding scan** (mt#4246) — a `tasks_status_set` → DONE whose spec's findings section holds an item declaring neither `[owner: mt#N]` nor `[no-owner: reason]`. Calibration-first. `MINSKY_SKIP_UNOWNED_FINDING_SCAN`. Detail: `unowned-finding-scan.md`.

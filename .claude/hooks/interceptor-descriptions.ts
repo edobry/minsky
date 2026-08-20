@@ -859,6 +859,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "gate-walk-provenance",
+    {
+      description:
+        'Records, at the merge seam, whether the bound task was ever gated at all — a `task.status_changed` row with `newStatus: "READY"`, which only `/plan-task`\'s `tasks.status.set` call produces. The existence half of the gate-(h) pair; `enumeration-scope-check` asks the scope question at `pr` and presupposes the gate was walked, whereas this presupposes nothing and so is the only one that fires on a task that skipped PLANNING (mem#416 enumerates four such paths). Keeps `skipped` strictly apart from `ungated`: emission began ~2026-06 and the emitter swallows its own failures, so a missing row is bounded evidence about the stream, not about the gate. Record-only — never denies, never injects.',
+      failureClasses: ["unreviewed-merge"],
+      provenance: [hook("gate-walk-provenance"), HOOK_OBSERVERS_RULE],
+      stratum: "standalone",
+    },
+  ],
+  [
     "block-out-of-band-merge",
     {
       description:

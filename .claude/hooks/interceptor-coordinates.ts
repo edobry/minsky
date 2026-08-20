@@ -526,6 +526,14 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "gate-walk-provenance",
+    {
+      ...structuralRecorder,
+      trajectory: "delivery",
+      note: "The merge-seam half of the gate-(h) pair. Reads THREE indexed rows — the stream's earliest task.status_changed, the bound task's created_at, and a → READY row for that task — and asks only whether the task was ever gated, never whether it was gated well (that is enumeration-scope-check's question at `pr`). Structural rather than lexical: no prose is parsed on any path. Its `skipped` outcome is a first-class verdict, not a fallthrough — a pre-horizon task and an unreadable stream both produce one, because absence in this stream is bounded evidence about the stream and not about the gate.",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       interventions: [injectAgent],
