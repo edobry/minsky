@@ -49,6 +49,7 @@ import {
 } from "../packages/domain/src/detectors/unasked-direction-analyzer";
 import type { TranscriptSampling } from "../packages/domain/src/detectors/unasked-direction-analyzer";
 import type { ConversationId } from "../packages/domain/src/ids";
+import { extractSchemaIssuePaths } from "./lib/generate-object-failure";
 
 interface ReplayRow {
   conversationId: string;
@@ -90,6 +91,24 @@ interface ReplayRow {
   findingCount: number | null;
   summary: string | null;
   error: string | null;
+  /**
+   * Why this row carries no measurements, when it carries none (mt#4317).
+   *
+   * `messageCount: 0` used to mean two unrelated things — a genuinely degenerate stored
+   * transcript, and a transcript this run never managed to READ. One run returned 11 of 20
+   * rows with `messageCount: 0` whose errors all read `Failed query: select
+   * "agent_session_id", ...`; the database was failing, and the summary reported
+   * `transcriptsWithZeroMessages: 11` as though the corpus were degenerate. A reader
+   * comparing that run against another would have drawn a conclusion from an
+   * infrastructure fault. The two cases now carry different labels and are counted apart.
+   */
+  fetchStatus: "ok" | "fetch-failed" | "empty";
+  /**
+   * For an analyzed row that threw: which schema fields the response was missing, or
+   * `null` when the call failed for a reason that is not a schema violation at all
+   * (rate limit, transport reset). `error` alone cannot distinguish those.
+   */
+  missingFields: string[] | null;
 }
 
 function parseIntArg(flag: string, fallback: number): number {
@@ -208,6 +227,8 @@ async function main(): Promise<void> {
         findingCount: null,
         summary: null,
         error: err instanceof Error ? err.message : String(err),
+        fetchStatus: "fetch-failed",
+        missingFields: null,
       });
       continue;
     }
@@ -226,6 +247,8 @@ async function main(): Promise<void> {
         findingCount: null,
         summary: null,
         error: "no messages",
+        fetchStatus: "empty",
+        missingFields: null,
       });
       continue;
     }
@@ -265,6 +288,8 @@ async function main(): Promise<void> {
       findingCount: null,
       summary: null,
       error: null,
+      fetchStatus: "ok",
+      missingFields: null,
     };
 
     if (analyzer) {
@@ -274,6 +299,9 @@ async function main(): Promise<void> {
         row.summary = output.summary;
       } catch (err) {
         row.error = err instanceof Error ? err.message : String(err);
+        // mt#4317: WHICH field was absent is the measurement, not the total. AT1 asks for
+        // the per-error-class breakdown pasted rather than a count.
+        row.missingFields = extractSchemaIssuePaths(err);
       }
     }
 
@@ -291,33 +319,67 @@ async function main(): Promise<void> {
   const totalFindings = analyzed.reduce((n, r) => n + (r.findingCount ?? 0), 0);
   const blindCount = rows.filter((r) => r.blind).length;
 
+  // Rows this run actually READ. Every ratio below is computed over these and only these:
+  // a transcript the database refused to hand over has no empty-text ratio, and averaging
+  // a fabricated 0.0 into the mean silently drags the headline figure down (mt#4317).
+  const measured = rows.filter((r) => r.fetchStatus === "ok");
+  const fetchFailed = rows.filter((r) => r.fetchStatus === "fetch-failed");
+  const genuinelyEmpty = rows.filter((r) => r.fetchStatus === "empty");
+
+  // A failed analyzer call splits two ways and the split is the point: a response missing a
+  // required field is a compliance datum, a rate limit is not. Folding them together
+  // inflates exactly the rate mt#4317 is trying to measure.
+  const schemaViolations = rows.filter((r) => r.missingFields !== null);
+  const callErrors = rows.filter(
+    (r) => r.error !== null && r.missingFields === null && r.fetchStatus === "ok"
+  );
+  const missingFieldBreakdown: Record<string, number> = {};
+  for (const r of schemaViolations) {
+    for (const field of r.missingFields ?? []) {
+      missingFieldBreakdown[field] = (missingFieldBreakdown[field] ?? 0) + 1;
+    }
+  }
+
+  const corpusIntegrity = {
+    transcriptsRead: measured.length,
+    // Never merged into one "zero messages" figure — see `ReplayRow.fetchStatus`.
+    transcriptsFetchFailed: fetchFailed.length,
+    transcriptsGenuinelyEmpty: genuinelyEmpty.length,
+    fetchFailureSamples: fetchFailed.slice(0, 3).map((r) => r.error?.slice(0, 160) ?? ""),
+  };
+
+  // A run whose corpus did not load has no ratio statistics to report — reporting them
+  // anyway is what produced a degenerate-corpus reading of an infrastructure fault.
+  if (measured.length === 0) {
+    console.log("");
+    console.log(JSON.stringify({ corpusIntegrity, rows }, null, 2));
+    console.error(
+      `FAIL: none of ${rows.length} transcripts could be read — no statistics reported ` +
+        `(${fetchFailed.length} fetch failures, ${genuinelyEmpty.length} genuinely empty)`
+    );
+    process.exit(1);
+  }
+
   const summary = {
     mode: renderOnly ? "render-only" : "live",
     transcriptsRequested: limit,
     transcriptsFetched: conversationIds.length,
-    transcriptsWithMessages: rows.filter((r) => r.messageCount > 0).length,
+    corpusIntegrity,
+    transcriptsWithMessages: measured.length,
     blindRenderings: blindCount,
     analyzedMessageWindow: __TEST_ONLY.TRANSCRIPT_MESSAGE_CAP,
     // Before and after, over the same rows, from this run. See `headBaselineEmptyTextRatio`
     // for why the baseline is measured rather than quoted from the spec.
-    meanEmptyTextRatioHeadBaseline: mean(rows.map((r) => r.headBaselineEmptyTextRatio)),
-    meanEmptyTextRatioInWindow: mean(rows.map((r) => r.emptyTextRatio)),
-    // A stored transcript with zero messages contributes 0.0 to both means and is not a
-    // low-empty session — it is a degenerate row that drags the average DOWN. Reported
-    // separately so a reader is not misled by either figure alone (mt#4235 planning audit).
-    transcriptsWithZeroMessages: rows.filter((r) => r.messageCount === 0).length,
-    meanEmptyTextRatioHeadBaselineExcludingEmpty: mean(
-      rows.filter((r) => r.messageCount > 0).map((r) => r.headBaselineEmptyTextRatio)
-    ),
-    meanEmptyTextRatioInWindowExcludingEmpty: mean(
-      rows.filter((r) => r.messageCount > 0).map((r) => r.emptyTextRatio)
-    ),
-    meanAnalyzedMessages: mean(
-      rows.filter((r) => r.messageCount > 0).map((r) => r.analyzedMessages)
-    ),
+    meanEmptyTextRatioHeadBaseline: mean(measured.map((r) => r.headBaselineEmptyTextRatio)),
+    meanEmptyTextRatioInWindow: mean(measured.map((r) => r.emptyTextRatio)),
+    meanAnalyzedMessages: mean(measured.map((r) => r.analyzedMessages)),
     analyzed: analyzed.length,
     totalFindings,
     transcriptsWithAtLeastOneFinding: analyzed.filter((r) => (r.findingCount ?? 0) > 0).length,
+    // mt#4317 AT1: the per-error-class breakdown, not just a total.
+    schemaViolations: schemaViolations.length,
+    missingFieldBreakdown,
+    callErrors: callErrors.length,
   };
 
   console.log("");
