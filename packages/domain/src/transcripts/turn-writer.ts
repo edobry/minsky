@@ -312,6 +312,7 @@ export function isStatementTimeout(err: unknown): boolean {
  */
 type TurnUpsertDirectSetKey =
   | "userText"
+  | "userOrigin"
   | "assistantText"
   | "toolCalls"
   | "startedAt"
@@ -324,6 +325,14 @@ export const TURN_UPSERT_DIRECT_SET_COLUMNS: ReadonlyArray<{
   readonly sqlName: string;
 }> = [
   { key: "userText", column: agentTranscriptTurnsTable.userText, sqlName: "user_text" },
+  // mt#4289, merged in on rebase (PR #3176): a change in provenance with
+  // identical text does not invalidate a vector, which describes the TEXT —
+  // so `userOrigin` is a direct-set column here (and correctly absent from
+  // the embedding CASE at the call site) but must still participate in the
+  // skip-if-unchanged predicate below, since `extractTurnsForAllTranscripts`
+  // depends on a re-run rewriting `user_origin` on every row even when the
+  // text is unchanged.
+  { key: "userOrigin", column: agentTranscriptTurnsTable.userOrigin, sqlName: "user_origin" },
   {
     key: "assistantText",
     column: agentTranscriptTurnsTable.assistantText,
@@ -460,6 +469,11 @@ async function writeTurnsLocked(
       agentSessionId,
       turnIndex: turn.turnIndex,
       userText: turn.userText ?? undefined,
+      // mt#4289: who authored `user_text`. Written on the SAME statement as the
+      // text it describes — a separate pass would let the two disagree, and a
+      // row whose text says one thing and whose provenance says another is
+      // worse than one carrying no provenance at all.
+      userOrigin: turn.userOrigin ?? undefined,
       assistantText: turn.assistantText ?? undefined,
       // Pass the array directly — `tool_calls` is a jsonb column and Drizzle
       // serializes the value. JSON.stringify here would DOUBLE-encode it (store a
@@ -505,7 +519,17 @@ async function writeTurnsLocked(
             // backfill refills it on its next pass.
             set: {
               // Every direct-from-EXCLUDED entry, built from the single source
-              // of truth above — see `turnUpsertDirectSet`'s doc comment.
+              // of truth above — see `turnUpsertDirectSet`'s doc comment. This
+              // now includes `userOrigin` (mt#4289, merged in here on rebase):
+              // listed as a direct-set column and NOT in the embedding CASE
+              // below, because a change in provenance with identical text does
+              // not invalidate a vector, which describes the TEXT. That is also
+              // why `userOrigin` must flow through the skip-if-unchanged
+              // predicate too, not just the SET clause — the existing
+              // `extractTurnsForAllTranscripts` sweep depends on a re-run
+              // rewriting `user_origin` on every row even when the text is
+              // unchanged; a guard that only compared text would have silently
+              // skipped that write once mt#4345 shipped.
               ...turnUpsertDirectSet(),
               // `embedding` is the one SET entry NOT in that list: its value is
               // DERIVED from userText/assistantText rather than a straight

@@ -28,14 +28,31 @@ export interface RequiredPermission {
  * installation. Kept in lockstep with `DEFAULT_PERMISSIONS` in
  * `src/adapters/shared/commands/setup-github-app.ts` — that constant governs
  * what a FRESH App is created with; this one governs what an EXISTING App is
- * checked against. `contents: write` is required by `session_commit`'s
- * App-token push (mt#1477) — the permission whose absence caused the
- * mt#3210 incident.
+ * checked against. That lockstep is asserted by a test as of mt#3264
+ * (`permission-drift.test.ts`); until then it was a claim in this comment only,
+ * and it had been false for as long as both constants existed.
+ *
+ * `contents: write` is required by `session_commit`'s App-token push (mt#1477)
+ * — the permission whose absence caused the mt#3210 incident. `workflows: write`
+ * is required for a push that touches `.github/workflows/**` at all, which is
+ * the mt#3264 incident.
  */
 export const REQUIRED_APP_PERMISSIONS: RequiredPermission[] = [
   { scope: "pull_requests", level: "write" },
   { scope: "contents", level: "write" },
   { scope: "metadata", level: "read" },
+  // mt#3264: `workflows` and `actions` were missing from this list for the whole
+  // of mt#3218's life, which made the check silent about the exact permission
+  // whose absence caused mt#3264's originating incident — a push carrying any
+  // change under `.github/workflows/**` was rejected server-side, and
+  // `config.doctor` reported "permissions match" throughout. GitHub requires the
+  // `workflows` permission for an App to create or update a workflow file (see
+  // "Choosing permissions for a GitHub App" in GitHub's docs), and `session_commit`
+  // pushes those files routinely. `actions` backs the CI-status reads the shipped
+  // code makes. Both are granted on the live App as of 2026-08-19; listing them
+  // here is what makes a future revocation visible instead of silent.
+  { scope: "workflows", level: "write" },
+  { scope: "actions", level: "write" },
 ];
 
 const LEVEL_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };

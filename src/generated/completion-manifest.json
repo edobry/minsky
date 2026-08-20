@@ -6793,7 +6793,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by vector distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -6805,6 +6805,11 @@
               "description": "Filter to turns by role: 'user' or 'assistant'",
               "takesValue": true,
               "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--origin-kind"],
+              "description": "Filter by who authored the turn's user text: 'human' for operator speech only, or a harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). NOT the same axis as `role`: `role: \"user\"` only means the turn HAS user text, and 43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+              "takesValue": true
             },
             {
               "flags": ["--from"],
@@ -6906,6 +6911,11 @@
               "description": "Filter to turns by role: 'user' or 'assistant'",
               "takesValue": true,
               "values": ["user", "assistant"]
+            },
+            {
+              "flags": ["--origin-kind"],
+              "description": "Filter by who authored the turn's user text: 'human' for operator speech only, or a harness kind ('compact_summary', 'harness_meta', 'task_notification', 'peer', 'sdk'). NOT the same axis as `role`: `role: \"user\"` only means the turn HAS user text, and 43.5% of such turns are harness-written (mt#4289). Each result carries `userOrigin`.",
+              "takesValue": true
             },
             {
               "flags": ["--from"],

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_transcript_turns" ADD COLUMN "user_origin" text;

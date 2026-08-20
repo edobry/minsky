@@ -332,13 +332,22 @@ function renderSql(fragment: ReturnType<typeof buildTurnUpsertSkipIfUnchangedWhe
  * `scripts/verify-turn-write-skip-if-unchanged.ts`'s job.
  */
 describe("skip-if-unchanged guard shape (mt#4345)", () => {
-  test("TURN_UPSERT_DIRECT_SET_COLUMNS names exactly the six direct-from-EXCLUDED columns", () => {
+  test("TURN_UPSERT_DIRECT_SET_COLUMNS names exactly the seven direct-from-EXCLUDED columns", () => {
     expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c): string => c.key).sort()).toEqual(
-      ["userText", "assistantText", "toolCalls", "startedAt", "endedAt", "isSpawnBoundary"].sort()
+      [
+        "userText",
+        "userOrigin",
+        "assistantText",
+        "toolCalls",
+        "startedAt",
+        "endedAt",
+        "isSpawnBoundary",
+      ].sort()
     );
     expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c) => c.sqlName).sort()).toEqual(
       [
         "user_text",
+        "user_origin",
         "assistant_text",
         "tool_calls",
         "started_at",
@@ -348,7 +357,13 @@ describe("skip-if-unchanged guard shape (mt#4345)", () => {
     );
     // `embedding` is deliberately absent — its SET value is derived from
     // userText/assistantText (mt#3883), not a straight EXCLUDED passthrough.
+    // `userOrigin` (mt#4289) IS present, despite also being excluded from the
+    // embedding CASE — it's excluded from the CASE because provenance doesn't
+    // describe the vector, but it's still a direct SET column that must
+    // participate in the skip-if-unchanged predicate (see turn-writer.ts's
+    // comment on this array's userOrigin entry).
     expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c) => c.key)).not.toContain("embedding");
+    expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c) => c.key)).toContain("userOrigin");
   });
 
   test("the predicate uses IS DISTINCT FROM for every declared column, never a bare <>", () => {
@@ -376,11 +391,13 @@ describe("skip-if-unchanged guard shape (mt#4345)", () => {
     // This test is deliberately about the ARRAY's shape rather than the
     // schema, because that IS the single source of truth both the SET
     // clause and this predicate read from (see turn-writer.ts's doc comment
-    // on TURN_UPSERT_DIRECT_SET_COLUMNS). Six entries is the current SET
-    // block's direct-from-EXCLUDED count; a reviewer adding a 7th column to
-    // the schema and the SET block must also add it here for this count to
-    // stay accurate — which is the array being the seam, not a coincidence.
-    expect(TURN_UPSERT_DIRECT_SET_COLUMNS).toHaveLength(6);
+    // on TURN_UPSERT_DIRECT_SET_COLUMNS). Seven entries is the current SET
+    // block's direct-from-EXCLUDED count (six at mt#4345's original review,
+    // plus `userOrigin` picked up from mt#4289 on the PR #3176 rebase) — a
+    // reviewer adding an 8th column to the schema and the SET block must
+    // also add it here for this count to stay accurate, which is the array
+    // being the seam, not a coincidence.
+    expect(TURN_UPSERT_DIRECT_SET_COLUMNS).toHaveLength(7);
   });
 });
 

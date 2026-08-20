@@ -622,16 +622,46 @@ When §9/§10 touches shared/prod state, the claim-confidence rule's risk-and-ev
 ### 10. Post-merge deploy verification (when the task touches a deployed service)
 
 When the merged PR changes anything that affects WHAT gets deployed or HOW, do
-NOT stop at merge. This covers both deployed SOURCE (anything under
-\`services/<svc>/\` that has a \`deploy.config.ts\`, or source the deploy image
-bundles via the project Dockerfile) AND deploy/infra CONFIG-as-code — the
-**deploy surface** the mt#2353 hooks fire on: \`infra/**\`,
-\`services/*/Dockerfile\`, \`services/*/railway.json\`, \`services/*/deploy.config.ts\`,
-\`services/*/railway.config.ts\`, \`.github/workflows/deploy-*.yml\`. The merge
-triggers an auto-deploy on Railway (or whatever platform the service declares);
-that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
-missing env var, config-as-code resolution error, schema migration error,
-container crash on start.
+NOT stop at merge. The merge triggers an auto-deploy on Railway (or whatever
+platform the service declares); that deploy can fail in ways no pre-merge check
+catches — Dockerfile breakage, missing env var, config-as-code resolution
+error, schema migration error, container crash on start.
+
+**Which changes those are is not something to recall — run the predicate
+(mt#4269).** The deploy surface is defined in exactly one place,
+\`packages/domain/src/deployment/deploy-surface.ts\`, and it is WIDER than deploy
+config: it covers application SOURCE and the manifests whose merge actually
+triggers a service deploy, not just the platform's own config files. The
+mt#2353 hooks, the post-merge deploy watch, and this step all read that module,
+so it is the only thing your claim has to agree with. Ask it directly, over the
+files this PR actually changed:
+
+\`\`\`
+bun -e 'import { isDeploySurfaceFile } from "./packages/domain/src/deployment/deploy-surface.ts";
+for (const f of process.argv.slice(1)) console.log(isDeploySurfaceFile(f), f);' src/cockpit/routes/context-inspector.ts packages/domain/src/deployment/deploy-surface.ts
+\`\`\`
+
+Swap the two example paths for this PR's actual changed files, passed as plain
+arguments. Do NOT substitute a \`<placeholder>\` for them: the shell reads \`<\` as
+input redirection, so the line dies as a syntax error before bun ever runs. Get
+the file list from \`git_diff\` or \`session_pr_get\` — \`block-git-gh-cli.ts\` denies
+the \`git\` CLI, so a \`git diff --name-only\` substitution is not available here.
+
+The slice is \`1\`, not \`2\`, and that is worth not "correcting": \`bun -e\` passes
+no script path, so \`process.argv\` is \`[<bun>, ...yourFiles]\` — measured, not
+assumed. Slicing at \`2\` drops the FIRST file silently, which for this particular
+check is the worst available failure: a deploy-surface file vanishes from the
+output and \`[no-deploy-impact]\` looks confirmed.
+
+**This binds hardest on \`[no-deploy-impact]\`.** That tag asserts the predicate
+returns false for EVERY changed file, so run it over the diff before you write
+the tag — in the PR body and in each commit message, since a pushed commit
+message cannot be edited afterward. A pattern list you remember is not evidence
+about the pattern set that ships: this paragraph replaced one, and that list had
+been stale through two successive widenings while reading as authoritative.
+Two PRs wrote a false \`[no-deploy-impact]\` by applying it faithfully (#3104,
+#3148) — in the second, the claim reached four commit messages and is permanent
+in history there.
 
 **Verifying the post-merge deploy is MANDATORY before you report the task done**
 — not a discretionary follow-up. Two hooks enforce it (mt#2353): the PreToolUse

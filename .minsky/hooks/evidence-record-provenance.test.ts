@@ -25,6 +25,7 @@ import type { TranscriptLine } from "./transcript";
 import { GUARD_REGISTRY } from "./registry";
 import {
   extractSubjectTokens,
+  isCheckRunningCall,
   isTestRunningCall,
   failingTestRuns,
 } from "./evidence-provenance-table";
@@ -64,6 +65,9 @@ const SUBJECT_FAILURE =
   "no gated route is touched [5.98ms]\n\n 4 pass\n 1 fail\nRan 5 tests across 1 file.";
 
 const GREEN_RUN = "bun test v1.3.14\n\n 5 pass\n 0 fail\nRan 5 tests across 1 file. [447.00ms]";
+
+/** The claim kind, named once — three assertions across this file compare against it. */
+const NEGATIVE_CONTROL = "negative-control";
 
 let nextId = 0;
 
@@ -298,7 +302,7 @@ describe("judgeClaims", () => {
       testRun(TEST_CMD, "(fail) Unrelated > other [1ms]\n 1 fail")
     );
     const v = judgeClaims(record, calls)[0];
-    expect(v?.kind).toBe("negative-control");
+    expect(v?.kind).toBe(NEGATIVE_CONTROL);
     expect(v?.verdict).toBe("unadjudicable");
     expect(v?.verdict).not.toBe("undischarged");
   });
@@ -409,6 +413,325 @@ describe("judgeClaims", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-claim granularity and the ordering axis (mt#4236)
+// ---------------------------------------------------------------------------
+
+/** A `session_search_replace` write to `path`. */
+function write(path: string): TranscriptLine[] {
+  const id = `tu_${++nextId}`;
+  return [
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id, name: "mcp__minsky__session_search_replace", input: { path } },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          { type: "tool_result", tool_use_id: id, content: [{ type: "text", text: "ok" }] },
+        ],
+      },
+    },
+  ] as unknown as TranscriptLine[];
+}
+
+/** A `validate_typecheck` MCP call reporting a clean run. */
+function typecheckRun(): TranscriptLine[] {
+  const id = `tu_${++nextId}`;
+  return [
+    {
+      type: "assistant",
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id,
+            name: "mcp__minsky__validate_typecheck",
+            input: { task: "mt#1" },
+          },
+        ],
+      },
+    },
+    {
+      type: "user",
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            content: [{ type: "text", text: "errorCount: 0" }],
+          },
+        ],
+      },
+    },
+  ] as unknown as TranscriptLine[];
+}
+
+/**
+ * The originating instance's shape (mt#4214 / PR #3082): ONE block asserting a
+ * typecheck AND a test run. Before mt#4236 the whole block was discharged by
+ * `sessionRanTests`, so the typecheck half was never adjudicated at all.
+ */
+const MIXED_EVIDENCE_BLOCK =
+  "## Execution evidence\n\n" +
+  "```\n" +
+  "$ bun test --preload ./tests/setup.ts ./.minsky/hooks/foo.test.ts\n" +
+  " 38 pass\n 0 fail\n" +
+  "\n" +
+  '$ validate_typecheck(task: "mt#4214")\n' +
+  " errorCount: 0\n" +
+  "```\n";
+
+describe("per-claim granularity (mt#4236)", () => {
+  test("one block asserting a typecheck AND a test yields one claim for EACH", () => {
+    const calls = findToolCallsWithResults([...typecheckRun(), ...testRun(TEST_CMD, GREEN_RUN)]);
+    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls);
+    expect(verdicts.map((v) => v.check).sort()).toEqual(["test", "typecheck"]);
+    expect(verdicts.every((v) => v.verdict === "discharged")).toBe(true);
+  });
+
+  test("a typecheck claim is NOT discharged by a test run — the pre-mt#4236 defect", () => {
+    // The session ran tests and nothing else. Before this change the block was
+    // discharged outright; the typecheck claim must now stand undischarged.
+    const calls = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    expect(typecheck).toMatchObject({ verdict: "undischarged", detail: "no-run-of-kind" });
+  });
+
+  test("`no-run-at-all` is a DIFFERENT class from `no-run-of-kind`", () => {
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, []).find((v) => v.check === "typecheck");
+    expect(typecheck?.detail).toBe("no-run-at-all");
+  });
+
+  test("a block claiming nothing recognizable keeps mt#1459's own semantics", () => {
+    // The compatibility guarantee: such a block is a test claim, discharged by
+    // any test run, exactly as before — this change must not move the recall
+    // axis mt#4067 owns.
+    const body = "## Execution evidence\n\nthe checks were run and were fine\n";
+    expect(judgeClaims(body, [])[0]).toMatchObject({ check: "test", verdict: "undischarged" });
+    const ran = findToolCallsWithResults(testRun(TEST_CMD, GREEN_RUN));
+    expect(judgeClaims(body, ran)[0]?.verdict).toBe("discharged");
+  });
+
+  test("prose naming a check is NOT a claim — only a pasted invocation or result is", () => {
+    // The conservative direction: recognizing a kind creates an obligation to
+    // find a run of it, so an English mention must not manufacture one.
+    const body = "## Execution evidence\n\ntypecheck and lint are clean.\n 5 pass\n";
+    expect(judgeClaims(body, []).map((v) => v.check)).toEqual(["test"]);
+  });
+
+  // PR #3165 R1. The assertion above passed on a phrasing that happened to dodge
+  // every bare tool noun the matchers actually listed, so it certified a
+  // property the code did not have. These pin the nouns themselves.
+  test.each([
+    ["eslint is clean", "lint"],
+    ["tsc passed locally", "typecheck"],
+    ["tsgo reported nothing", "typecheck"],
+    ["prettier was run", "format"],
+  ])("prose %p does not assert a %s claim", (sentence, kind) => {
+    const body = `## Execution evidence\n\n${sentence}\n 5 pass\n`;
+    expect(judgeClaims(body, []).map((v) => v.check)).not.toContain(kind);
+  });
+
+  test("prose naming a test runner does not ADD a test claim beside another kind", () => {
+    // The `test` kind cannot be asserted the same way as its siblings, because a
+    // block claiming nothing recognizable DEFAULTS to `test` — so "does prose
+    // yield a test claim?" is undecidable in isolation. The decidable form is
+    // whether it adds one where a real claim already exists, which is the case
+    // the narrowing was for.
+    const withRunnerProse =
+      '## Execution evidence\n\n```\n$ validate_typecheck(task: "mt#1")\n```\n\nwe use jest here.\n';
+    expect(judgeClaims(withRunnerProse, []).map((v) => v.check)).toEqual(["typecheck"]);
+  });
+
+  test("a lint-only block does not assert a TYPECHECK claim via `errorCount`", () => {
+    // `validate_lint` reports `errorCount` too, so keying the typecheck claim on
+    // that token read lint evidence as a typecheck assertion. This PR's own body
+    // is the instance.
+    const body =
+      '## Execution evidence\n\n```\n$ validate_lint(task: "mt#4236")\n' +
+      " errorCount: 0  warningCount: 0  fileCount: 3820\n```\n";
+    const kinds = judgeClaims(body, []).map((v) => v.check);
+    expect(kinds).toContain("lint");
+    expect(kinds).not.toContain("typecheck");
+  });
+
+  test("a real invocation IS still a claim — the narrowing kept recall", () => {
+    for (const [line, kind] of [
+      ["$ bunx eslint .minsky/hooks/foo.ts", "lint"],
+      ["$ bun run typecheck", "typecheck"],
+      ["$ tsc --noEmit", "typecheck"],
+      ["$ bun run format:check", "format"],
+      ['$ validate_typecheck(task: "mt#1")', "typecheck"],
+      ["foo.ts(12,3): error TS2353: bad", "typecheck"],
+    ] as const) {
+      const body = `## Execution evidence\n\n\`\`\`\n${line}\n\`\`\`\n`;
+      expect(judgeClaims(body, []).map((v) => v.check)).toContain(kind);
+    }
+  });
+
+  test("claimRe and commandRe agree on a real invocation of each kind", () => {
+    // `test`'s claimRe is no longer the same object as its commandRe, so the
+    // no-drift property is asserted rather than structural. Every command below
+    // is one `isCheckRunningCall` accepts.
+    for (const [command, kind] of [
+      ["bun test --preload ./tests/setup.ts ./a.test.ts", "test"],
+      ["bun run typecheck", "typecheck"],
+      ["bunx eslint src", "lint"],
+      ["bun run format:check", "format"],
+    ] as const) {
+      const calls = findToolCallsWithResults(testRun(command, "ok"));
+      const first = calls[0];
+      expect(first).toBeDefined();
+      expect(first && isCheckRunningCall(first, kind)).toBe(true);
+      expect(
+        judgeClaims(`## Execution evidence\n\n${command}\n`, []).map((v) => v.check)
+      ).toContain(kind);
+    }
+  });
+});
+
+describe("ordering against later writes (mt#4236)", () => {
+  test("a typecheck, then a .ts write, reports stale-evidence", () => {
+    const calls = findToolCallsWithResults([
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...write("src/thing.ts"),
+    ]);
+    const verdicts = judgeClaims(MIXED_EVIDENCE_BLOCK, calls);
+    const typecheck = verdicts.find((v) => v.check === "typecheck");
+    expect(typecheck).toMatchObject({ verdict: "discharged", ordering: "stale-evidence" });
+  });
+
+  test("the same run with the write BEFORE it is fresh", () => {
+    const calls = findToolCallsWithResults([
+      ...write("src/thing.ts"),
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+    ]);
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    expect(typecheck?.ordering).toBe("fresh");
+  });
+
+  test("a .md write after a typecheck does NOT flag it — per-kind coverage", () => {
+    const calls = findToolCallsWithResults([
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...write("docs/notes.md"),
+    ]);
+    const typecheck = judgeClaims(MIXED_EVIDENCE_BLOCK, calls).find((v) => v.check === "typecheck");
+    expect(typecheck?.ordering).toBe("fresh");
+  });
+
+  test("a kind whose file set is not derivable from a path records not-comparable", () => {
+    // `format` is the real instance: prettier's file set comes from .prettierrc
+    // and .prettierignore, which this module does not read. Any ordering answer
+    // it gave would be invented, so it gives none.
+    const body =
+      "## Execution evidence\n\n```\n$ bun run format:check\nAll matched files use Prettier\n```\n";
+    const calls = findToolCallsWithResults([
+      ...testRun("bun run format:check", "All matched files use Prettier code style!"),
+      ...write("src/thing.ts"),
+    ]);
+    const format = judgeClaims(body, calls).find((v) => v.check === "format");
+    expect(format).toMatchObject({ verdict: "discharged", ordering: "not-comparable" });
+  });
+
+  test("a stale claim MATCHES, so a review filtering on `matched` can see it", () => {
+    const lines = [...typecheckRun(), ...testRun(TEST_CMD, GREEN_RUN), ...write("src/thing.ts")];
+    const outcome = run(
+      {
+        session_id: "sess-mt4236",
+        tool_name: "mcp__minsky__session_pr_create",
+        tool_input: { title: "t", body: MIXED_EVIDENCE_BLOCK },
+      } as unknown as ToolHookInput,
+      ctxWith(lines)
+    );
+    expect(outcome?.calibration).toMatchObject({ outcome: "matched" });
+    expect(String(outcome?.calibration?.["reason"])).toContain("stale-evidence");
+    // The verdict is rendered per claim, so a reviewer can tell WHICH check.
+    const claims = outcome?.calibration?.["claims"] as Array<Record<string, unknown>>;
+    expect(claims.find((c) => c["check"] === "typecheck")).toMatchObject({
+      ordering: "stale-evidence",
+    });
+  });
+
+  test("a move's SOURCE path is not a write — only its destination is", () => {
+    // PR #3165 R1. The source is vacated, not modified, so counting it says a
+    // file changed that did not. The move still registers through `targetPath`,
+    // which is why dropping it costs no detection.
+    const moveOut = (sourcePath: string, targetPath: string): TranscriptLine[] => {
+      const id = `tu_${++nextId}`;
+      return [
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id,
+                name: "mcp__minsky__session_move_file",
+                input: { sourcePath, targetPath },
+              },
+            ],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            role: "user",
+            content: [
+              { type: "tool_result", tool_use_id: id, content: [{ type: "text", text: "ok" }] },
+            ],
+          },
+        },
+      ] as unknown as TranscriptLine[];
+    };
+
+    // A move OUT of a covered extension: the ONLY case the fix changes.
+    const outOfScope = findToolCallsWithResults([
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...moveOut("src/thing.ts", "notes/thing.txt"),
+    ]);
+    expect(
+      judgeClaims(MIXED_EVIDENCE_BLOCK, outOfScope).find((v) => v.check === "typecheck")?.ordering
+    ).toBe("fresh");
+
+    // A `.ts` -> `.ts` move still reports stale, through the destination.
+    const withinScope = findToolCallsWithResults([
+      ...typecheckRun(),
+      ...testRun(TEST_CMD, GREEN_RUN),
+      ...moveOut("src/a.ts", "src/b.ts"),
+    ]);
+    expect(
+      judgeClaims(MIXED_EVIDENCE_BLOCK, withinScope).find((v) => v.check === "typecheck")?.ordering
+    ).toBe("stale-evidence");
+  });
+
+  test("a negative control records not-comparable — its restore is itself a write", () => {
+    // Measured, not reasoned: applying the ordering axis here reported stale on
+    // 30 of 33 discharged control records across 14 transcripts, because step 3
+    // of the procedure (restore the fix) is always a write after the red run.
+    const calls = findToolCallsWithResults([
+      ...testRun(TEST_CMD, SUBJECT_FAILURE),
+      ...write("src/cockpit/web/pages/SharedConversationPage.tsx"),
+    ]);
+    const control = judgeClaims(INCIDENT_MESSAGE, calls).find((v) => v.kind === NEGATIVE_CONTROL);
+    expect(control).toMatchObject({ verdict: "discharged", ordering: "not-comparable" });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Artifact resolution across the three seams
 // ---------------------------------------------------------------------------
 
@@ -431,7 +754,7 @@ describe("resolveArtifactText", () => {
       expect(text).toContain("a title");
       expect(text).toContain("Negative control");
       // And it reaches the judgement, not just the string.
-      expect(judgeClaims(text ?? "", [])[0]?.kind).toBe("negative-control");
+      expect(judgeClaims(text ?? "", [])[0]?.kind).toBe(NEGATIVE_CONTROL);
     } finally {
       // eslint-disable-next-line custom/no-real-fs-in-tests -- cleanup for the real file written above.
       rmSync(path, { force: true });

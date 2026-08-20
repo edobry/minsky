@@ -15,10 +15,16 @@ entirely. mt#2345 (2026-06-08) merged `infra/index.ts` +
 **Hook files:**
 
 - `.claude/hooks/deploy-surface-detector.ts` — pure detector
-  (`isDeploySurfaceFile` / `findDeploySurfaceFiles`) over the deploy surface:
-  `infra/**`, `services/*/Dockerfile`, `services/*/railway.json`,
-  `services/*/deploy.config.ts`, `services/*/railway.config.ts`,
-  `.github/workflows/deploy-*.yml`. The surface list is one exported constant.
+  (`isDeploySurfaceFile` / `findDeploySurfaceFiles`) over the deploy surface.
+  It declares no patterns of its own: since mt#2647 it re-exports them from
+  `packages/domain/src/deployment/deploy-surface.ts`, the single source of
+  truth, which mt#3523 and mt#4013 widened from platform config to cover
+  application SOURCE as well. The re-export is literal — the hook does
+  `import { DEPLOY_SURFACE_PATTERNS, isDeploySurfaceFile, isLocalAppDeploySurfaceFile }
+from "../../packages/domain/src/deployment/deploy-surface"` and re-exports all
+  three — so grepping the hook file for a pattern list finds none; follow the
+  import. Read that module rather than any prose copy of it: this bullet stated
+  a config-only list until mt#4269, by which point it was two widenings stale.
 - `.claude/hooks/require-deploy-verification-before-merge.ts` — PreToolUse on
   `mcp__minsky__session_pr_merge`. Blocks the merge of a deploy-surface PR unless the
   body has a `Deploy verification:` section. Reuses `deriveRepoFromGit` /
