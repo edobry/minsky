@@ -1117,6 +1117,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "conflict-marker-check",
+    {
+      description:
+        "Blocks a commit whose staged content carries git conflict markers. Unlike several siblings it does not skip `src/generated/**`, which is where a failed stash pop's corruption went unnoticed until an unrelated test failed to parse the file.",
+      failureClasses: ["broken-main"],
+      provenance: [PRECOMMIT, "src/hooks/conflict-marker-detector.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
     "dockerfile-workspace-copy-regen",
     {
       description:

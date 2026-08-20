@@ -6,7 +6,7 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 138,
+  "population": 139,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -978,6 +978,33 @@
       "coordinateGaps": [],
       "families": [],
       "familyState": "out-of-model",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
+      "guardName": "conflict-marker-check",
+      "description": "Blocks a commit whose staged content carries git conflict markers. Unlike several siblings it does not skip `src/generated/**`, which is where a failed stash pop's corruption went unnoticed until an unrelated test failed to parse the file.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/conflict-marker-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": null
     },

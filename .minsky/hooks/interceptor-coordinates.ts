@@ -915,6 +915,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["migration-guard-check", structuralGate],
   ["migration-journal-check", structuralGate],
   ["node-shim-check", structuralGate],
+  ["conflict-marker-check", structuralGate],
   ["nul-byte-check", structuralGate],
   ["rules-compile-check", structuralGate],
   [

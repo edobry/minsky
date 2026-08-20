@@ -296,6 +296,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_PREPUSH_TESTS: "operator-override", // .husky/pre-push (mt#2716) — skip the local suite entirely
   MINSKY_PREPUSH_FULL_SUITE: "tunable", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
   MINSKY_SKIP_NUL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
+  MINSKY_SKIP_CONFLICT_MARKER_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#4307) — conflict-marker check override
   MINSKY_SKIP_MIGRATION_JOURNAL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   MINSKY_SKIP_DEPLOY_DOMAIN_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
   MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
