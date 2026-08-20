@@ -13,6 +13,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   checkNewSurfaceDesignPass,
+  specDeclaresVisualJudgment,
   decideOutcome,
   findDesignSkillsInvoked,
   normalizeSkillName,
@@ -60,13 +61,13 @@ function skillCall(name: string): TranscriptLine {
 
 describe("the PR #2942 worked example (mt#4124)", () => {
   test("FLAGS: three added surfaces, five skills, none of them design", () => {
-    const result = checkNewSurfaceDesignPass(PR_2942_ADDED, PR_2942_SKILLS);
+    const result = checkNewSurfaceDesignPass(PR_2942_ADDED, [], PR_2942_SKILLS, false);
 
     expect(result.applicable).toBe(true);
     expect(result.designSkillsInvoked).toEqual([]);
     // The non-render addition is excluded — `.ts` under the same tree is lib
     // code whose correctness a unit test CAN settle.
-    expect(result.addedSurfaces).toEqual([
+    expect(result.surfaces).toEqual([
       "src/cockpit/web/components/PeekBody.tsx",
       PEEK_HOST,
       "src/cockpit/web/components/ui/sheet.tsx",
@@ -77,7 +78,12 @@ describe("the PR #2942 worked example (mt#4124)", () => {
     // The counterfactual control. Without it, the test above is compatible with a
     // check that flags every render-path addition regardless of skill calls,
     // which would carry no information on the axis this task is about (mem#704).
-    const result = checkNewSurfaceDesignPass(PR_2942_ADDED, [...PR_2942_SKILLS, "cockpit-design"]);
+    const result = checkNewSurfaceDesignPass(
+      PR_2942_ADDED,
+      [],
+      [...PR_2942_SKILLS, "cockpit-design"],
+      false
+    );
 
     expect(result.applicable).toBe(true);
     expect(result.designSkillsInvoked).toEqual(["cockpit-design"]);
@@ -89,23 +95,114 @@ describe("the ADDED-only narrowing (mt#4124)", () => {
     // The shell passes only status-`A` paths, so an edit-only branch arrives here
     // as an empty list. This pins the contract between the two halves: a one-line
     // CSS tweak must never demand a design pass.
-    expect(checkNewSurfaceDesignPass([], PR_2942_SKILLS).applicable).toBe(false);
+    expect(checkNewSurfaceDesignPass([], [], PR_2942_SKILLS, false).applicable).toBe(false);
   });
 
   test("a branch adding only non-render files is not applicable", () => {
     const result = checkNewSurfaceDesignPass(
       [".minsky/hooks/new-surface-design-pass.ts", "docs/architecture/hooks/whatever.md"],
-      []
+      [],
+      [],
+      false
     );
     expect(result.applicable).toBe(false);
-    expect(result.addedSurfaces).toEqual([]);
+    expect(result.surfaces).toEqual([]);
   });
 
   test("an added cockpit TEST file is not a new surface", () => {
     // `isRenderPathFile` excludes test files; a PR that only adds `Foo.test.tsx`
     // changes no rendered surface and firing on it would be pure noise.
-    const result = checkNewSurfaceDesignPass(["src/cockpit/web/components/Foo.test.tsx"], []);
+    const result = checkNewSurfaceDesignPass(
+      ["src/cockpit/web/components/Foo.test.tsx"],
+      [],
+      [],
+      false
+    );
     expect(result.applicable).toBe(false);
+  });
+});
+
+describe("trigger 2: a MODIFIED surface whose spec is visual (mt#4356)", () => {
+  // The whole point of mt#4356. Every one of these inputs is drawn from mt#4251,
+  // which modified exactly these two files, added none, and shipped a visual
+  // treatment the principal then reported on.
+  const MT_4251_MODIFIED = [
+    "src/cockpit/web/components/ConversationElementRenderers.tsx",
+    "src/cockpit/web/components/ConversationTurnView.tsx",
+  ];
+
+  test("FIRES on mt#4251's shape — the case the ADDED-only trigger could not see", () => {
+    const result = checkNewSurfaceDesignPass([], MT_4251_MODIFIED, [], true);
+
+    expect(result.applicable).toBe(true);
+    expect(result.trigger).toBe("modified-surface-visual-spec");
+    expect(result.surfaces).toEqual(MT_4251_MODIFIED);
+  });
+
+  test("does NOT fire on the same diff when the spec is not visual", () => {
+    // The discriminator, isolated: identical files, identical skills, and the
+    // ONLY difference is what the bound spec asks for. This is the false-positive
+    // protection the original ADDED-only narrowing was written to provide, kept.
+    const result = checkNewSurfaceDesignPass([], MT_4251_MODIFIED, [], false);
+
+    expect(result.applicable).toBe(false);
+    expect(result.trigger).toBeNull();
+  });
+
+  test("does not fire when a design skill DID run, visual spec or not", () => {
+    const result = checkNewSurfaceDesignPass([], MT_4251_MODIFIED, ["/impeccable"], true);
+
+    expect(result.applicable).toBe(true);
+    expect(result.designSkillsInvoked).toEqual(["impeccable"]);
+  });
+
+  test("a modified NON-render file with a visual spec is still not applicable", () => {
+    const result = checkNewSurfaceDesignPass([], [".minsky/hooks/whatever.ts"], [], true);
+    expect(result.applicable).toBe(false);
+  });
+
+  test("an ADDED surface wins outright, so the shell can skip the spec fetch", () => {
+    // Trigger 1 must not depend on `specIsVisual`: a new surface is a design
+    // decision whatever the spec says, and the ordering is what lets `run()`
+    // avoid a CLI round trip on that path.
+    const result = checkNewSurfaceDesignPass(PR_2942_ADDED, MT_4251_MODIFIED, [], false);
+
+    expect(result.applicable).toBe(true);
+    expect(result.trigger).toBe("added-surface");
+    expect(result.surfaces).not.toContain(MT_4251_MODIFIED[0]);
+  });
+});
+
+describe("the spec visual-judgment discriminator (mt#4356)", () => {
+  test("recognizes the criteria the four M-only visual specs actually used", () => {
+    // Verbatim shapes from mt#4251 and mt#4348, not invented phrasings.
+    expect(
+      specDeclaresVisualJudgment(
+        "- [ ] A screenshot at a realistic viewport showing rest and hover states is attached."
+      )
+    ).toBe(true);
+    expect(
+      specDeclaresVisualJudgment("Aesthetic acceptance is the principal's, not asserted in the PR.")
+    ).toBe(true);
+  });
+
+  test("is case-folded", () => {
+    expect(specDeclaresVisualJudgment("Screenshots at a 1440x900 VIEWPORT")).toBe(true);
+  });
+
+  test("does not fire on a functional spec", () => {
+    // A real non-visual spec body: the failure direction that matters, since a
+    // false positive here fires the advisory on ordinary work.
+    expect(
+      specDeclaresVisualJudgment(
+        "## Summary\n\nThe poll cursor cannot advance past an unparsed update, so the " +
+          "sweeper re-reads the same row forever. Fix the comparator and add a regression test."
+      )
+    ).toBe(false);
+  });
+
+  test("an empty spec is not visual", () => {
+    expect(specDeclaresVisualJudgment("")).toBe(false);
   });
 });
 
@@ -214,7 +311,8 @@ describe("transcript extraction (mt#4124)", () => {
 describe("decideOutcome — the shell's branches (mt#4124, PR #3030 R1)", () => {
   const applicable = {
     applicable: true as const,
-    addedSurfaces: [PEEK_HOST],
+    surfaces: [PEEK_HOST],
+    trigger: "added-surface" as const,
     designSkillsInvoked: [],
   };
 
@@ -246,7 +344,8 @@ describe("decideOutcome — the shell's branches (mt#4124, PR #3030 R1)", () => 
     // answered perfectly well.
     const notApplicable = {
       applicable: false as const,
-      addedSurfaces: [],
+      surfaces: [],
+      trigger: "added-surface" as const,
       designSkillsInvoked: [],
     };
     expect(decideOutcome(notApplicable, true).kind).toBe("clean");
@@ -288,7 +387,7 @@ describe("run() — the short-circuit paths (mt#4124, PR #3030 R1)", () => {
 
 describe("the warning (mt#4124)", () => {
   test("names the guard, the surfaces, the remedy and the override", () => {
-    const warning = buildDesignPassWarning([PEEK_HOST]);
+    const warning = buildDesignPassWarning([PEEK_HOST], "added-surface");
 
     expect(warning).toContain("[new-surface-design-pass]");
     expect(warning).toContain(PEEK_HOST);
@@ -304,7 +403,7 @@ describe("the warning (mt#4124)", () => {
       { length: MAX_REPORTED_SURFACES + 3 },
       (_, i) => `src/cockpit/web/components/S${i}.tsx`
     );
-    const warning = buildDesignPassWarning(many);
+    const warning = buildDesignPassWarning(many, "added-surface");
 
     expect(warning).toContain("... and 3 more");
     expect(warning).toContain("src/cockpit/web/components/S0.tsx");
