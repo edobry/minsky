@@ -72,9 +72,14 @@ describe("mt#4331 — create-path forbidden-key filtering", () => {
     const created = await repo.create(makeInput({ metadata: hostile }));
     expect(Object.prototype.hasOwnProperty.call(created.metadata ?? {}, "__proto__")).toBe(false);
 
-    // The returned record's prototype is untouched — no pollution took effect.
+    // The returned record's prototype is untouched — no reparenting took effect.
+    //
+    // Deliberately NOT asserting `({}).polluted === undefined` here (PR #3197 R1
+    // flagged it): this vector reparents the ONE object being copied into, it
+    // does not write through to `Object.prototype`, so that assertion would hold
+    // whether or not the filter worked. An assertion that passes in the broken
+    // case reads as coverage and provides none.
     expect(Object.getPrototypeOf(created.metadata ?? {})).toBe(Object.prototype);
-    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
   });
 
   // AT2 — asserted individually, so a partial filter cannot pass.
@@ -112,25 +117,32 @@ describe("mt#4331 — create-path forbidden-key filtering", () => {
     expect(Object.keys(created.metadata ?? {})).not.toContain("__proto__");
   });
 
-  // Locks the nesting order. Both orders yield the same FINAL key set, so
-  // nothing else in this file would catch a future refactor that swapped them.
-  it("sanitizeMetadata must stay INNERMOST — strip-first builds a polluted object", () => {
+  // Each filter is safe on its OWN, so composition order cannot matter (PR #3197
+  // R1). This is what makes the create paths correct regardless of nesting —
+  // asserting the composed result instead would prove nothing, since both orders
+  // yield an identical key set and a swap would regress silently.
+  it("each filter copies safely, so neither order can reparent the result", () => {
     const hostile = metadataWithOwnKey("__proto__", { polluted: true });
 
-    // Why the order matters: stripReservedProvenanceKeys copies via
-    // `out[key] = value`, which for `__proto__` invokes the prototype setter.
-    // Run alone on hostile input it produces a genuinely polluted object.
+    // stripReservedProvenanceKeys does NOT filter `__proto__` — that is
+    // sanitizeMetadata's job — so it copies the key, and the copy must not
+    // reparent. This is the assertion that would have failed before defineOwnKey.
     const strippedAlone = stripReservedProvenanceKeys(hostile);
-    expect(Object.getPrototypeOf(strippedAlone)).not.toBe(Object.prototype);
-    expect((strippedAlone as { polluted?: boolean }).polluted).toBe(true);
+    expect(Object.getPrototypeOf(strippedAlone)).toBe(Object.prototype);
+    expect((strippedAlone as { polluted?: boolean }).polluted).toBeUndefined();
 
-    // Sanitizing FIRST means that object is never constructed.
-    const sanitizedFirst = stripReservedProvenanceKeys(sanitizeMetadata(hostile));
-    expect(Object.getPrototypeOf(sanitizedFirst)).toBe(Object.prototype);
-    expect((sanitizedFirst as { polluted?: boolean }).polluted).toBeUndefined();
+    const sanitizedAlone = sanitizeMetadata(hostile);
+    expect(Object.getPrototypeOf(sanitizedAlone)).toBe(Object.prototype);
 
-    // If this first assertion ever fails, stripReservedProvenanceKeys became
-    // safe on its own and the ordering constraint above can be relaxed.
+    // Both compositions are therefore clean, which is the point: the production
+    // call sites are correct whichever order a future refactor leaves them in.
+    for (const composed of [
+      stripReservedProvenanceKeys(sanitizeMetadata(hostile)),
+      sanitizeMetadata(stripReservedProvenanceKeys(hostile)),
+    ]) {
+      expect(Object.getPrototypeOf(composed)).toBe(Object.prototype);
+      expect(Object.keys(composed)).not.toContain("__proto__");
+    }
   });
 
   // AT4 — the fake cannot drift more permissive than the real backend.

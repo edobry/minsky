@@ -141,6 +141,13 @@ export function toAsk(row: AskRecord): Ask {
  * `FakeAskRepository.create`. Mirrors the existing `toAsk` export, which
  * `repository.test.ts` already imports for the same reason — a pure mapping
  * function is the right seam, so no double has to be patched (ADR-036).
+ *
+ * @internal Not part of this module's supported surface: it exists so the row
+ * builder is directly assertable, and callers outside this file and its tests
+ * should go through `DrizzleAskRepository.create`. Kept beside `toAsk` rather
+ * than moved to a test-only module (PR #3197 R1 raised that option) so the two
+ * row-mapping functions stay adjacent to the schema they map — splitting them
+ * would put the insert mapper further from the code it has to track.
  */
 export function toInsert(input: CreateAskInput): AskInsert {
   // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
@@ -186,16 +193,14 @@ export function toInsert(input: CreateAskInput): AskInsert {
     // the create boundary rather than only scrubbed later on the way through an
     // edit.
     //
-    // The NESTING ORDER is load-bearing — sanitize must be INNERMOST, and this is
-    // measured, not stylistic. `stripReservedProvenanceKeys` copies via
-    // `out[key] = value`, and for `key === "__proto__"` that invokes the prototype
-    // setter rather than defining an own-key: run it first and it builds an object
-    // whose prototype IS the attacker's payload. The outer sanitize would then
-    // return a clean result anyway (it copies own-enumerable keys, and the
-    // corrupted prototype is neither), so the FINAL value is the same either way —
-    // which is exactly why this is worth writing down rather than leaving to the
-    // next reader to rediscover. Sanitizing first means the polluted intermediate
-    // is never constructed at all. Same order as `editAskContent`'s merge.
+    // Ordered to match `editAskContent`'s merge, for comparability. The order is
+    // NOT load-bearing — but only because `defineOwnKey` made the copy safe
+    // (PR #3197 R1). Before that, `stripReservedProvenanceKeys` copied via
+    // `out[key] = value`, which for `__proto__` invokes the prototype setter, so
+    // strip-first built an object whose prototype WAS the payload. That was fixed
+    // at the copy rather than pinned here, because a call-site ordering rule
+    // cannot be enforced by any value-based test: both orders yield an identical
+    // final key set, so a swap would regress silently.
     //
     // The two stay separate functions because their requirements at the edit merge
     // are opposite — provenance keys must SURVIVE it, forbidden keys must not.
