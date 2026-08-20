@@ -93,6 +93,34 @@ export const FOCUS_RING =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:rounded";
 
 /**
+ * Hover affordance for this module's disclosure controls (mt#4251).
+ *
+ * mt#4220's border was carrying two jobs — excess visual weight, and
+ * delimiting the row as a clickable object. Removing it was right for the
+ * first and took the second with it: the principal reported (2026-08-18, with
+ * a screenshot) that "its not obvious to me that i can click on the entire row
+ * to expand it as there's no visual guides affording the row as an object."
+ *
+ * Answered on HOVER rather than at rest, so mt#4220's calm-at-rest result
+ * survives: nothing changes until a pointer is over the row, which is the
+ * moment the reader is asking the question. `bg-muted/50` is
+ * `docs/design-system.md`'s documented table-row convention, not a fresh
+ * pick — that doc is declared by `src/cockpit/CLAUDE.md` as the authority on
+ * component interaction states, and mt#4250's action-burst toggle shipped a
+ * near-miss `/40` which this task brings into line rather than propagating.
+ *
+ * Background only, deliberately. A `hover:text-foreground` alongside it would
+ * be inert on the tool row, whose every child span sets its own colour; the
+ * controls that DO have inheriting text pair it with this constant at their
+ * own call sites.
+ *
+ * Distinct from {@link FOCUS_RING} and never a replacement for it: they answer
+ * different questions ("is this clickable" vs "where am I") for different
+ * input modes.
+ */
+export const HOVER_ROW = "hover:bg-muted/50";
+
+/**
  * The `→ subagent (kind)` marker on an Agent tool call.
  *
  * Links to the conversation this specific call spawned when one resolved
@@ -202,7 +230,8 @@ export function ThinkingBlock({
     >
       <summary
         className={cn(
-          "cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          "cursor-pointer select-none rounded px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
@@ -322,7 +351,19 @@ export function ToolInvocation({
         inconsistently — so the row is a flex container holding the toggle and the
         badge as siblings, rather than one button wrapping both.
       */}
-      <div className="group/call flex w-full items-center">
+      {/*
+        The hover affordance (mt#4251) sits HERE, on the row-spanning flex
+        container, not on the toggle button and not on the anchored wrapper
+        above. The button is `flex-1`, so a background on it stops short of the
+        spawn badge and film link — the row would highlight in part, which is
+        the opposite of "this row is one object." The wrapper is the element
+        `ConversationView.weight-hierarchy.test.tsx` asserts carries no `bg-`
+        class at rest (mt#4220), and `hover:bg-*` matches that assertion's
+        regex; putting it there would fail the at-rest guarantee this task must
+        preserve. This div is the only element that is both full-width and
+        outside that assertion.
+      */}
+      <div className={cn("group/call flex w-full items-center rounded", HOVER_ROW)}>
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
@@ -490,7 +531,8 @@ export function InjectedContentBlock({
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
         className={cn(
-          "flex w-full items-center gap-2 px-2 py-1 text-left text-xs text-muted-foreground",
+          "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
@@ -571,7 +613,17 @@ export function CommandInvocation({
           aria-expanded={open}
           aria-controls={detailsId}
           aria-label={open ? "Hide raw command markup" : "Show raw command markup"}
-          className={cn("ml-auto shrink-0 text-xs text-muted-foreground/60", FOCUS_RING)}
+          // Unlike its three siblings this control is NOT the row: the command
+          // line beside it is content, and only this chevron toggles anything.
+          // So the affordance covers the chevron's own hit-area — widening what
+          // is clickable would be a behaviour change, not an affordance fix
+          // (mt#4251). `px-1` gives the glyph enough box for the background to
+          // read as a control rather than a smudge.
+          className={cn(
+            "ml-auto shrink-0 rounded px-1 text-xs text-muted-foreground/60 hover:text-foreground",
+            HOVER_ROW,
+            FOCUS_RING
+          )}
         >
           {open ? "▾" : "▸"}
         </button>
