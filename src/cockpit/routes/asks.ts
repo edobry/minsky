@@ -346,8 +346,26 @@ export function mountAskRoutes(app: express.Express, opts: AskRoutesOptions): vo
       const projectScope = await resolveCockpitProjectScope(projectParam);
 
       if (filter.states === null) {
-        const suspended = await repo.listByState("suspended", projectScope);
-        const operatorAsks = suspended.filter(
+        // Unfiltered = "what is still waiting on the operator", which spans
+        // `routed` as well as `suspended` (mt#4313).
+        //
+        // This list was suspended-only for as long as nothing ever moved an
+        // operator ask INTO `routed` — the docblock above calls `routed` a trap
+        // state precisely because its only entrances were the two inert
+        // defer/escalate buttons. The service-window reaper is now a third
+        // entrance and a legitimate one: it transitions a cohort
+        // `suspended -> routed` when its window opens. Reading only `suspended`
+        // here would make the whole cohort vanish from this page at window-open
+        // — the same disappearance mt#3491 removed the buttons to prevent.
+        //
+        // `pendingAsksForWindow` has always spanned both states, so this brings
+        // the generic page in line with the window surfaces rather than
+        // inventing a rule.
+        const [routed, suspended] = await Promise.all([
+          repo.listByState("routed", projectScope),
+          repo.listByState("suspended", projectScope),
+        ]);
+        const operatorAsks = [...routed, ...suspended].filter(
           (a) => a.routingTarget === OPERATOR_ROUTING_TARGET && !isTerminal(a.state)
         );
         operatorAsks.sort(compareAskPriority);
