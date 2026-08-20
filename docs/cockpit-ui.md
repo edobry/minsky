@@ -68,6 +68,13 @@ current page** instead of navigating to it. The page behind stays exactly where
 it was: same scroll position, same loaded data, same URL path. Closing the pane
 costs one Esc and returns you to what you were reading, with nothing left behind.
 
+**"A reference" includes the ones an agent typed.** Whether the cockpit recognized
+a bare `mt#NNNN` in the text, or the agent wrote the link itself as
+`[mem#728](minsky://memory/…)`, the same click peeks. Until mt#4351 the second
+kind navigated away instead — which made memory and task links inside stored
+conversations behave differently from the identical reference on a memory or task
+page, since that is the form agents are told to emit.
+
 Peeking deliberately does **not** open a tab. The tab strip records where you have
 NAVIGATED; a peek is the path that does not navigate, which is the whole reason it
 is cheap.

@@ -217,6 +217,34 @@ derived data" (memory `70b595dc`, ADR-013/ADR-018).
   are written on the same extraction path as the text columns; the mt#1418 single-writer guard remains the
   soft prerequisite, per ADR-019).
 
+## Promoted-column register
+
+`## Decision` says the derived index carries "a small set of currently-dropped fields promoted to
+columns," and mt#2580 §1 owns fixing that set. Promotions have been landing one task at a time
+ahead of that audit, each recording itself only in its own task spec — so the SET existed but the
+LIST did not, and nothing in the repo said which columns were promoted under this ADR or why. This
+table is that list. **A promotion is not complete until it appears here.**
+
+| column                     | task    | landed     | why it qualifies under `## Decision`                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------------------- | ------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `user_origin` (text, null) | mt#4289 | 2026-08-19 | Who authored the turn's `user_text` — `human` vs a harness kind. Inside the "fields the context-inspector consumes" set by that clause's own criterion: `session-context-snapshot.ts` already reads `isCompactSummary`, one of the four raw fields it derives from. Measured 2026-08-19: 43.5% of rows carrying `user_text` are harness-written, so without it every `type: "user"` consumer reads them as the operator. |
+
+Registered but not yet landed: per-turn `usage` + `model` (mt#3383 §3), tool-call / tool-result
+columns (mt#2583). mt#2580 §1's audit consumes this table rather than re-deriving it.
+
+**Two properties every row here must hold**, both of which follow from `## Decision` rather than
+from convention:
+
+1. **Derived at PARSE time, never read from the blob.** That is what makes the column reproducible
+   by re-parse and keeps it from adding a reader this ADR's endgame has to re-point (mt#2580 §2).
+2. **Backfilled by re-parse, not by a bespoke script.** `extractTurnsForAllTranscripts` is already
+   the keyset-paginated resumable sweep, and any column in the upsert's on-conflict SET is filled by
+   a re-run. Two consequences worth stating because both have already caught someone:
+   - A skip-if-unchanged guard on that upsert must list every promoted column, or the sweep skips
+     unchanged rows and populates nothing — silently, still reporting success (mt#4345).
+   - Running the sweep corpus-wide is a bulk shared-state operation, not a step inside a feature
+     PR: ~327k rows at ~9.5–17.5s per 100-row chunk (mem#950). mt#4050 owns the authorized run.
+
 ## Cross-references
 
 - **Supersedes the draft ADR-019 proposal's stage-1 landing zone** (ADR-019 is Proposed, not Accepted;

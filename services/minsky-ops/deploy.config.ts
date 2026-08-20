@@ -25,10 +25,25 @@
  * So `ops start` does NOT need the preload — the prior claim here that it did,
  * because it boots the same tsyringe container, was true only until mt#3680.
  *
- * Removing it is approved (ask#7136) but blocked on tooling — see below. Nothing
- * is broken meanwhile: the flag costs one already-resolved module. The cost is
- * that minsky-ops is the one deployed service whose boot never exercises the
- * self-sufficient path, so a regression of mt#3680 would not surface here.
+ * **DONE 2026-08-10 — this section describes a state that no longer exists.**
+ * The removal (approved as ask#7136) was applied through the Railway GraphQL
+ * `serviceInstanceUpdate` mutation, the first proven agent-runnable write to
+ * Railway service config (mem#915). Read back live 2026-08-19:
+ *
+ *     serviceInstance(...).startCommand
+ *       = sh -c "bun run dist/minsky.js ops start --port $PORT --host 0.0.0.0"
+ *
+ * No `--preload reflect-metadata`. The line above showing the flag is the
+ * historical value, kept because the rest of this comment explains why it was
+ * there. minsky-ops now boots the self-sufficient path like every other service,
+ * so a regression of mt#3680 WOULD surface here.
+ *
+ * Corrected under mt#3353 (2026-08-19). Worth knowing why it stayed wrong for
+ * nine days: the change landed out-of-band — through the API, recorded in a
+ * memory — so nothing edited the file that describes it, and a later
+ * investigation reading THIS comment concluded the action was still pending and
+ * nearly left a resolved ask open on that basis. A doc comment about an external
+ * system's state is a derived view; the service is the primary source.
  *
  * ## Start-command override mechanism (mt#2132) — the documented invocation is DEAD
  *

@@ -41,6 +41,54 @@ export const TOOL_USE_ANCHOR_ATTR = "data-tool-use-id";
  */
 export const ADDRESSED_MARK_CLASS = "ring-2 ring-ring ring-offset-2 ring-offset-background";
 
+/**
+ * PROBE CONTRACT (mt#4278) — renaming or removing this breaks a measurement,
+ * silently, and the break looks like a bad test specimen rather than a defect.
+ *
+ * Marks the element stack inside a `TurnSegment` — the wrapper holding that
+ * turn's rendered elements.
+ *
+ * **Consumers, both of which must be updated together with this name:**
+ * - `scripts/verify-conversation-weight.ts` — imports this to build its prose
+ *   selector, and makes the one assertion no component test can (that speech
+ *   paints brighter than machinery, in a real browser with a real cascade).
+ * - `src/cockpit/web/widgets/ConversationView.prose-anchor.test.tsx` — pins the
+ *   anchor's existence and its discrimination on every commit.
+ *
+ * **Why an attribute rather than a position.** The probe used to find speech as
+ * `[data-turn-index] > div:last-child`. mt#3845 moved the film link below the
+ * stack 38 minutes later, a turn's last child became an `<a>`, nothing matched,
+ * and the measurement read zero on every conversation for a day without anyone
+ * reading it as breakage. A name survives trailing siblings; a position waits
+ * for the next change to add one.
+ */
+export const TURN_ELEMENTS_TESTID = "turn-elements";
+
+/**
+ * The selector the weight probe measures speech through (mt#4278).
+ *
+ * Exported so the probe and its test cannot drift apart — they used to hold
+ * hand-copied copies of this string with a comment asking the reader to keep
+ * them identical, which is the arrangement that produced the drift it warns
+ * about.
+ *
+ * **The direct-child `>` is load-bearing, not incidental.** `<Prose>` renders
+ * `div.break-words` for five different things in the conversation renderer —
+ * thinking bodies, injected spans, both halves of a command invocation,
+ * API-error text, and speech. Only speech sits as a DIRECT child of the element
+ * stack; the rest are nested inside their own block wrappers. Loosening this to
+ * a descendant match would sample muted machinery text and invert the very
+ * comparison the probe exists to make (PR #3078 R1).
+ *
+ * **Scope note, stated precisely:** this matches SPEECH — assistant and user
+ * alike — not assistant speech alone. `TurnSegment` renders both roles through
+ * the same stack and emits no role attribute to discriminate on. That is
+ * acceptable for the probe's purpose because both render at `text-foreground`,
+ * so the sampled luminance is the same either way; it is recorded here because
+ * the older comment claimed "ASSISTANT SPEECH only" and that was not true.
+ */
+export const SPEECH_PROSE_SELECTOR = `[data-testid="${TURN_ELEMENTS_TESTID}"] > div.break-words`;
+
 export interface TurnAddress {
   /** Transcript array position — `SessionContextSnapshotBlock.turnIndex`. */
   turnIndex: number;

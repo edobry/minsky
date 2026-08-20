@@ -577,3 +577,79 @@ The regression fixtures exercise the PURE seam with an injected nominator, so th
 segment-to-claim mapping and the fail-to-Rung-1 behavior. They say nothing about whether the real
 embedding actually scores these four segments above threshold — that is the live run, and it is a
 separate claim with separate evidence.
+
+## Rung 2, second cohort: symbol-FREE claims (mt#3726)
+
+### Why this is not more exemplars in the identity family
+
+mt#4155's class is symbol-**bearing** and predicate-free: `symbolsNear` extracts `X` from
+"`X` is the single reader" perfectly, and only the predicate match fails. That is why its claims
+still render as `(symbol, predicate)` pairs and its nominated segments still pass through symbol
+extraction.
+
+This cohort names no symbol at all. Measured 2026-08-19 by calling `symbolsNear` directly on one
+sentence per class — every one returns `[]`, against controls (`escapeLikeLiteral returns …`,
+`AgentSpawnsPipeline wires only runForSession`) that extract theirs. So the two cohorts differ in
+their claim MODEL, not just their exemplar text, and the wrapper had two hard blocks against
+carrying this one:
+
+1. `augmentWithIdentityNomination` returned the Rung-1 result early when no symbol was extractable
+   — correct for the identity family, fatal for a cohort whose defining property is exactly that.
+2. `identityClaimsFromSegments` builds claims by extracting symbols from each nominated segment, so
+   a symbol-free segment yielded zero claims even when nominated.
+
+### The five families
+
+| Family                      | The claim                                                                | Origin                 |
+| --------------------------- | ------------------------------------------------------------------------ | ---------------------- |
+| `invocation-path-positive`  | a caller exists and will run this later, unprompted                      | mt#3708 / mem#873      |
+| `invocation-path-negative`  | no automatic caller exists; a human must run it                          | mem#873 R2             |
+| `subsystem-property`        | a property of a subsystem, asserted from the one component that was open | mem#1087               |
+| `external-system-mechanism` | how a third-party system behaves, relayed rather than read               | mt#3726 §Sibling shape |
+| `log-attribution`           | an observed log line attributed to the code path under investigation     | mem#1123 R9            |
+
+The negative sign is its own family rather than more exemplars on the positive one because mem#873
+weights it HIGHER: a false "it self-heals" fails silently, while a false "you'll need to run X
+manually" actively spends the principal's attention on a step the system already performs. Separate
+families let calibration measure the two rates apart.
+
+### Enforcement posture, and the one thing to know when reading its first records
+
+Recorded, never injected — the same treatment the comment and durable-artifact surfaces get, and
+for the same reason: this cohort's false-positive rate has to be measurable on its own before
+anyone proposes wiring it. Concretely, a symbol-free nomination does NOT flip `matched`, because
+`matched` drives the injection branch and `buildInjectionReminder`, both of which name a symbol
+back to the agent.
+
+**There is no suppression for this cohort, and that is a known over-fire source rather than an
+oversight.** The existing backing rule is `verificationCorpus.includes(symbol)` — there is no
+symbol here to look up. The candidate replacement is mem#1087's tractable signal (the falsifying
+FILE is nameable from the claim, even though the symbol is not), which is a materially larger
+mechanism than an exemplar set; mt#3594 owns the suppression-granularity question it would consume.
+Read the first calibration records with that in mind rather than treating the raw fire count as a
+false-positive rate.
+
+Two switches, deliberately separate. `MINSKY_CMA_RUNG2_NOMINATION` turns the whole embedding path
+on (still disabled by default, for the threshold reason above). `MINSKY_SKIP_SYMBOL_FREE_CLAIMS`
+turns this cohort back off while leaving mt#4155's identity family running — so a review that finds
+this cohort noisy can quiet it without reverting a family whose records are clean.
+
+Records carry `symbolFreeClaims`, `symbolFreeClaimCount` and `symbolFreeFamilies`. The first is
+`undefined` rather than `[]` when nothing nominated, which keeps a pre-mt#3726 record
+distinguishable from a turn where the cohort ran and found nothing — the same distinction
+`identityDetectionRung` exists for. A record whose ONLY content is a symbol-free nomination carries
+the `symbol-free-cohort-only` suppression reason, because `isSuppressedRecord` treats an unlabeled
+record as an operator-facing fire and would otherwise inflate the count that drives review cadence.
+
+Both entry points gained the widened admitting condition together. mt#4155's R2 fix (PR #3128) was
+that the standalone CLI path had been left on Rung 1 while the dispatcher path moved; the same
+divergence would have stranded this cohort.
+
+### What the tests do NOT establish
+
+As with mt#4155: the unit tests inject a stub nominator, so they establish the family-routing, the
+separate claim channel, the `matched` invariant and the fail-to-Rung-1 behavior. They are
+structurally silent on whether the real embedding scores these sentences above threshold against
+these exemplars. That is `scripts/verify-symbol-free-nomination.ts`, which reports per-family
+cosine scores rather than a bare verdict — the threshold is itself unmeasured on this corpus, so
+the scores are the measurement a calibration review needs in order to pick one.

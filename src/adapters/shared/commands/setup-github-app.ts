@@ -139,7 +139,16 @@ const setupGithubAppParams = composeParams(
 // App-token push (mt#1477) needs it to succeed, and the read-only default was
 // the upstream cause of the mt#3210 incident (every fresh App created with the
 // old default degraded to a keychain-credential push fallback on first use).
-const DEFAULT_PERMISSIONS = "pull_requests:write,contents:write,metadata:read";
+// Kept in lockstep with `REQUIRED_APP_PERMISSIONS` in
+// `packages/domain/src/setup/github-app/permission-drift.ts` — that constant governs
+// what an EXISTING App is CHECKED against; this one governs what a FRESH App is
+// CREATED with. mt#3264 added `workflows` and `actions` to both: an App created
+// without `workflows` cannot push any change under `.github/workflows/**`, which is
+// exactly the incident mt#3264 was filed for, so a fresh App built from the old
+// string reproduced it from scratch. `permission-drift.test.ts` asserts the two
+// agree.
+export const DEFAULT_PERMISSIONS =
+  "pull_requests:write,contents:write,metadata:read,workflows:write,actions:write";
 
 function parsePermissions(raw: string): Record<string, string> {
   const out: Record<string, string> = {};

@@ -6,11 +6,14 @@ import {
   mcpToolNameFor,
   minskyArgvOf,
   readManifest,
+  readMcpSubstitutionState,
   renderWorstCase,
   resolveCommandId,
+  run,
   scanCommand,
 } from "./detect-cli-mcp-substitution";
 import type { DispatchContext } from "./registry";
+import type { ToolHookInput } from "./types";
 
 /**
  * The LIVE manifest, not a fixture — AT4's whole point. A fixture copy would pass while the real
@@ -34,7 +37,12 @@ const STATUS_SET_ID = "tasks.status.set";
 /** An arbitrary MCP tool name, used across the AT2 suppression cases. */
 const MCP_TASKS_GET = "mcp__minsky__tasks_get";
 
-type CallSpec = { name: string; outcome: "ok" | "denied" | "error" | "none" };
+type CallSpec = {
+  name: string;
+  outcome: "ok" | "denied" | "error" | "none";
+  /** Present when this call is a shell invocation — the run counter reads it (mt#4353). */
+  command?: string;
+};
 
 /**
  * Build a transcript of tool_use blocks each with its correlated tool_result, so the suppression
@@ -46,7 +54,16 @@ function ctxWithCalls(calls: CallSpec[]): DispatchContext {
     const id = `toolu_${i}`;
     lines.push({
       type: "assistant",
-      message: { content: [{ type: "tool_use", id, name: call.name, input: {} }] },
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id,
+            name: call.name,
+            input: call.command === undefined ? {} : { command: call.command },
+          },
+        ],
+      },
     });
     if (call.outcome === "none") return;
     const text =
@@ -277,5 +294,228 @@ describe("AT5 — worst-case advisory render", () => {
 
   test("stays within the declared attentionCost ceiling", () => {
     expect(renderWorstCase().length).toBeLessThanOrEqual(900);
+  });
+});
+
+/**
+ * mt#4353 — the suppression is no longer monotonic.
+ *
+ * Before this change, ONE successful MCP call silenced the guard for the rest of the session. The
+ * whole fire corpus (11,063 records over 5 days) showed what that cost: all 5 fires were their
+ * session's opening record, and every later moment in those same sessions was suppressed — so the
+ * guard could only ever fire BEFORE a session's first successful call, while the class it exists
+ * to catch happens after one.
+ */
+describe("AT6 — suppression is scoped to the substitution run (mt#4353)", () => {
+  const CLI = "minsky tasks get mt#1";
+  const SUPPRESSED = "suppressed-mcp-in-use";
+  const MATCHED = "matched";
+
+  function bashInput(command: string): ToolHookInput {
+    return {
+      tool_name: "Bash",
+      tool_input: { command },
+      session_id: "sess-4353",
+    } as unknown as ToolHookInput;
+  }
+
+  async function outcomeOf(ctx: DispatchContext, command = CLI): Promise<string | undefined> {
+    const result = await run(bashInput(command), ctx);
+    return result?.calibration?.["outcome"] as string | undefined;
+  }
+
+  test("R11 ordering: MCP succeeded, then went quiet — the SECOND substitution fires", async () => {
+    // The originating incident (mem#707 R11): MCP worked, the harness said the surface was gone,
+    // and the agent rebuilt ~6 operations through the CLI. There is no failed MCP call to find and
+    // no disconnect notice in the transcript, so the run length is the only available signal.
+    //
+    // NEGATIVE CONTROL: against the pre-fix predicate this is `suppressed-mcp-in-use` — the
+    // succeeded flag is true, and nothing else was consulted. Observed failing before the change.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "Bash", outcome: "ok", command: CLI },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("the FIRST substitution after a success is still suppressed", async () => {
+    // The regression floor, and the reason this is a run counter rather than "fire whenever MCP
+    // has not been called recently": one deliberate CLI call in a healthy session stays quiet.
+    // 135 of 320 replayed substitutions sit here.
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "ok" }]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
+  test("a later MCP success resets the run, so the next substitution is suppressed again", async () => {
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "Bash", outcome: "ok", command: CLI },
+      { name: MCP_TASKS_GET, outcome: "ok" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
+  test("a session_exec substitution does not reset its own run", async () => {
+    // `mcp__minsky__session_exec` running the Minsky CLI is BOTH a successful MCP call and a
+    // substitution. Letting it reset would let a CLI-rebuild burst clear its own counter at every
+    // step — the guard would be silent for exactly the sustained case it is built for.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "mcp__minsky__session_exec", outcome: "ok", command: CLI },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("a non-Minsky shell command is not a substitution and does not advance the run", async () => {
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "Bash", outcome: "ok", command: "ls -la" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
+  test("with no successful MCP call at all, the FIRST substitution still fires (mt#4144 floor)", async () => {
+    // PR #3004 R1's behavior, pinned: an MCP call that only ever ERRORED is not evidence of a
+    // working surface, so the guard fires on the first substitution rather than the second.
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "error" }]);
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("state counts the run and reports liveness separately", () => {
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "Bash", outcome: "ok", command: CLI },
+      { name: "Bash", outcome: "ok", command: CLI },
+    ]);
+    const state = readMcpSubstitutionState(ctx, manifest);
+    expect(state.succeeded).toBe(true);
+    expect(state.substitutionsSinceLastSuccess).toBe(2);
+  });
+
+  test("hasSucceededMcpCall still answers liveness alone, unchanged by the run", () => {
+    // The 7 pre-existing assertions on this export keep their meaning: it is still "has MCP ever
+    // worked", and it is deliberately blind to the run length now measured beside it.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "Bash", outcome: "ok", command: CLI },
+      { name: "Bash", outcome: "ok", command: CLI },
+    ]);
+    expect(hasSucceededMcpCall(ctx)).toBe(true);
+  });
+
+  test("an MCP call that ERRORED since the last success unmutes immediately (PR #3186 R2)", async () => {
+    // SC1's failure half. A run counter alone makes the agent spend one free substitution before
+    // the guard speaks; when the transcript actually SHOWS the surface breaking, there is no
+    // reason to wait for the second.
+    //
+    // NEGATIVE CONTROL: without `failedSinceLastSuccess` this is `suppressed-mcp-in-use` — the
+    // success flag is set and the run is 0. Observed failing.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "error" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("an errored call with NO prior success does not claim one (PR #3186 R2)", async () => {
+    // The blocking finding. `failedSinceLastSuccess` is set by any errored MCP call, including in a
+    // session where none ever succeeded — so a failure-first branch rendered "an MCP call ERRORED
+    // since the last one succeeded" when there was no last one. The existing
+    // "with no successful MCP call at all" test walked this exact path and missed it, because it
+    // asserted the OUTCOME and never read the TEXT.
+    //
+    // NEGATIVE CONTROL: with the failure branch checked before the never-succeeded branch, the
+    // first assertion below fails. Observed failing.
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "error" }]);
+
+    const result = await run(bashInput(CLI), ctx);
+    expect(result?.calibration?.["outcome"]).toBe(MATCHED);
+    expect(result?.additionalContext).not.toContain("since the last one succeeded");
+    expect(result?.additionalContext).toContain("no `mcp__minsky__*` call has succeeded");
+    // The calibration `reason` already had this precedence right; assert the two agree, since a
+    // record that disagrees with the text shown to the agent is worse than either being wrong.
+    expect(result?.calibration?.["reason"]).toBe("no-mcp-success");
+  });
+
+  test("a permission DENIAL is not a surface failure and does not unmute", async () => {
+    // The operator refused one call; the request reached the harness, so MCP is demonstrably up.
+    // Treating this as a failure would fire the guard every time a tool call is declined.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "denied" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
+  test("a later success clears the failure, restoring the one free substitution", async () => {
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "error" },
+      { name: MCP_TASKS_GET, outcome: "ok" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
+  test("a top-level tool_use line advances the run (PR #3186 R1)", async () => {
+    // Claude Code emits tool_use in TWO shapes; this walk read only the assistant-embedded one,
+    // so a top-level `type: "tool_use"` Bash call was invisible and the run never advanced.
+    // `transcript.ts` handles both in `findToolUseInputs`/`findCreatedResourceIds`.
+    //
+    // NEGATIVE CONTROL: before the dual-shape fix this is `suppressed-mcp-in-use`, because the
+    // substitution below is simply not seen. Observed failing.
+    const ctx = {
+      transcriptLines: [
+        {
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", id: "toolu_ok", name: MCP_TASKS_GET, input: {} }],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_ok",
+                is_error: false,
+                content: [{ type: "text", text: '{"success":true}' }],
+              },
+            ],
+          },
+        },
+        // The shape under test: top-level, no message.content wrapper.
+        { type: "tool_use", name: "Bash", input: { command: CLI } },
+      ],
+    } as unknown as DispatchContext;
+
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("a top-level MCP tool_use with no id cannot prove success", () => {
+    // It carries no correlating id, so it can never be matched to a result. Not counting it is
+    // the same conservative direction the uncorrelated-block case already takes: a possible extra
+    // fire, never a suppressed true one.
+    const ctx = {
+      transcriptLines: [{ type: "tool_use", name: MCP_TASKS_GET, input: {} }],
+    } as unknown as DispatchContext;
+
+    const state = readMcpSubstitutionState(ctx, manifest);
+    expect(state.succeeded).toBe(false);
+  });
+
+  test("the run-length warning does not claim MCP never succeeded", async () => {
+    // The two branches assert different facts. Telling an agent whose MCP is demonstrably working
+    // that "no mcp__minsky__* call has succeeded" is falsifiable in one call, and a warning caught
+    // lying is worth less than no warning.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: "Bash", outcome: "ok", command: CLI },
+    ]);
+    const result = await run(bashInput(CLI), ctx);
+    expect(result?.additionalContext).toBeDefined();
+    expect(result?.additionalContext).not.toContain("no `mcp__minsky__*` call has succeeded");
+    // One substitution in the transcript, so the pending call is the second.
+    expect(result?.additionalContext).toContain("substitution #2");
   });
 });
