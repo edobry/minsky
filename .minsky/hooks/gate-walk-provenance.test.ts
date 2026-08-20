@@ -5,6 +5,7 @@ import {
   NO_DB_CONNECTION,
   OVERRIDE_ENV_VAR,
   buildCalibrationRecord,
+  bypassMergePrNumber,
   classifyGateWalk,
   classifyMerge,
   fireLogDecisionFor,
@@ -195,6 +196,29 @@ describe("normalizeTaskId", () => {
     // not as a crash.
     expect(normalizeTaskId("md#12")).toBe("md#12");
     expect(normalizeTaskId("dependabot/npm/foo")).toBe("dependabot/npm/foo");
+  });
+});
+
+describe("bypassMergePrNumber — the second merge surface", () => {
+  test("matches the gh-api bypass merge its siblings match", () => {
+    expect(
+      bypassMergePrNumber("gh api PUT /repos/edobry/minsky/pulls/3199/merge -f merge_method=merge")
+    ).toBe(3199);
+    expect(bypassMergePrNumber("gh api -X PUT /repos/o/r/pulls/42/merge")).toBe(42);
+  });
+
+  test("does not match ordinary shell commands", () => {
+    // The overwhelming majority of calls on the `Bash` matcher. Each of these
+    // must reach the entry point's early exit BEFORE any database work.
+    expect(bypassMergePrNumber("bun test")).toBeNull();
+    expect(bypassMergePrNumber("gh pr list")).toBeNull();
+    expect(bypassMergePrNumber("echo /pulls/3199/mergeable")).toBeNull();
+    expect(bypassMergePrNumber("")).toBeNull();
+  });
+
+  test("does not match a PR reference that is not a merge call", () => {
+    expect(bypassMergePrNumber("gh api /repos/o/r/pulls/3199")).toBeNull();
+    expect(bypassMergePrNumber("gh api /repos/o/r/pulls/3199/files")).toBeNull();
   });
 });
 

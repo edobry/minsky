@@ -90,6 +90,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/gate-walk-provenance.ts",
+            "timeout": 15,
+            "statusMessage": "Recording whether this task was ever gated..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-checks-on-bypass-merge.ts",
             "timeout": 30,
             "statusMessage": "Checking required CI status before bypass-merge..."

@@ -274,6 +274,30 @@ export function isOverridden(env: NodeJS.ProcessEnv = process.env): boolean {
 }
 
 /**
+ * The `gh api PUT .../pulls/<N>/merge` bypass path, matched the same way its five
+ * siblings on the `Bash|mcp__minsky__session_exec` matcher already match it
+ * (`block-subagent-bypass-merge.ts`, `require-checks-on-bypass-merge.ts`,
+ * `block-out-of-band-merge.ts`).
+ *
+ * This guard runs at BOTH merge surfaces, and the bypass one is not an
+ * afterthought: a merge that routes around `session_pr_merge` is exactly where a
+ * never-gated task most plausibly reaches main, so a corpus blind to it would
+ * under-count `ungated` in the measurement the posture decision is made from.
+ *
+ * Returns the PR number when the command IS a bypass merge, else null. The null
+ * case is the overwhelming majority of `Bash` calls and must stay cheap — the
+ * entry point exits on it before doing any database work, and deliberately
+ * without writing a calibration record: a record per shell command would bury
+ * the merge signal in noise, and "this was not a merge" is not a merge outcome.
+ */
+export function bypassMergePrNumber(command: string): number | null {
+  const m = /\/pulls\/(\d+)\/merge\b/.exec(command);
+  if (!m?.[1]) return null;
+  const n = Number.parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * Normalize a task id to the `mt#N` form `system_events.related_task_id` stores.
  *
  * `resolveMergeGateTaskId` already returns `mt#N` from its branch channel, but
@@ -496,6 +520,20 @@ if (import.meta.main) {
         overrideEnvVar: OVERRIDE_ENV_VAR,
         overrideClassification: "authorized_exception",
       });
+    }
+
+    // This guard is registered at BOTH merge surfaces: the `session_pr_merge`
+    // tool and the `gh api PUT .../pulls/N/merge` bypass on
+    // `Bash|mcp__minsky__session_exec`. On the shell matcher almost every call
+    // is not a merge, so bail before touching the database — and WITHOUT a
+    // calibration record, since "not a merge" is not a merge outcome and one
+    // record per shell command would bury the signal.
+    const toolName = input.tool_name ?? "";
+    if (toolName === "Bash" || toolName === "mcp__minsky__session_exec") {
+      const command = input.tool_input?.["command"];
+      if (typeof command !== "string" || bypassMergePrNumber(command) === null) {
+        exitWith("allow");
+      }
     }
 
     const resolution = resolveMergeGateTaskId(input);

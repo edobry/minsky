@@ -3,7 +3,13 @@
 Records, at the merge seam, whether the bound task was **ever gated at all**.
 
 - **Task:** mt#1880 (child of mt#2755; ADR-042's `merge` row for gates (g)/(h))
-- **Event / matcher:** `PreToolUse` on `mcp__minsky__session_pr_merge`
+- **Event / matcher:** `PreToolUse` on `mcp__minsky__session_pr_merge`, **and** on
+  `Bash|mcp__minsky__session_exec` for the `gh api PUT .../pulls/<N>/merge` bypass. Both merge
+  surfaces, deliberately: a merge routing around `session_pr_merge` is exactly where a never-gated
+  task most plausibly reaches main, so a corpus blind to it would under-count `ungated` in the very
+  measurement the posture decision is made from. On the shell matcher a command that is not a merge
+  exits before any database work and writes **no** record — "not a merge" is not a merge outcome,
+  and one record per shell command would bury the signal.
 - **Family:** none — standalone, alongside the six existing merge guards. This seam has no
   dispatcher (ADR-042 §Family placement), so the registration lives directly in
   `.claude/settings.json`.
