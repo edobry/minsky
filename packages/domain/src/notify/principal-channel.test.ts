@@ -32,11 +32,29 @@ const THREAD_ID_KEY = "message_thread_id";
 /** A representative alert body — shared across the byte-for-byte regression cases. */
 const SOAK_TEST_MESSAGE = "soak test is green";
 
+/**
+ * A transport that fails loudly instead of reaching the network. Every member
+ * of `PrincipalChannelDeps` is required as of mt#3609, so a test that sends
+ * must now say what it sends THROUGH — and the default says "nothing", rather
+ * than the global `fetch` that once delivered live Telegram messages to the
+ * principal on every full-suite run (mt#3557).
+ */
+// `async` so the failure arrives as a REJECTED promise rather than a
+// synchronous throw. The declared type is `Promise<Response>`, and a caller
+// that does `fetchFn(...).catch(...)` rather than `await` inside `try` would
+// never see a synchronous throw — the tripwire would blow past the very
+// handler meant to catch it (PR #3168 R1).
+const FETCH_MUST_NOT_BE_CALLED = async (): Promise<Response> => {
+  throw new Error("fetchFn was called without being injected by this test");
+};
+
 function deps(overrides: Partial<PrincipalChannelDeps> = {}): PrincipalChannelDeps {
   return {
     readEnv: NOTHING_IN_ENV,
     readPulumiToken: NO_PULUMI_TOKEN,
     readPulumiPlain: NO_PULUMI_PLAIN,
+    now: Date.now,
+    fetchFn: FETCH_MUST_NOT_BE_CALLED,
     ...overrides,
   };
 }
@@ -179,6 +197,7 @@ describe("resolvePrincipalChannel — read failure vs absence (mt#3608)", () => 
 
   test("a THROWING token read is transient, not 'not configured'", async () => {
     const resolution = await resolvePrincipalChannel({
+      now: Date.now,
       readEnv: noEnv,
       readPulumiToken: () => Promise.reject(new Error("getaddrinfo ENOTFOUND api.pulumi.com")),
       readPulumiPlain: async () => "167346572",
@@ -194,6 +213,7 @@ describe("resolvePrincipalChannel — read failure vs absence (mt#3608)", () => 
 
   test("a THROWING chat-id read is transient too", async () => {
     const resolution = await resolvePrincipalChannel({
+      now: Date.now,
       readEnv: noEnv,
       readPulumiToken: async () => "a-token",
       readPulumiPlain: () => Promise.reject(new Error("connect ETIMEDOUT")),
@@ -205,6 +225,7 @@ describe("resolvePrincipalChannel — read failure vs absence (mt#3608)", () => 
 
   test("a genuinely ABSENT credential is NOT transient", async () => {
     const resolution = await resolvePrincipalChannel({
+      now: Date.now,
       readEnv: noEnv,
       readPulumiToken: async () => null,
       readPulumiPlain: async () => null,
@@ -220,6 +241,7 @@ describe("resolvePrincipalChannel — read failure vs absence (mt#3608)", () => 
   test("env credentials bypass the failing reader entirely", async () => {
     let pulumiCalls = 0;
     const resolution = await resolvePrincipalChannel({
+      now: Date.now,
       readEnv: (name) =>
         name === ENV_TOKEN ? "env-token" : name === ENV_CHAT_ID ? "42" : undefined,
       readPulumiToken: () => {
@@ -241,7 +263,11 @@ describe("notifyPrincipal", () => {
     deps({
       readPulumiToken: async () => "tok",
       readPulumiPlain: async () => "999",
-      ...(fetchFn ? { fetchFn } : {}),
+      // Passed straight through. It used to be guarded by `fetchFn ? ... : {}`,
+      // which was meaningful while `fetchFn` was optional and is now dead code
+      // — the parameter's type is non-optional, so the condition is always
+      // true. `tsgo` says so under `packages/domain/tsconfig.json` (TS2774).
+      fetchFn,
     });
 
   test("sends the message and reports the delivered id", async () => {
@@ -691,5 +717,45 @@ describe("pulumi config absence detection (mt#3698)", () => {
     // phrase list believing it covered the real output.
     const retired = /missing required configuration|has no value|no configuration value/i;
     expect(retired.test(REAL_MISSING_KEY_STDERR)).toBe(false);
+  });
+});
+
+/**
+ * The required-deps contract itself (mt#3609).
+ *
+ * mt#3557 fixed the SYMPTOM — two tests that reached the real Pulumi CLI and
+ * delivered live Telegram messages to the principal on every full-suite run —
+ * by adding an injection seam at the command layer. It could not fix the
+ * SHAPE: `deps` was optional, every member fell back to a real implementation,
+ * and so "forgot to inject" and "asked for production" were the same call.
+ *
+ * These cases pin the fix at the only place it can be enforced for callers
+ * that do not exist yet: the type. A `@ts-expect-error` that stops erroring is
+ * itself a compile error, so if `deps` is ever made optional again, this file
+ * fails to typecheck rather than quietly resuming live sends.
+ */
+describe("deps are required at compile time (mt#3609)", () => {
+  test("resolvePrincipalChannel cannot be called without deps, and works with them", async () => {
+    // @ts-expect-error - deps is REQUIRED; an un-injected call must not compile.
+    const uninjected = () => resolvePrincipalChannel();
+    // Paired runtime assertion (never invoked — calling it would be the very
+    // fallthrough this guards against): the reference exists, and the properly
+    // injected form below actually resolves.
+    expect(typeof uninjected).toBe("function");
+
+    const resolution = await resolvePrincipalChannel(deps());
+    expect(resolution.configured).toBe(false);
+  });
+
+  test("notifyPrincipal cannot be called without deps, and works with them", async () => {
+    // @ts-expect-error - deps is REQUIRED on NotifyPrincipalOptions.
+    const uninjected = () => notifyPrincipal({ message: "hi" });
+    expect(typeof uninjected).toBe("function");
+
+    // The injected form reports not-configured rather than sending: `deps()`
+    // stubs both credential sources empty, and its `fetchFn` tripwire throws
+    // if anything reaches the transport.
+    const result = await notifyPrincipal({ message: "hi", deps: deps() });
+    expect(result.delivered).toBe(false);
   });
 });

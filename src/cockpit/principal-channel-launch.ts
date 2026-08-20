@@ -28,6 +28,7 @@ import type { PrincipalChannelConfig } from "@minsky/domain/configuration/schema
 import {
   markTelegramChannelTopicDead,
   resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
   type PrincipalChannelResolution,
 } from "@minsky/domain/notify/principal-channel";
 import {
@@ -812,7 +813,13 @@ function clampRetryDelayMs(delayMs: number, maxDelayMs: number): number {
  * {@link startPrincipalChannel}).
  */
 export async function resolveWithRetry(deps: {
-  resolve: typeof resolvePrincipalChannel;
+  /**
+   * Resolve the channel's credentials. Takes no arguments: the credential
+   * dependencies are bound where this is CONSTRUCTED (see the default below),
+   * so the poller never chooses them and a test injects a fake resolver
+   * without needing to know what a real one is made of (mt#3609).
+   */
+  resolve: () => Promise<PrincipalChannelResolution>;
   sleep: (ms: number) => Promise<void>;
   delaysMs: readonly number[];
   /** Ceiling once `delaysMs` is exhausted. Defaults to {@link CREDENTIAL_RETRY_MAX_DELAY_MS}; overridable for tests. */
@@ -931,7 +938,9 @@ export async function startPrincipalChannel(opts: {
 
   channelStatus = { state: "starting" };
   const resolution = await resolveWithRetry({
-    resolve: resolvePrincipalChannel,
+    // Production wiring, bound here rather than defaulted inside the domain
+    // module (ADR-026, mt#3609).
+    resolve: () => resolvePrincipalChannel(createRealPrincipalChannelDeps()),
     sleep: opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
     delaysMs: opts.retryDelaysMs ?? CREDENTIAL_RETRY_DELAYS_MS,
   });
