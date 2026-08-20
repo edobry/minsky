@@ -121,9 +121,93 @@ describe("runServiceWindowTick", () => {
     expect(outcome.dispatched).toBe(3);
   });
 
+  // mt#4364: the shipped tick logged its failures and returned normally, so
+  // `createIntervalSweeper` recorded every one of ~390 failing ticks as a
+  // success and `/api/sweeps` read `consecutiveFailures: 0, lastErrorAt: null`.
+  test("a failed auto-close is reported as a domain failure, not just logged", async () => {
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        listOpenWindows: () => [
+          { windowKey: "ask-hours", expectedCloseAt: new Date(NOW.getTime() - 1_000) },
+        ],
+        closeWindow: async () => {
+          throw new Error("config missing");
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(outcome.closeFailures).toBe(1);
+  });
+
+  // PR #3198 R2: containing only `closeWindow` left the contract inconsistent —
+  // the other three dependency calls escaped to the caller's outer catch, which
+  // reports ok:false but discards the counts collected before the throw.
+  test("a throwing deadline poll degrades the outcome instead of escaping", async () => {
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        fireCronWindows: async () => ["ask-hours"],
+        pollDeadlineBound: async () => {
+          throw new Error("pool recycled");
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    // The step that already succeeded is still reported.
+    expect(outcome.opened).toEqual(["ask-hours"]);
+  });
+
+  test("a throwing cron open degrades the outcome and the poll still runs", async () => {
+    let polled = false;
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        fireCronWindows: async () => {
+          throw new Error("config unreadable");
+        },
+        pollDeadlineBound: async () => {
+          polled = true;
+          return 0;
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(polled).toBe(true);
+  });
+
+  test("a throwing open-window enumeration degrades the outcome and the poll still runs", async () => {
+    let polled = false;
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        listOpenWindows: () => {
+          throw new Error("registry unavailable");
+        },
+        pollDeadlineBound: async () => {
+          polled = true;
+          return 0;
+        },
+      })
+    );
+
+    expect(outcome.ok).toBe(false);
+    expect(polled).toBe(true);
+  });
+
+  test("a healthy tick reports ok", async () => {
+    const outcome = await runServiceWindowTick(
+      inertDeps({
+        fireCronWindows: async () => ["ask-hours"],
+        pollDeadlineBound: async () => 1,
+      })
+    );
+
+    expect(outcome.ok).toBe(true);
+  });
+
   test("a quiet tick reports nothing happened rather than throwing", async () => {
     const outcome = await runServiceWindowTick(inertDeps());
 
-    expect(outcome).toEqual({ opened: [], closed: [], closeFailures: 0, dispatched: 0 });
+    expect(outcome).toEqual({ ok: true, opened: [], closed: [], closeFailures: 0, dispatched: 0 });
   });
 });
