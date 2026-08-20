@@ -61,12 +61,22 @@ describe("parseCatalog — the real artifact", () => {
     expect(parsed.entries.length).toBeGreaterThanOrEqual(92);
   });
 
-  test("exactly the merge gates carry the authored delivery trajectory (mt#4011)", () => {
+  test("exactly the merge-seam interceptors carry the delivery trajectory (mt#4011)", () => {
     // The artifact half of the spine's AT1 parity: the web placement model
     // sends `trajectory: "delivery"` to the merge station and everything else
     // to its point, so this list IS the merge station's membership. A merge
-    // gate missing from it silently falls back into the PreToolUse cluster;
-    // a non-gate carrying it is silently promoted to the merge station.
+    // interceptor missing from it silently falls back into the PreToolUse
+    // cluster; one that does not run at the merge seam carrying it is silently
+    // promoted to the merge station.
+    //
+    // MEMBERSHIP IS THE SEAM, NOT THE POSTURE (mt#1880). Every member was a
+    // deny-capable gate until `gate-walk-provenance`, which is record-only —
+    // so this test was named "exactly the merge gates" and is now named for
+    // what the list actually selects. The operator question the station answers
+    // is "what runs when I merge?", and a recorder at that seam runs there; its
+    // deny-capability is a separate axis the catalog already carries. Reading
+    // the marker as gates-only would have put it in the PreToolUse cluster,
+    // which is the first failure mode this test's own comment names.
     const parsed = parseCatalog(catalogJson);
     const delivery = parsed.entries
       .filter((e) => e.trajectory === "delivery")
@@ -76,6 +86,7 @@ describe("parseCatalog — the real artifact", () => {
       "block-out-of-band-merge",
       "block-subagent-bypass-merge",
       "block-subagent-merge-without-grant",
+      "gate-walk-provenance",
       "require-checks-on-bypass-merge",
       "require-deploy-verification-before-merge",
       "require-execution-evidence-before-merge",
