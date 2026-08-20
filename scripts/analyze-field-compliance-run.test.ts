@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { fisherExactTwoSided, wilson } from "./analyze-field-compliance-run";
+import { fisherExactTwoSided, mcnemarExactTwoSided, wilson } from "./analyze-field-compliance-run";
 
 /**
  * mt#4365. These pin a hand-rolled statistic against values computed independently of this
@@ -48,6 +48,58 @@ describe("fisherExactTwoSided", () => {
     expect(Number.isFinite(p)).toBe(true);
     expect(p).toBeGreaterThan(0);
     expect(p).toBeLessThan(1);
+  });
+});
+
+describe("mcnemarExactTwoSided", () => {
+  it("matches the exact binomial sign test — 11 vs 1 discordant", () => {
+    // Two-sided exact binomial at p=0.5, n=12, k<=1: 2*(C(12,0)+C(12,1))/2^12
+    //   = 2*(1+12)/4096 = 26/4096 = 0.0063477.
+    // This is mt#4317's own field-order result, whose p = 0.0063 appears throughout that
+    // task's record — so it doubles as a check that this implementation reproduces the
+    // number the cluster has been quoting.
+    expect(mcnemarExactTwoSided(11, 1)).toBeCloseTo(0.0063477, 6);
+  });
+
+  it("matches the exact binomial for 1 vs 2 discordant (mt#4317 run 2)", () => {
+    // 2*(C(3,0)+C(3,1))/2^3 = 2*4/8 = 1.0 — the p = 1.0 that retired the field-order fix.
+    expect(mcnemarExactTwoSided(1, 2)).toBeCloseTo(1.0, 9);
+  });
+
+  it("returns 1 when the discordant counts are equal", () => {
+    expect(mcnemarExactTwoSided(10, 10)).toBeCloseTo(1.0, 9);
+  });
+
+  it("returns 1 when there are no discordant pairs, rather than dividing by zero", () => {
+    expect(mcnemarExactTwoSided(0, 0)).toBe(1);
+  });
+
+  it("is symmetric in its two arguments", () => {
+    expect(mcnemarExactTwoSided(3, 14)).toBeCloseTo(mcnemarExactTwoSided(14, 3), 12);
+  });
+
+  it("detects a total split", () => {
+    // 20 vs 0 is 2*(1/2^20) = 1.9e-6.
+    expect(mcnemarExactTwoSided(20, 0)).toBeCloseTo(1.9073e-6, 9);
+  });
+
+  it("never exceeds 1 near the equal-split boundary", () => {
+    // The 2x-tail construction can exceed 1 for near-equal counts if not clamped.
+    for (const [b, c] of [
+      [5, 5],
+      [5, 6],
+      [6, 5],
+      [50, 50],
+    ] as const) {
+      expect(mcnemarExactTwoSided(b, c)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("survives the pre-registered discordant-pair count without overflowing", () => {
+    const p = mcnemarExactTwoSided(30, 6);
+    expect(Number.isFinite(p)).toBe(true);
+    expect(p).toBeGreaterThan(0);
+    expect(p).toBeLessThan(0.001);
   });
 });
 

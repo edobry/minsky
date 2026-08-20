@@ -110,11 +110,137 @@ export function wilson(successes: number, n: number): [number, number] {
   return [Math.max(0, centre - halfWidth), Math.min(1, centre + halfWidth)];
 }
 
+/** Binomial coefficient via logs, so a 100-pair table cannot overflow. */
+function logChoose(n: number, k: number): number {
+  return logFactorial(n) - logFactorial(k) - logFactorial(n - k);
+}
+
+/**
+ * McNemar exact, two-sided: an exact binomial sign test on the DISCORDANT pairs only.
+ *
+ * Concordant pairs carry no information about which arm is better — a transcript both arms
+ * reject, or both accept, is silent on the comparison — so they are excluded by construction
+ * rather than by choice. `b` and `c` are the two discordant counts.
+ *
+ * The exact form is used rather than the chi-square approximation because the pre-registered
+ * design expects ~36 discordant pairs, which is squarely in the range where the approximation
+ * misbehaves.
+ */
+export function mcnemarExactTwoSided(b: number, c: number): number {
+  const n = b + c;
+  if (n === 0) return 1;
+  const k = Math.min(b, c);
+  let tail = 0;
+  for (let i = 0; i <= k; i++) tail += Math.exp(logChoose(n, i) - n * Math.LN2);
+  return Math.min(1, 2 * tail);
+}
+
 function pct(x: number): string {
   return `${(100 * x).toFixed(1)}%`;
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * mt#4365 Run 2: the PRE-REGISTERED paired comparison of two arms over the same transcripts.
+ *
+ * A transcript answered by both arms is ONE pair, not two observations — which is the exact
+ * arithmetic mt#4317 got wrong when it read 80 rows as 80 independent points. Pairs are
+ * assembled by conversation id here so that miscount is not expressible.
+ */
+function pairedAnalysis(rows: Row[], callErrorCount: number, arms: string[]): void {
+  const [armA, armB] = arms as [string, string];
+  const byConversation = new Map<string, Map<string, Row>>();
+  for (const r of rows) {
+    if (!byConversation.has(r.conversationId)) byConversation.set(r.conversationId, new Map());
+    byConversation.get(r.conversationId)?.set(r.arm, r);
+  }
+
+  // Only transcripts BOTH arms answered can form a pair. A transcript one arm failed to reach
+  // (a dropped call) is dropped entirely rather than counted against the arm that did answer.
+  const pairs = [...byConversation.values()].filter((m) => m.has(armA) && m.has(armB));
+  const incomplete = byConversation.size - pairs.length;
+
+  const failed = (r: Row | undefined): boolean => r?.outcome.kind === "schema-violation";
+
+  let bothFail = 0;
+  let bothOk = 0;
+  let onlyAFails = 0;
+  let onlyBFails = 0;
+  for (const m of pairs) {
+    const a = failed(m.get(armA));
+    const b = failed(m.get(armB));
+    if (a && b) bothFail++;
+    else if (!a && !b) bothOk++;
+    else if (a) onlyAFails++;
+    else onlyBFails++;
+  }
+
+  const aFail = bothFail + onlyAFails;
+  const bFail = bothFail + onlyBFails;
+  const [aLo, aHi] = wilson(aFail, pairs.length);
+  const [bLo, bHi] = wilson(bFail, pairs.length);
+
+  console.log("=== mt#4365 RUN 2 — PRE-REGISTERED PAIRED ANALYSIS ===");
+  console.log(`arms: ${armA} vs ${armB}`);
+  console.log(`complete pairs: ${pairs.length}   incomplete (dropped): ${incomplete}`);
+  console.log(`call errors excluded: ${callErrorCount}`);
+  console.log("");
+  console.log(
+    `${armA.padEnd(12)} ${aFail}/${pairs.length} = ${pct(aFail / pairs.length)}  ` +
+      `(95% CI ${pct(aLo)}–${pct(aHi)})`
+  );
+  console.log(
+    `${armB.padEnd(12)} ${bFail}/${pairs.length} = ${pct(bFail / pairs.length)}  ` +
+      `(95% CI ${pct(bLo)}–${pct(bHi)})`
+  );
+  console.log("");
+  console.log(`both reject: ${bothFail}   both accept: ${bothOk}   (concordant — carry no signal)`);
+  console.log(`only ${armA} rejects: ${onlyAFails}   only ${armB} rejects: ${onlyBFails}`);
+
+  const discordant = onlyAFails + onlyBFails;
+  const p = mcnemarExactTwoSided(onlyAFails, onlyBFails);
+  console.log("");
+  console.log(`discordant pairs: ${discordant} (pre-registered target ~36)`);
+  console.log(`McNemar exact, two-sided: p = ${p.toFixed(5)}`);
+  if (p < 0.05) {
+    const better = onlyAFails > onlyBFails ? armB : armA;
+    console.log(
+      `>>> REJECT H0. ${better} rejects LESS often. ONE run — SC4 replication still owed.`
+    );
+  } else {
+    console.log(
+      ">>> FAIL TO REJECT H0. Powered for a ~17-point difference; NOT evidence of no effect."
+    );
+  }
+
+  console.log("");
+  console.log("=== EXPLORATORY (declared secondary — not confirmatory) ===");
+  for (const arm of arms) {
+    const byField: Record<string, number> = {};
+    for (const m of pairs) {
+      const r = m.get(arm);
+      if (r?.outcome.kind !== "schema-violation") continue;
+      for (const f of r.outcome.paths) byField[f] = (byField[f] ?? 0) + 1;
+    }
+    console.log(`exploratory — ${arm} missing-field breakdown: ${JSON.stringify(byField)}`);
+  }
+
+  // Does any benefit concentrate in the large-prompt stratum? Run 1 showed size predicts
+  // rejection; if a mode benefit is size-dependent the two levers interact. NOT powered for this.
+  for (const label of ["below", "at/above"] as const) {
+    const stratum = pairs.filter((m) => {
+      const size = m.get(armA)?.promptChars ?? 0;
+      return label === "below" ? size < THRESHOLD_CHARS : size >= THRESHOLD_CHARS;
+    });
+    const sa = stratum.filter((m) => failed(m.get(armA))).length;
+    const sb = stratum.filter((m) => failed(m.get(armB))).length;
+    console.log(
+      `exploratory — ${label} ${THRESHOLD_CHARS}: ${armA} ${sa}/${stratum.length}, ` +
+        `${armB} ${sb}/${stratum.length}   [interaction check — run is NOT powered for this]`
+    );
+  }
+}
 
 function main(): void {
   const path = process.argv[2];
@@ -133,6 +259,12 @@ function main(): void {
   // complied with the schema. Counting it as a violation inflates the very rate under test.
   const callErrors = rows.filter((r) => r.outcome.kind === "call-error");
   const analyzed = rows.filter((r) => r.outcome.kind !== "call-error");
+
+  const arms = [...new Set(analyzed.map((r) => r.arm))];
+  if (arms.length > 1) {
+    pairedAnalysis(analyzed, callErrors.length, arms);
+    return;
+  }
 
   // One arm by design, so a duplicated conversation would mean a harness bug, not a pairing.
   const distinct = new Set(analyzed.map((r) => r.conversationId));
