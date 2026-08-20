@@ -45,7 +45,10 @@ import {
   type CreateAskInput,
 } from "@minsky/domain/ask/repository";
 import { respondAndCloseAsk } from "@minsky/domain/ask/repository";
-import { isAutomatedClosureResponder } from "@minsky/domain/ask/close-as-resolved";
+import {
+  isAutomatedClosureResponder,
+  closeAskAsResolved,
+} from "@minsky/domain/ask/close-as-resolved";
 import {
   editAskContent,
   providedEditableFields,
@@ -534,6 +537,89 @@ const asksRespondParams = {
     defaultValue: "operator",
   },
 };
+
+/**
+ * Default responder for `asks.cancel` when the caller names none.
+ *
+ * Deliberately NOT `"operator"`, unlike `asksRespondParams.responder` above
+ * (mt#3353). `respondAndCloseAsk` falls back to `"operator"` on an omitted
+ * responder (`repository.ts`), so with no cancel verb the live practice became
+ * retiring an ask by ANSWERING it as its own author — which records the
+ * PRINCIPAL as having decided something they never saw. Withholding the verb did
+ * not protect the audit trail; it laundered agent withdrawals into the
+ * principal's answered record (mem#1122, mem#1007). A cancel path that inherited
+ * that default would reproduce the defect it exists to remove.
+ */
+const DEFAULT_CANCEL_RESPONDER = "system:agent-cancelled";
+
+const asksCancelParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description:
+      "Ask ID to cancel. Accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+    required: true,
+  },
+  reason: {
+    schema: z.string().trim().min(1),
+    description:
+      "Why this Ask is being retired — persisted as the cancellation disposition. Required: a cancellation with no reason is indistinguishable from the unattributed cancellations this command exists to replace.",
+    required: true,
+  },
+  responder: {
+    schema: z.string().trim().min(1),
+    description: `Who is cancelling — conventionally \`system:<event>\`. Defaults to \`${DEFAULT_CANCEL_RESPONDER}\`. The literal \`operator\` is REJECTED: cancelling is not answering, and recording the principal as the responder is the provenance laundering this command exists to end.`,
+    required: false,
+    defaultValue: DEFAULT_CANCEL_RESPONDER,
+  },
+};
+
+/** Result of `asks.cancel`. */
+export interface CancelAskResult {
+  askId: string;
+  outcome: "closed" | "cancelled" | "already-terminal" | "not-found" | "skipped";
+  responder: string;
+  reason: string;
+}
+
+/**
+ * Terminally cancel an Ask that no transport ever dispatched (mt#3353).
+ *
+ * Extracted from the `asks.cancel` handler rather than written inline so the
+ * decision it makes — chiefly the `operator` rejection — is observable from a
+ * test without standing up the command registry, matching the `respondToAsk`
+ * helper beside it. `id` is expected ALREADY RESOLVED to a full uuid; short-id
+ * resolution needs the container and stays at the handler boundary.
+ */
+export async function cancelAsk(
+  repo: AskRepository,
+  params: { id: string; reason: string; responder?: string }
+): Promise<CancelAskResult> {
+  const responder =
+    (params.responder ?? DEFAULT_CANCEL_RESPONDER).trim() || DEFAULT_CANCEL_RESPONDER;
+  const reason = params.reason.trim();
+
+  // The one hard rule this command carries. Cancelling is not answering, and an
+  // ask recorded against `operator` reads as a decision the principal made —
+  // see DEFAULT_CANCEL_RESPONDER above for why that is the exact failure this
+  // command exists to end. Rejected rather than silently rewritten, so a caller
+  // that meant to ANSWER is told to use `asks.respond` instead of having its
+  // intent quietly changed.
+  if (responder.toLowerCase() === "operator") {
+    throw new ValidationError(
+      'asks.cancel: `responder` may not be "operator" — cancelling is not answering, ' +
+        "and recording the principal as the responder would misreport an agent " +
+        "withdrawal as a principal decision. Use `asks.respond` to record a real " +
+        `answer, or pass a \`system:<event>\` responder (default: ${DEFAULT_CANCEL_RESPONDER}).`
+    );
+  }
+
+  const outcome = await closeAskAsResolved(repo, params.id, {
+    responder,
+    payload: { reason, cancelledVia: "asks.cancel" },
+  });
+
+  return { askId: params.id, outcome: outcome.kind, responder, reason };
+}
 
 /**
  * Typed input for `respondToAsk` — the internal helper exposed for testing.
@@ -2202,6 +2288,43 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             },
           });
           return result;
+        });
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "asks.cancel",
+      category: CommandCategory.TOOLS,
+      name: "cancel",
+      description:
+        "Terminally cancel an Ask that was never dispatched (mt#3353, ADR-008). " +
+        "Covers the pre-suspended states — detected/classified/routed — which " +
+        "`asks.respond` rejects and which neither existing sweep reads: " +
+        "`advancement.ts` sweeps `detected` and `stale-suspended-close.ts` sweeps " +
+        "`suspended`, so `classified` and `routed` debris accumulates unreachable. " +
+        "This command is the terminal PRIMITIVE for those states; whether a RECURRING " +
+        "sweep may safely retire them, and under which rule, is mt#4361 — parent-terminal " +
+        "is not a safe trigger there, because a parent can go terminal by concluding the " +
+        "work is operator-only while that work is still outstanding. " +
+        "Silent to the operator: this is debris cleanup, not a decision. " +
+        "Idempotent — an already-terminal Ask is a no-op. " +
+        "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+      // Same rationale as asks.respond: depends only on the persistence
+      // provider, not on global Minsky configuration.
+      requiresSetup: false,
+      parameters: asksCancelParams,
+      execute: async (params): Promise<CancelAskResult> => {
+        const repo = await requireAskRepository(container, "asks.cancel");
+        // mt#2696: resolve a short-prefix citation to the full uuid before it
+        // ever reaches a Postgres `uuid` column comparison.
+        const id = await resolveAskIdInput(params.id as string, container);
+
+        return cancelAsk(repo, {
+          id,
+          reason: params.reason as string,
+          responder: params.responder as string | undefined,
         });
       },
     })

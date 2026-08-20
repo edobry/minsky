@@ -5517,6 +5517,30 @@
               "commandId": "asks.respond"
             },
             {
+              "name": "cancel",
+              "description": "Terminally cancel an Ask that was never dispatched (mt#3353, ADR-008). Covers the pre-suspended states — detected/classified/routed — which `asks.respond` rejects and which neither existing sweep reads: `advancement.ts` sweeps `detected` and `stale-suspended-close.ts` sweeps `suspended`, so `classified` and `routed` debris accumulates unreachable. This command is the terminal PRIMITIVE for those states; whether a RECURRING sweep may safely retire them, and under which rule, is mt#4361 — parent-terminal is not a safe trigger there, because a parent can go terminal by concluding the work is operator-only while that work is still outstanding. Silent to the operator: this is debris cleanup, not a decision. Idempotent — an already-terminal Ask is a no-op. `id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
+              "options": [
+                {
+                  "flags": ["--reason"],
+                  "description": "Why this Ask is being retired — persisted as the cancellation disposition. Required: a cancellation with no reason is indistinguishable from the unattributed cancellations this command exists to replace.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--responder"],
+                  "description": "Who is cancelling — conventionally `system:<event>`. Defaults to `system:agent-cancelled`. The literal `operator` is REJECTED: cancelling is not answering, and recording the principal as the responder is the provenance laundering this command exists to end.",
+                  "takesValue": true
+                }
+              ],
+              "arguments": [
+                {
+                  "name": "id",
+                  "required": true,
+                  "description": "Ask ID to cancel. Accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id."
+                }
+              ],
+              "commandId": "asks.cancel"
+            },
+            {
               "name": "create",
               "description": "Create an Ask and route it via the policy-first router (ADR-008)",
               "options": [
