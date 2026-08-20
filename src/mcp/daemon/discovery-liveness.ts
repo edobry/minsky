@@ -48,7 +48,12 @@ import {
 } from "@minsky/domain/deployment/health-identity";
 
 /** Why a record is not backing a serving daemon. */
-export type NotLiveReason = "no-record" | "pid-dead" | "not-serving" | "wrong-service";
+export type NotLiveReason =
+  | "no-record"
+  | "invalid-address"
+  | "pid-dead"
+  | "not-serving"
+  | "wrong-service";
 
 export type DiscoveryLiveness =
   | { state: "live"; record: LocalDaemonDiscoveryRecord; detail: string }
@@ -96,8 +101,21 @@ export async function classifyDiscoveryLiveness(
     };
   }
 
+  // Validate the address BEFORE anything else touches it. A record whose host
+  // or port is unusable is not a daemon we could reach even in principle, and
+  // deciding that here keeps every path below working on a checked value.
+  const url = healthUrlFor(record);
+  if (url === null) {
+    return {
+      state: "not-live",
+      reason: "invalid-address",
+      detail: `the record's address is not usable: host ${JSON.stringify(record.host)}, port ${record.port}`,
+      record,
+    };
+  }
+
   const pidAlive = deps.pidAlive ?? isPidAlive;
-  const probe = deps.probe ?? ((url: string) => probeHealthIdentity(url));
+  const probe = deps.probe ?? ((target: string) => probeHealthIdentity(target));
 
   // The pid check runs FIRST but is not authoritative on its own, and the
   // asymmetry is deliberate. `isPidAlive` shells out to `kill -0`, whose
@@ -120,7 +138,7 @@ export async function classifyDiscoveryLiveness(
     };
   }
 
-  const outcome = await probe(healthUrlFor(record));
+  const outcome = await probe(url);
 
   if (outcome.kind === "unreachable") {
     return {
@@ -159,9 +177,55 @@ export async function classifyDiscoveryLiveness(
   };
 }
 
-/** `/health` URL for a record. Kept beside the classifier so the two agree. */
-export function healthUrlFor(record: LocalDaemonDiscoveryRecord): string {
-  return `http://${record.host}:${record.port}/health`;
+/**
+ * `/health` URL for a record, or null when the record's address is not one we
+ * are willing to send a request to (PR #3207 R1).
+ *
+ * `readDiscoveryRecord` type-checks the shape — `host` is a string, `port` is a
+ * number — and stops there, so an editable `local-mcp.json` can carry a `host`
+ * of `"http://example.com"`, a path, or control characters, and a `port` of
+ * `-1` or `1e9`. Composing a URL out of that unvalidated mis-targets the probe,
+ * and the record is exactly the artifact this module exists to distrust.
+ *
+ * **Not restricted to loopback, deliberately.** The reviewer suggested
+ * asserting it, and `--host` is a real CLI option (`resolveLocalDaemonDefaults`
+ * honors `hostFromCli`), so a hard loopback-only rule would reject a legitimate
+ * configuration to defend against a local file the operator already controls.
+ * The check is therefore STRUCTURAL — is this a bare host and a usable port —
+ * which removes the mis-targeting without deciding policy this module does not
+ * own.
+ *
+ * IPv6 literals are bracketed, which the previous string concatenation did not
+ * do: `::1` produced `http://::1:48765/health`, which is not a URL.
+ */
+export function healthUrlFor(record: LocalDaemonDiscoveryRecord): string | null {
+  const { host, port } = record;
+
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return null;
+  if (host.length === 0 || host.length > 255) return null;
+  // Anything that could smuggle a scheme, a path, a query, credentials, or a
+  // second host past the composition below.
+  if (/[/\\?#@\s]/.test(host)) return null;
+  // Control characters, which would otherwise ride into the request. Checked
+  // by code point rather than a regex escape: a unicode NUL escape in a
+  // JSON-parameterized write lands as a literal NUL byte on disk, which the
+  // pre-commit guard blocks (mt#1821).
+  for (const ch of host) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code < 0x20 || code === 0x7f) return null;
+  }
+
+  const isIpv6Literal = host.includes(":");
+  if (isIpv6Literal && !/^[0-9a-fA-F:.]+$/.test(host)) return null;
+  const authority = isIpv6Literal ? `[${host}]` : host;
+
+  try {
+    // Round-trip through URL so a value that survives the checks above but is
+    // still unparseable fails here rather than at fetch time.
+    return new URL(`http://${authority}:${port}/health`).toString();
+  } catch {
+    return null;
+  }
 }
 
 /**

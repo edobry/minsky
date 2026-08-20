@@ -3,9 +3,14 @@ import {
   classifyDiscoveryLiveness,
   healthUrlFor,
   isDaemonUsable,
+  readDiscoveryLiveness,
   type DiscoveryLiveness,
 } from "./discovery-liveness";
-import type { HealthProbeOutcome, LocalDaemonDiscoveryRecord } from "./local-daemon";
+import type {
+  HealthProbeOutcome,
+  LocalDaemonDiscoveryRecord,
+  LocalDaemonFsDeps,
+} from "./local-daemon";
 
 const RECORD: LocalDaemonDiscoveryRecord = {
   port: 48765,
@@ -151,6 +156,44 @@ describe("classifyDiscoveryLiveness", () => {
     expect(healthUrlFor(odd)).toBe(probed);
   });
 
+  test("an IPv6 host is bracketed, not concatenated", () => {
+    // `http://::1:48765/health` is not a URL. PR #3207 R1.
+    expect(healthUrlFor({ ...RECORD, host: "::1" })).toBe("http://[::1]:48765/health");
+  });
+
+  test.each([
+    ["a host carrying a scheme", { host: "http://example.com" }],
+    ["a host carrying a path", { host: "127.0.0.1/evil" }],
+    ["a host carrying credentials", { host: "user@example.com" }],
+    ["a host carrying a control character", { host: "127.0.0.1\n" }],
+    ["an empty host", { host: "" }],
+    ["a negative port", { port: -1 }],
+    ["a port above the range", { port: 70000 }],
+    ["a non-integer port", { port: 1.5 }],
+  ])("rejects %s", (_label, patch) => {
+    expect(healthUrlFor({ ...RECORD, ...patch })).toBeNull();
+  });
+
+  test("a record with an unusable address is not-live, and is never probed", async () => {
+    let probeCalled = false;
+
+    const result = await classifyDiscoveryLiveness(
+      { ...RECORD, host: "http://example.com" },
+      {
+        pidAlive: alive,
+        probe: async () => {
+          probeCalled = true;
+          return { kind: "body", body: HEALTHY_BODY };
+        },
+      }
+    );
+
+    expect(result.state).toBe("not-live");
+    if (result.state !== "not-live") throw new Error("unreachable");
+    expect(result.reason).toBe("invalid-address");
+    expect(probeCalled).toBe(false);
+  });
+
   test("a dead pid short-circuits before the port is probed", async () => {
     let probeCalled = false;
 
@@ -163,6 +206,79 @@ describe("classifyDiscoveryLiveness", () => {
     });
 
     expect(probeCalled).toBe(false);
+  });
+});
+
+describe("readDiscoveryLiveness end-to-end, with PRODUCTION defaults", () => {
+  // PR #3207 R1 (BLOCKING): every test above injects both collaborators, so
+  // none of them would notice if the DEFAULT wiring drifted — if
+  // `probeHealthIdentity` or `isPidAlive` stopped being reached, all 11 would
+  // still pass. These two exercise the real read path, the real `kill -0`, and
+  // the real `/health` probe, with no injection at all.
+
+  // The FILESYSTEM is the only thing doubled here, and it is doubled through
+  // the production seam `readDiscoveryRecord` already exposes (`deps`) rather
+  // than by touching a real temp dir — `custom/no-real-fs-in-tests` is right
+  // that a test does not need one, and the reviewer's concern was never the
+  // file. What stays REAL is exactly what R1 said was unverified: `isPidAlive`
+  // and `probeHealthIdentity`, both left at their production defaults.
+  const fsServing = (record: LocalDaemonDiscoveryRecord): LocalDaemonFsDeps => ({
+    existsSync: () => true,
+    readFileSync: () => JSON.stringify(record),
+    writeFileSync: () => undefined,
+    renameSync: () => undefined,
+    mkdirSync: () => undefined,
+    chmodSync: () => undefined,
+    statMode: () => 0o600,
+    unlinkSync: () => undefined,
+  });
+
+  test("a record naming a dead pid reads not-live through the real isPidAlive", async () => {
+    // A pid far above the system maximum: never allocated, so the real
+    // `kill -0` fails for existence rather than for permissions.
+    const result = await readDiscoveryLiveness({
+      deps: fsServing({ ...RECORD, pid: 999991 }),
+    });
+
+    expect(result.state).toBe("not-live");
+    if (result.state !== "not-live") throw new Error("unreachable");
+    expect(result.reason).toBe("pid-dead");
+    expect(isDaemonUsable(result)).toBe(false);
+  });
+
+  test("a real server answering /health with the right identity reads live", async () => {
+    // NEGATIVE CONTROL for the test above, and the one that actually covers
+    // `probeHealthIdentity`'s wiring: a real listener, a real HTTP round trip,
+    // a real identity assertion. `process.pid` is alive by construction.
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (req) =>
+        new URL(req.url).pathname === "/health"
+          ? Response.json({ status: "ok", service: "minsky-mcp" })
+          : new Response("nope", { status: 404 }),
+    });
+
+    try {
+      // Asserted rather than cast: an ephemeral bind that produced no port
+      // should fail here, not read not-live for the wrong reason — which would
+      // look like a passing negative.
+      expect(server.port).toBeGreaterThan(0);
+
+      const result = await readDiscoveryLiveness({
+        deps: fsServing({
+          port: server.port as number,
+          host: "127.0.0.1",
+          pid: process.pid,
+          startedAt: RECORD.startedAt,
+        }),
+      });
+
+      expect(result.state).toBe("live");
+      expect(isDaemonUsable(result)).toBe(true);
+    } finally {
+      server.stop(true);
+    }
   });
 });
 
