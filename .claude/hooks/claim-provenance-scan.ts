@@ -512,8 +512,28 @@ const REMAINING_WORK_RE = new RegExp(
  * by any action teaches the reader to discount the guard (mem#719). Excluding it
  * costs at most a false NEGATIVE on a live `md#` task, which is the safe
  * direction per this module's header.
+ *
+ * HELD AS A SOURCE STRING AND COMPILED FRESH PER CALL (PR #3173 R4), the same
+ * treatment `CLI_PR_FILE_LIST_SOURCES` received in `evidence-provenance-table.ts`
+ * after PR #3139 R1, and for the identical reason. A module-level `g`-flagged
+ * literal carries mutable `lastIndex` state shared by every caller. Today nothing
+ * advances it — `String.prototype.matchAll` constructs a NEW regex rather than
+ * stepping the original, so repeated calls return identical results and the
+ * hazard does not reproduce. But that safety is a property of WHICH METHOD the
+ * call site happens to use: swap this one `matchAll` for `.test()` or `.exec()`
+ * later and the shared state starts stepping, silently, in a subject resolver
+ * whose failure direction is dropping a subject and clearing a claim that was
+ * never discharged.
+ *
+ * Compiling per call removes the class instead of documenting it. The cost is a
+ * regex construction per paragraph scanned; the benefit is that no future edit
+ * can reintroduce it.
  */
-const TASK_ID_RE = /\bmt#(\d+)\b/gi;
+const TASK_ID_SOURCE = String.raw`\bmt#(\d+)\b`;
+
+function taskIdMatcher(): RegExp {
+  return new RegExp(TASK_ID_SOURCE, "gi");
+}
 
 /**
  * A deictic reference to the task whose spec is being written.
@@ -557,7 +577,7 @@ export function remainingWorkParagraphs(specText: string): string[] {
  */
 export function remainingWorkSubjects(para: string, ownTaskId: string | null): string[] {
   const explicit = new Set<string>();
-  for (const m of para.matchAll(TASK_ID_RE)) {
+  for (const m of para.matchAll(taskIdMatcher())) {
     const id = normalizeTaskId(m[0] ?? "");
     if (id !== "") explicit.add(id);
   }
