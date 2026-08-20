@@ -1318,47 +1318,29 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
           );
         }
 
-        const now = new Date();
         const container = await getCachedPersistenceProvider().catch(() => null);
         const notifier = createPostgresWindowNotifier(
           // The notifier reads the container lazily per emit; a null provider
           // degrades to a logged no-op inside `pgNotify` rather than throwing.
           container as never
         );
+        const registry = windowCommands.globalRegistry;
+        const boundReaper = reaper;
 
-        // 1. Open any window whose cron schedule is due (mt#1489's criterion).
-        const fired = await windowCommands.checkAndFireCronWindows(
-          notifier,
-          windowCommands.globalRegistry,
-          lastFiredAt,
-          now
-        );
-        if (fired.length > 0) {
-          log.info("service window: opened on schedule", { windows: fired });
-        }
-
-        // 2. Close any open window past its expected close time. Nothing did
-        //    this before, so `onWindowClosed` never fired without an operator.
-        for (const open of windowCommands.globalRegistry.getAllOpen()) {
-          if (open.expectedCloseAt.getTime() > now.getTime()) continue;
-          try {
-            const windows = loadAttentionWindowsOrThrow();
-            await windowCommands.closeWindow(open.windowKey, windows, notifier);
-            log.info("service window: closed on duration elapse", {
-              windowKey: open.windowKey,
-            });
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            log.warn("service window: auto-close failed", {
-              windowKey: open.windowKey,
-              message,
-            });
-          }
-        }
-
-        // 3. Deadline-bound poll. Driven here rather than by the reaper's own
-        //    timer so this sweep's liveness entry covers it (see docblock).
-        await reaper.pollDeadlineBoundAsks(now.getTime());
+        await runServiceWindowTick({
+          now: () => new Date(),
+          fireCronWindows: (now) =>
+            windowCommands.checkAndFireCronWindows(notifier, registry, lastFiredAt, now),
+          listOpenWindows: () =>
+            registry.getAllOpen().map((o) => ({
+              windowKey: o.windowKey,
+              expectedCloseAt: o.expectedCloseAt,
+            })),
+          closeWindow: async (windowKey) => {
+            await windowCommands.closeWindow(windowKey, loadAttentionWindowsOrThrow(), notifier);
+          },
+          pollDeadlineBound: (nowMs) => boundReaper.pollDeadlineBoundAsks(nowMs),
+        });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("service window sweep failed", { message });
@@ -1373,6 +1355,78 @@ export function startServiceWindowSweeper(intervalMs?: number): () => void {
       // connection is torn down with the provider regardless.
     });
   };
+}
+
+/** What one service-window tick did. */
+export interface ServiceWindowTickOutcome {
+  /** Window keys opened because their cron schedule came due. */
+  opened: string[];
+  /** Window keys closed because their duration elapsed. */
+  closed: string[];
+  /** Windows whose auto-close threw; the tick continues past each. */
+  closeFailures: number;
+  /** Deadline-bound asks the reaper dispatched this tick. */
+  dispatched: number;
+}
+
+/**
+ * The service-window tick's decisions, with its IO injected (mt#4313).
+ *
+ * Extracted from the sweeper above for the same reason
+ * {@link runProdStateRefreshTick} was: the sweeper reaches its collaborators
+ * through dynamic imports and a module-level `globalRegistry` singleton, so
+ * there is no other seam, and patching those in place is what ADR-036 bans.
+ *
+ * A failing auto-close is contained per-window rather than aborting the tick:
+ * one window whose config went missing must not stop the others from closing,
+ * and must not stop the deadline poll from running at all.
+ */
+export async function runServiceWindowTick(deps: {
+  /** Current time, injected so a test can drive a schedule without waiting. */
+  now: () => Date;
+  /** Open any window whose cron schedule is due; returns the keys opened. */
+  fireCronWindows: (now: Date) => Promise<string[]>;
+  /** Currently-open windows and when each is due to close. */
+  listOpenWindows: () => { windowKey: string; expectedCloseAt: Date }[];
+  /** Close one window — this is what emits the NOTIFY miss-counting reads. */
+  closeWindow: (windowKey: string) => Promise<void>;
+  /** Run the reaper's deadline-bound poll; returns how many it dispatched. */
+  pollDeadlineBound: (nowMs: number) => Promise<number>;
+}): Promise<ServiceWindowTickOutcome> {
+  const now = deps.now();
+  const outcome: ServiceWindowTickOutcome = {
+    opened: [],
+    closed: [],
+    closeFailures: 0,
+    dispatched: 0,
+  };
+
+  // 1. Open any window whose cron schedule is due (mt#1489's criterion).
+  outcome.opened = await deps.fireCronWindows(now);
+  if (outcome.opened.length > 0) {
+    log.info("service window: opened on schedule", { windows: outcome.opened });
+  }
+
+  // 2. Close any open window past its expected close time. Nothing did this
+  //    before, so `onWindowClosed` never fired without an operator typing it.
+  for (const open of deps.listOpenWindows()) {
+    if (open.expectedCloseAt.getTime() > now.getTime()) continue;
+    try {
+      await deps.closeWindow(open.windowKey);
+      outcome.closed.push(open.windowKey);
+      log.info("service window: closed on duration elapse", { windowKey: open.windowKey });
+    } catch (err) {
+      outcome.closeFailures++;
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("service window: auto-close failed", { windowKey: open.windowKey, message });
+    }
+  }
+
+  // 3. Deadline-bound poll. Driven here rather than by the reaper's own timer
+  //    so this sweep's liveness entry covers it (see the sweeper's docblock).
+  outcome.dispatched = await deps.pollDeadlineBound(now.getTime());
+
+  return outcome;
 }
 
 /**

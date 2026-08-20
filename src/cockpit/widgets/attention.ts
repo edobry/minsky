@@ -116,7 +116,7 @@ function toAttentionAsk(ask: Ask): AttentionAsk {
  *   2. Otherwise fall back to all `suspended` asks routed to "operator",
  *      sorted by priority.
  */
-async function loadCohort(repo: AskRepository, windowKey: string | null): Promise<Ask[]> {
+export async function loadCohort(repo: AskRepository, windowKey: string | null): Promise<Ask[]> {
   const nowMs = Date.now();
 
   if (windowKey) {
