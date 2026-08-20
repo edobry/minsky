@@ -15,6 +15,8 @@ import {
   elideQuotedContexts,
   buildReminder,
   MAX_RENDERED_PHRASE_CHARS,
+  citesFiledAsk,
+  resolveAskCitation,
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
@@ -856,5 +858,99 @@ describe("rendered evidence is bounded by the phrase cap (mt#4234)", () => {
 
     expect(saturated.length).toBeGreaterThan(principalOnly.length);
     expect(saturated.length).toBeGreaterThan(menuOnly.length);
+  });
+});
+
+describe("a sentence citing a filed ask is reporting, not deferring (mt#4201)", () => {
+  // The inversion mem#719 names: the fire lands on the COMPLIANT behaviour. The
+  // message routed the decision through the Ask substrate and is now reporting
+  // its state at turn end — which `communication-contract.mdc` requires — and the
+  // remedy the guard emits ("file an ask") is already done.
+  //
+  // Measured across three windows: 2 of 2 principal-reserved matches
+  // (2026-08-10, via the subsumed mt#3932), 2 of 3 false (2026-08-17), 1 of 10
+  // injected (2026-08-20).
+
+  /** AT1's verbatim sentence, from the 2026-08-17 pass. */
+  const REPORTS_ASK =
+    "Still open and unchanged: [ask#8752](minsky://ask/7f206ca7-fe58-481f-bae9-46346acc1992) " +
+    "needs your call on the policy-coverage detector.";
+
+  /** AT2: the same sentence with the citation removed. */
+  const REPORTS_ASK_WITHOUT_CITATION =
+    "Still open and unchanged: the policy-coverage detector needs your call.";
+
+  test("AT1 — the verbatim reported-ask sentence does not survive the filter", () => {
+    const matches = detectDeferralPhrases(REPORTS_ASK);
+
+    // Guards the discrimination: if the phrase never matched, the suppression
+    // below would pass for the wrong reason (mem#704).
+    expect(matches.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+    expect(remaining).toEqual([]);
+    expect(suppressedAll).toBe(true);
+  });
+
+  test("AT2 — the same sentence WITHOUT the ask citation still fires", () => {
+    const matches = detectDeferralPhrases(REPORTS_ASK_WITHOUT_CITATION);
+    expect(matches.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+    expect(remaining.length).toBe(matches.length);
+    expect(suppressedAll).toBe(false);
+  });
+
+  test("AT3 — a real positive, offering routine work instead of doing it, still fires", () => {
+    // The 2026-08-17 pass's 5 true positives were all this shape: the agent
+    // handing back work that was its own to do. None cites an ask, because there
+    // is no ask — that is exactly why they are true.
+    const realPositives = [
+      "Want me to file those two tasks now, or would you rather I batch them?",
+      "Say the word and I'll run the queued sweep.",
+      "I'll pause here unless you want me to continue the chain-walk.",
+    ];
+
+    for (const text of realPositives) {
+      const matches = detectDeferralPhrases(text);
+      expect(matches.length).toBeGreaterThan(0);
+      expect(resolveAskCitation(matches).remaining.length).toBe(matches.length);
+    }
+  });
+
+  test("a bare ask#N with no deeplink counts — the unlinked form is documented", () => {
+    // `cockpit-deeplinks.mdc` concedes the bare short id when the uuid is not at
+    // hand, and the cockpit linkifies it. Requiring the markdown link would fire
+    // on the exact case the rule already permits.
+    expect(citesFiledAsk("ask#9275 is still yours to decide.", "yours to decide")).toBe(true);
+    expect(
+      citesFiledAsk("Waiting on your call for minsky://ask/23a57be2-36c1-41d7", "your call")
+    ).toBe(true);
+  });
+
+  test("an unrelated hash reference does NOT count as an ask citation", () => {
+    // The discrimination that keeps this from suppressing everything: a task or
+    // PR reference in the same sentence is not a routed decision.
+    expect(citesFiledAsk("mt#4201 needs your call.", "needs your call")).toBe(false);
+    expect(citesFiledAsk("PR #3192 — you decide whether to merge.", "you decide")).toBe(false);
+    expect(citesFiledAsk("Ask me later.", "Ask me")).toBe(false);
+  });
+
+  test("suppression is PER-MATCH — a reported ask does not silence a real deferral beside it", () => {
+    // The scope decision that makes this safe: one paragraph may report a filed
+    // ask while another defers something genuinely undone. Only the reporting
+    // sentence goes quiet.
+    const mixed =
+      "Still yours: [ask#9275](minsky://ask/23a57be2-36c1-41d7-9ffa-e74c452e8adb), whether the " +
+      "detector starts speaking. Want me to file the follow-up task, or should I leave it?";
+
+    const matches = detectDeferralPhrases(mixed);
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+
+    // At least one match survives — the genuine offer — and the turn is NOT
+    // wholly suppressed.
+    expect(remaining.length).toBeGreaterThan(0);
+    expect(suppressedAll).toBe(false);
+    expect(remaining.every((m) => !citesFiledAsk(m.context, m.matchedPhrase))).toBe(true);
   });
 });
