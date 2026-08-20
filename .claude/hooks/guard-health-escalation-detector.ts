@@ -101,6 +101,22 @@ export const MAX_LISTED_GUARDS = 2;
  * a surrogate pair is never split. Same defect and same fix as mt#4234 on
  * `ask-routing-deferral-detector`; see that primitive's docblock for why the fix
  * belongs at the cap rather than at the ceiling's unit.
+ *
+ * **The declared 1300 stays, and is now a MEASURED ceiling rather than an
+ * inherited one.** Saturating every axis at once — the two longest names in
+ * `GUARD_REGISTRY` (37 chars) across an overflowing live list and an overflowing
+ * stale list, six-digit streaks, and an all-emoji message past the cap — renders
+ * **1219**. That is the true worst case, not the 1207 an earlier fixture with
+ * 36-char names produced. 1300 clears it by 81.
+ *
+ * Deliberately NOT lowered to 1219. Unlike mt#4234, where the annotation was a
+ * SAMPLE the render already exceeded and had to move, this number was never
+ * breached on the ASCII path — only the emoji unit bug crossed it, and that is
+ * fixed here. Tightening to the exact figure would buy 81 chars of a shared
+ * budget (this guard sits in the top-five bucket `MERGED_CONTEXT_BUDGET_CHARS`
+ * is derived from) at the cost of a ceiling that breaks on any guard RENAME —
+ * the name axis is bounded only by whatever is registered, so the exact figure
+ * is a moving target in a way the render text is not.
  */
 export const MAX_ERROR_MESSAGE_CHARS = 60;
 
