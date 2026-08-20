@@ -29,7 +29,10 @@
  * 1 = at least one is rejected.
  */
 
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import {
   sendTelegramMessage,
   setTelegramMessageReaction,
@@ -45,7 +48,7 @@ async function main(): Promise<void> {
   const emoji =
     requested.length > 0 ? requested : [REACTION_RECEIVED, REACTION_DONE, REACTION_ERROR];
 
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   if (!resolution.configured) {
     console.log(`SKIP: principal channel not configured (${resolution.reason})`);
     return;

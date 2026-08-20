@@ -40,7 +40,10 @@
  * that half is the operator's to report.
  */
 
-import { resolvePrincipalChannel } from "@minsky/domain/notify/principal-channel";
+import {
+  resolvePrincipalChannel,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { sendTelegramMessage } from "@minsky/domain/notify/telegram-transport";
 
 /**
@@ -66,7 +69,7 @@ const SPACING_MS = 70_000;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function main(): Promise<void> {
-  const resolution = await resolvePrincipalChannel();
+  const resolution = await resolvePrincipalChannel(createRealPrincipalChannelDeps());
   if (!resolution.configured) {
     console.log(`SKIP: principal channel not configured (${resolution.reason})`);
     return;
