@@ -93,13 +93,22 @@ terminal-supplied URLs through `macos/Sources/Helpers/UntrustedURL.swift`, whose
 — everything that is not `http`, `https`, `mailto`, or `file` — returns `.confirm`: *"A custom
 scheme can invoke any application registered with Launch Services. The caller must show the target
 and handler before allowing that dispatch."* That file **does not exist at tag `v1.3.1`** and was
-added by commit `77537c806` on 2026-08-05. `v1.3.1` is the newest release, so custom-scheme
-dispatch ships only on unreleased `main`/`tip`. Re-check in one command:
+added by [commit `77537c806`](https://github.com/ghostty-org/ghostty/commit/77537c806) on
+2026-08-05 ([file on `main`](https://github.com/ghostty-org/ghostty/blob/main/macos/Sources/Helpers/UntrustedURL.swift)).
+`v1.3.1` is the newest release, so custom-scheme dispatch ships only on unreleased `main`/`tip`.
+Re-check:
 
+```sh
+for r in v1.3.1 main; do
+  printf '%s ' "$r"
+  curl -sL -o /dev/null -w '%{http_code}\n' \
+    "https://raw.githubusercontent.com/ghostty-org/ghostty/$r/macos/Sources/Helpers/UntrustedURL.swift"
+done
 ```
-curl -sL -o /dev/null -w '%{http_code}\n' \
-  https://raw.githubusercontent.com/ghostty-org/ghostty/{v1.3.1,main}/macos/Sources/Helpers/UntrustedURL.swift
-```
+
+One URL per `curl`, deliberately: `-o` binds to the FIRST url only, so passing both to a single
+invocation prints the first status and then dumps the second file to stdout. A loop is also plain
+POSIX `sh` — no brace expansion — so it runs wherever the reader pastes it.
 
 `404` then `200` means the boundary still holds; two `200`s mean a release now carries it and this
 caveat can be retired. **Emit deeplinks normally regardless** — iTerm2 dispatches them today, and a
