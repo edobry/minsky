@@ -403,6 +403,54 @@ describe("AT6 — suppression is scoped to the substitution run (mt#4353)", () =
     expect(hasSucceededMcpCall(ctx)).toBe(true);
   });
 
+  test("a top-level tool_use line advances the run (PR #3186 R1)", async () => {
+    // Claude Code emits tool_use in TWO shapes; this walk read only the assistant-embedded one,
+    // so a top-level `type: "tool_use"` Bash call was invisible and the run never advanced.
+    // `transcript.ts` handles both in `findToolUseInputs`/`findCreatedResourceIds`.
+    //
+    // NEGATIVE CONTROL: before the dual-shape fix this is `suppressed-mcp-in-use`, because the
+    // substitution below is simply not seen. Observed failing.
+    const ctx = {
+      transcriptLines: [
+        {
+          type: "assistant",
+          message: {
+            content: [{ type: "tool_use", id: "toolu_ok", name: MCP_TASKS_GET, input: {} }],
+          },
+        },
+        {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_ok",
+                is_error: false,
+                content: [{ type: "text", text: '{"success":true}' }],
+              },
+            ],
+          },
+        },
+        // The shape under test: top-level, no message.content wrapper.
+        { type: "tool_use", name: "Bash", input: { command: CLI } },
+      ],
+    } as unknown as DispatchContext;
+
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("a top-level MCP tool_use with no id cannot prove success", () => {
+    // It carries no correlating id, so it can never be matched to a result. Not counting it is
+    // the same conservative direction the uncorrelated-block case already takes: a possible extra
+    // fire, never a suppressed true one.
+    const ctx = {
+      transcriptLines: [{ type: "tool_use", name: MCP_TASKS_GET, input: {} }],
+    } as unknown as DispatchContext;
+
+    const state = readMcpSubstitutionState(ctx, manifest);
+    expect(state.succeeded).toBe(false);
+  });
+
   test("the run-length warning does not claim MCP never succeeded", async () => {
     // The two branches assert different facts. Telling an agent whose MCP is demonstrably working
     // that "no mcp__minsky__* call has succeeded" is falsifiable in one call, and a warning caught

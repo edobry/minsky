@@ -276,6 +276,54 @@ function buildResultIndex(
   return resultById;
 }
 
+/** One tool_use, normalized across the two transcript shapes (PR #3186 R1). */
+interface NormalizedToolUse {
+  name: string;
+  /** Correlating id, when the shape carries one. Top-level lines routinely do not. */
+  id: string | undefined;
+  input: unknown;
+}
+
+/**
+ * Every tool_use on a line, from BOTH shapes Claude Code emits: a top-level `type: "tool_use"`
+ * line carrying `name`/`tool_name` + `input`, and an assistant line whose `message.content` array
+ * holds `tool_use` blocks. `transcript.ts` handles both in `findToolUseInputs` and
+ * `findCreatedResourceIds` and documents them; this walk read only the second until PR #3186 R1.
+ *
+ * Both are checked per line rather than as an either/or, mirroring `findToolUseInputs` exactly.
+ *
+ * `TranscriptLine` declares no `id` for the top-level shape, so such a call cannot be correlated
+ * to a result and can never count as a SUCCESS — the same conservative direction the uncorrelated
+ * case already took. It still advances the substitution RUN, which needs only the name and the
+ * command, and which is what the omission was actually costing.
+ */
+function toolUsesOf(line: DispatchContext["transcriptLines"][number]): NormalizedToolUse[] {
+  const uses: NormalizedToolUse[] = [];
+
+  if (line.type === "tool_use") {
+    const name = line.name ?? line.tool_name;
+    if (typeof name === "string") {
+      // `TranscriptLine` does not declare `id` for this shape; read it narrowly rather than
+      // widening the whole line to a record.
+      const id = (line as { id?: unknown }).id;
+      uses.push({ name, id: typeof id === "string" ? id : undefined, input: line.input });
+    }
+  }
+
+  const content = line.message?.content;
+  if (Array.isArray(content)) {
+    for (const block of content as Array<Record<string, unknown>>) {
+      if (!block || block["type"] !== "tool_use") continue;
+      const name = block["name"];
+      if (typeof name !== "string") continue;
+      const id = block["id"];
+      uses.push({ name, id: typeof id === "string" ? id : undefined, input: block["input"] });
+    }
+  }
+
+  return uses;
+}
+
 /** True when this tool_use is itself a Minsky-CLI call with a registered MCP equivalent. */
 function isSubstitutionToolUse(
   name: string,
@@ -326,20 +374,13 @@ export function readMcpSubstitutionState(
   let substitutionsSinceLastSuccess = 0;
 
   for (const line of lines) {
-    const content = line.message?.content;
-    if (!Array.isArray(content)) continue;
-    for (const block of content as Array<Record<string, unknown>>) {
-      if (!block || block["type"] !== "tool_use") continue;
-      const name = block["name"];
-      if (typeof name !== "string") continue;
-
-      const isSubstitution = isSubstitutionToolUse(name, block["input"], manifest);
+    for (const use of toolUsesOf(line)) {
+      const isSubstitution = isSubstitutionToolUse(use.name, use.input, manifest);
       if (isSubstitution) substitutionsSinceLastSuccess++;
 
-      if (!MCP_TOOL_NAME_PATTERN.test(name)) continue;
-      const useId = block["id"];
-      if (typeof useId !== "string") continue;
-      const outcome = resultById.get(useId);
+      if (!MCP_TOOL_NAME_PATTERN.test(use.name)) continue;
+      if (use.id === undefined) continue; // uncorrelatable — not evidence of success
+      const outcome = resultById.get(use.id);
       if (!outcome) continue; // no correlated result — not evidence of success
       if (outcome.isError) continue;
       if (TOOL_DENIAL_MARKER.test(outcome.text)) continue;

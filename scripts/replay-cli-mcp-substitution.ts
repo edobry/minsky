@@ -75,6 +75,37 @@ function findTranscripts(root: string, limit: number): string[] {
     .map((f) => f.file);
 }
 
+/**
+ * Every tool_use on a parsed line, across BOTH transcript shapes — a top-level
+ * `type: "tool_use"` line and an assistant line whose `message.content` holds `tool_use` blocks.
+ * Mirrors the guard's own `toolUsesOf` (PR #3186 R1): a measurement that parses less than
+ * production does biases the delta it reports.
+ */
+function toolUsesOf(line: string): Block[] {
+  const uses: Block[] = [];
+  try {
+    const parsed = JSON.parse(line) as {
+      type?: string;
+      name?: string;
+      tool_name?: string;
+      id?: string;
+      input?: Record<string, unknown>;
+    };
+    if (parsed.type === "tool_use") {
+      const name = parsed.name ?? parsed.tool_name;
+      if (typeof name === "string") {
+        uses.push({ type: "tool_use", name, id: parsed.id, input: parsed.input });
+      }
+    }
+  } catch {
+    // intentional-swallow: a truncated trailing line is normal in a live transcript.
+  }
+  for (const block of blocksOf(line)) {
+    if (block.type === "tool_use") uses.push(block);
+  }
+  return uses;
+}
+
 function blocksOf(line: string): Block[] {
   try {
     const parsed = JSON.parse(line) as { message?: { content?: unknown } };
@@ -127,8 +158,8 @@ function replay(file: string, manifest: NonNullable<ReturnType<typeof readManife
   let run = 0;
 
   for (const line of lines) {
-    for (const block of blocksOf(line)) {
-      if (block.type !== "tool_use" || typeof block.name !== "string") continue;
+    for (const block of toolUsesOf(line)) {
+      if (typeof block.name !== "string") continue;
       const name = block.name;
 
       const command = block.input?.["command"];
