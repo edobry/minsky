@@ -982,6 +982,33 @@
       "sourceFile": null
     },
     {
+      "guardName": "conflict-marker-check",
+      "description": "Blocks a commit whose staged content carries git conflict markers. Unlike several siblings it does not skip `src/generated/**`, which is where a failed stash pop's corruption went unnoticed until an unrelated test failed to parse the file.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/conflict-marker-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
       "guardName": "constructed-identifier-batch-detector",
       "description": "Records an identifier minted and consumed in the same parallel batch, and consume-before-mint across a turn. A written `mt#` id that already exists is not a construction — checked by one bounded lookup per turn.",
       "failureClasses": ["unfounded-claim"],
