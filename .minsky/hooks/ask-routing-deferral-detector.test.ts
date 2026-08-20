@@ -819,6 +819,31 @@ describe("rendered evidence is bounded by the phrase cap (mt#4234)", () => {
     expect(rendered).not.toContain("…");
   });
 
+  test("an emoji-bearing phrase is bounded in the unit the ceiling counts (PR #3187 R1)", () => {
+    // The cap must bound `.length`, not code points. An emoji is ONE code point
+    // and TWO UTF-16 units, so a code-point cap admitted a phrase twice as long
+    // as the ceiling counts — and both the shape test and the dispatcher's own
+    // budget measure `.length`. Agent prose routinely carries emoji, so this was
+    // reachable, not theoretical.
+    const emoji = "\u{1F600}".repeat(MAX_RENDERED_PHRASE_CHARS);
+    expect(Array.from(emoji).length).toBe(MAX_RENDERED_PHRASE_CHARS);
+    expect(emoji.length).toBe(MAX_RENDERED_PHRASE_CHARS * 2); // the whole problem
+
+    const rendered = buildReminder([match(PRINCIPAL_RESERVED, emoji), match(DEFERRAL_MENU, emoji)]);
+    const ascii = buildReminder([
+      match(PRINCIPAL_RESERVED, "x".repeat(MAX_RENDERED_PHRASE_CHARS * 2)),
+      match(DEFERRAL_MENU, "x".repeat(MAX_RENDERED_PHRASE_CHARS * 2)),
+    ]);
+
+    // Bounded by the SAME number as the all-ASCII worst case, which is what
+    // makes the declared ceiling a ceiling for every input.
+    expect(rendered.length).toBeLessThanOrEqual(ascii.length);
+
+    // And no lone surrogate survived the cut.
+    expect(rendered).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(rendered).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
   test("both classes at once, each past the cap, is the saturated worst case", () => {
     // What `worstCaseCanary` poses in the registry, and what
     // `attentionCost.denialMessageSizeChars` is set to exactly. Asserted as a

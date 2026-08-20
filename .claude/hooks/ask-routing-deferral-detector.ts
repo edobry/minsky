@@ -56,7 +56,7 @@ import {
   extractMatchContext,
 } from "./judged-input-capture";
 import { createHash } from "node:crypto";
-import { cappedEvidenceLines, truncateToCodePoints } from "./guard-feedback-format";
+import { cappedEvidenceLines, truncateToRenderedLength } from "./guard-feedback-format";
 import { STOP_INJECTED_OVERLAP_FAMILY, overlapTurnKey, readFlagged } from "./turn-end-scan-store";
 
 // ---------------------------------------------------------------------------
@@ -495,7 +495,18 @@ function appendCalibrationRecord(cwd: string, record: Record<string, unknown>): 
 // ---------------------------------------------------------------------------
 
 /**
- * Longest evidence phrase this guard will RENDER, in code points (mt#4234).
+ * Longest evidence phrase this guard will RENDER, in UTF-16 code units (mt#4234).
+ *
+ * The unit is deliberate and was wrong in the first cut (PR #3187 R1). Bounding
+ * CODE POINTS leaves the render unbounded in the unit that is actually enforced
+ * and actually spent: `guard-feedback-shape.test.ts` compares `.length` against
+ * the declared ceiling, and `composeAdditionalContext` spends `.length` against
+ * `MERGED_CONTEXT_BUDGET_CHARS`. One emoji is one code point and two units, so a
+ * 120-code-point cap admitted a 240-unit phrase and the ceiling was not a
+ * ceiling for emoji-bearing prose — which is the agent's own text, and routinely
+ * contains it. `truncateToRenderedLength` bounds units while never splitting a
+ * surrogate pair; see its docblock for why the fix goes here rather than
+ * re-denominating the ceiling.
  *
  * The evidence line exists so the agent can recognize which of its own phrases
  * tripped the guard — recognition, not reproduction. 120 is comfortably above
@@ -527,7 +538,7 @@ export const MAX_RENDERED_PHRASE_CHARS = 120;
 
 /** One evidence line, with the phrase bounded per {@link MAX_RENDERED_PHRASE_CHARS}. */
 function evidenceLine(match: DeferralMatch): string {
-  return `  - "${truncateToCodePoints(match.matchedPhrase, MAX_RENDERED_PHRASE_CHARS)}"`;
+  return `  - "${truncateToRenderedLength(match.matchedPhrase, MAX_RENDERED_PHRASE_CHARS)}"`;
 }
 
 export function buildReminder(matches: DeferralMatch[]): string {
