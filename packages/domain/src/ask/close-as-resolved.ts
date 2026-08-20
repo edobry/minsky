@@ -136,6 +136,12 @@ async function closeByCurrentState(
   // point of the call and the record is the audit trail — so this is
   // best-effort, matching the never-throws contract the rest of this module
   // keeps.
+  //
+  // Note for a future sweep author: this records provenance for whoever calls
+  // it, and says nothing about WHEN a periodic pass may safely call it for a
+  // `classified`/`routed` ask. That rule is mt#4361, and parent-task-terminal
+  // is NOT it — a parent can go terminal by concluding the work is
+  // operator-only while that work is still outstanding.
   try {
     await repo.recordCancellation(ask.id, {
       responder: input.responder,
