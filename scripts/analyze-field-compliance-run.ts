@@ -203,14 +203,47 @@ function pairedAnalysis(rows: Row[], callErrorCount: number, arms: string[]): vo
   console.log("");
   console.log(`discordant pairs: ${discordant} (pre-registered target ~36)`);
   console.log(`McNemar exact, two-sided: p = ${p.toFixed(5)}`);
+
+  // The pre-registration commits to reporting a CI on the DIFFERENCE when the test is null,
+  // because "failed to reject" alone is compatible with both "no effect" and "no power" and a
+  // reader cannot tell which. For paired data the difference is (b−c)/n and its standard error
+  // depends only on the DISCORDANT counts — concordant pairs contribute nothing, which is why
+  // a small discordant count can bound the effect tightly even when the marginal rates are high.
+  const diff = (onlyAFails - onlyBFails) / pairs.length;
+  const seDiff =
+    Math.sqrt(Math.max(0, discordant - (onlyAFails - onlyBFails) ** 2 / pairs.length)) /
+    pairs.length;
+  const loDiff = diff - 1.959963985 * seDiff;
+  const hiDiff = diff + 1.959963985 * seDiff;
+  console.log(
+    `paired difference (${armA} − ${armB}): ${(100 * diff).toFixed(1)} points  ` +
+      `(95% CI ${(100 * loDiff).toFixed(1)} to ${(100 * hiDiff).toFixed(1)})`
+  );
+  console.log(
+    `observed discordance rate: ${pct(discordant / pairs.length)} ` +
+      `— the H1 design assumed 37.4%, so a value far below that falsifies the design's own ` +
+      `premise rather than merely failing to confirm it`
+  );
   if (p < 0.05) {
     const better = onlyAFails > onlyBFails ? armB : armA;
     console.log(
       `>>> REJECT H0. ${better} rejects LESS often. ONE run — SC4 replication still owed.`
     );
   } else {
+    // "Failed to reject" is compatible with no-effect AND with no-power, and the honest default
+    // is the weaker reading. But when the CI is narrow enough to EXCLUDE the effect the run was
+    // designed to detect, the stronger reading is licensed — so the verdict is derived from the
+    // interval rather than fixed in advance as a disclaimer. The rule is general: compare the
+    // CI against the pre-registered MDE, whatever they turn out to be.
+    const MDE_POINTS = 17;
+    const excludesMde = Math.max(Math.abs(loDiff), Math.abs(hiDiff)) * 100 < MDE_POINTS;
     console.log(
-      ">>> FAIL TO REJECT H0. Powered for a ~17-point difference; NOT evidence of no effect."
+      excludesMde
+        ? `>>> FAIL TO REJECT H0 — and the CI EXCLUDES the ${MDE_POINTS}-point effect this run ` +
+            `was designed to detect. That is a bounded null, not an underpowered one: an effect ` +
+            `this size is ruled out, though a small one is not.`
+        : `>>> FAIL TO REJECT H0. The CI still admits the ${MDE_POINTS}-point effect this run ` +
+            `was designed to detect, so this is UNDERPOWERED — NOT evidence of no effect.`
     );
   }
 
