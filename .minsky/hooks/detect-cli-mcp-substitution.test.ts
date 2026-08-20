@@ -403,6 +403,39 @@ describe("AT6 — suppression is scoped to the substitution run (mt#4353)", () =
     expect(hasSucceededMcpCall(ctx)).toBe(true);
   });
 
+  test("an MCP call that ERRORED since the last success unmutes immediately (PR #3186 R2)", async () => {
+    // SC1's failure half. A run counter alone makes the agent spend one free substitution before
+    // the guard speaks; when the transcript actually SHOWS the surface breaking, there is no
+    // reason to wait for the second.
+    //
+    // NEGATIVE CONTROL: without `failedSinceLastSuccess` this is `suppressed-mcp-in-use` — the
+    // success flag is set and the run is 0. Observed failing.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "error" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(MATCHED);
+  });
+
+  test("a permission DENIAL is not a surface failure and does not unmute", async () => {
+    // The operator refused one call; the request reached the harness, so MCP is demonstrably up.
+    // Treating this as a failure would fire the guard every time a tool call is declined.
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "denied" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
+  test("a later success clears the failure, restoring the one free substitution", async () => {
+    const ctx = ctxWithCalls([
+      { name: MCP_TASKS_GET, outcome: "ok" },
+      { name: MCP_TASKS_GET, outcome: "error" },
+      { name: MCP_TASKS_GET, outcome: "ok" },
+    ]);
+    expect(await outcomeOf(ctx)).toBe(SUPPRESSED);
+  });
+
   test("a top-level tool_use line advances the run (PR #3186 R1)", async () => {
     // Claude Code emits tool_use in TWO shapes; this walk read only the assistant-embedded one,
     // so a top-level `type: "tool_use"` Bash call was invisible and the run never advanced.

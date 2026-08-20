@@ -245,6 +245,14 @@ export interface McpSubstitutionState {
    * SECOND.
    */
   substitutionsSinceLastSuccess: number;
+  /**
+   * An `mcp__minsky__*` call ERRORED after the last success — direct evidence the surface broke,
+   * so the very next substitution fires without waiting for the run to reach two.
+   *
+   * A permission DENIAL does not set this: the operator refused one call, which says nothing about
+   * the surface. Cleared by a later success.
+   */
+  failedSinceLastSuccess: boolean;
 }
 
 /** tool_use_id -> its correlated result text and error flag, across the whole window. */
@@ -275,7 +283,15 @@ function buildResultIndex(
 /** One tool_use, normalized across the two transcript shapes (PR #3186 R1). */
 interface NormalizedToolUse {
   name: string;
-  /** Correlating id, when the shape carries one. Top-level lines routinely do not. */
+  /**
+   * Correlating id, used to look the call's outcome up in the result index.
+   *
+   * **INVARIANT: always `undefined` for the top-level line shape** (PR #3186 R2). `TranscriptLine`
+   * declares `name`/`tool_name`/`input` at the top level but no `id`, so such a call can never be
+   * matched to its `tool_result` and therefore can never contribute SUCCESS or FAILURE evidence —
+   * only the substitution run, which needs neither. This is not a gap to close later: the id is
+   * absent from the wire shape, not merely unread.
+   */
   id: string | undefined;
   input: unknown;
 }
@@ -368,6 +384,7 @@ export function readMcpSubstitutionState(
 
   let succeeded = false;
   let substitutionsSinceLastSuccess = 0;
+  let failedSinceLastSuccess = false;
 
   for (const line of lines) {
     for (const use of toolUsesOf(line)) {
@@ -375,27 +392,49 @@ export function readMcpSubstitutionState(
       if (isSubstitution) substitutionsSinceLastSuccess++;
 
       if (!MCP_TOOL_NAME_PATTERN.test(use.name)) continue;
-      if (use.id === undefined) continue; // uncorrelatable — not evidence of success
+      if (use.id === undefined) continue; // uncorrelatable — neither success nor failure evidence
       const outcome = resultById.get(use.id);
-      if (!outcome) continue; // no correlated result — not evidence of success
-      if (outcome.isError) continue;
+      if (!outcome) continue; // no correlated result — same
+
+      if (outcome.isError) {
+        // An MCP call that ERRORED after a success is direct evidence the surface broke. Unmute
+        // immediately rather than waiting for the run to reach two: SC1's failure half, and the
+        // one case where the transcript does say "MCP went away" out loud (PR #3186 R2).
+        failedSinceLastSuccess = true;
+        continue;
+      }
+      // A permission denial is the OPERATOR refusing one call, not the surface failing — the
+      // request reached the harness. Neither success nor failure evidence.
       if (TOOL_DENIAL_MARKER.test(outcome.text)) continue;
 
       succeeded = true;
+      failedSinceLastSuccess = false;
       if (!isSubstitution) substitutionsSinceLastSuccess = 0;
     }
   }
 
-  return { succeeded, substitutionsSinceLastSuccess };
+  return { succeeded, substitutionsSinceLastSuccess, failedSinceLastSuccess };
 }
 
-function buildWarning(result: CliSubstitutionScanResult, runLength: number): string {
-  // The two firing branches assert DIFFERENT facts, and the run-length one must not claim the
-  // other's (mt#4353): saying "no MCP call has succeeded" to an agent whose MCP is demonstrably
-  // working is a false statement it can check in one call, which costs the whole warning its
-  // credibility.
-  const lead =
-    runLength > 0
+function buildWarning(
+  result: CliSubstitutionScanResult,
+  runLength: number,
+  failedSinceLastSuccess = false
+): string {
+  // The three firing branches assert DIFFERENT facts, and none may claim another's (mt#4353):
+  // saying "no MCP call has succeeded" to an agent whose MCP is demonstrably working is a false
+  // statement it can check in one call, which costs the whole warning its credibility.
+  const failureLead =
+    `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
+    `\`${result.mcpToolName}\`. An \`mcp__minsky__*\` call ERRORED since the last one succeeded, ` +
+    `so the surface may have just gone away — which is the moment this substitution is most ` +
+    `likely to be an unprobed assumption. Retry the tool once; a stale daemon exits and respawns. ` +
+    `If it is still failing, say so to the operator NOW rather than at the end of the turn; ` +
+    `\`/mcp\` is theirs to run and costs them one message.`;
+
+  const lead = failedSinceLastSuccess
+    ? failureLead
+    : runLength > 0
       ? `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
         `\`${result.mcpToolName}\`. MCP has worked in this session, but this is substitution ` +
         `#${runLength + 1} since the last \`mcp__minsky__*\` call succeeded — the shape of ` +
@@ -457,7 +496,11 @@ export async function run(
   // mt#4353: the suppression is no longer monotonic. A success silences the FIRST substitution
   // after it, not the rest of the session — see `readMcpSubstitutionState` for why the run length
   // is the only available signal, and ask#9452 for the operator's choice of threshold.
-  if (state.succeeded && state.substitutionsSinceLastSuccess === 0) {
+  if (
+    state.succeeded &&
+    state.substitutionsSinceLastSuccess === 0 &&
+    !state.failedSinceLastSuccess
+  ) {
     return { calibration: { ...base, outcome: "suppressed-mcp-in-use" } };
   }
 
@@ -467,15 +510,24 @@ export async function run(
   // unreachable. Nothing is lost by its absence — the scan is pure over its inputs and reads no DB,
   // network or clock, so canary mode exercises the real decision path with no seam to bypass.
   return {
-    additionalContext: buildWarning(result, state.substitutionsSinceLastSuccess),
+    additionalContext: buildWarning(
+      result,
+      state.substitutionsSinceLastSuccess,
+      state.failedSinceLastSuccess
+    ),
     calibration: {
       ...base,
       outcome: "matched",
-      // Separate the two firing branches in the corpus. They have different false-positive
+      // Separate the three firing branches in the corpus. They have different false-positive
       // profiles, and a future calibration pass has to be able to rate them apart rather than
       // reading one blended rate (mt#4353).
-      reason: state.succeeded ? "substitution-run" : "no-mcp-success",
+      reason: !state.succeeded
+        ? "no-mcp-success"
+        : state.failedSinceLastSuccess
+          ? "mcp-failed"
+          : "substitution-run",
       substitutionsSinceLastSuccess: state.substitutionsSinceLastSuccess,
+      failedSinceLastSuccess: state.failedSinceLastSuccess,
     },
   };
 }
@@ -487,8 +539,12 @@ export function renderWorstCase(): string {
     commandId: "tasks.status.set",
     mcpToolName: "mcp__minsky__tasks_status_set",
   };
-  // Two leads of different lengths since mt#4353 — measure, do not assume which is longer, or the
-  // ceiling silently tracks the wrong branch when either is edited.
-  const renderings = [buildWarning(result, 0), buildWarning(result, 1)];
+  // THREE leads of different lengths since mt#4353 — measure, do not assume which is longest, or
+  // the ceiling silently tracks the wrong branch when any is edited.
+  const renderings = [
+    buildWarning(result, 0),
+    buildWarning(result, 1),
+    buildWarning(result, 0, true),
+  ];
   return renderings.reduce((longest, next) => (next.length > longest.length ? next : longest));
 }

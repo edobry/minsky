@@ -18,7 +18,12 @@ A `Bash` (or `session_exec`) command that invokes the Minsky CLI for a command w
 registered `mcp__minsky__*` equivalent, when either:
 
 - **no `mcp__minsky__*` call has succeeded** in the session — the original mt#4144 predicate; or
+- **an `mcp__minsky__*` call ERRORED since the last success** — direct evidence the surface broke,
+  so the very next substitution fires (mt#4353); or
 - **it is the SECOND or later such substitution since the last success** (mt#4353).
+
+A permission DENIAL is none of these: the operator refused one call, and the request reached the
+harness, so the surface is demonstrably up. It neither proves success nor counts as a failure.
 
 `decision-defaults.mdc §Missing MCP tool` has stated the policy since mt#1983/1988 —
 "bash-before-MCP, MCP erroring for it, no tool+bash denied" → escalate with capability+gap and
