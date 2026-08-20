@@ -1,6 +1,6 @@
 {
-  "id": "f4f5ada2-c4fd-46fa-994a-7e84d96640d3",
-  "prevId": "1cd16054-f7c4-47d9-8618-fcb1874520af",
+  "id": "0dbb6dc5-27d8-47fc-97a3-39785cc0d17b",
+  "prevId": "f4f5ada2-c4fd-46fa-994a-7e84d96640d3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4807,6 +4807,51 @@
           "columns": ["credential_id"]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.guard_event_fire_log_rollup": {
+      "name": "guard_event_fire_log_rollup",
+      "schema": "",
+      "columns": {
+        "guard_name": {
+          "name": "guard_name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "total_fires": {
+          "name": "total_fires",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "first_fire_at": {
+          "name": "first_fire_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_fire_at": {
+          "name": "last_fire_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

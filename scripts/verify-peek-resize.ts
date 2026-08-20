@@ -182,6 +182,55 @@ const PEEK_IS_OPEN = `(() => {
   return pane && pane.innerText.length > 200 ? "open" : "closed";
 })()`;
 
+/**
+ * State to capture when a readiness poll times out (mt#4349).
+ *
+ * The three precondition failures this script can emit — "never mounted the
+ * app", "rendered no entity ref to click", "did not reopen after reload" — all
+ * report that a poll expired, and none says WHICH of two very different things
+ * happened: the page never became ready, or it was ready and the poll's selector
+ * did not see it. Those have opposite fixes, and the messages read identically.
+ *
+ * Measured before instrumenting: 7/20 runs on a settled daemon fail here, none
+ * of them in an assertion. So this is the common path, not an edge case.
+ */
+const READINESS_DIAGNOSTIC = `(() => {
+  const host = document.querySelector('[data-testid="peek-host"]');
+  const refs = Array.from(document.querySelectorAll("a[data-entity-ref]"));
+  const pane = document.querySelector('[data-testid="peek-pane"]');
+  return JSON.stringify({
+    readyState: document.readyState,
+    href: location.href,
+    rootChildren: document.getElementById("root") ? document.getElementById("root").childElementCount : -1,
+    bodyTextLen: document.body ? document.body.innerText.length : -1,
+    refsTotal: refs.length,
+    refsOutsideHost: refs.filter((a) => !host || !host.contains(a)).length,
+    peekHostPresent: Boolean(host),
+    paneCount: document.querySelectorAll('[data-testid="peek-pane"]').length,
+    paneTextLen: pane ? pane.innerText.length : -1,
+    // NOTE the doubled backslash: this whole expression is a TEMPLATE LITERAL
+    // evaluated in the browser, so a single \\s is consumed by JS before the
+    // browser ever sees it, leaving the regex /s+/g — which matches the LETTER
+    // s. That shipped briefly and stripped every "s" from the captured text
+    // ("Minsky" came back as "Min ky"), which is legible enough to read past
+    // and wrong enough to mislead. ESLint's no-useless-escape is what caught it.
+    bodySample: document.body ? document.body.innerText.slice(0, 220).replace(/\\s+/g, " ") : "",
+  });
+})()`;
+
+/**
+ * Render the diagnostic beside a timeout, so the failure names its own seam.
+ *
+ * Never throws: this runs on the failure path, and an error here would replace
+ * the real finding with a second one.
+ */
+async function diagnose(seam: string): Promise<string> {
+  const raw = await evaluate(ws, READINESS_DIAGNOSTIC).catch(
+    (e: unknown) => `{"diagnosticFailed":${JSON.stringify(String(e))}}`
+  );
+  return ` [seam=${seam} state=${raw}]`;
+}
+
 type ResizeState = {
   panePresent: boolean;
   paneCount: number;
@@ -390,15 +439,46 @@ try {
   process.exit(1);
 }
 
+/** Diagnostic from openPeek's most recent failure, for the caller to report. */
+let lastOpenPeekDiagnostic = "";
+
 async function openPeek(): Promise<boolean> {
+  lastOpenPeekDiagnostic = "";
   if ((await evaluate(ws, PEEK_IS_OPEN).catch(() => "")) === "open") return true;
-  if (!(await pollUntil(ws, PAGE_REF_COUNT, (v) => Number(v) > 0, 25_000))) return false;
-  if ((await evaluate(ws, CLICK_PAGE_REF)) === "no-entity-ref") return false;
-  return pollUntil(ws, PEEK_IS_OPEN, (v) => v === "open", 20_000);
+  if (!(await pollUntil(ws, PAGE_REF_COUNT, (v) => Number(v) > 0, 25_000))) {
+    lastOpenPeekDiagnostic = await diagnose("openPeek:no-refs-within-25s");
+    return false;
+  }
+  if ((await evaluate(ws, CLICK_PAGE_REF)) === "no-entity-ref") {
+    lastOpenPeekDiagnostic = await diagnose("openPeek:click-found-no-ref");
+    return false;
+  }
+  const opened = await pollUntil(ws, PEEK_IS_OPEN, (v) => v === "open", 20_000);
+  if (!opened) lastOpenPeekDiagnostic = await diagnose("openPeek:pane-never-filled-within-20s");
+  return opened;
 }
 
 try {
   await cdp(ws, "Runtime.enable");
+
+  // Tell the page it is focused (mt#4349).
+  //
+  // A tab opened via `PUT /json/new` in the shared browser is not the
+  // foreground tab, and Chrome throttles a backgrounded page: timers are
+  // clamped and work the app defers past first paint can stall for a long time.
+  // The measured failure signature matches that exactly — the shell renders,
+  // `readyState` reaches "complete", and the page then sits with zero entity
+  // refs and an "Attention …" placeholder that never resolves, while a direct
+  // curl of the same endpoint returns full data 30/30 times.
+  //
+  // `setFocusEmulationEnabled` makes the page believe it has focus without
+  // requiring the tab to actually be raised, which would fight the operator for
+  // their own browser.
+  await cdp(ws, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {
+    // Older protocol builds may not carry it; the run is still valid, just
+    // subject to the throttling this works around.
+  });
+
   await cdp(ws, "Emulation.setDeviceMetricsOverride", {
     ...VIEWPORT,
     deviceScaleFactor: 1,
@@ -420,7 +500,11 @@ try {
   // had nowhere to go and the delta was legitimately 0. The sibling script's
   // `pollUntil` docblock records the same trap in its polling form.
   if (!(await pollUntil(ws, PAGE_REF_COUNT, (v) => Number(v) > 0, 25_000))) {
-    throw new Error(`${startUrl} never mounted the app — cannot establish a clean baseline`);
+    throw new Error(
+      `${startUrl} never mounted the app — cannot establish a clean baseline${await diagnose(
+        "initial-mount:no-refs-within-25s"
+      )}`
+    );
   }
   await evaluate(
     ws,
@@ -430,7 +514,9 @@ try {
   await sleep(500);
 
   if (!(await openPeek())) {
-    failures.push(`${startUrl} rendered no entity ref to click, or the peek never opened`);
+    failures.push(
+      `${startUrl} rendered no entity ref to click, or the peek never opened${lastOpenPeekDiagnostic}`
+    );
   } else {
     const before = await readStableState(ws, "the default width");
     console.log(
@@ -654,7 +740,9 @@ try {
           }
         }
       } else {
-        failures.push("the peek did not reopen after reload, so assertions 4-6 could not run");
+        failures.push(
+          `the peek did not reopen after reload, so assertions 4-6 could not run${lastOpenPeekDiagnostic}`
+        );
       }
     }
   }

@@ -209,6 +209,43 @@ Whatever discriminator that task lands on should apply to the family, not to the
 literal patterns alone. mt#4201 and mt#3932 target the `principal-reserved`
 family and do not interact.
 
+## The rendered phrase is capped, and the ceiling depends on it (mt#4234)
+
+`buildReminder` renders one evidence line per class, interpolating
+`matchedPhrase` — which is `m[0]`, the regex's **whole matched span**, not a
+fixed literal. Two patterns bound their span only by the next sentence
+terminator: the `want me to … or …?` menu shape and the
+`before locking in … decision is yours` principal shape, both via an unbounded
+`[^.?]*`. So the rendered advisory used to grow 1:1 with whatever the agent
+wrote. Measured 2026-08-19 against the live matcher: a 1484-char run-on sentence
+carrying both classes rendered **2350** chars against a declared ceiling of
+**600**.
+
+That made `attentionCost.denialMessageSizeChars` un-declarable in principle — an
+unbounded axis has no finite worst case to pose, so no `worstCaseCanary` could
+have made the number a ceiling. `MAX_RENDERED_PHRASE_CHARS` (120) is the fix;
+with it the same input renders a flat 1022 at any length.
+
+**The cap is applied at RENDER time, deliberately not in
+`detectDeferralPhrases`.** The section above explains why `matches[].phrase` is
+sensitive: the sweep's diversity axis keys on it, and making records more
+distinct stalls the count that decides when this log gets reviewed. Truncating
+at match time would do exactly that. The log keeps the full span; only the
+advisory is bounded.
+
+**Why the directive prose was not trimmed instead.**
+`guard-feedback-authoring.mdc` prefers trimming to raising, and the phrase cap
+IS a trim — but it cannot reach the fixed body. With both classes matching and
+zero-length phrases the render is already **879** chars, so no cap brings this
+guard under 600. The two directive paragraphs are its entire payload, each
+naming the specific remedy to run (`asks_create` /
+`/classify-before-deferring`), and three tune tasks (mt#4201, mt#3932, mt#4175)
+are in flight on this same file — rewriting what the guard SAYS while they
+change what makes it FIRE would collide. So the annotation was raised to the
+posed worst case (**1121**) and `MERGED_CONTEXT_BUDGET_CHARS` re-derived
+(6106 → 6627), with the prose trim left as the follow-up if budget pressure
+justifies it.
+
 **Cross-references:**
 
 - mt#3801 — the offer-shape trigger (this section); R9 of the operator-deferral

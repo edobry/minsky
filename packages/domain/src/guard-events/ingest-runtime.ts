@@ -100,7 +100,14 @@ function chunk<T>(items: T[], size: number): T[][] {
  * the returned set, so `rows.length` after `.returning()` IS the real
  * insert count.
  */
-function buildInsertBatch(
+/**
+ * Exported for the mt#4294 integration test, which must exercise THIS function
+ * rather than a re-implementation of it: the property under test is that the
+ * append and the rollup fold share a transaction and that re-ingest folds
+ * nothing, and a mirror of the insert in the test would be free to get both
+ * right while this one got them wrong.
+ */
+export function buildInsertBatch(
   db: PostgresJsDatabase
 ): (rows: GuardEventInsertRow[]) => Promise<number> {
   return async (rows) => {

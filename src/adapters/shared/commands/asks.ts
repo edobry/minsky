@@ -81,7 +81,10 @@ import {
 } from "@minsky/domain/ask/wait-for-response";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 // Severity transport binding (mt#3595)
-import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import {
+  notifyPrincipal,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 import { resolvePersistenceProvider } from "@minsky/domain/persistence/factory";
 import { emitSystemEventFromProvider } from "@minsky/domain/events/emit-best-effort";
 import {
@@ -1421,6 +1424,11 @@ function makeProductionPageDeps(): PrincipalPageDeps {
           message: message.message,
           title: message.title,
           ...(message.taskId === undefined ? {} : { taskId: message.taskId }),
+          // Explicit production wiring (ADR-026, mt#3609). This is the second
+          // production caller of `notifyPrincipal`; the spec's original
+          // enumeration named only the `principal.notify` command, which is
+          // why the required-deps change had to re-derive its consumers.
+          deps: createRealPrincipalChannelDeps(),
         });
         return result.delivered
           ? { delivered: true }
