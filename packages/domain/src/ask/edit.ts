@@ -166,9 +166,32 @@ export function stripReservedProvenanceKeys(
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if ((RESERVED_PROVENANCE_METADATA_KEYS as readonly string[]).includes(key)) continue;
-    out[key] = value;
+    defineOwnKey(out, key, value);
   }
   return out;
+}
+
+/**
+ * Assign `key` as a plain own data-property, never through a setter.
+ *
+ * `out[key] = value` looks inert and is not: for `key === "__proto__"` it invokes
+ * the inherited prototype setter, so the assignment silently reparents `out`
+ * instead of adding a key. This function does not filter anything — it makes the
+ * COPY safe, so a filter's ordering stops being load-bearing (PR #3197 R1).
+ *
+ * Why it lives here rather than being solved by call-site ordering: the hazard
+ * belongs to the copy, so every present and future caller inherits the fix, and
+ * no caller has to know to sanitize first. Note the bug it prevents is invisible
+ * to value-based assertions — a reparented object has no own `__proto__` key and
+ * the same visible key set — so ordering could regress silently.
+ */
+function defineOwnKey(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
 }
 
 /**
@@ -185,16 +208,31 @@ export const FORBIDDEN_METADATA_KEYS = ["__proto__", "prototype", "constructor"]
 
 /**
  * Return a fresh object containing only the safe own-keys of `metadata` —
- * every {@link FORBIDDEN_METADATA_KEYS} entry is dropped. Applied to BOTH
- * sides of the edit merge (existing row metadata and caller-supplied
- * metadata) as defense-in-depth: a hostile key already persisted at create
- * time is scrubbed on the way through, not just blocked at the boundary.
+ * every {@link FORBIDDEN_METADATA_KEYS} entry is dropped.
+ *
+ * Applied at THREE points: both create paths (mt#4331) and both sides of the
+ * edit merge (existing row metadata and caller-supplied metadata).
+ *
+ * The edit-side application is retained as genuine defense-in-depth even now
+ * that create filters, because create-side filtering is **not retroactive**:
+ * any row written before mt#4331 can still carry a forbidden key, and the edit
+ * merge is where such a row gets scrubbed. Removing it would leave those rows
+ * hostile indefinitely.
+ *
+ * Until mt#4331 this docblock read "a hostile key already persisted at create
+ * time is scrubbed on the way through, not just blocked at the boundary" — a
+ * sentence that named its own gap, since nothing was blocking at the create
+ * boundary. It is now accurate rather than aspirational.
  */
 export function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if ((FORBIDDEN_METADATA_KEYS as readonly string[]).includes(key)) continue;
-    out[key] = value;
+    // Safe-copy here too, though this function's own filter means `__proto__`
+    // never reaches it. That safety is a consequence of FORBIDDEN_METADATA_KEYS'
+    // contents, so it would evaporate if that list were ever narrowed — the copy
+    // should not depend on the filter to be correct.
+    defineOwnKey(out, key, value);
   }
   return out;
 }
