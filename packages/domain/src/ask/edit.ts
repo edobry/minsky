@@ -185,10 +185,21 @@ export const FORBIDDEN_METADATA_KEYS = ["__proto__", "prototype", "constructor"]
 
 /**
  * Return a fresh object containing only the safe own-keys of `metadata` —
- * every {@link FORBIDDEN_METADATA_KEYS} entry is dropped. Applied to BOTH
- * sides of the edit merge (existing row metadata and caller-supplied
- * metadata) as defense-in-depth: a hostile key already persisted at create
- * time is scrubbed on the way through, not just blocked at the boundary.
+ * every {@link FORBIDDEN_METADATA_KEYS} entry is dropped.
+ *
+ * Applied at THREE points: both create paths (mt#4331) and both sides of the
+ * edit merge (existing row metadata and caller-supplied metadata).
+ *
+ * The edit-side application is retained as genuine defense-in-depth even now
+ * that create filters, because create-side filtering is **not retroactive**:
+ * any row written before mt#4331 can still carry a forbidden key, and the edit
+ * merge is where such a row gets scrubbed. Removing it would leave those rows
+ * hostile indefinitely.
+ *
+ * Until mt#4331 this docblock read "a hostile key already persisted at create
+ * time is scrubbed on the way through, not just blocked at the boundary" — a
+ * sentence that named its own gap, since nothing was blocking at the create
+ * boundary. It is now accurate rather than aspirational.
  */
 export function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};

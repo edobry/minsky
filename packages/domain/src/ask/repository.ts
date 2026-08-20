@@ -22,7 +22,7 @@
 import { injectable } from "tsyringe";
 // Value import, and safe from a cycle: `edit.ts`'s only import from this module
 // is `import type`, which is erased at runtime (PR #3162 R1).
-import { stripReservedProvenanceKeys, CANCELLATION_METADATA_KEY } from "./edit";
+import { stripReservedProvenanceKeys, sanitizeMetadata, CANCELLATION_METADATA_KEY } from "./edit";
 import {
   and,
   count,
@@ -133,7 +133,16 @@ export function toAsk(row: AskRecord): Ask {
  *
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
-function toInsert(input: CreateAskInput): AskInsert {
+/**
+ * Build the Drizzle insert row for a create.
+ *
+ * Exported for tests (mt#4331) so the create path's metadata filtering can be
+ * asserted without a live DB, and compared key-for-key against
+ * `FakeAskRepository.create`. Mirrors the existing `toAsk` export, which
+ * `repository.test.ts` already imports for the same reason — a pure mapping
+ * function is the right seam, so no double has to be patched (ADR-036).
+ */
+export function toInsert(input: CreateAskInput): AskInsert {
   // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
   // deferral from mt#2416). The resolved project uuid is threaded in via
   // CreateAskInput.projectId (resolved at the asks.create execute callsite,
@@ -172,7 +181,25 @@ function toInsert(input: CreateAskInput): AskInsert {
     // input — same rule as principalPagedAt above (PR #3162 R1). Stripping here
     // is what makes the reservation real: a planted "original" would otherwise
     // survive to the first edit and pre-empt the genuine capture.
-    metadata: stripReservedProvenanceKeys(input.metadata ?? {}),
+    //
+    // mt#4331: `sanitizeMetadata` runs here too, so a forbidden key is BLOCKED at
+    // the create boundary rather than only scrubbed later on the way through an
+    // edit.
+    //
+    // The NESTING ORDER is load-bearing — sanitize must be INNERMOST, and this is
+    // measured, not stylistic. `stripReservedProvenanceKeys` copies via
+    // `out[key] = value`, and for `key === "__proto__"` that invokes the prototype
+    // setter rather than defining an own-key: run it first and it builds an object
+    // whose prototype IS the attacker's payload. The outer sanitize would then
+    // return a clean result anyway (it copies own-enumerable keys, and the
+    // corrupted prototype is neither), so the FINAL value is the same either way —
+    // which is exactly why this is worth writing down rather than leaving to the
+    // next reader to rediscover. Sanitizing first means the polluted intermediate
+    // is never constructed at all. Same order as `editAskContent`'s merge.
+    //
+    // The two stay separate functions because their requirements at the edit merge
+    // are opposite — provenance keys must SURVIVE it, forbidden keys must not.
+    metadata: stripReservedProvenanceKeys(sanitizeMetadata(input.metadata ?? {})),
   };
 }
 
@@ -1394,8 +1421,13 @@ export class FakeAskRepository implements AskRepository {
       severity: input.severity,
       // Mirrors the Drizzle backend's reservation (PR #3162 R1) — the fake must
       // not be more permissive than the real thing, or a test would pass against
-      // behaviour production does not have.
-      metadata: stripReservedProvenanceKeys(input.metadata ?? {}),
+      // behaviour production does not have. mt#4331 extends that same parity to
+      // `sanitizeMetadata`: a fake that filtered fewer keys than the Drizzle
+      // backend would let a pollution test pass against behaviour production
+      // does not have — the double becoming the assertion target instead of the
+      // behavior (ADR-036), which is the argument this comment already makes for
+      // the provenance keys.
+      metadata: stripReservedProvenanceKeys(sanitizeMetadata(input.metadata ?? {})),
     };
     this.store.set(id, ask);
     return { ...ask };
