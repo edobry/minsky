@@ -93,22 +93,54 @@ export type PrincipalChannelResolution =
 type CredentialRead = { ok: true; value: string | null } | { ok: false; error: string };
 
 /**
- * Injected readers. Both default to the real sources; tests pass stubs so no
- * test ever spawns `pulumi` or depends on ambient env.
+ * Dependencies for credential RESOLUTION. Every member is REQUIRED, per ADR-026
+ * tier 2 ("an explicit, **required** `deps` parameter (no `?`, no default
+ * value)"), because each one reaches REAL INFRASTRUCTURE when absent: the real
+ * environment, the real `pulumi` CLI, the real clock.
+ *
+ * An optional member with a real-implementation fallback is the shape ADR-026
+ * bans outright, and the consequence it names — "silently connects tests to
+ * real infrastructure when a caller forgets to inject a fake" — is not
+ * hypothetical here. It is what this module did: two tests asserting the "not
+ * configured on a bare machine" branch injected nothing, fell through to the
+ * real readers, resolved real credentials, and delivered two live Telegram
+ * messages to the principal on every full-suite run (mt#3557 / mt#3609).
+ * Required members move that failure from runtime to COMPILE time.
  */
-export interface PrincipalChannelDeps {
-  readEnv?: (name: string) => string | undefined;
-  /** Decrypted bot token from the Pulumi stack config, or null. */
-  readPulumiToken?: () => Promise<string | null>;
-  /** Plain (non-secret) Pulumi stack-config value, or null. */
-  readPulumiPlain?: (key: string) => Promise<string | null>;
-  fetchFn?: FetchFn;
+export interface PrincipalChannelResolveDeps {
+  readEnv: (name: string) => string | undefined;
+  /**
+   * Decrypted bot token from the Pulumi stack config, or null when unset.
+   * THROWS on a read FAILURE — a value that could not be read is not the same
+   * as a value that is absent, and collapsing the two is what turned a
+   * transient fault permanent (mt#3608).
+   */
+  readPulumiToken: () => Promise<string | null>;
+  /**
+   * Plain (non-secret) Pulumi stack-config value, or null when unset. THROWS
+   * on a read failure, for the same reason as `readPulumiToken`.
+   */
+  readPulumiPlain: (key: string) => Promise<string | null>;
   /** Injected clock so cache-expiry is testable without waiting. */
-  now?: () => number;
+  now: () => number;
+}
+
+/**
+ * Dependencies for SENDING: the resolve set, plus the transport, plus the two
+ * genuinely-optional topic hooks.
+ */
+export interface PrincipalChannelDeps extends PrincipalChannelResolveDeps {
+  /**
+   * Transport. REQUIRED for the same reason as the readers above — absent, a
+   * send goes out over the real global `fetch`, which is the exact path by
+   * which the mt#3557 tests reached Telegram.
+   */
+  fetchFn: FetchFn;
   /**
    * Resolve the Telegram topic bound to a task, if one exists (mt#3507).
    *
-   * Omitted by default — a caller that never passes `taskId` to
+   * GENUINELY optional, unlike every member above: omitting it reaches no
+   * infrastructure. A caller that never passes `taskId` to
    * {@link notifyPrincipal} never needs this, and one that does but has no
    * database reachable (e.g. running outside the cockpit daemon) degrades to
    * "no topic found", which is exactly the un-bound-task behavior the spec
@@ -122,6 +154,34 @@ export interface PrincipalChannelDeps {
    * falls back correctly either way.
    */
   markTopicDead?: (chatId: string, messageThreadId: number) => Promise<void>;
+}
+
+/**
+ * Construct the REAL dependency set — production wiring, made visible at the
+ * call site that chose it.
+ *
+ * This is deliberately NOT the `deps?.x ?? createConfiguredX(...)` shape
+ * ADR-026 bans. That ban is on an IMPLICIT fallback reached from inside the
+ * consumer, which fires for a caller that never decided anything and cannot be
+ * seen from the call site. Here the caller decides, by name, in its own
+ * composition root, where a grep finds it. ADR-026 tier 2's own text has
+ * callers constructing their dependencies directly — this is that, for the
+ * production half, with tests constructing fakes on the other side.
+ *
+ * The topic hooks are deliberately absent: they need a database, they are
+ * genuinely optional, and the callers that have one (the `principal.notify`
+ * command) add them on top of this base.
+ */
+export function createRealPrincipalChannelDeps(): PrincipalChannelDeps {
+  return {
+    readEnv: (name: string) => process.env[name],
+    readPulumiToken: readPulumiTokenFromStack,
+    readPulumiPlain: readPulumiPlainFromStack,
+    now: Date.now,
+    // Wrapped rather than passed bare: a detached `globalThis.fetch` reference
+    // loses its receiver in some runtimes.
+    fetchFn: (url, init) => globalThis.fetch(url, init),
+  };
 }
 
 interface CacheEntry {
@@ -145,9 +205,9 @@ export function clearPrincipalChannelCache(): void {
  * values is the one that is absent.
  */
 export async function resolvePrincipalChannel(
-  deps: PrincipalChannelDeps = {}
+  deps: PrincipalChannelResolveDeps
 ): Promise<PrincipalChannelResolution> {
-  const now = deps.now ?? Date.now;
+  const now = deps.now;
   if (cache && now() - cache.resolvedAtMs < RESOLUTION_CACHE_MS) {
     return cache.resolution;
   }
@@ -162,8 +222,10 @@ export async function resolvePrincipalChannel(
   return resolution;
 }
 
-async function resolveUncached(deps: PrincipalChannelDeps): Promise<PrincipalChannelResolution> {
-  const readEnv = deps.readEnv ?? ((name: string) => process.env[name]);
+async function resolveUncached(
+  deps: PrincipalChannelResolveDeps
+): Promise<PrincipalChannelResolution> {
+  const readEnv = deps.readEnv;
 
   const envToken = nonEmpty(readEnv("TELEGRAM_BOT_TOKEN"));
   const envChatId = nonEmpty(readEnv("TELEGRAM_CHAT_ID"));
@@ -230,35 +292,36 @@ async function resolveUncached(deps: PrincipalChannelDeps): Promise<PrincipalCha
   return { configured: true, config: { token, chatId, source } };
 }
 
-async function readPulumiToken(deps: PrincipalChannelDeps): Promise<CredentialRead> {
-  if (deps.readPulumiToken) {
-    // An injected reader that throws is a READ FAILURE, exactly like the real
-    // one — otherwise the seam would be incapable of expressing the very case
-    // this distinction exists for, and no test could reach it.
-    try {
-      return { ok: true, value: await deps.readPulumiToken() };
-    } catch (err: unknown) {
-      return {
-        ok: false,
-        error: `token read failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-  }
+async function readPulumiToken(deps: PrincipalChannelResolveDeps): Promise<CredentialRead> {
+  // ONE path, not two. `readPulumiToken` is required, so there is no longer an
+  // else-branch that reaches the real provider behind an un-injected caller's
+  // back — the real implementation lives in `readPulumiTokenFromStack` below
+  // and is supplied EXPLICITLY, by callers that mean to use it.
+  //
+  // A reader that throws is a READ FAILURE, not an absent value (mt#3608).
+  // That distinction is the whole point of this wrapper, and it now applies
+  // uniformly to injected and real readers alike rather than only to one.
   try {
-    // Lazy import: the credentials provider reaches for the filesystem and the
-    // `pulumi` binary at module scope-adjacent paths, and this module is
-    // imported by surfaces (tests, the browser-facing bundle) that have
-    // neither.
-    const { telegramProvider } = await import("../credentials/providers/telegram");
-    return { ok: true, value: (await telegramProvider.read?.()) ?? null };
+    return { ok: true, value: await deps.readPulumiToken() };
   } catch (err: unknown) {
-    // Reported as a FAILURE, not as an absent token (mt#3608). This throw is
-    // what a DNS blip against the Pulumi backend looks like, and collapsing it
-    // into `null` is what made a transient fault permanent.
     const error = err instanceof Error ? err.message : String(err);
     log.debug("principal-channel: Pulumi token read failed", { error });
     return { ok: false, error: `token read failed: ${error}` };
   }
+}
+
+/**
+ * The REAL bot-token read, for {@link createRealPrincipalChannelDeps}.
+ *
+ * Throws on a read failure, per the {@link PrincipalChannelResolveDeps}
+ * contract — the caller turns that into the retryable `ok: false` verdict.
+ */
+async function readPulumiTokenFromStack(): Promise<string | null> {
+  // Lazy import: the credentials provider reaches for the filesystem and the
+  // `pulumi` binary at module scope-adjacent paths, and this module is
+  // imported by surfaces (tests, the browser-facing bundle) that have neither.
+  const { telegramProvider } = await import("../credentials/providers/telegram");
+  return (await telegramProvider.read?.()) ?? null;
 }
 
 /**
@@ -330,23 +393,34 @@ export function classifyPulumiConfigGetFailure(
   };
 }
 
-async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<CredentialRead> {
-  if (deps.readPulumiPlain) {
-    try {
-      return { ok: true, value: await deps.readPulumiPlain(TELEGRAM_CHAT_ID_PULUMI_KEY) };
-    } catch (err: unknown) {
-      return {
-        ok: false,
-        error: `chat-id read failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-  }
+async function readPulumiChatId(deps: PrincipalChannelResolveDeps): Promise<CredentialRead> {
+  // ONE path, as with `readPulumiToken` above — the real reader is
+  // `readPulumiPlainFromStack`, supplied explicitly rather than fallen back to.
   try {
+    return { ok: true, value: await deps.readPulumiPlain(TELEGRAM_CHAT_ID_PULUMI_KEY) };
+  } catch (err: unknown) {
+    return {
+      ok: false,
+      error: `chat-id read failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+/**
+ * The REAL plain-config read, for {@link createRealPrincipalChannelDeps}.
+ *
+ * Returns `null` for a genuine ABSENCE and THROWS on a read FAILURE, per the
+ * {@link PrincipalChannelResolveDeps} contract. Keeping those two outcomes
+ * distinct is mt#3608's fix and must survive this refactor: an absence is
+ * final, a failure is retryable.
+ */
+async function readPulumiPlainFromStack(key: string): Promise<string | null> {
+  {
     const { resolveInfraDir } = await import("../credentials/providers/telegram");
     const infraDir = resolveInfraDir();
     // A missing infra dir is a real ABSENCE, not a failure: there is no Pulumi
     // project here to read from, and retrying cannot change that.
-    if (!infraDir) return { ok: true, value: null };
+    if (!infraDir) return null;
     // `config get` on a PLAIN key decrypts nothing and returns no secret; the
     // chat id is an operator identifier, not a credential.
     const proc = Bun.spawnSync(
@@ -382,17 +456,28 @@ async function readPulumiChatId(deps: PrincipalChannelDeps): Promise<CredentialR
       // values encrypted, so this never decrypts anything and never needs the
       // passphrase to succeed (verified against the live stack, mt#3698).
       const keyPresent =
-        probe.exitCode === 0
-          ? isPulumiConfigKeySet(probe.stdout.toString(), TELEGRAM_CHAT_ID_PULUMI_KEY)
-          : null;
-      return classifyPulumiConfigGetFailure(proc.exitCode, stderr, keyPresent);
+        probe.exitCode === 0 ? isPulumiConfigKeySet(probe.stdout.toString(), key) : null;
+      const classified = classifyPulumiConfigGetFailure(proc.exitCode, stderr, keyPresent);
+      // The absence-vs-failure CLASSIFICATION is unchanged and still lives in
+      // the exported, separately-tested helper. Only the carrier changes: an
+      // absence becomes `null`, a failure becomes a throw.
+      //
+      // NO DIAGNOSTIC DETAIL IS LOST, and that is checkable rather than
+      // asserted (PR #3168 R1): the helper's error is exactly
+      // `"chat-id read failed: " + (stderr || "exit " + exitCode)`, and the
+      // caller `readPulumiChatId` re-adds that same prefix to whatever this
+      // throws. Throwing `classified.error` would therefore emit the prefix
+      // TWICE; throwing the bare reason reproduces the helper's string
+      // character-for-character. Both operands are read from the same `proc`,
+      // so the two cannot drift apart.
+      if (classified.ok) return classified.value;
+      throw new Error(stderr || `exit ${proc.exitCode ?? "unknown"}`);
     }
-    return { ok: true, value: proc.stdout.toString().trim() || null };
-  } catch (err: unknown) {
-    // A spawn failure (binary missing, timeout, DNS) is never an absence.
-    const error = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `chat-id read failed: ${error}` };
+    return proc.stdout.toString().trim() || null;
   }
+  // A spawn failure (binary missing, timeout, DNS) is never an absence — it
+  // propagates as a throw, which `readPulumiChatId` renders as a retryable
+  // read failure.
 }
 
 function nonEmpty(value: string | null | undefined): string | undefined {
@@ -422,7 +507,13 @@ export interface NotifyPrincipalOptions {
    * (topic creation is Phase 3, mt#3508).
    */
   taskId?: string;
-  deps?: PrincipalChannelDeps;
+  /**
+   * REQUIRED (ADR-026 tier 2, mt#3609). Production callers pass
+   * {@link createRealPrincipalChannelDeps}; tests pass fakes. There is no
+   * default, so a caller that forgets cannot silently send over the real
+   * network — it fails to compile.
+   */
+  deps: PrincipalChannelDeps;
 }
 
 export type NotifyPrincipalResult =
@@ -448,7 +539,7 @@ export type NotifyPrincipalResult =
 export async function notifyPrincipal(
   opts: NotifyPrincipalOptions
 ): Promise<NotifyPrincipalResult> {
-  const deps = opts.deps ?? {};
+  const deps = opts.deps;
   const resolution = await resolvePrincipalChannel(deps);
   if (!resolution.configured) {
     return { delivered: false, reason: "not-configured", detail: resolution.reason };
@@ -475,7 +566,7 @@ export async function notifyPrincipal(
     text,
     ...(opts.replyToMessageId === undefined ? {} : { replyToMessageId: opts.replyToMessageId }),
     ...(topic === null ? {} : { messageThreadId: topic.messageThreadId }),
-    ...(deps.fetchFn ? { fetchFn: deps.fetchFn } : {}),
+    fetchFn: deps.fetchFn,
     ...(markTopicDead
       ? { onThreadNotFound: (threadId: number) => markTopicDead(chatId, threadId) }
       : {}),
