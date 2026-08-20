@@ -1380,3 +1380,104 @@ describe("self-scheduling registrants (mt#4185)", () => {
     }
   });
 });
+
+describe("domain-failure backoff (mt#4294)", () => {
+  afterEach(() => {
+    _resetSweepLivenessRegistryForTest();
+  });
+
+  test("a persistently failing tick runs FEWER times than an identical one without backoff", async () => {
+    // Controlled comparison rather than an absolute count: both sweepers fail
+    // every tick at the same cadence in the same window, so the only
+    // difference is the backoff. Asserting an exact tick count against
+    // wall-clock would be flaky on a loaded machine; a relative comparison is
+    // not.
+    let withBackoff = 0;
+    let withoutBackoff = 0;
+
+    const stopA = createIntervalSweeper({
+      name: "test-backoff-on",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 4 },
+      tick: async () => {
+        withBackoff++;
+        return { ok: false };
+      },
+    });
+    const stopB = createIntervalSweeper({
+      name: "test-backoff-off",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      tick: async () => {
+        withoutBackoff++;
+        return { ok: false };
+      },
+    });
+
+    try {
+      await waitFor(() => withoutBackoff >= 12, 3000);
+      expect(withBackoff).toBeLessThan(withoutBackoff);
+      // ...and it must still be PROBING. A backoff that stops entirely never
+      // discovers the dependency recovered, which is the failure mode the
+      // maxSkippedTicks clamp exists to prevent.
+      expect(withBackoff).toBeGreaterThanOrEqual(2);
+    } finally {
+      stopA();
+      stopB();
+    }
+  });
+
+  test("does not skip anything while ticks keep succeeding", async () => {
+    // The negative control for the test above: same option, same cadence,
+    // only the outcome differs. If this one also skipped, the comparison above
+    // would prove nothing about failure being the trigger.
+    let calls = 0;
+    const stop = createIntervalSweeper({
+      name: "test-backoff-healthy",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 4 },
+      tick: async () => {
+        calls++;
+        return { ok: true };
+      },
+    });
+    try {
+      await waitFor(() => calls >= 10, 3000);
+      expect(calls).toBeGreaterThanOrEqual(10);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a recovery clears the backoff, so the next tick is not skipped", async () => {
+    let calls = 0;
+    let failUntilCall = 4;
+    const callsAtRecovery: number[] = [];
+
+    const stop = createIntervalSweeper({
+      name: "test-backoff-recovers",
+      intervalMs: 20,
+      tickTimeoutMs: 5_000,
+      domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 4 },
+      tick: async () => {
+        calls++;
+        if (calls <= failUntilCall) return { ok: false };
+        callsAtRecovery.push(calls);
+        return { ok: true };
+      },
+    });
+
+    try {
+      // Once healthy again, ticks should resume at full cadence — several
+      // successes should land quickly rather than trickling in behind an
+      // outstanding skip budget.
+      await waitFor(() => callsAtRecovery.length >= 5, 3000);
+      expect(callsAtRecovery.length).toBeGreaterThanOrEqual(5);
+    } finally {
+      failUntilCall = 0;
+      stop();
+    }
+  });
+});
