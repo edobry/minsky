@@ -2304,6 +2304,10 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "`asks.respond` rejects and which neither existing sweep reads: " +
         "`advancement.ts` sweeps `detected` and `stale-suspended-close.ts` sweeps " +
         "`suspended`, so `classified` and `routed` debris accumulates unreachable. " +
+        "This command is the terminal PRIMITIVE for those states; whether a RECURRING " +
+        "sweep may safely retire them, and under which rule, is mt#4361 — parent-terminal " +
+        "is not a safe trigger there, because a parent can go terminal by concluding the " +
+        "work is operator-only while that work is still outstanding. " +
         "Silent to the operator: this is debris cleanup, not a decision. " +
         "Idempotent — an already-terminal Ask is a no-op. " +
         "`id` accepts a full UUID, an unambiguous prefix (>=8 hex chars), or an `ask#N` short id.",
