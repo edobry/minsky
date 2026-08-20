@@ -19,7 +19,10 @@
  * Exit codes: 0 = delivered, 1 = not delivered (reason printed).
  */
 
-import { notifyPrincipal } from "@minsky/domain/notify/principal-channel";
+import {
+  notifyPrincipal,
+  createRealPrincipalChannelDeps,
+} from "@minsky/domain/notify/principal-channel";
 
 const DEFAULT_MESSAGE =
   "Minsky principal channel is live. Reply to this message to exercise the inbound half.";
@@ -27,7 +30,7 @@ const DEFAULT_MESSAGE =
 async function main(): Promise<void> {
   const message = process.argv.slice(2).join(" ").trim() || DEFAULT_MESSAGE;
 
-  const result = await notifyPrincipal({ message });
+  const result = await notifyPrincipal({ message, deps: createRealPrincipalChannelDeps() });
 
   if (!result.delivered) {
     console.error(`FAIL (${result.reason}): ${result.detail}`);

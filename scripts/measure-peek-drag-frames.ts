@@ -590,6 +590,19 @@ try {
   targetId = opened.targetId;
 
   await cdp(ws, "Runtime.enable");
+  // Tell the page it is focused (mt#4349).
+  //
+  // A tab opened via `PUT /json/new` is not the foreground tab, and Chrome
+  // throttles a backgrounded page. Measured on verify-peek-resize.ts: ~40%
+  // of runs failed with the shell painted and the data query never resolving,
+  // and enabling this took that to 0/20. A throttled tab also renders at a
+  // reduced rAF cadence, which is exactly the quantity this script measures —
+  // so without this, the idle-cadence figure describes the throttle, not the page.
+  await cdp(ws, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {
+    // Older protocol builds may not carry it; the run is still valid, just
+    // subject to the throttling this works around.
+  });
+
   await cdp(ws, "Emulation.setDeviceMetricsOverride", {
     width: VIEWPORT.width,
     height: VIEWPORT.height,

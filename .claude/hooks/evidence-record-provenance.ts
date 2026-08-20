@@ -58,16 +58,21 @@ import { findToolCallsWithResults } from "./transcript";
 import type { ToolCallWithResult } from "./transcript";
 import { captureArtifact, CAPTURE_SCHEMA_VERSION } from "./judged-input-capture";
 import { extractNegativeControlRecords, mentionsNegativeControl } from "./test-first-evidence";
-import { hasExecutionEvidence } from "./require-execution-evidence-before-merge";
+import { extractExecutionEvidenceRecords } from "./require-execution-evidence-before-merge";
 import {
   callContainsQuotedFailure,
   callNamesSubject,
+  claimedCheckKinds,
   extractQuotedFailures,
   extractStrictQuotedFailures,
   extractSubjectTokens,
   failingTestRuns,
-  sessionRanTests,
+  fileWrites,
+  lastRunIndexOfKind,
+  orderingAgainstWrites,
+  CHECK_KINDS,
 } from "./evidence-provenance-table";
+import type { CheckKind, FileWrite, OrderingVerdict } from "./evidence-provenance-table";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_EVIDENCE_PROVENANCE";
 
@@ -119,9 +124,27 @@ export function resolveArtifactText(toolInput: Record<string, unknown> | undefin
 
 export type ClaimKind = "negative-control" | "execution-evidence";
 
+/**
+ * Why an undischarged claim is undischarged (mt#4236).
+ *
+ * The two are different findings with different remedies, and collapsing them
+ * is what the pre-mt#4236 single boolean did: `no-run-at-all` says the session
+ * ran nothing, `no-run-of-kind` says it ran checks but not THIS one — a block
+ * pasting a typecheck into a session that only ever ran tests. Criterion 3
+ * requires both to stay separable from `stale-evidence`, which is a third thing
+ * again: the run happened, of the right kind, and simply did not observe the
+ * tree being shipped.
+ */
+export type DischargeDetail = "no-run-at-all" | "no-run-of-kind";
+
 /** One evidence record found in the artifact, with the verdict reached on it. */
 export interface ClaimVerdict {
   kind: ClaimKind;
+  /**
+   * For an execution-evidence claim, WHICH check it asserts (mt#4236). Absent on
+   * a negative-control claim, whose kind is a test run by definition.
+   */
+  check?: CheckKind;
   /** Exact strings whose appearance in a call ties that call to this record. */
   tokens: string[];
   /**
@@ -132,11 +155,25 @@ export interface ClaimVerdict {
    * countable rather than quietly absorbed into the clean bucket.
    */
   verdict: "discharged" | "undischarged" | "unadjudicable";
+  /** Set only when `verdict` is `undischarged`. */
+  detail?: DischargeDetail;
+  /**
+   * Whether the discharging run OBSERVED the tree being shipped (mt#4236).
+   *
+   * A SECOND AXIS, deliberately not folded into `verdict`. `verdict` answers
+   * "did the run happen", which is the recall axis mt#4067 owns and this task's
+   * spec puts out of scope; this answers "did it happen in time". Anything not
+   * discharged is `not-comparable` here — there is no run to order against.
+   */
+  ordering: OrderingVerdict;
 }
 
 /** Every evidence record in `text`, judged against the session's calls. */
 export function judgeClaims(text: string, calls: readonly ToolCallWithResult[]): ClaimVerdict[] {
   const verdicts: ClaimVerdict[] = [];
+  // The write side of the ordering join (mt#4236), computed once: a record is
+  // stale when a file the discharging run READS was written after that run.
+  const writes: FileWrite[] = fileWrites(calls);
 
   for (const record of extractNegativeControlRecords(text)) {
     const full = `${record.label}\n${record.body}`;
@@ -165,15 +202,79 @@ export function judgeClaims(text: string, calls: readonly ToolCallWithResult[]):
       : strict.length === 0 && tokens.length === 0
         ? "unadjudicable"
         : "undischarged";
-    verdicts.push({ kind: "negative-control", tokens, verdict });
+    // ORDERING IS NOT APPLIED TO A NEGATIVE CONTROL, and this is a correction
+    // to mt#4236's spec made by measuring rather than by reasoning it out.
+    //
+    // The spec expected the ordering axis to apply here too — the record's
+    // granularity is already per-record, so only the staleness half was thought
+    // to be missing. Built that way and swept over the 14 most recent
+    // transcripts (2026-08-19), it reported `stale-evidence` on **30 of 33**
+    // discharged control records: 91%.
+    //
+    // That number is not a finding, it is the PROCEDURE. A negative control is
+    // (1) revert the fix, (2) run the test and observe it red, (3) RESTORE the
+    // fix, (4) commit. Step 3 is a write to a file the run reads, and it is
+    // always after step 2 — by construction, for every correctly-run control.
+    // So the comparison returns `stale-evidence` whether or not the evidence is
+    // stale, which is mem#704's can't-fail probe: same output in both states,
+    // therefore no information. The 3 records that came back fresh are the tell
+    // — those controls restored via `git stash pop`, a shell command
+    // {@link fileWrites} deliberately does not recognize, so what the axis
+    // actually measured was HOW THE AUTHOR RESTORED, not whether their evidence
+    // was current.
+    //
+    // Firing at 91% of correctly-run controls is also the exact direction of
+    // error the table module's header forbids, and mem#719's noise-erodes-trust
+    // failure this guard's INJECTS_NOTHING_BY_DESIGN note already cites.
+    //
+    // The execution-evidence half, measured in the same sweep, discriminates:
+    // test 0/39 stale, typecheck 6/17 (35%), lint 4/18 (22%). Distinguishing a
+    // control's restore from an ordinary edit needs evidence this join does not
+    // have; until it does, `not-comparable` is the honest verdict.
+    verdicts.push({ kind: "negative-control", tokens, verdict, ordering: "not-comparable" });
   }
 
-  if (hasExecutionEvidence(text)) {
-    verdicts.push({
-      kind: "execution-evidence",
-      tokens: [],
-      verdict: sessionRanTests(calls) ? "discharged" : "undischarged",
-    });
+  // Per-CLAIM, not one boolean (mt#4236). One `Execution evidence:` block
+  // routinely asserts several checks; each is adjudicated against a run of ITS
+  // OWN kind, so a pasted typecheck can no longer be discharged by a test run.
+  const evidenceRecords = extractExecutionEvidenceRecords(text);
+  if (evidenceRecords.length > 0) {
+    const lastRunByKind = new Map<CheckKind, number | null>(
+      CHECK_KINDS.map((kind) => [kind, lastRunIndexOfKind(calls, kind)])
+    );
+    const ranSomeCheck = CHECK_KINDS.some((kind) => lastRunByKind.get(kind) !== null);
+
+    for (const record of evidenceRecords) {
+      const claimed = claimedCheckKinds(`${record.label}\n${record.body}`);
+      // A block whose pastes this module does not recognize keeps mt#1459's own
+      // semantics — it claims a test run, discharged by any test run — so its
+      // verdict is byte-identical to the pre-mt#4236 one. Defaulting here rather
+      // than recording `unadjudicable` is what keeps this change off the recall
+      // axis mt#4067 owns, which this task's spec puts out of scope.
+      const kinds: CheckKind[] = claimed.length > 0 ? claimed : ["test"];
+
+      for (const check of kinds) {
+        const runIndex = lastRunByKind.get(check) ?? null;
+        if (runIndex === null) {
+          verdicts.push({
+            kind: "execution-evidence",
+            check,
+            tokens: [],
+            verdict: "undischarged",
+            detail: ranSomeCheck ? "no-run-of-kind" : "no-run-at-all",
+            ordering: "not-comparable",
+          });
+          continue;
+        }
+        verdicts.push({
+          kind: "execution-evidence",
+          check,
+          tokens: [],
+          verdict: "discharged",
+          ordering: orderingAgainstWrites(runIndex, writes, check),
+        });
+      }
+    }
   }
 
   return verdicts;
@@ -250,7 +351,19 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
   const verdicts = judgeClaims(text, findToolCallsWithResults(lines));
   const judged = {
     ...base,
-    claims: verdicts.map((v) => ({ kind: v.kind, verdict: v.verdict, tokens: v.tokens.length })),
+    // Every field on ClaimVerdict is rendered here, deliberately. The calibration
+    // record is this guard's ONLY output surface (INJECTS_NOTHING_BY_DESIGN), so
+    // a field added to the verdict and not carried into the record would be
+    // invisible to the reviewer it exists for — the mt#3913 unrendered-field
+    // shape, in a module whose whole purpose is making a claim checkable.
+    claims: verdicts.map((v) => ({
+      kind: v.kind,
+      check: v.check ?? null,
+      verdict: v.verdict,
+      detail: v.detail ?? null,
+      ordering: v.ordering,
+      tokens: v.tokens.length,
+    })),
     judgedArtifact: captureArtifact(text),
   };
 
@@ -269,12 +382,23 @@ export function run(input: ToolHookInput, ctx: DispatchContext): GuardOutcome | 
   }
 
   const undischarged = verdicts.filter((v) => v.verdict === "undischarged");
-  if (undischarged.length === 0) {
+  // Stale evidence MATCHES (mt#4236). A record whose run predates the tree it
+  // describes is the finding this task exists to surface, and labelling it
+  // `clean` would leave it out of every review that filters on `matched` — a
+  // detection recorded where nobody looks is mem#1020's inert probe. It rides
+  // the same stream rather than a new one, and the `reason` below is what keeps
+  // the two populations separable at review time.
+  const stale = verdicts.filter((v) => v.ordering === "stale-evidence");
+  if (undischarged.length === 0 && stale.length === 0) {
     return { calibration: { ...judged, outcome: "clean", reason: "every record discharged" } };
   }
 
+  const classes: string[] = [];
+  if (undischarged.length > 0) classes.push(`undischarged=${undischarged.length}`);
+  if (stale.length > 0) classes.push(`stale-evidence=${stale.length}`);
+
   // `matched` and no `additionalContext` — see INJECTS_NOTHING_BY_DESIGN.
-  return { calibration: { ...judged, outcome: "matched" } };
+  return { calibration: { ...judged, outcome: "matched", reason: classes.join(" ") } };
 }
 
 // ---------------------------------------------------------------------------
