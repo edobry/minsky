@@ -168,7 +168,7 @@ describe("closeAskAsResolved", () => {
     // that would turn an audit-trail improvement into a cleanup regression.
     const id = await seed(repo, "routed");
     const failing = Object.create(repo) as typeof repo;
-    failing.updateContent = async () => {
+    failing.recordCancellation = async () => {
       throw new Error("metadata write unavailable");
     };
 
@@ -176,6 +176,37 @@ describe("closeAskAsResolved", () => {
 
     expect(outcome.kind).toBe("cancelled");
     expect((await repo.getById(id))?.state).toBe("cancelled");
+  });
+
+  it("does not clobber a concurrent metadata edit (PR #3190 R1 lost-update)", async () => {
+    // The first shape of this feature read `metadata` off the Ask fetched at the
+    // top of closeAskAsResolved, merged in memory, and wrote the whole object
+    // back — so an edit landing inside that window was silently overwritten, on
+    // the one column whose job here is provenance. Reviewer-caught as BLOCKING.
+    //
+    // Simulated by editing metadata AFTER the Ask is read but BEFORE the
+    // cancellation write, which is exactly the window the old shape exposed.
+    const id = await seed(repo, "routed");
+    const concurrent = Object.create(repo) as typeof repo;
+    let edited = false;
+    concurrent.getById = async (askId: string) => {
+      const ask = await Object.getPrototypeOf(concurrent).getById.call(repo, askId);
+      if (!edited && ask) {
+        edited = true;
+        // A different writer appends its own key between our read and our write.
+        await repo.updateContent(askId, {
+          metadata: { ...(ask.metadata ?? {}), concurrentEdit: "must survive" },
+        });
+      }
+      return ask;
+    };
+
+    await closeAskAsResolved(concurrent, id, { responder: PR_MERGED });
+
+    const metadata = (await repo.getById(id))?.metadata as Record<string, unknown> | undefined;
+    // Both must be present: the concurrent writer's key AND ours.
+    expect(metadata?.concurrentEdit).toBe("must survive");
+    expect(metadata?.[CANCELLATION_METADATA_KEY]).toBeDefined();
   });
 
   it("is a no-op on an already-closed Ask (idempotent)", async () => {

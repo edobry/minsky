@@ -59,7 +59,28 @@ describe("cancelAsk (mt#3353)", () => {
     // mem#1007). A cancel path inheriting that default would reproduce exactly
     // the defect it exists to remove.
     expect(result.responder).not.toBe("operator");
-    expect(result.responder.startsWith("system:")).toBe(true);
+    expect(result.responder).toBe("system:agent-cancelled");
+  });
+
+  test("passes a caller-supplied non-`system:` responder through unchanged", async () => {
+    // PR #3190 R1 (non-blocking) read the assertion above as claiming the command
+    // NORMALIZES responders to a `system:` prefix. It does not, and should not:
+    // `CloseAsResolvedInput` documents that an unrecognised-prefix responder maps
+    // to the `subagent` attention transport, so an agent id is a legitimate
+    // value. The only rule is that `operator` is refused; everything else is the
+    // caller's to name. Pinned here so the guarantee is stated rather than
+    // implied by a default that happens to start with `system:`.
+    const repo = new FakeAskRepository();
+    const id = await seedRouted(repo);
+
+    const result = await cancelAsk(repo, {
+      id,
+      reason: "superseded",
+      responder: "minsky.agent:cockpit",
+    });
+
+    expect(result.responder).toBe("minsky.agent:cockpit");
+    expect(result.outcome).toBe("cancelled");
   });
 
   test("REJECTS an explicit `operator` responder rather than rewriting it", async () => {
