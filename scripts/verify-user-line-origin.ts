@@ -48,12 +48,39 @@ import {
 } from "@minsky/domain/transcripts/user-line-origin";
 
 /**
- * Default transcript directory. Derived at runtime rather than baked in as a
- * constant, so this runs on any machine (`portable defaults`, /implement-task
- * §7 checklist item 2).
+ * Claude Code's per-project transcript directory for the CURRENT repo.
+ *
+ * The slug is `cwd` with `/` replaced by `-` — so it is derived from where the
+ * script runs, never baked in. An earlier version hardcoded
+ * `-Users-edobry-Projects-minsky`: `homedir()` made the PREFIX portable and the
+ * slug still pinned it to one machine, where the failure mode is a silent
+ * `SKIP` on everyone else's (PR #3182 R1, non-blocking — correctly caught a
+ * docblock that claimed portability the code did not have).
+ *
+ * Resolution order, first hit wins:
+ *   1. `--dir <path>`                       — explicit, for an archived corpus
+ *   2. `$CLAUDE_PROJECTS_DIR/<cwd slug>`    — override for a relocated root
+ *   3. `~/.claude/projects/<cwd slug>`      — the normal case
+ *   4. `~/.claude/projects` itself          — every project, when 3 is absent
+ *
+ * Step 4 matters for a checkout whose own transcripts have aged out: scanning
+ * the parent still measures the predicate against a real corpus, which is the
+ * point, rather than skipping with nothing checked.
  */
+function projectsRoot(): string {
+  return process.env["CLAUDE_PROJECTS_DIR"] ?? join(homedir(), ".claude", "projects");
+}
+
+/** Claude Code's slug for a working directory: the path with `/` → `-`. */
+export function slugForCwd(cwd: string): string {
+  return cwd.replace(/\//g, "-");
+}
+
 function defaultTranscriptDir(): string {
-  return join(homedir(), ".claude", "projects", "-Users-edobry-Projects-minsky");
+  const root = projectsRoot();
+  const scoped = join(root, slugForCwd(process.cwd()));
+  if (existsSync(scoped)) return scoped;
+  return root;
 }
 
 /**
@@ -75,6 +102,30 @@ const PREFIX_EXPECTATIONS: ReadonlyArray<{ prefix: string; expected: string | nu
   { prefix: "[SYSTEM NOTIFICATION - NOT USER INPUT]", expected: null },
   { prefix: "Stop hook feedback:", expected: null },
 ];
+
+/**
+ * Every `.jsonl` in `dir`, plus one level of subdirectories.
+ *
+ * One level, not a full walk: `~/.claude/projects/<slug>/*.jsonl` is the layout,
+ * and the `<slug>/subagents/` directory beneath it holds SUBAGENT transcripts —
+ * a different population whose user-role lines are dispatch prompts rather than
+ * operator speech. Recursing further would silently mix the two and make the
+ * operator-authored share meaningless.
+ */
+function collectTranscripts(dir: string): string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isFile() && entry.name.endsWith(".jsonl")) {
+      found.push(path);
+    } else if (entry.isDirectory() && entry.name !== "subagents") {
+      for (const nested of readdirSync(path, { withFileTypes: true })) {
+        if (nested.isFile() && nested.name.endsWith(".jsonl")) found.push(join(path, nested.name));
+      }
+    }
+  }
+  return found;
+}
 
 function parseArgs(argv: string[]): { dir: string; files: number } {
   let dir = defaultTranscriptDir();
@@ -110,9 +161,7 @@ function main(): number {
     return 0;
   }
 
-  const jsonlFiles = readdirSync(dir)
-    .filter((f) => f.endsWith(".jsonl"))
-    .map((f) => join(dir, f))
+  const jsonlFiles = collectTranscripts(dir)
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
     .slice(0, Number.isFinite(fileLimit) ? fileLimit : undefined);
 
@@ -218,4 +267,9 @@ function main(): number {
   return 0;
 }
 
-process.exit(main());
+// Guarded so the pure helpers above (`slugForCwd`) can be imported by a test
+// without the scan running as a side effect — the same guard
+// `measure-principal-turn-purity.ts` uses for the same reason.
+if (import.meta.main) {
+  process.exit(main());
+}

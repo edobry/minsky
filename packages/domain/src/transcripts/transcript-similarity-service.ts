@@ -165,6 +165,16 @@ export interface TranscriptSearchOptions {
   limit?: number;
   /** Filter by turn role: 'user' turns have non-null userText; 'assistant' turns have non-null assistantText. */
   role?: "user" | "assistant";
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — e.g. `"human"` for
+   * operator speech only. Mirrors `TranscriptFtsSearchOptions.originKind`, so
+   * the two search surfaces answer the same question the same way.
+   *
+   * A separate axis from `role`: `role: "user"` tests `user_text IS NOT NULL`,
+   * which 8,245 harness-written rows also satisfy (43.5% of that population,
+   * measured against prod 2026-08-19).
+   */
+  originKind?: string;
   /** Filter turns by the turn's own start time range (agent_transcript_turns.started_at). */
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
@@ -186,6 +196,14 @@ export interface FindSimilarTurnOptions {
   limit?: number;
   /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
   projectId?: string;
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — see
+   * `TranscriptSearchOptions.originKind`. Applies to the NEIGHBOURS returned,
+   * not to the seed: the seed is addressed by id, so its own provenance is the
+   * caller's to inspect on the result, while "find me operator turns like this
+   * one" is the question this filter answers.
+   */
+  originKind?: string;
 }
 
 /**
@@ -245,6 +263,13 @@ export class TranscriptSimilarityService {
       conditions.push(sql`${agentTranscriptTurnsTable.userText} IS NOT NULL`);
     } else if (opts.role === "assistant") {
       conditions.push(sql`${agentTranscriptTurnsTable.assistantText} IS NOT NULL`);
+    }
+
+    // mt#4289: a separate axis from `role` — see TranscriptSearchOptions.
+    // Mirrors TranscriptFtsService so a caller does not get operator-only
+    // results from one search surface and the unfiltered mix from the other.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
     }
 
     if (opts.sessionId) {
@@ -391,6 +416,10 @@ export class TranscriptSimilarityService {
     // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.
     if (opts.projectId) {
       conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
+    }
+    // mt#4289 — see search()'s equivalent filter and FindSimilarTurnOptions.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
     }
 
     try {
