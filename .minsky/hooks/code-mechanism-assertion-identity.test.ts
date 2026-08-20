@@ -19,8 +19,11 @@ import {
   IDENTITY_CLAIM_EXEMPLAR_SET,
   IDENTITY_CLAIM_FAMILY,
   RUNG2_NOMINATION_ENV_VAR,
+  SYMBOL_FREE_SKIP_ENV_VAR,
 } from "./code-mechanism-assertion-detector";
 import type { IdentityClaimNominator } from "./code-mechanism-assertion-detector";
+// One helper, one definition — see its docblock for why it is not duplicated here.
+import { withEnv } from "./code-mechanism-assertion-symbol-free.test";
 
 /** The phantom symbol three of the four mt#4106 fixtures carry. */
 const PHANTOM_SYMBOL = "readResidentBytes";
@@ -82,10 +85,10 @@ const MT4106_FIXTURES: Fixture[] = [
   FIXTURE_GAP_RESOLUTION,
 ];
 
-/** A nominator that nominates the whole prose as one segment. */
+/** A nominator that nominates the whole prose as one identity-family segment. */
 const alwaysNominates: IdentityClaimNominator = async (prose) => ({
   kind: "nominated",
-  segments: [prose],
+  segments: [{ family: IDENTITY_CLAIM_FAMILY, segment: prose }],
 });
 
 describe("identity-claim nomination (mt#4155)", () => {
@@ -170,17 +173,24 @@ describe("identity-claim nomination (mt#4155)", () => {
     expect(augmented.nominationDegradedReason).toContain("provider exploded");
   });
 
-  test("prose with no extractable symbol never spends a nomination round-trip", async () => {
-    let called = 0;
-    const counting: IdentityClaimNominator = async (prose) => {
-      called++;
-      return { kind: "nominated", segments: [prose] };
-    };
-    const text = "This turn is the single reader of nothing in particular.";
-    const base = detectCodeMechanismAssertion(text, "");
-    const augmented = await augmentWithIdentityNomination(base, text, "", "", counting);
-    expect(called).toBe(0);
-    expect(augmented.detectionRung).toBe("1-lexical");
+  test("with only the identity family active, symbol-free prose spends no round-trip", async () => {
+    // mt#3726 amended this test rather than deleting it. The gate it asserts is
+    // still real and still worth keeping — it just became CONDITIONAL: skipping
+    // a symbol-free turn is correct when the identity family is the only thing
+    // that could match, and wrong once the symbol-free cohort is active, whose
+    // whole subject is turns exactly like this one.
+    await withEnv(SYMBOL_FREE_SKIP_ENV_VAR, "1", async () => {
+      let called = 0;
+      const counting: IdentityClaimNominator = async (prose) => {
+        called++;
+        return { kind: "nominated", segments: [{ family: IDENTITY_CLAIM_FAMILY, segment: prose }] };
+      };
+      const text = "This turn is the single reader of nothing in particular.";
+      const base = detectCodeMechanismAssertion(text, "");
+      const augmented = await augmentWithIdentityNomination(base, text, "", "", counting);
+      expect(called).toBe(0);
+      expect(augmented.detectionRung).toBe("1-lexical");
+    });
   });
 
   test("the exemplar set is the identity family and names no concrete symbol", () => {
@@ -192,12 +202,14 @@ describe("identity-claim nomination (mt#4155)", () => {
   });
 
   test("Rung 2 is off unless the operator opts in", () => {
-    const prior = process.env[RUNG2_NOMINATION_ENV_VAR];
-    delete process.env[RUNG2_NOMINATION_ENV_VAR];
-    expect(isRung2NominationEnabled()).toBe(false);
-    process.env[RUNG2_NOMINATION_ENV_VAR] = "1";
-    expect(isRung2NominationEnabled()).toBe(true);
-    if (prior === undefined) delete process.env[RUNG2_NOMINATION_ENV_VAR];
-    else process.env[RUNG2_NOMINATION_ENV_VAR] = prior;
+    // Was the third hand-rolled env mutation, and the one with no `finally` at
+    // all — a throw between the two assertions leaked the var into every test
+    // after it. PR #3178 R1's nit named one site; this is the same class.
+    withEnv(RUNG2_NOMINATION_ENV_VAR, undefined, () => {
+      expect(isRung2NominationEnabled()).toBe(false);
+    });
+    withEnv(RUNG2_NOMINATION_ENV_VAR, "1", () => {
+      expect(isRung2NominationEnabled()).toBe(true);
+    });
   });
 });
