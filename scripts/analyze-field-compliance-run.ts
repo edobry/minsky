@@ -46,6 +46,15 @@ interface Row {
   analyzedMessages: number;
   fullWindow: boolean;
   promptChars: number;
+  /**
+   * The structured-output strategy actually sent, as recorded by the harness.
+   *
+   * OPTIONAL on purpose: datasets collected before the field existed simply lack the key, and
+   * the analysis must be able to say "unknown" for those rather than assume a value. `null`
+   * means the request set no mode — production's SDK default — which is a DIFFERENT fact from
+   * the key being absent.
+   */
+  mode?: "auto" | "json" | "tool" | null;
   outcome:
     | { kind: "ok"; findingCount: number; summaryChars: number }
     | { kind: "schema-violation"; paths: string[]; message: string }
@@ -100,6 +109,65 @@ export function fisherExactTwoSided(a: number, b: number, c: number, d: number):
 }
 
 /** Wilson score interval — behaves at 0/n and n/n, where the normal approximation does not. */
+/**
+ * Newcombe (1998) Method 10 — CI for the difference of two CORRELATED proportions.
+ *
+ * Replaces a Wald interval (PR #3204 R2). Two things are worth separating there, because the
+ * finding and its remedy were right for different reasons:
+ *
+ * The Wald SE that was here — `sqrt((b+c) − (b−c)²/n)/n` — is NOT ad-hoc. It is the standard
+ * estimated SE for the difference of correlated proportions (Agresti, matched pairs), and it
+ * was applied correctly.
+ *
+ * It was still the wrong CHOICE. The Wald interval for matched pairs is known to under-cover
+ * badly when the DISCORDANT count is small, and this analysis ran at 4 discordant pairs —
+ * squarely in that regime, and the interval was carrying a "bounded null" conclusion. Newcombe's
+ * square-and-add method is built from Wilson intervals on the two marginals plus a correlation
+ * correction, and holds its coverage at exactly the small counts where Wald fails.
+ *
+ * Cells are the matched-pairs table: `bothFail`, `onlyAFails`, `onlyBFails`, `bothOk`.
+ */
+export function newcombePairedDifferenceCI(
+  bothFail: number,
+  onlyAFails: number,
+  onlyBFails: number,
+  bothOk: number
+): [number, number] {
+  const n = bothFail + onlyAFails + onlyBFails + bothOk;
+  if (n === 0) return [0, 0];
+
+  const p1 = (bothFail + onlyAFails) / n;
+  const p2 = (bothFail + onlyBFails) / n;
+  const delta = p1 - p2;
+
+  const [l1, u1] = wilson(bothFail + onlyAFails, n);
+  const [l2, u2] = wilson(bothFail + onlyBFails, n);
+
+  // Correlation between the two marginals, from the table. When any margin is empty the
+  // product is 0 and phi is undefined — Newcombe's convention is to take 0, which reduces the
+  // method to the independent-samples square-and-add rather than silently producing NaN.
+  const marginProduct =
+    (bothFail + onlyAFails) *
+    (onlyBFails + bothOk) *
+    (bothFail + onlyBFails) *
+    (onlyAFails + bothOk);
+  const phi =
+    marginProduct > 0
+      ? Math.max(
+          -1,
+          Math.min(1, (bothFail * bothOk - onlyAFails * onlyBFails) / Math.sqrt(marginProduct))
+        )
+      : 0;
+
+  const lower =
+    delta -
+    Math.sqrt(Math.max(0, (p1 - l1) ** 2 - 2 * phi * (p1 - l1) * (u2 - p2) + (u2 - p2) ** 2));
+  const upper =
+    delta +
+    Math.sqrt(Math.max(0, (u1 - p1) ** 2 - 2 * phi * (u1 - p1) * (p2 - l2) + (p2 - l2) ** 2));
+  return [Math.max(-1, lower), Math.min(1, upper)];
+}
+
 export function wilson(successes: number, n: number): [number, number] {
   if (n === 0) return [0, 0];
   const z = 1.959963985;
@@ -149,6 +217,19 @@ function pct(x: number): string {
  * assembled by conversation id here so that miscount is not expressible.
  */
 function pairedAnalysis(rows: Row[], callErrorCount: number, arms: string[]): void {
+  // Fail loudly rather than analyzing the first two and dropping the rest (PR #3204 R3). The
+  // harness supports arbitrarily many named arms, and `arms` here comes from a Set over the
+  // data — so a three-arm dataset would silently produce a two-arm result whose omission is
+  // invisible in the output. For a script whose purpose is an auditable pre-registered
+  // analysis, publishing a partial result is worse than publishing none.
+  if (arms.length !== 2) {
+    console.error(
+      `Paired analysis requires exactly 2 arms; this dataset has ${arms.length}: ` +
+        `${arms.join(", ")}. Re-run the harness with two arms, or split the file — this script ` +
+        `will not silently analyze a subset.`
+    );
+    process.exit(2);
+  }
   const [armA, armB] = arms as [string, string];
   const byConversation = new Map<string, Map<string, Row>>();
   for (const r of rows) {
@@ -206,15 +287,13 @@ function pairedAnalysis(rows: Row[], callErrorCount: number, arms: string[]): vo
 
   // The pre-registration commits to reporting a CI on the DIFFERENCE when the test is null,
   // because "failed to reject" alone is compatible with both "no effect" and "no power" and a
-  // reader cannot tell which. For paired data the difference is (b−c)/n and its standard error
-  // depends only on the DISCORDANT counts — concordant pairs contribute nothing, which is why
-  // a small discordant count can bound the effect tightly even when the marginal rates are high.
+  // reader cannot tell which.
+  //
+  // Newcombe rather than Wald (PR #3204 R2). The Wald SE for correlated proportions is standard
+  // and was applied correctly, but it under-covers at small DISCORDANT counts — and this run
+  // has 4, with the interval carrying the bounded-vs-underpowered verdict below.
   const diff = (onlyAFails - onlyBFails) / pairs.length;
-  const seDiff =
-    Math.sqrt(Math.max(0, discordant - (onlyAFails - onlyBFails) ** 2 / pairs.length)) /
-    pairs.length;
-  const loDiff = diff - 1.959963985 * seDiff;
-  const hiDiff = diff + 1.959963985 * seDiff;
+  const [loDiff, hiDiff] = newcombePairedDifferenceCI(bothFail, onlyAFails, onlyBFails, bothOk);
   console.log(
     `paired difference (${armA} − ${armB}): ${(100 * diff).toFixed(1)} points  ` +
       `(95% CI ${(100 * loDiff).toFixed(1)} to ${(100 * hiDiff).toFixed(1)})`
@@ -320,22 +399,54 @@ function main(): void {
 
   const overallFail = analyzed.filter(failed).length;
   const [oLo, oHi] = wilson(overallFail, analyzed.length);
+
+  // Describe the configuration from the DATA, never from the arm's name (PR #3204 R1).
+  //
+  // This line previously read "SC1 — production baseline under `auto`" unconditionally, so a
+  // dataset gathered under any other configuration would have been labelled `auto` anyway.
+  // In a script whose entire purpose is an auditable analysis, an unverifiable assertion in the
+  // output is the same defect class as the mislabeled baselines this task exists to correct —
+  // and it is how a 12.5% figure taken under tool mode got carried for a day as production's.
+  //
+  // `mode` is recorded per row by the harness. Older datasets predate that field, so absence is
+  // reported as unknown rather than assumed: an unrecorded configuration and a verified `auto`
+  // must not print the same way.
+  // Keyed on PRESENCE, not on `??`. `mode: null` means "no mode set — production's `auto`",
+  // which is a KNOWN configuration; an absent key means the dataset predates the field and the
+  // configuration is UNKNOWN. `r.mode ?? "unrecorded"` collapses those two into one string,
+  // manufacturing a value for a key that isn't there — the same projection hazard this cluster
+  // keeps meeting. `in` distinguishes them; the nullish operator cannot.
+  const describeMode = (r: Row): string =>
+    "mode" in r ? (r.mode === null ? "auto (no mode set)" : String(r.mode)) : "unrecorded";
+  const modes = [...new Set(analyzed.map(describeMode))];
+  const armLabel = [...new Set(analyzed.map((r) => r.arm))].join("+");
+  const configLabel =
+    modes.length !== 1
+      ? `arm "${armLabel}", MIXED modes: ${modes.join(", ")}`
+      : modes[0] === "unrecorded"
+        ? `arm "${armLabel}", mode NOT RECORDED in this dataset — verify separately`
+        : modes[0] === "auto (no mode set)"
+          ? `arm "${armLabel}", no mode set (SDK default \`auto\`) — production configuration`
+          : `arm "${armLabel}", mode=${modes[0]}`;
   console.log(
-    `SC1 — production baseline under \`auto\`: ${overallFail}/${analyzed.length} = ` +
+    `SC1 — baseline (${configLabel}): ${overallFail}/${analyzed.length} = ` +
       `${pct(overallFail / analyzed.length)}  (95% CI ${pct(oLo)}–${pct(oHi)})`
   );
   console.log("");
 
-  const [bLo, bHi] = wilson(belowFail, below.length);
-  const [aLo, aHi] = wilson(aboveFail, above.length);
-  console.log(
-    `below ${THRESHOLD_CHARS}: ${belowFail}/${below.length} = ` +
-      `${below.length ? pct(belowFail / below.length) : "n/a"}  (95% CI ${pct(bLo)}–${pct(bHi)})`
-  );
-  console.log(
-    `at/above ${THRESHOLD_CHARS}: ${aboveFail}/${above.length} = ` +
-      `${above.length ? pct(aboveFail / above.length) : "n/a"}  (95% CI ${pct(aLo)}–${pct(aHi)})`
-  );
+  // An empty stratum prints NO interval (PR #3204 NB1). `wilson(x, 0)` returns [0,0], which
+  // renders as "95% CI 0.0%-0.0%" — indistinguishable from a genuinely tight bound, and the
+  // more confident-looking of the two readings. No data must not render as certainty.
+  const rateLine = (label: string, fails: number, group: Row[]): string => {
+    if (group.length === 0) return `${label}: 0/0 — NO DATA in this stratum, no interval`;
+    const [lo, hi] = wilson(fails, group.length);
+    return (
+      `${label}: ${fails}/${group.length} = ${pct(fails / group.length)}  ` +
+      `(95% CI ${pct(lo)}–${pct(hi)})`
+    );
+  };
+  console.log(rateLine(`below ${THRESHOLD_CHARS}`, belowFail, below));
+  console.log(rateLine(`at/above ${THRESHOLD_CHARS}`, aboveFail, above));
 
   const p = fisherExactTwoSided(
     aboveFail,

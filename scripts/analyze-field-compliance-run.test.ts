@@ -1,5 +1,10 @@
 import { describe, it, expect } from "bun:test";
-import { fisherExactTwoSided, mcnemarExactTwoSided, wilson } from "./analyze-field-compliance-run";
+import {
+  fisherExactTwoSided,
+  mcnemarExactTwoSided,
+  newcombePairedDifferenceCI,
+  wilson,
+} from "./analyze-field-compliance-run";
 
 /**
  * mt#4365. These pin a hand-rolled statistic against values computed independently of this
@@ -100,6 +105,66 @@ describe("mcnemarExactTwoSided", () => {
     expect(Number.isFinite(p)).toBe(true);
     expect(p).toBeGreaterThan(0);
     expect(p).toBeLessThan(0.001);
+  });
+});
+
+describe("newcombePairedDifferenceCI", () => {
+  it("reproduces the hand-computed interval for mt#4365's actual Run 2 table", () => {
+    // Cells: bothFail 30, onlyBaseline 1, onlyTool 3, bothOk 66 (n=100).
+    // Hand-computed via Newcombe Method 10 with z = 1.95996:
+    //   p1 = 0.31, p2 = 0.33, delta = -0.02
+    //   Wilson(31,100) = [0.22780, 0.40627]; Wilson(33,100) = [0.24563, 0.42695]
+    //   phi = (30*66 - 1*3)/sqrt(31*69*33*67) = 1977/2174.7 = 0.9091
+    //   lower = -0.02 - sqrt(0.0822^2 - 2*0.9091*0.0822*0.096946 + 0.096946^2) = -0.0608
+    //   upper = -0.02 + sqrt(0.096266^2 - 2*0.9091*0.096266*0.08437 + 0.08437^2) = +0.0202
+    const [lo, hi] = newcombePairedDifferenceCI(30, 1, 3, 66);
+    expect(lo).toBeCloseTo(-0.0608, 3);
+    expect(hi).toBeCloseTo(0.0202, 3);
+  });
+
+  it("brackets the observed difference", () => {
+    const [lo, hi] = newcombePairedDifferenceCI(30, 1, 3, 66);
+    const delta = (1 - 3) / 100;
+    expect(lo).toBeLessThan(delta);
+    expect(hi).toBeGreaterThan(delta);
+  });
+
+  it("is centred on zero when the discordant counts are equal", () => {
+    const [lo, hi] = newcombePairedDifferenceCI(20, 5, 5, 70);
+    expect(lo).toBeCloseTo(-hi, 9);
+  });
+
+  it("reverses sign when the arms are swapped", () => {
+    const [lo1, hi1] = newcombePairedDifferenceCI(30, 1, 3, 66);
+    const [lo2, hi2] = newcombePairedDifferenceCI(30, 3, 1, 66);
+    expect(lo2).toBeCloseTo(-hi1, 6);
+    expect(hi2).toBeCloseTo(-lo1, 6);
+  });
+
+  it("stays within [-1, 1] on a fully separated table", () => {
+    const [lo, hi] = newcombePairedDifferenceCI(0, 50, 0, 50);
+    expect(lo).toBeGreaterThanOrEqual(-1);
+    expect(hi).toBeLessThanOrEqual(1);
+  });
+
+  it("returns a degenerate interval for an empty table rather than NaN", () => {
+    expect(newcombePairedDifferenceCI(0, 0, 0, 0)).toEqual([0, 0]);
+  });
+
+  it("does not produce NaN when a margin is empty and phi is undefined", () => {
+    // 0 margins make the correlation denominator 0; Newcombe's convention takes phi = 0.
+    const [lo, hi] = newcombePairedDifferenceCI(0, 0, 0, 40);
+    expect(Number.isNaN(lo)).toBe(false);
+    expect(Number.isNaN(hi)).toBe(false);
+  });
+
+  it("is WIDER than the Wald interval it replaced, at the small discordant count that motivated the change", () => {
+    // Wald for this table: sqrt((1+3) - (1-3)^2/100)/100 = sqrt(3.96)/100 = 0.019900,
+    // so +/- 1.95996*0.0199 = +/- 0.039, giving [-0.059, +0.019].
+    // Newcombe should not be NARROWER — the whole point is that Wald under-covers here.
+    const [lo, hi] = newcombePairedDifferenceCI(30, 1, 3, 66);
+    const waldHalfWidth = 1.95996 * (Math.sqrt(4 - 4 / 100) / 100);
+    expect(hi - lo).toBeGreaterThanOrEqual(2 * waldHalfWidth - 1e-6);
   });
 });
 

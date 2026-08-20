@@ -249,6 +249,16 @@ interface ResultRow {
    * data already collected rather than needing another live run.
    */
   promptChars: number;
+  /**
+   * The structured-output strategy ACTUALLY SENT for this row — `null` when the request set
+   * none, i.e. the SDK picks (`auto`), which is what production does.
+   *
+   * Recorded because the analysis must not have to INFER the configuration from an arm's name
+   * (PR #3204 R1). An arm called `baseline` asserts nothing; a recorded `mode` is checkable.
+   * Without it, a dataset gathered under one configuration can be analyzed and labelled as
+   * another, which is precisely the mislabeling this whole task exists to avoid.
+   */
+  mode: "auto" | "json" | "tool" | null;
   outcome: Outcome;
 }
 
@@ -352,6 +362,8 @@ async function main(): Promise<void> {
         analyzedMessages: sampling.analyzedMessages,
         fullWindow,
         promptChars: userPrompt.length,
+        // Read off the arm that was actually spread into the request, not off its name.
+        mode: arm.mode ?? null,
         outcome,
       };
       rows.push(row);
