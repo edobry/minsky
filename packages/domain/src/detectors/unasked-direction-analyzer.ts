@@ -173,27 +173,28 @@ export type AnalyzerOutput = z.infer<typeof analyzerOutputSchema>;
  *
  * Extracted by mt#4317 so the measurement harness
  * (`scripts/experiment-analyzer-field-compliance.ts`) reproduces the PRODUCTION call
- * exactly rather than mirroring four literals that can drift. The harness spreads this
- * and overrides only the one variable its arm is testing; anything it does not override
- * is by construction the shipped value.
+ * exactly rather than mirroring four literals that can drift. The harness spreads this and
+ * overrides only the one variable its arm is testing; anything it does not override is by
+ * construction the shipped value.
  *
- * `mode: "tool"` asks for the object as a TOOL CALL rather than a JSON document. The
- * analyzer loses a large minority of its live runs to the model returning a well-formed
- * object MISSING a field the schema marks required — 17 of 39 full-window runs, flat
- * across a 6x token-budget range. The emitted JSON Schema does carry
- * `required: ["findings","summary"]`, so the model is being told and not complying. In
- * tool mode the schema becomes a tool signature the PROVIDER enforces, instead of the
- * model having to remember to fill every field of a free JSON document — the same move
- * Minsky already made for the reviewer (position paper "Reviewer output as a structured
- * channel", which argues that scraping a structured artifact out of a channel that must
- * be parsed back is a channel mismatch rather than something to tune past).
+ * **`mode` is deliberately absent**, so the SDK picks (`"auto"`) exactly as it always has.
+ * `AIObjectGenerationRequest.mode` exists and is forwarded — mt#4317 added it — but setting
+ * it here would be an unmeasured behaviour change to a production path. Tool mode was
+ * measured once, at 11/40 against `auto`'s 15/40 on n=40 per arm, which is not separable
+ * from run-to-run variance; that is the same standard under which this task declined to ship
+ * a field reorder, and it applies here too. The harness carries a `tool-mode` arm so a run
+ * large enough to settle it does not have to rebuild the plumbing.
+ *
+ * Caveat on the recorded figures below and in `analyzerOutputSchema`: both mt#4317 runs were
+ * taken on a branch that DID set `mode: "tool"`, so their absolute rates are tool-mode rates.
+ * The paired comparisons between arms are unaffected — every arm in a run shared the mode —
+ * but the current production rate under `auto` has not been re-measured.
  */
 const ANALYZER_REQUEST_DEFAULTS = {
   model: ANALYZER_MODEL,
   provider: ANALYZER_PROVIDER,
   temperature: 0.2,
   maxTokens: MAX_TOKENS,
-  mode: "tool",
 } as const;
 
 // ---------------------------------------------------------------------------

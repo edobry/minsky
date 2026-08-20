@@ -51,7 +51,8 @@ import "reflect-metadata";
 
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { z } from "zod";
 
 import { resolvePersistenceProviderOrError } from "../packages/domain/src/persistence/factory";
@@ -109,6 +110,8 @@ interface Arm {
   name: string;
   schema: z.ZodType;
   systemPrompt: string;
+  /** Overrides the request's structured-output strategy; unset means production's default. */
+  mode?: "auto" | "json" | "tool";
 }
 
 const ALL_ARMS: readonly Arm[] = [
@@ -120,6 +123,15 @@ const ALL_ARMS: readonly Arm[] = [
     schema: analyzerOutputSchema,
     systemPrompt: SYSTEM_PROMPT_NAMING_SUMMARY,
   },
+  // The one arm that overrides a REQUEST parameter rather than the schema or the prompt.
+  //
+  // `mode: "tool"` exposes the schema as a tool signature the provider enforces, instead of
+  // asking the model to emit a conforming JSON document. Measured once at 11/40 against
+  // `auto`'s 15/40 — not separable from variance at that n — so production does NOT set it
+  // (see `ANALYZER_REQUEST_DEFAULTS`). It lives here so a run large enough to settle it costs
+  // a flag rather than a re-implementation, and so `AIObjectGenerationRequest.mode` has a
+  // consumer that exercises the forwarding path.
+  { name: "tool-mode", schema: analyzerOutputSchema, systemPrompt: SYSTEM_PROMPT, mode: "tool" },
 ];
 
 /**
@@ -242,7 +254,9 @@ interface ResultRow {
 
 async function main(): Promise<void> {
   const limit = parseIntArg("--limit", 30);
-  const outPath = parseStringArg("--out", ".scratch/field-compliance.jsonl");
+  // `.tmp/` rather than an invented `.scratch/`: it is already in .gitignore, so the default
+  // output of an ad-hoc harness can never become an accidental commit.
+  const outPath = parseStringArg("--out", ".tmp/analyzer-field-compliance.jsonl");
 
   await initializeConfig();
   const db = await openDatabase();
@@ -261,6 +275,10 @@ async function main(): Promise<void> {
   const completionService = await buildCompletionService();
   if (!completionService) skip("AI providers not configured");
 
+  // Created for whatever path the caller gave, not just the default: the previous version
+  // assumed the directory existed because the author had made it by hand, so a clean checkout
+  // threw ENOENT before running a single arm (PR #3200 R2).
+  mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, "");
   const rows: ResultRow[] = [];
   /** Transcripts that never reached the model, with why — a DB fault is not a datum. */
@@ -309,6 +327,9 @@ async function main(): Promise<void> {
           ],
           schema: arm.schema,
           ...ANALYZER_REQUEST_DEFAULTS,
+          // Spread AFTER the production defaults so an arm can override one of them, and
+          // conditional so an arm that sets nothing is byte-identical to the production call.
+          ...(arm.mode !== undefined ? { mode: arm.mode } : {}),
         })) as { findings: unknown[]; summary: string };
         outcome = {
           kind: "ok",
