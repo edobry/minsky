@@ -190,10 +190,14 @@ function isDanglingRedirection(token: string): boolean {
 /**
  * Positional arguments of a search invocation, in order, with flags and their values removed.
  *
- * Returns null when the grammar cannot be walked confidently — an unknown shape is a reason to say
- * nothing, never to guess which token was a path.
+ * Always returns an array (PR #3203 R1). It used to be typed `string[] | null` with a docblock
+ * promising null "when the grammar cannot be walked confidently" — but no code path ever produced
+ * one, in this version or the copy it replaced, so the null arm was a dead branch two call sites
+ * carried guards for. The say-nothing-on-an-unknown-shape principle it was reaching for is real and
+ * still enforced, one layer out: `isUnresolvable` and `resolveTarget` decline to stat anything whose
+ * meaning depends on runtime state, which is where an unknown shape actually becomes silence.
  */
-export function positionalArgs(tokens: readonly string[]): string[] | null {
+export function positionalArgs(tokens: readonly string[]): string[] {
   if (tokens.length === 0) return [];
 
   // Strip redirections FIRST, then hand the rest to the shared walker (mt#4328).
@@ -282,11 +286,13 @@ function findPathOperands(tokens: readonly string[]): string[] {
  * already supplied one, in which case every positional is a path. `find` takes `[PATH...]
  * [EXPRESSION]` and is walked by {@link findPathOperands}.
  */
-export function pathArgs(binary: string, tokens: readonly string[]): string[] | null {
+export function pathArgs(binary: string, tokens: readonly string[]): string[] {
   if (binary === "find") return findPathOperands(tokens);
 
+  // Narrowed from `string[] | null` alongside `positionalArgs` (PR #3203 R1):
+  // neither branch here could produce null, so the guard this replaced was dead
+  // and so was the one at its own call site in `scanCommand`.
   const positionals = positionalArgs(tokens);
-  if (positionals === null) return null;
 
   const patternSuppliedByFlag = tokens.some((t, i) => i > 0 && suppliesPattern(t));
 
@@ -458,7 +464,6 @@ export function scanCommand(
       if (!binary || !SEARCH_BINARIES.has(binary)) continue;
 
       const paths = pathArgs(binary, tokens);
-      if (paths === null) continue;
 
       if (hasCommandSubstitution(stage)) {
         unresolvedCount += paths.length;
