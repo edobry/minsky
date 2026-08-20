@@ -143,6 +143,23 @@ export interface DeferralMatch {
    * them.
    */
   context: string;
+  /**
+   * JUST the sentence containing the match (mt#4201, PR #3205 R1).
+   *
+   * Captured here, at match time, where `m.index` is known — NOT re-derived
+   * later by searching {@link context} for {@link matchedPhrase}. The reviewer
+   * caught why that mattered: a phrase recurring in the captured window makes a
+   * substring search select the WRONG occurrence's sentence, and `context`
+   * deliberately carries a lead sentence (`leadSentences: 1`) for exactly the
+   * kind of prose where a deferral phrase repeats. Same extractor, one fewer
+   * lead sentence, zero ambiguity.
+   *
+   * SEPARATE from `context` rather than replacing it: `context` is what a
+   * calibration reviewer classifies from and its width was chosen deliberately
+   * (see above). This is the narrower window the ask-citation suppression tests,
+   * and only that.
+   */
+  sentence: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -439,6 +456,9 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
         // is byte-identical between a real deferral and a courtesy offer. See
         // `MatchContextOptions.leadSentences` for the measured distribution.
         context: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 1 }),
+        // mt#4201: the same extractor with no lead sentence IS the containing
+        // sentence — the forward scan already stops at the first `.`/`!`/`?`.
+        sentence: extractMatchContext(scanned, m.index ?? 0, m[0].length, { leadSentences: 0 }),
       });
       break;
     }
@@ -454,6 +474,7 @@ export function detectDeferralPhrases(text: string): DeferralMatch[] {
         cls: "deferral-menu",
         matchedPhrase: offer.label,
         context: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 1 }),
+        sentence: extractMatchContext(scanned, offer.index, offer.length, { leadSentences: 0 }),
       });
     }
   }
@@ -673,10 +694,23 @@ const ASK_CITATION_RE = /\bask#\d+\b|minsky:\/\/ask\/[0-9a-f-]{8,}/i;
 /**
  * Whether a matched sentence is REPORTING a filed ask rather than deferring.
  *
- * Reads the match's own {@link DeferralMatch.context} — the containing sentence
- * captured at match time — NOT the whole turn. That scope is the whole
- * discrimination: a message may report a filed ask in one paragraph and defer
- * something else in another, and only the reporting sentence should go quiet.
+ * Takes {@link DeferralMatch.sentence} — the containing sentence, captured at
+ * match time — NOT the turn and NOT the wider `context`. That scope is the whole
+ * discrimination, and getting it wrong in either direction has a cost:
+ *
+ * - Too WIDE (the `context`, which carries a lead sentence) suppresses a genuine
+ *   deferral sitting beside a reported ask. Found by a failing test:
+ *   *"Still yours: [ask#9275](…), whether the detector starts speaking. Want me
+ *   to file the follow-up task, or should I leave it?"* — the second sentence is
+ *   real work the agent could just do, and context granularity silences it.
+ * - Too CLEVER (re-deriving the sentence later by searching the context for the
+ *   phrase) picks the wrong occurrence when the phrase repeats — PR #3205 R1.
+ *   Hence the capture at match time, where the offset is known.
+ *
+ * The value read is the ELIDED text, so an ask id inside a code fence or a
+ * quoted span is blanked and does NOT suppress. That is correct rather than
+ * incidental: quoted text is not this turn's citation, and honoring it would let
+ * a pasted transcript silence a live deferral (PR #3205 R1, non-blocking).
  *
  * **The id is MATCHED, never verified to exist, and that is a decision with a
  * stated failure mode (SC5).** Verifying would mean a substrate lookup inside a
@@ -691,63 +725,8 @@ const ASK_CITATION_RE = /\bask#\d+\b|minsky:\/\/ask\/[0-9a-f-]{8,}/i;
  * downstream victim, and the ask substrate remains the source of truth for
  * whether a decision was actually routed.
  */
-export function citesFiledAsk(context: string, matchedPhrase: string): boolean {
-  return ASK_CITATION_RE.test(sentenceAround(context, matchedPhrase));
-}
-
-/**
- * The single sentence of `context` that contains `phrase`.
- *
- * **This narrowing is load-bearing and was found by a failing test, not by
- * reasoning.** `DeferralMatch.context` is built by `extractMatchContext` with
- * `leadSentences: 1`, which walks BACKWARD across `leadSentences + 1` boundaries
- * — so the context deliberately carries the sentence BEFORE the match, and can
- * run past it to the end of the line. Testing the whole context for an ask
- * citation therefore suppresses a genuine deferral whenever an unrelated
- * sentence beside it happens to report an ask. That is the over-suppression
- * direction, and it costs the true positives SC3 exists to protect:
- *
- *   "Still yours: [ask#9275](…), whether the detector starts speaking. Want me
- *    to file the follow-up task, or should I leave it?"
- *
- * The second sentence is a real deferral of work the agent could just do. Read
- * at context granularity it goes quiet; read at sentence granularity it fires,
- * which is what SC1's "in the same sentence" asks for.
- *
- * **Fails toward FIRING.** If the phrase cannot be located in its own context —
- * which should not happen, since the context is cut around it — this returns the
- * empty string and no citation matches, so the guard speaks. Between the two
- * error directions that is the recoverable one: a spurious fire is visible and
- * annoying, while a spurious silence removes the detector's whole value with no
- * signal that anything was lost.
- */
-function sentenceAround(context: string, phrase: string): string {
-  const at = context.indexOf(phrase);
-  if (at < 0) return "";
-
-  const isBoundary = (i: number): boolean => {
-    const ch = context[i];
-    if (ch === "\n") return true;
-    return (ch === "." || ch === "!" || ch === "?") && /\s/.test(context[i + 1] ?? " ");
-  };
-
-  let start = 0;
-  for (let i = at - 1; i >= 0; i--) {
-    if (isBoundary(i)) {
-      start = i + 1;
-      break;
-    }
-  }
-
-  let end = context.length;
-  for (let i = at + phrase.length; i < context.length; i++) {
-    if (isBoundary(i)) {
-      end = i + 1;
-      break;
-    }
-  }
-
-  return context.slice(start, end);
+export function citesFiledAsk(sentence: string): boolean {
+  return ASK_CITATION_RE.test(sentence);
 }
 
 /**
@@ -761,7 +740,7 @@ export function resolveAskCitation(matches: DeferralMatch[]): {
   remaining: DeferralMatch[];
   suppressedAll: boolean;
 } {
-  const remaining = matches.filter((m) => !citesFiledAsk(m.context, m.matchedPhrase));
+  const remaining = matches.filter((m) => !citesFiledAsk(m.sentence));
   return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
