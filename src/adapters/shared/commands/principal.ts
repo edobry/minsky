@@ -87,28 +87,30 @@ function getDbFromContainer(
  * so a test can register into an isolated `createSharedCommandRegistry()`
  * instance instead of the shared one every other test file also touches.
  *
- * `channelDeps` (mt#3557) is the seam a test needs to make the "not
- * configured" branch REACHABLE. Without it, a test asserting that branch
- * cannot guarantee it: `resolvePrincipalChannel` reads the real environment,
- * and when that is empty it falls through to spawning the `pulumi` CLI, so on
- * any machine with Pulumi config the resolution SUCCEEDS and `notifyPrincipal`
- * sends over the real global `fetch`. That is not hypothetical — it is what
- * this file's own tests were doing: every full-suite run on the principal's
- * machine delivered two live Telegram messages, and the two tests asserting
- * `delivered: false` failed with `delivered: true`.
+ * `channelDeps` is REQUIRED (mt#3609). It arrived as an optional seam in
+ * mt#3557, when a test asserting the "not configured" branch could not
+ * guarantee that branch: `resolvePrincipalChannel` read the real environment,
+ * and when that was empty it fell through to spawning the `pulumi` CLI, so on
+ * any machine with Pulumi config the resolution SUCCEEDED and
+ * `notifyPrincipal` sent over the real global `fetch`. That was not
+ * hypothetical — it is what this file's own tests were doing: every
+ * full-suite run on the principal's machine delivered two live Telegram
+ * messages, and the two tests asserting `delivered: false` failed with
+ * `delivered: true`.
+ *
+ * mt#3609 removed the fallbacks that made it possible, so the seam is no
+ * longer an affordance a caller may decline — every caller states its
+ * dependencies, production included. `./index.ts` passes
+ * `createRealPrincipalChannelDeps()`; tests pass fakes. Because the parameter
+ * is required it comes FIRST, ahead of the optional registry.
  *
  * The deps are MERGED under the taskId-derived `lookupTaskTopic` /
  * `markTopicDead` rather than replacing them, so injecting credential readers
  * does not silently disable topic routing.
- *
- * Note this is the seam only; the underlying `deps.X ?? <real implementation>`
- * shape inside `packages/domain/src/notify/principal-channel.ts` is the
- * ADR-026-banned fallback that made the failure possible in the first place —
- * tracked separately as mt#3609.
  */
 export function registerPrincipalCommands(
-  registry?: SharedCommandRegistry,
-  channelDeps?: PrincipalChannelDeps
+  channelDeps: PrincipalChannelDeps,
+  registry?: SharedCommandRegistry
 ): void {
   const targetRegistry = registry ?? sharedCommandRegistry;
   targetRegistry.registerCommand({
@@ -124,22 +126,17 @@ export function registerPrincipalCommands(
       // a call with no taskId (every caller before this parameter existed,
       // and any caller with nothing to name) needs none of this and reaches
       // notifyPrincipal exactly as it always did.
-      let deps: PrincipalChannelDeps | undefined = channelDeps;
+      let deps: PrincipalChannelDeps = channelDeps;
       if (params.taskId !== undefined) {
         const getDb = getDbFromContainer(ctx);
         if (getDb) {
           deps = {
-            // `?? {}` is a readability no-op, not a bug fix. Object spread of
-            // `undefined` yields no properties and does not throw — only
-            // ARRAY spread (`[...undefined]`) is a TypeError. PR #2566 R1
-            // flagged this as a "possible runtime TypeError"; that was a false
-            // positive, disproved by execution (`{...undefined, a:1}` -> `{a:1}`)
-            // and by the pre-existing passing test "a taskId with persistence
-            // available queries the topic store before sending", which already
-            // takes this exact branch with `channelDeps === undefined`. Written
-            // explicitly to converge the review rather than spend an operator
-            // authorization on a one-line non-issue.
-            ...(channelDeps ?? {}),
+            // `channelDeps` is REQUIRED as of mt#3609, so this spread no longer
+            // needs the `?? {}` guard PR #2566 R1 asked about — there is no
+            // `undefined` case left to spread. The topic hooks are ADDED to the
+            // caller's deps rather than replacing them, so injecting credential
+            // readers does not silently disable topic routing.
+            ...channelDeps,
             lookupTaskTopic: (taskId, chatId) =>
               findTelegramTopicForTask(taskId, chatId, { getDb }),
             markTopicDead: (chatId, messageThreadId) =>
@@ -152,7 +149,7 @@ export function registerPrincipalCommands(
         message: params.message,
         ...(params.title === undefined ? {} : { title: params.title }),
         ...(params.taskId === undefined ? {} : { taskId: params.taskId }),
-        ...(deps ? { deps } : {}),
+        deps,
       });
 
       const human = !params.json && ctx?.format !== "json";
