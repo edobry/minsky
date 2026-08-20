@@ -91,13 +91,23 @@ export function truncateToCodePoints(value: string, max: number): string {
  * Returns the input unchanged when it already fits, so the common case allocates
  * nothing.
  *
- * KNOWN REMAINING CONSUMER: `guard-health-escalation-detector` still bounds its
- * interpolated `Error.message` with `truncateToCodePoints` under a `.length`-
- * enforced ceiling of 1300 — the same mismatch, on a different guard, and worse
- * per-render because it emits one such line per failing guard. Adopting this
- * there is mt#4359, filed rather than folded into mt#4234 because that task's
- * scope explicitly excludes other guards. Until it lands, this file has one
- * caller of each function and the difference between them is load-bearing.
+ * ADOPTION IS COMPLETE (mt#4359): `guard-health-escalation-detector` was the one
+ * remaining consumer of the code-point cap under a `.length`-enforced ceiling,
+ * and it now calls this instead. Measured there before the switch: an all-ASCII
+ * saturated render of 1207 against a declared 1300, and the identical all-emoji
+ * render at 1327 — over.
+ *
+ * At the time of writing (2026-08-20, mt#4359) that left {@link truncateToCodePoints}
+ * with no call sites — verified by a repo-wide grep, excluding `node_modules` and
+ * the generated `.claude/hooks` mirror. Treat that as a DATED OBSERVATION, not an
+ * invariant: nothing enforces it, so a later caller can be added without this
+ * sentence changing. Re-grep before relying on it.
+ *
+ * It is kept rather than deleted because it remains the correct primitive for a
+ * value that is NOT interpolated into ceiling-enforced text, and because the
+ * contrast between the two is what makes the unit choice legible at a call site.
+ * If you are adding one, the question to answer first is whether anything
+ * measures the result with `.length` — if so, you want THIS function.
  */
 export function truncateToRenderedLength(value: string, max: number): string {
   if (value.length <= max) return value;
