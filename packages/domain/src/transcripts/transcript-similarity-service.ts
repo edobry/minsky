@@ -114,6 +114,18 @@ export interface TranscriptTurnResult {
   agentSessionId: string;
   turnIndex: number;
   userText: string | null;
+  /**
+   * Who authored `userText` (mt#4289) — `"human"` for operator speech, a
+   * harness kind (`compact_summary`, `harness_meta`, `task_notification`, …)
+   * for a `user`-role line Claude Code generated. Null when the turn carries no
+   * `userText`.
+   *
+   * Read this before treating a `role: "user"` hit as something the operator
+   * said: measured against prod 2026-08-19, 43.5% of turns carrying `userText`
+   * are harness-written. `originKind` on the search options filters on it
+   * server-side.
+   */
+  userOrigin: string | null;
   assistantText: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
@@ -228,6 +240,16 @@ export interface TranscriptSearchOptions {
   limit?: number;
   /** Filter by turn role: 'user' turns have non-null userText; 'assistant' turns have non-null assistantText. */
   role?: "user" | "assistant";
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — e.g. `"human"` for
+   * operator speech only. Mirrors `TranscriptFtsSearchOptions.originKind`, so
+   * the two search surfaces answer the same question the same way.
+   *
+   * A separate axis from `role`: `role: "user"` tests `user_text IS NOT NULL`,
+   * which 8,245 harness-written rows also satisfy (43.5% of that population,
+   * measured against prod 2026-08-19).
+   */
+  originKind?: string;
   /** Filter turns by the turn's own start time range (agent_transcript_turns.started_at). */
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
@@ -249,6 +271,14 @@ export interface FindSimilarTurnOptions {
   limit?: number;
   /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
   projectId?: string;
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — see
+   * `TranscriptSearchOptions.originKind`. Applies to the NEIGHBOURS returned,
+   * not to the seed: the seed is addressed by id, so its own provenance is the
+   * caller's to inspect on the result, while "find me operator turns like this
+   * one" is the question this filter answers.
+   */
+  originKind?: string;
 }
 
 /**
@@ -313,6 +343,13 @@ export class TranscriptSimilarityService {
       conditions.push(sql`${agentTranscriptTurnsTable.assistantText} IS NOT NULL`);
     }
 
+    // mt#4289: a separate axis from `role` — see TranscriptSearchOptions.
+    // Mirrors TranscriptFtsService so a caller does not get operator-only
+    // results from one search surface and the unfiltered mix from the other.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
+    }
+
     if (opts.sessionId) {
       conditions.push(eq(agentTranscriptTurnsTable.agentSessionId, opts.sessionId));
     }
@@ -335,6 +372,7 @@ export class TranscriptSimilarityService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -363,6 +401,7 @@ export class TranscriptSimilarityService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
@@ -457,6 +496,10 @@ export class TranscriptSimilarityService {
     if (opts.projectId) {
       conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
     }
+    // mt#4289 — see search()'s equivalent filter and FindSimilarTurnOptions.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
+    }
 
     try {
       const rows = await this.db
@@ -464,6 +507,7 @@ export class TranscriptSimilarityService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -491,6 +535,7 @@ export class TranscriptSimilarityService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
