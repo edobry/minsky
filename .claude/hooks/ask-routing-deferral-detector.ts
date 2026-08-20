@@ -692,6 +692,13 @@ export function resolveStopOverlap(
  * cockpit anyway. Requiring the link would fire on exactly the case the deeplink
  * rule already concedes.
  */
+// ADR-024 **Rung 1 — quotation/citation-aware deterministic prefilter**, which
+// that ADR names as "the default stopping point" and clause (a) says the ladder
+// stops at "by default; Rungs 2-3 are strictly evidence-gated". A literal
+// ask-citation token test is precisely citation-aware deterministic
+// prefiltering — the ADR's own words for it — so no rung escalation is argued
+// and none is needed. Recorded HERE, at the mechanism, because SC2 asks for the
+// rung to be named in the implementation and a PR body does not survive merge.
 const ASK_CITATION_RE = /\bask#\d+\b|minsky:\/\/ask\/[0-9a-f-]{8,}/i;
 
 /**
