@@ -264,46 +264,12 @@ at hand.
 tmux needs `set -g allow-passthrough on` for OSC-8. Non-OSC-8 terminals (older emulators, pipes,
 CI logs) show the plain label.
 
-**Ghostty ≤ 1.3.1 renders a `minsky://` deeplink and silently does nothing on click (mt#4333).**
-Not a degraded label — a dead control: it looks actionable, absorbs the click, and returns no
-signal, so the reader concludes their own setup is broken. `https://` links in the same message
-open normally, which is the tell.
-
-The cause is a MISSING CAPABILITY, not a bug, and it is already fixed upstream. Ghostty routes
-terminal-supplied URLs through `macos/Sources/Helpers/UntrustedURL.swift`, whose `default:` branch
-— everything that is not `http`, `https`, `mailto`, or `file` — returns `.confirm`: *"A custom
-scheme can invoke any application registered with Launch Services. The caller must show the target
-and handler before allowing that dispatch."* That file **does not exist at tag `v1.3.1`** and was
-added by [commit `77537c806`](https://github.com/ghostty-org/ghostty/commit/77537c806) on
-2026-08-05 ([file on `main`](https://github.com/ghostty-org/ghostty/blob/main/macos/Sources/Helpers/UntrustedURL.swift)).
-`v1.3.1` is the newest release, so custom-scheme dispatch ships only on unreleased `main`/`tip`.
-Re-check:
-
-```sh
-for r in v1.3.1 main; do
-  printf '%s ' "$r"
-  curl -sL -o /dev/null -w '%{http_code}\n' \
-    "https://raw.githubusercontent.com/ghostty-org/ghostty/$r/macos/Sources/Helpers/UntrustedURL.swift"
-done
-```
-
-One URL per `curl`, deliberately: `-o` binds to the FIRST url only, so passing both to a single
-invocation prints the first status and then dumps the second file to stdout. A loop is also plain
-POSIX `sh` — no brace expansion — so it runs wherever the reader pastes it.
-
-`404` then `200` means the boundary still holds; two `200`s mean a release now carries it and this
-caveat can be retired. **Emit deeplinks normally regardless** — iTerm2 dispatches them today, and a
-workaround on the emission side would be a permanent cost against a temporary gap. Ghostty's own
-`link` config cannot substitute: its docstring reads `TODO: This can't currently be set!`
-(`src/config/Config.zig:1461`), and `link-osc8` already defaults to `true`, so OSC-8 was never the
-missing piece.
-
-ghostty#11907 reports the symptom on 1.3.1 and is closed as not planned; it is consistent with the
-above but is not the explanation, and should not be cited as the cause. Until 2026-08-20 this
-section also offered a context-menu workaround attributed to that issue. There is none: the issue
-describes no workaround, and the suggested one was falsified by direct observation — no menu
-appears. The phrasing is deliberately not repeated here, so a future grep cannot resurface it as
-advice.
+**Ghostty ≤ 1.3.1 renders a `minsky://` deeplink and silently does nothing on click (mt#4333)** —
+a dead control rather than a degraded label, and `https://` in the same message opens fine. The
+cause is a missing capability already fixed upstream but unreleased, so **emit deeplinks normally
+regardless**; nothing about what you write changes. Cause, the version boundary, the one-command
+re-check that retires this caveat, and the corrected history of an earlier wrong workaround:
+`docs/rules-rationale/cockpit-deeplinks.md §Ghostty ≤ 1.3.1 does not dispatch custom schemes`.
 
 ## Cross-references
 
