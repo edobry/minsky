@@ -708,6 +708,13 @@
       "when": 1786939493418,
       "tag": "0100_perfect_skin",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1787197647297,
+      "tag": "0101_brave_stardust",
+      "breakpoints": true
     }
   ]
 }

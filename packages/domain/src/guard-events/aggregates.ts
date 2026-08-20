@@ -31,7 +31,10 @@
  */
 import { and, eq, gte, isNotNull, lte, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { guardEventsTable } from "../storage/schemas/guard-events-schema";
+import {
+  guardEventFireLogRollupTable,
+  guardEventsTable,
+} from "../storage/schemas/guard-events-schema";
 
 /** Catalog above-the-fold window (AT1: "denials per guard per week"). */
 export const CATALOG_WINDOW_DAYS = 7;
@@ -165,9 +168,19 @@ export async function fetchFireLogDurations(
 
 /**
  * All-time per-guard totals + first/last fire. This is the POPULATION query
- * (SC3: the population is fire-log-derived distinct `guardName`) — a full
- * fire-log-stream scan, which is why it runs only inside the off-request
- * refresh, never per request.
+ * (SC3: the population is fire-log-derived distinct `guardName`).
+ *
+ * Reads the MAINTAINED rollup (`guard_event_fire_log_rollup`), not
+ * `guard_events` — a primary-key lookup when `guardName` is given, a ~109-row
+ * seq scan when it is not. It used to be a full `GROUP BY` over the whole
+ * corpus, which cost 2,193 ms / ~404 MB per refresh and 10,972 ms for the
+ * single-guard form (mt#4294). Because it is now cheap in BOTH forms, the
+ * "off-request refresh only, never per request" restriction this comment used
+ * to carry no longer applies — the per-guard detail path calls it directly.
+ *
+ * The rollup is maintained at ingest and rebuilt by
+ * `rebuildFireLogLifetimeRollup`; see `guardEventFireLogRollupTable`'s doc
+ * comment for why it cannot drift.
  */
 export async function fetchFireLogLifetime(
   db: PostgresJsDatabase,
@@ -175,16 +188,15 @@ export async function fetchFireLogLifetime(
 ): Promise<FireLogLifetimeRow[]> {
   const rows = await db
     .select({
-      guardName: guardEventsTable.guardName,
-      totalFires: sql<number>`count(*)::int`,
-      firstFireAt: sql<unknown>`min(${guardEventsTable.occurredAt})`,
-      lastFireAt: sql<unknown>`max(${guardEventsTable.occurredAt})`,
+      guardName: guardEventFireLogRollupTable.guardName,
+      totalFires: guardEventFireLogRollupTable.totalFires,
+      firstFireAt: guardEventFireLogRollupTable.firstFireAt,
+      lastFireAt: guardEventFireLogRollupTable.lastFireAt,
     })
-    .from(guardEventsTable)
-    .where(fireLogWhere(undefined, guardName))
-    .groupBy(guardEventsTable.guardName);
+    .from(guardEventFireLogRollupTable)
+    .where(guardName ? eq(guardEventFireLogRollupTable.guardName, guardName) : undefined);
   return rows.map((r) => ({
-    guardName: r.guardName as string,
+    guardName: r.guardName,
     totalFires: r.totalFires,
     firstFireAt: toIsoOrNull(r.firstFireAt),
     lastFireAt: toIsoOrNull(r.lastFireAt),
