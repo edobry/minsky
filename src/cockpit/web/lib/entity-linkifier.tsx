@@ -493,11 +493,43 @@ export function tokenEntity(tok: Extract<EntityToken, { kind: "link" }>): {
   type: RoutableEntityType;
   id: string;
 } | null {
-  // `to` is `/<segment>/<encodedId>` — first path segment maps 1:1 to a
+  return pathToEntity(tok.to);
+}
+
+/**
+ * The inverse itself, over a bare path (mt#4351).
+ *
+ * Split out of {@link tokenEntity} so a caller holding an href rather than a
+ * token can ask the same question — specifically `<Prose>`'s `a` override,
+ * which must decide whether a markdown-AUTHORED link (`[label](/memory/<uuid>)`)
+ * names an entity. Hand-rolling a second segment map there is the drift this
+ * function's own docblock warns about; there is now exactly one.
+ *
+ * Returns null for any path that is not an entity route, so a link to
+ * `/activity` or `/settings` is left as an ordinary in-SPA link.
+ *
+ * A path carrying a QUERY or FRAGMENT is also null (PR #3181 R1/R2/R3).
+ * `/memory/<uuid>?tab=details` addresses something within or about the entity,
+ * not the entity itself — and the caller's fallback, a `<Link to={href}>`,
+ * is the only rendering that preserves it. Resolving it here would be worse
+ * than not resolving it: the old `(.+)` capture swallowed `?tab=details` INTO
+ * the id, and `entityToPath` then re-encoded the whole thing into
+ * `/memory/<uuid>%3Ftab%3Ddetails` — a corrupt id, silently, with the query
+ * gone from both the peek and the Cmd-click. Rejecting is what lets the caller
+ * keep the href verbatim.
+ *
+ * `tokenEntity`'s inputs are built by `entityToPath` and never carry either,
+ * so this costs the tokenizer nothing.
+ */
+export function pathToEntity(path: string): {
+  type: RoutableEntityType;
+  id: string;
+} | null {
+  if (path.includes("?") || path.includes("#")) return null;
+  // `/<segment>/<encodedId>` — first path segment maps 1:1 to a
   // RoutableEntityType (entityToPath's switch, inverted).
-  const match = /^\/(tasks|ask|memory|agents|changeset|conversation|interceptors)\/(.+)$/.exec(
-    tok.to
-  );
+  const match =
+    /^\/(tasks|ask|memory|agents|changeset|conversation|interceptors)\/(.+)$/.exec(path);
   if (!match) return null;
   const [, segment, encodedId] = match;
   const SEGMENT_TO_TYPE: Record<string, RoutableEntityType> = {

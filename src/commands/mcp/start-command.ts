@@ -41,6 +41,7 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 // graph analysis.
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "@minsky/domain/configuration/guard";
+import { isHostedMcpServer } from "../../cli-discriminators";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
@@ -1403,7 +1404,13 @@ export function createStartCommand(
           }
           // Hosted MCP: the developer-setup guard is a dev-laptop UX nudge and
           // does not apply to a server process. See mt#1208.
-          setHostedMode(true);
+          //
+          // mt#4338: NOT `setHostedMode(true)` — hosted is a narrower question
+          // than HTTP, and `--local-daemon` (which implies --http, see the mode
+          // branch above) is the local daemon, not the hosted server. The full
+          // incident and the reason this flag is the discriminator live on
+          // `isHostedMcpServer`.
+          setHostedMode(isHostedMcpServer(options));
         }
 
         const projectContext = resolveProjectContext(options.repo);

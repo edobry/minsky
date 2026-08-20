@@ -10,9 +10,14 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { setupTestMocks } from "../../../utils/test-utils/mocking";
 import { sharedCommandRegistry } from "../command-registry";
-import { registerSetupGithubAppCommand, type SetupGithubAppDeps } from "./setup-github-app";
+import {
+  registerSetupGithubAppCommand,
+  DEFAULT_PERMISSIONS,
+  type SetupGithubAppDeps,
+} from "./setup-github-app";
 import {
   BrowserCancelledError,
+  REQUIRED_APP_PERMISSIONS,
   type AppCredentials,
   type AppProvisioner,
   type CredentialStore,
@@ -222,5 +227,71 @@ describe("setup.github-app adapter", () => {
     });
     expect(captured.storeOutputDirs[0]).not.toMatch(/^~/);
     expect(captured.storeOutputDirs[0]).toMatch(/test-config-dir$/);
+  });
+
+  test("a freshly created App is granted workflows:write (mt#3264)", async () => {
+    // Without it, the new App cannot push any change under `.github/workflows/**`
+    // — GitHub rejects the push server-side — which is mt#3264's originating
+    // incident reproduced from scratch on every newly provisioned App.
+    const captured = setupCommand();
+    await runCommand({ name: "test-app", repo: "owner/repo" });
+
+    expect(captured.specs[0]?.permissions.workflows).toBe("write");
+  });
+});
+
+/**
+ * mt#3264: `DEFAULT_PERMISSIONS` (what a FRESH App is created with) and
+ * `REQUIRED_APP_PERMISSIONS` (what an EXISTING App is checked against) are
+ * documented as "kept in lockstep" in permission-drift.ts's own doc comment.
+ * Nothing asserted it, and they had diverged: the drift check could not see
+ * `workflows`/`actions` at all, so `config.doctor` reported "permissions match"
+ * on an App missing the permission mt#3264 exists to be about.
+ */
+describe("DEFAULT_PERMISSIONS ↔ REQUIRED_APP_PERMISSIONS lockstep", () => {
+  const parsed = new Map<string, string>();
+  for (const entry of DEFAULT_PERMISSIONS.split(",")) {
+    const [scope, level] = entry.split(":");
+    if (scope && level) parsed.set(scope, level);
+  }
+
+  test("DEFAULT_PERMISSIONS parses to a non-empty scope:level map", () => {
+    // Guards the two tests below: if the string's shape ever changed, the loop
+    // above would yield an empty map and both would pass vacuously.
+    expect(parsed.size).toBe(DEFAULT_PERMISSIONS.split(",").length);
+    expect(parsed.size).toBeGreaterThan(0);
+  });
+
+  test("every checked permission is one a fresh App is actually created with", () => {
+    const missingFromDefaults = REQUIRED_APP_PERMISSIONS.filter(
+      (required) => !parsed.has(required.scope)
+    ).map((required) => required.scope);
+
+    // A scope here means config.doctor would flag drift on an App that our own
+    // creation path never asked for — a permanent false failure out of the box.
+    expect(missingFromDefaults).toEqual([]);
+  });
+
+  test("every permission a fresh App is granted is one the drift check verifies", () => {
+    // This is the direction that actually failed. Both `workflows:write` and
+    // `actions:write` are held by the live App (read from `GET /app` 2026-08-19,
+    // and `actions:write` was already present in the 2026-07-25 probe recorded in
+    // mem#721) while appearing in NEITHER constant — granted out-of-band, depended
+    // on by shipped code, and verified by nothing. A scope here is a grant that
+    // could be revoked with the drift check staying silent.
+    const checkedScopes = new Set(REQUIRED_APP_PERMISSIONS.map((required) => required.scope));
+    const unverifiedGrants = [...parsed.keys()].filter((scope) => !checkedScopes.has(scope));
+
+    expect(unverifiedGrants).toEqual([]);
+  });
+
+  test("each fresh-App grant is at least the level the drift check requires", () => {
+    const rank: Record<string, number> = { read: 1, write: 2, admin: 3 };
+    const underGranted = REQUIRED_APP_PERMISSIONS.filter((required) => {
+      const granted = parsed.get(required.scope);
+      return (granted ? (rank[granted] ?? 0) : 0) < (rank[required.level] ?? 0);
+    }).map((required) => required.scope);
+
+    expect(underGranted).toEqual([]);
   });
 });

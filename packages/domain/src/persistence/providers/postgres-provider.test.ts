@@ -948,6 +948,38 @@ describe("createBoundedSocket (mt#3592)", () => {
   });
 });
 
+describe("per-process pool default (mt#4308)", () => {
+  test("with no configured maxConnections, the pool is sized from the measured pooler budget", () => {
+    const prior = process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+    delete process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+    try {
+      const { factory, getCapturedArgs } = makeMockPostgresFactory();
+      buildPostgresClient({ connectionString: TEST_CONNECTION_STRING }, factory as any);
+
+      // floor(POOLER_CLIENT_BUDGET 200 * POOL_BUDGET_FRACTION 0.5 /
+      //       ASSUMED_CONCURRENT_POOL_HOLDERS 12) = 8, above the floor of 4.
+      //
+      // Asserting the NUMBER, not the formula: the point of mt#4308 is that the
+      // value follows from measured inputs, so a future change to any input
+      // should land here and force a reader to re-check the arithmetic rather
+      // than silently re-tune the fleet's connection demand.
+      expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(8);
+    } finally {
+      if (prior === undefined) delete process.env.MINSKY_POSTGRES_MAX_CONNECTIONS;
+      else process.env.MINSKY_POSTGRES_MAX_CONNECTIONS = prior;
+    }
+  });
+
+  test("an explicit config value still wins over the derived default", () => {
+    const { factory, getCapturedArgs } = makeMockPostgresFactory();
+    buildPostgresClient(
+      { connectionString: TEST_CONNECTION_STRING, maxConnections: 21 },
+      factory as any
+    );
+    expect((getCapturedArgs()?.[1] as { max?: number } | undefined)?.max).toBe(21);
+  });
+});
+
 describe("buildPostgresClient socket wiring (mt#3592)", () => {
   test("passes a socket factory that produces a connected socket", async () => {
     const server = await startSilentServer();

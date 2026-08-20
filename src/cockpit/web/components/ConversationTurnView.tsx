@@ -33,6 +33,7 @@ import type { EntityIndex } from "../lib/entity-linkifier";
 import {
   ElementView,
   FOCUS_RING,
+  HOVER_ROW,
   SpawnBadge,
   type ExpandSignal,
   type PreparedElement,
@@ -508,8 +509,13 @@ function BurstFold({ turns, ctx }: { turns: PreparedTurn[]; ctx: SegmentContext 
         className={cn(
           "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs",
           // Dim at rest so a fold recedes exactly as far as the rows it
-          // replaced; legible the moment a pointer is over it.
-          "text-muted-foreground hover:bg-muted/40 hover:text-foreground",
+          // replaced; legible the moment a pointer is over it. The background
+          // half moved to the shared HOVER_ROW (mt#4251) — this control shipped
+          // a hand-picked `bg-muted/40` one task before the four disclosure
+          // controls beside it gained the same affordance, and two adjacent
+          // values in one view is the drift that constant exists to stop.
+          "text-muted-foreground hover:text-foreground",
+          HOVER_ROW,
           FOCUS_RING
         )}
       >
