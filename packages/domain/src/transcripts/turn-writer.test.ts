@@ -21,6 +21,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 
 import type { RawTurnLine } from "./transcript-source";
 import {
@@ -30,6 +31,8 @@ import {
   formatExtractAllTurnsResult,
   isDegradedExtraction,
   isStatementTimeout,
+  buildTurnUpsertSkipIfUnchangedWhere,
+  TURN_UPSERT_DIRECT_SET_COLUMNS,
   DEFAULT_TURN_CHUNK_SIZE,
   MIN_TURN_CHUNK_SIZE,
   type ExtractAllTurnsResult,
@@ -303,6 +306,83 @@ function toolResultLine(toolUseId = "toolu_agent_1", ts = TS3): RawTurnLine {
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
+
+/**
+ * Render a drizzle `SQL` fragment into its parameterized text via drizzle's
+ * own dialect, per the pattern established in `principal-channel.test.ts`
+ * (`sqlToQuery` is the supported seam; hand-walking `queryChunks` is not).
+ */
+const pgDialect = new PgDialect();
+function renderSql(fragment: ReturnType<typeof buildTurnUpsertSkipIfUnchangedWhere>): string {
+  return pgDialect.sqlToQuery(fragment).sql;
+}
+
+/**
+ * Shape tests for the mt#4345 skip-if-unchanged guard (PR #3176 R1): no live
+ * Postgres involved, these assert the STRUCTURE of the predicate — that it
+ * uses `IS DISTINCT FROM` throughout, never `<>`, and that it names every
+ * column `TURN_UPSERT_DIRECT_SET_COLUMNS` declares. Because the real upsert's
+ * `set` block is built FROM that same array (`turnUpsertDirectSet` in
+ * turn-writer.ts), a column added to the array and forgotten in the
+ * predicate — or vice versa — is not a possible bug; these tests instead
+ * guard the array's CONTENTS, which is the one place either function reads
+ * from. Whether the predicate actually causes Postgres to SKIP a write is a
+ * live-Postgres question this file's fake DB cannot answer (see the
+ * `makeDb` doc comment above) — that is
+ * `scripts/verify-turn-write-skip-if-unchanged.ts`'s job.
+ */
+describe("skip-if-unchanged guard shape (mt#4345)", () => {
+  test("TURN_UPSERT_DIRECT_SET_COLUMNS names exactly the six direct-from-EXCLUDED columns", () => {
+    expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c): string => c.key).sort()).toEqual(
+      ["userText", "assistantText", "toolCalls", "startedAt", "endedAt", "isSpawnBoundary"].sort()
+    );
+    expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c) => c.sqlName).sort()).toEqual(
+      [
+        "user_text",
+        "assistant_text",
+        "tool_calls",
+        "started_at",
+        "ended_at",
+        "is_spawn_boundary",
+      ].sort()
+    );
+    // `embedding` is deliberately absent — its SET value is derived from
+    // userText/assistantText (mt#3883), not a straight EXCLUDED passthrough.
+    expect(TURN_UPSERT_DIRECT_SET_COLUMNS.map((c) => c.key)).not.toContain("embedding");
+  });
+
+  test("the predicate uses IS DISTINCT FROM for every declared column, never a bare <>", () => {
+    const text = renderSql(buildTurnUpsertSkipIfUnchangedWhere());
+
+    for (const { sqlName } of TURN_UPSERT_DIRECT_SET_COLUMNS) {
+      expect(text).toContain(`EXCLUDED.${sqlName}`);
+    }
+    // Every comparison in this predicate must be IS DISTINCT FROM; a bare
+    // `<>` anywhere in the rendered text would mean at least one column
+    // reverted to the NULL <> NULL trap the mt#4345 spec warns about.
+    expect(text.match(/IS DISTINCT FROM/g)?.length).toBe(TURN_UPSERT_DIRECT_SET_COLUMNS.length);
+    expect(text).not.toContain("<>");
+  });
+
+  test("the predicate joins its clauses with OR — any single divergent column trips it", () => {
+    const text = renderSql(buildTurnUpsertSkipIfUnchangedWhere());
+    // TURN_UPSERT_DIRECT_SET_COLUMNS.length clauses joined by OR means
+    // (length - 1) " OR " separators.
+    const orCount = (text.match(/ OR /g) ?? []).length;
+    expect(orCount).toBe(TURN_UPSERT_DIRECT_SET_COLUMNS.length - 1);
+  });
+
+  test("REGRESSION SEAM: adding a column to the array without a real schema column would fail typecheck, not silently ship", () => {
+    // This test is deliberately about the ARRAY's shape rather than the
+    // schema, because that IS the single source of truth both the SET
+    // clause and this predicate read from (see turn-writer.ts's doc comment
+    // on TURN_UPSERT_DIRECT_SET_COLUMNS). Six entries is the current SET
+    // block's direct-from-EXCLUDED count; a reviewer adding a 7th column to
+    // the schema and the SET block must also add it here for this count to
+    // stay accurate — which is the array being the seam, not a coincidence.
+    expect(TURN_UPSERT_DIRECT_SET_COLUMNS).toHaveLength(6);
+  });
+});
 
 describe("writeTurnsForTranscript", () => {
   test("materializes one row per extracted turn", async () => {

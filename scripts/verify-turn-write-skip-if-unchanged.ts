@@ -61,10 +61,49 @@ import { sql } from "drizzle-orm";
 import type { RawTurnLine } from "@minsky/domain/transcripts/transcript-source";
 
 /**
+ * What `getDatabaseConnection()` ACTUALLY returns at runtime (a `drizzle()`
+ * result, which carries `$client`), narrower than what
+ * `SqlCapablePersistenceProvider.getDatabaseConnection()` is TYPED to return
+ * (plain `PostgresJsDatabase`, per `packages/domain/src/persistence/types.ts`
+ * — the public interface's return type doesn't encode this because most
+ * callers never need the raw client). An additive intersection, not a
+ * replacement, so casting `db as PostgresJsDatabaseWithClient` is a single
+ * `as`, never `as unknown as`.
+ */
+type PostgresJsDatabaseWithClient = PostgresJsDatabase & {
+  $client: { end(options?: { timeout?: number }): Promise<void> };
+};
+
+/**
  * Fixed, obviously-synthetic subject. The `4345` group makes its origin
  * greppable if a run is ever interrupted before cleanup.
  */
 const SCRATCH_SESSION = "00000000-4345-4000-8000-000000000001";
+
+/** Matches `agent_transcript_turns.embedding`'s declared dimensions. */
+const EMBEDDING_DIMENSIONS = 1536;
+
+/**
+ * Attaches a fake but well-formed vector to one scratch turn row, the way the
+ * embedding backfill would. `fillValue` differentiates AT2's and AT4's
+ * attach calls only so a stray leftover from one is visibly distinguishable
+ * from the other if a run is ever interrupted mid-way; the tests below never
+ * inspect the vector's actual values, only whether the column is NULL.
+ */
+async function attachFakeEmbedding(
+  db: PostgresJsDatabase,
+  turnIndex: number,
+  fillValue: string
+): Promise<void> {
+  await db.execute(
+    sql`UPDATE agent_transcript_turns
+        SET embedding = (
+          SELECT ('[' || string_agg(${fillValue}, ',') || ']')::vector
+          FROM generate_series(1, ${EMBEDDING_DIMENSIONS})
+        )
+        WHERE agent_session_id = ${SCRATCH_SESSION} AND turn_index = ${turnIndex}`
+  );
+}
 
 /** `turn_index:xmin` map for every row belonging to the scratch session. */
 async function readXmins(db: PostgresJsDatabase): Promise<Map<number, string>> {
@@ -105,7 +144,27 @@ interface TurnTableStats {
   nTupHotUpd: number;
 }
 
+/**
+ * Reads `pg_stat_user_tables` for `agent_transcript_turns` — but ALWAYS after
+ * `pg_stat_clear_snapshot()`, not a bare read. Postgres's default
+ * `stats_fetch_consistency = cache` gives each backend/transaction ONE
+ * statistics snapshot, cached until something clears it — so a bare
+ * back-to-back read from the SAME session can return a snapshot taken
+ * BEFORE a write this same script just made, under-reporting it as `+0`
+ * even though the write genuinely happened (observed while developing this
+ * script: a real single-row UPDATE, confirmed via `xmin`, read `n_tup_upd
+ * +0` on the very next stats query). `pg_stat_clear_snapshot()` forces the
+ * NEXT read in this session to re-fetch current values rather than serving
+ * the cached one.
+ *
+ * This addresses SNAPSHOT STALENESS, not CONCURRENT-WRITER noise — a
+ * DIFFERENT backend genuinely writing to this table between two reads still
+ * shows up in the delta and cannot be distinguished from this script's own
+ * write by a table-wide counter. See the caller's reporting for how that
+ * residual noise is bounded rather than asserted away.
+ */
 async function readTableStats(db: PostgresJsDatabase): Promise<TurnTableStats> {
+  await db.execute(sql`SELECT pg_stat_clear_snapshot()`);
   const rows = (await db.execute(
     sql`SELECT n_tup_upd, n_dead_tup, n_tup_hot_upd
         FROM pg_stat_user_tables
@@ -211,14 +270,7 @@ async function main(): Promise<number> {
 
     // Give turn 0 a vector, the way the embedding backfill would, so AT2 can
     // observe it getting nulled.
-    await db.execute(
-      sql`UPDATE agent_transcript_turns
-          SET embedding = (
-            SELECT ('[' || string_agg('0.001', ',') || ']')::vector
-            FROM generate_series(1, 1536)
-          )
-          WHERE agent_session_id = ${SCRATCH_SESSION} AND turn_index = 0`
-    );
+    await attachFakeEmbedding(db, 0, "0.001");
     if (await readEmbeddingIsNull(db, 0)) {
       console.error("FAIL: setup did not attach an embedding — the rest proves nothing.");
       return 1;
@@ -248,8 +300,10 @@ async function main(): Promise<number> {
       }
     }
     console.log(
-      `PASS (AT1): identical re-ingest rewrote neither row (xmin unchanged). ` +
-        `Table-wide stats delta: ${statsDeltaLine(statsBefore, statsAfter)}.`
+      `PASS (AT1): identical re-ingest rewrote neither row (xmin unchanged — the PASS/FAIL ` +
+        `signal above, immune to concurrent-writer noise since it only inspects this script's own ` +
+        `rows). Table-wide stats delta (informational only, not gating; ` +
+        `see the HOT-update measurement below for why): ${statsDeltaLine(statsBefore, statsAfter)}.`
     );
 
     // Turn 1's assistant_text was NULL before and is NULL again (trailing
@@ -296,16 +350,32 @@ async function main(): Promise<number> {
 
     // Spec's "expected mechanism, NOT measured" claim: a real UPDATE here
     // cannot take the HOT path because the indexed `embedding` column sits in
-    // the SET list. This is exactly one real UPDATE (turn_index=0 only), so
-    // n_tup_upd should read +1 and n_tup_hot_upd +0 if that claim holds.
+    // the SET list. This script issues exactly ONE real UPDATE (turn_index=0
+    // only) here, so IF the table-wide n_tup_upd delta reads exactly +1 —
+    // i.e. attributable to this script alone, not muddied by a concurrent
+    // writer — n_tup_hot_upd should read +0 if the spec's claim holds.
+    //
+    // `pg_stat_user_tables` is table-wide and cumulative (flagged on PR #3176
+    // review round 1): capture-path traffic elsewhere on this table during
+    // this brief window
+    // can move these counters too, and a table-wide delta cannot distinguish
+    // that from this script's own write. So the verdict below is bounded to
+    // the case where the delta is EXACTLY attributable to this one write
+    // (updDelta === 1); any other reading is reported as inconclusive rather
+    // than asserted as a positive or negative result.
+    const updDelta = statsAfterChange.nTupUpd - statsBeforeChange.nTupUpd;
+    const hotDelta = statsAfterChange.nTupHotUpd - statsBeforeChange.nTupHotUpd;
+    const hotUpdateVerdict =
+      updDelta === 1
+        ? hotDelta === 0
+          ? "CONFIRMED: this UPDATE was NOT a HOT update (n_tup_hot_upd did not advance), as the spec expected."
+          : "NOT CONFIRMED: this UPDATE WAS a HOT update (n_tup_hot_upd advanced alongside n_tup_upd) — the spec's expected mechanism does not hold here."
+        : `INCONCLUSIVE: n_tup_upd advanced by ${updDelta}, not the expected +1 for this script's ` +
+          "single write — table-wide counters can be moved by concurrent capture-path traffic on " +
+          "this table during the measurement window, so this delta is not read as evidence either way.";
     console.log(
-      `MEASURED (spec's HOT-update claim): one real UPDATE occurred; table-wide delta: ` +
-        `${statsDeltaLine(statsBeforeChange, statsAfterChange)}. ` +
-        `${
-          statsAfterChange.nTupHotUpd - statsBeforeChange.nTupHotUpd === 0
-            ? "CONFIRMED: n_tup_hot_upd did not advance — HOT update was unavailable, as the spec expected."
-            : "NOT CONFIRMED: n_tup_hot_upd advanced alongside n_tup_upd — the spec's expected mechanism does not hold here."
-        }`
+      `MEASURED (spec's HOT-update claim): one real UPDATE issued by this script (turn_index=0); ` +
+        `table-wide delta: ${statsDeltaLine(statsBeforeChange, statsAfterChange)}. ${hotUpdateVerdict}`
     );
 
     // ── AT4 (counter-case): is_spawn_boundary-only divergence still updates ─
@@ -319,14 +389,7 @@ async function main(): Promise<number> {
     // Re-attach an embedding: the AT2 write above nulled it, and this check
     // wants to confirm embedding PRESERVATION on a write that IS real but
     // text-unchanged — a different case from AT2's text-changed null.
-    await db.execute(
-      sql`UPDATE agent_transcript_turns
-          SET embedding = (
-            SELECT ('[' || string_agg('0.002', ',') || ']')::vector
-            FROM generate_series(1, 1536)
-          )
-          WHERE agent_session_id = ${SCRATCH_SESSION} AND turn_index = 0`
-    );
+    await attachFakeEmbedding(db, 0, "0.002");
     const xminBeforeFlip = (await readXmins(db)).get(0);
 
     // Re-ingest the SAME text used to set up AT2 ("a genuinely different
@@ -367,12 +430,34 @@ async function main(): Promise<number> {
     return 0;
   } finally {
     await removeScratchRows(db);
+    // Close the connection pool this run opened (PR #3176 R1: the DI
+    // container's `getDatabaseConnection()` opens a real postgres-js pool
+    // with no built-in teardown call — leaving it open relies on
+    // `process.exit()` to tear it down forcibly, which can race in-flight
+    // cleanup work rather than let it finish). `$client` is postgres-js's
+    // own handle on the underlying connection — present at runtime on every
+    // `PostgresJsDatabase` `drizzle()` actually constructs, but only typed
+    // on `drizzle()`'s own return type, not on the plain `PostgresJsDatabase`
+    // interface `SqlCapablePersistenceProvider.getDatabaseConnection()` is
+    // declared to return. `PostgresJsDatabaseWithClient` names that gap as an
+    // ADDITIVE intersection — same base type, one extra known-present field —
+    // so this narrows via a single `as`, not the double `as unknown as` an
+    // outright type SWAP would need. A short timeout bounds how long this
+    // waits for in-flight queries to drain before closing anyway.
+    const { $client } = db as PostgresJsDatabaseWithClient;
+    await $client.end({ timeout: 5 });
   }
 }
 
 main()
-  .then((code) => process.exit(code))
+  .then((code) => {
+    // No explicit process.exit(): now that the DB pool above is closed in
+    // `finally`, nothing keeps the event loop alive, so the process exits
+    // naturally with this code once main() has fully settled — rather than
+    // forcing termination and risking a race with unflushed cleanup.
+    process.exitCode = code;
+  })
   .catch((err) => {
     console.error("verify-turn-write-skip-if-unchanged: ERROR", err);
-    process.exit(1);
+    process.exitCode = 1;
   });
