@@ -417,6 +417,26 @@ describe("AT6 — suppression is scoped to the substitution run (mt#4353)", () =
     expect(await outcomeOf(ctx)).toBe(MATCHED);
   });
 
+  test("an errored call with NO prior success does not claim one (PR #3186 R2)", async () => {
+    // The blocking finding. `failedSinceLastSuccess` is set by any errored MCP call, including in a
+    // session where none ever succeeded — so a failure-first branch rendered "an MCP call ERRORED
+    // since the last one succeeded" when there was no last one. The existing
+    // "with no successful MCP call at all" test walked this exact path and missed it, because it
+    // asserted the OUTCOME and never read the TEXT.
+    //
+    // NEGATIVE CONTROL: with the failure branch checked before the never-succeeded branch, the
+    // first assertion below fails. Observed failing.
+    const ctx = ctxWithCalls([{ name: MCP_TASKS_GET, outcome: "error" }]);
+
+    const result = await run(bashInput(CLI), ctx);
+    expect(result?.calibration?.["outcome"]).toBe(MATCHED);
+    expect(result?.additionalContext).not.toContain("since the last one succeeded");
+    expect(result?.additionalContext).toContain("no `mcp__minsky__*` call has succeeded");
+    // The calibration `reason` already had this precedence right; assert the two agree, since a
+    // record that disagrees with the text shown to the agent is worse than either being wrong.
+    expect(result?.calibration?.["reason"]).toBe("no-mcp-success");
+  });
+
   test("a permission DENIAL is not a surface failure and does not unmute", async () => {
     // The operator refused one call; the request reached the harness, so MCP is demonstrably up.
     // Treating this as a failure would fire the guard every time a tool call is declined.

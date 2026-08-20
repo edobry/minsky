@@ -416,14 +416,18 @@ export function readMcpSubstitutionState(
   return { succeeded, substitutionsSinceLastSuccess, failedSinceLastSuccess };
 }
 
-function buildWarning(
-  result: CliSubstitutionScanResult,
-  runLength: number,
-  failedSinceLastSuccess = false
-): string {
+function buildWarning(result: CliSubstitutionScanResult, state: McpSubstitutionState): string {
   // The three firing branches assert DIFFERENT facts, and none may claim another's (mt#4353):
   // saying "no MCP call has succeeded" to an agent whose MCP is demonstrably working is a false
   // statement it can check in one call, which costs the whole warning its credibility.
+  //
+  // **Order matters, and getting it wrong was PR #3186 R2's blocking finding.** A session whose
+  // only MCP call ERRORED has `failedSinceLastSuccess` true and `succeeded` FALSE, so a
+  // failure-first branch rendered "an MCP call errored since the last one succeeded" when none
+  // ever had. The never-succeeded branch is the strongest claim and is therefore checked FIRST —
+  // matching the `reason` field's own precedence, which already had this right.
+  const { succeeded, substitutionsSinceLastSuccess: runLength, failedSinceLastSuccess } = state;
+
   const failureLead =
     `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
     `\`${result.mcpToolName}\`. An \`mcp__minsky__*\` call ERRORED since the last one succeeded, ` +
@@ -432,20 +436,23 @@ function buildWarning(
     `If it is still failing, say so to the operator NOW rather than at the end of the turn; ` +
     `\`/mcp\` is theirs to run and costs them one message.`;
 
-  const lead = failedSinceLastSuccess
-    ? failureLead
-    : runLength > 0
-      ? `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
+  const lead = !succeeded
+    ? `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
+      `\`${result.mcpToolName}\`, and no \`mcp__minsky__*\` call has succeeded in this session. ` +
+      `If the MCP surface is missing, retry the tool once — a stale daemon exits and respawns — ` +
+      `and if it is still absent, say so to the operator NOW rather than at the end of the ` +
+      `turn; \`/mcp\` is theirs to run and costs them one message.`
+    : failedSinceLastSuccess
+      ? failureLead
+      : // The only firing case left: MCP works, nothing failed, and the run has reached two. There
+        // is deliberately no fourth arm — `succeeded && run === 0 && !failed` is the SUPPRESSED
+        // case and never reaches here, and an arm for it could only restate another branch's claim.
+        `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
         `\`${result.mcpToolName}\`. MCP has worked in this session, but this is substitution ` +
         `#${runLength + 1} since the last \`mcp__minsky__*\` call succeeded — the shape of ` +
         `rebuilding the tool surface out of CLI calls rather than one deliberate use. If the MCP ` +
         `surface stopped responding, retry the tool once and say so to the operator NOW rather ` +
-        `than at the end of the turn; \`/mcp\` is theirs to run and costs them one message.`
-      : `This runs the Minsky CLI for \`${result.commandId}\`, whose MCP form is ` +
-        `\`${result.mcpToolName}\`, and no \`mcp__minsky__*\` call has succeeded in this session. ` +
-        `If the MCP surface is missing, retry the tool once — a stale daemon exits and respawns — ` +
-        `and if it is still absent, say so to the operator NOW rather than at the end of the ` +
-        `turn; \`/mcp\` is theirs to run and costs them one message.`;
+        `than at the end of the turn; \`/mcp\` is theirs to run and costs them one message.`;
 
   return (
     `${lead} Rebuilding the surface out of CLI calls also routes around every PreToolUse guard ` +
@@ -510,11 +517,7 @@ export async function run(
   // unreachable. Nothing is lost by its absence — the scan is pure over its inputs and reads no DB,
   // network or clock, so canary mode exercises the real decision path with no seam to bypass.
   return {
-    additionalContext: buildWarning(
-      result,
-      state.substitutionsSinceLastSuccess,
-      state.failedSinceLastSuccess
-    ),
+    additionalContext: buildWarning(result, state),
     calibration: {
       ...base,
       outcome: "matched",
@@ -540,11 +543,27 @@ export function renderWorstCase(): string {
     mcpToolName: "mcp__minsky__tasks_status_set",
   };
   // THREE leads of different lengths since mt#4353 — measure, do not assume which is longest, or
-  // the ceiling silently tracks the wrong branch when any is edited.
+  // the ceiling silently tracks the wrong branch when any is edited. Each state below is one the
+  // guard can actually REACH; a state that never fires would measure a string never rendered.
   const renderings = [
-    buildWarning(result, 0),
-    buildWarning(result, 1),
-    buildWarning(result, 0, true),
+    // never succeeded
+    buildWarning(result, {
+      succeeded: false,
+      substitutionsSinceLastSuccess: 0,
+      failedSinceLastSuccess: false,
+    }),
+    // succeeded, then a call errored
+    buildWarning(result, {
+      succeeded: true,
+      substitutionsSinceLastSuccess: 0,
+      failedSinceLastSuccess: true,
+    }),
+    // succeeded, no failure, run reached two
+    buildWarning(result, {
+      succeeded: true,
+      substitutionsSinceLastSuccess: 1,
+      failedSinceLastSuccess: false,
+    }),
   ];
   return renderings.reduce((longest, next) => (next.length > longest.length ? next : longest));
 }
