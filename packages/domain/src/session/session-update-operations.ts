@@ -262,8 +262,12 @@ export async function updateSessionImpl(
   } catch (error) {
     log.debug("Failed to resolve session", { error, sessionId: sessionIdParam, task: params.task });
     if (error instanceof ValidationError) {
+      // Original message appended rather than discarded (mt#4307) — same reason
+      // as the two sibling sites. It was already being logged at debug just
+      // above, which reaches nobody the error reaches.
       throw new ValidationError(
-        "Session ID is required. Either provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
+        "Session ID is required. Either provide a session ID (--sessionId), task ID (--task), " +
+          `or run this command from within a session workspace. (${getErrorMessage(error)})`
       );
     }
     throw error;
