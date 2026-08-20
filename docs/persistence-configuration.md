@@ -57,18 +57,40 @@ never sees. That is why each failing tool result carries the cause itself.
 
 ### Default
 
-Each Minsky process opens a postgres-js connection pool with a **default maximum of 15 connections**
-(`DEFAULT_POSTGRES_MAX_CONNECTIONS`).
+Each Minsky process opens a postgres-js connection pool whose **default maximum is derived, not
+hardcoded** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`). It currently evaluates to **8**.
 
-Minsky runs as multiple concurrent processes (laptop MCP server, Railway-hosted MCP server,
-Railway reviewer service, cockpit menu-bar app) all sharing the same Supabase/Supavisor pooler.
-mt#1193 originally set this default to **3** to keep the fleet under the **session-mode** pooler's
-hard 15-slot global ceiling. After the 2026-04-24 migration to the Supavisor **transaction-mode**
-pooler (`:6543`), that global ceiling is effectively gone (practical ceiling in the thousands), so
-the per-process limit no longer rations a scarce global budget — it now sizes per-process query
-**fan-out concurrency** (how many parallel queries one process can issue without client-side
-queueing). mt#2224 retuned the default to **15**; at 3, dashboards/handlers that fan out parallel
-queries hit gratuitous queueing latency.
+Minsky runs as many concurrent processes — every Claude Code conversation runs its own MCP process,
+plus the Railway-hosted MCP server, the reviewer service, and the cockpit menu-bar app — all sharing
+one Supabase/Supavisor pooler. What that pooler rations is **client connections**, and the budget is
+small:
+
+| Input                             | Value | Where it comes from                                                                                                                                |
+| --------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POOLER_CLIENT_BUDGET`            | 200   | Supabase's published compute table. `max_connections = 60` on this project pins the tier to Nano/Micro, and both carry a 200-client pooler ceiling |
+| `POOL_BUDGET_FRACTION`            | 0.5   | the remainder is left for hosted services, ephemeral probes, and burst                                                                             |
+| `ASSUMED_CONCURRENT_POOL_HOLDERS` | 12    | measured: 31 connections came from 8 distinct pids while 70-84 processes were alive — pools open lazily, so holders are far fewer than processes   |
+
+`floor(200 × 0.5 / 12) = 8`, subject to a floor of 4 (`MIN_DERIVED_POOL_SIZE`) that preserves the
+fan-out width the default exists to buy.
+
+**History, because the previous version of this section was wrong in a way worth naming.** mt#1193
+set the default to **3** to keep the fleet under the session-mode pooler's hard 15-slot ceiling.
+After the 2026-04-24 migration to the **transaction-mode** pooler (`:6543`), this document (and the
+code comment it mirrored) claimed that ceiling was "effectively gone (practical ceiling in the
+thousands)", so the value "no longer rations a scarce global budget" and could be sized purely for
+per-process fan-out. mt#2224 raised it to **15** on that basis.
+
+That ceiling was never measured — it came from an agent-authored memory, not from the vendor. The
+real ceiling for this project is **200 client connections**, at which **fourteen** processes running
+a pool of 15 saturate the pooler. mt#2224's reasoning was correct for the fleet it measured; nothing
+re-examined it when the fleet grew by an order of magnitude, because the assumption lived in prose
+rather than in code. Deriving the value is what makes it re-checkable — if the tier, the fleet, or
+the share changes, change the corresponding input and the default follows.
+
+The per-process limit still sizes query **fan-out concurrency** (how many parallel queries one
+process issues without client-side queueing); the derivation just bounds it by what the pooler can
+actually serve. See mt#4308.
 
 > **If you switch back to the session-mode pooler (`:5432`, 15-slot hard ceiling)** — only needed
 > when session-scoped state like prepared statements, `LISTEN`, or advisory locks is required —
@@ -82,7 +104,8 @@ The pool size is resolved in priority order (highest wins):
 1. **Config file** — `persistence.postgres.maxConnections` in `.minsky/config.yaml` or
    `~/.config/minsky/config.yaml`
 2. **Environment variable** — `MINSKY_POSTGRES_MAX_CONNECTIONS`
-3. **Built-in default** — 15 (`DEFAULT_POSTGRES_MAX_CONNECTIONS`)
+3. **Built-in default** — derived, currently **8** (`DEFAULT_POSTGRES_MAX_CONNECTIONS`; see the
+   derivation table above)
 
 Example config override:
 

@@ -5,7 +5,9 @@
  * `minsky transcripts search` CLI command.
  *
  * Embeds the query text and returns nearest-neighbor turns from
- * agent_transcript_turns by cosine distance (pgvector <=> operator).
+ * agent_transcript_turns by vector distance (pgvector `<->`, L2 — matching the
+ * table's vector_l2_ops index; see transcript-similarity-service.ts's header
+ * for why L2 and cosine rank identically here, mt#4344).
  *
  * Args:
  *   query          Required. The natural-language search query.
@@ -64,7 +66,7 @@ export function registerTranscriptSearchCommand(
     description:
       "Search agent transcript turns by semantic similarity. " +
       "Embeds the query text and returns the nearest-neighbor turns " +
-      "ranked by cosine distance (pgvector). " +
+      "ranked by vector distance (pgvector). " +
       "Optionally filter by role (user/assistant), date range, or session UUID. " +
       "Date filters bind the turn's own timestamp, so turns from long-running " +
       "sessions are matched by when the turn happened, not when the session started. " +
