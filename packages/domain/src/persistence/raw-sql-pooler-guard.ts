@@ -94,6 +94,89 @@ export type GuardedRawSql = Omit<Sql, "unsafe"> & {
  * concurrent in-flight queries (default: the pool's own `max`). Everything
  * else forwards to the underlying instance unchanged.
  */
+/**
+ * Well-known key for reading a guard's saturation snapshot (mt#4308).
+ *
+ * Served by the Proxy's get-trap rather than added to `GuardedRawSql`'s shape,
+ * so the guarded instance stays structurally a postgres-js client for every
+ * existing consumer. `Symbol.for` (not a private symbol) so a reader in another
+ * module can look it up without importing this file.
+ */
+export const POOLER_SATURATION = Symbol.for("minsky.poolerSaturation");
+
+/**
+ * Point-in-time view of how close the guarded `.unsafe()` path is to its cap.
+ *
+ * WHY THIS EXISTS: before mt#4308 the first notice of pooler exhaustion was an
+ * `ECHECKOUTTIMEOUT` surfacing as a failed write mid-operation, with nothing
+ * aggregating it — so a recurrence read as an unrelated flake. These counters
+ * are the guard's own, already maintained for the cap; exposing them costs
+ * nothing at runtime.
+ *
+ * COVERAGE BOUND, stated because it is easy to over-read: this observes the
+ * `.unsafe()` path ONLY. Drizzle's own driver traffic and `sql.begin()`
+ * transactions reach the raw instance untouched (by mt#2773's deliberate
+ * carve-out), so they contend for the same pool and are invisible here.
+ * `queued > 0` is therefore a sufficient signal of saturation, never a necessary
+ * one — a pool can be exhausted by drizzle traffic while this reads all zeros.
+ */
+export interface PoolerSaturation {
+  /** In-flight cap — the pool's `max`, or the explicit `limit` override. */
+  limit: number;
+  /** `.unsafe()` queries executing right now. */
+  inFlight: number;
+  /** Callers parked waiting for a slot right now. Non-zero means at the cap. */
+  queued: number;
+  /** High-water mark of `inFlight` for this guard's lifetime. */
+  peakInFlight: number;
+  /** High-water mark of `queued`. Non-zero means the cap was reached at least once. */
+  peakQueued: number;
+  /** ISO timestamp of the last query to settle, or null if none has. */
+  lastSettledAt: string | null;
+  /** True while callers are parked — saturated at this instant. */
+  saturated: boolean;
+  /** True if the cap was ever reached. Survives the burst that caused it. */
+  everSaturated: boolean;
+  /**
+   * How many guards this process has constructed (PR #3177 review).
+   *
+   * The reader below reports the LATEST guard, which is accurate only while
+   * there is one. Rather than assert that invariant in prose and leave it
+   * unchecked, this exposes the number so a reader can see when it stops
+   * holding: `guardCount > 1` means the other fields describe one guard among
+   * several and understate total demand.
+   *
+   * Deliberately NOT enforced by throwing — tests legitimately construct many
+   * guards, and a hard failure would make the invariant untestable. Production
+   * routes every consumer through one memoized instance (mt#4298), so a
+   * `guardCount > 1` reading outside tests is the signal that something
+   * re-wrapped the client.
+   */
+  guardCount: number;
+}
+
+/** Count of guards constructed in this process. See `PoolerSaturation.guardCount`. */
+let guardsConstructed = 0;
+
+/**
+ * Most recently constructed guard's snapshot reader (mt#4308).
+ *
+ * ASSUMPTION, stated because it is what makes this accurate: there is ONE guard
+ * per process. `PostgresPersistenceProvider.getGuardedSql()` memoizes a single
+ * instance and every `.unsafe()` consumer is routed through it — deliberately,
+ * since the cap is a SHARED counter and a second wrap would double the bound
+ * (mt#4298). If that ever stops holding, this reader reports the last guard
+ * constructed rather than the aggregate, and it should become a registry.
+ *
+ * Returns null before any guard exists — a process that has not opened a pool,
+ * which is distinct from a pool sitting idle at zero.
+ */
+let latestGuardSaturation: (() => PoolerSaturation) | null = null;
+
+export function getPoolerSaturation(): PoolerSaturation | null {
+  return latestGuardSaturation === null ? null : latestGuardSaturation();
+}
+
 export function guardRawSqlAgainstPoolerWedge(sql: Sql, limit?: number): GuardedRawSql {
   const configuredMax = Number((sql as { options?: { max?: unknown } }).options?.max);
   const inFlightLimit = Math.max(
@@ -106,21 +189,48 @@ export function guardRawSqlAgainstPoolerWedge(sql: Sql, limit?: number): Guarded
 
   let inFlight = 0;
   const waiters: Array<() => void> = [];
+  // mt#4308 saturation counters. Peaks are high-water marks rather than
+  // instantaneous reads because a burst is over by the time anyone asks: an
+  // operator reading this after an incident needs to know the cap WAS reached,
+  // which `inFlight`/`queued` alone cannot tell them once things settle.
+  let peakInFlight = 0;
+  let peakQueued = 0;
+  let lastSettledAt: number | null = null;
 
   async function acquire(): Promise<void> {
     if (inFlight < inFlightLimit) {
       inFlight++;
+      if (inFlight > peakInFlight) peakInFlight = inFlight;
       return;
     }
-    await new Promise<void>((resolve) => waiters.push(resolve));
+    await new Promise<void>((resolve) => {
+      waiters.push(resolve);
+      if (waiters.length > peakQueued) peakQueued = waiters.length;
+    });
     inFlight++;
+    if (inFlight > peakInFlight) peakInFlight = inFlight;
   }
 
   function release(): void {
     inFlight--;
+    lastSettledAt = Date.now();
     const next = waiters.shift();
     if (next) next();
   }
+
+  const saturation = (): PoolerSaturation => ({
+    limit: inFlightLimit,
+    inFlight,
+    queued: waiters.length,
+    peakInFlight,
+    peakQueued,
+    lastSettledAt: lastSettledAt === null ? null : new Date(lastSettledAt).toISOString(),
+    saturated: waiters.length > 0,
+    everSaturated: peakQueued > 0,
+    guardCount: guardsConstructed,
+  });
+  guardsConstructed++;
+  latestGuardSaturation = saturation;
 
   const guardedUnsafe = (
     query: string,
@@ -163,6 +273,9 @@ export function guardRawSqlAgainstPoolerWedge(sql: Sql, limit?: number): Guarded
   return new Proxy(sql, {
     get(target, prop, receiver) {
       if (prop === "unsafe") return guardedUnsafe;
+      // mt#4308: served here rather than on the type, so the guarded instance
+      // stays structurally a postgres-js client for every existing consumer.
+      if (prop === POOLER_SATURATION) return saturation;
       return Reflect.get(target, prop, receiver);
     },
   }) as unknown as GuardedRawSql;

@@ -31,6 +31,8 @@ import {
 import type { ConversationTurn } from "@minsky/domain/transcripts/conversation-elements";
 import type { EntityIndex } from "../lib/entity-linkifier";
 import {
+  BURST_CHILDREN,
+  DisclosureChevron,
   ElementView,
   FOCUS_RING,
   HOVER_ROW,
@@ -519,12 +521,22 @@ function BurstFold({ turns, ctx }: { turns: PreparedTurn[]; ctx: SegmentContext 
           FOCUS_RING
         )}
       >
-        <span aria-hidden className="shrink-0 text-muted-foreground/60">
-          {open ? "▾" : "▸"}
-        </span>
+        <DisclosureChevron open={open} />
         <span className="min-w-0 flex-1 truncate">{summary}</span>
       </button>
-      {open && turns.map((turn) => renderSegment(turn, ctx))}
+      {open && (
+        // The children are CONTAINED, not merely revealed (mt#4348). Before
+        // this they were plain siblings of the toggle in the same column, so an
+        // expanded fold's turns rendered identically to top-level turns and the
+        // reader could not see which fold they belonged to — the principal's
+        // "information hierarchy for the collapsible section's outer and inner
+        // elements is non obvious". `BURST_CHILDREN` carries the rail and the
+        // indent; the leading chevron above is what makes that indent legible
+        // as depth rather than as a stray margin.
+        <div className={BURST_CHILDREN} data-testid="action-burst-children">
+          {turns.map((turn) => renderSegment(turn, ctx))}
+        </div>
+      )}
     </div>
   );
 }
