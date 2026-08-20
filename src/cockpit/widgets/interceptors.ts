@@ -461,11 +461,25 @@ export function parseCatalog(raw: unknown): InterceptorsPayload {
   if (!Array.isArray(c.entries)) {
     throw new Error("interceptor catalog has no `entries` array");
   }
-  if (typeof c.population !== "number" || c.population !== c.entries.length) {
-    throw new Error(
-      `interceptor catalog population (${String(c.population)}) does not match its ${c.entries.length} entries`
-    );
-  }
+  // `population` is DERIVED below, never read from the file (mt#4208).
+  //
+  // It used to be stored beside `entries` and checked for equality here, and
+  // that check broke main twice — 133-vs-134 on 2026-08-17, 139-vs-140 on
+  // 2026-08-20. Neither was an authoring mistake. Two branches each append an
+  // entry and each bump the count; git unions the `entries` array (the
+  // additions sit at different offsets) and resolves the single `population`
+  // line without a conflict, because both sides wrote the same number. The
+  // result is a file that was individually consistent on every branch and
+  // inconsistent after the merge — and the regen hook keys on SOURCE changes,
+  // so it does not re-fire on the merge commit that breaks the invariant.
+  //
+  // A stored duplicate of a derivable value cannot be merged correctly by a
+  // line-based merge. Deriving it removes the class rather than the symptom:
+  // there is no longer a second copy for a merge to disagree with.
+  //
+  // The field stays on the returned payload because it has a real consumer —
+  // `InterceptorsPage.tsx` renders it as "N declared" — so this changes where
+  // the number comes from, not whether callers can read it.
   if (typeof c.failureClasses !== "object" || c.failureClasses === null) {
     throw new Error("interceptor catalog has no `failureClasses` map");
   }
@@ -477,11 +491,13 @@ export function parseCatalog(raw: unknown): InterceptorsPayload {
   ) {
     throw new Error("interceptor catalog has no `divergence` report");
   }
+  const entries = c.entries.map(validateEntry);
   return {
-    population: c.population,
+    // Derived from the array it counts, so the two cannot disagree (mt#4208).
+    population: entries.length,
     divergence: c.divergence,
     failureClasses: c.failureClasses,
-    entries: c.entries.map(validateEntry),
+    entries,
   };
 }
 
