@@ -400,6 +400,31 @@ export interface IntervalSweeperOptions {
    * overlap-skip guard indistinguishable from a hang.
    */
   tickTimeoutMs?: number;
+  /**
+   * Opt-in backoff after repeated DOMAIN failures (mt#4294).
+   *
+   * Distinct from the bounded re-init above, which reacts to SCHEDULING
+   * failures (a timeout, an unexpected throw) by restarting the interval. This
+   * reacts to a tick that ran to completion and reported `ok: false` — the
+   * work failed, the scheduler is fine, and re-running it on the very next
+   * tick just reproduces the failure at full cadence.
+   *
+   * Opt-in rather than default because most sweeps are cheap and idempotent,
+   * and retrying one promptly is the right behaviour; backing every sweeper
+   * off on a transient blip would slow recovery across the board. A sweeper
+   * asks for this when its failing tick is EXPENSIVE or when the failure
+   * class it hits is typically persistent rather than momentary.
+   *
+   * Only meaningful for a tick that actually returns a {@link SweepTickResult}
+   * — a tick returning `void` reports no domain outcome, so its failures are
+   * invisible here and no backoff can ever engage.
+   */
+  domainFailureBackoff?: {
+    /** Consecutive `ok: false` ticks before any skipping begins. */
+    afterFailures: number;
+    /** Ceiling on consecutively skipped ticks, so backoff never becomes a stop. */
+    maxSkippedTicks: number;
+  };
 }
 
 /**
@@ -412,9 +437,16 @@ export interface IntervalSweeperOptions {
 export function createIntervalSweeper(options: IntervalSweeperOptions): () => void {
   const { name, intervalMs, tick } = options;
   const tickTimeoutMs = options.tickTimeoutMs ?? DEFAULT_TICK_TIMEOUT_MS;
+  const domainFailureBackoff = options.domainFailureBackoff ?? null;
 
   let running = false;
   let runningSinceMs: number | null = null;
+  /**
+   * Ticks still to be skipped by the domain-failure backoff (mt#4294). Zero
+   * whenever the backoff is disengaged, which is also its state for every
+   * sweeper that did not opt in.
+   */
+  let backoffTicksRemaining = 0;
   /**
    * When the in-flight tick was ABANDONED (exceeded `tickTimeoutMs`) but is
    * still holding the guard, mt#4335. Null whenever the current tick is still
@@ -536,6 +568,19 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     }
 
     if (running) return; // Overlapping tick — skip (pre-existing behavior).
+
+    // Domain-failure backoff (mt#4294). Checked AFTER the overlap guard and
+    // the watchdog above, so a wedged tick is still force-released on
+    // schedule — backing off must not also postpone the fail-safe that
+    // unwedges.
+    if (backoffTicksRemaining > 0) {
+      backoffTicksRemaining--;
+      log.debug(`cockpit: ${name} sweep tick skipped by domain-failure backoff`, {
+        backoffTicksRemaining,
+      });
+      return;
+    }
+
     running = true;
     runningSinceMs = Date.now();
 
@@ -659,9 +704,32 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       if (domainOk) {
         entry.lastDomainSuccessAtMs = Date.now();
         entry.consecutiveDomainFailures = 0;
+        // A success disengages the backoff immediately, so recovery costs one
+        // tick rather than draining whatever skip budget was outstanding. This
+        // is the "until a recovery probe succeeds" half — the first tick that
+        // is NOT skipped IS the probe.
+        backoffTicksRemaining = 0;
       } else {
         entry.lastDomainFailureAtMs = Date.now();
         entry.consecutiveDomainFailures++;
+        if (
+          domainFailureBackoff !== null &&
+          entry.consecutiveDomainFailures >= domainFailureBackoff.afterFailures
+        ) {
+          // Skip-count doubles per failure past the threshold and is clamped,
+          // so a persistent failure decays toward a floor cadence instead of
+          // stopping outright — a sweeper that stops never discovers that it
+          // recovered.
+          const over = entry.consecutiveDomainFailures - domainFailureBackoff.afterFailures;
+          backoffTicksRemaining = Math.min(2 ** over, domainFailureBackoff.maxSkippedTicks);
+          log.warn(
+            `cockpit: ${name} sweep — ${entry.consecutiveDomainFailures} consecutive domain failures; skipping ${backoffTicksRemaining} tick(s)`,
+            {
+              consecutiveDomainFailures: entry.consecutiveDomainFailures,
+              backoffTicksRemaining,
+            }
+          );
+        }
       }
     }
 
@@ -2492,13 +2560,31 @@ export function startInterceptorAggregatesSweeper(intervalMs?: number): () => vo
     name: "interceptor-aggregates",
     intervalMs: intervalMs ?? INTERCEPTOR_AGGREGATES_INTERVAL_MS,
     tickTimeoutMs: INTERCEPTOR_AGGREGATES_TICK_TIMEOUT_MS,
+    // Both numbers are sized against THIS sweep's 5-minute cadence and the two
+    // measured outages, not picked round (`decision-defaults §Thresholds`).
+    //
+    // afterFailures: 2 -> ~10 minutes of continuous failure before any tick is
+    // skipped, which is past a transient pooler blip (seconds) and well inside
+    // the 15-25 minute window both recorded outages actually lasted.
+    //
+    // maxSkippedTicks: 6 -> a 30-minute floor cadence, deliberately just past
+    // the longest observed outage (25 min) so a database that recovered is
+    // re-probed within roughly one cadence of recovering, never abandoned.
+    domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 6 },
     tick: async () => {
       try {
         const { refreshInterceptorAggregates } = await import("./interceptor-aggregates-cache");
-        await refreshInterceptorAggregates();
+        // Report the refresh's OWN outcome, not merely "the tick did not
+        // throw" (mt#4294). The fail-open try/catch below and the refresh's
+        // internal source guards both convert a failure into a normal return,
+        // so without this the scheduler counted a permanently-failing refresh
+        // as a run of successful ticks — and `consecutiveDomainFailures`, the
+        // counter a backoff would read, never moved off zero.
+        return await refreshInterceptorAggregates();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: interceptor-aggregates sweep failed", { message });
+        return { ok: false };
       }
     },
   });
