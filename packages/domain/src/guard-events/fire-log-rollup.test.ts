@@ -62,9 +62,18 @@ describe("aggregateFireLogDeltas", () => {
     expect(deltas).toEqual([]);
   });
 
-  test("ignores rows with no guard name, matching fireLogWhere's IS NOT NULL", () => {
+  test("ignores rows with a NULL guard name, matching fireLogWhere's IS NOT NULL", () => {
     expect(aggregateFireLogDeltas([row({ guardName: null })])).toEqual([]);
-    expect(aggregateFireLogDeltas([row({ guardName: "" })])).toEqual([]);
+  });
+
+  test("COUNTS an empty-string guard name, because SQL's IS NOT NULL does (PR #3191 R1)", () => {
+    // Skipping `""` here reads as tidying up malformed data and is a drift bug:
+    // the backfill and rebuild both count such a row, so dropping it in the
+    // incremental fold makes the rollup's value depend on whether it was last
+    // maintained or rebuilt. The predicate must be the SQL predicate.
+    const delta = only(aggregateFireLogDeltas([row({ guardName: "" }), row({ guardName: "" })]));
+    expect(delta.guardName).toBe("");
+    expect(delta.addedFires).toBe(2);
   });
 
   test("a null occurredAt still COUNTS — the replaced query used count(*), which includes it", () => {

@@ -39,7 +39,17 @@ import {
 /** Catalog above-the-fold window (AT1: "denials per guard per week"). */
 export const CATALOG_WINDOW_DAYS = 7;
 
-const FIRE_LOG_STREAM = "fire-log";
+/**
+ * The fire-log stream discriminator.
+ *
+ * Exported so `fire-log-rollup.ts` uses THIS value rather than its own copy
+ * (PR #3191 R1). The rollup's fold and `fireLogWhere` below must select the
+ * same population or the maintained value drifts from the rebuild — the same
+ * hazard the reviewer caught in the guard-name predicate, one constant over.
+ * Two string literals that must stay equal are a latent divergence; one export
+ * is not.
+ */
+export const FIRE_LOG_STREAM = "fire-log";
 
 // ---------------------------------------------------------------------------
 // Fetched row shapes

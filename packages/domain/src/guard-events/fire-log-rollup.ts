@@ -23,9 +23,18 @@ import {
   guardEventFireLogRollupTable,
   guardEventsTable,
 } from "../storage/schemas/guard-events-schema";
+import { FIRE_LOG_STREAM } from "./aggregates";
 
-/** The stream whose rows this rollup summarizes. Matches `aggregates.ts`'s `FIRE_LOG_STREAM`. */
-export const FIRE_LOG_STREAM = "fire-log";
+/**
+ * The stream whose rows this rollup summarizes.
+ *
+ * Re-exported from `aggregates.ts` rather than redeclared (PR #3191 R1): the
+ * fold below and `fireLogWhere` there must select the same population, and two
+ * literals that must stay equal are a divergence waiting to happen.
+ *
+ * No import cycle: `aggregates.ts` does not reference this module.
+ */
+export { FIRE_LOG_STREAM };
 
 /**
  * The write surface the fold needs.
@@ -72,10 +81,21 @@ export interface FireLogRollupDelta {
  *    counts such a row — alongside `min`/`max`, which skip it. Counting only
  *    timestamped rows here would make the rollup disagree with the figure it
  *    is replacing, for exactly the guards whose records are malformed.
- * 2. **Only the fire-log stream, only named guards.** Mirrors `fireLogWhere`
- *    (`stream = 'fire-log' AND guard_name IS NOT NULL`). A row failing either
- *    test contributes nothing — it is not an error, it is simply another
- *    stream's row riding the same insert batch.
+ * 2. **Only the fire-log stream, only non-null guard names.** Mirrors
+ *    `fireLogWhere` (`stream = 'fire-log' AND guard_name IS NOT NULL`) — and
+ *    mirrors it EXACTLY, which is the whole requirement. A row failing either
+ *    test contributes nothing; it is not an error, just another stream's row
+ *    riding the same insert batch.
+ *
+ *    **An empty-string guard name is NOT skipped, deliberately** (PR #3191 R1).
+ *    An earlier version treated `""` as absent, which felt like tidying up
+ *    malformed data and was a drift bug: `IS NOT NULL` is TRUE for the empty
+ *    string, so the backfill and `rebuildFireLogLifetimeRollup` both COUNT such
+ *    a row while the incremental fold silently dropped it. The two paths must
+ *    agree exactly or a rebuild changes the numbers, and a rollup whose value
+ *    depends on whether it was rebuilt is worse than one that faithfully
+ *    reproduces a malformed input. The predicate here is the SQL predicate, not
+ *    a better-judgment version of it.
  *
  * @param rows Rows the insert actually appended (post-`ON CONFLICT DO NOTHING`).
  * @returns One delta per guard present in the batch; empty when the batch has none.
@@ -88,7 +108,10 @@ export function aggregateFireLogDeltas(
   for (const row of rows) {
     if (row.stream !== FIRE_LOG_STREAM) continue;
     const guardName = row.guardName;
-    if (guardName === null || guardName === "") continue;
+    // NULL only — see rule 2 above. `guardName === ""` must NOT be excluded
+    // here: SQL's `IS NOT NULL` admits it, so excluding it drifts the fold from
+    // the backfill and the rebuild.
+    if (guardName === null) continue;
 
     const existing = byGuard.get(guardName);
     const occurredAt = row.occurredAt ?? null;

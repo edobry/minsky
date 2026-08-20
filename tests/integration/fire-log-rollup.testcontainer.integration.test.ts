@@ -304,6 +304,38 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
       expect((await lifetimeByGuard()).has("ghost-guard")).toBe(false);
     });
 
+    test("an empty-string guard name folds and rebuilds IDENTICALLY (PR #3191 R1)", async () => {
+      // The regression test for the reviewer's finding. The bug was invisible
+      // to every other assertion here: the incremental fold skipped `""` while
+      // the backfill and rebuild counted it, so the rollup was self-consistent
+      // until something rebuilt it and the numbers moved. Only comparing the
+      // two PATHS against each other can see it.
+      const insertBatch = buildInsertBatch(db);
+      await insertBatch([
+        row("empty-1", { guardName: "" }),
+        row("empty-2", { guardName: "" }),
+        row("empty-3", { guardName: "" }),
+      ]);
+
+      const afterFold = await lifetimeByGuard();
+      expect(afterFold.get("")?.totalFires).toBe(3);
+
+      // Now rebuild from the corpus and require the SAME value. Before the fix
+      // the fold produced no row at all here and the rebuild produced 3.
+      await rebuildFireLogLifetimeRollup(db);
+      const afterRebuild = await lifetimeByGuard();
+      expect(afterRebuild.get("")?.totalFires).toBe(3);
+
+      // And the general form: every guard agrees across both paths.
+      const truth = await recompute();
+      for (const [guardName, expected] of truth) {
+        expect(afterFold.get(guardName)?.totalFires).toBe(expected);
+        expect(afterRebuild.get(guardName)?.totalFires).toBe(expected);
+      }
+      expect(afterFold.size).toBe(truth.size);
+      expect(afterRebuild.size).toBe(truth.size);
+    });
+
     test("the single-guard read returns only that guard", async () => {
       const rows = await fetchFireLogLifetime(db, "beta-guard");
       expect(rows).toHaveLength(1);
