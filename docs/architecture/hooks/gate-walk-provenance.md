@@ -166,10 +166,54 @@ it.
 
 - **It cannot tell whether a walked gate was walked WELL.** That is `enumeration-scope-check`'s
   question at `pr`, and it is not answerable here for the reason in §The question it asks.
-- **It cannot see a task gated before 2026-06-10.** `skipped`, not `ungated` — and this guard's own
-  task, mt#1880 (created 2026-05-17), is one of them.
+- **It cannot see a task GATED before 2026-06-10.** Those record `skipped`, not `ungated`.
+
+  Read that bound precisely: it is about when the task was **gated**, not when it was **created**.
+  This guard's own task is the worked example, and it goes the other way from the obvious guess —
+  mt#1880 was created 2026-05-17, well before the horizon, and records **`gated`**, because it was
+  re-planned on 2026-08-19 and that `→ READY` transition went through the command. Creation date
+  selects nothing; it is consulted only when there is no row to find. (Verified live — see
+  §Live verification.)
+
 - **A `gated` record proves a `→ READY` transition happened, not that the gate battery ran
   rigorously.** The row is evidence that `/plan-task`'s status call fired, nothing more.
+
+## Live verification
+
+The unit tests are all seam-injected — they hand `classifyGateWalk` a `GateWalkFacts` literal and
+never touch a database. That validates the logic and says nothing about the BINDING: whether the
+real hook process, started by the harness, reaches the real Postgres and writes a real record.
+Exercised directly (2026-08-20), a synthetic `PreToolUse` payload piped into the shipped
+`.claude/hooks/gate-walk-provenance.ts` for three tasks chosen to hit three different verdicts:
+
+```
+$ printf '{"session_id":"live-probe","tool_name":"mcp__minsky__session_pr_merge",
+           "cwd":"<session>","tool_input":{"task":"<id>"}}' | bun .claude/hooks/gate-walk-provenance.ts
+exit(mt#4320)=0   exit(mt#4264)=0   exit(mt#1880)=0
+
+{"taskId":"mt#4320","outcome":"gated",
+ "reason":"a → READY event exists (2026-08-19T06:20:08.140Z)",
+ "readyEventAt":"2026-08-19T06:20:08.140Z","horizonAt":"2026-06-10T18:28:16.479Z",
+ "taskCreatedAt":"2026-08-19T04:58:38.770Z"}
+{"taskId":"mt#4264","outcome":"ungated",
+ "reason":"no → READY event, and the task was created after the emission horizon (…)",
+ "readyEventAt":null,"horizonAt":"2026-06-10T18:28:16.479Z",
+ "taskCreatedAt":"2026-08-18T20:25:09.987Z"}
+{"taskId":"mt#1880","outcome":"gated",
+ "reason":"a → READY event exists (2026-08-19T06:01:04.987Z)",
+ "readyEventAt":"2026-08-19T06:01:04.987Z","horizonAt":"2026-06-10T18:28:16.479Z",
+ "taskCreatedAt":"2026-05-17T23:31:27.571Z"}
+```
+
+Every exit is 0 — the guard never denies — and the horizon is the same value in all three records,
+read live rather than carried.
+
+**This run corrected a false claim in this page.** §What this check does NOT claim previously said
+mt#1880 itself would record `skipped` as a pre-horizon task. It records `gated`: created
+2026-05-17, but re-planned 2026-08-19, and the ordering rule puts a found row ahead of any horizon
+reasoning. The unit test _"a found event outranks a horizon question"_ asserts exactly that, and the
+seam-injected version of it could not have caught the documentation error — only running the real
+binding against real rows did.
 
 ## Posture
 
