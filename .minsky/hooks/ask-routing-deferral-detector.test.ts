@@ -954,3 +954,22 @@ describe("a sentence citing a filed ask is reporting, not deferring (mt#4201)", 
     expect(remaining.every((m) => !citesFiledAsk(m.context, m.matchedPhrase))).toBe(true);
   });
 });
+
+describe("AT4 — mt#4175's revisability class is untouched by the ask-citation filter", () => {
+  // The two false classes measured in the same 2026-08-17 window are independent:
+  // this task suppresses a sentence that CITES a filed ask; mt#4175 owns a
+  // revisability offer that FOLLOWS a decision the agent already took. A
+  // revisability offer carries no ask id, so the filter cannot reach it — which
+  // is what keeps mt#4175's remedy free to be designed on its own terms.
+
+  test("a revisability offer with no ask citation survives the filter unchanged", () => {
+    const revisability = "I went with the second option unless you'd rather I switch.";
+
+    const matches = detectDeferralPhrases(revisability);
+    expect(matches.length).toBeGreaterThan(0);
+
+    const { remaining, suppressedAll } = resolveAskCitation(matches);
+    expect(remaining.length).toBe(matches.length);
+    expect(suppressedAll).toBe(false);
+  });
+});
