@@ -130,7 +130,29 @@ recognize, so the axis was measuring HOW THE AUTHOR RESTORED. Negative-control c
 `not-comparable`.
 
 Measured in the same sweep, the execution-evidence half discriminates: test **0/39** stale,
-typecheck **6/17** (35%), lint **4/18** (22%).
+typecheck **6/17** (35%), lint **4/18** (22%). Re-swept after the R1 narrowing below, over the same
+14 transcript FILES — which had grown in the interim, so the totals are larger and cross-run deltas
+are not attributable to the change: typecheck **9/23** (39%), lint **4/24** (17%), test **0/45**,
+format **0/1**, negative-control **0/41**.
+
+#### What counts as CLAIMING a kind (PR #3165 R1)
+
+The first cut recognized claims by bare tool nouns — `tsc`, `eslint`, `prettier` — plus a bare
+`errorCount`. Every one of those matches ordinary prose, which is the exact opposite of the
+conservative contract stated above, and `errorCount` was not even kind-specific: `validate_lint`
+reports it too, so a lint-only block was read as claiming a TYPECHECK. That PR's own body was the
+instance.
+
+A claim now requires something a block can only carry by having PASTED a run: a runner prefix
+(`bun run lint`, `bunx eslint`), a flag-bearing invocation (`tsc --noEmit`), a script-name shape
+(`format:check`), a tool name that is not an English word (`validate_typecheck`), or a distinctive
+output token (`error TS2353`). The originating instance still fires with identical verdicts after
+the narrowing, which is what says recall survived.
+
+The `test` kind needed the same treatment for a different reason, and it cannot be asserted the
+same way: a block claiming nothing recognizable DEFAULTS to `test`, so "does prose yield a test
+claim?" is undecidable in isolation. The decidable form — and the case the narrowing is for — is
+whether prose ADDS a `test` claim beside a real one.
 
 **Known false negatives, taken on purpose.** Shell writes (`sed -i`, a heredoc redirect) are not
 recognized — parsing a command for an EFFECT rather than a verb invents writes that did not happen,
