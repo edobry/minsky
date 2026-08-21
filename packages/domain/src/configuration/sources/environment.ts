@@ -336,6 +336,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_DEPLOY_MEMORY_FILE: "tunable", // (deployment-time bootstrap; not config)
   MINSKY_MAIN_WORKSPACE: "test-fixture", // (test-fixture constant)
   MINSKY_ALLOW_TEST_DB: "test-fixture", // src/cockpit/db-providers.ts (mt#3254) — opts a test into a real LOCAL database; without it the production resolution path refuses to hand a live connection to a test process
+  MINSKY_VERIFY_DATABASE_URL: "test-fixture", // scripts/verify-driven-session-conversations.ts (mt#4323) — points the live probe at a scratch database so its DDL/ORDER BY assertions can run pre-merge without applying the migration to production first
   MINSKY_SESSIONDB_POSTGRES_URL: "tunable", // legacy detection (post-mt#1610 retire)
   MINSKY_MCP_MAX_SESSIONS: "tunable", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
   MINSKY_MCP_PROFILE: "tunable", // src/utils/cold-start-profile.ts (debug flag)

@@ -41,7 +41,9 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import { getLoggableErrorSummary } from "../errors/index";
 import {
+  drivenSessionConversationsTable,
   drivenSessionsTable,
+  type AdoptionReason,
   type DrivenSessionRow,
   type PersistedDrivenSessionStatus,
 } from "../storage/schemas/driven-sessions-schema";
@@ -112,6 +114,157 @@ export async function upsertDrivenSessionRecord(
     });
     return "error";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation adoptions (mt#4323, ADR-044)
+// ---------------------------------------------------------------------------
+
+export interface RecordConversationAdoptionInput {
+  localId: string;
+  harnessSessionId: string;
+  harness: string;
+  actuatorGeneration?: number;
+  adoptionReason: AdoptionReason;
+}
+
+/**
+ * Append one adoption event for a driven session.
+ *
+ * INSERT-only by contract — never an upsert. Two adoptions of the SAME
+ * conversation id on the same session are two events and get two rows: a
+ * session that resumed a conversation, lost it, and resumed it again really
+ * did adopt it twice, and collapsing that would erase the interval between.
+ *
+ * Never throws. A failed adoption write must not fail the spawn that
+ * triggered it — this row is recovery state, and losing one is strictly
+ * better than refusing to start an agent. The failure IS logged loudly,
+ * because a silently missing row makes a span look complete when it is not,
+ * which is the failure class this table exists to close.
+ */
+export async function recordConversationAdoption(
+  db: PostgresJsDatabase,
+  input: RecordConversationAdoptionInput
+): Promise<"written" | "error"> {
+  try {
+    await db.insert(drivenSessionConversationsTable).values({
+      localId: input.localId,
+      harnessSessionId: input.harnessSessionId,
+      harness: input.harness,
+      actuatorGeneration: input.actuatorGeneration ?? 0,
+      adoptionReason: input.adoptionReason,
+      adoptedAt: new Date(),
+    });
+    return "written";
+  } catch (err) {
+    log.warn(
+      `recordConversationAdoption: FAILED for ${input.localId} -> ${input.harnessSessionId} ` +
+        `(reason=${input.adoptionReason}) — this session's conversation span now has a hole`,
+      { error: getLoggableErrorSummary(err) }
+    );
+    return "error";
+  }
+}
+
+/**
+ * The ordered conversation span of one driven session — every conversation it
+ * has adopted, oldest first.
+ *
+ * **The result is discriminated, not a bare array, and that is load-bearing.**
+ * Returning `[]` on a read failure would be byte-identical to "this session
+ * has adopted nothing," and those two call for opposite responses: the first
+ * means retry or degrade visibly, the second means there is genuinely no
+ * history. Collapsing them is how a lost span comes to look like an empty one
+ * — the same shape as the defect this whole task closes, one layer up. Callers
+ * must branch on `ok` before reading `conversationIds`.
+ *
+ * Ordered by `adopted_at`, then `seq`. The tiebreak matters because
+ * `adopted_at` is a JS `Date` with MILLISECOND resolution and two adoptions on
+ * one session can land inside a single tick, at which point the tiebreak alone
+ * decides the span.
+ *
+ * It must be `seq`, never `id` (PR #3218 R1): `id` is `gen_random_uuid()`, so
+ * ordering by it is arbitrary rather than insertion order — it would look like
+ * a tiebreak while deciding ties at random. `seq` is
+ * `GENERATED ALWAYS AS IDENTITY`, so it is monotonic in insertion order.
+ */
+export type ConversationSpanResult =
+  | { ok: true; conversationIds: string[] }
+  | { ok: false; error: string };
+
+export async function resolveConversationIds(
+  db: PostgresJsDatabase,
+  localId: string
+): Promise<ConversationSpanResult> {
+  try {
+    const result = await db.execute(
+      sql`SELECT harness_session_id FROM driven_session_conversations
+          WHERE local_id = ${localId}
+          ORDER BY adopted_at ASC, seq ASC`
+    );
+    const rows = Array.from(result as Iterable<{ harness_session_id: string }>);
+    return { ok: true, conversationIds: rows.map((r) => r.harness_session_id) };
+  } catch (err) {
+    const error = getLoggableErrorSummary(err);
+    log.warn(`resolveConversationIds: failed for ${localId}`, { error });
+    return { ok: false, error: String(error) };
+  }
+}
+
+/**
+ * The reasons that denote a FRESH spawn — i.e. a SWAP away from whatever
+ * conversation the session was on. `initial` and `resumed` are the two that
+ * are not: the first had no predecessor to replace, the second re-adopted the
+ * predecessor rather than replacing it.
+ */
+const SWAP_REASONS: ReadonlySet<string> = new Set<AdoptionReason>([
+  "no-prior-conversation",
+  "prior-conversation-unrecoverable",
+  "prior-spawn-never-linked",
+  "resume-attempt-failed",
+]);
+
+/**
+ * `entity_threads.replaced_conversation_id` as a PROJECTION over the adoption
+ * series, superseding the stored column (mt#4323, criterion 5).
+ *
+ * The column was written directly by mt#4093 and is LAST-WRITE-WINS, so it
+ * holds at most one swap back. This derives the same answer from the series:
+ * find the newest SWAP adoption, and return the id of the adoption immediately
+ * BEFORE it — the conversation that swap replaced.
+ *
+ * **Still one-deep, and deliberately so.** This is a back-compat projection of
+ * a singular column, not the span; it answers "what did the last swap replace?"
+ * and nothing more. Callers that want the thread's real history must call
+ * {@link resolveConversationIds}, which is the whole point of the table —
+ * every consumer that only ever needed one id keeps working unchanged, and the
+ * ones that needed more finally have somewhere to get it.
+ *
+ * Returns `undefined` for a session that has never swapped. That is NOT the
+ * same as a read failure, which throws to the caller — collapsing the two is
+ * the exact confusion {@link ConversationSpanResult} exists to prevent.
+ */
+export async function resolveReplacedConversationId(
+  db: PostgresJsDatabase,
+  localId: string
+): Promise<string | undefined> {
+  const result = await db.execute(
+    sql`SELECT harness_session_id, adoption_reason FROM driven_session_conversations
+        WHERE local_id = ${localId}
+        ORDER BY adopted_at ASC, seq ASC`
+  );
+  const rows = Array.from(
+    result as Iterable<{ harness_session_id: string; adoption_reason: string }>
+  );
+
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const swap = rows[i];
+    const predecessor = rows[i - 1];
+    if (swap && predecessor && SWAP_REASONS.has(swap.adoption_reason)) {
+      return predecessor.harness_session_id;
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------

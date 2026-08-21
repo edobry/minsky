@@ -11,7 +11,7 @@
  *      `startSessionImpl`; no duplicated clone/branch logic), reusing an
  *      existing non-terminal workspace when one exists (the "binds or
  *      creates" semantics from the mt#2752 spec).
- *   2. {@link createDrivenInitLinkObserver} — the `onHarnessSessionLinked`
+ *   2. {@link createDrivenInitObserver} — the `onHarnessSessionLinked`
  *      observer that performs spawn-time identity registration: a durable
  *      `driven_spawn` row in `minsky_session_links` (plus the
  *      `agent_transcripts` FK stub) the moment the child's `system/init`
@@ -38,6 +38,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { log } from "@minsky/shared/logger";
 import type { AttachRefusalReason } from "@minsky/domain/conversation-run-state/attach-admissibility";
 import type { ConversationId } from "@minsky/domain/ids";
+import type { AdoptionReason } from "@minsky/domain/storage/schemas/driven-sessions-schema";
 import {
   killIfIdentityMatches,
   probeProcessIdentity,
@@ -167,14 +168,46 @@ export async function resolveTaskWorkspace(taskId: string): Promise<ResolvedTask
 }
 
 /**
- * Test seam for {@link createDrivenInitLinkObserver} — mirrors the
+ * The harness that owns the conversation id space every driven session runs in.
+ *
+ * A literal today because the daemon spawns exactly one binary — see
+ * `driven-session-host.ts`, which builds a `claude` command line. Recorded as a
+ * COLUMN rather than assumed, so a second harness does not silently inherit the
+ * first one's id space (mt#4323).
+ */
+export const DRIVEN_SESSION_HARNESS = "claude_code";
+
+/**
+ * Test seam for {@link createDrivenInitObserver} — mirrors the
  * `overrideToken`/`spawnFn` injection convention used across the cockpit.
  */
-export interface DrivenInitLinkObserverDeps {
+export interface DrivenInitObserverDeps {
+  /**
+   * Why this session is adopting this conversation — REQUIRED, and required
+   * rather than defaulted on purpose (mt#4323).
+   *
+   * A default would be wrong at most call sites and silently so: `"initial"`
+   * would mislabel every resume, `"resumed"` every fresh spawn. The value is
+   * known for certain at construction — a `startDrivenSession` caller is
+   * spawning fresh, a `resumeDrivenSession` caller is resuming, and an entity
+   * thread additionally knows WHICH {@link FreshSpawnReason} applies — so the
+   * type asks each site to say which, and no site has to remember to.
+   */
+  adoptionReason: AdoptionReason;
   /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
    * — that type also requires the production-only `__resetForTests` method,
    * which a plain test fake shouldn't need to implement). */
   getDb?: () => Promise<PostgresJsDatabase | null>;
+  recordAdoption?: (
+    db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
+    input: {
+      localId: string;
+      harnessSessionId: string;
+      harness: string;
+      actuatorGeneration?: number;
+      adoptionReason: AdoptionReason;
+    }
+  ) => Promise<unknown>;
   writeLink?: (
     db: NonNullable<Awaited<ReturnType<typeof getContextInspectorDb>>>,
     input: {
@@ -187,27 +220,100 @@ export interface DrivenInitLinkObserverDeps {
 }
 
 /**
- * Build the `onHarnessSessionLinked` observer for a task-bound launch:
- * fire-and-forget the durable `driven_spawn` link write the moment the init
- * event yields the harness session id. Never throws into the host's stdout
- * handler (the async work is detached and every failure path logs instead).
+ * Build the `onHarnessSessionLinked` observer — everything that must be
+ * recorded the moment the child's init event yields a conversation id.
+ *
+ * TWO writes, with DIFFERENT preconditions, and the difference is the whole
+ * reason this function was renamed from `createDrivenInitLinkObserver` in
+ * mt#4323:
+ *
+ * 1. **The conversation adoption** (`driven_session_conversations`) — for
+ *    EVERY driven session, unconditionally. This is the durable record that a
+ *    session adopted this conversation at this instant, and it is what makes a
+ *    session's full span survive the `driven_sessions` upsert that overwrites
+ *    `harness_session_id` on the next spawn.
+ * 2. **The `driven_spawn` link** (`minsky_session_links`) — only when the
+ *    record also carries a `minskySessionId`, because that row links a
+ *    conversation to a WORKSPACE session and there is nothing to link without
+ *    one.
+ *
+ * **Why the rename mattered rather than being cosmetic.** Under the old name
+ * the function was understood as "the link observer", and entity threads
+ * therefore did not wire it — correctly, with a documented reason: the
+ * `minskySessionId` gate made it a permanent no-op for a thread, which is
+ * bound to an entity rather than a workspace. Putting the adoption write
+ * behind that same gate would have silently excluded entity threads, which are
+ * the exact caller ADR-044 is about. Hoisting the adoption above the gate, and
+ * naming the function for both writes, is what lets every driven caller wire
+ * ONE observer and get correct coverage — instead of an enumeration of spawn
+ * sites that a future fifth caller would have to remember to join.
+ *
+ * Never throws into the host's stdout handler: the async work is detached and
+ * every failure path logs instead.
  */
-export function createDrivenInitLinkObserver(
-  deps: DrivenInitLinkObserverDeps = {}
+export function createDrivenInitObserver(
+  deps: DrivenInitObserverDeps
 ): (record: DrivenSessionRecord) => void {
   return (record) => {
     const { harnessSessionId, minskySessionId } = record;
-    if (!harnessSessionId || !minskySessionId) return;
+    if (!harnessSessionId) return;
 
     void (async () => {
+      // Resolving the db is itself a failure path, and it MUST stay inside the
+      // error boundary (mt#4323). Before the adoption write was hoisted above
+      // the `minskySessionId` gate, this call sat inside the link write's own
+      // try; hoisting it left it uncovered, which turns any resolution failure
+      // into an unhandled rejection on a detached promise — on the host's
+      // stdout `init` frame, for every driven session. That is precisely what
+      // this function's contract and the spec's `## Invocation path` forbid:
+      // a spawn must not fail because its recovery-state write could not.
+      //
+      // Not hypothetical: the configured provider throws rather than returning
+      // null whenever persistence failed to initialize at boot (ADR-035's
+      // memoized-failed-initializer class, mt#4383), and under `bun test` it
+      // throws by design (mt#3254).
+      let db: Awaited<ReturnType<typeof getContextInspectorDb>>;
       try {
-        const db = await (deps.getDb ?? getContextInspectorDb)();
-        if (!db) {
-          log.warn(
-            `[driven-session] no SQL persistence available — driven_spawn link for ${record.localId} not recorded`
-          );
-          return;
-        }
+        db = await (deps.getDb ?? getContextInspectorDb)();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] could not resolve SQL persistence for ${record.localId}: ${message} ` +
+            `— neither the conversation adoption nor the driven_spawn link was recorded`
+        );
+        return;
+      }
+      if (!db) {
+        log.warn(
+          `[driven-session] no SQL persistence available — neither the conversation adoption ` +
+            `nor the driven_spawn link for ${record.localId} was recorded`
+        );
+        return;
+      }
+
+      // (1) Adoption — every driven session, no gate.
+      try {
+        const recordAdoption =
+          deps.recordAdoption ??
+          (await import("@minsky/domain/transcripts/driven-session-registry-store"))
+            .recordConversationAdoption;
+        await recordAdoption(db, {
+          localId: record.localId,
+          harnessSessionId,
+          harness: DRIVEN_SESSION_HARNESS,
+          actuatorGeneration: record.actuatorGeneration,
+          adoptionReason: deps.adoptionReason,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error(
+          `[driven-session] conversation adoption write failed for ${record.localId}: ${message}`
+        );
+      }
+
+      // (2) Link — only when there is a workspace session to link to.
+      if (!minskySessionId) return;
+      try {
         const writeLink =
           deps.writeLink ??
           (await import("@minsky/domain/transcripts/driven-link-writer")).writeDrivenSpawnLink;
@@ -229,7 +335,7 @@ export function createDrivenInitLinkObserver(
 
 /**
  * Test seam for {@link createDrivenResultObserver} — mirrors
- * {@link DrivenInitLinkObserverDeps}.
+ * {@link DrivenInitObserverDeps}.
  */
 export interface DrivenResultObserverDeps {
   /** Simplified test-seam signature (deliberately NOT `typeof getContextInspectorDb`
@@ -247,8 +353,7 @@ export interface DrivenResultObserverDeps {
  * persist a per-turn cost/usage row the moment a terminal `result` event
  * yields a summary. Wired for EVERY driven session (task-bound, explicit-cwd,
  * AND untasked "scratch" sessions alike — success criterion 1 says "every
- * driven session"; unlike {@link createDrivenInitLinkObserver}, this is not
- * task-bound-only). Never throws into the host's stdout handler — mirrors
+ * driven session"). Never throws into the host's stdout handler — mirrors
  * the init-link observer's error-swallowing convention.
  */
 export function createDrivenResultObserver(
@@ -301,8 +406,9 @@ export function createDrivenResultObserver(
 // Phase 1). Three pieces, all fire-and-forget / never-throw (matching the
 // two observers above): (1) the onStateChange persist observer, wired into
 // EVERY launch shape (task-bound, explicit-cwd, and scratch alike — same
-// "every driven session" scope as createDrivenResultObserver, unlike the
-// task-bound-only createDrivenInitLinkObserver); (2) boot-time
+// "every driven session" scope as createDrivenResultObserver — which since
+// mt#4323 is also createDrivenInitObserver's scope for its adoption half);
+// (2) boot-time
 // reconciliation; (3) the restart-recovery resume orchestration the WS route
 // (./driven-session-ws.ts) calls on a registry miss.
 // ---------------------------------------------------------------------------
@@ -1182,7 +1288,9 @@ export async function orchestrateDrivenSessionResume(
         actuatorGeneration: row.actuatorGeneration,
         model: row.model,
       },
-      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      // mt#4323: a `resumeDrivenSession` call — by construction the session is
+      // re-adopting a conversation it already had, not spawning a fresh one.
+      onHarnessSessionLinked: createDrivenInitObserver({ adoptionReason: "resumed" }),
       onResultSummary: createDrivenResultObserver(),
       onStateChange: createDrivenSessionPersistObserver(),
       registry,
@@ -1354,7 +1462,9 @@ export async function orchestrateDrivenSessionAttach(
         actuatorGeneration: 0,
         model: null,
       },
-      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      // mt#4323: a `resumeDrivenSession` call — by construction the session is
+      // re-adopting a conversation it already had, not spawning a fresh one.
+      onHarnessSessionLinked: createDrivenInitObserver({ adoptionReason: "resumed" }),
       onResultSummary: createDrivenResultObserver(),
       onStateChange: createDrivenSessionPersistObserver(),
       registry,
