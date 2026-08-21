@@ -750,7 +750,15 @@ export function SessionFilmRibbon({
       // arrives; when a caller passes a width CLASS instead, tailwind-merge
       // still dedupes width-vs-width (unlike flex-vs-width, which it can't
       // model).
-      className={cn("relative w-full min-h-0 overflow-y-auto font-mono text-xs", className)}
+      // `scrollbar-readout` (mt#4355): this is the surface mt#3701's
+      // always-visible-thumb argument was written for — a virtualized ribbon
+      // running to hundreds of rows, where the bar is a position-and-extent
+      // readout rather than a drag target. It opts in explicitly now that the
+      // treatment is no longer applied app-wide through a bare `*`.
+      className={cn(
+        "relative w-full min-h-0 overflow-y-auto font-mono text-xs scrollbar-readout",
+        className
+      )}
     >
       <div style={{ height: range.totalHeightPx, position: "relative" }}>
         {/*

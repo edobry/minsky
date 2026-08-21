@@ -61,7 +61,14 @@ export function Layout({ children }: Props) {
           <Rail />
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <TabBar />
-            <main className="flex-1 overflow-auto min-w-0">{children}</main>
+            {/* `scrollbar-readout` (mt#4355): the app's primary content
+                scroller is long enough that the bar reads as a position
+                indicator, so it opts in to the always-visible token-built
+                treatment. Incidental scrollers inside it — code blocks, table
+                wrappers, small panes — deliberately do not, and fall back to
+                the platform's own bar, which `color-scheme: dark` now renders
+                dark. See `index.css` §Scrollbars. */}
+            <main className="flex-1 overflow-auto min-w-0 scrollbar-readout">{children}</main>
           </div>
           <CommandPalette />
           <TabKeyboardNav />
