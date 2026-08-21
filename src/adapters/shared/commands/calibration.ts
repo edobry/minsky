@@ -229,7 +229,17 @@ async function saveClaims(workspacePath: string, store: CalibrationClaimStore): 
  * pass FAILS OPEN (claims nothing, blocks nobody) and says so in the result,
  * which is the current behaviour and therefore not a regression.
  */
-function resolveActorId(): string | null {
+function resolveActorId(callerActorId?: string): string | null {
+  // Server-injected identity first (mt#4408). The two env vars below belong to
+  // the Claude Code HARNESS process; an MCP tool call executes inside the
+  // long-lived Minsky MCP server, a daemon started before the conversation
+  // existed, so it can never carry that conversation's id. Measured
+  // 2026-08-21: the same sweep returned `claimsUnavailable: true` over MCP and
+  // `false` over the CLI, minutes apart, against the same store — the
+  // difference was the PROCESS, not the state. That made the mt#4164 claim
+  // inert on the invocation path every pass actually uses, which is how the
+  // R4 collision happened with no warning on either side.
+  if (callerActorId && callerActorId.trim()) return callerActorId.trim();
   const agentId = process.env.CLAUDE_AGENT_ID;
   if (agentId && agentId.trim()) return agentId.trim();
   const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
@@ -548,6 +558,22 @@ export function registerCalibrationCommands(): void {
           "Zod schemas.",
         required: false,
       },
+      callerActorId: {
+        schema: z.string(),
+        description:
+          "mt#4408: the caller's resolved agentId (ADR-006), used as the holder of this " +
+          "pass's concurrency claim on each review-due log. Server-injected from the " +
+          "resolved MCP identity (src/mcp/server.ts) — not normally supplied by hand, and " +
+          "any hand-supplied value is overwritten there. Absent on the CLI path, which " +
+          "resolves identity from the harness environment instead. Without it, an " +
+          "MCP-invoked pass has no identity at all (the MCP server is a long-lived daemon " +
+          "that never carries a conversation's env vars), so it claims nothing and a " +
+          "concurrent pass gets no warning — the mt#4408 R4 collision.",
+        required: false,
+        // Server-injected only — hide it from the CLI surface so it is not
+        // advertised as a hand-passable flag (mirrors tasks.dispatch-recover).
+        cliHidden: true,
+      },
     },
     async execute(params, ctx) {
       try {
@@ -640,7 +666,7 @@ export function registerCalibrationCommands(): void {
         //
         // Read-merge-write under the watermark lock so a claim and the watermark
         // it will later advance can never disagree.
-        const actorId = resolveActorId();
+        const actorId = resolveActorId(params.callerActorId);
         let claimedByOthers: string[] = [];
         await withWatermarkLock(workspacePath, async () => {
           const nowMs = Date.now();
@@ -651,13 +677,24 @@ export function registerCalibrationCommands(): void {
           const store = pruneStaleClaims(await loadClaims(workspacePath), nowMs);
           const paths = reviewDueAll.map((d) => d.path);
 
+          // READ first, and unconditionally (mt#4408). An unidentifiable pass
+          // cannot name ITSELF, which is why it must not WRITE a claim — but it
+          // can still be told that someone ELSE holds a log, and that costs
+          // nothing and blocks nobody. Before this, the `!actorId` early return
+          // sat above this line and skipped the read too, so such a pass
+          // reported `claimedByOthers: []` having never consulted the store —
+          // an absence in a derived view presented as an observation. `null`
+          // excludes nothing from `blockingClaims`, which is correct here: a
+          // pass with no identity holds no claims to exclude as its own.
+          const blocked = blockingClaims(store, paths, actorId, nowMs);
+          claimedByOthers = blocked.map((c) => c.logPath);
+
+          // WRITE only when identity is known. Failing open on this side is
+          // deliberate and unchanged — see `resolveActorId`'s docblock.
           if (!actorId) {
             await saveClaims(workspacePath, store);
             return;
           }
-
-          const blocked = blockingClaims(store, paths, actorId, nowMs);
-          claimedByOthers = blocked.map((c) => c.logPath);
 
           // Claim only what this pass will actually work on. Claiming a log
           // another pass holds would overwrite its holder and defeat the
@@ -746,6 +783,7 @@ export function registerCalibrationCommands(): void {
         let unreceiptedPaths: string[] = [];
         let newlyDuePaths: string[] = [];
         let claimHeldPaths: string[] = [];
+        let ackedByAnotherPass: string[] = [];
         if (params.ack) {
           // Refuse rather than fall back. An ack with no receipt cannot know
           // what was classified, and re-deriving the count here is the whole
@@ -787,6 +825,7 @@ export function registerCalibrationCommands(): void {
           unreceiptedPaths = reconciliation.unreceiptedPaths;
           newlyDuePaths = reconciliation.newlyDuePaths;
           claimHeldPaths = reconciliation.claimHeldPaths;
+          ackedByAnotherPass = reconciliation.ackedByAnotherPass;
 
           // Target only the paths the receipt actually covers: an unreceipted
           // log is left alone, so it must not count toward the write set or
@@ -881,6 +920,9 @@ export function registerCalibrationCommands(): void {
             // Also not advanced, for a DIFFERENT reason: due at mint time, but
             // another pass held a claim so this one stood down (PR #3214 R1).
             claimHeldPaths,
+            // Presented as due by THIS token, advanced by someone else before
+            // the ack landed — the classification here was duplicated (mt#4408).
+            ackedByAnotherPass,
           };
         }
 
@@ -955,6 +997,25 @@ export function registerCalibrationCommands(): void {
             ? `\nNot advanced (another pass held these when this token was issued, so you ` +
               `stood down on them rather than classifying them): ${claimHeldPaths.join(", ")}`
             : "";
+        const ackedByAnotherPassSuffix =
+          ackedByAnotherPass.length > 0
+            ? `\nLOST: another pass advanced these while you were classifying them, so this ` +
+              `ack wrote nothing for them and your review of them was duplicated. Their ` +
+              `watermarks reflect the other pass's review, not yours — do NOT re-ack to force ` +
+              `it through; reconcile with whatever that pass filed instead: ` +
+              `${ackedByAnotherPass.join(", ")}`
+            : "";
+        // Say the degradation in WORDS, not only as a JSON boolean (mt#4408).
+        // `claimsUnavailable: true` was reported all along and read past on both
+        // sides of the R4 collision — a field a reader must know to look for is
+        // not a warning. Now that the MCP path resolves identity (SC1), this
+        // should be rare, which is exactly why it should be loud when it fires.
+        const claimsUnavailableSuffix =
+          actorId === null && reviewDueAll.length > 0
+            ? `\nWARNING: this pass has no resolvable identity, so it claimed nothing and a ` +
+              `concurrent pass will not be warned off these logs. Any claim shown above was ` +
+              `read, not taken. Check for a pass already in flight before classifying.`
+            : "";
         const tokenSuffix = `\nreviewToken: ${reviewToken}`;
 
         return {
@@ -972,6 +1033,8 @@ export function registerCalibrationCommands(): void {
             unreceiptedSuffix +
             newlyDueSuffix +
             claimHeldSuffix +
+            ackedByAnotherPassSuffix +
+            claimsUnavailableSuffix +
             tokenSuffix,
           watermarkAdvanced,
           clearedAskId,
@@ -983,6 +1046,7 @@ export function registerCalibrationCommands(): void {
           unreceiptedPaths,
           newlyDuePaths,
           claimHeldPaths,
+          ackedByAnotherPass,
         };
       } catch (error) {
         return {

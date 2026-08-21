@@ -191,6 +191,36 @@ export interface MinskyMCPServerOptions {
  */
 const DISPATCH_RECOVER_TOOL_NAME = "tasks.dispatch-recover";
 
+/**
+ * The tool whose calibration claim keys on caller identity (mt#4408).
+ *
+ * Separate constant from {@link DISPATCH_RECOVER_TOOL_NAME} because the two
+ * tools want the same injection for unrelated reasons — one excludes the
+ * caller's own presence claims, the other takes a claim AS the caller.
+ */
+const CALIBRATION_REVIEW_TOOL_NAME = "observability.calibration-review";
+
+/**
+ * Tools the server injects the resolved caller `agentId` into as
+ * `callerActorId` (mt#3121, extended mt#4408).
+ *
+ * Membership is EXACT-match on the canonical dotted name and its
+ * Claude-Desktop underscore alias — never a substring — so a tool whose name
+ * merely CONTAINS one of these cannot receive the param. Built once at module
+ * load rather than per request.
+ *
+ * Why a set rather than a second `if`: the injection is now two tools wide and
+ * the matching rule (exact, both aliases, server overwrites any caller-supplied
+ * value) is the part that must not drift between them. One membership test
+ * cannot disagree with itself.
+ */
+const CALLER_ACTOR_ID_TOOL_NAMES: ReadonlySet<string> = new Set(
+  [DISPATCH_RECOVER_TOOL_NAME, CALIBRATION_REVIEW_TOOL_NAME].flatMap((name) => [
+    name,
+    toClaudeDesktopName(name),
+  ])
+);
+
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
   "debug.echo",
   "debug.listMethods",
@@ -1305,20 +1335,20 @@ export class MinskyMCPServer {
             ._meta?.progressToken;
           const progress = buildProgressReporter(progressToken, extra.sendNotification);
 
-          // mt#3121: inject the resolved caller agentId into tasks.dispatch-recover's
-          // arguments so its contested-check can EXCLUDE the caller's own task-grain
-          // presence claims (SC4 — a caller must never be flagged as its own peer). Matched
-          // EXACTLY against this tool's canonical dotted name and its Claude-Desktop underscore
-          // alias (both registered) — never a substring, so no other tool whose name merely
-          // contains "dispatch-recover" can receive the param. The server overwrites any
-          // caller-supplied value, so it cannot be spoofed here.
-          if (
-            request.params.name === DISPATCH_RECOVER_TOOL_NAME ||
-            request.params.name === toClaudeDesktopName(DISPATCH_RECOVER_TOOL_NAME)
-          ) {
-            const dispatchArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
-            dispatchArgs.callerActorId = agentId;
-            request.params.arguments = dispatchArgs;
+          // Inject the resolved caller agentId as `callerActorId` for the tools that
+          // need caller identity (mt#3121, extended mt#4408). Two consumers, two reasons:
+          //   - tasks.dispatch-recover EXCLUDES the caller's own task-grain presence claims
+          //     from its contested check, so a caller is never flagged as its own peer.
+          //   - observability.calibration-review takes its concurrency claim AS the caller.
+          //     Without this, `resolveActorId` falls back to harness env vars the long-lived
+          //     MCP server process does not have, and every MCP-invoked pass runs unclaimed.
+          // Membership is EXACT (canonical name + Claude-Desktop alias, both registered),
+          // never a substring. The server overwrites any caller-supplied value, so it
+          // cannot be spoofed here.
+          if (CALLER_ACTOR_ID_TOOL_NAMES.has(request.params.name)) {
+            const injectedArgs = (request.params.arguments ?? {}) as Record<string, unknown>;
+            injectedArgs.callerActorId = agentId;
+            request.params.arguments = injectedArgs;
           }
 
           const result = await tool.handler(request.params.arguments || {}, progress);

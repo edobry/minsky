@@ -107,11 +107,18 @@ export function annotateClaim(
  *
  * A pass's own claim never blocks it — re-running a sweep mid-pass is normal and
  * must not lock the runner out of its own work.
+ *
+ * `actorId` is nullable (mt#4408): a pass whose identity could not be resolved
+ * still needs to SEE other passes' claims even though it may not write one.
+ * `null` excludes nothing, which is the correct reading rather than a
+ * degradation — such a pass holds no claims, so it has no self to exclude.
+ * Same convention, and same rationale, as `callerActorId` in
+ * `packages/domain/src/session/task-claim-liveness.ts`.
  */
 export function blockingClaims(
   store: CalibrationClaimStore,
   paths: readonly string[],
-  actorId: string,
+  actorId: string | null,
   nowMs: number,
   staleMs: number = CLAIM_STALE_MS
 ): AnnotatedCalibrationClaim[] {
