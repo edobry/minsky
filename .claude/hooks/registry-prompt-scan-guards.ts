@@ -333,7 +333,41 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
     calibrationLog: "ask-routing-deferral",
     denyCapable: false,
     needsTranscript: true,
-    attentionCost: { denialMessageSizeChars: 600, optionCount: 1 },
+    // mt#4234: was 600, measured against the one-match canary below while the
+    // guard can render TWO classes at once. The saturated render is 1121, posed
+    // by the `worstCaseCanary` below and equal to it exactly — not rounded up,
+    // so lowering this by 1 fails `guard-feedback-shape.test.ts` and the number
+    // stays a measurement rather than an estimate.
+    //
+    // TRIM-VS-RAISE, decided and recorded per `guard-feedback-authoring.mdc`
+    // ("trim the text — raising the annotation is the escape hatch, not the
+    // fix"). BOTH were done, and the order matters: the phrase cap
+    // (`MAX_RENDERED_PHRASE_CHARS`) is the trim, and it is what makes a ceiling
+    // possible at all — before it, `matchedPhrase` interpolated an unbounded
+    // regex span and the render grew 1:1 with the agent's own prose (2350 chars
+    // from one run-on sentence). With the cap the render is FLAT at 1022 for
+    // that same input regardless of its length.
+    //
+    // The directive PROSE was deliberately NOT trimmed, which is the part that
+    // still costs budget: the two-class fixed body is 879 chars on its own, so
+    // no phrase cap can bring this under 600. Rejected because the two
+    // paragraphs are this guard's entire payload — each names the specific
+    // remedy the agent must run (`asks_create` / `/classify-before-deferring`)
+    // — and because three tune tasks (mt#4201, mt#3932, mt#4175) are in flight
+    // on this same detector. Rewriting what it SAYS while they change what makes
+    // it FIRE would collide; a render-size task should not redesign the
+    // guidance. If the budget pressure is judged too high, trimming the prose is
+    // the follow-up, not raising this number again.
+    //
+    // BUDGET CONSEQUENCE, re-derived by hand (this guard is IN the bucket since
+    // mt#4286 gave it `pre-narration`'s vacated fifth slot): the top five
+    // ACTUALLY-injecting UserPromptSubmit guards become dispatch-watchdog 1750,
+    // guard-health 1300, ask-routing-deferral 1121, substrate-bypass 650,
+    // code-mechanism-assertion 600 = 5421, plus the 1190 floor and 16
+    // separators — so `MERGED_CONTEXT_BUDGET_CHARS` moves 6106 -> 6627. Changed
+    // there in the same PR; `dispatcher.test.ts` pins it and the pre-commit
+    // gated runner excludes `.minsky/hooks/**`, so run it explicitly.
+    attentionCost: { denialMessageSizeChars: 1121, optionCount: 1 },
     canary: {
       input: { transcript_path: "mt2889-canary-transcript" },
       transcriptLines: [
@@ -343,6 +377,45 @@ export const PROMPT_SCAN_GUARDS: readonly GuardRegistration[] = [
           message: {
             role: "assistant",
             content: [{ type: "text", text: "That decision is yours to make." }],
+          },
+        },
+        { type: "user", message: { role: "user", content: "second turn" } },
+      ],
+      expects: "warn",
+    },
+    // mt#4234. Saturates BOTH axes the ordinary canary leaves un-posed: both
+    // classes matching at once, and each phrase past `MAX_RENDERED_PHRASE_CHARS`
+    // so the cap is what bounds the line.
+    //
+    // The text is built to defeat PATTERN ORDER, which is the trap mt#3853
+    // documents on `turn-end-untaken-action-scan` and which applies verbatim
+    // here: `detectDeferralPhrases` `break`s at the FIRST matching pattern in
+    // each class, so a message that also says "that decision is yours" spends
+    // the principal-reserved slot on that 25-char literal and measures a worst
+    // case that is not one. So this deliberately matches ONLY the two patterns
+    // whose spans are unbounded — the `before locking in … the decision is
+    // yours` shape (note "the", not "that", or the short pattern wins) and
+    // `want me to … or …?`. Verified against the live matcher: 2 matches at
+    // 172 and 168 chars, rendering 1121.
+    worstCaseCanary: {
+      input: { transcript_path: "mt4234-worst-case-canary" },
+      transcriptLines: [
+        { type: "user", message: { role: "user", content: "first turn" } },
+        {
+          type: "assistant",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text:
+                  "Before locking in the pooler mode and the migration order and the backfill " +
+                  "window and the rollout sequence and the cutover plan and the rollback path, " +
+                  "the decision is yours. Want me to re-run the sweep and re-measure the fires " +
+                  "and re-check the ceiling and re-run the shape test and rebase onto main, or " +
+                  "should we park the whole thing for now?",
+              },
+            ],
           },
         },
         { type: "user", message: { role: "user", content: "second turn" } },

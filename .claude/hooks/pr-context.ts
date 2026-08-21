@@ -43,7 +43,9 @@
 //
 // - Dependency-free (only imports `execWithPath` from `./types`, matching
 //   the `transcript.ts` / `types.ts` sibling shape — no cross-imports from
-//   `src/`).
+//   `src/`). This is a description of the module, not a rule it obeys:
+//   mt#4373 retired the convention that made it one. The module still has no
+//   reason to import anything heavier.
 // - Every fetch function accepts an injectable `exec` (default:
 //   `execWithPath`, PATH-augmented) so gate test suites can supply a fake
 //   without spawning a real `gh` subprocess.

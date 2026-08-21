@@ -101,3 +101,72 @@ mem#669 (family record, R16–R18) · mt#3216 (the cue) · mt#4191 (the never-in
 mt#4194 (the `/plan-task` skill-text sibling) · mt#2544 (family anchor) ·
 `turn-end-unescalated-incident-scan.md` (the hybrid phrase-trigger/state-check template) ·
 `duplicate-signature-scan.md` (the bounded fail-open substrate-read template)
+
+## The second class: the ask's own text declares it resolved (mt#4375)
+
+As shipped, this scan tested exactly one thing — the entity's **state column**:
+
+```ts
+isTerminal = TERMINAL_ASK_STATES.includes(resolved.state.toLowerCase());
+```
+
+`TERMINAL_ASK_STATES` deliberately excludes `suspended`, because a suspended ask genuinely IS
+awaiting the principal. That is the correct true-negative, and it is also a blind spot: **an ask
+can be finished without its state column saying so.**
+
+### Why this is a permanent population rather than a transient lag
+
+`stale-suspended-close.ts` `classify()` never auto-closes a non-commit-auth
+`authorization.approve` ask — **by any signal**: not parent-terminal, not supersession, not TTL.
+That carve-out is deliberate and correct (mt#3215 / ask#6024: such a subject can legitimately
+outlive its parent task), and `isCommitAuthAsk` requires a `metadata.commitMessage` that an
+incident ask does not carry.
+
+So for this kind of ask the state column **cannot** catch up on its own. "Body says RESOLVED,
+state says suspended" is not a race that settles; it accumulates. Two individually-correct
+mechanisms leave a gap between them, and this class closes it.
+
+### Originating incident (2026-08-20)
+
+A turn-end report told the principal that `ask#9278` was "Still yours" with "a real unanswered
+question." The scan did not fire, correctly: `refs_status` had returned `suspended` that same
+turn. The ask's own title read _"RESOLVED — reviewer restored…"_ and its question opened
+**_"RESOLVED. No action needed from you."_** The principal caught it by reading the ask.
+
+Note what was NOT the failure: the state was re-derived live and reported accurately. What went
+unverified was the prior session's _characterization_ of that state, inherited from a handoff.
+See mem#1166 — a status call cannot falsify a judgment about what a state MEANS.
+
+### The predicate
+
+`declaresResolution(title, question)` takes two independent signals, either sufficient:
+
+1. The text **opens** with `resolved` followed by a word boundary, after leading markdown
+   emphasis/heading/quote marks are stripped. Anchoring at the head is what separates a
+   declaration from a mention — _"blocked until mt#4294 is resolved"_ contains the same word and
+   asserts the opposite.
+2. It contains a phrase from `RESOLUTION_DECLARATION_PHRASES` (currently `no action needed`)
+   within `RESOLUTION_DECLARATION_WINDOW` (200) characters of the head. That phrase has no
+   non-declarative reading, so it does not need the positional anchor.
+
+Emphasis-stripping is load-bearing: the originating ask wrote `**RESOLVED. …**`, so a check
+anchored on the raw first character would have missed the exact case this exists for.
+
+### Kept disjoint from the state-column class
+
+`declaresResolved` is computed only when `isTerminal` is false, and every row carries
+`contradictionKind` (`terminal-state` | `content-declares-resolved`). An already-terminal ask is
+never double-reported, and the calibration stream keeps the two classes' false-positive rates
+separately reviewable rather than pooling them — which matters because the new class rests on a
+text heuristic while the old one rests on an enum.
+
+### Scope
+
+ASK-only. A task has no equivalent "body declares itself done" convention, and `ResolvedState`'s
+`title`/`question` are populated only by the ask query. The columns are `.notNull()` in
+`ask-schema.ts`; they are read defensively anyway, per the trust-boundary discipline
+`isStateRow`'s docblock states for driver rows.
+
+The sibling axis — extending the scan to **PR** refs — is mt#4207, and is a different problem:
+its cost is a GitHub network round-trip on the closing-message path, where this change adds two
+columns to the existing local Postgres query and no new round-trip.

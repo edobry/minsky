@@ -286,6 +286,43 @@ describe("DefaultAICompletionService — request-field forwarding contract (mt#4
     expect(callArgs.maxTokens).toBe(1234);
   });
 
+  it("generateObject() forwards mode when the caller sets one", async () => {
+    // mt#4317 added `mode` to select the structured-output strategy. It reaches the provider
+    // only through this spread, and NO production caller currently sets it — so nothing else
+    // in the codebase would notice if the forwarding silently stopped working. Same shape as
+    // the `maxTokens` defect this file already pins (PR #3200 R3).
+    const generateObject = fakeGenerateObject({ ok: true });
+    const service = makeService({ generateObject });
+
+    await service.generateObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+      mode: "tool",
+    });
+
+    const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(callArgs.mode).toBe("tool");
+  });
+
+  it("generateObject() omits mode when the caller did not set one, so the SDK still picks", async () => {
+    // The mt#2733 half again: forwarding `mode: undefined` would hand the SDK an explicit
+    // value where it expects absence, which is how a default silently stops being a default.
+    const generateObject = fakeGenerateObject({ ok: true });
+    const service = makeService({ generateObject });
+
+    await service.generateObject({
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      messages: [{ role: "user", content: "hi" }],
+      schema,
+    });
+
+    const callArgs = generateObject.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(callArgs, "mode")).toBe(false);
+  });
+
   it("generateObject() omits maxTokens when the caller did not set one", async () => {
     // The mt#2733 half: absent means absent, not `undefined` handed to the SDK.
     const generateObject = fakeGenerateObject({ ok: true });

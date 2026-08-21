@@ -6,7 +6,6 @@
     ".minsky/hooks/known-guard-names.ts",
     ".minsky/hooks/registry.ts"
   ],
-  "population": 138,
   "divergence": {
     "declaredButNotDescribed": [],
     "describedButNotDeclared": []
@@ -982,6 +981,33 @@
       "sourceFile": null
     },
     {
+      "guardName": "conflict-marker-check",
+      "description": "Blocks a commit whose staged content carries git conflict markers. Unlike several siblings it does not skip `src/generated/**`, which is where a failed stash pop's corruption went unnoticed until an unrelated test failed to parse the file.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "src/hooks/conflict-marker-detector.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
+    },
+    {
       "guardName": "constructed-identifier-batch-detector",
       "description": "Records an identifier minted and consumed in the same parallel batch, and consume-before-mint across a turn. A written `mt#` id that already exists is not a construction — checked by one bounded lookup per turn.",
       "failureClasses": ["unfounded-claim"],
@@ -1673,6 +1699,34 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "flakiness-control-detector"
+    },
+    {
+      "guardName": "gate-walk-provenance",
+      "description": "Records, at the merge seam, whether the bound task was ever gated at all — a `task.status_changed` row with `newStatus: \"READY\"`, which only `/plan-task`'s `tasks.status.set` call produces. The existence half of the gate-(h) pair; `enumeration-scope-check` asks the scope question at `pr` and presupposes the gate was walked, whereas this presupposes nothing and so is the only one that fires on a task that skipped PLANNING (mem#416 enumerates four such paths). Keeps `skipped` strictly apart from `ungated`: emission began ~2026-06 and the emitter swallows its own failures, so a missing row is bounded evidence about the stream, not about the gate. Record-only — never denies, never injects.",
+      "failureClasses": ["unreviewed-merge"],
+      "provenance": [".minsky/hooks/gate-walk-provenance.ts", ".minsky/rules/hook-observers.mdc"],
+      "stratum": "standalone",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "PreToolUse",
+      "pointSource": "settings",
+      "trajectory": "delivery",
+      "interventions": [
+        {
+          "type": "record",
+          "audience": "review"
+        }
+      ],
+      "mechanism": "structural",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["detector"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": "gate-walk-provenance"
     },
     {
       "guardName": "guard-events-ingest-on-session-end",
@@ -3308,6 +3362,33 @@
       "familyState": "classified",
       "deliberatelyUnauthored": false,
       "sourceFile": "spec-criterion-claim-detector"
+    },
+    {
+      "guardName": "sql-capability-message-check",
+      "description": "Blocks a commit whose persistence-gated error says only that the database is unavailable, without naming which of the two opposite causes it is — never configured, or configured and failed at boot (ADR-035 rule 3). The check itself predates this registration by a long way and had no caller at all until mt#4398, so it sat exiting non-zero against three real sites that nothing surfaced.",
+      "failureClasses": ["broken-main"],
+      "provenance": ["src/hooks/pre-commit.ts", "scripts/check-sql-capability-messages.ts"],
+      "stratum": "precommit",
+      "subject": "trajectory",
+      "provenanceStatus": "implementation",
+      "coverageGaps": ["tuningOwnership", "attentionCost", "canary"],
+      "registered": false,
+      "undescribed": false,
+      "point": "pre-commit",
+      "pointSource": "stratum",
+      "trajectory": null,
+      "interventions": [
+        {
+          "type": "deny"
+        }
+      ],
+      "mechanism": "lexical",
+      "role": "judge",
+      "coordinateGaps": [],
+      "families": ["guard"],
+      "familyState": "classified",
+      "deliberatelyUnauthored": false,
+      "sourceFile": null
     },
     {
       "guardName": "stale-signal-sweep",

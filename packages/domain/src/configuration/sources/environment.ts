@@ -296,6 +296,8 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_PREPUSH_TESTS: "operator-override", // .husky/pre-push (mt#2716) — skip the local suite entirely
   MINSKY_PREPUSH_FULL_SUITE: "tunable", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
   MINSKY_SKIP_NUL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
+  MINSKY_SKIP_CONFLICT_MARKER_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#4307) — conflict-marker check override
+  MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK: "operator-override", // src/hooks/commit-msg.ts (mt#4397) — skip verifying a [no-deploy-impact] claim against the deploy-surface predicate
   MINSKY_SKIP_MIGRATION_JOURNAL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   MINSKY_SKIP_DEPLOY_DOMAIN_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
   MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
@@ -335,6 +337,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_DEPLOY_MEMORY_FILE: "tunable", // (deployment-time bootstrap; not config)
   MINSKY_MAIN_WORKSPACE: "test-fixture", // (test-fixture constant)
   MINSKY_ALLOW_TEST_DB: "test-fixture", // src/cockpit/db-providers.ts (mt#3254) — opts a test into a real LOCAL database; without it the production resolution path refuses to hand a live connection to a test process
+  MINSKY_VERIFY_DATABASE_URL: "test-fixture", // scripts/verify-driven-session-conversations.ts (mt#4323) — points the live probe at a scratch database so its DDL/ORDER BY assertions can run pre-merge without applying the migration to production first
   MINSKY_SESSIONDB_POSTGRES_URL: "tunable", // legacy detection (post-mt#1610 retire)
   MINSKY_MCP_MAX_SESSIONS: "tunable", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
   MINSKY_MCP_PROFILE: "tunable", // src/utils/cold-start-profile.ts (debug flag)
@@ -443,6 +446,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_CLAIM_PROVENANCE: "operator-override", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
   MINSKY_SKIP_ENUMERATION_SCOPE: "operator-override", // .claude/hooks/enumeration-scope-check.ts (mt#4171) — a PR changing a serialized contract whose gate-(h) consumer sweep never reached docs/
   MINSKY_SKIP_EVIDENCE_PROVENANCE: "operator-override", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
+  MINSKY_SKIP_GATE_WALK_PROVENANCE: "operator-override", // .claude/hooks/gate-walk-provenance.ts (mt#1880) — merge-seam record of whether the bound task was ever gated (a task.status_changed → READY row)
   MINSKY_ACK_TASK_HIJACK: "operator-override", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
   // packages/domain/src/project/identity.ts at identity-resolution time (not

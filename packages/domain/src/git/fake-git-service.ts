@@ -205,6 +205,17 @@ export class FakeGitService implements GitServiceInterface {
       return this.branchExists ? "remote-ref-exists" : "";
     }
     if (command.includes("status --porcelain")) return "";
+    // No unmerged paths — the normal state of a tree (mt#4307). Without this the
+    // catch-all below answers `git diff --diff-filter=U` with "mock git output",
+    // which reads as one unmerged file named `mock git output` and makes every
+    // failed-pop test look like a CONFLICTED pop. That is this fake's standing
+    // hazard: it answers any command, so an unmodelled query returns something
+    // plausible rather than failing.
+    // Narrowed to a `git diff` whose filter is exactly `U` (PR #3201 R1). A bare
+    // `includes` also swallowed any command that merely CONTAINED the substring —
+    // including a longer filter list like `--diff-filter=UXB` — which is the same
+    // over-matching this fake is already prone to.
+    if (/\bgit\s+diff\b.*--diff-filter=U(\s|$)/.test(command)) return "";
     return "mock git output";
   }
 

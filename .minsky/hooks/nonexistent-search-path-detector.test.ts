@@ -404,3 +404,81 @@ describe("buildWarning", () => {
     expect(text.length).toBeLessThan(1050);
   });
 });
+
+/**
+ * mt#4328 — the grammar now comes from `command-shape.ts`; these pin what that
+ * migration changed and what it must NOT change.
+ */
+describe("shared search-argument grammar (mt#4328)", () => {
+  describe("SC7 — a ripgrep short flag no longer costs the whole path list", () => {
+    // The private copy bounded its scan by a GREP-only letter set, so a flag the
+    // set never knew about returned false from `suppliesPattern`. `pathArgs` then
+    // treated the real pattern as the path and returned NOTHING to stat: the
+    // command passed through this guard checking zero paths. Measured against the
+    // pre-migration code — `suppliesPattern("-Se") === false` and
+    // `pathArgs("rg", ["rg","-Se","foo","src"]) === []`.
+    //
+    // BOTH spellings are asserted deliberately: `-S` and `-u` fail for the same
+    // reason but are different letters, so a "fix" that merely added letters to
+    // the old set would satisfy one and not the other.
+    test("-S (ripgrep --smart-case) in a bundled run still yields the path", () => {
+      expect(suppliesPattern("-Se")).toBe(true);
+      expect(pathArgs("rg", tokenize("rg -Se foo src"))).toEqual(["src"]);
+    });
+
+    test("-u (ripgrep --unrestricted), repeated, still yields the path", () => {
+      expect(suppliesPattern("-uue")).toBe(true);
+      expect(pathArgs("rg", tokenize("rg -uue foo src"))).toEqual(["src"]);
+    });
+
+    test("a non-flag word is still NOT read as supplying the pattern", () => {
+      // The bound the letter set used to provide has to still be doing its job in
+      // the direction that matters: a false "pattern supplied" promotes the real
+      // pattern to a path candidate, which is how this helper could manufacture a
+      // fire from a correct command.
+      expect(suppliesPattern("-notaflag")).toBe(false);
+    });
+  });
+
+  describe("AT5 — redirections stay out of the path list", () => {
+    // `nonFlagOperands` does not skip redirection tokens; `positionalArgs` wraps
+    // it with a pre-filter that does. Without the wrapper this returns
+    // ["foo","src/",">","/tmp/out"] and the guard stats the redirect TARGET.
+    test("a redirect target is not a positional", () => {
+      expect(positionalArgs(tokenize("grep -rn foo src/ > /tmp/out"))).toEqual(["foo", "src/"]);
+    });
+
+    test("and not a path argument either", () => {
+      expect(pathArgs("grep", tokenize("grep -rn foo src/ > /tmp/out"))).toEqual(["src/"]);
+    });
+
+    test("a dangling redirection consumes its target and nothing more", () => {
+      expect(positionalArgs(tokenize("grep -rn foo src/ 2> /dev/null other/"))).toEqual([
+        "foo",
+        "src/",
+        "other/",
+      ]);
+    });
+  });
+
+  describe("AT4′ — find keeps its own walker, and must not be migrated", () => {
+    // These are REGRESSION guards, not a new capability. `find` path operands are
+    // extracted by `findPathOperands`, which stops dead at the first expression
+    // token; `nonFlagOperands({findStyle:true})` keeps walking and only skips
+    // tokens beginning with `-`. The two agree on every predicate measured, and
+    // diverge on expression OPERATORS — so a later attempt to fold this half into
+    // the shared walker should fail here rather than silently start stat'ing `(`.
+    test("a predicate value is not a path", () => {
+      expect(pathArgs("find", tokenize("find src -path docs"))).toEqual(["src"]);
+      expect(pathArgs("find", tokenize("find src -name docs"))).toEqual(["src"]);
+    });
+
+    test("an expression operator is not a path", () => {
+      expect(pathArgs("find", tokenize("find src ( -name a -o -name b )"))).toEqual(["src"]);
+    });
+
+    test("multiple real path operands before the expression are all kept", () => {
+      expect(pathArgs("find", tokenize("find src tests -name docs"))).toEqual(["src", "tests"]);
+    });
+  });
+});

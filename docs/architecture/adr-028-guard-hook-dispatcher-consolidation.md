@@ -152,10 +152,81 @@ subsystem (`signalToAskIntent`). It is architecturally distinct from what this A
 Claude Code **harness lifecycle hooks** run as separate OS processes spawned by the Claude
 Code client, outside the MCP server's process, and must remain **self-contained with no
 imports from `packages/domain/`** (`.claude/hooks/SPEC.md`: "They are self-contained — no
-imports from `src/` — so they work even when the main codebase has type errors"). This ADR's
+imports from `src/` — so they work even when the main codebase has type errors").
+**[SUPERSEDED 2026-08-20 by the amendment directly below — both the requirement and its
+"type errors" rationale. Do not read this sentence on its own.]** This ADR's
 dispatcher framework preserves that invariant — it lives inside the hooks tree
 (`.minsky/hooks/framework/` → `.claude/hooks/framework/`), not in `packages/domain/`. A future
 convergence between the two "detector" concepts is plausible but explicitly out of scope here.
+
+> **Amendment (2026-08-20, mt#4373) — the self-containment invariant is RETIRED, and the reason
+> above was wrong.** The convergence this paragraph parks as "plausible but explicitly out of scope"
+> is now IN scope, under mt#4368. Authority: a principal decision taken 2026-08-20, selecting
+> "Import freely; retire the invariant" from a routed option set. Hook modules may import
+> `packages/domain`. Two things this does NOT change are stated at the end of this amendment.
+>
+> **The stated reason does not survive contact with the runtime.** "So they work even when the main
+> codebase has type errors" is not a real failure mode. Hooks run under Bun, which strips TypeScript
+> types at import and never type-checks, so a hook importing a type-broken domain module loads and
+> runs normally. Reproduced 2026-08-20 with both directions observed:
+>
+> ```
+> $ bun node_modules/typescript/bin/tsc --noEmit --strict typebroken.ts
+> typebroken.ts(2,14): error TS2322: Type 'string' is not assignable to type 'number'.
+>
+> $ bun importer.ts
+> imported OK; decide('deny') = true | broken = this is not a number
+> bun exit code: 0
+> ```
+>
+> The control establishes the module really is type-broken; the run establishes that an importer
+> loads it, calls its exported function, gets the right answer, and prints the type-violating value
+> along the way. The sentence was inherited verbatim from a `.claude/hooks/SPEC.md` that no longer
+> exists, and repeated for a year without being tested.
+>
+> **What actually breaks an importing hook** is narrower, and this repo has hit every case.
+> `.minsky/hooks/domain-bootstrap.ts` (mt#3019) documents two: importing
+> `packages/domain/src/persistence/factory` throws _"tsyringe requires a reflect polyfill"_ **at
+> module load** unless `reflect-metadata` was imported first — outside
+> `resolvePersistenceProvider`'s try/catch, so it never degrades to the documented `null` return;
+> and `PersistenceService.initialize()` throws _"Configuration not initialized"_ unless the
+> process-global config system was initialized — inside that try, so it DOES degrade to `null` and
+> reads as "DB unavailable". The third is module resolution: a relative import reaching a tree that
+> is not present.
+>
+> **The cost signature is silence, not breakage**, which is why this class is worth naming precisely.
+> `record-subagent-invocation.ts` was missing both bootstrap layers for the entire life of the
+> `subagent_invocations` table — 62 rows written 2026-07-08 to 2026-07-22, none carrying a
+> hook-written column — and a 2s connect-timeout override sitting under a measured 2.3–2.6s socket
+> floor made every DB-backed hook resolve a null provider and fail open, deterministically, for
+> weeks (mt#3879). The dispatcher's own fail-open-on-throw (mt#2597) is what converts each of these
+> into a quiet non-blocking guard rather than a visible error.
+>
+> **ADR-026 narrows the hazard to a small subset.** Its two-tier convention puts stateful services
+> holding a lifecycle on tsyringe (tier 1) and "leaf / stateless domain functions" on an explicit
+> required `deps` parameter with "no container involvement, no decorators" (tier 2). A guard
+> decision function is tier 2, and the detectors already in `packages/domain/src/detectors/` follow
+> it — `flakiness-attribution.ts` and `negative-existence-claim.ts` have zero imports; only the two
+> `*-factory.ts` modules touch DI. A tier-2 extraction carries no import-time side effect at all.
+> The bootstrap obligation binds only on guards that reach persistence: 14 modules when ADR-041
+> §Question 4 enumerated them (2026-08-14), 20 on 2026-08-20. Re-measure rather than quoting.
+>
+> **Two things this amendment does NOT retire:**
+>
+> 1. **The tier-2 observability baseline.** `.minsky/hooks/SPEC.md` requires
+>    `record-conversation-run-state.ts`, `transcript-ingest-on-session-end.ts` and their contract
+>    module `types.ts` to keep a transitive import closure of node stdlib + same-directory files
+>    only — not even `@minsky/shared`. That set is what `minsky init` provisions for OTHER projects
+>    (`packages/domain/src/setup/hook-provisioning.ts`), and it runs from an arbitrary install path
+>    where no `packages/domain` resolves. It is a module-resolution fact, not a convention, and
+>    `self-containment.test.ts` enforces it — including a test that executes the baseline "in a bare
+>    directory with no `packages/` sibling".
+> 2. **This ADR's D1 dispatcher decision**, which is about process topology, not imports.
+>
+> Observation, not changed here: the paths this paragraph names —
+> `.minsky/hooks/framework/` → `.claude/hooks/framework/` — do not exist. The dispatcher and registry
+> live directly at `.minsky/hooks/dispatcher.ts` and `.minsky/hooks/registry*.ts`. A reader
+> following the path above finds nothing.
 
 ### Related decisions already made
 
@@ -250,8 +321,17 @@ than resting on either document.
 (D2–D6) live inside the hooks tree — `.minsky/hooks/framework/` (compiled to
 `.claude/hooks/framework/` per mt#2304) — never imported from `packages/domain/`. This
 preserves the documented invariant that hooks keep working even when the main codebase has
-type errors. Individual guard modules remain plain exported functions, unit-testable exactly
+type errors. **[The invariant and this "type errors" rationale are SUPERSEDED 2026-08-20 —
+see the amendment directly below. The dispatcher-topology decision itself stands.]**
+Individual guard modules remain plain exported functions, unit-testable exactly
 as today.
+
+> **Amendment (2026-08-20, mt#4373).** The invariant this paragraph preserves is RETIRED, and its
+> stated reason — type errors — was never a real failure mode; see the amendment under §Context
+> → "Adjacent-but-distinct prior art" for the reproduction and for what actually breaks an
+> importing hook. **D1's own decision is unaffected**: one dispatcher process per lifecycle event
+> is a claim about process topology, not about imports, and it stands. What changes is only that a
+> guard module reached through it may now import `packages/domain`.
 
 **Async carve-out.** Genuinely fire-and-forget work that must not block the dispatcher's
 budget (`transcript-ingest-on-session-end.ts`'s `minsky transcripts ingest` subprocess,
@@ -271,11 +351,23 @@ interface GuardRegistration {
   event: LifecycleEvent; // "PreToolUse" | "PostToolUse" | ... (which dispatcher loads it)
   matcher: string; // tool-name regex, e.g. "Bash|mcp__minsky__session_exec"
   module: () => Promise<GuardModule>; // dynamic import of the pure-function guard
-  timeoutMs: number; // per-guard budget within the dispatcher's overall budget
+  timeoutMs: number; // per-guard budget within the dispatcher's overall budget (see the 2026-08-21 note below)
   calibrationLog?: string; // logical name for D4's shared calibration service
   denyCapable: boolean; // participates in first-deny-wins short-circuit (D1)
 }
 ```
+
+**Note added 2026-08-21 (mt#3757) — `timeoutMs` is now ENFORCED, and not as a flat cut.**
+This ADR declared the field as a per-guard budget; until mt#3757 the dispatcher loop read
+it nowhere and a single hung guard rode to the host cap, losing every already-computed
+verdict silently. The enforced deadline is **slack-aware and host-bounded**:
+`min(declared + unspent budget from earlier guards on this event, the event's remaining
+host budget)`. A flat cut at the declared value was measured against 730,951 fire-log
+records and rejected — ten of 56 registered guards already exceed their declaration in
+production, so it would have silently killed working guards (worst case `memory-search`,
+262 overruns across 25 of 35 active days). The declared value survives as a SOFT budget
+recorded on the fire log; only the hard deadline skips, and a skip is NAMED in the merged
+context block. See `docs/architecture/evaluation-loop-fire-log.md §guardOutcome`.
 
 The registry is the **single source of truth** that today's copy-pasted `settings.json`
 matcher strings approximate by hand (e.g., the literal string `"Edit|Write|NotebookEdit"`

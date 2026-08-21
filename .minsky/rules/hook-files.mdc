@@ -8,8 +8,10 @@ tags:
 ---
 # Hook Files
 
-PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
-`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
+PreToolUse/merge/pre-commit gate index + guard-dispatcher. **Observers (non-blocking
+detectors/injectors/trackers) are NOT in this file and are no longer always-loaded (mt#4332):
+`hook-observers` auto-attaches when you edit a hook, or read it with `rules_get hook-observers`.**
+Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
 permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
@@ -24,7 +26,25 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/conflict-marker/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+  Conflict-marker (mt#4307) blocks a staged file carrying git's `<{7}`/`={7}`/`>{7}` line-anchored
+  markers, and unlike several siblings does NOT skip `src/generated/**` — that is where the
+  originating corruption hid. An open/close marker fires alone (measured: zero repo-wide); a bare
+  separator needs a corroborating marker, because a 7-char Markdown setext underline is otherwise
+  indistinguishable. In Markdown-family files an isolated marker inside a fenced block is exempt so
+  docs can quote one, but a COMPLETE block fires even fenced.
+  `MINSKY_SKIP_CONFLICT_MARKER_CHECK`.
+- **False `[no-deploy-impact]` claim** (mt#4397) — a COMMIT-MSG hook, not pre-commit: git gives the
+  message only to `commit-msg`, which also runs AFTER the regeneration-and-re-stage steps, so the
+  staged set it reads is the one that ships. Denies when the message asserts the tag and
+  `isDeploySurfaceFile` returns true for any staged file, INCLUDING deletions — deleting deploy
+  surface is deploy impact, and this reads paths, not content. A BACKTICKED or FENCED tag is
+  discussion, not a claim, so docs and retrospectives about the tag do not fire; fences are stripped
+  before inline spans, since the inline rule alone mis-parses a fence rather than merely missing it.
+  Skips the git read entirely when no claim is present. Fourth instance of the class in 17
+  days (PRs #3104, #3148, #3203, #3219); the prior tiers were prose (mt#4269) and memory (mem#1162,
+  never retrieved before the next recurrence). Fails open loudly if git is unreadable.
+  `MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
   `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone

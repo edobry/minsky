@@ -22,6 +22,9 @@
 // not be built, and the import path would be wrong). Instead, it reads the
 // JSON state file directly and validates the shape inline — the same logic as
 // `readDaemonState()` in daemon-state.ts, inlined here for self-containment.
+// (mt#4373 retired that convention — the inline copy is no longer REQUIRED, and
+// whether to keep duplicating this shape or import it is now an ordinary
+// judgment call. Left as-is; it is a few lines and has no dependencies.)
 //
 // **Opt-out.** Set `MINSKY_SKIP_DAEMON_STALENESS=1` in the environment to
 // disable the hook entirely.

@@ -57,8 +57,14 @@ import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { ensureHookDomainBootstrap, describeProviderResolutionFailure } from "./domain-bootstrap";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
-// From @minsky/shared, not src/: hooks are self-contained by convention
-// (`.minsky/hooks/SPEC.md`) so a `src/` type-check failure cannot break them.
+// From @minsky/shared, a dependency-free leaf package — the lightest place to
+// share this helper. (The former reason given here, that hooks must avoid `src/`
+// so a type-check failure cannot break them, was retired by mt#4373: Bun strips
+// types at import and never type-checks, so that failure mode does not exist.
+// Note the line above already imports a domain TYPE: `import type` is erased at
+// runtime, so it carries no RUNTIME coupling. Build-time coupling still applies
+// — path resolution and declaration emit see it, and it breaks if the symbol
+// moves or is renamed.)
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN";
@@ -116,6 +122,70 @@ export const TERMINAL_ASK_STATES: readonly string[] = [
 
 /** Task statuses that mean the principal has nothing left to do. */
 export const TERMINAL_TASK_STATUSES_FOR_SCAN: readonly string[] = ["DONE", "CLOSED"];
+
+/**
+ * How far into a title/question a resolution declaration may sit and still count.
+ *
+ * A declaration is a HEADLINE — it opens the text, because its whole purpose is
+ * to be read first. Scanning the entire body instead would match any ask that
+ * merely discusses resolution, which is the false positive mt#4375 was specced
+ * to avoid.
+ */
+const RESOLUTION_DECLARATION_WINDOW = 200;
+
+/**
+ * Phrases that, at the head of an ask's own title or question, mean its author
+ * declared it finished — regardless of what the `state` column says.
+ *
+ * Kept as a named constant beside {@link TERMINAL_ASK_STATES} because it plays
+ * the same role for a DIFFERENT signal: that one reads the state column, this
+ * one reads what the ask says about itself.
+ */
+export const RESOLUTION_DECLARATION_PHRASES: readonly string[] = ["no action needed"];
+
+/**
+ * Words that count as a declaration when they OPEN the text.
+ *
+ * Separate from {@link RESOLUTION_DECLARATION_PHRASES} because the two are
+ * matched differently, not because one is more important: these need the
+ * leading-position anchor to distinguish "RESOLVED — …" from "…is resolved",
+ * while the phrases above are unambiguous anywhere near the head. Both are
+ * named constants rather than inline literals so the vocabulary is testable and
+ * extendable without touching the matcher (mt#4375 SC2).
+ */
+export const RESOLUTION_DECLARATION_LEAD_WORDS: readonly string[] = ["resolved"];
+
+/**
+ * True when an ask's own text declares it resolved (mt#4375).
+ *
+ * Two independent signals, either sufficient:
+ *
+ * 1. The text OPENS with `resolved` followed by a boundary — "RESOLVED — …",
+ *    "**RESOLVED. No action needed…**". Anchoring at the head is what separates
+ *    a declaration from a mention: "blocked until mt#4294 is resolved" contains
+ *    the same word and asserts the opposite.
+ * 2. It carries an unambiguous phrase from {@link RESOLUTION_DECLARATION_PHRASES}
+ *    near the head. "no action needed" has no non-declarative reading, so it does
+ *    not need the leading-position anchor that bare "resolved" does.
+ *
+ * Markdown emphasis is stripped first: the originating ask (ask#9278) wrote
+ * `**RESOLVED. No action needed from you.**`, so a check anchored on the raw
+ * first character would have missed the exact case this exists for.
+ */
+export function declaresResolution(...texts: readonly (string | undefined)[]): boolean {
+  for (const raw of texts) {
+    if (typeof raw !== "string" || raw.length === 0) continue;
+    const head = raw.slice(0, RESOLUTION_DECLARATION_WINDOW).toLowerCase();
+    // Strip leading markdown emphasis/quote/heading marks and whitespace.
+    const anchored = head.replace(/^[\s*_#>`~-]+/, "");
+    const opensWithLeadWord = RESOLUTION_DECLARATION_LEAD_WORDS.some(
+      (word) => anchored.startsWith(word) && !/[a-z0-9]/.test(anchored.charAt(word.length))
+    );
+    if (opensWithLeadWord) return true;
+    if (RESOLUTION_DECLARATION_PHRASES.some((phrase) => head.includes(phrase))) return true;
+  }
+  return false;
+}
 
 /**
  * Vocabulary asserting that an item is waiting on the PRINCIPAL.
@@ -179,6 +249,17 @@ export interface PendingClaim {
 export interface ResolvedClaim extends PendingClaim {
   liveState: string;
   isTerminal: boolean;
+  /**
+   * The ask's own text declares it resolved while `state` is non-terminal
+   * (mt#4375). Independent of {@link isTerminal} — an ask can be one, both, or
+   * neither, and the two are kept apart so each class's false-positive rate is
+   * separately reviewable in the calibration log.
+   */
+  declaresResolved: boolean;
+  /**
+   * Which signal produced the contradiction. `undefined` when there is none.
+   */
+  contradictionKind?: "terminal-state" | "content-declares-resolved";
 }
 
 /**
@@ -304,6 +385,15 @@ export interface ResolvedState {
    * matched; for a task, its id.
    */
   identity: string;
+  /**
+   * The ask's own title and question, when the row carried them (mt#4375).
+   *
+   * Optional because only the ASK query selects them; a task row has no
+   * equivalent and leaves both absent. Not optional because the columns are
+   * nullable — both are `.notNull()` in `ask-schema.ts`.
+   */
+  title?: string;
+  question?: string;
 }
 
 /** The key a ref resolves under. Both id-spaces coexist, so the form is part of it. */
@@ -344,7 +434,28 @@ export function classifyResolved(
       claim.entity.kind === "ask"
         ? TERMINAL_ASK_STATES.includes(resolved.state.toLowerCase())
         : TERMINAL_TASK_STATUSES_FOR_SCAN.includes(resolved.state.toUpperCase());
-    out.push({ ...claim, liveState: resolved.state, isTerminal });
+    // mt#4375: an ask can be finished without its state column saying so.
+    // `stale-suspended-close` NEVER auto-closes a non-commit-auth
+    // `authorization.approve` ask — by design (mt#3215) — so "the body says
+    // RESOLVED, the state says suspended" is a permanent population, not a
+    // transient lag. Only checked when the state is NOT already terminal, so
+    // the two classes stay disjoint and each is separately reviewable.
+    const declaresResolved =
+      claim.entity.kind === "ask" &&
+      !isTerminal &&
+      declaresResolution(resolved.title, resolved.question);
+    const contradictionKind = isTerminal
+      ? "terminal-state"
+      : declaresResolved
+        ? "content-declares-resolved"
+        : undefined;
+    out.push({
+      ...claim,
+      liveState: resolved.state,
+      isTerminal,
+      declaresResolved,
+      ...(contradictionKind ? { contradictionKind } : {}),
+    });
   }
   return out;
 }
@@ -454,7 +565,8 @@ async function runLookup(claims: PendingClaim[]): Promise<LookupResult> {
         askShortIds.length > 0 ? sql`short_id::text in ${askShortIds}` : sql`false`;
       const uuidClause = askUuids.length > 0 ? sql`id::text in ${askUuids}` : sql`false`;
       const rows = await db.execute(sql`
-        select id::text as id, short_id::text as short_id, state::text as state
+        select id::text as id, short_id::text as short_id, state::text as state,
+               title::text as title, question::text as question
         from asks
         where ${shortClause} or ${uuidClause}
       `);
@@ -463,10 +575,19 @@ async function runLookup(claims: PendingClaim[]): Promise<LookupResult> {
         const identity = row["id"] ?? "";
         const state = row["state"] ?? "";
         const shortId = row["short_id"];
+        // mt#4375: read defensively rather than asserting the shape. Both columns
+        // are `.notNull()` in `ask-schema.ts` (:135, :138), so this is NOT about
+        // nullability — it is the trust-boundary discipline `isStateRow`'s own
+        // docblock states: a driver result is external input, and a driver or
+        // schema change should surface as a missing declaration here rather than
+        // as an `undefined` reaching `declaresResolution` deeper in.
+        const title = typeof row["title"] === "string" ? row["title"] : undefined;
+        const question = typeof row["question"] === "string" ? row["question"] : undefined;
+        const resolvedRow: ResolvedState = { state, identity, title, question };
         if (typeof shortId === "string" && shortId.length > 0) {
-          states.set(`ask:short:${shortId}`, { state, identity });
+          states.set(`ask:short:${shortId}`, resolvedRow);
         }
-        states.set(`ask:uuid:${identity}`, { state, identity });
+        states.set(`ask:uuid:${identity}`, resolvedRow);
       }
     }
 
@@ -544,7 +665,11 @@ export async function run(
   writeFlagged(sessionId, flagged, storeDir);
 
   const lookup = await lookupLiveStates(claims);
-  const contradicted = lookup.resolved.filter((r) => r.isTerminal);
+  // mt#4375: two independent contradiction signals — the state column, and the
+  // ask's own text declaring itself resolved while that column lags. Each row
+  // carries `contradictionKind`, so the calibration stream keeps the classes
+  // separable rather than pooling their false-positive rates.
+  const contradicted = lookup.resolved.filter((r) => r.isTerminal || r.declaresResolved);
 
   const suppressionReasons: string[] = [];
   if (lookup.failed) suppressionReasons.push(`lookup-unavailable: ${lookup.failed}`);

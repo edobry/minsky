@@ -526,6 +526,14 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
     },
   ],
   [
+    "gate-walk-provenance",
+    {
+      ...structuralRecorder,
+      trajectory: "delivery",
+      note: "The merge-seam half of the gate-(h) pair. Reads THREE indexed rows — the stream's earliest task.status_changed, the bound task's created_at, and a → READY row for that task — and asks only whether the task was ever gated, never whether it was gated well (that is enumeration-scope-check's question at `pr`). Structural rather than lexical: no prose is parsed on any path. Its `skipped` outcome is a first-class verdict, not a fallthrough — a pre-horizon task and an unreadable stream both produce one, because absence in this stream is bounded evidence about the stream and not about the gate.",
+    },
+  ],
+  [
     "guard-health-escalation-detector",
     {
       interventions: [injectAgent],
@@ -919,6 +927,7 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
   ["migration-guard-check", structuralGate],
   ["migration-journal-check", structuralGate],
   ["node-shim-check", structuralGate],
+  ["conflict-marker-check", structuralGate],
   ["nul-byte-check", structuralGate],
   ["rules-compile-check", structuralGate],
   [
@@ -928,6 +937,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       mechanism: "lexical",
       role: "judge",
       note: "The classifier is EXTERNAL: the step shells out to gitleaks, whose detection is pattern/entropy matching over staged content, and fails closed when gitleaks is not installed. `lexical` describes gitleaks' mechanism — this is the one entity in the corpus whose classifier does not live in this repo.",
+    },
+  ],
+  [
+    "sql-capability-message-check",
+    {
+      interventions: [deny],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Same coordinates as `variable-naming-check` and for the same reasons: it denies, it matches phrases in staged source, and the verdict is its own. mt#4398 — the check it runs (`scripts/check-sql-capability-messages.ts`, mt#3661) had no caller at all until then, so it had no coordinates either.",
     },
   ],
   ["type-check", structuralGate],

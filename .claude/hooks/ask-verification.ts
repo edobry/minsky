@@ -11,12 +11,18 @@
 //
 // Mechanism: shell out to a `minsky tools asks list --id <id>` CLI read (the
 // same reach-the-server mechanism as the mt#2813 standalone-duplicate probe)
-// rather than importing `packages/domain` — keeps the hook self-contained per
-// `.minsky/hooks/SPEC.md` ("no imports from `src/`"; `@minsky/shared` is a
-// dependency-free leaf package, not `src/`, and other hooks already import it
-// — e.g. `record-subagent-invocation.ts` imports `@minsky/shared/safe-truncate`
-// — so importing the shared `APPROVAL_TOKEN` vocabulary below is consistent
-// with that convention, not an exception to it). The lookup is BY ID
+// rather than importing `packages/domain`.
+//
+// mt#4373 note: the reason recorded here was `.minsky/hooks/SPEC.md`'s
+// self-containment invariant ("no imports from `src/`"), which is retired — a
+// hook MAY import `packages/domain` now. So the shell-out is no longer REQUIRED,
+// and whether it is still preferable is an open question rather than a settled
+// one: an in-process domain call would avoid a subprocess, but reaching
+// persistence from a hook costs a full provider resolution (3.3–5.5s, mt#3090)
+// and obliges `ensureHookDomainBootstrap`. Left as-is deliberately; revisit with
+// a measurement, not a rule. The `@minsky/shared/APPROVAL_TOKEN` import below
+// needs no justification at all now — it is simply the light option.
+// The lookup is BY ID
 // (mt#3007); it previously paged through `tools asks list --state ...`, which
 // silently missed asks outside the page. An empty result array is a
 // structured "absent" signal, so a missing ask is never confused with a

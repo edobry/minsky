@@ -46,7 +46,9 @@ import type { TranscriptLine } from "../.minsky/hooks/transcript";
 import {
   checkNewSurfaceDesignPass,
   extractSkillNames,
+  specDeclaresVisualJudgment,
 } from "../.minsky/hooks/new-surface-design-pass";
+import { isRenderPathFile } from "../.minsky/hooks/render-path-evidence";
 
 const args = process.argv.slice(2);
 const transcriptPath = args.find((a) => !a.startsWith("--"));
@@ -80,6 +82,8 @@ interface Replayable {
   lineIndex: number;
   prNumber: number | null;
   title: string;
+  /** The bound task id from the call params — what the live guard reads. */
+  taskId: string | null;
 }
 
 function collectReplayables(): Replayable[] {
@@ -92,11 +96,20 @@ function collectReplayables(): Replayable[] {
     // carries are accepted: the `prNumber` field and the `/pull/<n>` URL.
     const match = /"?(?:prNumber|pull\/)"?[":\s/]*(\d+)/.exec(call.resultText);
     const title = typeof call.input["title"] === "string" ? (call.input["title"] as string) : "";
+    // The bound task comes from the call's `task` PARAM, which is what the live
+    // guard reads (`taskIdFromInput`). Deriving it from the title instead
+    // silently yields null on every real PR, because `session_pr_create` titles
+    // are description-only by convention — the `fix(mt#NNNN):` prefix is added by
+    // the tool afterwards. That mistake made the first mt#4356 replay report
+    // NOT-APPLICABLE for two PRs that the live guard fires on: a zero produced by
+    // the harness, indistinguishable from a clean corpus.
+    const taskId = typeof call.input["task"] === "string" ? (call.input["task"] as string) : null;
     out.push({
       index: out.length,
       lineIndex: call.index,
       prNumber: match?.[1] ? Number(match[1]) : null,
       title,
+      taskId,
     });
   }
   return out;
@@ -116,8 +129,17 @@ if (wantList) {
   process.exit(0);
 }
 
-/** A PR's added file paths, from `gh api`. `null` when it cannot be fetched. */
-async function fetchAddedFiles(prNumber: number): Promise<string[] | null> {
+/**
+ * A PR's added AND modified file paths, from `gh api`. `null` when unfetchable.
+ *
+ * Both statuses since mt#4356: the guard now has two triggers and they read
+ * different halves of the diff, so a replay that fetched only `added` could
+ * measure trigger 1 and would report trigger 2 as universally silent — a zero
+ * produced by the harness rather than by the corpus.
+ */
+async function fetchTouchedFiles(
+  prNumber: number
+): Promise<{ added: string[]; modified: string[] } | null> {
   const proc = Bun.spawn(
     [
       "gh",
@@ -125,16 +147,50 @@ async function fetchAddedFiles(prNumber: number): Promise<string[] | null> {
       `repos/edobry/minsky/pulls/${prNumber}/files`,
       "--paginate",
       "--jq",
-      '.[] | select(.status=="added") | .filename',
+      '.[] | select(.status=="added" or .status=="modified") | "\\(.status)\\t\\(.filename)"',
     ],
     { stdout: "pipe", stderr: "pipe" }
   );
   const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
   if (code !== 0) return null;
-  return out
-    .split("\n")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  const added: string[] = [];
+  const modified: string[] = [];
+  for (const line of out.split("\n")) {
+    const [status, filename] = line.split("\t");
+    if (!filename) continue;
+    if (status === "added") added.push(filename.trim());
+    else if (status === "modified") modified.push(filename.trim());
+  }
+  return { added, modified };
+}
+
+/**
+ * The bound task's spec markdown, via the `minsky` CLI. `null` when unavailable.
+ *
+ * Mirrors the guard's own fetch, including its failure direction: an unreadable
+ * spec yields `null`, the caller treats that as "not visual", and trigger 2
+ * cannot fire on it. A replay that guessed otherwise would report fires the live
+ * guard would not produce.
+ */
+async function fetchSpec(taskId: string): Promise<string | null> {
+  const proc = Bun.spawn(["minsky", "tasks", "spec", "get", taskId, "--json"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  if (code !== 0) return null;
+  try {
+    const parsed = JSON.parse(out) as { content?: unknown };
+    return typeof parsed.content === "string" ? parsed.content : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `fix(mt#4251): …` / `task/mt-4251` → `mt#4251`. Null when the title names none. */
+export function taskIdFromTitle(title: string): string | null {
+  const m = /\bmt#(\d+)\b/.exec(title) ?? /\bmt-(\d+)\b/.exec(title);
+  return m?.[1] ? `mt#${m[1]}` : null;
 }
 
 type Verdict = "FIRES" | "SILENT" | "NOT-APPLICABLE" | "UNKNOWN";
@@ -144,7 +200,9 @@ interface Record_ {
   prNumber: number | null;
   title: string;
   verdict: Verdict;
-  addedSurfaces: string[];
+  /** Which trigger applied — reported per record so the two rates can be split. */
+  trigger: string | null;
+  surfaces: string[];
   designSkillsInvoked: string[];
   reason?: string;
 }
@@ -166,28 +224,45 @@ for (const target of targets) {
       prNumber: null,
       title: target.title,
       verdict: "UNKNOWN",
-      addedSurfaces: [],
+      trigger: null,
+      surfaces: [],
       designSkillsInvoked: skillNames,
       reason: "PR number not resolvable from the call result",
     });
     continue;
   }
 
-  const added = await fetchAddedFiles(target.prNumber);
-  if (added === null) {
+  const touched = await fetchTouchedFiles(target.prNumber);
+  if (touched === null) {
     records.push({
       index: target.index,
       prNumber: target.prNumber,
       title: target.title,
       verdict: "UNKNOWN",
-      addedSurfaces: [],
+      trigger: null,
+      surfaces: [],
       designSkillsInvoked: skillNames,
       reason: "gh api could not fetch the file list (unavailable, unauthed, or PR gone)",
     });
     continue;
   }
 
-  const result = checkNewSurfaceDesignPass(added, skillNames);
+  // Fetched only when it can change the answer, mirroring the guard's own
+  // ordering — and so a corpus run does not issue one CLI call per PR for
+  // nothing.
+  const needsSpec =
+    touched.added.filter((f) => isRenderPathFile(f)).length === 0 &&
+    touched.modified.some((f) => isRenderPathFile(f));
+  const taskId = needsSpec ? (target.taskId ?? taskIdFromTitle(target.title)) : null;
+  const spec = taskId ? await fetchSpec(taskId) : null;
+  const specIsVisual = spec !== null && specDeclaresVisualJudgment(spec);
+
+  const result = checkNewSurfaceDesignPass(
+    touched.added,
+    touched.modified,
+    skillNames,
+    specIsVisual
+  );
   const verdict: Verdict = !result.applicable
     ? "NOT-APPLICABLE"
     : result.designSkillsInvoked.length > 0
@@ -199,7 +274,8 @@ for (const target of targets) {
     prNumber: target.prNumber,
     title: target.title,
     verdict,
-    addedSurfaces: result.addedSurfaces,
+    trigger: result.trigger,
+    surfaces: result.surfaces,
     designSkillsInvoked: result.designSkillsInvoked,
   });
 }
@@ -208,7 +284,7 @@ if (wantJson) {
   process.stdout.write(`${JSON.stringify({ transcript: transcriptPath, records }, null, 2)}\n`);
 } else {
   for (const r of records) {
-    const surfaces = r.addedSurfaces.length > 0 ? ` surfaces=[${r.addedSurfaces.join(", ")}]` : "";
+    const surfaces = r.surfaces.length > 0 ? ` surfaces=[${r.surfaces.join(", ")}]` : "";
     const skills =
       r.designSkillsInvoked.length > 0 ? ` design=[${r.designSkillsInvoked.join(", ")}]` : "";
     const why = r.reason ? ` (${r.reason})` : "";

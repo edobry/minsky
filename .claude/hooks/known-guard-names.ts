@@ -86,6 +86,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "code-formatting",
   "compile-check",
   "completion-manifest-regen",
+  "conflict-marker-check",
   "deploy-domain-check",
   "dockerfile-bun-build-regen",
   "dockerfile-workspace-copy-regen",
@@ -103,6 +104,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "nul-byte-check",
   "rules-compile-check",
   "secret-scanning",
+  "sql-capability-message-check",
   "type-check",
   "variable-naming-check",
 ];

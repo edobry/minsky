@@ -148,6 +148,48 @@ export class TaskServiceImpl implements TaskService {
   }
 
   /**
+   * Structural marker making a zero-backend service enrollable for retry
+   * (mt#4379, extending ADR-035 rule 1 to a DERIVED value).
+   *
+   * ADR-035 requires that a failed initialization not be memoized as a value
+   * without also arming its retry. The composition root obeys that for
+   * `persistence` itself — but this service is BUILT FROM that substitute, and
+   * carried no marker of its own, so `asDegradedSubstitute()` in the container
+   * saw an ordinary success and memoized it as `useValue`. Its recovery was
+   * therefore entirely parasitic on the `persistence` key's retry cascade; when
+   * a dependent lost the rebuild race, nothing could ever repair it again.
+   *
+   * The shape is duck-typed on purpose — the container checks
+   * `degradedSubstitute === true` plus a callable `noteRetryAttempt`
+   * structurally, so the domain layer never imports the composition layer.
+   *
+   * **Only a CONFIGURED-but-failed backend is degraded.** A zero-backend service
+   * on a machine with no database at all is `configured: false` — the expected
+   * local/dev path — and must NOT be marked, or every laptop without Postgres
+   * would spin the retry loop forever. That is ADR-035 rule 3's
+   * "configured but failing" vs "not configured" distinction, applied here.
+   */
+  get degradedSubstitute(): boolean {
+    return this.backends.length === 0 && this.unavailability?.configured === true;
+  }
+
+  /**
+   * Record a re-initialization attempt against this service (ADR-035 rule 4).
+   *
+   * Without this, "stuck since boot" and "retried just now and still failing"
+   * render identically to an operator — the specific confusion that made
+   * mt#4379 read as a database outage when the database was fine.
+   */
+  noteRetryAttempt(at: Date, error: string): void {
+    this.lastRetryAt = at;
+    this.lastRetryError = error;
+  }
+
+  /** When re-registration was last attempted; `null` means never since boot. */
+  private lastRetryAt: Date | null = null;
+  private lastRetryError: string | null = null;
+
+  /**
    * Fail closed when there is no backend to answer an operation (mt#3636).
    *
    * The write path has always guarded this — `createTaskFromTitleAndSpec`
@@ -179,13 +221,28 @@ export class TaskServiceImpl implements TaskService {
       return "no task backend is registered.";
     }
     if (unavailability.configured) {
+      // The retry clause is what keeps this HONEST (mt#4379). The previous
+      // wording asserted "The database is unreachable" and "`minsky persistence
+      // check` reports the same failure" in the PRESENT tense — both describe
+      // the moment of boot, and both were false by the time anyone read them.
+      // In the originating incident persistence had long since recovered and
+      // `persistence check` returned "All checks passed" seconds before this
+      // error rendered, so two separate agents spent their first diagnostic
+      // minutes on a healthy database. A boot-time observation must carry its
+      // timestamp, not masquerade as current state.
+      const retryClause = this.lastRetryAt
+        ? `Last re-registration attempt ${this.lastRetryAt.toISOString()} also failed` +
+          `${this.lastRetryError ? ` (${this.lastRetryError})` : ""}.`
+        : "This registration has NOT been re-attempted since boot, so the underlying " +
+          "dependency may well have recovered in the meantime.";
       return (
-        `the '${unavailability.backend ?? "postgres"}' persistence backend is configured but ` +
-        `failed to initialize at boot (${unavailability.reason}), so no task backend is ` +
-        "registered. The database is unreachable — this is NOT an empty database, and an empty " +
-        "result here would be indistinguishable from a real one. Check the boot logs and " +
-        "restart once the database is reachable; `minsky persistence check` reports the same " +
-        "failure."
+        `the '${unavailability.backend ?? "postgres"}' persistence backend was configured but ` +
+        `failed to initialize AT BOOT (${unavailability.reason}), so no task backend was ` +
+        `registered. ${retryClause} This is a backend-REGISTRATION failure, which is not the ` +
+        "same as an empty database and not necessarily a current outage — an empty result here " +
+        "would be indistinguishable from a real one, which is why this fails instead. Note " +
+        "`minsky persistence check` may well PASS while this fails: it probes the live " +
+        "connection, whereas this reports what happened when the backend was registered."
       );
     }
     return (

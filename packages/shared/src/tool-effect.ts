@@ -111,6 +111,7 @@ export const MCP_COMMAND_EFFECTS: Readonly<Record<string, ToolEffect>> = {
   "ai.validate": "reads",
 
   // --- asks -------------------------------------------------------------
+  "asks.cancel": "mutates", // terminal transition + provenance write (mt#3353)
   "asks.create": "mutates",
   "asks.edit": "mutates",
   "asks.respond": "mutates",

@@ -47,8 +47,12 @@
 // "in a session" has a cwd that IS the session workspace directory
 // (`.../state/minsky/sessions/<sessionId>`), so this is a reliable,
 // dependency-free resolution path that doesn't require a session-service
-// DB lookup (which would violate the hooks tree's self-containment
-// invariant — see `.claude/hooks/SPEC.md`). An unresolvable session id is
+// DB lookup. (Two corrections, mt#4373: the reason recorded here used to be the
+// hooks tree's self-containment invariant, which is retired — and it cited
+// `.claude/hooks/SPEC.md`, a file that no longer exists; the live spec is
+// `.minsky/hooks/SPEC.md`. Avoiding the DB read stands on its own: it costs
+// 3.3–5.5s per fire from a hook process and fails OPEN silently, per
+// mt#3090/mt#3019.) An unresolvable session id is
 // treated as "no declaration can match" (allow), NOT as a reason to deny —
 // this guard's default state is allow, unlike the D5 merge guard's
 // default-deny.

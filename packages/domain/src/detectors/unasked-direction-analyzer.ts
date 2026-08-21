@@ -114,7 +114,51 @@ const findingSchema = z.object({
   suggestedSignature: z.string(),
 });
 
-/** Full analyzer output. */
+/**
+ * Full analyzer output.
+ *
+ * ## Declaration order was investigated and does NOT currently matter (mt#4317)
+ *
+ * Recorded because it is a live question that has already been asked once and answered
+ * two different ways, and the second answer is the one that governs.
+ *
+ * This analyzer loses a minority of runs to the model returning a well-formed object
+ * MISSING a field the schema marks required. Measured 2026-08-19 over 40 stored
+ * transcripts, the field that went missing was whichever was declared LAST, and moving
+ * `summary` ahead of `findings` cut rejections from 15/40 to 5/40 — paired on identical
+ * prompts, McNemar exact p = 0.0063.
+ *
+ * **It did not replicate.** Re-measured 2026-08-20 against 40 transcripts after mt#4289
+ * changed how a harness-written user line is rendered: baseline 5/40, reordered 6/40,
+ * 1 vs 2 discordant, p = 1.0 — no effect, nominally the wrong way. So the reorder is NOT
+ * applied: shipping it would credit it with an improvement it does not deliver on this
+ * code, which is the error mt#4314's PR exists to document.
+ *
+ * Two things moved between those runs and neither can be isolated after the fact: mt#4289
+ * changed the prompt, AND the corpus rotated (the replay draws the 40 most recently
+ * ingested transcripts). The 15/40 → 5/40 drop in the untouched baseline therefore has no
+ * attributable cause — do not record it as "mt#4289 fixed it".
+ *
+ * Also established and still standing: the token budget is not the cause (flat across a
+ * 6x range); the emitted schema does carry `required: ["findings","summary"]` and
+ * `additionalProperties: false`; `jsonSchema()` installs no validator, so the AI SDK checks
+ * nothing and `request.schema.parse()` is the only gate. Adding `.describe()` to both
+ * fields (19/40) and naming `summary` in the system prompt (18/40) were each measured and
+ * each came out nominally WORSE than baseline — do not re-propose them without new evidence.
+ *
+ * The leading open hypothesis is PROMPT SIZE rather than field identity, and it is a LEAD,
+ * not a result. Over the 40 transcripts of the second run, no prompt under ~10,000
+ * characters produced a failure (0/13) against 5/27 above it — but at the transcript level
+ * with a round threshold that is p = 0.15, i.e. not significant, and the apparent effect
+ * is driven by a floor rather than a gradient (above the median, size does not grade the
+ * risk further: 13% vs 14%). Quoting a stronger figure than this requires care — computed
+ * per ROW it looks like p = 0.03, which is wrong twice over: the two arms of one transcript
+ * share a prompt and are not independent observations, and the threshold was read off the
+ * smallest failing prompt rather than chosen in advance.
+ *
+ * `scripts/experiment-analyzer-field-compliance.ts` records `promptChars` on every row so a
+ * larger run can settle this without re-deriving it.
+ */
 const analyzerOutputSchema = z.object({
   findings: z.array(findingSchema),
   /** Quick summary of what the analyzer judged in this session. */
@@ -123,6 +167,35 @@ const analyzerOutputSchema = z.object({
 
 export type UnaskedDirectionFinding = z.infer<typeof findingSchema>;
 export type AnalyzerOutput = z.infer<typeof analyzerOutputSchema>;
+
+/**
+ * Every non-message parameter of the analyzer's completion call, in one place.
+ *
+ * Extracted by mt#4317 so the measurement harness
+ * (`scripts/experiment-analyzer-field-compliance.ts`) reproduces the PRODUCTION call
+ * exactly rather than mirroring four literals that can drift. The harness spreads this and
+ * overrides only the one variable its arm is testing; anything it does not override is by
+ * construction the shipped value.
+ *
+ * **`mode` is deliberately absent**, so the SDK picks (`"auto"`) exactly as it always has.
+ * `AIObjectGenerationRequest.mode` exists and is forwarded — mt#4317 added it — but setting
+ * it here would be an unmeasured behaviour change to a production path. Tool mode was
+ * measured once, at 11/40 against `auto`'s 15/40 on n=40 per arm, which is not separable
+ * from run-to-run variance; that is the same standard under which this task declined to ship
+ * a field reorder, and it applies here too. The harness carries a `tool-mode` arm so a run
+ * large enough to settle it does not have to rebuild the plumbing.
+ *
+ * Caveat on the recorded figures below and in `analyzerOutputSchema`: both mt#4317 runs were
+ * taken on a branch that DID set `mode: "tool"`, so their absolute rates are tool-mode rates.
+ * The paired comparisons between arms are unaffected — every arm in a run shared the mode —
+ * but the current production rate under `auto` has not been re-measured.
+ */
+const ANALYZER_REQUEST_DEFAULTS = {
+  model: ANALYZER_MODEL,
+  provider: ANALYZER_PROVIDER,
+  temperature: 0.2,
+  maxTokens: MAX_TOKENS,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Message selection (mt#4235)
@@ -526,10 +599,7 @@ export class UnaskedDirectionAnalyzer {
         { role: "user", content: userPrompt },
       ],
       schema: analyzerOutputSchema,
-      model: ANALYZER_MODEL,
-      provider: ANALYZER_PROVIDER,
-      temperature: 0.2,
-      maxTokens: MAX_TOKENS,
+      ...ANALYZER_REQUEST_DEFAULTS,
     });
 
     const output = result as AnalyzerOutput;
@@ -556,6 +626,8 @@ export const __TEST_ONLY = {
   summarizeMessage,
   hasRenderableText,
   analyzerOutputSchema,
+  SYSTEM_PROMPT,
+  ANALYZER_REQUEST_DEFAULTS,
   ANALYZER_MODEL,
   ANALYZER_PROVIDER,
   TRANSCRIPT_MESSAGE_CAP,

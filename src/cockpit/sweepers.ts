@@ -24,6 +24,7 @@ import { log } from "@minsky/shared/logger";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DEFAULT_SWEEP_INTERVAL_MS } from "@minsky/domain/ask/advancement";
 import {
+  getCachedPersistenceProvider,
   getServerAskRepository,
   getServerFollowUpService,
   getServerTaskService,
@@ -400,6 +401,31 @@ export interface IntervalSweeperOptions {
    * overlap-skip guard indistinguishable from a hang.
    */
   tickTimeoutMs?: number;
+  /**
+   * Opt-in backoff after repeated DOMAIN failures (mt#4294).
+   *
+   * Distinct from the bounded re-init above, which reacts to SCHEDULING
+   * failures (a timeout, an unexpected throw) by restarting the interval. This
+   * reacts to a tick that ran to completion and reported `ok: false` — the
+   * work failed, the scheduler is fine, and re-running it on the very next
+   * tick just reproduces the failure at full cadence.
+   *
+   * Opt-in rather than default because most sweeps are cheap and idempotent,
+   * and retrying one promptly is the right behaviour; backing every sweeper
+   * off on a transient blip would slow recovery across the board. A sweeper
+   * asks for this when its failing tick is EXPENSIVE or when the failure
+   * class it hits is typically persistent rather than momentary.
+   *
+   * Only meaningful for a tick that actually returns a {@link SweepTickResult}
+   * — a tick returning `void` reports no domain outcome, so its failures are
+   * invisible here and no backoff can ever engage.
+   */
+  domainFailureBackoff?: {
+    /** Consecutive `ok: false` ticks before any skipping begins. */
+    afterFailures: number;
+    /** Ceiling on consecutively skipped ticks, so backoff never becomes a stop. */
+    maxSkippedTicks: number;
+  };
 }
 
 /**
@@ -412,9 +438,16 @@ export interface IntervalSweeperOptions {
 export function createIntervalSweeper(options: IntervalSweeperOptions): () => void {
   const { name, intervalMs, tick } = options;
   const tickTimeoutMs = options.tickTimeoutMs ?? DEFAULT_TICK_TIMEOUT_MS;
+  const domainFailureBackoff = options.domainFailureBackoff ?? null;
 
   let running = false;
   let runningSinceMs: number | null = null;
+  /**
+   * Ticks still to be skipped by the domain-failure backoff (mt#4294). Zero
+   * whenever the backoff is disengaged, which is also its state for every
+   * sweeper that did not opt in.
+   */
+  let backoffTicksRemaining = 0;
   /**
    * When the in-flight tick was ABANDONED (exceeded `tickTimeoutMs`) but is
    * still holding the guard, mt#4335. Null whenever the current tick is still
@@ -536,6 +569,19 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
     }
 
     if (running) return; // Overlapping tick — skip (pre-existing behavior).
+
+    // Domain-failure backoff (mt#4294). Checked AFTER the overlap guard and
+    // the watchdog above, so a wedged tick is still force-released on
+    // schedule — backing off must not also postpone the fail-safe that
+    // unwedges.
+    if (backoffTicksRemaining > 0) {
+      backoffTicksRemaining--;
+      log.debug(`cockpit: ${name} sweep tick skipped by domain-failure backoff`, {
+        backoffTicksRemaining,
+      });
+      return;
+    }
+
     running = true;
     runningSinceMs = Date.now();
 
@@ -659,9 +705,32 @@ export function createIntervalSweeper(options: IntervalSweeperOptions): () => vo
       if (domainOk) {
         entry.lastDomainSuccessAtMs = Date.now();
         entry.consecutiveDomainFailures = 0;
+        // A success disengages the backoff immediately, so recovery costs one
+        // tick rather than draining whatever skip budget was outstanding. This
+        // is the "until a recovery probe succeeds" half — the first tick that
+        // is NOT skipped IS the probe.
+        backoffTicksRemaining = 0;
       } else {
         entry.lastDomainFailureAtMs = Date.now();
         entry.consecutiveDomainFailures++;
+        if (
+          domainFailureBackoff !== null &&
+          entry.consecutiveDomainFailures >= domainFailureBackoff.afterFailures
+        ) {
+          // Skip-count doubles per failure past the threshold and is clamped,
+          // so a persistent failure decays toward a floor cadence instead of
+          // stopping outright — a sweeper that stops never discovers that it
+          // recovered.
+          const over = entry.consecutiveDomainFailures - domainFailureBackoff.afterFailures;
+          backoffTicksRemaining = Math.min(2 ** over, domainFailureBackoff.maxSkippedTicks);
+          log.warn(
+            `cockpit: ${name} sweep — ${entry.consecutiveDomainFailures} consecutive domain failures; skipping ${backoffTicksRemaining} tick(s)`,
+            {
+              consecutiveDomainFailures: entry.consecutiveDomainFailures,
+              backoffTicksRemaining,
+            }
+          );
+        }
       }
     }
 
@@ -1126,6 +1195,417 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
       }
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Service-window sweeper (mt#4313)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tick cadence for the service-window sweep.
+ *
+ * 60s matches `ServiceWindowReaper`'s own default `pollIntervalMs`. This sweep
+ * drives that poll DIRECTLY rather than calling `reaper.startDeadlinePoll()`,
+ * which would spin a second `setInterval` invisible to
+ * {@link getSweepLivenessSnapshot} and to {@link startSweepMetaWatchdog} —
+ * i.e. exactly the un-observable background loop mt#4313 exists to stop
+ * shipping.
+ */
+const SERVICE_WINDOW_SWEEP_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Drive the service-window runtime: open windows on their cron schedule, close
+ * them when their duration elapses, and run the reaper that awakens the asks
+ * suspended against them.
+ *
+ * ## Why this exists (mt#4313)
+ *
+ * mt#1411's design shipped as four children on 2026-05-01 and TWO of them
+ * closed DONE with their invocation path undelivered:
+ *
+ *   - mt#1489 owed "Cron-scheduled windows auto-open at the right time".
+ *     `checkAndFireCronWindows` was written and exported; nothing called it.
+ *   - mt#1490 owed "Reaper service runs as a long-lived process or job".
+ *     `ServiceWindowReaper` was written and tested; nothing constructed it.
+ *
+ * A third piece was never written at all: nothing closed a window when its
+ * `durationMin` elapsed, so `onWindowClosed` — miss-counting and escalation —
+ * could only ever fire from a manual `window close`.
+ *
+ * All three are one tick's worth of work and are wired here together, because
+ * any one of them alone delivers nothing observable: a reaper with no window
+ * opening is idle, and a window opening with no reaper wakes nothing.
+ *
+ * ## Escalation is deliberately OFF in v1
+ *
+ * `windowConfigs` is intentionally NOT passed to the reaper. Per its own
+ * contract that disables missed-window escalation while leaving miss-COUNTING
+ * intact, so an unanswered cohort still accrues `window_missed_count` and is
+ * still re-batched — it just never reaches `escalateAsk`, which would set
+ * `forceImmediate` on every member and dispatch via an "escalation transport"
+ * that does not exist yet (mt#1545 owns the real dispatch contract). Turning
+ * escalation on before there is somewhere for it to escalate TO would mutate
+ * shared ask state on a schedule to no effect.
+ *
+ * The dispatch callback is likewise log-only for the same reason. That is not
+ * a no-op in practice: the transition to `routed` is what the window surfaces
+ * read (`pendingAsksForWindow` covers `routed` and `suspended` alike), so a
+ * woken cohort is visible in the Attention widget, `window status` and
+ * `window service` without any transport at all.
+ *
+ * Fail-open throughout, per the sibling sweepers: no repository, no
+ * LISTEN-capable connection, or a failing pass logs and waits for the next
+ * tick.
+ *
+ * @returns stop function (clears the interval and tears down subscriptions).
+ */
+export function startServiceWindowSweeper(intervalMs?: number): () => void {
+  // Per-window last-auto-open timestamps. `checkAndFireCronWindows` requires
+  // the CALLER to hold this across ticks — it is what keeps a window whose
+  // cron minute is still current from re-firing on the very next tick.
+  const lastFiredAt = new Map<string, Date>();
+
+  // The reaper is REBUILT every tick around a freshly-resolved repository, and
+  // this box is what the NOTIFY handlers read (mt#4364).
+  //
+  // The original mt#4313 wiring built it once and let it hold its repository
+  // for the process lifetime. Every sibling sweeper in this file re-resolves
+  // `getServerAskRepository()` per tick, and that is not incidental: the pool
+  // recycles (`/api/health` reported `recycleCount: 10` within four hours), and
+  // a handle captured before a recycle raises for the rest of the process. The
+  // shipped sweep succeeded for six minutes and then failed on every one of its
+  // next ~390 ticks, all on `listByState("suspended")`.
+  //
+  // Rebuilding is cheap — the reaper holds references, not connections — but
+  // the miss counter must NOT be rebuilt with it, hence the hoisted store.
+  const reaperRef: { current: ServiceWindowReaperInstance | null } = { current: null };
+  let counterStore: unknown = null;
+  let unsubscribe: (() => Promise<void>) | null = null;
+  let subscribed = false;
+
+  const stopInterval = createIntervalSweeper({
+    name: "service window",
+    intervalMs: intervalMs ?? SERVICE_WINDOW_SWEEP_INTERVAL_MS,
+    tick: async (): Promise<SweepTickResult> => {
+      try {
+        const repo = await getServerAskRepository();
+        // No repository yet is "nothing to do", not a failure — the daemon
+        // starts sweepers before persistence is guaranteed up.
+        if (!repo) return { ok: true };
+
+        const [
+          { ServiceWindowReaper },
+          { createProviderWindowNotifier },
+          { InMemoryForceImmediateCounterStore },
+          { loadAttentionWindowsOrThrow },
+          windowCommands,
+        ] = await Promise.all([
+          import("@minsky/domain/ask/service-window-reaper"),
+          import("@minsky/domain/ask/attention-windows/notify"),
+          import("@minsky/domain/ask/force-immediate-counters"),
+          import("@minsky/domain/ask/attention-windows/loader"),
+          import("../adapters/shared/commands/window/index"),
+        ]);
+
+        // Survives the per-tick rebuild so `window_missed_count` bookkeeping is
+        // not reset every 60 seconds.
+        counterStore ??= new InMemoryForceImmediateCounterStore();
+
+        // Bound to a local const, then published to the ref. Reading it back
+        // off `reaperRef.current` typechecked only through assignment
+        // narrowing, which any statement inserted between would silently break
+        // (PR #3198 R1 BLOCKING #1).
+        const reaper = new ServiceWindowReaper(
+          repo,
+          async (ask, reason) => {
+            // Log-only dispatch (see docblock). The state transition IS the
+            // delivery for the window surfaces; a transport belongs to mt#1545.
+            log.info("service window: ask awakened", {
+              askId: ask.id,
+              kind: ask.kind,
+              windowKey: ask.windowKey,
+              reason,
+            });
+          },
+          {},
+          counterStore as ConstructorParameters<typeof ServiceWindowReaper>[3]
+        );
+        reaperRef.current = reaper;
+
+        // Subscribe ONCE. The handlers read `reaperRef.current`, so they keep
+        // working across the per-tick rebuild above without re-registering
+        // LISTEN on every tick.
+        if (!subscribed) {
+          subscribed = true;
+          await subscribeReaperToWindowEvents(reaperRef).then(
+            (unsub) => {
+              unsubscribe = unsub;
+            },
+            (err) => {
+              // Retry on a later tick rather than latching: a subscription that
+              // failed because persistence was still coming up must not leave
+              // window-open awakening off for the process lifetime.
+              subscribed = false;
+              const message = err instanceof Error ? err.message : String(err);
+              log.warn("service window: NOTIFY subscription failed; window-open wake is inactive", {
+                message,
+              });
+            }
+          );
+        }
+
+        const provider = await getCachedPersistenceProvider().catch(() => null);
+        const notifier = createProviderWindowNotifier(
+          // A null provider degrades to a logged no-op inside the notifier
+          // rather than throwing.
+          (provider ?? undefined) as Parameters<typeof createProviderWindowNotifier>[0]
+        );
+        const registry = windowCommands.globalRegistry;
+
+        return await runServiceWindowTick({
+          now: () => new Date(),
+          fireCronWindows: (now) =>
+            windowCommands.checkAndFireCronWindows(notifier, registry, lastFiredAt, now),
+          listOpenWindows: () =>
+            registry.getAllOpen().map((o) => ({
+              windowKey: o.windowKey,
+              expectedCloseAt: o.expectedCloseAt,
+            })),
+          closeWindow: async (windowKey) => {
+            await windowCommands.closeWindow(windowKey, loadAttentionWindowsOrThrow(), notifier);
+          },
+          pollDeadlineBound: (nowMs) => reaper.pollDeadlineBoundAsks(nowMs),
+        });
+      } catch (err) {
+        // Report the DOMAIN failure, do not just log it (mt#4364).
+        //
+        // This catch previously returned normally, so `createIntervalSweeper`
+        // recorded a successful tick and `/api/sweeps` showed
+        // `consecutiveFailures: 0, lastErrorAt: null` while 100% of ticks were
+        // failing. mt#4313 shipped this sweep to stop unobservable background
+        // loops and then made itself one — the liveness entry was the evidence
+        // offered for its own health criterion.
+        const message = err instanceof Error ? err.message : String(err);
+        log.warn("service window sweep failed", { message });
+        return { ok: false };
+      }
+    },
+  });
+
+  return () => {
+    stopInterval();
+    void unsubscribe?.().catch(() => {
+      // intentional-swallow: the process is shutting down and the LISTEN
+      // connection is torn down with the provider regardless.
+    });
+  };
+}
+
+/** The reaper instance type, named once so the ref box below stays readable. */
+type ServiceWindowReaperInstance =
+  import("@minsky/domain/ask/service-window-reaper").ServiceWindowReaper;
+
+/** What one service-window tick did. */
+export interface ServiceWindowTickOutcome extends SweepTickResult {
+  /** Window keys opened because their cron schedule came due. */
+  opened: string[];
+  /** Window keys closed because their duration elapsed. */
+  closed: string[];
+  /** Windows whose auto-close threw; the tick continues past each. */
+  closeFailures: number;
+  /** Deadline-bound asks the reaper dispatched this tick. */
+  dispatched: number;
+}
+
+/**
+ * The service-window tick's decisions, with its IO injected (mt#4313).
+ *
+ * Extracted from the sweeper above for the same reason
+ * {@link runProdStateRefreshTick} was: the sweeper reaches its collaborators
+ * through dynamic imports and a module-level `globalRegistry` singleton, so
+ * there is no other seam, and patching those in place is what ADR-036 bans.
+ *
+ * A failing auto-close is contained per-window rather than aborting the tick:
+ * one window whose config went missing must not stop the others from closing,
+ * and must not stop the deadline poll from running at all.
+ */
+export async function runServiceWindowTick(deps: {
+  /** Current time, injected so a test can drive a schedule without waiting. */
+  now: () => Date;
+  /** Open any window whose cron schedule is due; returns the keys opened. */
+  fireCronWindows: (now: Date) => Promise<string[]>;
+  /** Currently-open windows and when each is due to close. */
+  listOpenWindows: () => { windowKey: string; expectedCloseAt: Date }[];
+  /** Close one window — this is what emits the NOTIFY miss-counting reads. */
+  closeWindow: (windowKey: string) => Promise<void>;
+  /** Run the reaper's deadline-bound poll; returns how many it dispatched. */
+  pollDeadlineBound: (nowMs: number) => Promise<number>;
+}): Promise<ServiceWindowTickOutcome> {
+  const now = deps.now();
+  const outcome: ServiceWindowTickOutcome = {
+    ok: true,
+    opened: [],
+    closed: [],
+    closeFailures: 0,
+    dispatched: 0,
+  };
+
+  // Every dependency call below is contained, so ONE failing step degrades this
+  // tick's outcome without cancelling the others and without discarding the
+  // counts already collected (PR #3198 R2 BLOCKING).
+  //
+  // Containing only the auto-close, as the first cut did, left the contract
+  // inconsistent: a throwing `pollDeadlineBound` escaped to the caller's outer
+  // catch, which reports `ok: false` correctly but loses `opened`/`closed`, and
+  // a direct caller of this exported function got a throw where the return type
+  // promises an outcome.
+
+  // 1. Open any window whose cron schedule is due (mt#1489's criterion).
+  try {
+    outcome.opened = await deps.fireCronWindows(now);
+    if (outcome.opened.length > 0) {
+      log.info("service window: opened on schedule", { windows: outcome.opened });
+    }
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: cron open failed", { message });
+  }
+
+  // 2. Close any open window past its expected close time. Nothing did this
+  //    before, so `onWindowClosed` never fired without an operator typing it.
+  let openWindows: { windowKey: string; expectedCloseAt: Date }[] = [];
+  try {
+    openWindows = deps.listOpenWindows();
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: could not enumerate open windows", { message });
+  }
+
+  for (const open of openWindows) {
+    if (open.expectedCloseAt.getTime() > now.getTime()) continue;
+    try {
+      await deps.closeWindow(open.windowKey);
+      outcome.closed.push(open.windowKey);
+      log.info("service window: closed on duration elapse", { windowKey: open.windowKey });
+    } catch (err) {
+      outcome.closeFailures++;
+      // A window that should have closed and did not is a domain failure, even
+      // though the tick continues past it to the other windows and the poll.
+      outcome.ok = false;
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("service window: auto-close failed", { windowKey: open.windowKey, message });
+    }
+  }
+
+  // 3. Deadline-bound poll. Driven here rather than by the reaper's own timer
+  //    so this sweep's liveness entry covers it (see the sweeper's docblock).
+  try {
+    outcome.dispatched = await deps.pollDeadlineBound(now.getTime());
+  } catch (err) {
+    outcome.ok = false;
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn("service window: deadline poll failed", { message });
+  }
+
+  return outcome;
+}
+
+/**
+ * Subscribe a reaper to the two window NOTIFY channels.
+ *
+ * Uses the provider's MEMOIZED listen-capable connection
+ * (`getListenCapableSqlConnection`, `max: 1`, `idle_timeout: 0`), so this adds
+ * two LISTEN registrations to the connection the SSE broker already holds
+ * rather than opening a second one — which matters because per-process
+ * connection budget is a measured constraint here (mt#4308).
+ *
+ * @returns an unsubscribe function.
+ * @throws when the provider is not Postgres-backed or the LISTEN connection
+ *   cannot be obtained — the caller degrades rather than failing the tick.
+ */
+async function subscribeReaperToWindowEvents(reaperRef: {
+  current: ServiceWindowReaperInstance | null;
+}): Promise<() => Promise<void>> {
+  const [{ PostgresChannelListener }, { CHANNEL_OPENED, CHANNEL_CLOSED }] = await Promise.all([
+    import("@minsky/domain/mesh/postgres-channel-listener"),
+    import("@minsky/domain/ask/attention-windows/notify"),
+  ]);
+
+  const provider = await getCachedPersistenceProvider();
+  if (
+    typeof provider !== "object" ||
+    provider === null ||
+    !("getListenCapableSqlConnection" in provider) ||
+    typeof (provider as { getListenCapableSqlConnection?: unknown })
+      .getListenCapableSqlConnection !== "function"
+  ) {
+    throw new Error("persistence provider has no LISTEN-capable connection");
+  }
+
+  const sqlProvider = provider as {
+    getListenCapableSqlConnection: () => Promise<ReturnType<typeof import("postgres")>>;
+  };
+  const listener = new PostgresChannelListener(await sqlProvider.getListenCapableSqlConnection());
+
+  // Both handlers discard their return value: `onWindowClosed` resolves to a
+  // summary the listener contract has no channel for, and `ChannelListenerFn`
+  // is `void | Promise<void>`.
+  //
+  // They read `reaperRef.current` at CALL time rather than closing over one
+  // instance, so the per-tick rebuild (mt#4364) does not leave this
+  // subscription pointed at a reaper holding a dead repository handle.
+  const onOpened = async (_channel: string, payload: unknown): Promise<void> => {
+    const reaper = reaperRef.current;
+    if (!reaper) return;
+    await reaper.onWindowOpened(payload as Parameters<typeof reaper.onWindowOpened>[0]);
+  };
+  const onClosed = async (_channel: string, payload: unknown): Promise<void> => {
+    const reaper = reaperRef.current;
+    if (!reaper) return;
+    await reaper.onWindowClosed(payload as Parameters<typeof reaper.onWindowClosed>[0]);
+  };
+
+  // Roll back a PARTIAL subscription (PR #3198 R1 BLOCKING #2).
+  //
+  // These are two separate `subscribe` calls. If the second throws, the first
+  // stays registered on the listener and the caller never receives an
+  // unsubscribe handle for it — so the registration leaks, and the caller's
+  // retry-on-failure path would then register it a SECOND time, delivering
+  // every window-open event twice.
+  const registered: string[] = [];
+  try {
+    await listener.subscribe(CHANNEL_OPENED, onOpened);
+    registered.push(CHANNEL_OPENED);
+    await listener.subscribe(CHANNEL_CLOSED, onClosed);
+    registered.push(CHANNEL_CLOSED);
+  } catch (err) {
+    for (const channel of registered) {
+      await listener
+        .unsubscribe(channel, channel === CHANNEL_OPENED ? onOpened : onClosed)
+        .catch((cleanupErr: unknown) => {
+          // Report, never mask the original failure that is about to rethrow.
+          const message = cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr);
+          log.warn("service window: rollback of partial NOTIFY subscription failed", {
+            channel,
+            message,
+          });
+        });
+    }
+    throw err;
+  }
+
+  let torn = false;
+  return async () => {
+    // Idempotent: the caller may invoke this on stop after having already
+    // dropped the handle, and double-unsubscribing is not a no-op on every
+    // listener implementation.
+    if (torn) return;
+    torn = true;
+    await listener.unsubscribe(CHANNEL_OPENED, onOpened);
+    await listener.unsubscribe(CHANNEL_CLOSED, onClosed);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -2492,13 +2972,31 @@ export function startInterceptorAggregatesSweeper(intervalMs?: number): () => vo
     name: "interceptor-aggregates",
     intervalMs: intervalMs ?? INTERCEPTOR_AGGREGATES_INTERVAL_MS,
     tickTimeoutMs: INTERCEPTOR_AGGREGATES_TICK_TIMEOUT_MS,
+    // Both numbers are sized against THIS sweep's 5-minute cadence and the two
+    // measured outages, not picked round (`decision-defaults §Thresholds`).
+    //
+    // afterFailures: 2 -> ~10 minutes of continuous failure before any tick is
+    // skipped, which is past a transient pooler blip (seconds) and well inside
+    // the 15-25 minute window both recorded outages actually lasted.
+    //
+    // maxSkippedTicks: 6 -> a 30-minute floor cadence, deliberately just past
+    // the longest observed outage (25 min) so a database that recovered is
+    // re-probed within roughly one cadence of recovering, never abandoned.
+    domainFailureBackoff: { afterFailures: 2, maxSkippedTicks: 6 },
     tick: async () => {
       try {
         const { refreshInterceptorAggregates } = await import("./interceptor-aggregates-cache");
-        await refreshInterceptorAggregates();
+        // Report the refresh's OWN outcome, not merely "the tick did not
+        // throw" (mt#4294). The fail-open try/catch below and the refresh's
+        // internal source guards both convert a failure into a normal return,
+        // so without this the scheduler counted a permanently-failing refresh
+        // as a run of successful ticks — and `consecutiveDomainFailures`, the
+        // counter a backoff would read, never moved off zero.
+        return await refreshInterceptorAggregates();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         log.warn("cockpit: interceptor-aggregates sweep failed", { message });
+        return { ok: false };
       }
     },
   });

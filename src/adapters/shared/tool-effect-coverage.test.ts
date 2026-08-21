@@ -46,6 +46,7 @@ const REGISTERED_TOOL_IDS: readonly string[] = [
   "ai.models.refresh",
   "ai.providers.list",
   "ai.validate",
+  "asks.cancel",
   "asks.create",
   "asks.edit",
   "asks.get",

@@ -54,6 +54,74 @@ export function truncateToCodePoints(value: string, max: number): string {
 }
 
 /**
+ * Truncate so the RESULT's `.length` is bounded, without splitting a surrogate
+ * pair (mt#4234, PR #3187 R1).
+ *
+ * Use this — not {@link truncateToCodePoints} — whenever the truncated value is
+ * interpolated into text that a declared `attentionCost.denialMessageSizeChars`
+ * is enforced against. The two differ in UNIT, and the unit is the whole point:
+ *
+ * - `truncateToCodePoints` bounds CODE POINTS. An astral character (emoji, flag,
+ *   skin-tone sequence) is one code point and TWO UTF-16 units, so a 120-code-
+ *   point bound admits up to 240 units.
+ * - Every ceiling in this tree is enforced in UTF-16 units, because that is what
+ *   `.length` returns: `guard-feedback-shape.test.ts` compares
+ *   `advisory.length > declared`, and — the authority — the dispatcher SPENDS in
+ *   the same unit, at `composeAdditionalContext`'s `rendered.length >
+ *   budgetChars`. So a code-point cap under a `.length` ceiling is not a ceiling
+ *   at all for emoji-bearing input.
+ *
+ * That is why this bounds UNITS, rather than the enforcement being re-denominated
+ * in code points: the annotation feeds `MERGED_CONTEXT_BUDGET_CHARS`, which is
+ * spent against a real `.length` budget, so counting the ceiling in code points
+ * would make the declared number stop describing what the dispatcher actually
+ * spends.
+ *
+ * Iterates code points rather than slicing UTF-16 directly, so a pair is never
+ * cut in half — the same lone-surrogate hazard `truncateToCodePoints` exists to
+ * avoid, and which `custom/no-unsafe-string-truncation` flags. Grapheme CLUSTERS
+ * can still be split (an emoji plus its modifier); that is accepted rather than
+ * reached for with `Intl.Segmenter`, because this tree is dependency-free by
+ * invariant and the value is agent-facing diagnostic text where an odd cut costs
+ * nothing.
+ *
+ * The ellipsis costs one further unit when anything was cut, exactly as
+ * `truncateToCodePoints` does — so a bounded value renders at most `max + 1`.
+ *
+ * Returns the input unchanged when it already fits, so the common case allocates
+ * nothing.
+ *
+ * ADOPTION IS COMPLETE (mt#4359): `guard-health-escalation-detector` was the one
+ * remaining consumer of the code-point cap under a `.length`-enforced ceiling,
+ * and it now calls this instead. Measured there before the switch: an all-ASCII
+ * saturated render of 1207 against a declared 1300, and the identical all-emoji
+ * render at 1327 — over.
+ *
+ * At the time of writing (2026-08-20, mt#4359) that left {@link truncateToCodePoints}
+ * with no call sites — verified by a repo-wide grep, excluding `node_modules` and
+ * the generated `.claude/hooks` mirror. Treat that as a DATED OBSERVATION, not an
+ * invariant: nothing enforces it, so a later caller can be added without this
+ * sentence changing. Re-grep before relying on it.
+ *
+ * It is kept rather than deleted because it remains the correct primitive for a
+ * value that is NOT interpolated into ceiling-enforced text, and because the
+ * contrast between the two is what makes the unit choice legible at a call site.
+ * If you are adding one, the question to answer first is whether anything
+ * measures the result with `.length` — if so, you want THIS function.
+ */
+export function truncateToRenderedLength(value: string, max: number): string {
+  if (value.length <= max) return value;
+  let units = 0;
+  let out = "";
+  for (const point of value) {
+    if (units + point.length > max) break;
+    out += point;
+    units += point.length;
+  }
+  return `${out}…`;
+}
+
+/**
  * Render at most `max` evidence lines, followed by a count of what was elided.
  *
  * The overflow line is NOT optional decoration: without it a capped list is

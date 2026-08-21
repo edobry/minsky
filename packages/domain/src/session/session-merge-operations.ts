@@ -49,6 +49,7 @@ import type { ResolvedConfig } from "../configuration/types";
 import type { AskRepository } from "../ask/repository";
 import { closeAskAsResolved, selectOpenReviewAsksForMergedPr } from "../ask/close-as-resolved";
 import { applyPostMergeStateSync } from "./session-merge-status-sync";
+import { buildMergeSyncReport } from "./session-merge-sync-report";
 import { classifyAndRecordMergeDeploySurface } from "../deployment/merge-deploy-surface-record";
 import {
   validateSessionApprovedForMerge,
@@ -155,6 +156,38 @@ export interface SessionMergeResult {
   taskId?: string;
   prBranch?: string;
   mergeInfo: MergeInfo;
+
+  /**
+   * Post-merge state-sync outcome, propagated from `applyPostMergeStateSync` (mt#4381).
+   *
+   * **These fields answer a DIFFERENT question from the merge's own success.** The merge
+   * landing and the post-merge status write landing are independent outcomes, and until
+   * mt#4381 only the first was reported: `mergeSessionPr` computed the full
+   * `PostMergeStateSyncResult` and then returned only `sessionCleanup` from it. A caller
+   * whose task-status write failed got `success: true`, complete merge metadata, and no
+   * field to check — so a task stranded at IN-REVIEW after a real merge was undetectable
+   * rather than merely unreported. Observed live on mt#4373 (PR #3208, merge `59a7b6479`).
+   *
+   * The shape mirrors `session_apply_post_merge_state_sync`
+   * (`apply-post-merge-state-sync-command.ts`), which calls the SAME function and has
+   * propagated these since mt#1841 / PR #1121 R1 BLOCKING #3. That command was the model;
+   * this one was the outlier.
+   *
+   * **Read `partialFailure`, not the flags alone.** A `false` flag means either "already in
+   * the target state" (fine) or "the write was attempted and failed" (not fine), and only
+   * the error fields distinguish them — see `PostMergeStateSyncResult`'s own docblock.
+   *
+   * Optional because a merge that never reached the sync step (an early return) has no
+   * outcome to report; absent is distinguishable from `partialFailure: false`.
+   */
+  taskStatusUpdated?: boolean;
+  taskTerminalStatus?: string;
+  sessionStatusUpdated?: boolean;
+  pullRequestRecordUpdated?: boolean;
+  taskUpdateError?: string;
+  sessionUpdateError?: string;
+  partialFailure?: boolean;
+
   sessionCleanup?: {
     performed: boolean;
     directoriesRemoved: string[];
@@ -763,19 +796,15 @@ export async function mergeSessionPr(
     { sessionDB, taskService }
   );
 
+  // mt#4381: ONE interpretation of the sync result, used by both surfaces. The JSON
+  // fields and the CLI lines were previously two independent readings of the same
+  // value, and they disagreed — the CLI branch reported a FAILED task write as
+  // "already marked as DONE", while the JSON surface reported nothing at all.
+  const syncReport = buildMergeSyncReport(syncResult);
+
   if (!params.json) {
-    if (syncResult.taskStatusUpdated) {
-      log.cli(`✅ Task status updated to ${syncResult.taskTerminalStatus ?? "DONE"}`);
-    } else if (syncResult.taskId) {
-      log.cli(`ℹ️  Task is already marked as ${syncResult.taskTerminalStatus ?? "DONE"}`);
-    }
-    if (syncResult.sessionCleanup?.directoriesRemoved.length) {
-      log.cli(
-        `✅ Cleaned up ${syncResult.sessionCleanup.directoriesRemoved.length} session directories`
-      );
-    }
-    if (syncResult.sessionCleanup?.errors.length) {
-      log.cli(`⚠️  ${syncResult.sessionCleanup.errors.length} cleanup errors occurred`);
+    for (const line of syncReport.lines) {
+      log.cli(line);
     }
   }
 
@@ -850,6 +879,11 @@ export async function mergeSessionPr(
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
     mergeInfo,
+    // mt#4381: propagate the post-merge sync outcome, not just its cleanup half.
+    // Previously only `sessionCleanup` survived, so a failed task-status write left
+    // the caller with `success: true` and no field to check. Mirrors what
+    // `session_apply_post_merge_state_sync` has returned since mt#1841 / PR #1121.
+    ...syncReport.fields,
     sessionCleanup: syncResult.sessionCleanup,
   };
 }

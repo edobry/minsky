@@ -51,7 +51,29 @@ import { isAbsolute, resolve, sep } from "node:path";
 import { CANARY_MODE_ENV } from "./types";
 import type { ToolHookInput } from "./types";
 import type { DispatchContext, GuardOutcome } from "./registry";
-import { splitOutsideQuotes, splitPipeline, splitTopLevel } from "./command-shape";
+import {
+  nonFlagOperands,
+  splitOutsideQuotes,
+  splitPipeline,
+  splitTopLevel,
+  suppliesPattern,
+} from "./command-shape";
+
+/**
+ * Re-exported so this module's tests and any future consumer keep addressing it
+ * here, while the DEFINITION lives in one place (mt#4328).
+ *
+ * The private copy this replaces carried a measured defect. Its scan was bounded
+ * by a grep-only letter set, so a ripgrep short flag the set never knew about
+ * made it return false: `suppliesPattern("-Se")` was `false` (`-S` is ripgrep's
+ * `--smart-case`), which made `pathArgs` treat the real pattern as the path and
+ * return NO paths at all — `rg -Se foo src` passed through this guard checking
+ * nothing. `command-shape.ts` fixed it structurally by deciding the DETACHED form
+ * before consulting any letter set; widening the set was rejected there with the
+ * measurement that ugrep's and ripgrep's short flags union to 51 of 52 letters,
+ * so the bound would guard nothing.
+ */
+export { suppliesPattern };
 
 const OVERRIDE_ENV = "MINSKY_SKIP_NONEXISTENT_SEARCH_PATH";
 
@@ -78,81 +100,11 @@ const MAX_SUGGESTIONS = 2;
  */
 const SEARCH_BINARIES = new Set(["grep", "egrep", "fgrep", "rg", "ripgrep", "find"]);
 
-/**
- * Long options that consume the NEXT token as their value, in the detached form (`--include '*.ts'`
- * rather than `--include='*.ts'`). Getting this list wrong in the direction of omission turns a
- * flag's VALUE into an apparent path — the one way this guard could manufacture a false positive
- * out of a correct command — so it is deliberately generous, spanning GNU grep, BSD grep, ugrep and
- * ripgrep. An entry that no binary actually takes costs nothing: it can only cause a token to be
- * SKIPPED, which is the safe direction.
- */
-const VALUE_TAKING_LONG_OPTS = new Set([
-  "--regexp",
-  "--file",
-  "--include",
-  "--exclude",
-  "--include-dir",
-  "--exclude-dir",
-  "--exclude-from",
-  "--glob",
-  "--iglob",
-  "--glob-case-insensitive",
-  "--type",
-  "--type-not",
-  "--type-add",
-  "--type-clear",
-  "--max-count",
-  "--max-depth",
-  "--maxdepth",
-  "--max-filesize",
-  "--after-context",
-  "--before-context",
-  "--context",
-  "--context-separator",
-  "--color",
-  "--colour",
-  "--colors",
-  "--binary-files",
-  "--devices",
-  "--directories",
-  "--label",
-  "--encoding",
-  "--engine",
-  "--pre",
-  "--pre-glob",
-  "--replace",
-  "--sort",
-  "--sortr",
-  "--threads",
-  "--dfa-size-limit",
-  "--regex-size-limit",
-  "--ignore-file",
-  "--path-separator",
-  "--field-context-separator",
-  "--field-match-separator",
-]);
-
-/**
- * Short options that consume the next token as their value. Checked against the LAST character of a
- * bundled run (`-rnA 3` ends in `A`, which takes the `3`), because that is the only position a
- * value can attach to.
- */
-const VALUE_TAKING_SHORT_OPTS = new Set([
-  "e",
-  "f",
-  "m",
-  "A",
-  "B",
-  "C",
-  "D",
-  "d",
-  "g",
-  "t",
-  "T",
-  "M",
-  "j",
-  "b",
-]);
+// The search-command ARGUMENT grammar — the value-taking long/short option tables,
+// `suppliesPattern`, and the operand walker — lives in `./command-shape` (mt#4320).
+// This file held the first copy; mt#4328 retired it. The tables were verified
+// identical before deletion: 43 long options and 14 short options, with an empty
+// diff in both directions.
 
 /** A single path argument that does not exist, with how far it did resolve. */
 export interface MissingSearchPath {
@@ -234,82 +186,55 @@ function isDanglingRedirection(token: string): boolean {
 /**
  * Positional arguments of a search invocation, in order, with flags and their values removed.
  *
- * Returns null when the grammar cannot be walked confidently — an unknown shape is a reason to say
- * nothing, never to guess which token was a path.
+ * Always returns an array (PR #3203 R1). It used to be typed `string[] | null` with a docblock
+ * promising null "when the grammar cannot be walked confidently" — but no code path ever produced
+ * one, in this version or the copy it replaced, so the null arm was a dead branch two call sites
+ * carried guards for. The say-nothing-on-an-unknown-shape principle it was reaching for is real and
+ * still enforced, one layer out: `isUnresolvable` and `resolveTarget` decline to stat anything whose
+ * meaning depends on runtime state, which is where an unknown shape actually becomes silence.
  */
-export function positionalArgs(tokens: readonly string[]): string[] | null {
-  const positionals: string[] = [];
-  let flagsTerminated = false;
+export function positionalArgs(tokens: readonly string[]): string[] {
+  if (tokens.length === 0) return [];
 
+  // Strip redirections FIRST, then hand the rest to the shared walker (mt#4328).
+  //
+  // This split is the whole reason a wrapper survives rather than the call sites
+  // moving to `nonFlagOperands` directly. That function does NOT skip redirection
+  // tokens, because its other consumer (`evidence-provenance-table.ts`) splits
+  // pipelines upstream and never sees one. This guard does see them, and the
+  // divergence is not cosmetic — measured before the migration:
+  //
+  //   ["grep","-rn","foo","src/",">","/tmp/out"]
+  //     positionalArgs   -> ["foo","src/"]
+  //     nonFlagOperands  -> ["foo","src/",">","/tmp/out"]
+  //
+  // Delegating without this pre-filter would hand `/tmp/out` to the stat path, so
+  // the guard would report a redirect TARGET as a missing search path — a false
+  // positive manufactured from a correct command, which is the one failure this
+  // detector's design goes out of its way to avoid. Moving the skip INTO
+  // `command-shape.ts` was considered and rejected: it changes behaviour for a
+  // consumer that does not need it, and a consolidation is the wrong change to
+  // carry that risk.
+  //
+  // The pre-pass also fixes an edge the interleaved version got wrong: in
+  // `grep -e > out foo` the shell removes `> out` before grep sees anything, so
+  // `-e` takes `foo`. Filtering first reproduces that; the old single pass let
+  // `-e` consume the `>` and then read `out` as a positional.
+  const withoutRedirections: string[] = [tokens[0] as string];
   for (let i = 1; i < tokens.length; i++) {
     const token = tokens[i] as string;
-
     if (isDanglingRedirection(token)) {
       i++; // its target is the next token
       continue;
     }
     if (isRedirection(token)) continue;
-
-    if (!flagsTerminated) {
-      if (token === "--") {
-        flagsTerminated = true;
-        continue;
-      }
-      if (token.startsWith("--")) {
-        // `--include='*.ts'` carries its own value; `--include '*.ts'` eats the next token.
-        const name = token.split("=", 1)[0] as string;
-        if (!token.includes("=") && VALUE_TAKING_LONG_OPTS.has(name)) i++;
-        continue;
-      }
-      if (token.startsWith("-") && token.length > 1) {
-        // A bundled run (`-rniE`). Only its LAST character can take a detached value, and only
-        // when no value is already attached (`-A3` carries its own).
-        const body = token.slice(1);
-        const last = body[body.length - 1] as string;
-        const hasAttachedValue = /\d/.test(body);
-        if (!hasAttachedValue && VALUE_TAKING_SHORT_OPTS.has(last)) i++;
-        continue;
-      }
-    }
-
-    positionals.push(token);
+    withoutRedirections.push(token);
   }
 
-  return positionals;
-}
-
-/**
- * Short-option letters `grep`/`rg` actually define. Used to bound {@link suppliesPattern}'s scan so
- * an arbitrary word starting with `-` cannot be read as a bundled option run.
- */
-const KNOWN_SHORT_FLAGS = new Set("abcdDeEfFGhHiIlLmnoPqrRsUvVwxyzZ".split(""));
-
-/**
- * Whether `token` supplies the PATTERN via `-e`/`-f` (or `--regexp`/`--file`), in EITHER spelling.
- *
- * The attached spelling is the whole reason this is not an equality test. `grep -ePATTERN src/tray`
- * and `grep -rnePATTERN src/tray` are valid, and the earlier `/^-[A-Za-z]*[ef]$/` anchored on `$`
- * so it matched only the detached form — leaving `patternSuppliedByFlag` false, which made
- * `pathArgs` drop the FIRST POSITIONAL as "the pattern" when it was actually the path. The result
- * was a silent recall miss: `grep -ePATTERN src/tray` checked zero paths. Caught by
- * `minsky-reviewer[bot]` on PR #3149; pinned by tests below.
- *
- * In a short-option run, `e`/`f` consumes the REST of the token as its value, so an occurrence
- * anywhere in the run means the pattern is supplied. The scan stops at the first non-flag letter so
- * that a stray `-notaflag` (whose `f` sits inside a word) cannot be read as `-f` — that direction
- * matters, because a false "pattern supplied" promotes the real pattern to a path candidate and is
- * the one way this helper could manufacture a false fire.
- */
-export function suppliesPattern(token: string): boolean {
-  if (token.startsWith("--")) {
-    return /^--(regexp|file)(=|$)/.test(token);
-  }
-  if (!token.startsWith("-") || token.length < 2) return false;
-  for (const ch of token.slice(1)) {
-    if (ch === "e" || ch === "f") return true;
-    if (!KNOWN_SHORT_FLAGS.has(ch)) return false;
-  }
-  return false;
+  // `findStyle: false` — this walker is only ever reached for grep/rg. `find` has
+  // its own operand extraction below, and deliberately does not share this path;
+  // see `findPathOperands`.
+  return nonFlagOperands(withoutRedirections, { findStyle: false });
 }
 
 /**
@@ -357,11 +282,13 @@ function findPathOperands(tokens: readonly string[]): string[] {
  * already supplied one, in which case every positional is a path. `find` takes `[PATH...]
  * [EXPRESSION]` and is walked by {@link findPathOperands}.
  */
-export function pathArgs(binary: string, tokens: readonly string[]): string[] | null {
+export function pathArgs(binary: string, tokens: readonly string[]): string[] {
   if (binary === "find") return findPathOperands(tokens);
 
+  // Narrowed from `string[] | null` alongside `positionalArgs` (PR #3203 R1):
+  // neither branch here could produce null, so the guard this replaced was dead
+  // and so was the one at its own call site in `scanCommand`.
   const positionals = positionalArgs(tokens);
-  if (positionals === null) return null;
 
   const patternSuppliedByFlag = tokens.some((t, i) => i > 0 && suppliesPattern(t));
 
@@ -533,7 +460,6 @@ export function scanCommand(
       if (!binary || !SEARCH_BINARIES.has(binary)) continue;
 
       const paths = pathArgs(binary, tokens);
-      if (paths === null) continue;
 
       if (hasCommandSubstitution(stage)) {
         unresolvedCount += paths.length;

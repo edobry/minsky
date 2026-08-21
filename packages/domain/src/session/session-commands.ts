@@ -1025,9 +1025,26 @@ export async function sessionCommit(
         stashRestore = await restoreUpdateStashAfterCommit(workdir, gitService);
         if (stashRestore && !stashRestore.restored) {
           const parked = (stashRestore.parkedFiles ?? []).map((f) => `\n     - ${f}`).join("");
+          // mt#4307: say whether the pop CONFLICTED, and what became of the
+          // markers. The push below runs the pre-push gated suite against this
+          // very working tree, so "markers are present" is the single most
+          // load-bearing fact the operator can be told at this moment — it is
+          // the difference between "my change broke twenty tests" and "the pop
+          // corrupted a file my change never touched".
+          const conflicted = stashRestore.conflictedFiles ?? [];
+          const conflictNotice =
+            conflicted.length > 0
+              ? `\n   The pop CONFLICTED on: ${conflicted.join(", ")}.\n   ${
+                  stashRestore.rolledBack
+                    ? `It was ROLLED BACK — the working tree is clean and carries no conflict markers.`
+                    : `It could NOT be rolled back — conflict markers ARE in the working tree; any ` +
+                      `check that runs next will fail on them, not on this commit.`
+                }`
+              : "";
           log.cli(
             `⚠️  Work stashed by an earlier session_update was NOT restored and remains ` +
-              `parked in ${stashRestore.stashRef}. This commit does NOT contain it.${parked}\n` +
+              `parked in ${stashRestore.stashRef}. This commit does NOT contain it.${parked}` +
+              `${conflictNotice}\n` +
               `   ${stashRestore.recovery ?? ""}`
           );
         } else if (stashRestore?.restored) {
@@ -1048,6 +1065,24 @@ export async function sessionCommit(
           error: restoreError instanceof Error ? restoreError.message : String(restoreError),
         });
       }
+
+      // mt#4307 SC2: a failed pop is the PRIMARY outcome of this call, not a
+      // secondary field beside a downstream error. The originating incident is
+      // exactly this ordering: `pushError` carried twenty cockpit-test failures
+      // while the cause sat in `stashRestore.error` on the same payload, and the
+      // natural reading of the result was "my change broke twenty tests".
+      //
+      // The commit itself still succeeded, so `success` stays true and the hash
+      // is still returned — what changes is which fact the message LEADS with.
+      const reportedMessage =
+        stashRestore && !stashRestore.restored
+          ? `${`Committed ${commitResult.commitHash ?? ""}`.trim()} — but restoring work parked by an earlier session_update FAILED${
+              (stashRestore.conflictedFiles ?? []).length > 0
+                ? ` (the pop conflicted on ${(stashRestore.conflictedFiles ?? []).join(", ")}` +
+                  `${stashRestore.rolledBack ? " and was rolled back" : " and could NOT be rolled back"})`
+                : ` (${stashRestore.error ?? "unknown error"})`
+            }. That work is still parked in ${stashRestore.stashRef} and is NOT in this commit.`
+          : commitResult.message;
 
       // Always push changes in session context - commit and push should be atomic
       // mt#1477: when a token provider is available, use the App installation
@@ -1115,7 +1150,7 @@ export async function sessionCommit(
           success: true,
           commitHash: commitResult.commitHash,
           ...metadata,
-          message: commitResult.message,
+          message: reportedMessage,
           pushed: false,
           ...(stashRestore ? { stashRestore } : {}),
           ...(pushOutcome.pushError !== undefined ? { pushError: pushOutcome.pushError } : {}),
@@ -1143,7 +1178,7 @@ export async function sessionCommit(
         success: true,
         commitHash: commitResult.commitHash,
         ...metadata,
-        message: commitResult.message,
+        message: reportedMessage,
         pushed: true,
         ...(stashRestore ? { stashRestore } : {}),
         ...(pushOutcome.pushTimedOut ? { pushTimedOut: true } : {}),

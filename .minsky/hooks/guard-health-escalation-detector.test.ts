@@ -379,3 +379,78 @@ describe("run (guard-dispatcher entry point)", () => {
     }
   });
 });
+
+describe("the error-message cap is bounded in the unit the ceiling counts (mt#4359)", () => {
+  // `truncateMessage` bounded CODE POINTS while the ceiling this guard declares
+  // (1300) is enforced in UTF-16 units — `guard-feedback-shape.test.ts` compares
+  // `advisory.length`, and the dispatcher spends `rendered.length` against
+  // `MERGED_CONTEXT_BUDGET_CHARS`. One emoji is one code point and two units, so
+  // a 60-code-point cap admitted a 120-unit message on each live line. Measured
+  // at saturation before the fix: ASCII 1207 (under), emoji 1327 (over).
+  //
+  // This is the same defect mt#4234 fixed on `ask-routing-deferral-detector`;
+  // this guard was the second and last consumer.
+
+  const DECLARED_CEILING = 1300;
+
+  /** Saturate both lists so the render is at its worst case. */
+  function saturated(message: string): GuardHealthSummary {
+    const byGuard: GuardHealthSummary["byGuard"] = {};
+    const criticalGuards: string[] = [];
+    for (const [prefix, stale] of [
+      ["live-guard-with-a-fairly-long-name", false],
+      ["stale-guard-with-a-fairly-long-name", true],
+    ] as const) {
+      for (let i = 0; i < 8; i++) {
+        const name = `${prefix}-${i}`;
+        byGuard[name] = {
+          failureCount24h: 99,
+          failureCount7d: 99,
+          consecutiveStreak: 99,
+          lastEvent: { message, causeClass: "infra" },
+          escalation: "critical",
+          stale,
+          liveness: "failing",
+          lastFailureAgeMs: stale ? 99_999_999 : 60_000,
+        } as GuardHealthSummary["byGuard"][string];
+        criticalGuards.push(name);
+      }
+    }
+    return { byGuard, criticalGuards, attentionGuards: [], escalation: "critical" };
+  }
+
+  const ASCII = "E".repeat(240);
+  /** Same length in code points, twice the length in UTF-16 units. */
+  const EMOJI = "\u{1F600}".repeat(240);
+
+  test("an emoji error message renders no larger than the ASCII worst case", () => {
+    // Guards the discrimination: without this, both being equal could mean the
+    // fixture simply never reached the cap (mem#704).
+    expect(EMOJI.length).toBe(ASCII.length * 2);
+
+    const ascii = buildCriticalWarning(saturated(ASCII));
+    const emoji = buildCriticalWarning(saturated(EMOJI));
+
+    expect(ascii).not.toBeNull();
+    expect(emoji).not.toBeNull();
+    // EQUAL, not merely <=. Once the cap counts the same unit the ceiling does,
+    // a 60-unit bound admits 60 units of either alphabet, so the two renders are
+    // the same size — that identity IS the fix, and `<=` would also pass for a
+    // cap that over-trimmed emoji. Pre-fix: 1207 vs 1327.
+    expect((emoji as string).length).toBe((ascii as string).length);
+  });
+
+  test("the saturated render stays under the declared ceiling for both", () => {
+    for (const message of [ASCII, EMOJI]) {
+      const rendered = buildCriticalWarning(saturated(message));
+      expect((rendered as string).length).toBeLessThanOrEqual(DECLARED_CEILING);
+    }
+  });
+
+  test("no lone surrogate survives the cut", () => {
+    const rendered = buildCriticalWarning(saturated(EMOJI)) as string;
+
+    expect(rendered).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(rendered).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+});

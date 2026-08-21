@@ -47,6 +47,7 @@ import {
   selectRecoverableTurns,
   type TranscriptAssistantTurn,
 } from "@minsky/domain/transcripts/entity-thread-reconcile";
+import { resolveConversationIds } from "@minsky/domain/transcripts/driven-session-registry-store";
 import { getLoggableErrorSummary } from "@minsky/domain/errors/index";
 import { log } from "@minsky/shared/logger";
 
@@ -70,37 +71,57 @@ const EMPTY_OUTCOME: ThreadReconcileOutcome = {
 };
 
 /**
- * Every conversation this thread's history could be spread across, newest first.
+ * Every conversation this thread's history could be spread across.
  *
- * **This function is the seam.** Everything downstream consumes a LIST and does
- * not care where it came from, because where it comes from is an open question:
- * an RFC (Notion `3bb937f0-3cb4-81d8-a571-ca8bcca9051c`, Draft 2026-08-13)
- * proposes ADR-040, an attachment-event series generalized as
- * `driven_session_conversations`, which would make a thread's full conversation
- * history durable. That disposition is the principal's and has not been made, so
- * this reads the columns that exist today.
+ * **This function is the seam**, and as of mt#4323 the open question it was
+ * written against is closed: ADR-044 was accepted, and
+ * `driven_session_conversations` — the append-only adoption series — is now
+ * the authoritative source for a thread's span. The one-swap-back bound this
+ * docblock used to record as an unfixable coverage limit is GONE for any swap
+ * recorded after that table shipped.
  *
- * **Known bound: at most ONE swap back.** `entity_threads.replaced_conversation_id`
- * is singular (mt#4093) and overwritten on each swap — its own docblock says
- * "LAST WRITE WINS on a second swap, deliberately" — so a thread that swapped
- * twice has lost the older id and a reply stranded there is unreachable from
- * here. That is a coverage limit of today's columns, not a defect in the
- * reconciler, and it is invisible from the outside: this cannot distinguish "no
- * earlier conversation" from "the earlier id was overwritten." Every recorded
- * incident so far is a single swap.
+ * **Why the legacy columns are still read, rather than replaced.** The table
+ * is not backfilled (mt#4323 `## Scope` — rows lost to the overwriting upsert
+ * are already gone). But two ids that predate it are NOT gone: the CURRENT
+ * `driven_sessions.harness_session_id` and the one-deep
+ * `entity_threads.replaced_conversation_id`. Switching to the table alone
+ * would therefore have discarded live information and REGRESSED recovery for
+ * every thread that existed before the migration, until it happened to adopt
+ * again. So this unions the series with the two columns and dedupes: strictly
+ * a superset of both the old behaviour and the new, converging on the series
+ * alone as pre-migration sessions age out.
+ *
+ * A failed series read is a degraded read, not an empty span — the union keeps
+ * whatever the columns can still answer rather than reporting nothing.
  */
 export async function resolveThreadConversationIds(
   db: PostgresJsDatabase,
   localId: string
 ): Promise<string[]> {
   const ids: string[] = [];
+  const push = (raw: string | null | undefined): void => {
+    const id = raw?.trim();
+    if (id && !ids.includes(id)) ids.push(id);
+  };
 
+  // Authoritative: the adoption series (ADR-044), oldest first.
+  const span = await resolveConversationIds(db, localId);
+  if (span.ok) {
+    for (const id of span.conversationIds) push(id);
+  } else {
+    log.warn(
+      `entity-thread reconcile: adoption series unreadable for ${localId}, ` +
+        `falling back to the legacy columns alone`,
+      { error: span.error }
+    );
+  }
+
+  // Back-compat: the two ids that exist for pre-migration sessions.
   const current = await db.execute(sql`
     SELECT harness_session_id FROM driven_sessions WHERE local_id = ${localId}
   `);
   for (const row of Array.from(current as Iterable<{ harness_session_id?: string | null }>)) {
-    const id = row.harness_session_id?.trim();
-    if (id) ids.push(id);
+    push(row.harness_session_id);
   }
 
   const replaced = await db.execute(sql`
@@ -109,8 +130,7 @@ export async function resolveThreadConversationIds(
   for (const row of Array.from(
     replaced as Iterable<{ replaced_conversation_id?: string | null }>
   )) {
-    const id = row.replaced_conversation_id?.trim();
-    if (id && !ids.includes(id)) ids.push(id);
+    push(row.replaced_conversation_id);
   }
 
   return ids;

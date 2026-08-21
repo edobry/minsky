@@ -54,6 +54,9 @@ import {
   type WatermarkStore,
 } from "../domain/calibration/calibration-sweep";
 import { buildSweptEntries } from "../domain/calibration/swept-entries";
+// mt#4398 — see `passkey-store.ts` for why this wrapper rather than the domain
+// helper directly.
+import { describeServerPersistenceUnavailability } from "./db-providers";
 import { GuardHealthTracker } from "../mcp/guard-health-tracker";
 import { createCachedSqlDbGetter } from "./db-providers";
 import { findRepoRoot } from "./web-dist";
@@ -192,12 +195,28 @@ function readRegistryByGuard(): Map<string, RegistryJoin> {
 // Refresh (sweeper tick body)
 // ---------------------------------------------------------------------------
 
-export async function refreshInterceptorAggregates(): Promise<void> {
+/**
+ * Refresh the snapshot, reporting whether it actually succeeded (mt#4294).
+ *
+ * The `ok` flag is the point. This tick applies its own fail-open try/catch —
+ * correct, a failed refresh must not crash the cockpit — but until now it also
+ * returned nothing, so `createIntervalSweeper` recorded every failure as a
+ * COMPLETED tick. The scheduler could not tell a refresh that served a fresh
+ * snapshot from one that bailed on a dead source, which is why nothing could
+ * back off however long the failure persisted: there was no failure signal to
+ * back off from. Returning the mt#3684 `SweepTickResult` shape puts the
+ * outcome where `consecutiveDomainFailures` can see it.
+ *
+ * "No SQL-capable DB" reports `ok: true` deliberately — that is an
+ * INAPPLICABLE tick, not a failed one, and counting it as a failure would
+ * back off a cockpit that simply has no database configured.
+ */
+export async function refreshInterceptorAggregates(): Promise<{ ok: boolean }> {
   const startedAt = Date.now();
   const db = await getDb();
   if (!db) {
     log.debug("cockpit: interceptor-aggregates refresh: no SQL-capable DB, keeping prior snapshot");
-    return;
+    return { ok: true };
   }
 
   const since = new Date(startedAt - CATALOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
@@ -222,7 +241,7 @@ export async function refreshInterceptorAggregates(): Promise<void> {
       lifetimeOk: lifetime !== null,
       decisionCountsOk: decisionCounts !== null,
     });
-    return;
+    return { ok: false };
   }
 
   // Read the registry BEFORE the canary batch: the canary lookup covers the
@@ -270,6 +289,8 @@ export async function refreshInterceptorAggregates(): Promise<void> {
     calibrationReviewDue: calibration?.reviewDue ?? null,
     declaredNames,
   });
+
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -282,13 +303,21 @@ export interface InterceptorDetailResult {
   /**
    * The composed row. The window's decision counts + duration aggregates are
    * LIVE (single-guard, window-bounded — the index-served queries); the
-   * window's override figures, the lifetime totals, and the
-   * health/calibration/registry sections ride the SNAPSHOT at its refresh
-   * cadence (`snapshotComputedAt`). The all-time lifetime count and the
+   * window's override figures and the health/calibration/registry sections
+   * ride the SNAPSHOT at its refresh cadence (`snapshotComputedAt`). The
    * payload-detoasting override scan measured multi-second live on the
-   * corpus's highest-volume guard (verify script, 2026-08-12), so they stay
-   * off the request path like the catalog itself. Canary is live (few rows
-   * per guard).
+   * corpus's highest-volume guard (verify script, 2026-08-12), so it stays off
+   * the request path like the catalog itself. Canary is live (few rows per
+   * guard).
+   *
+   * The LIFETIME totals used to be in that off-request set for the same
+   * reason, and no longer are (mt#4294): they now come from the maintained
+   * `guard_event_fire_log_rollup`, where the single-guard read is a
+   * primary-key lookup. Measured before the change, the live single-guard
+   * lifetime query took 10,972 ms — worse than the full-catalog rollup's
+   * 2,193 ms, because filtering by `guard_name` trades a sequential scan for
+   * a bitmap heap scan over ~37,688 scattered blocks. It still prefers the
+   * snapshot row when one exists, purely to avoid a second round trip.
    */
   row: InterceptorAggregateRow | null;
   /** True when the guard has no live window rows AND no snapshot row — unknown to the fire log. */
@@ -298,7 +327,14 @@ export interface InterceptorDetailResult {
 
 export async function fetchGuardDetail(guardName: string): Promise<InterceptorDetailResult> {
   const db = await getDb();
-  if (!db) throw new Error("no SQL-capable database available");
+  if (!db) {
+    // mt#4398: "no SQL-capable database available" is true and unactionable —
+    // it does not say whether Postgres is unconfigured or configured-and-failed,
+    // which need opposite responses. Same fix as the two store siblings.
+    throw new Error(
+      `no SQL-capable database available. ${await describeServerPersistenceUnavailability()}`
+    );
+  }
 
   const since = new Date(Date.now() - CATALOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const [decisionCounts, durations, canary] = await Promise.all([

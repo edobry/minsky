@@ -7,38 +7,59 @@ Six TypeScript hooks (in `.claude/hooks/`) forming two subsystems:
 1. **Typecheck subsystem** (3 files, shared state): informational feedback on edit, blocking gate on stop
 2. **Workflow subsystem** (3 files, independent): review gate, auto-pull, remote bootstrap
 
-All hooks share types and a sync exec helper from `types.ts`. The design convention is self-containment — no imports from `src/` — so hooks keep working even when the main codebase has type errors. In practice this is a TARGET, not the current state: ~18 hooks import from `src/` or `packages/domain` today (verified 2026-08-01, mt#3503 review). What IS enforced is the two-tier form below.
+All hooks share types and a sync exec helper from `types.ts`. **A hook module MAY import `packages/domain`** (principal decision 2026-08-20, mt#4373; ADR-028 amended). The former convention — self-containment, no imports from `src/`, "so hooks keep working even when the main codebase has type errors" — is RETIRED as a general target, and its stated reason was never true: Bun strips types at import and never type-checks, so a hook importing a type-broken module loads and runs (reproduced, mt#4373). What survives is the tier-2 rule below, which is a module-resolution fact rather than a convention.
 
-**`@minsky/shared` is an allowed exception, not a violation of this rule.** It is a
-dependency-free leaf package (not `src/`), so it carries no risk of pulling in a
-type-broken `src/` module. Several hooks already import from it directly —
-e.g. `record-subagent-invocation.ts` imports `@minsky/shared/safe-truncate`,
+**`@minsky/shared` is a dependency-free leaf package** (not `src/`), so importing it
+carries no risk of pulling in a heavier module graph. Several hooks import from it
+directly — e.g. `record-subagent-invocation.ts` imports `@minsky/shared/safe-truncate`,
 and `ask-verification.ts` imports `@minsky/shared/ask-approval` (mt#3203, to
 share vocabulary with the `asks_create` authoring-time guard rather than
-maintain a second copy). Importing `@minsky/shared/*` from a hook is
-consistent with this convention; importing `packages/domain` or `src/*` is not.
+maintain a second copy). It remains the cheapest place to put something two trees
+need. It used to be described here as "an allowed exception" to a rule against
+importing `packages/domain`; that rule is retired, so it is now simply the light option.
 
-**Self-containment, checkable form (mt#3503).** Two tiers:
+**Import policy, checkable form (mt#3503, amended mt#4373).** One enforced tier, and one
+consideration that is not a rule:
 
-1. **All hooks (target convention, NOT yet enforced):** no imports from `src/` or
-   `packages/domain`. ~18 hooks currently violate this (e.g.
-   `parallel-work-guard-standalone.ts` → `src/utils/safe-truncate`,
-   `policy-coverage-detector.ts` → `packages/domain/...`); the enforcement path
-   is mt#2456 (ESLint rule forbidding out-of-package relative imports), and the
-   violations are acceptable in the meantime ONLY because those hooks are
-   plant-only — they run in this repo, where the paths resolve.
-   `task-statuses.ts` is one such plant-only domain bridge, split out of
-   `types.ts` precisely so the CONTRACT module stays clean; that constant living
-   in `types.ts` is what broke tier 2 (verified: a vendored copy failed module
-   resolution on every event).
-2. **The observability baseline** (`record-conversation-run-state.ts`,
-   `transcript-ingest-on-session-end.ts`, and their contract module `types.ts` —
-   the set `minsky init` vendors into foreign projects, mt#3499): the transitive
-   import closure must be node stdlib + same-directory files ONLY. No
-   `@minsky/shared` either — the exception above assumes this repo's
-   `node_modules`, which a foreign project does not have. Enforced by
-   `self-containment.test.ts`, which walks the closure statically AND executes
-   each baseline hook from a bare temp directory.
+1. **Plant-only hooks: no restriction.** A hook that runs only in THIS repo may import
+   `packages/domain` (and `@minsky/shared`, and `src/`). Nothing enforces a limit, and as of
+   2026-08-20 **60 of 167** non-test modules already do.
+
+   _Historical note, so the record is not silently rewritten:_ this item previously stated the
+   restriction as a target and named **mt#2456** as "the enforcement path". That citation was
+   wrong on its own terms — mt#2456 forbids relative imports under `packages/*/src/**` that
+   escape their own package (`packages/domain` → `src/`), and never reached
+   `.minsky/hooks/` → `packages/domain`. So the hooks-to-domain direction was **never enforced
+   by anything**, and the count it recorded (~18, verified 2026-08-01) had grown to 60 by
+   2026-08-20 with no decision recorded anywhere. The reversal makes the question moot; the
+   mis-citation is corrected here rather than deleted along with it.
+
+   What is worth knowing rather than forbidden: `packages/domain`'s persistence path has import-time side effects that a hook
+   process does not inherit from a CLI or MCP entry point — reaching it obliges you to go
+   through `ensureHookDomainBootstrap` (`.minsky/hooks/domain-bootstrap.ts`, mt#3019), and the
+   failure mode when you don't is a silently fail-open guard, not an error. A guard's DECISION
+   logic wants ADR-026 tier 2 (a leaf function with an explicit required `deps` parameter, no
+   decorators), which has no import-time side effect at all. `task-statuses.ts` remains split
+   out of `types.ts` so the CONTRACT module stays clean — that constant living in `types.ts` is
+   what broke tier 2 below (verified: a vendored copy failed module resolution on every event).
+
+2. **The observability baseline — the one hard rule, and it is not a convention**
+   (`record-conversation-run-state.ts`, `transcript-ingest-on-session-end.ts`, and their
+   contract module `types.ts`): the transitive import closure must be node stdlib +
+   same-directory files ONLY. No `@minsky/shared` either.
+
+   This is the PRODUCT tier that `minsky init` provisions for other Minsky-managed projects
+   (mt#3499, `packages/domain/src/setup/hook-provisioning.ts`) — as distinct from this repo's
+   ~45 registered hooks, which are PLANT and "would be meaningless or hostile in someone
+   else's project". The files are not copied into the user's repo: they install into a
+   Minsky-owned state directory and register in that project's `.claude/settings.local.json`,
+   so one shared copy serves every project. **That install location is what makes this a
+   fact rather than a preference** — the baseline runs from an arbitrary install path where
+   no `packages/domain`, no `node_modules` and no repo-relative path resolves, so an import
+   there fails module resolution outright. The mt#4373 reversal does not reach it.
+
+   Enforced by `self-containment.test.ts`, which walks the closure statically AND executes
+   each baseline hook from a bare temp directory with no `packages/` sibling.
 
 Additional standalone hooks beyond the original two subsystems (e.g.,
 `transcript-ingest-on-session-end.ts`) are documented in their own sections

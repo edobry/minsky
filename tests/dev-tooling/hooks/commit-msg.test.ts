@@ -298,4 +298,69 @@ describe("CommitMsgHook", () => {
       expect(result.errors[0]).toContain(DUPLICATION_ERROR);
     });
   });
+
+  describe("[no-deploy-impact] claim verification (mt#4397)", () => {
+    const STAGED_FILES_COMMAND = "git diff --cached --name-only";
+    const DEPLOY_SURFACE_FILE = "packages/domain/src/composition/container.ts";
+    const NON_DEPLOY_FILE = ".minsky/hooks/some-guard.ts";
+    /** Shared so the claiming fixtures cannot drift apart. */
+    const CLAIMING_MESSAGE = "fix(mt#1): a change\n\n[no-deploy-impact]";
+
+    /** Records every command issued, and serves a staged list for the diff read. */
+    function withStagedFiles(files: string[]): string[] {
+      const issued: string[] = [];
+      currentExecSyncBehavior = (command: string) => {
+        issued.push(command);
+        if (command.includes(GIT_BRANCH_COMMAND)) return TEST_BRANCH;
+        if (command.includes(STAGED_FILES_COMMAND)) return files.join("\n");
+        return "unknown";
+      };
+      return issued;
+    }
+
+    it("does NOT shell out to git when the message makes no claim (PR #3221 R1)", async () => {
+      // This hook runs on EVERY commit and the vast majority never mention the
+      // tag; paying a subprocess for those bought an answer the message alone
+      // already determines.
+      const issued = withStagedFiles([DEPLOY_SURFACE_FILE]);
+
+      const result = await testCommit("fix(mt#1): an ordinary change");
+
+      expect(result.success).toBe(true);
+      expect(issued.some((c) => c.includes(STAGED_FILES_COMMAND))).toBe(false);
+    });
+
+    it("enumerates staged files including DELETIONS (PR #3221 R1)", async () => {
+      // Deleting a deploy-surface file IS a deploy impact. The sibling
+      // pre-commit steps can omit `D` because they read staged CONTENT; this
+      // check reads only PATHS, so a deletion is both readable and meaningful.
+      const issued = withStagedFiles([NON_DEPLOY_FILE]);
+
+      await testCommit(CLAIMING_MESSAGE);
+
+      const diffCommand = issued.find((c) => c.includes(STAGED_FILES_COMMAND));
+      expect(diffCommand).toContain("--diff-filter=");
+      for (const letter of ["A", "C", "M", "R", "D"]) {
+        expect(diffCommand).toContain(letter);
+      }
+    });
+
+    it("rejects a claim the staged set contradicts, naming the file", async () => {
+      withStagedFiles([DEPLOY_SURFACE_FILE, NON_DEPLOY_FILE]);
+
+      const result = await testCommit(CLAIMING_MESSAGE);
+
+      expect(result.success).toBe(false);
+      expect(result.errors.join("\n")).toContain(DEPLOY_SURFACE_FILE);
+      expect(result.errors.join("\n")).toContain("cannot be edited");
+    });
+
+    it("accepts a claim the staged set supports", async () => {
+      withStagedFiles([NON_DEPLOY_FILE]);
+
+      const result = await testCommit(CLAIMING_MESSAGE);
+
+      expect(result.success).toBe(true);
+    });
+  });
 });

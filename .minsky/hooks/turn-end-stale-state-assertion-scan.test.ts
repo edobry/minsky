@@ -17,6 +17,9 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyResolved,
   collectAssertions,
+  declaresResolution,
+  RESOLUTION_DECLARATION_LEAD_WORDS,
+  RESOLUTION_DECLARATION_PHRASES,
   collectEntityRefs,
   findPendingClaims,
   PROXIMITY_CHARS,
@@ -255,5 +258,148 @@ describe("two id-spaces (PR #3061 review)", () => {
     ]);
 
     expect(classifyResolved(claims, states)).toHaveLength(2);
+  });
+});
+
+/**
+ * mt#4375 — the ask's own text declares it resolved while `state` lags.
+ *
+ * Fixtures are ask#9278's REAL title and question, verbatim. That ask is the
+ * originating incident: `state` was `suspended` (correctly — nothing had closed
+ * it, and `stale-suspended-close` never auto-closes its kind), so the
+ * state-column check could not fire, while the body said the opposite.
+ */
+const ASK_9278_TITLE =
+  "RESOLVED — reviewer restored; root cause is mt#4294, already owned and claimed";
+const ASK_9278_QUESTION =
+  "**RESOLVED. No action needed from you. Do NOT run the terminate command from the original version of this ask.**\n\n" +
+  "**Root cause is already known and owned: mt#4294** (PLANNING, actively claimed by another session).";
+
+/** State map carrying the ask's own content, as `lookupLiveStates` now builds it. */
+function askWithContent(
+  shortId: string,
+  state: string,
+  title?: string,
+  question?: string,
+  identity = `uuid-of-${shortId}`
+) {
+  return new Map([[`ask:short:${shortId}`, { state, identity, title, question }]]);
+}
+
+describe("mt#4375 — content-declares-resolved", () => {
+  const claims = findPendingClaims(R17_MESSAGE);
+
+  test("mt#4375 AT1 — a suspended ask whose body declares RESOLVED is a contradiction", () => {
+    const states = askWithContent("8467", "suspended", ASK_9278_TITLE, ASK_9278_QUESTION);
+    const resolved = classifyResolved(claims, states);
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.declaresResolved).toBe(true);
+    expect(resolved[0]?.contradictionKind).toBe("content-declares-resolved");
+    // The state column is untouched and still says non-terminal — which is the
+    // whole point: this class is invisible to `isTerminal`.
+    expect(resolved[0]?.isTerminal).toBe(false);
+    expect(resolved[0]?.liveState).toBe("suspended");
+  });
+
+  test("mt#4375 AT2 — a closed ask still reports the state-column class, not double-counted", () => {
+    const states = askWithContent("8467", "closed", ASK_9278_TITLE, ASK_9278_QUESTION);
+    const resolved = classifyResolved(claims, states);
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.isTerminal).toBe(true);
+    expect(resolved[0]?.contradictionKind).toBe("terminal-state");
+    // Disjoint: an already-terminal ask is not ALSO reported as content-declared.
+    expect(resolved[0]?.declaresResolved).toBe(false);
+  });
+
+  test("mt#4375 AT3 — 'is resolved' mid-sentence is a mention, not a declaration", () => {
+    const states = askWithContent(
+      "8467",
+      "suspended",
+      "Decide the rollout order for the pool probe",
+      "This is blocked until mt#4294 is resolved. Which option do you want?"
+    );
+    const resolved = classifyResolved(claims, states);
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.declaresResolved).toBe(false);
+    expect(resolved[0]?.contradictionKind).toBeUndefined();
+  });
+
+  test("mt#4375 AT4 — a genuinely open ask with no marker is unchanged", () => {
+    const states = askWithContent(
+      "8467",
+      "suspended",
+      "What should mt#2430 deliver now that the RFC option was declined?",
+      "Pick one of the three scopes below."
+    );
+    const resolved = classifyResolved(claims, states);
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0]?.isTerminal).toBe(false);
+    expect(resolved[0]?.declaresResolved).toBe(false);
+    expect(resolved[0]?.contradictionKind).toBeUndefined();
+  });
+
+  test("a row with no title/question at all does not declare anything", () => {
+    const resolved = classifyResolved(claims, askShort("8467", "suspended"));
+    expect(resolved[0]?.declaresResolved).toBe(false);
+  });
+});
+
+describe("declaresResolution — the predicate", () => {
+  test("anchors on the head, through markdown emphasis", () => {
+    expect(declaresResolution("**RESOLVED. No action needed from you.**")).toBe(true);
+    expect(declaresResolution("RESOLVED — reviewer restored")).toBe(true);
+    expect(declaresResolution("## Resolved: nothing further")).toBe(true);
+  });
+
+  test("a trailing mention is not a declaration", () => {
+    expect(declaresResolution("blocked until mt#4294 is resolved")).toBe(false);
+    expect(declaresResolution("Should this be resolved by folding it in?")).toBe(false);
+  });
+
+  test("the no-action phrase needs no leading anchor", () => {
+    expect(declaresResolution("Update: no action needed from you, closing out.")).toBe(true);
+  });
+
+  test("empty and absent inputs are not declarations", () => {
+    expect(declaresResolution(undefined, undefined)).toBe(false);
+    expect(declaresResolution("", "")).toBe(false);
+  });
+
+  test("a declaration far past the window does not count", () => {
+    const padded = `${"context. ".repeat(60)}RESOLVED. no action needed`;
+    expect(declaresResolution(padded)).toBe(false);
+  });
+});
+
+describe("mt#4375 SC2 — the vocabulary is named constants, not inline literals", () => {
+  test("both marker sets are exported and non-empty", () => {
+    expect(RESOLUTION_DECLARATION_LEAD_WORDS).toContain("resolved");
+    expect(RESOLUTION_DECLARATION_PHRASES).toContain("no action needed");
+  });
+
+  test("every declared lead word is honoured at the head", () => {
+    for (const word of RESOLUTION_DECLARATION_LEAD_WORDS) {
+      expect(declaresResolution(`${word}. nothing further`)).toBe(true);
+      expect(declaresResolution(`**${word.toUpperCase()} — done**`)).toBe(true);
+    }
+  });
+
+  test("every declared phrase is honoured near the head", () => {
+    for (const phrase of RESOLUTION_DECLARATION_PHRASES) {
+      expect(declaresResolution(`Update: ${phrase} here.`)).toBe(true);
+    }
+  });
+
+  test("a lead word is a WORD, not a prefix", () => {
+    // "resolvedly"/"resolvedness" open with the letters but are not the word.
+    expect(declaresResolution("resolvedly speaking, we should fold it in")).toBe(false);
+  });
+
+  test("a bare lead word with nothing after it still declares", () => {
+    expect(declaresResolution("resolved")).toBe(true);
   });
 });

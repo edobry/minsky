@@ -373,7 +373,17 @@ type FeedbackShape =
   | "render-probe-sample";
 
 const FEEDBACK_SHAPE: Record<string, FeedbackShape> = {
-  "ask-routing-deferral-detector": "capped", // cappedEvidenceLines x2 (mt#3705)
+  // mt#4234: was `"capped"`, citing `cappedEvidenceLines x2` — which caps the
+  // LINE COUNT (3) and never binds, because `detectDeferralPhrases` breaks after
+  // one match per class. The PHRASE was uncapped: `matchedPhrase` is the regex's
+  // whole matched span and two patterns bound theirs only by the next sentence
+  // terminator, so the render grew 1:1 with the agent's prose. That is precisely
+  // the laundering this receipt's `RENDER_PROBE_SAMPLE` doc warns about — an
+  // annotation reading as a ceiling when it is a sample. Now genuinely bounded on
+  // both axes (`MAX_RENDERED_PHRASE_CHARS` per line, `cappedEvidenceLines` on the
+  // count) AND posed saturated by a `worstCaseCanary`, so it earns the stronger
+  // value rather than the one it used to assert.
+  "ask-routing-deferral-detector": WORST_CASE_CANARY,
   // Fixed body plus at most six PIDs (`pids.slice(0, 6)` then `…`) — the cap is
   // in `buildDenialReason`, so the message cannot grow with the kill's size.
   "block-bulk-process-kill": "capped",

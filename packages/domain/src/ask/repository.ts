@@ -22,7 +22,7 @@
 import { injectable } from "tsyringe";
 // Value import, and safe from a cycle: `edit.ts`'s only import from this module
 // is `import type`, which is erased at runtime (PR #3162 R1).
-import { stripReservedProvenanceKeys } from "./edit";
+import { stripReservedProvenanceKeys, sanitizeMetadata, CANCELLATION_METADATA_KEY } from "./edit";
 import {
   and,
   count,
@@ -133,7 +133,23 @@ export function toAsk(row: AskRecord): Ask {
  *
  * `id` and `createdAt` are omitted — the DB defaults handle them.
  */
-function toInsert(input: CreateAskInput): AskInsert {
+/**
+ * Build the Drizzle insert row for a create.
+ *
+ * Exported for tests (mt#4331) so the create path's metadata filtering can be
+ * asserted without a live DB, and compared key-for-key against
+ * `FakeAskRepository.create`. Mirrors the existing `toAsk` export, which
+ * `repository.test.ts` already imports for the same reason — a pure mapping
+ * function is the right seam, so no double has to be patched (ADR-036).
+ *
+ * @internal Not part of this module's supported surface: it exists so the row
+ * builder is directly assertable, and callers outside this file and its tests
+ * should go through `DrizzleAskRepository.create`. Kept beside `toAsk` rather
+ * than moved to a test-only module (PR #3197 R1 raised that option) so the two
+ * row-mapping functions stay adjacent to the schema they map — splitting them
+ * would put the insert mapper further from the code it has to track.
+ */
+export function toInsert(input: CreateAskInput): AskInsert {
   // ADR-021 / mt#2563: project_id write-stamping (completes the Phase-1.3b
   // deferral from mt#2416). The resolved project uuid is threaded in via
   // CreateAskInput.projectId (resolved at the asks.create execute callsite,
@@ -172,7 +188,23 @@ function toInsert(input: CreateAskInput): AskInsert {
     // input — same rule as principalPagedAt above (PR #3162 R1). Stripping here
     // is what makes the reservation real: a planted "original" would otherwise
     // survive to the first edit and pre-empt the genuine capture.
-    metadata: stripReservedProvenanceKeys(input.metadata ?? {}),
+    //
+    // mt#4331: `sanitizeMetadata` runs here too, so a forbidden key is BLOCKED at
+    // the create boundary rather than only scrubbed later on the way through an
+    // edit.
+    //
+    // Ordered to match `editAskContent`'s merge, for comparability. The order is
+    // NOT load-bearing — but only because `defineOwnKey` made the copy safe
+    // (PR #3197 R1). Before that, `stripReservedProvenanceKeys` copied via
+    // `out[key] = value`, which for `__proto__` invokes the prototype setter, so
+    // strip-first built an object whose prototype WAS the payload. That was fixed
+    // at the copy rather than pinned here, because a call-site ordering rule
+    // cannot be enforced by any value-based test: both orders yield an identical
+    // final key set, so a swap would regress silently.
+    //
+    // The two stay separate functions because their requirements at the edit merge
+    // are opposite — provenance keys must SURVIVE it, forbidden keys must not.
+    metadata: stripReservedProvenanceKeys(sanitizeMetadata(input.metadata ?? {})),
   };
 }
 
@@ -361,6 +393,34 @@ export interface AskRepository {
    * @throws    `Error` — Ask not found.
    */
   transition(id: string, to: AskState): Promise<Ask>;
+
+  /**
+   * Merge a cancellation-provenance record into `metadata` ATOMICALLY (mt#3353).
+   *
+   * Exists because `transition(id, "cancelled")` writes `state` and `closedAt`
+   * and nothing else, so a cancelled Ask otherwise carries no record of who
+   * retired it or why — the reason ask#5681 sits terminal and unattributable.
+   *
+   * Deliberately NOT expressed as a read-merge-`updateContent` sequence, which
+   * is what shipped first and what PR #3190's review caught as BLOCKING: that
+   * shape reads `metadata`, merges in memory, and writes the whole object back,
+   * so a concurrent edit landing inside the window is silently clobbered — a
+   * lost update on the exact column whose job is provenance. This merges
+   * server-side with jsonb `||`, so no window exists. `updateContent`'s
+   * whole-object contract is unchanged and remains correct for its own callers,
+   * which compute a merge from a freshly-read Ask under the caller's own
+   * ordering.
+   *
+   * Only touches a NON-TERMINAL row, matching `updateContent`: the caller writes
+   * this immediately before the transition.
+   *
+   * @param id      Primary key of the Ask.
+   * @param record  The provenance object stored under the `cancellation` key.
+   * @returns       true when a row was updated; false when none matched (already
+   *                terminal, or gone) — never throws on a miss, because the
+   *                caller's cancellation must not fail on an audit-write miss.
+   */
+  recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean>;
 
   /**
    * Record a response on an Ask (state → "responded").
@@ -979,6 +1039,24 @@ export class DrizzleAskRepository implements AskRepository {
     return toAsk(row);
   }
 
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    // jsonb `||` merges right-into-left server-side, so the read and the write
+    // are one statement and no concurrent edit can be lost. COALESCE covers a
+    // NULL metadata column, where `||` would otherwise yield NULL and erase the
+    // record we are trying to write.
+    const merged = sanitizeForPostgresDeep({ [CANCELLATION_METADATA_KEY]: record }).value;
+    const rows = await this.db
+      .update(asksTable)
+      .set({
+        metadata: sql`COALESCE(${asksTable.metadata}, '{}'::jsonb) || ${JSON.stringify(merged)}::jsonb`,
+      })
+      .where(
+        and(eq(asksTable.id, id), notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[]))
+      )
+      .returning();
+    return rows.length > 0;
+  }
+
   async respond(id: string, rawInput: RespondAskInput): Promise<Ask> {
     // mt#3278 — see `create` above.
     const input: RespondAskInput = sanitizeForPostgresDeep(rawInput).value;
@@ -1348,8 +1426,13 @@ export class FakeAskRepository implements AskRepository {
       severity: input.severity,
       // Mirrors the Drizzle backend's reservation (PR #3162 R1) — the fake must
       // not be more permissive than the real thing, or a test would pass against
-      // behaviour production does not have.
-      metadata: stripReservedProvenanceKeys(input.metadata ?? {}),
+      // behaviour production does not have. mt#4331 extends that same parity to
+      // `sanitizeMetadata`: a fake that filtered fewer keys than the Drizzle
+      // backend would let a pollution test pass against behaviour production
+      // does not have — the double becoming the assertion target instead of the
+      // behavior (ADR-036), which is the argument this comment already makes for
+      // the provenance keys.
+      metadata: stripReservedProvenanceKeys(sanitizeMetadata(input.metadata ?? {})),
     };
     this.store.set(id, ask);
     return { ...ask };
@@ -1489,6 +1572,22 @@ export class FakeAskRepository implements AskRepository {
 
     this.store.set(id, updated);
     return { ...updated };
+  }
+
+  async recordCancellation(id: string, record: Record<string, unknown>): Promise<boolean> {
+    const existing = this.store.get(id);
+    // Mirrors the Drizzle `where`: non-terminal rows only, and a miss is a
+    // `false` return rather than a throw.
+    if (!existing || isTerminal(existing.state)) return false;
+
+    // Reads and writes in one synchronous step, which is this fake's equivalent
+    // of the jsonb `||` the Drizzle implementation uses — the merge cannot
+    // interleave with another caller.
+    this.store.set(id, {
+      ...existing,
+      metadata: { ...(existing.metadata ?? {}), [CANCELLATION_METADATA_KEY]: record },
+    });
+    return true;
   }
 
   async respond(id: string, input: RespondAskInput): Promise<Ask> {

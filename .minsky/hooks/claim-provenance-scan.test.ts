@@ -20,7 +20,9 @@ import {
   citedPrNumbers,
   claimsFileCollision,
   claimsNoOwner,
+  claimsRemainingWork,
   extractAuthoredSpecText,
+  remainingWorkSubjects,
   run,
   SPEC_TEXT_FIELD_BY_TOOL,
 } from "./claim-provenance-scan";
@@ -68,11 +70,14 @@ function ctxWith(lines: TranscriptLine[]): DispatchContext {
   return { transcriptLines: lines } as unknown as DispatchContext;
 }
 
+/** The seam all three originating incidents actually wrote at. */
+const SPEC_PATCH_TOOL = "mcp__minsky__tasks_spec_patch";
+
 /** A spec-patch call — the seam both originating incidents actually wrote at. */
 function patchInput(content: string): ToolHookInput {
   return {
     session_id: "sess-mt4168",
-    tool_name: "mcp__minsky__tasks_spec_patch",
+    tool_name: SPEC_PATCH_TOOL,
     tool_input: { taskId: "mt#1", content },
   } as unknown as ToolHookInput;
 }
@@ -307,5 +312,293 @@ describe("run — not-adjudicable and clean paths", () => {
       "a file-level collision",
       "a negative ownership claim",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The remaining-work class (mt#4299)
+// ---------------------------------------------------------------------------
+//
+// The incident (mem#1114): a genuinely verified root-cause section was patched
+// into mt#2307's spec and closed with "Whoever takes this task should confirm
+// that trade still holds…" — work mt#2664 had completed ten weeks earlier. The
+// verified body supplied the rider's felt credibility; the rider itself was
+// never evaluated as a proposition.
+//
+// As above, the discriminating assertions are the PAIRS.
+
+/** A rider naming its subject outright. */
+const REMAINING_WORK_SPEC = `## Summary
+
+Record the root cause.
+
+## Findings
+
+The lenient top-level schema is deliberate. mt#2307 still needs its test renamed
+and a doc note added before it can be closed out.
+`;
+
+/**
+ * The originating shape: deictic, naming no id in the claim's own paragraph.
+ *
+ * The referent of "this task" is the \`taskId\` of the write itself. A spec id
+ * DOES appear in an earlier paragraph, which is deliberate — it pins that the
+ * subject is resolved per-paragraph and does not leak across them.
+ */
+const DEICTIC_RIDER_SPEC = `## Summary
+
+Record the root cause.
+
+## Findings
+
+mt#2161 made the top-level schema lenient deliberately; the docstring says so.
+
+Whoever takes this task should confirm that trade still holds and then update
+the test plus a doc note.
+`;
+
+/** A spec-patch whose target id is the referent of "this task". */
+function patchInputFor(taskId: string, content: string): ToolHookInput {
+  return {
+    session_id: "sess-mt4299",
+    tool_name: SPEC_PATCH_TOOL,
+    tool_input: { taskId, content },
+  } as unknown as ToolHookInput;
+}
+
+const STATUS_GET_CALL = (taskId: string) =>
+  toolCallLine("mcp__minsky__tasks_status_get", { taskId });
+const TASK_GET_CALL = (taskId: string) => toolCallLine("mcp__minsky__tasks_get", { taskId });
+const SPEC_GET_CALL = (taskId: string) => toolCallLine("mcp__minsky__tasks_spec_get", { taskId });
+const REFS_STATUS_CALL = (refs: string[]) => toolCallLine("mcp__minsky__refs_status", { refs });
+
+describe("claimsRemainingWork — recognition", () => {
+  test("a forward-looking assertion naming a task is a claim", () => {
+    expect(claimsRemainingWork(REMAINING_WORK_SPEC, null)).toBe(true);
+  });
+
+  test("the deictic form resolves against the task being written", () => {
+    expect(claimsRemainingWork(DEICTIC_RIDER_SPEC, "mt#2307")).toBe(true);
+  });
+
+  test("with no target id the deictic form is NOT adjudicable, so it is not a claim", () => {
+    // `tasks_create` carries no taskId: a task being born has no state anyone
+    // could have read, so demanding a read would be undischargeable.
+    expect(claimsRemainingWork(DEICTIC_RIDER_SPEC, null)).toBe(false);
+  });
+
+  test("ordinary descriptive prose about a task is not a claim", () => {
+    expect(
+      claimsRemainingWork("mt#2307 changed the loader to warn instead of throwing.", "mt#1")
+    ).toBe(false);
+  });
+
+  test("the hyphenated term of art does not fire — it names this class, it is not one", () => {
+    // Without the whitespace requirement the guard fires on every spec that
+    // DISCUSSES remaining-work claims, starting with mt#4299's own.
+    expect(
+      claimsRemainingWork("A remaining-work claim about mt#4295 would be invisible here.", "mt#1")
+    ).toBe(false);
+  });
+
+  test("an audit RECORD enumerating gate verdicts is not an assertion", () => {
+    // Same structural discriminator the collision class earned in mt#4190: a
+    // gate block is the recorded OUTPUT of a check, not a claim.
+    const gateBlock = `- **(a)** pass — all five sections present.
+- **(b)** pass — mt#2307 still needs nothing; criteria satisfied.
+- **(c)** pass — In/Out both enumerated.`;
+    expect(claimsRemainingWork(gateBlock, "mt#1")).toBe(false);
+  });
+});
+
+describe("remainingWorkSubjects — the join key", () => {
+  test("explicit ids win, and are normalized to one spelling", () => {
+    expect(remainingWorkSubjects("mt#2307 still needs a doc note.", "mt#1")).toEqual(["mt2307"]);
+  });
+
+  test("a memory or ask short id is not a task and cannot be a subject", () => {
+    // mem#N has no status to read, so treating it as a subject would demand a
+    // call that cannot exist.
+    expect(remainingWorkSubjects("mem#1114 still needs retiring.", null)).toEqual([]);
+  });
+
+  test("PR #3173 R1: md#N is not a subject — it is placeholder text in this corpus", () => {
+    // `md#N` is a documented task-id form, and matching it was measured wrong:
+    // 64 distinct tokens repo-wide led by md#123 (110x) / md#999 (66x), which are
+    // the tool description's own examples and test fixtures, and refs_status
+    // reports the real ones absent. A subject no status read can discharge is the
+    // one failure this class exists to avoid.
+    expect(remainingWorkSubjects("md#456 still needs its doc note.", null)).toEqual([]);
+    // ...and it must not silently fall through to the deictic branch either,
+    // which would swap one wrong subject for another.
+    expect(remainingWorkSubjects("md#456 still needs its doc note.", "mt#1")).toEqual([]);
+  });
+
+  test("several ids in one paragraph are all required", () => {
+    expect(
+      remainingWorkSubjects("mt#4295 and mt#4301 still need their guards.", null).sort()
+    ).toEqual(["mt4295", "mt4301"]);
+  });
+});
+
+describe("run — remaining-work claims (AT1, AT2, AT3)", () => {
+  test("AT1: fires when the cited task's status was never read", () => {
+    const out = run(patchInputFor("mt#1651", REMAINING_WORK_SPEC), ctxWith([...NOISE]));
+    expect(out?.calibration?.["outcome"]).toBe("matched");
+    expect(out?.calibration?.["kinds"]).toEqual(["a remaining-work assertion"]);
+  });
+
+  test("AT2: a status read on THAT id, preceding the write, discharges it", () => {
+    const out = run(
+      patchInputFor("mt#1651", REMAINING_WORK_SPEC),
+      ctxWith([...NOISE, STATUS_GET_CALL("mt#2307")])
+    );
+    expect(out?.calibration?.["outcome"]).toBe("clean");
+  });
+
+  test("AT3: a status read on a DIFFERENT id does not discharge it", () => {
+    // The join is ID-SCOPED, which is strictly stronger than the ownership
+    // half's presence-only `sessionRanASearch`. mt#4190 measured what
+    // presence-only costs: 25 claims, 25 discharged, never fires.
+    const out = run(
+      patchInputFor("mt#1651", REMAINING_WORK_SPEC),
+      ctxWith([...NOISE, STATUS_GET_CALL("mt#9999")])
+    );
+    expect(out?.calibration?.["outcome"]).toBe("matched");
+  });
+
+  test("the originating incident: the deictic rider fires against its own task", () => {
+    const out = run(patchInputFor("mt#2307", DEICTIC_RIDER_SPEC), ctxWith([...NOISE]));
+    expect(out?.calibration?.["outcome"]).toBe("matched");
+    expect(out?.calibration?.["kinds"]).toEqual(["a remaining-work assertion"]);
+  });
+
+  test("the originating incident: reading mt#2307 first discharges it", () => {
+    // One `tasks_status_get` is the whole remedy mem#1114 prescribes.
+    const out = run(
+      patchInputFor("mt#2307", DEICTIC_RIDER_SPEC),
+      ctxWith([...NOISE, STATUS_GET_CALL("mt#2307")])
+    );
+    expect(out?.calibration?.["outcome"]).toBe("clean");
+  });
+
+  test("the subject is per-paragraph: an id in an EARLIER paragraph is not the referent", () => {
+    // DEICTIC_RIDER_SPEC names mt#2161 two paragraphs up. Reading THAT must not
+    // discharge a claim whose subject is the task being patched.
+    const out = run(
+      patchInputFor("mt#2307", DEICTIC_RIDER_SPEC),
+      ctxWith([...NOISE, STATUS_GET_CALL("mt#2161")])
+    );
+    expect(out?.calibration?.["outcome"]).toBe("matched");
+  });
+});
+
+describe("run — the discharge set is generous (all four tools)", () => {
+  const cases: Array<[string, ReturnType<typeof toolCallLine>]> = [
+    ["tasks_status_get", STATUS_GET_CALL("mt#2307")],
+    ["tasks_get", TASK_GET_CALL("mt#2307")],
+    ["tasks_spec_get", SPEC_GET_CALL("mt#2307")],
+    ["refs_status (array)", REFS_STATUS_CALL(["mt#4295", "mt#2307", "3165"])],
+  ];
+
+  for (const [label, call] of cases) {
+    test(`${label} discharges the claim`, () => {
+      // Direction of error: a status-read spelling missed here fires at an
+      // author who looked the task up, which is the dangerous direction.
+      const out = run(patchInputFor("mt#1651", REMAINING_WORK_SPEC), ctxWith([...NOISE, call]));
+      expect(out?.calibration?.["outcome"]).toBe("clean");
+    });
+  }
+
+  test("the unpunctuated spelling is the same id", () => {
+    // The substrate stores `mt2307`; both spellings are in live circulation, so
+    // a literal comparison would miss across them.
+    const out = run(
+      patchInputFor("mt#1651", REMAINING_WORK_SPEC),
+      ctxWith([...NOISE, STATUS_GET_CALL("mt2307")])
+    );
+    expect(out?.calibration?.["outcome"]).toBe("clean");
+  });
+
+  test("every cited subject must be read, not just one of them", () => {
+    const two = `## Findings\n\nmt#4295 and mt#4301 still need their guards before this lands.\n`;
+    const partial = run(
+      patchInputFor("mt#1", two),
+      ctxWith([...NOISE, STATUS_GET_CALL("mt#4295")])
+    );
+    expect(partial?.calibration?.["outcome"]).toBe("matched");
+
+    const both = run(
+      patchInputFor("mt#1", two),
+      ctxWith([...NOISE, REFS_STATUS_CALL(["mt#4295", "mt#4301"])])
+    );
+    expect(both?.calibration?.["outcome"]).toBe("clean");
+  });
+});
+
+describe("run — the class reaches every spec-WRITE seam (PR #3173 R1)", () => {
+  // The seam finding this guard was built on: binding only to `tasks_create`
+  // would miss the surface both original incidents wrote at. A new class that
+  // silently covered only `tasks_spec_patch` would rebuild that gap one level
+  // down — the same shape, one class over — so each seam is pinned rather than
+  // assumed from the shared `SPEC_TEXT_FIELD_BY_TOOL` lookup.
+  const SEAMS: Array<[string, string, (content: string) => ToolHookInput]> = [
+    [
+      "tasks_edit",
+      "specContent",
+      (content) =>
+        ({
+          session_id: "sess-mt4299",
+          tool_name: "mcp__minsky__tasks_edit",
+          tool_input: { taskId: "mt#1651", specContent: content },
+        }) as unknown as ToolHookInput,
+    ],
+    [
+      "tasks_spec_search_replace",
+      "replace",
+      (content) =>
+        ({
+          session_id: "sess-mt4299",
+          tool_name: "mcp__minsky__tasks_spec_search_replace",
+          tool_input: { taskId: "mt#1651", search: "old", replace: content },
+        }) as unknown as ToolHookInput,
+    ],
+  ];
+
+  for (const [tool, field, build] of SEAMS) {
+    test(`${tool} (${field}): fires undischarged, and a status read on the cited id clears it`, () => {
+      expect(run(build(REMAINING_WORK_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]).toBe(
+        "matched"
+      );
+      expect(
+        run(build(REMAINING_WORK_SPEC), ctxWith([...NOISE, STATUS_GET_CALL("mt#2307")]))
+          ?.calibration?.["outcome"]
+      ).toBe("clean");
+    });
+  }
+
+  /** A new spec at birth — the one seam that carries no `taskId`. */
+  function createInput(spec: string): ToolHookInput {
+    return {
+      session_id: "sess-mt4299",
+      tool_name: "mcp__minsky__tasks_create",
+      tool_input: { spec },
+    } as unknown as ToolHookInput;
+  }
+
+  test("tasks_create: the deictic form has no referent, so it does not fire", () => {
+    // Not an oversight — a task being born has no id and no state anyone could
+    // have read, so the claim is not adjudicable.
+    expect(
+      run(createInput(DEICTIC_RIDER_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]
+    ).toBe("clean");
+  });
+
+  test("tasks_create: an EXPLICIT id in a new spec still fires", () => {
+    // The deictic exemption above must not turn `tasks_create` into a blind spot
+    // for the form that IS adjudicable there.
+    expect(
+      run(createInput(REMAINING_WORK_SPEC), ctxWith([...NOISE]))?.calibration?.["outcome"]
+    ).toBe("matched");
   });
 });

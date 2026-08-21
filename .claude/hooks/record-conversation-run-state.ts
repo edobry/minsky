@@ -26,8 +26,15 @@
 //
 // This hook deliberately imports NOTHING from the domain layer — no persistence
 // reach, so no `ensureHookDomainBootstrap` (and no `custom/require-hook-domain-
-// bootstrap` obligation). It stays self-contained per .minsky/hooks/SPEC.md's
-// invariant that hooks keep working even when the main codebase has type errors.
+// bootstrap` obligation). It stays self-contained per .minsky/hooks/SPEC.md —
+// and this file is the TIER-2 case, where that requirement is untouched by
+// mt#4373's retirement of the general convention. The reason is not type errors
+// (that reason was always wrong; Bun never type-checks at import): this module is
+// part of the observability baseline `minsky init` provisions for OTHER projects,
+// so it runs from an arbitrary install path where no `packages/domain`, no
+// `node_modules` and no repo-relative path resolves. An import here fails module
+// resolution outright. `self-containment.test.ts` enforces the closure and
+// executes this hook from a bare temp directory with no `packages/` sibling.
 //
 // @see mt#3161 — this file (mt#3130 Phase 1)
 // @see src/cockpit/routes/conversation-run-state.ts — the ingest endpoint

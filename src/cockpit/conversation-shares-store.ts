@@ -11,6 +11,9 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { conversationSharesTable } from "@minsky/domain/storage/schemas/conversation-shares-schema";
 
 import type { ShareLookup, ShareRecord, ShareStore } from "./conversation-shares";
+// mt#4398 — see `passkey-store.ts` for why this wrapper rather than the domain
+// helper directly.
+import { describeServerPersistenceUnavailability } from "./db-providers";
 
 const COLUMNS = {
   id: conversationSharesTable.id,
@@ -91,7 +94,13 @@ export function createLazyDrizzleShareStore(
   async function store(): Promise<ShareStore> {
     if (cached) return cached;
     const db = await getDb();
-    if (!db) throw new Error("Conversation shares: no database connection available");
+    if (!db) {
+      // mt#4398: see the sibling in `passkey-store.ts` — same cause-free shape,
+      // same fix, and the same reason it went unnoticed.
+      throw new Error(
+        `Conversation shares: no database connection available. ${await describeServerPersistenceUnavailability()}`
+      );
+    }
     cached = createDrizzleShareStore(db);
     return cached;
   }

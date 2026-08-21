@@ -1,13 +1,29 @@
 # cli-mcp-substitution detector
 
-**Event:** `PreToolUse` · **Matcher:** `Bash|mcp__minsky__session_exec` · **Posture:**
-calibration-first (log-only, never denies) · **Override:** `MINSKY_ALLOW_CLI_SUBSTITUTION=1`
-· **Task:** mt#4144 · **Family:** `family:operator-deferral-detector` (root mem#707)
+**Event:** `PreToolUse` · **Matcher:** `Bash|mcp__minsky__session_exec` · **Posture:** advisory —
+**injects** an `additionalContext` warning, never denies · **Override:**
+`MINSKY_ALLOW_CLI_SUBSTITUTION=1` · **Task:** mt#4144, mt#4353 · **Family:**
+`family:operator-deferral-detector` (root mem#707)
+
+> **Posture correction (mt#4290).** This header read "calibration-first (log-only, never denies)"
+> from the detector's first day until 2026-08-19, and the log-only half was never true: `run()`
+> returns `additionalContext` on every matched, unsuppressed scan, and the dispatcher pushes it
+> with no gate on the registration's declared `effects`. The two claims had fused in one
+> parenthetical — _never denies_ is right, _log-only_ is not. `hook-observers.mdc` and mt#4290's
+> own Summary carried the same error; all three are corrected.
 
 ## What it catches
 
 A `Bash` (or `session_exec`) command that invokes the Minsky CLI for a command which has a
-registered `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded.
+registered `mcp__minsky__*` equivalent, when either:
+
+- **no `mcp__minsky__*` call has succeeded** in the session — the original mt#4144 predicate; or
+- **an `mcp__minsky__*` call ERRORED since the last success** — direct evidence the surface broke,
+  so the very next substitution fires (mt#4353); or
+- **it is the SECOND or later such substitution since the last success** (mt#4353).
+
+A permission DENIAL is none of these: the operator refused one call, and the request reached the
+harness, so the surface is demonstrably up. It neither proves success nor counts as a failure.
 
 `decision-defaults.mdc §Missing MCP tool` has stated the policy since mt#1983/1988 —
 "bash-before-MCP, MCP erroring for it, no tool+bash denied" → escalate with capability+gap and
@@ -74,10 +90,53 @@ never stamps a wrong id. Measured at authoring time: **227 stamped, 0 unresolved
 
 ## Suppression, and why it is still recorded
 
-Once any `mcp__minsky__*` call has succeeded in the session, a CLI invocation is a deliberate choice
+After a successful `mcp__minsky__*` call, the NEXT CLI invocation is treated as a deliberate choice
 and the detector stays silent — but writes a `suppressed-mcp-in-use` calibration record anyway, so
 the suppression's own miss rate stays measurable. This follows the evaluation-stream convention the
 operator-deferral surfaces already use.
+
+### The suppression was monotonic, and that inverted the guard (mt#4353)
+
+Until 2026-08-19 the rule was "once ANY call has succeeded, stay silent" — for the rest of the
+session, unconditionally. The full fire corpus shows what that cost. Over 11,063 records
+(2026-08-14 → 08-19): 10,544 `clean`, 514 `suppressed-mcp-in-use`, and **5** `matched`. All 5 fires
+were `memory.get`, and in **5 of 5** sessions the fire was that session's OPENING record while every
+later record in the same session was suppressed.
+
+So the guard's entire reachable window was the interval before a session's first successful MCP
+call. The class it exists to catch — mem#707 R10/R11, _MCP worked, then stopped, and the agent
+rebuilt the surface out of CLI calls_ — happens strictly after a success, which is to say strictly
+inside the muted region.
+
+**Why the fix is a run counter and not a staleness signal.** There is no observable "MCP went away"
+event available here:
+
+- The harness's disconnect notice is injected into model context and **never written to the
+  transcript** — zero non-assistant entries carrying it across the 120 most recent transcripts. A
+  matcher on it could never fire, which is mem#704's can't-fail probe.
+- In R11 the agent stopped calling MCP rather than getting errors, so there is no failed call
+  either. "Suppress unless a later call FAILED" — the obvious minimal fix — would not have caught
+  the originating incident.
+
+That leaves the substitution RUN as the only signal in tool-call state. Operator decision
+(ask#9452): fire from the **second** substitution since the last success. A successful call resets
+the run, EXCEPT when that call is itself the substitution (`session_exec` running the Minsky CLI is
+both), which would otherwise let a rebuild burst clear its own counter at every step.
+
+**Measured before shipping.** `scripts/replay-cli-mcp-substitution.ts` replays real transcripts
+through both rules. Over the 60 most recent transcripts in this project: 320 substitutions, 44 firing
+under both rules, 135 suppressed under both, **141 newly firing** — 44 → 185 total, concentrated in
+15 of 60 sessions, with the top 3 accounting for 100 of the 141. Those three were inspected by hand
+and are the target class outright: sustained `minsky tasks spec get` / `tools asks list` /
+`refs status` / `memory get|patch|create` bursts, i.e. the whole surface rebuilt through the CLI.
+
+Note the calibration log CANNOT size this change — it records substitution events but not the MCP
+successes that reset the counter, so it yields only an upper bound (467 of 529, 88%) that assumes
+every reset away. Replay the transcripts instead; the script exists for that reason.
+
+Fires now carry `reason` (`no-mcp-success` | `substitution-run`) and
+`substitutionsSinceLastSuccess`, so a future calibration pass can rate the two branches apart rather
+than reading one blended rate.
 
 ## What it does NOT cover
 

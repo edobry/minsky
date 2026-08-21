@@ -45,8 +45,12 @@ import type { StopHookInput } from "./turn-end-retro-scan";
 import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { extractFinalTurn, findToolUseInputs } from "./transcript";
-// From @minsky/shared, not src/: hooks are self-contained by convention
-// (`.minsky/hooks/SPEC.md`) so a `src/` type-check failure cannot break them.
+// From @minsky/shared, a dependency-free leaf package — the lightest place to
+// share this helper. (The former reason given here, that hooks must avoid `src/`
+// so a type-check failure cannot break them, was retired by mt#4373: Bun strips
+// types at import and never type-checks, so that failure mode does not exist.
+// `@minsky/shared` is still the right import — now because it is light, not
+// because heavier ones are forbidden.)
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_ACK_UNESCALATED_INCIDENT";

@@ -18,12 +18,15 @@
 // the moment it does not. Adding a guard override? Categorize it there; the
 // test tells you to add it here.
 //
-// This module CANNOT import that file directly: `.minsky/hooks/` is
-// dependency-free per `SPEC.md` (no `packages/domain` imports) so the hooks
-// tree keeps working even when the main codebase has type errors — the same
-// reason `guard-health.ts` and `mcp-daemon-staleness-detector.ts` each
-// duplicate a src-side reader rather than importing it (see those files'
-// header comments). A TEST file is under no such constraint, which is what
+// This module does not import that file directly. The reason recorded here was
+// that `.minsky/hooks/` is dependency-free per `SPEC.md` (no `packages/domain`
+// imports) "so the hooks tree keeps working even when the main codebase has type
+// errors" — mt#4373 retired that convention and disproved that reason (Bun
+// strips types at import and never type-checks). So the import is no longer
+// FORBIDDEN, and whether to collapse this duplication is now an ordinary
+// judgment call — the same status as `guard-health.ts` and
+// `mcp-daemon-staleness-detector.ts`, which duplicate a src-side reader for what
+// was the same retired reason (see those files' header comments). A TEST file is under no such constraint, which is what
 // makes the duplication checkable rather than merely documented.
 //
 // WHY THE MECHANISM CHANGED (mt#3882). This header used to say "a drift is
@@ -98,6 +101,7 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_EVIDENCE_PROVENANCE",
   "MINSKY_SKIP_FLAKINESS_CONTROL",
   "MINSKY_SKIP_FRESHNESS",
+  "MINSKY_SKIP_GATE_WALK_PROVENANCE",
   "MINSKY_SKIP_GIT_STATE_INJECTION",
   "MINSKY_SKIP_GUARD_EVENTS_INGEST_HOOK",
   "MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK",
@@ -108,6 +112,8 @@ export const KNOWN_OVERRIDE_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK",
   "MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS",
   "MINSKY_SKIP_NUL_CHECK",
+  "MINSKY_SKIP_CONFLICT_MARKER_CHECK",
+  "MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK",
   "MINSKY_SKIP_OPERATOR_DEFERRAL",
   "MINSKY_SKIP_OPERATOR_INSTRUCTION_TRIGGER",
   "MINSKY_SKIP_PREPUSH_TESTS",
