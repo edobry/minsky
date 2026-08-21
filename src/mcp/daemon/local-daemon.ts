@@ -210,6 +210,19 @@ export function writeDiscoveryRecord(
  * discoverable and proceed. A null NEVER means "no daemon is running" — only
  * "no record was readable"; a daemon started without `--local-daemon` writes
  * nothing here.
+ *
+ * **And the converse, which is the one that bites (mt#4369): a non-null record
+ * NEVER means a daemon IS running.** Removal only happens on a shutdown path
+ * that a `SIGKILL`, an OOM-kill, or a cleanup killed mid-drain never reaches,
+ * so a record routinely outlives its daemon — naming a dead pid, on a port with
+ * nothing listening, and parsing exactly like a healthy one. Observed
+ * 2026-08-20 against pid 27569.
+ *
+ * This function is deliberately NOT the place that fixes it: it stays a pure,
+ * synchronous, dependency-free read, and its contract is unchanged. Callers
+ * that need to know whether a daemon is SERVING use `readDiscoveryLiveness`
+ * (`./discovery-liveness`), which probes the pid and the port and returns a
+ * tri-state answer that fails closed.
  */
 export function readDiscoveryRecord(
   options: { env?: NodeJS.ProcessEnv; deps?: LocalDaemonFsDeps } = {}
