@@ -2298,6 +2298,26 @@ export interface ReviewReceipt {
   issuedAt: string;
   /** Log path → the log's total fire count at read time. */
   counts: Record<string, number>;
+  /**
+   * The paths that were REVIEW-DUE when this receipt was issued — the set the
+   * reviewer was actually shown, and classified against (mt#4391).
+   *
+   * Deliberately a SECOND field rather than a narrowing of `counts`, which
+   * still covers every log that exists. The two bound different things and
+   * both are needed: `counts` bounds HOW FAR a path may advance, `reviewDue`
+   * bounds WHICH paths may advance at all. Narrowing `counts` instead would
+   * break the property its own docblock records — that a receipt omitting a
+   * log cannot ack it — for the case where a due log stops being due.
+   *
+   * The gap this closes: `computeReviewDueLogs` runs again at ack time against
+   * live state, so a log that crosses a threshold DURING the pass is in the
+   * ack's review-due set and was never in the reviewer's. Advancing it marks
+   * its whole backlog reviewed by nobody. Measured on the 2026-08-21 pass:
+   * `wall-of-text` sat one injected fire below the bar at sweep time, one
+   * record arrived mid-pass, and the ack advanced its watermark 359 → 373 —
+   * 14 records, 9 of them injected, that no reviewer ever saw.
+   */
+  reviewDue: string[];
 }
 
 /** Thrown when a supplied review token is malformed, corrupt, or impossible. */
@@ -2318,7 +2338,11 @@ function canonicalReceiptJson(receipt: ReviewReceipt): string {
   for (const path of sortedPaths) {
     counts[path] = receipt.counts[path] as number;
   }
-  return JSON.stringify({ issuedAt: receipt.issuedAt, counts });
+  // Sorted for the same reason the `counts` keys are: the checksum must depend
+  // on the receipt's CONTENT, never on the order a caller happened to build it
+  // in — otherwise a token round-trips only when the iteration order matches.
+  const reviewDue = [...receipt.reviewDue].sort();
+  return JSON.stringify({ issuedAt: receipt.issuedAt, counts, reviewDue });
 }
 
 function receiptChecksum(payloadJson: string): string {
@@ -2329,16 +2353,29 @@ function receiptChecksum(payloadJson: string): string {
 }
 
 /**
- * Issue a receipt token over what THIS sweep observed, for every log that
- * exists (not only the review-due ones — which logs are due can change between
- * the read and the ack, and a receipt that omits a log cannot ack it).
+ * Issue a receipt token over what THIS sweep observed.
+ *
+ * `counts` covers every log that EXISTS — not only the review-due ones, because
+ * which logs are due can change between the read and the ack, and a receipt
+ * that omits a log cannot ack it.
+ *
+ * `reviewDuePaths` is the orthogonal half (mt#4391): the paths this sweep
+ * actually PRESENTED as due. Both are recorded because a path can change
+ * membership in either direction between the read and the ack, and only one of
+ * those directions is safe to follow. A log that STOPS being due is simply not
+ * acked (the ack's own set excludes it); a log that STARTS being due mid-pass
+ * would otherwise be advanced on a count nobody classified against.
  */
-export function buildReviewToken(results: CalibrationLogResult[], issuedAt: string): string {
+export function buildReviewToken(
+  results: CalibrationLogResult[],
+  issuedAt: string,
+  reviewDuePaths: readonly string[]
+): string {
   const counts: Record<string, number> = {};
   for (const r of results) {
     counts[r.entry.path] = r.totalFires;
   }
-  const payloadJson = canonicalReceiptJson({ issuedAt, counts });
+  const payloadJson = canonicalReceiptJson({ issuedAt, counts, reviewDue: [...reviewDuePaths] });
   const payload = Buffer.from(payloadJson, "utf8").toString("base64url");
   return `${payload}.${receiptChecksum(payloadJson)}`;
 }
@@ -2383,10 +2420,29 @@ export function parseReviewToken(token: string): ReviewReceipt {
   if (typeof parsed !== "object" || parsed === null) {
     throw new InvalidReviewTokenError("Review token payload is not an object.");
   }
-  const { issuedAt, counts } = parsed as { issuedAt?: unknown; counts?: unknown };
+  const { issuedAt, counts, reviewDue } = parsed as {
+    issuedAt?: unknown;
+    counts?: unknown;
+    reviewDue?: unknown;
+  };
   if (typeof issuedAt !== "string" || typeof counts !== "object" || counts === null) {
     throw new InvalidReviewTokenError(
       "Review token payload is missing `issuedAt` or `counts`. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  // A token minted before mt#4391 carries no `reviewDue`, and there is no safe
+  // reading of its absence: treating it as "every path is ackable" restores the
+  // very defect the field exists to close, and doing so SILENTLY, on the one
+  // path the caller believes is guarded. Rejecting costs one read-only re-run —
+  // the same remedy every other rejection here prescribes — and tokens are
+  // per-pass and never persisted, so the window in which one can be stale is a
+  // single in-flight pass.
+  if (!Array.isArray(reviewDue) || reviewDue.some((p) => typeof p !== "string")) {
+    throw new InvalidReviewTokenError(
+      "Review token payload is missing a valid `reviewDue` list — it predates mt#4391, which records " +
+        "which logs the sweep actually presented as due. Without it an ack cannot tell a log you " +
+        "classified from one that crossed its threshold while you worked. Re-run the read-only sweep " +
+        "and pass the token it returns."
     );
   }
   const validated: Record<string, number> = {};
@@ -2398,7 +2454,7 @@ export function parseReviewToken(token: string): ReviewReceipt {
     }
     validated[path] = count;
   }
-  return { issuedAt, counts: validated };
+  return { issuedAt, counts: validated, reviewDue: reviewDue as string[] };
 }
 
 /** Outcome of checking a receipt against the log state at ack time. */
@@ -2411,6 +2467,14 @@ export interface ReceiptReconciliation {
   clampedPaths: string[];
   /** Ackable paths the receipt does not cover, so they cannot be advanced. */
   unreceiptedPaths: string[];
+  /**
+   * Paths that became review-due AFTER the receipt was issued (mt#4391).
+   *
+   * Not advanced — nobody classified them — and named rather than dropped,
+   * because a silent skip trades one invisible loss for another. Expect to see
+   * these in the NEXT sweep's `reviewDue`.
+   */
+  newlyDuePaths: string[];
 }
 
 /**
@@ -2431,6 +2495,12 @@ export interface ReceiptReconciliation {
  *   - **Path absent from the receipt** — the read sweep never showed this log,
  *     so nothing is known about what was classified. NOT advanced, and named
  *     in `unreceiptedPaths`. Advancing on a guess is the defect.
+ *   - **Path present in `counts` but NOT in `reviewDue`** (mt#4391) — the sweep
+ *     saw the log and did not present it as due, so the reviewer never
+ *     classified it; it crossed a threshold during the pass. NOT advanced, and
+ *     named in `newlyDuePaths`. This is the SET half of the same discipline the
+ *     bullets above apply to the COUNT: the receipt says what was reviewed, and
+ *     the ack honors it rather than re-deriving from live state.
  */
 export function reconcileReviewReceipt(
   receipt: ReviewReceipt,
@@ -2442,14 +2512,29 @@ export function reconcileReviewReceipt(
   const midPassArrivals: { path: string; count: number }[] = [];
   const clampedPaths: string[] = [];
   const unreceiptedPaths: string[] = [];
+  const newlyDuePaths: string[] = [];
+  const receiptReviewDue = new Set(receipt.reviewDue);
 
   for (const result of results) {
     const path = result.entry.path;
     if (!ackablePaths.has(path)) continue;
 
+    // Order matters, and this is the more fundamental condition: absent from
+    // `counts` means the sweep never saw the log AT ALL, which is a different
+    // (and worse) situation than seeing it and not presenting it as due.
+    // Testing `reviewDue` first would relabel every unreceipted log as
+    // "newly due", which is both wrong and less alarming than the truth.
     const receiptCount = receipt.counts[path];
     if (receiptCount === undefined) {
       unreceiptedPaths.push(path);
+      continue;
+    }
+
+    // The log WAS swept and was not due then. Note its count is present and
+    // perfectly valid — which is exactly why the count cannot answer this
+    // question, and why the set had to be recorded separately (mt#4391).
+    if (!receiptReviewDue.has(path)) {
+      newlyDuePaths.push(path);
       continue;
     }
     if (receiptCount > result.totalFires) {
@@ -2474,7 +2559,7 @@ export function reconcileReviewReceipt(
     }
   }
 
-  return { reviewedCounts, midPassArrivals, clampedPaths, unreceiptedPaths };
+  return { reviewedCounts, midPassArrivals, clampedPaths, unreceiptedPaths, newlyDuePaths };
 }
 
 /**

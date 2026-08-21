@@ -721,13 +721,23 @@ export function registerCalibrationCommands(): void {
         // mt#3906: the token the READ-ONLY sweep issued is what makes the ack
         // honest. Issued on every invocation (including this one) so a pass
         // always leaves with a receipt for its next round.
-        const reviewToken = buildReviewToken(results, new Date().toISOString());
+        // The token records BOTH what this sweep counted and which logs it
+        // PRESENTED as due (mt#4391). `reviewDue` is the claim-filtered set the
+        // caller is actually shown above, so the receipt and the reviewer's view
+        // are the same thing by construction rather than by two computations
+        // agreeing.
+        const reviewToken = buildReviewToken(
+          results,
+          new Date().toISOString(),
+          reviewDue.map((d) => String(d.path))
+        );
 
         let watermarkAdvanced = false;
         let skippedOpenAskPaths: string[] = [];
         let midPassArrivals: { path: string; count: number }[] = [];
         let clampedPaths: string[] = [];
         let unreceiptedPaths: string[] = [];
+        let newlyDuePaths: string[] = [];
         if (params.ack) {
           // Refuse rather than fall back. An ack with no receipt cannot know
           // what was classified, and re-deriving the count here is the whole
@@ -767,6 +777,7 @@ export function registerCalibrationCommands(): void {
           midPassArrivals = reconciliation.midPassArrivals;
           clampedPaths = reconciliation.clampedPaths;
           unreceiptedPaths = reconciliation.unreceiptedPaths;
+          newlyDuePaths = reconciliation.newlyDuePaths;
 
           // Target only the paths the receipt actually covers: an unreceipted
           // log is left alone, so it must not count toward the write set or
@@ -848,6 +859,10 @@ export function registerCalibrationCommands(): void {
             midPassArrivals,
             clampedPaths,
             unreceiptedPaths,
+            // mt#4391: logs that became review-due AFTER this pass's token was
+            // issued. Not advanced, because nobody classified them — the
+            // set-shaped sibling of `midPassArrivals`.
+            newlyDuePaths,
           };
         }
 
@@ -908,6 +923,15 @@ export function registerCalibrationCommands(): void {
             ? `\nNot advanced (the token does not cover these logs; re-run read-only for a ` +
               `current token): ${unreceiptedPaths.join(", ")}`
             : "";
+        // Named rather than dropped (mt#4391): these crossed a threshold DURING
+        // the pass, so they are waiting to be reviewed, not reviewed. Saying so
+        // here is what keeps the skip from being the same invisible loss the
+        // advance was.
+        const newlyDueSuffix =
+          newlyDuePaths.length > 0
+            ? `\nNot advanced (became review-due after this token was issued, so nobody ` +
+              `classified them — they are in the next sweep): ${newlyDuePaths.join(", ")}`
+            : "";
         const tokenSuffix = `\nreviewToken: ${reviewToken}`;
 
         return {
@@ -923,6 +947,7 @@ export function registerCalibrationCommands(): void {
             midPassSuffix +
             clampedSuffix +
             unreceiptedSuffix +
+            newlyDueSuffix +
             tokenSuffix,
           watermarkAdvanced,
           clearedAskId,
@@ -932,6 +957,7 @@ export function registerCalibrationCommands(): void {
           midPassArrivals,
           clampedPaths,
           unreceiptedPaths,
+          newlyDuePaths,
         };
       } catch (error) {
         return {
