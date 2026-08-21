@@ -15,8 +15,10 @@
 //                              guard executes.
 //
 // Dependency-free: only imports from `./types`, `./transcript`, and
-// `./registry` (all sibling files in this same self-contained hooks tree —
-// no `packages/domain` imports), per `.minsky/hooks/SPEC.md`'s invariant.
+// `./registry` (all sibling files in this same hooks tree). The dispatcher does
+// not need `packages/domain`, so it does not import it — a fact about this file,
+// not a rule: mt#4373 retired the SPEC.md invariant that forbade it. Individual
+// guards the dispatcher loads may import domain freely.
 //
 // @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md
 // @see mt#2650 — this framework's tracking task (ADR-028 Phase 1)

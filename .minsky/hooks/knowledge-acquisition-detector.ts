@@ -302,9 +302,14 @@ function escapeRegex(s: string): string {
  * session widening of `substrate-bypass-detector.ts`'s turn-scoped
  * `extractSkillToolInvocations` (that file's own, non-exported, turn-scoped
  * helper), mirroring `build-claim-injection-detector.ts`'s
- * `findDeploySurfaceEditPaths` widening. Duplicated rather than imported per
- * this repo's hooks-tree convention (self-contained, independently-readable
- * detector modules).
+ * `findDeploySurfaceEditPaths` widening. Duplicated rather than imported.
+ *
+ * mt#4373: the convention this cited — a self-contained hooks tree — is retired,
+ * and this module already imports `packages/domain` elsewhere, so the stated
+ * reason did not describe the file even before that. The duplication is now an
+ * ordinary judgment call, and a candidate to collapse: a copy that drifts from
+ * its origin is the mt#4330 hazard, and this one tracks a domain function that
+ * is already reachable from here.
  */
 function extractSkillInvocationsWholeSession(lines: TranscriptLine[]): string[] {
   const skillNames: string[] = [];

@@ -54,8 +54,12 @@ import { flagKey, readFlagged, writeFlagged } from "./turn-end-scan-store";
 import { elideQuotedAndCodeContexts } from "./elision";
 import { ensureHookDomainBootstrap, describeProviderResolutionFailure } from "./domain-bootstrap";
 import type { SqlCapablePersistenceProvider } from "../../packages/domain/src/persistence/types";
-// From @minsky/shared, not src/: hooks are self-contained by convention
-// (`.minsky/hooks/SPEC.md`) so a `src/` type-check failure cannot break them.
+// From @minsky/shared, a dependency-free leaf package — the lightest place to
+// share this helper. (The former reason given here, that hooks must avoid `src/`
+// so a type-check failure cannot break them, was retired by mt#4373: Bun strips
+// types at import and never type-checks, so that failure mode does not exist.
+// Note the line above already imports a domain TYPE, which is erased at runtime
+// and never carried a coupling either way.)
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN";

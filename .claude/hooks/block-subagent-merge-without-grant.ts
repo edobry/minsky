@@ -92,8 +92,14 @@ export function isSubagentContext(input: ToolHookInput): boolean {
  * previously four of them read `tool_input.task` alone and silently allowed when it was
  * empty. The binding constraint this function's original doc comment recorded still holds,
  * and now lives with the implementation: the branch fallback is deliberately DB-FREE, NOT
- * the DB-backed session lookup `record-subagent-invocation.ts` uses, because that would
- * violate the hooks' self-containment invariant this guard must preserve.
+ * the DB-backed session lookup `record-subagent-invocation.ts` uses.
+ *
+ * The reason recorded here used to be the hooks' self-containment invariant, which mt#4373
+ * retired. The constraint still holds on a stronger footing: a DB read from a hook process
+ * costs a full `resolvePersistenceProvider()` — measured 3.3–3.7s warm, 4.3–5.5s cold
+ * (mt#3090) — on a PreToolUse gate that fires on every merge, and when it fails it fails
+ * OPEN and silently (mt#3019, mt#3879). DB-free is the right shape for a default-deny gate
+ * regardless of what the import rules permit.
  *
  * The `string | null` signature is preserved rather than widened to the shared module's
  * richer `TaskIdResolution`: this guard treats an unresolvable id as "no grant can match"
