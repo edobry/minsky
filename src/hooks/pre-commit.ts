@@ -918,6 +918,18 @@ export class PreCommitHook {
    * convention for a static source check, and mt#4398's whole subject is a
    * check that had no convention applied to it at all.
    *
+   * NO OVERRIDE ENV VAR, deliberately (PR #3223 R1). The overrides in this
+   * file cluster on checks that can block a committer on something they cannot
+   * fix in the moment — NUL bytes, migration collisions, immutable migrations,
+   * deploy-domain ownership, the size budget, the related-test gate. The cheap
+   * lexical checks do not have one: `variable-naming-check` (this step's direct
+   * precedent and structural twin), `node-shim-check` and `secret-scanning` all
+   * ship without. This belongs to the second group — satisfying it is a
+   * one-line annotation or routing through an existing helper — and adding an
+   * override would mean registering a new `MINSKY_*` var in two more places
+   * for an escape hatch nothing needs yet. If a real case turns up where this
+   * blocks urgent work, add it then, with that case as the reason.
+   *
    * The failure hint matters more than usual here: the script's own output
    * already names each offending site AND the two ways to satisfy it, so this
    * points at that output rather than restating it. Re-running by hand is the
