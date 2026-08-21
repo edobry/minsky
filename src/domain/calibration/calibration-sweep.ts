@@ -2608,6 +2608,19 @@ export function reconcileReviewReceipt(
   // path that never advanced at all.
   for (const path of receipt.reviewDue) {
     if (ackablePaths.has(path)) continue;
+    // Claim-held paths are already disjoint from `reviewDue` at MINT time —
+    // `calibration.ts` passes the claim-FILTERED set as `reviewDuePaths` and
+    // `claimedByOthers` separately, and `buildReviewToken` stores the two
+    // verbatim without unioning them. This skip enforces that locally anyway
+    // (PR #3227 R1): the invariant currently lives in a caller two files away,
+    // and if a future one ever minted `reviewDue` from the UNFILTERED set, a
+    // claim-held path would land here and be reported as a loss this pass
+    // suffered — when in fact the pass was told to stand down and classified
+    // nothing. Cheaper to enforce than to rely on.
+    if (receiptClaimHeld.has(path)) {
+      claimHeldPaths.push(path);
+      continue;
+    }
     const receiptCount = receipt.counts[path];
     const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
     if (receiptCount !== undefined && watermarkCount >= receiptCount) {

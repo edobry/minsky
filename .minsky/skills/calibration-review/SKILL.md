@@ -97,6 +97,24 @@ READ, so its `[]` means "checked, nobody" rather than "never looked"), and a
 `claimsUnavailable: true` now also prints a WARNING line in text output rather
 than sitting only in the JSON.
 
+**Verify it yourself in one call, and know what a stale server looks like.** The
+injection happens in the MCP SERVER process, so it only takes effect once the
+server is running a build that contains it — a fix merged but not yet picked up
+looks exactly like the defect:
+
+```
+mcp__minsky__observability_calibration-review   # no arguments
+```
+
+`claimsUnavailable: false` — working. `claimsUnavailable: true` — either your
+server predates the fix (reconnect with `/mcp`, or restart the daemon) or
+identity genuinely could not be resolved; the WARNING line says which is being
+reported. To confirm the distinction rather than guess, run the CLI form
+(`minsky observability calibration-review --json`) in the same repo: it resolves
+identity from the harness environment on a completely different path, so
+**CLI false + MCP true is the stale-server signature**, and both true means
+identity is unavailable on both paths.
+
 **Run the probe per LOG, not per PASS.** A log that becomes review-due partway
 through a pass — a cadence detector firing mid-turn is the common way — has not
 been probed by the search you ran at the start for different detectors. R3's
