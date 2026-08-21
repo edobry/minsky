@@ -711,3 +711,47 @@ describe("observability.calibration-review — a fully-lost ack names the loss (
     expect(acked.ackedByAnotherPass).toEqual([]);
   });
 });
+
+describe("observability.calibration-review — lost-ack reporting edges (mt#4408 AT3/AT4)", () => {
+  test("AT3 — an uncontended ack reports the new field empty and still advances", async () => {
+    // The discrimination this field has to preserve: "nobody took anything from
+    // me" must not look like "someone else got there first". An empty workspace
+    // is NOT the fixture for that — `never-fired` is a review-due reason, so the
+    // registry's zero-record logs are due here regardless (measured: an empty
+    // workspace returns knowledge-acquisition with reason `never-fired`). What
+    // makes this uncontended is that no second pass acks in between.
+    const workspace = makeWorkspace();
+    const token = await readReviewToken(workspace);
+    const acked = (await getCommand().execute(
+      { ack: true, json: true, reviewToken: token },
+      { workspacePath: workspace }
+    )) as { ackedByAnotherPass: string[]; watermarkAdvanced: boolean };
+
+    expect(acked.watermarkAdvanced).toBe(true);
+    expect(acked.ackedByAnotherPass).toEqual([]);
+  });
+
+  test("AT4 — the text output states the loss in words, not only in JSON", async () => {
+    const workspace = makeWorkspace();
+    writeAcceptanceFixture(workspace);
+
+    const tokenA = await readReviewToken(workspace);
+    const tokenB = await readReviewToken(workspace);
+    await getCommand().execute(
+      { ack: true, json: true, reviewToken: tokenB },
+      { workspacePath: workspace }
+    );
+
+    // json: false — this asserts the RENDERED text, which is the surface a
+    // reviewer actually reads. The JSON field being right is a separate claim.
+    const acked = (await getCommand().execute(
+      { ack: true, reviewToken: tokenA },
+      { workspacePath: workspace }
+    )) as { text?: string; message?: string };
+
+    const rendered = `${acked.text ?? ""}${acked.message ?? ""}`;
+    expect(rendered).toContain("LOST:");
+    expect(rendered).toContain("silent-stretch");
+    expect(rendered).toContain("do NOT re-ack");
+  });
+});
