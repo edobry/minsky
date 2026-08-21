@@ -256,6 +256,18 @@ const READ_SPLIT = `(() => {
  *                          nothing distinguishes "opt-in" from "global".
  *   - `scrollbar-none`   → still fully suppressed (the TabBar depends on it).
  *
+ * The probes stay `position: fixed`, NOT `absolute` (PR #3188 R1). Nesting is
+ * what makes inheritance observable, and inheritance is DOM-based — measured:
+ * a fixed child of an element carrying
+ * `scrollbar-color: rgb(255, 0, 0) rgb(0, 128, 0)` computes that same pair,
+ * identically to an absolute or static child. So `fixed` costs nothing, and
+ * `absolute` would have cost something real: one of the two containers these
+ * probes are parented into is `<main>`, an `overflow: auto` scroller, and an
+ * absolutely-positioned child at `top: -9999px` participates in its ancestor's
+ * scrollable overflow — the probe would perturb the very box it measures.
+ * `fixed` is out of flow entirely, and immune to an ancestor `overflow: hidden`
+ * clipping it or a `transform` re-anchoring it.
+ *
  * `colorScheme` rides along and is the more important of the two mechanisms:
  * it is what makes the PLATFORM's own bar dark on engines that ignore the
  * token treatment — WebKit, i.e. the tray. Note the limit this script cannot
@@ -268,7 +280,8 @@ const MEASURE_SCROLLBAR = `(() => {
   function probe(className, parent) {
     const host = document.createElement("div");
     host.className = className;
-    host.style.cssText = "position:absolute;top:-9999px;left:0;width:120px;height:80px;overflow-y:scroll";
+    // position:fixed, never absolute — see the docblock above (PR #3188 R1).
+    host.style.cssText = "position:fixed;top:-9999px;left:0;width:120px;height:80px;overflow-y:scroll";
     const filler = document.createElement("div");
     filler.style.height = "800px";
     host.appendChild(filler);
