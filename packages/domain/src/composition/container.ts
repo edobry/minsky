@@ -387,7 +387,7 @@ export class TsyringeContainer implements AppContainerInterface {
         // memoized as `useValue`, so they would keep serving it forever — the
         // reason a healed `persistence` key alone does not restore
         // `taskService`. Rebuild them.
-        this.reresolveDependents(key);
+        await this.reresolveDependents(key);
       } catch (err) {
         // Still unavailable — leave the substitute in place and try again
         // later, on a widened delay. Record the attempt against the currently
@@ -436,8 +436,32 @@ export class TsyringeContainer implements AppContainerInterface {
    * Each key is rebuilt independently: one failing factory must not prevent the
    * rest from recovering. A key whose rebuild fails keeps its existing value and
    * is enrolled for its own retry if what it produced is itself degraded.
+   *
+   * ## Rebuilds run SEQUENTIALLY, awaited, in registration order (mt#4379)
+   *
+   * They were previously fired as unordered `void (async () => …)()` IIFEs, one
+   * per dependent, and that is what produced mt#4379. `sessionDeps` awaits only
+   * two module-cache imports before reading `c.get("taskService")`
+   * synchronously, while `taskService`'s own rebuild awaits a real DB roundtrip
+   * (`resolveProjectScope`). The fast dependent therefore re-registered while
+   * still holding the OLD zero-backend `taskService` — and because a plain
+   * bundle is not a degraded substitute, the `else` branch below then removed it
+   * from `deferredKeys`, making it permanently ineligible for any further
+   * rebuild. `session_start` served that frozen bundle for 20+ hours while every
+   * per-call resolver in the same process healed normally.
+   *
+   * The order SOURCE is unchanged, and was never the defect — see the
+   * over-approximation paragraph above. The field agrees on that point: OTP's
+   * `rest_for_one`, systemd's unit ordering, and Kubernetes init containers all
+   * restart by a DECLARED order rather than a runtime-discovered graph. What
+   * they also do, and what this omitted, is walk that order SEQUENTIALLY,
+   * awaiting each step before starting the next, so a later dependent cannot
+   * observe an earlier one mid-rebuild.
+   *
+   * Awaiting is safe: the sole caller is already inside `retryDeferred`'s
+   * fire-and-forget task, so this blocks no user-facing path.
    */
-  private reresolveDependents(recoveredKey: string): void {
+  private async reresolveDependents(recoveredKey: string): Promise<void> {
     const startIndex = this.registrationOrder.indexOf(recoveredKey);
     if (startIndex === -1) return;
     const epoch = this.lifecycleEpoch;
@@ -448,26 +472,31 @@ export class TsyringeContainer implements AppContainerInterface {
       if (this.manuallyOverridden.has(dependentKey)) continue;
       const registration = this.factories.get(dependentKey);
       if (!registration) continue;
-      void (async () => {
-        try {
-          const instance = await Promise.resolve(registration.factory(this));
-          if (this.manuallyOverridden.has(dependentKey)) return;
-          // Same teardown guard as retryDeferred (PR #2603 R1) — this is the
-          // writer the review flagged: a rebuild spawned before `close()` would
-          // otherwise re-register a dependent after the container was reset.
-          if (this.lifecycleEpoch !== epoch) return;
-          this.tsyringe.register(dependentKey, { useValue: instance });
-          if (asDegradedSubstitute(instance)) {
-            this.deferredKeys.add(dependentKey);
-          } else {
-            this.deferredKeys.delete(dependentKey);
-            this.retryState.delete(dependentKey);
-          }
-        } catch {
-          // This dependent could not be rebuilt yet. Leave its current value in
-          // place; if it is a deferred key it retries on its own schedule.
+      try {
+        const instance = await Promise.resolve(registration.factory(this));
+        // Re-checked AFTER the await: an override may have landed while this
+        // factory was in flight. `continue`, not `return` — the dependents
+        // after this one are unaffected and still need rebuilding.
+        if (this.manuallyOverridden.has(dependentKey)) continue;
+        // Same teardown guard as retryDeferred (PR #2603 R1) — this is the
+        // writer the review flagged: a rebuild spawned before `close()` would
+        // otherwise re-register a dependent after the container was reset.
+        // `return`, not `continue`: the container is gone, so every remaining
+        // dependent is moot too.
+        if (this.lifecycleEpoch !== epoch) return;
+        this.tsyringe.register(dependentKey, { useValue: instance });
+        if (asDegradedSubstitute(instance)) {
+          this.deferredKeys.add(dependentKey);
+        } else {
+          this.deferredKeys.delete(dependentKey);
+          this.retryState.delete(dependentKey);
         }
-      })();
+      } catch {
+        // This dependent could not be rebuilt yet. Leave its current value in
+        // place; if it is a deferred key it retries on its own schedule. Kept
+        // per-key so one failing factory cannot strand the dependents after it
+        // — the property the sequential walk must not cost us.
+      }
     }
   }
 
