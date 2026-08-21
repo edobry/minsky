@@ -51,6 +51,41 @@ describe("[no-deploy-impact] claim verification (mt#4397)", () => {
       expect(messageClaimsNoDeployImpact(message)).toBe(false);
     });
 
+    test("a tag inside a FENCED block is NOT a claim (PR #3221 R1)", () => {
+      // The inline rule alone does not merely miss this — it mis-parses it: the
+      // pattern pairs the first two backticks of the opening fence and leaves
+      // the tag exposed, so a QUOTED message read as a claim. Fences must be
+      // stripped first.
+      const message =
+        "docs(mt#4397): record the rejection\n\n" +
+        "The hook rejected this message:\n\n" +
+        "```\n" +
+        "fix: something\n\n" +
+        "[no-deploy-impact]\n" +
+        "```\n\n" +
+        "which was correct.";
+      expect(messageClaimsNoDeployImpact(message)).toBe(false);
+    });
+
+    test("a tilde-fenced block is exempt too", () => {
+      const message = "docs: x\n\n~~~\n[no-deploy-impact]\n~~~\n";
+      expect(messageClaimsNoDeployImpact(message)).toBe(false);
+    });
+
+    test("an UNTERMINATED fence still exempts to end-of-message", () => {
+      // A commit message can end mid-fence; treating the remainder as prose
+      // would resurrect the false positive at exactly the ragged edge.
+      const message = "docs: x\n\n```\n[no-deploy-impact]\n";
+      expect(messageClaimsNoDeployImpact(message)).toBe(false);
+    });
+
+    test("a fenced mention does not suppress a real bare claim outside the fence", () => {
+      const message =
+        "fix: x\n\n```\n[no-deploy-impact]\n```\n\nand this commit really does claim it:\n\n" +
+        "[no-deploy-impact]";
+      expect(messageClaimsNoDeployImpact(message)).toBe(true);
+    });
+
     test("a backticked mention does not suppress a real bare claim elsewhere", () => {
       const message =
         "fix(mt#4397): a change\n\n" +

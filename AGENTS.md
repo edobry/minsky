@@ -1501,8 +1501,11 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **False `[no-deploy-impact]` claim** (mt#4397) — a COMMIT-MSG hook, not pre-commit: git gives the
   message only to `commit-msg`, which also runs AFTER the regeneration-and-re-stage steps, so the
   staged set it reads is the one that ships. Denies when the message asserts the tag and
-  `isDeploySurfaceFile` returns true for any staged file. A BACKTICKED tag is discussion, not a
-  claim, so docs and retrospectives about the tag do not fire. Fourth instance of the class in 17
+  `isDeploySurfaceFile` returns true for any staged file, INCLUDING deletions — deleting deploy
+  surface is deploy impact, and this reads paths, not content. A BACKTICKED or FENCED tag is
+  discussion, not a claim, so docs and retrospectives about the tag do not fire; fences are stripped
+  before inline spans, since the inline rule alone mis-parses a fence rather than merely missing it.
+  Skips the git read entirely when no claim is present. Fourth instance of the class in 17
   days (PRs #3104, #3148, #3203, #3219); the prior tiers were prose (mt#4269) and memory (mem#1162,
   never retrieved before the next recurrence). Fails open loudly if git is unreadable.
   `MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK`.

@@ -28,6 +28,7 @@ import { validateCommitMessageFormat } from "@minsky/domain/git/commit-message-f
 import {
   evaluateNoDeployImpactClaim,
   formatFalseNoDeployImpactClaim,
+  messageClaimsNoDeployImpact,
   NO_DEPLOY_IMPACT_CLAIM_OVERRIDE_ENV,
 } from "./no-deploy-impact-claim-detector";
 import { isOverrideTruthy } from "./nul-byte-detector";
@@ -119,11 +120,17 @@ export class CommitMsgHook {
   /**
    * Reject a `[no-deploy-impact]` claim the staged set contradicts (mt#4397).
    *
-   * `--diff-filter=ACMR` deliberately, not the `ACM` five sibling pre-commit
-   * steps use: `R` includes renames, and mt#4366 records that omitting it makes a
-   * detected rename invisible to every one of them. With `--name-only`, a rename
-   * prints its NEW path — which is the file that ships, and therefore the one the
-   * predicate must judge.
+   * `--diff-filter=ACMRD` deliberately, and each letter beyond `ACM` is there for
+   * a reason the five sibling pre-commit steps do not share:
+   *
+   * - `R` (renames): mt#4366 records that omitting it makes a detected rename
+   *   invisible to every one of those steps. With `--name-only` a rename prints
+   *   its NEW path — the file that ships, and therefore the one to judge.
+   * - `D` (deletions), added PR #3221 R1: **deleting a deploy-surface file is a
+   *   deploy impact.** The siblings can omit `D` because they read staged
+   *   CONTENT, and a deleted file has none; this check reads only PATHS, so a
+   *   deletion is both readable and meaningful. Without it, a delete-only change
+   *   to deploy surface could carry the tag unchallenged.
    *
    * Fails OPEN when git cannot be read, matching the dispatcher's standing
    * fail-open-on-throw posture (mt#2597) — a commit-msg hook that blocks on a git
@@ -135,6 +142,14 @@ export class CommitMsgHook {
     valid: boolean;
     error?: string;
   } {
+    // No claim, no work (PR #3221 R1). This runs on EVERY commit, and the vast
+    // majority never mention the tag — shelling out to git for those spent a
+    // subprocess to reach an answer the message alone already determines, and
+    // put the fail-open warning below on a path where nothing was being claimed.
+    // The predicate call is pure; the git read is the only cost, so gate on the
+    // cheap half first.
+    if (!messageClaimsNoDeployImpact(commitMessage)) return { valid: true };
+
     if (isOverrideTruthy(process.env[NO_DEPLOY_IMPACT_CLAIM_OVERRIDE_ENV])) {
       log.cli(
         `⚠️  ${NO_DEPLOY_IMPACT_CLAIM_OVERRIDE_ENV} set — [no-deploy-impact] claim NOT verified`
@@ -144,7 +159,7 @@ export class CommitMsgHook {
 
     let stagedFiles: string[];
     try {
-      stagedFiles = this.execSync("git diff --cached --name-only --diff-filter=ACMR", {
+      stagedFiles = this.execSync("git diff --cached --name-only --diff-filter=ACMRD", {
         encoding: "utf8",
       })
         .split("\n")

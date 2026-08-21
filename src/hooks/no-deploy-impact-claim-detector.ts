@@ -52,21 +52,40 @@ import { isDeploySurfaceFile } from "@minsky/domain/deployment/deploy-surface";
 export const NO_DEPLOY_IMPACT_CLAIM_OVERRIDE_ENV = "MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK";
 
 /**
- * Spans wrapped in backticks are DISCUSSION of the tag, not a claim.
+ * Quoted text is DISCUSSION of the tag, not a claim.
  *
  * A commit message that explains the tag — "the `[no-deploy-impact]` tag was
- * false", "do not write `[no-deploy-impact]` without running the predicate" — is
- * exactly what this task's own commits do, and what any future doc or
- * retrospective commit about this class will do. Matching those would make the
- * check fire hardest on the people writing about it.
+ * false", or one quoting a rejected message inside a fenced block — is exactly
+ * what this task's own commits do, and what any future doc or retrospective
+ * commit about this class will do. Matching those would make the check fire
+ * hardest on the people writing about it.
  *
- * Deliberately narrow: only backticked spans are exempt. A bare tag in prose is a
- * claim, wherever it appears in the message. This mirrors the conflict-marker
- * detector's fenced-block exemption, which solved the same "documenting the thing
- * you detect" problem.
+ * **Fenced blocks are stripped BEFORE inline spans, and the order is load-bearing**
+ * (PR #3221 R1). Running the inline rule alone does not merely miss a fenced tag,
+ * it mis-parses one: against ` ```\n[no-deploy-impact]\n``` ` the inline pattern
+ * pairs the first two backticks of the opening fence and leaves the tag exposed,
+ * so a QUOTED message reads as a claim. Fences first, then inline, then match.
+ *
+ * Deliberately narrow beyond that: a bare tag in prose is a claim, wherever it
+ * appears — including the commit TITLE, which is consistent with the merge gate
+ * reading a PR-title tag as a claim. This mirrors the conflict-marker detector's
+ * fenced-block exemption, which solved the same "documenting the thing you
+ * detect" problem.
  */
 function stripQuotedSpans(message: string): string {
-  return message.replace(/`[^`]*`/g, " ");
+  return (
+    message
+      // Fenced blocks first — ``` or ~~~, any info string, unterminated fence to
+      // end-of-message included (a commit message can end mid-fence).
+      // `$(?![\s\S])` is a true end-of-STRING assertion. A bare `$` cannot be
+      // used for the unterminated-fence alternative: under `/m` it matches
+      // end-of-LINE, so the lazy body closed at the fence's first content line
+      // and left everything after it exposed — which is how the first attempt at
+      // this fix still reported a fenced tag as a claim.
+      .replace(/^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]*\1[ \t]*$|$(?![\s\S]))/gm, " ")
+      // Then inline spans.
+      .replace(/`[^`]*`/g, " ")
+  );
 }
 
 /** True when the message ASSERTS the tag, as opposed to discussing it. */
