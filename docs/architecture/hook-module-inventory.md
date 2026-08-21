@@ -16,7 +16,7 @@ find .minsky/hooks -maxdepth 1 -name '*.ts' ! -name '*.test.ts' | wc -l         
 
 # mt#4368's pinned second figure — a TEXT grep, see the correction below
 grep -lE 'packages/domain|@minsky/domain' \
-  $(find .minsky/hooks -maxdepth 1 -name '*.ts' ! -name '*.test.ts') | wc -l             # 60
+  $(find .minsky/hooks -maxdepth 1 -name '*.ts' ! -name '*.test.ts') | wc -l             # 64
 
 # modules that reach persistence, and so land in ADR-026 tier 1
 grep -l ensureHookDomainBootstrap \
@@ -32,7 +32,7 @@ hook, and ADR-028's own amendment says to re-measure the persistence figure rath
 mt#4368 reads its pinned `60` as _already-domain_ and the `107` remainder as _movable_. Both are
 artifacts of how the figure is produced, and the real picture is different in both directions.
 
-**`grep` matches prose, not imports.** Of the 60 modules the pinned command returns, **30 contain no
+**`grep` matches prose, not imports.** Of the 64 modules the pinned command returns, **29 contain no
 `packages/domain` import at all** — the match is a comment, an `@see` pointer, or fixture data.
 Several of them say the _opposite_ of what the count records:
 
@@ -44,11 +44,11 @@ Several of them say the _opposite_ of what the count records:
 | `ask-verification.ts:10`                  | "rather than importing `packages/domain`"                                 |
 | `nonexistent-search-path-detector.ts:581` | a synthetic path inside a **test fixture string**                         |
 
-The real import count is **30**, measured with Bun's transpiler (`scanImports`) rather than a regex,
+The real import count is **35**, measured with Bun's transpiler (`scanImports`) rather than a regex,
 so dynamic `await import(...)` is included and comments are not.
 
-**Importing domain is not the same as having your decision there.** Of those 30 real importers, only
-**6** import the function that _is_ the verdict. The rest import an effect, a type, a constant, or a
+**Importing domain is not the same as having your decision there.** Of those 35 real importers, only
+**10** import the function that _is_ the verdict. The rest import an effect, a type, a constant, or a
 sub-capability. The clearest case is `check-branch-fresh.ts:70`, which imports `writeFreshnessMarker`
 — a write effect — while its decision runs real `git merge` in the working tree.
 
@@ -59,8 +59,8 @@ larger than a subtraction from 60 suggests.
 
 | Bucket         | Count   |
 | -------------- | ------- |
-| already-domain | 6       |
-| movable        | 84      |
+| already-domain | 10      |
+| movable        | 80      |
 | immovable      | 77      |
 | **total**      | **167** |
 
@@ -127,27 +127,31 @@ decision inline — `code-mechanism-assertion-detector.ts` does exactly that acr
 domain call covers one of its surfaces rather than its decision. Recording it as already-domain would
 overstate the baseline in exactly the way this document exists to correct.
 
-## already-domain (6)
+## already-domain (10)
 
 The hook module parses, calls, and relays; the verdict is a domain function. This is the shape
 mt#4374 is extracting toward — `flakiness-control-detector.ts` calls itself "the thin adapter".
 
-| Module                                 | Role             | Decision function in domain                                         | Effects                                       | Plane |
-| -------------------------------------- | ---------------- | ------------------------------------------------------------------- | --------------------------------------------- | ----- |
-| `flakiness-control-detector.ts`        | dispatcher-guard | `detectFlakinessAttribution (detectors/flakiness-attribution)`      | side-effecting (injector+recorder)            | plant |
-| `negative-existence-claim-detector.ts` | dispatcher-guard | `detectNegativeExistenceClaim (detectors/negative-existence-claim)` | side-effecting (recorder)                     | plant |
-| `post-merge-unasked-direction-scan.ts` | standalone-hook  | `UnaskedDirectionAnalyzer (detectors/unasked-direction-analyzer)`   | decides-only (derived: no fs write, no spawn) | plant |
-| `spec-criterion-claim-detector.ts`     | dispatcher-guard | `detectSpecCriterionClaims (detectors/spec-criterion-claim)`        | side-effecting (recorder)                     | plant |
-| `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`               | decides-only (derived: no fs write, no spawn) | plant |
-| `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`       | side-effecting (derived: writes fs / spawns)  | plant |
+| Module                                 | Role             | Decision function in domain                                          | Effects                                       | Plane |
+| -------------------------------------- | ---------------- | -------------------------------------------------------------------- | --------------------------------------------- | ----- |
+| `block-github-mcp-pr-writes.ts`        | standalone-hook  | `checkToolDenial (detectors/github-mcp-pr-write-denial)`             | decides-only (derived: no fs write, no spawn) | plant |
+| `block-nested-fork-dispatch.ts`        | standalone-hook  | `decideNestedForkDispatchGate (detectors/nested-fork-dispatch-gate)` | decides-only (derived: no fs write, no spawn) | plant |
+| `dispatch-intent-write-gate.ts`        | standalone-hook  | `decideDispatchIntentGate (detectors/dispatch-intent-gate)`          | decides-only (derived: no fs write, no spawn) | plant |
+| `drive-pr-to-convergence.ts`           | standalone-hook  | `decidePrConvergenceReminder (detectors/pr-convergence-reminder)`    | decides-only (derived: no fs write, no spawn) | plant |
+| `flakiness-control-detector.ts`        | dispatcher-guard | `detectFlakinessAttribution (detectors/flakiness-attribution)`       | side-effecting (injector+recorder)            | plant |
+| `negative-existence-claim-detector.ts` | dispatcher-guard | `detectNegativeExistenceClaim (detectors/negative-existence-claim)`  | side-effecting (recorder)                     | plant |
+| `post-merge-unasked-direction-scan.ts` | standalone-hook  | `UnaskedDirectionAnalyzer (detectors/unasked-direction-analyzer)`    | decides-only (derived: no fs write, no spawn) | plant |
+| `spec-criterion-claim-detector.ts`     | dispatcher-guard | `detectSpecCriterionClaims (detectors/spec-criterion-claim)`         | side-effecting (recorder)                     | plant |
+| `tasks-status-set-guard.ts`            | standalone-hook  | `validateStatusTransition (tasks/status-transitions)`                | decides-only (derived: no fs write, no spawn) | plant |
+| `warn-bare-prohibition-dispatch.ts`    | standalone-hook  | `analyzeNegativeConstraints (validation/negative-constraint)`        | side-effecting (derived: writes fs / spawns)  | plant |
 
-## movable (84)
+## movable (80)
 
 Decision is inline in the hook module. `Extraction unit` names the function a wave lifts; where no
 `detect*`/`scan*`/`decide*` export exists the cell says so rather than guessing, and that module
 needs a read before it is waved.
 
-### ADR-026 tier 2 — no persistence reach (70)
+### ADR-026 tier 2 — no persistence reach (66)
 
 mt#4374's preferred first wave. No `ensureHookDomainBootstrap`, so no import-time side effect and no
 bootstrap requirement.
@@ -160,8 +164,6 @@ bootstrap requirement.
 | `block-bulk-process-kill.ts`                   | dispatcher-guard | findKillInvocation, findKillVerb                                  | side-effecting (recorder+validator)           | plant | invariant  |
 | `block-concurrent-bulk-mutation.ts`            | dispatcher-guard | findBulkMutationInvocation                                        | side-effecting (recorder+validator)           | plant | invariant  |
 | `block-git-gh-cli.ts`                          | standalone-hook  | classifyAgentTypeObservation, classifyRepoScope                   | side-effecting (derived: writes fs / spawns)  | plant | —          |
-| `block-github-mcp-pr-writes.ts`                | standalone-hook  | checkToolDenial                                                   | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `block-nested-fork-dispatch.ts`                | standalone-hook  | decideNestedForkDispatchGate                                      | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `block-out-of-band-merge.ts`                   | standalone-hook  | scanForTriggerPhrases                                             | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `block-secret-file-read.ts`                    | dispatcher-guard | findSecretReads, findSecretScriptInvocation                       | decides-only (validator)                      | plant | invariant  |
 | `block-subagent-bypass-merge.ts`               | standalone-hook  | findGhApiMethod, findPrMergeEndpointToken                         | decides-only (derived: no fs write, no spawn) | plant | —          |
@@ -177,8 +179,6 @@ bootstrap requirement.
 | `claim-provenance-scan.ts`                     | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (recorder)                     | plant | advisory   |
 | `context-fill-gauge.ts`                        | dispatcher-guard | findLastUsage, measureFill                                        | side-effecting (injector+recorder)            | plant | preference |
 | `deploy-verification-after-merge.ts`           | standalone-hook  | decideDeployReminder                                              | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `dispatch-intent-write-gate.ts`                | standalone-hook  | decideDispatchIntentGate                                          | decides-only (derived: no fs write, no spawn) | plant | —          |
-| `drive-pr-to-convergence.ts`                   | standalone-hook  | decideReminder                                                    | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `drive-ready-to-implementation.ts`             | standalone-hook  | decideReminder                                                    | decides-only (derived: no fs write, no spawn) | plant | —          |
 | `duplicate-check-candidate-read.ts`            | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
 | `duplicate-check-search-provenance.ts`         | dispatcher-guard | (no detect*/scan*/decide\* export — extraction unit needs a read) | side-effecting (injector+recorder)            | plant | advisory   |
@@ -329,7 +329,7 @@ that bootstrap and its acceptance evidence must show the guard **decided**, not 
 | `types.ts`                                | library             | product-baseline closure — SPEC.md's observability-baseline rule: transitive imports must stay node-stdlib + same-directory, because the baseline runs from an arbitrary install path.                                                                                                             | side-effecting (derived: writes fs / spawns)  | product |
 | `unrendered-result-fields.ts`             | library             | no decision to lift — shared library consumed by guards.                                                                                                                                                                                                                                           | decides-only (derived: no fs write, no spawn) | plant   |
 
-## Divergence: matched by the pinned grep, no import (30)
+## Divergence: matched by the pinned grep, no import (29)
 
 Every module below is inside mt#4368's `60` and reaches no domain code. Listed per mt#4372 SC3, which
 requires the grep figure to be carried as a cross-check with its divergences named.
@@ -343,7 +343,6 @@ requires the grep figure to be carried as a cross-check with its divergences nam
 | `code-mechanism-assertion-dedup-store.ts`      | immovable |
 | `context-fill-gauge.ts`                        | movable   |
 | `coverage-receipt.ts`                          | immovable |
-| `dispatch-intent-store.ts`                     | immovable |
 | `dispatch-pretooluse.ts`                       | immovable |
 | `dispatcher.ts`                                | immovable |
 | `drive-ready-to-implementation.ts`             | movable   |
@@ -367,12 +366,17 @@ requires the grep figure to be carried as a cross-check with its divergences nam
 | `require-growth-justification-before-merge.ts` | movable   |
 | `unrendered-result-fields.ts`                  | immovable |
 
-## Real domain importers (30)
+## Real domain importers (35)
 
 | Module                                        | Bucket         | Persistence |
 | --------------------------------------------- | -------------- | ----------- |
+| `block-github-mcp-pr-writes.ts`               | already-domain | —           |
+| `block-nested-fork-dispatch.ts`               | already-domain | —           |
 | `build-claim-injection-detector.ts`           | movable        | no          |
 | `check-branch-fresh.ts`                       | immovable      | —           |
+| `dispatch-intent-store.ts`                    | immovable      | —           |
+| `dispatch-intent-write-gate.ts`               | already-domain | —           |
+| `drive-pr-to-convergence.ts`                  | already-domain | —           |
 | `check-generated-file-edit.ts`                | movable        | no          |
 | `check-task-spec-read.ts`                     | movable        | no          |
 | `code-mechanism-assertion-detector.ts`        | movable        | yes         |

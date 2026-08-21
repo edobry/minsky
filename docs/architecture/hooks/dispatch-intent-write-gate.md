@@ -113,22 +113,40 @@ for prompt text — the `intent` param threads through there. The store WRITE is
 `src/` side (`packages/domain/src/session/dispatch-intent-writer.ts`) rather than cross-imported
 from `.minsky/hooks/dispatch-intent-store.ts` — see "Self-containment" below.
 
-## Self-containment (`src/` <-> `.minsky/hooks/` boundary)
+## The `src/` <-> `.minsky/hooks/` boundary
 
-`.minsky/hooks/dispatch-intent-store.ts` imports ONLY `node:fs`/`node:os`/`node:path` — no
-`packages/domain` import, so the guard keeps working even when the main codebase has type
-errors (per `.claude/hooks/SPEC.md`'s invariant). The reverse direction is equally impossible
-and undesirable: the root `tsconfig.json`'s `include` does not cover `.minsky/`, so `src/` code
-cannot import a `.minsky/hooks/*` module directly. `packages/domain/src/session/
-dispatch-intent-writer.ts` therefore DUPLICATES (does not cross-import) the record shape,
-state-dir resolution, and append logic — the established pattern for this boundary (see
-`src/mcp/guard-health-tracker.ts`'s header comment for the sibling precedent, duplicating
-`.minsky/hooks/guard-health.ts`'s read+aggregate logic in the opposite direction). The shared
-contract is the ON-DISK JSON SCHEMA (`{ declarations: [...] }`), kept in sync by convention +
-doc-comment cross-references, not by import. This is the FOURTH instance of the ADR-028 D5/D8
-grant/declaration-store pattern in this hooks tree (after `merge-grant-store.ts`,
-`guard-grant-store.ts`, `ask-grant-store.ts`) — deliberately NOT further abstracted into a shared
-generic; a fifth instance appearing would be the trigger to extract a base, not this one.
+**This section described a self-containment invariant that no longer holds, for two separate
+reasons; both are recorded rather than quietly deleted.** It used to say that
+`dispatch-intent-store.ts` imports only `node:fs`/`node:os`/`node:path` "so the guard keeps
+working even when the main codebase has type errors."
+
+- **The invariant is retired.** mt#4368's direction decision (2026-08-20, principal — _"Import
+  freely; retire the invariant."_) removed it, and mt#4373 amended ADR-028 and retired
+  `.minsky/hooks/SPEC.md`'s tier-1 convention accordingly.
+- **The stated REASON was never a real failure mode.** Hooks run under Bun, which strips types at
+  import and never type-checks, so a hook importing a domain module carrying a type error loads
+  and runs normally. mt#4368 records what actually breaks an importing hook — a
+  `reflect-metadata`-less tsyringe throw at module load, an uninitialised config, and module
+  resolution against a tree that is not present — none of which is "type errors."
+
+**What is true now.** `dispatch-intent-store.ts` imports the declaration record shape and its
+validity predicates from `packages/domain/src/detectors/dispatch-intent-gate.ts` and re-exports
+them, so there is exactly one definition (mt#4374). The store keeps storage: paths, parsing,
+locking, and the read-modify-write append. The tier-2 observability-baseline constraint —
+`record-conversation-run-state.ts`, `transcript-ingest-on-session-end.ts`, `types.ts` — survives
+the decision and is unrelated to this module; it is a module-resolution fact about an arbitrary
+install path, not a convention.
+
+**One duplication this did NOT retire.** `packages/domain/src/session/dispatch-intent-writer.ts`
+still duplicates the record shape, state-dir resolution and append logic, because the boundary
+used to forbid cross-import. That justification is now gone and the canonical shape is in
+`detectors/dispatch-intent-gate.ts`, so the writer could import it instead. Out of mt#4374's
+named wave; tracked separately.
+
+This remains the FOURTH instance of the ADR-028 D5/D8 grant/declaration-store pattern in this
+hooks tree (after `merge-grant-store.ts`, `guard-grant-store.ts`, `ask-grant-store.ts`) —
+deliberately NOT further abstracted into a shared generic; a fifth instance appearing would be
+the trigger to extract a base, not this one.
 
 ## Registration (standalone, not GUARD_REGISTRY)
 

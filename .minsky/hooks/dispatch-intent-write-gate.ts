@@ -103,12 +103,8 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import {
-  getDispatchIntentStorePath,
-  readDispatchIntentStore,
-  findLiveReadOnlyDeclaration,
-} from "./dispatch-intent-store";
-import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
+import { getDispatchIntentStorePath, readDispatchIntentStore } from "./dispatch-intent-store";
+import { decideDispatchIntentGate } from "@minsky/domain/detectors/dispatch-intent-gate";
 import { SESSION_DIR_RE } from "./check-guessed-session-path";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 
@@ -192,55 +188,13 @@ export function resolveSessionIdFromInput(input: ToolHookInput): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Denial message
+// The decision — `decideDispatchIntentGate` plus the denial text and the
+// declaration matching it rests on — lives in
+// `packages/domain/src/detectors/dispatch-intent-gate.ts` (mt#4374's first
+// extraction wave). Everything above this line is payload parsing: which tools
+// are gated, whether the caller is a subagent, and how a session id is resolved
+// from `tool_input.sessionId` or the cwd.
 // ---------------------------------------------------------------------------
-
-export function buildDenialMessage(
-  sessionId: string | null,
-  declaration: DispatchIntentDeclaration
-): string {
-  const sessionRef = sessionId ?? "this session";
-  const reasonPart = declaration.reason ? ` (declared reason: "${declaration.reason}")` : "";
-  return (
-    `Write denied (mt#2865 dispatch-intent gate): ${sessionRef} carries a live "read-only" ` +
-    `dispatch-intent declaration${reasonPart}, issued ${declaration.issuedAt}. ` +
-    "This dispatch was bound to read-only work (investigation, lookup, review) — it is not " +
-    "authorized to commit, edit files, or mutate a PR in this session. Report your findings " +
-    "back to the parent instead; the parent decides whether to act on them. If this dispatch " +
-    'genuinely needs write access, the orchestrator must issue a fresh `intent: "implementation"` ' +
-    "declaration via `session.generate_prompt` (or let the read-only declaration's TTL expire) " +
-    "before retrying."
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Core decision logic (pure, given already-read declarations — for testability)
-// ---------------------------------------------------------------------------
-
-export type DispatchIntentGateDecision =
-  | { decision: "allow"; reason: string }
-  | { decision: "deny"; reason: string };
-
-/**
- * Pure decision function given the resolved session id, the declarations
- * already read from the store, and the current time. Exported so tests can
- * exercise the deny/allow/expired/wrong-session matrix without touching
- * the filesystem.
- */
-export function decideDispatchIntentGate(
-  sessionId: string | null,
-  declarations: DispatchIntentDeclaration[],
-  nowMs: number
-): DispatchIntentGateDecision {
-  const match = findLiveReadOnlyDeclaration(declarations, { sessionId }, nowMs);
-  if (match) {
-    return { decision: "deny", reason: buildDenialMessage(sessionId, match) };
-  }
-  return {
-    decision: "allow",
-    reason: `no live read-only declaration for session=${sessionId ?? "?"} — write permitted`,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Hook entry point

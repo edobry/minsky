@@ -98,12 +98,14 @@
 
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
+import { getDispatchIntentStorePath, readDispatchIntentStore } from "./dispatch-intent-store";
 import {
-  getDispatchIntentStorePath,
-  readDispatchIntentStore,
-  isDeclarationValid,
-} from "./dispatch-intent-store";
-import type { DispatchIntentDeclaration } from "./dispatch-intent-store";
+  GATED_SUBAGENT_TYPE,
+  OVERRIDE_ENV_VAR,
+  decideNestedForkDispatchGate,
+} from "@minsky/domain/detectors/nested-fork-dispatch-gate";
+import type { NestedForkDispatchGateDecision } from "@minsky/domain/detectors/nested-fork-dispatch-gate";
+import type { DispatchIntentDeclaration } from "@minsky/domain/detectors/dispatch-intent-gate";
 import { isSubagentContext, resolveSessionIdFromInput } from "./dispatch-intent-write-gate";
 import { makeRecordAndExit, type RecordAndExit } from "./merge-gate-fire-log";
 import { classifyOverride } from "./fire-log";
@@ -115,19 +117,17 @@ const GUARD_NAME = "block-nested-fork-dispatch";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** The gated subagent_type value — only nested `fork` dispatches are denied. */
-export const GATED_SUBAGENT_TYPE = "fork";
-
-/**
- * Launch-time-env-only override: set to allow a nested fork dispatch to
- * proceed even with no live dispatch-intent declaration. Mirrors the
- * `MINSKY_FORCE_*` convention used by sibling guards (e.g.
- * `MINSKY_FORCE_PARALLEL`). Must be set before the harness process starts —
- * there is no mid-session grant surface for this guard (unlike the D8 guard
- * family), since the decision it gates (create a nested fork at all) is a
- * one-shot, dispatch-time choice, not a repeated write.
- */
-export const OVERRIDE_ENV_VAR = "MINSKY_ALLOW_NESTED_FORK";
+// `GATED_SUBAGENT_TYPE` and `OVERRIDE_ENV_VAR` moved to the domain module with
+// the decision (mt#4374) and are re-exported here so this module's consumers
+// and its own binding tests keep one import path. `OVERRIDE_ENV_VAR` is a
+// launch-time-env-only override: set it to allow a nested fork dispatch to
+// proceed with no live dispatch-intent declaration. It mirrors the
+// `MINSKY_FORCE_*` convention used by sibling guards (e.g.
+// `MINSKY_FORCE_PARALLEL`) and must be set before the harness process starts —
+// there is no mid-session grant surface for this guard (unlike the D8 guard
+// family), since the decision it gates (create a nested fork at all) is a
+// one-shot, dispatch-time choice, not a repeated write.
+export { GATED_SUBAGENT_TYPE, OVERRIDE_ENV_VAR };
 
 // ---------------------------------------------------------------------------
 // Pure detection helpers (exported for testing)
@@ -143,77 +143,36 @@ export function isOverrideActive(env: NodeJS.ProcessEnv = process.env): boolean 
   return env[OVERRIDE_ENV_VAR] === "1";
 }
 
+// ---------------------------------------------------------------------------
+// The decision — `decideNestedForkDispatchGate`, its denial text, and the
+// intent-agnostic declaration lookup underneath it — lives in
+// `packages/domain/src/detectors/nested-fork-dispatch-gate.ts` (mt#4374's first
+// extraction wave). Everything above this line is what the binding owns:
+// reading `subagent_type` out of the payload, and reading the override out of
+// the environment. Those two are exactly the arguments the decision used to
+// take as a `ToolHookInput` and a defaulted `env` — the shape ADR-026 rule 2
+// forbids, and the reason this guard was picked for the wave.
+// ---------------------------------------------------------------------------
+
 /**
- * True when ANY live declaration (read-only OR implementation) covers
- * `sessionId` — intentionally intent-agnostic (unlike
- * `findLiveReadOnlyDeclaration`, which the sibling write-gate uses): for
- * THIS guard, the mere presence of an explicit prior declaration — of
- * either intent — is what distinguishes a dispatch the orchestrator
- * consciously prepared for from the incident's silently-undeclared one.
- * An `"implementation"`-intent declaration does not (and should not) also
- * trigger `dispatch-intent-write-gate.ts`'s write denial — that gate
- * filters specifically on `"read-only"` — so declaring `"implementation"`
- * intent here only unblocks the DISPATCH, leaving the fork's write access
- * exactly as unrestricted as an ordinary top-level dispatch.
+ * Gather the facts the decision needs from this invocation, then relay the
+ * verdict. Exported so the binding tests can walk payload → decision without
+ * spawning the hook.
  */
-export function hasLiveDeclaration(
-  declarations: DispatchIntentDeclaration[],
-  sessionId: string | null,
-  nowMs: number
-): boolean {
-  return declarations.some((d) => isDeclarationValid(d, { sessionId }, nowMs));
-}
-
-export const DENY_REASON_PREFIX =
-  "Nested fork dispatch denied (mt#3045 nested-fork-dispatch guard):";
-
-export function buildDenialMessage(sessionId: string | null): string {
-  const sessionRef = sessionId ?? "this session";
-  return (
-    `${DENY_REASON_PREFIX} a subagent operating in ${sessionRef} attempted to dispatch a ` +
-    "`fork` (which inherits the FULL conversation context) with no live dispatch-intent " +
-    "declaration for this session. Per subagent-routing.mdc, use `Explore` or " +
-    "`general-purpose` for a bounded read-only lookup instead of a fork. If a fork genuinely " +
-    "is the right shape, call `session.generate_prompt` (or `tasks.dispatch`) with " +
-    '`intent: "read-only"` for this session BEFORE dispatching the fork — that declaration ' +
-    "both satisfies this guard and structurally contains the fork's writes via " +
-    "dispatch-intent-write-gate.ts."
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Core decision logic (pure, given already-read declarations — testable)
-// ---------------------------------------------------------------------------
-
-export type NestedForkDispatchGateDecision =
-  | { decision: "allow"; reason: string }
-  | { decision: "deny"; reason: string };
-
-export function decideNestedForkDispatchGate(
+export function decideFromPayload(
   input: ToolHookInput,
   declarations: DispatchIntentDeclaration[],
   nowMs: number,
   env: NodeJS.ProcessEnv = process.env
 ): NestedForkDispatchGateDecision {
-  if (!isForkDispatch(input)) {
-    return { decision: "allow", reason: "not a fork dispatch — unaffected" };
-  }
-  if (!isSubagentContext(input)) {
-    return { decision: "allow", reason: "top-level dispatch (no agent_id) — not nested" };
-  }
-  if (isOverrideActive(env)) {
-    return { decision: "allow", reason: `${OVERRIDE_ENV_VAR} override active` };
-  }
-
-  const sessionId = resolveSessionIdFromInput(input);
-  if (hasLiveDeclaration(declarations, sessionId, nowMs)) {
-    return {
-      decision: "allow",
-      reason: `live dispatch-intent declaration covers session=${sessionId ?? "?"} — dispatch permitted`,
-    };
-  }
-
-  return { decision: "deny", reason: buildDenialMessage(sessionId) };
+  return decideNestedForkDispatchGate({
+    isForkDispatch: isForkDispatch(input),
+    isSubagentContext: isSubagentContext(input),
+    overrideActive: isOverrideActive(env),
+    sessionId: resolveSessionIdFromInput(input),
+    declarations,
+    nowMs,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -243,7 +202,7 @@ if (import.meta.main) {
     recordAndExit("allow", undefined, "crashed");
   }
 
-  const decision = decideNestedForkDispatchGate(input, storeResult.declarations, Date.now());
+  const decision = decideFromPayload(input, storeResult.declarations, Date.now());
 
   if (decision.decision === "allow") {
     // mt#3084: the OVERRIDE_ENV_VAR branch inside decideNestedForkDispatchGate

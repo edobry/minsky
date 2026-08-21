@@ -95,48 +95,39 @@ export function getDispatchIntentStorePath(): string {
 // Declaration record shape
 // ---------------------------------------------------------------------------
 
-/** The two dispatch intents a subagent dispatch can declare (mt#2865). */
-export type DispatchIntent = "read-only" | "implementation";
+// The declaration RECORD and the predicates over it moved to
+// `packages/domain/src/detectors/dispatch-intent-gate.ts` (mt#4374's first
+// extraction wave): expiry-and-session matching is a verdict over values, and
+// the two guards that compute it are now thin bindings around the domain
+// function. What stays here is storage — paths, parsing, locking, the
+// read-modify-write append.
+//
+// They are RE-EXPORTED rather than merely imported so that every existing
+// consumer of this module (both guards, their tests, and this module's own
+// test) keeps its import path unchanged; there is exactly one definition, which
+// is what keeps mt#4330's duplicate-symbol case from arising.
+//
+// A TTL-bound declaration is scoped to a SESSION id — the shared resource a
+// subagent (or a fork inheriting its context) writes into. Unlike the sibling
+// grant stores (which authorize an OVERRIDE), this store records a DECLARATION
+// that itself narrows what the declared session is allowed to do: the gate
+// denies WRITES when a live `"read-only"` declaration is found, rather than
+// requiring a grant to ALLOW an otherwise-denied action.
+export type {
+  DispatchIntent,
+  DispatchIntentDeclaration,
+  DispatchIntentMatchContext,
+} from "@minsky/domain/detectors/dispatch-intent-gate";
+export {
+  normalizeSessionId,
+  isDeclarationValid,
+  findLiveReadOnlyDeclaration,
+} from "@minsky/domain/detectors/dispatch-intent-gate";
 
-/**
- * A TTL-bound dispatch-intent declaration, scoped to a SESSION id — the
- * shared resource a subagent (or a fork inheriting its context) writes
- * into. Unlike the sibling grant stores (which authorize an OVERRIDE),
- * this store records a DECLARATION that itself narrows what the declared
- * session is allowed to do — the gate denies WRITES when a live
- * `"read-only"` declaration is found, rather than requiring a grant to
- * ALLOW an otherwise-denied action.
- */
-export interface DispatchIntentDeclaration {
-  /** Session id this declaration is scoped to (the shared workspace resource). */
-  sessionId: string;
-  /** The declared intent for this session's current dispatch. */
-  intent: DispatchIntent;
-  /** ISO-8601 timestamp the declaration was issued. */
-  issuedAt: string;
-  /** Declaration lifetime in milliseconds from `issuedAt`. */
-  ttlMs: number;
-  /** Free-form audit note identifying the issuing orchestrator/session. */
-  issuedBy?: string;
-  /** Free-form human-readable justification (e.g. the bounded lookup instruction). */
-  reason?: string;
-}
-
-export interface DispatchIntentMatchContext {
-  /** Resolved session id for the current tool call, or null if unresolvable. */
-  sessionId: string | null;
-}
-
-// ---------------------------------------------------------------------------
-// Session-id normalization (mirrors merge-grant-store.ts's normalizeTaskId
-// convention — session ids are UUID-shaped, not `#`-prefixed, but the same
-// trim+lowercase normalization is a superset-safe default)
-// ---------------------------------------------------------------------------
-
-/** Normalize a session id for comparison: lowercase + trim. */
-export function normalizeSessionId(id: string): string {
-  return id.trim().toLowerCase();
-}
+import type {
+  DispatchIntent,
+  DispatchIntentDeclaration,
+} from "@minsky/domain/detectors/dispatch-intent-gate";
 
 // ---------------------------------------------------------------------------
 // Parse + validate
@@ -299,55 +290,12 @@ export function readDispatchIntentStore(
 
 // ---------------------------------------------------------------------------
 // Matching
+//
+// `isDeclarationValid` and `findLiveReadOnlyDeclaration` moved to
+// `packages/domain/src/detectors/dispatch-intent-gate.ts` (mt#4374) and are
+// re-exported from the header above — they are verdicts over values, not
+// storage. Their behaviour is unchanged and their tests moved with them.
 // ---------------------------------------------------------------------------
-
-/**
- * True when `declaration` is currently valid (not expired) AND matches
- * `ctx`'s session id.
- *
- * Matching requires:
- *   - not expired: `now < Date.parse(issuedAt) + ttlMs`
- *   - `ctx.sessionId` is resolvable (a declaration cannot match an
- *     unresolvable session) AND
- *     `normalizeSessionId(declaration.sessionId) === normalizeSessionId(ctx.sessionId)`
- *
- * Does NOT filter on `intent` here — callers that specifically want the
- * gating (deny-on-match) behavior use {@link findLiveReadOnlyDeclaration},
- * which additionally requires `intent === "read-only"`. This lower-level
- * predicate is intent-agnostic so a future caller could look up the
- * CURRENT declared intent (read-only or implementation) for a session
- * without assuming which one it's checking for.
- */
-export function isDeclarationValid(
-  declaration: DispatchIntentDeclaration,
-  ctx: DispatchIntentMatchContext,
-  nowMs: number
-): boolean {
-  const issuedMs = Date.parse(declaration.issuedAt);
-  if (Number.isNaN(issuedMs)) return false;
-  if (nowMs >= issuedMs + declaration.ttlMs) return false; // expired
-
-  if (!ctx.sessionId) return false; // cannot confirm session match
-  if (normalizeSessionId(declaration.sessionId) !== normalizeSessionId(ctx.sessionId)) return false;
-
-  return true;
-}
-
-/**
- * Return the first LIVE (not expired) `"read-only"` declaration in
- * `declarations` matching `ctx`'s session id, or `null`. This is the
- * function `dispatch-intent-write-gate.ts` uses to decide whether to deny
- * a session-mutating/PR-mutating tool call.
- */
-export function findLiveReadOnlyDeclaration(
-  declarations: DispatchIntentDeclaration[],
-  ctx: DispatchIntentMatchContext,
-  nowMs: number
-): DispatchIntentDeclaration | null {
-  return (
-    declarations.find((d) => d.intent === "read-only" && isDeclarationValid(d, ctx, nowMs)) ?? null
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Store lock (PR #2033 R1 NON-BLOCKING #6 — mirrors ask-grant-store.ts's

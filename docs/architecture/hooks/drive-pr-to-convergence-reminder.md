@@ -15,7 +15,14 @@ structural escalation (mt#1793) of two adjacent corpus rules — the
 sub-section — both of which failed memory-tier and corpus-tier
 enforcement in originating incidents.
 
-**Hook file:** `.claude/hooks/drive-pr-to-convergence.ts`
+**Hook file:** `.claude/hooks/drive-pr-to-convergence.ts` — a thin binding since mt#4374. It owns
+the result-envelope shape (absent `tool_result`, a non-object envelope, a truthy-but-not-`true`
+`success`) and nothing else.
+
+**Decision:** `decidePrConvergenceReminder` in
+`packages/domain/src/detectors/pr-convergence-reminder.ts`, which also holds the reminder text
+itself. It takes `{ toolName, succeeded }` — plain values — so the reminder's content and the rule
+about when it fires can be tested without constructing a hook payload.
 
 **Behavior:**
 
