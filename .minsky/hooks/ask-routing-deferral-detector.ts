@@ -244,13 +244,33 @@ export const MENU_SHAPE_REQUIRED_PATTERNS: readonly RegExp[] = [PAUSE_STOP_SELF_
  * Reporting it would make every record distinct and destroy the count that
  * decides when this log gets reviewed.
  */
-const MENU_SHAPE_LEGS: ReadonlyArray<{ label: string; pattern: RegExp }> = [
-  { label: "offer-shape:question", pattern: /\?/ },
-  { label: "offer-shape:or", pattern: /\b\w+\s+or\s+\w+/i },
-  { label: "offer-shape:unless", pattern: /\bunless\b/i },
+/**
+ * Each leg additionally carries how much OFFER it supplies on its own (mt#4311).
+ *
+ * `unless` and `if you'd rather` NAME the reader's alternative — they cannot
+ * appear without offering one, which is why mt#3801 promoted them. A bare `?`
+ * or a bare `X or Y` supplies only GRAMMAR: English uses both constantly for
+ * caveats, negations and technical description. Measured over three calibration
+ * windows, the weak two accounted for every false fire this task was filed on.
+ *
+ * The distinction is consumed ONLY by {@link findOfferShape}. {@link hasMenuShape}
+ * deliberately still treats all four alike, because it is a different surface
+ * with the opposite direction of error — see its docblock.
+ */
+type MenuLegStrength = "explicit-offer" | "grammatical";
+
+const MENU_SHAPE_LEGS: ReadonlyArray<{
+  label: string;
+  pattern: RegExp;
+  strength: MenuLegStrength;
+}> = [
+  { label: "offer-shape:question", pattern: /\?/, strength: "grammatical" },
+  { label: "offer-shape:or", pattern: /\b\w+\s+or\s+\w+/i, strength: "grammatical" },
+  { label: "offer-shape:unless", pattern: /\bunless\b/i, strength: "explicit-offer" },
   {
     label: "offer-shape:if-you-rather",
     pattern: /\bif\s+you(['’]d|\s+would)?\s+(rather|prefer|want)\b/i,
+    strength: "explicit-offer",
   },
 ];
 
@@ -289,20 +309,35 @@ export function hasMenuShape(paragraph: string): boolean {
  * from a report: `"I fixed it unless a row was locked"` names a first-person
  * action, offers nothing, and matches none of them.
  */
-const AGENT_ACTION_PATTERNS: readonly RegExp[] = [
+/**
+ * How much OFFER the agent-action clause itself supplies (mt#4311).
+ *
+ * `governed` — the clause is grammatically governed by the READER's preference:
+ * `"you'd rather I clear it"`, `"want me to take it"`. The second person is
+ * built into the construction, so the clause cannot occur without handing over
+ * a choice. These two legs ARE an offer.
+ *
+ * `bare` — a first-person modal with no such governor: `"I'll stop"`,
+ * `"I can test"`. This is the shape of an offer AND the shape of an ordinary
+ * capability or intent report, and nothing inside the clause separates them.
+ * Every false positive mt#4311 measured is of this kind.
+ */
+type AgentActionTier = "governed" | "bare";
+
+const AGENT_ACTION_MATCHERS: ReadonlyArray<{ tier: AgentActionTier; pattern: RegExp }> = [
   // Contracted modal — `I'll`, `I'd`.
-  /\bI\s*['’](?:ll|d)\b/i,
+  { tier: "bare", pattern: /\bI\s*['’](?:ll|d)\b/i },
   // Explicit modal.
-  /\bI\s+(?:can|could|will|would|should|shall)\b/i,
+  { tier: "bare", pattern: /\bI\s+(?:can|could|will|would|should|shall)\b/i },
   // Bare verb governed by a preference token, which is where English drops the
   // modal: `"you'd rather I go straight at it"`, `"unless you prefer I hold"`.
-  /\b(?:rather|prefer)\s+I\s+\w+/i,
+  { tier: "governed", pattern: /\b(?:rather|prefer)\s+I\s+\w+/i },
   // The object form of the same construction. `for` is deliberately NOT in this
   // alternation (PR #3088 R1): `"for me to"` is the DESCRIPTIVE form, not an
   // offer — `"It would be unusual for me to change that"` proposes nothing, and
   // `"there is no need for me to rerun this"` is its negation. Every member
   // here takes `me` as a direct object of a volition verb, which `for` does not.
-  /\b(?:want|need|prefer|like)\s+me\s+to\s+\w+/i,
+  { tier: "governed", pattern: /\b(?:want|need|prefer|like)\s+me\s+to\s+\w+/i },
 ];
 
 /**
@@ -336,7 +371,23 @@ const AGENT_ACTION_LOOKBACK_CHARS = 24;
  * (`no need ... me to`).
  */
 export function namesAgentAction(line: string): boolean {
-  for (const pattern of AGENT_ACTION_PATTERNS) {
+  return matchAgentActionTier(line) !== null;
+}
+
+/**
+ * The STRONGEST agent-action tier present in `line`, or null (mt#4311).
+ *
+ * Strongest, not first-matching: a line carrying both — `"Want me to take it?
+ * I can start now"` — is governed, and returning `bare` because the bare
+ * pattern is earlier in the array would silence a real offer. Array order
+ * decides which PATTERN reports, never which tier wins.
+ *
+ * Polarity is applied per pattern before the tier counts, so a negated clause
+ * contributes nothing — see {@link namesAgentAction}'s docblock for why.
+ */
+function matchAgentActionTier(line: string): AgentActionTier | null {
+  let sawBare = false;
+  for (const { tier, pattern } of AGENT_ACTION_MATCHERS) {
     const m = pattern.exec(line);
     if (!m) continue;
     const start = m.index ?? 0;
@@ -345,10 +396,42 @@ export function namesAgentAction(line: string): boolean {
     if (/^\s+not\b/i.test(trailing)) continue;
     const lead = line.slice(Math.max(0, start - AGENT_ACTION_LOOKBACK_CHARS), start);
     if (AGENT_ACTION_NEGATED_LEAD.test(lead)) continue;
-    return true;
+    if (tier === "governed") return "governed";
+    sawBare = true;
   }
-  return false;
+  if (!sawBare) return null;
+  return INVERTED_FIRST_PERSON.test(line) ? "governed" : "bare";
 }
+
+/**
+ * Subject-auxiliary inversion on a first-person clause: `"should I stop …?"`
+ * (mt#4311).
+ *
+ * English inverts the auxiliary only to ASK, and asking about one's OWN action
+ * is offering it — which is why this belongs with the governed tier rather than
+ * the bare one. Found by measurement, not anticipated: replaying the live log,
+ * the first cut silenced *"should I stop letting my own writing count as
+ * evidence I checked something, at the cost of ~6% more interruptions?"*, a real
+ * decision handed to the principal in prose, which is precisely this detector's
+ * target class.
+ *
+ * IT UPGRADES, IT NEVER ADMITS, and the distinction is the whole safety of it.
+ * The check runs only after some {@link AGENT_ACTION_MATCHERS} leg has already
+ * matched, so no line that was previously invisible becomes matchable. A
+ * widening here would point the false-positive way on a LIVE-injecting guard;
+ * an upgrade can only preserve a fire that was already happening.
+ *
+ * PRECISELY WHAT IS UNCHANGED (PR #3211 R1): {@link namesAgentAction} returns
+ * the SAME BOOLEAN on every input as before mt#4311 — its body did change, from
+ * a direct scan to a tier computation, and an earlier draft of this comment
+ * said "bit-for-bit unchanged", which is true of the behaviour and false of the
+ * source. The invariant that matters: `matchAgentActionTier` returns null under
+ * exactly the old condition (no matcher passed polarity), and the inversion
+ * check cannot change null-ness because it runs only when `sawBare` is already
+ * true. The test `inversion UPGRADES a bare clause, and admits nothing new`
+ * enforces the half that could regress.
+ */
+const INVERTED_FIRST_PERSON = /\b(?:should|shall|can|could|would|will|may)\s+I\b/i;
 
 /**
  * The OFFER shape: a menu handing the principal a choice about what the AGENT
@@ -370,8 +453,17 @@ export function findOfferShape(
 ): { index: number; length: number; label: string } | null {
   let offset = 0;
   for (const line of text.split("\n")) {
-    if (namesAgentAction(line)) {
-      for (const { label, pattern } of MENU_SHAPE_LEGS) {
+    const tier = matchAgentActionTier(line);
+    if (tier !== null) {
+      for (const { label, pattern, strength } of MENU_SHAPE_LEGS) {
+        // A BARE first-person clause needs a leg that offers on its own
+        // (mt#4311). Co-locating "I can test …" with a grammatical `or` on one
+        // line is not an offer — measured across three calibration windows, it
+        // is a caveat, a negation, or a technical description, and it was the
+        // whole of this surface's false-positive population. A GOVERNED clause
+        // already carries the offer, so any leg may report it, which is what
+        // keeps `"Want me to file those, or a subset?"` firing.
+        if (tier === "bare" && strength !== "explicit-offer") continue;
         const m = pattern.exec(line);
         if (m) return { index: offset + (m.index ?? 0), length: m[0].length, label };
       }
