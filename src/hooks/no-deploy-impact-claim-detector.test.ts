@@ -9,6 +9,12 @@
 
 import { describe, test, expect } from "bun:test";
 
+// One source-text invariant below reads this module's own file; see its comment.
+// PR #3221 R2.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { readFileSync } from "fs";
+import { join } from "path";
+
 import {
   messageClaimsNoDeployImpact,
   evaluateNoDeployImpactClaim,
@@ -168,6 +174,29 @@ describe("[no-deploy-impact] claim verification (mt#4397)", () => {
   });
 
   describe("module invariants", () => {
+    test("the module declares no deploy-surface pattern list of its own", () => {
+      // mt#2647's precedent: three prose copies of the pattern set drifted
+      // (mt#3023, mt#3523), which is what produced R1 and R2 of this class. A
+      // second list here would re-enter that class at the next widening, and no
+      // behavioural test can see it — a re-declared list behaves identically.
+      // Reading the source is the only way to assert the invariant.
+      //
+      // The fs read is exempted deliberately: the rule targets tests reaching
+      // real IO for their SUBJECT's data, and here the source file IS the
+      // subject. Written as a direct call so the exemption stays VISIBLE — a
+      // `require("fs")` form slips past the rule silently, which is evasion
+      // rather than exemption. PR #3221 R2.
+      // eslint-disable-next-line custom/no-real-fs-in-tests
+      const source = readFileSync(
+        join(import.meta.dir, "no-deploy-impact-claim-detector.ts"),
+        "utf8"
+      );
+
+      expect(source).toContain('from "@minsky/domain/deployment/deploy-surface"');
+      expect(source).not.toContain("DEPLOY_SURFACE_PATTERNS");
+      expect(source).not.toMatch(/services\/\*\/Dockerfile|infra\/\*\*/);
+    });
+
     test("the override env var name is stable", () => {
       expect(NO_DEPLOY_IMPACT_CLAIM_OVERRIDE_ENV).toBe("MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK");
     });
