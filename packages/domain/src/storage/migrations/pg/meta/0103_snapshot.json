@@ -1,5 +1,5 @@
 {
-  "id": "8a1e1310-335f-4a24-8d51-bd31cf17e187",
+  "id": "601fd93b-902f-4671-a4b6-671ac258ef3d",
   "prevId": "0dbb6dc5-27d8-47fc-97a3-39785cc0d17b",
   "version": "7",
   "dialect": "postgresql",
@@ -1661,6 +1661,23 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
+        },
+        "seq": {
+          "name": "seq",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "driven_session_conversations_seq_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
         },
         "local_id": {
           "name": "local_id",

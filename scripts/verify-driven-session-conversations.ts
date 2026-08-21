@@ -10,7 +10,7 @@
  *
  *   1. **The DDL.** Migration 0103 either created `driven_session_conversations`
  *      with these columns or it did not. A fake answers the same either way.
- *   2. **`ORDER BY adopted_at ASC, id ASC`.** The span's ordering lives in SQL.
+ *   2. **`ORDER BY adopted_at ASC, seq ASC`.** The span's ordering lives in SQL.
  *      The fake SORTS FOR the code rather than observing it sort, so a wrong
  *      or missing ORDER BY is invisible to every test in the suite.
  *   3. **That the insert reaches a real table at all.** mt#3254's lesson: a
@@ -97,6 +97,7 @@ const EXPECTED_COLUMNS = [
   "harness_session_id",
   "id",
   "local_id",
+  "seq",
 ];
 
 function fail(reason: string): never {
@@ -122,7 +123,7 @@ async function main(): Promise<void> {
   );
 
   try {
-    console.log("[1/5] asserting the table and its columns exist");
+    console.log("[1/6] asserting the table and its columns exist");
     const cols = await db.execute(sql`
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'driven_session_conversations'
@@ -138,7 +139,7 @@ async function main(): Promise<void> {
     }
     console.log(`      ok — ${found.length} columns: ${found.join(", ")}`);
 
-    console.log("[2/5] appending three adoptions, timestamps written OUT of insertion order");
+    console.log("[2/6] appending three adoptions, timestamps written OUT of insertion order");
     // conv-b is inserted SECOND but stamped LAST. If the span query has no
     // ORDER BY (or orders by insertion), it returns a-b-c and this probe still
     // passes step 3 by accident — so the expected order below is a-c-b, which
@@ -165,7 +166,7 @@ async function main(): Promise<void> {
     await append(`${PROBE_ID}-c`, "prior-conversation-unrecoverable", t1);
     console.log("      wrote 3 rows (a@t0, b@t2, c@t1)");
 
-    console.log("[3/5] resolving the span through the real function");
+    console.log("[3/6] resolving the span through the real function");
     const span = await store.resolveConversationIds(db, PROBE_ID);
     if (!span.ok) fail(`the span read failed: ${span.error}`);
     const expected = [`${PROBE_ID}-a`, `${PROBE_ID}-c`, `${PROBE_ID}-b`];
@@ -181,9 +182,9 @@ async function main(): Promise<void> {
     }
     console.log("      ok — three ids, ordered by adopted_at (not by insertion)");
 
-    console.log("[4/5] asserting the series is append-only, not an upsert");
+    console.log("[4/6] asserting the series is append-only, not an upsert");
     const rowsBefore = await db.execute(sql`
-      SELECT id, harness_session_id, adoption_reason, adopted_at
+      SELECT id, seq, harness_session_id, adoption_reason, adopted_at
       FROM driven_session_conversations WHERE local_id = ${PROBE_ID}
         AND harness_session_id = ${`${PROBE_ID}-a`}
     `);
@@ -201,10 +202,10 @@ async function main(): Promise<void> {
     if (outcome !== "written") fail(`recordConversationAdoption returned "${outcome}"`);
 
     const rowsAfter = await db.execute(sql`
-      SELECT id, harness_session_id, adoption_reason, adopted_at
+      SELECT id, seq, harness_session_id, adoption_reason, adopted_at
       FROM driven_session_conversations WHERE local_id = ${PROBE_ID}
         AND harness_session_id = ${`${PROBE_ID}-a`}
-      ORDER BY adopted_at ASC, id ASC
+      ORDER BY adopted_at ASC, seq ASC
     `);
     const after = Array.from(rowsAfter as Iterable<Record<string, unknown>>);
     if (after.length !== 2) fail(`expected 2 rows for the re-adopted id, got ${after.length}`);
@@ -216,7 +217,39 @@ async function main(): Promise<void> {
     }
     console.log("      ok — two rows for the re-adopted id, the first byte-identical");
 
-    console.log("[5/5] projecting replaced_conversation_id from the series");
+    console.log("[5/6] two adoptions sharing one timestamp resolve in INSERTION order");
+    // The regression probe for PR #3218 R1. `adopted_at` is a JS Date with
+    // millisecond resolution, so two adoptions on one session really can tie —
+    // and until this round the tiebreak was `id`, a random uuid, which decides
+    // a tie at random while reading like a tiebreak. Two rows at the SAME
+    // instant is the only shape that can tell `seq` from `id`: with distinct
+    // timestamps both orderings agree, which is why steps 2-3 could not catch
+    // this.
+    const TIE = new Date("2026-01-01T00:00:05.000Z");
+    const tieId = `${PROBE_ID}-tie`;
+    await db.execute(sql`
+      INSERT INTO driven_session_conversations
+        (local_id, harness_session_id, harness, actuator_generation, adoption_reason, adopted_at)
+      VALUES (${tieId}, ${"tie-first"}, ${HARNESS}, 0, ${"initial"}, ${TIE.toISOString()})
+    `);
+    await db.execute(sql`
+      INSERT INTO driven_session_conversations
+        (local_id, harness_session_id, harness, actuator_generation, adoption_reason, adopted_at)
+      VALUES (${tieId}, ${"tie-second"}, ${HARNESS}, 0, ${"resumed"}, ${TIE.toISOString()})
+    `);
+    const tieSpan = await store.resolveConversationIds(db, tieId);
+    if (!tieSpan.ok) fail(`the tie-span read failed: ${tieSpan.error}`);
+    console.log(`      got: ${tieSpan.conversationIds.join(", ")}`);
+    if (tieSpan.conversationIds.join(",") !== "tie-first,tie-second") {
+      fail(
+        `equal-timestamp adoptions are not in insertion order — got ` +
+          `${tieSpan.conversationIds.join(", ")}. The ORDER BY tiebreak is not monotonic.`
+      );
+    }
+    await db.execute(sql`DELETE FROM driven_session_conversations WHERE local_id = ${tieId}`);
+    console.log("      ok — the tiebreak is monotonic, not random");
+
+    console.log("[6/6] projecting replaced_conversation_id from the series");
     const replaced = await store.resolveReplacedConversationId(db, PROBE_ID);
     // The newest SWAP is b@t2; the adoption immediately before it is c@t1.
     const expectedReplaced = `${PROBE_ID}-c`;

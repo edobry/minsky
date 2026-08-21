@@ -178,9 +178,15 @@ export async function recordConversationAdoption(
  * — the same shape as the defect this whole task closes, one layer up. Callers
  * must branch on `ok` before reading `conversationIds`.
  *
- * Ordered by `adopted_at`, then `id` — the tiebreak matters because two
- * adoptions can land inside one clock tick, and without it the span order
- * would be whatever Postgres happened to return.
+ * Ordered by `adopted_at`, then `seq`. The tiebreak matters because
+ * `adopted_at` is a JS `Date` with MILLISECOND resolution and two adoptions on
+ * one session can land inside a single tick, at which point the tiebreak alone
+ * decides the span.
+ *
+ * It must be `seq`, never `id` (PR #3218 R1): `id` is `gen_random_uuid()`, so
+ * ordering by it is arbitrary rather than insertion order — it would look like
+ * a tiebreak while deciding ties at random. `seq` is
+ * `GENERATED ALWAYS AS IDENTITY`, so it is monotonic in insertion order.
  */
 export type ConversationSpanResult =
   | { ok: true; conversationIds: string[] }
@@ -194,7 +200,7 @@ export async function resolveConversationIds(
     const result = await db.execute(
       sql`SELECT harness_session_id FROM driven_session_conversations
           WHERE local_id = ${localId}
-          ORDER BY adopted_at ASC, id ASC`
+          ORDER BY adopted_at ASC, seq ASC`
     );
     const rows = Array.from(result as Iterable<{ harness_session_id: string }>);
     return { ok: true, conversationIds: rows.map((r) => r.harness_session_id) };
@@ -245,7 +251,7 @@ export async function resolveReplacedConversationId(
   const result = await db.execute(
     sql`SELECT harness_session_id, adoption_reason FROM driven_session_conversations
         WHERE local_id = ${localId}
-        ORDER BY adopted_at ASC, id ASC`
+        ORDER BY adopted_at ASC, seq ASC`
   );
   const rows = Array.from(
     result as Iterable<{ harness_session_id: string; adoption_reason: string }>

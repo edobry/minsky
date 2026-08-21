@@ -51,8 +51,16 @@ function makeStores(): FakeStores {
 
 /**
  * Fake DB. `execute()` serves the adoption rows back in the order the real
- * query's `ORDER BY adopted_at ASC, id ASC` would produce: by timestamp, then
- * by insertion sequence as the id tiebreak.
+ * query's `ORDER BY adopted_at ASC, seq ASC` would produce: by timestamp, then
+ * by insertion sequence.
+ *
+ * The insertion index stands in for the real `seq` column, which is
+ * `GENERATED ALWAYS AS IDENTITY` and therefore monotonic. It deliberately does
+ * NOT model `id`: ordering by that would be arbitrary, which is the defect
+ * PR #3218 R1 caught. Note this fake cannot CATCH that defect — it sorts on
+ * the code's behalf either way — which is exactly why the equal-timestamp case
+ * is asserted against a real database in
+ * scripts/verify-driven-session-conversations.ts step 5.
  */
 function makeDb(stores: FakeStores, opts?: { throwOnInsert?: boolean; throwOnExecute?: boolean }) {
   return {

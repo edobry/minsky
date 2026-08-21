@@ -52,7 +52,7 @@
  * @see packages/domain/src/transcripts/driven-session-registry-store.ts — the read/write module
  */
 
-import { pgTable, text, integer, timestamp, index, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, index, uuid, bigint } from "drizzle-orm/pg-core";
 
 /**
  * Persisted status range (superset of the in-memory `DrivenSessionStatus` in
@@ -207,6 +207,21 @@ export const drivenSessionConversationsTable = pgTable(
   "driven_session_conversations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+
+    /**
+     * Monotonic insertion counter — the span's ORDERING tiebreak, and the only
+     * column in this table that can serve as one (PR #3218 R1).
+     *
+     * `id` cannot: it is `gen_random_uuid()`, so ordering by it is arbitrary,
+     * not insertion order. That matters because `adopted_at` is supplied by
+     * the writer as a JS `Date` with MILLISECOND resolution, and two adoptions
+     * on one session can land inside a single tick — at which point the
+     * tiebreak decides the span, and a random one decides it wrong. This is
+     * NOT an identity for the series (criterion 6): nothing addresses a row by
+     * it, no id-space is derived from it, and it is never returned to a
+     * caller. It exists solely so `ORDER BY` is total.
+     */
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity(),
 
     /**
      * The driven session this adoption belongs to — the same `local_id`
