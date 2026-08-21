@@ -23,6 +23,33 @@
  *   2. assistant/user prose — full `text-foreground`, `text-sm` (design-system `body`)
  *   3. everything else — `text-muted-foreground`, `text-xs`, NO border, NO tint
  *
+ * ### Tier 3 has two steps, not one (mt#4238)
+ *
+ * Within tier 3, a tool call the registry classifies as MUTATING sits one step
+ * above a read: brighter icon, brighter name, `font-semibold`. A read (and
+ * anything unclassifiable) recedes one step BELOW today's baseline. Both move
+ * away from a common midpoint, which is what makes the difference visible at a
+ * glance without spending a new signal.
+ *
+ * The channel is deliberately the neutral brightness/weight axis and nothing
+ * else. Enclosure is spent (tier 1 owns border + tint), `destructive` is
+ * reserved for hard alarms and amber for attention debt
+ * (`docs/design-system.md` §5.1 red-scarcity) — a healthy write is neither, so
+ * a hue here would be a false alarm. `src/cockpit/CLAUDE.md` §"Semantic tokens
+ * only" rules out a raw palette class regardless, and `ToolInvocation` is not
+ * in `COCKPIT_STATUS_FILES`.
+ *
+ * Tier 3's floor is unchanged and load-bearing: a healthy row still carries NO
+ * border and NO background tint at any effect, which is what
+ * `ConversationView.weight-hierarchy.test.tsx` pins at rest.
+ *
+ * **What this cannot distinguish.** `Bash` is `unclassified` by construction
+ * (`packages/shared/src/tool-effect.ts` — its effect is whatever the caller
+ * passed), so a shell command that commits renders at read weight. That is the
+ * classifier being conservative rather than confident, and it is a real limit
+ * of this surface, not an oversight: never guess an effect from a tool name's
+ * spelling.
+ *
  * Before mt#4220 this was inverted: every machine element (tool call, thinking
  * block, injected span, command) was a bordered, tinted card and the healthy
  * tool row additionally carried an accent hue (`border-sky-500/30 bg-sky-500/5`,
@@ -49,6 +76,7 @@
  */
 import { useEffect, useId, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { classifyTool } from "@minsky/shared/tool-effect";
 import { cn } from "../lib/utils";
 import type {
   ConversationElement,
@@ -326,6 +354,50 @@ export function ThinkingBlock({
 // `open` state to `expandSignal.open`, while the per-block toggle button
 // keeps working normally in between broadcasts.
 
+/**
+ * The two tier-3 weight steps, by tool effect (mt#4238).
+ *
+ * `mutates` steps UP from the mt#4220 baseline; everything else steps DOWN.
+ * Both directions matter: moving only one of them would leave the pair a
+ * hairline apart, and the point is that a run of reads reads as texture while a
+ * write reads as an event.
+ *
+ * Semantic tokens only, and the same two properties in both rows — brightness
+ * and font-weight — so the difference is one axis rather than a new signal per
+ * element. No border, no tint, no hue at either step.
+ */
+const EFFECT_WEIGHT = {
+  /** The registry says this call changes state the caller asked to change. */
+  mutates: {
+    icon: "text-muted-foreground",
+    name: "font-semibold text-muted-foreground",
+    digest: "text-muted-foreground/70",
+  },
+  /**
+   * A read — or anything the registry cannot classify. These share a row on
+   * purpose: `unclassified` must never render a mutation signal it did not
+   * earn, and read weight is the conservative direction to be wrong in.
+   */
+  recessive: {
+    icon: "text-muted-foreground/50",
+    name: "font-normal text-muted-foreground/70",
+    digest: "text-muted-foreground/60",
+  },
+} as const;
+
+/**
+ * Pick a call's tier-3 weight step.
+ *
+ * Classify by the RAW tool name: `classifyTool` normalizes the harness's
+ * `mcp__minsky__` prefix and the underscored alias itself, so
+ * `mcp__minsky__tasks_spec_patch` resolves to `tasks.spec.patch` without any
+ * parsing here. Parsing it ourselves is exactly the name-shaped inference
+ * mt#3845 SC3 rules out.
+ */
+function effectWeightFor(toolName: string): (typeof EFFECT_WEIGHT)[keyof typeof EFFECT_WEIGHT] {
+  return classifyTool(toolName) === "mutates" ? EFFECT_WEIGHT.mutates : EFFECT_WEIGHT.recessive;
+}
+
 export function ToolInvocation({
   call,
   result,
@@ -364,6 +436,10 @@ export function ToolInvocation({
 
   const parsed = useMemo(() => parseToolName(call.name), [call.name]);
   const Icon = toolIconFor(parsed);
+  // Tier-3 weight step (mt#4238). Note this reads `call.name`, NOT `parsed` —
+  // the classifier does its own normalization, and handing it a pre-parsed bare
+  // name would drop the server that distinguishes an MCP tool from a native one.
+  const weight = useMemo(() => effectWeightFor(call.name), [call.name]);
   // A native file tool acting on a session workspace reveals that only through
   // its absolute path (mt#3378) — mark it in the label, and keep the session
   // identity in the tooltip rather than spending the line on a raw UUID.
@@ -434,24 +510,23 @@ export function ToolInvocation({
           <DisclosureChevron open={open} />
           <Icon
             aria-hidden
-            className={cn(
-              "h-3.5 w-3.5 shrink-0",
-              isError ? "text-destructive" : "text-muted-foreground/60"
-            )}
+            className={cn("h-3.5 w-3.5 shrink-0", isError ? "text-destructive" : weight.icon)}
           />
           <span
             title={nameTooltip}
             className={cn(
-              "shrink-0 font-mono font-medium",
-              isError ? "text-destructive" : "text-muted-foreground"
+              "shrink-0 font-mono",
+              // A failure outranks the effect step — tier 1 wins over tier 3, so
+              // a failed write and a failed read are equally loud.
+              isError ? "font-medium text-destructive" : weight.name
             )}
           >
             {label}
           </span>
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-muted-foreground/60",
-              isError && "text-destructive/80"
+              "min-w-0 flex-1 truncate",
+              isError ? "text-destructive/80" : weight.digest
             )}
           >
             {digest}
