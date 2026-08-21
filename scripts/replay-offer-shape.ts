@@ -8,12 +8,25 @@
  * cannot fail. This reads the captured context off every injected record that
  * fired an `offer-shape:*` leg and re-judges it with the CURRENT matcher.
  *
- * WHAT "BEFORE" MEANS HERE, stated because it is not free. A record's presence in
- * the log IS the before-state: the leg fired, or the record would not carry the
- * label. So "before" is not re-derived — it is read off the artifact — and the
- * only thing this computes is the after. That is sound for the direction that
- * matters (which fires STOP), and it says nothing about fires the old matcher
- * missed entirely; recall is measured by the test suite's floor, not here.
+ * WHAT "BEFORE" MEANS HERE, stated because it is not free — and because the
+ * first cut of this script got it wrong (PR #3211 R2 caught this docblock still
+ * describing that first cut).
+ *
+ * The tempting reading is that a record's presence in the log IS the
+ * before-state: the leg fired, or the record would not carry the label. That is
+ * wrong for a measurable share of records, because `matches[].context` is capped
+ * at 240 characters — the captured window is often a TRUNCATION of the line the
+ * detector judged, and replaying it reproduces no fire under EITHER matcher.
+ * Counting those as "silenced by the change" credits the change with fires it
+ * never had.
+ *
+ * So BEFORE is COMPUTED, per record, as `namesAgentAction(x) && hasMenuShape(x)`
+ * — the pre-mt#4311 relation itself, both halves still exported and unchanged.
+ * Records that do not reproduce a fire on their captured window are counted in
+ * their own column and excluded from the before/after totals.
+ *
+ * What this still does NOT measure: fires the old matcher missed entirely. There
+ * is no record for a non-fire, so recall lives in the test suite's floor.
  *
  * The judged text is `matches[].context`, which the emitting guard caps at 240
  * characters. A verdict here is therefore a verdict about the CAPTURED WINDOW,
