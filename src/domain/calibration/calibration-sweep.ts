@@ -2512,6 +2512,29 @@ export interface ReceiptReconciliation {
   /** Ackable paths the receipt does not cover, so they cannot be advanced. */
   unreceiptedPaths: string[];
   /**
+   * Paths the receipt PRESENTED as review-due that are no longer ackable at ack
+   * time, because another pass advanced them first (mt#4408).
+   *
+   * The classification work this pass did on them was duplicated, and the
+   * other pass's watermark stands. This is the LOST-ACK case, and before this
+   * field existed it was the one concurrency outcome that produced no signal at
+   * all: `driftedPaths` is computed per attempted WRITE, and a fully-lost ack
+   * attempts none — `computeReviewDueLogs` returns an empty set, so
+   * `reconcileReviewReceipt`'s loop body never runs and every diagnostic array
+   * comes back `[]`. The reviewer is left with `watermarkAdvanced: false`,
+   * which is byte-identical to an ack that had nothing to do.
+   *
+   * Distinct from {@link newlyDuePaths} (became due AFTER the mint — nobody
+   * classified them) and {@link claimHeldPaths} (withheld at mint — this pass
+   * was told to stand down). Those two say "not yours to advance"; this one
+   * says "yours, and someone else got there first."
+   *
+   * Originating incident: mt#4408 R4, 2026-08-21 — two passes classified the
+   * same four logs ~15 minutes apart, the loser's ack returned all-empty, and
+   * the collision was found only by reading id-adjacent task numbers.
+   */
+  ackedByAnotherPass: string[];
+  /**
    * Paths that became review-due AFTER the receipt was issued (mt#4391).
    *
    * Not advanced — nobody classified them — and named rather than dropped,
@@ -2573,8 +2596,24 @@ export function reconcileReviewReceipt(
   const unreceiptedPaths: string[] = [];
   const newlyDuePaths: string[] = [];
   const claimHeldPaths: string[] = [];
+  const ackedByAnotherPass: string[] = [];
   const receiptReviewDue = new Set(receipt.reviewDue);
   const receiptClaimHeld = new Set(receipt.claimHeldAtMint);
+
+  // Walk the RECEIPT's due set, not `results`, for the lost-ack case (mt#4408).
+  // The loop below is keyed on `ackablePaths`, so a path that left that set
+  // between mint and ack is invisible to it — which is precisely the outcome
+  // this detects. A path the reviewer was SHOWN and that is now un-ackable was
+  // advanced by someone else; the watermark check distinguishes that from a
+  // path that never advanced at all.
+  for (const path of receipt.reviewDue) {
+    if (ackablePaths.has(path)) continue;
+    const receiptCount = receipt.counts[path];
+    const watermarkCount = watermarks[path]?.lastReviewedCount ?? 0;
+    if (receiptCount !== undefined && watermarkCount >= receiptCount) {
+      ackedByAnotherPass.push(path);
+    }
+  }
 
   for (const result of results) {
     const path = result.entry.path;
@@ -2635,6 +2674,7 @@ export function reconcileReviewReceipt(
     unreceiptedPaths,
     newlyDuePaths,
     claimHeldPaths,
+    ackedByAnotherPass,
   };
 }
 
