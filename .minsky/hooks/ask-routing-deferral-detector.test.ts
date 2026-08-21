@@ -792,6 +792,15 @@ describe("mt#4311 — a bare first-person clause needs a leg that offers on its 
   test.each(REAL_FALSE_POSITIVES)("fired before, silent after: %s", (_label, line) => {
     // The pre-mt#4311 relation, expressed in the two exported halves it was
     // built from. Asserting it FIRST is the negative control for this fixture.
+    //
+    // ITS LIMIT, since a recomposition is not a time machine (PR #3211 R1): this
+    // is equivalent to the old predicate only while BOTH halves keep their
+    // current semantics. They are unchanged by mt#4311 and pinned by their own
+    // tests above, so the equivalence holds today; a future edit to either could
+    // silently weaken this assertion into a tautology. The stronger check is the
+    // corpus replay (`scripts/replay-offer-shape.ts`), which reads real records
+    // rather than recomposing a predicate — these fixtures are the fast,
+    // in-repo half of that measurement, not a substitute for it.
     expect(namesAgentAction(line) && hasMenuShape(line)).toBe(true);
     expect(findOfferShape(line)).toBeNull();
   });
@@ -838,6 +847,13 @@ describe("mt#4311 — a bare first-person clause needs a leg that offers on its 
       "offer-shape:question"
     );
     expect(findOfferShape("unless you'd rather I clear it")?.label).toBe("offer-shape:unless");
+    // The absence of a terminal `?` here is DELIBERATE, not an oversight
+    // (PR #3211 R1 read it as brittle). `MENU_SHAPE_LEGS` checks `question`
+    // before `or`, so a question mark anywhere on the line reports the question
+    // leg and this assertion would pin nothing about `or`. A DECLARATIVE
+    // disjunction is the only shape that reaches the `or` leg — and `or` is the
+    // label the active specs quote and mt#3959's sweep would notice going quiet,
+    // so it is the one that needs pinning.
     expect(findOfferShape("Do you want me to take mt#1 or mt#2 first")?.label).toBe(
       "offer-shape:or"
     );

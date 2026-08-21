@@ -155,8 +155,15 @@ clause needs an explicit-offer leg; a governed clause may use any leg.**
 **Subject-auxiliary inversion upgrades a bare clause.** English inverts only to
 ask, and asking about one's own action offers it — _"should I stop doing X?"_ is
 a decision handed over. The upgrade runs only after a base pattern has already
-matched, so it can preserve a fire but never create one; `namesAgentAction` is
-bit-for-bit unchanged by mt#4311.
+matched, so it can preserve a fire but never create one.
+
+What that leaves unchanged, stated precisely: `namesAgentAction` returns the
+**same boolean on every input** as it did before mt#4311. Its body DID change —
+from a direct scan to a tier computation — so "unchanged" is a claim about
+behaviour, not about the source. The load-bearing invariant is that the tier
+computation returns null under exactly the old condition, and the inversion
+check cannot affect null-ness because it runs only once a bare matcher has
+already passed. A test enforces the half that could regress.
 
 **`hasMenuShape` itself is deliberately NOT narrowed.** It is also the
 suppression gate for the pause/stop patterns, where a narrower menu shape

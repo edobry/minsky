@@ -417,10 +417,19 @@ function matchAgentActionTier(line: string): AgentActionTier | null {
  *
  * IT UPGRADES, IT NEVER ADMITS, and the distinction is the whole safety of it.
  * The check runs only after some {@link AGENT_ACTION_MATCHERS} leg has already
- * matched, so {@link namesAgentAction} is bit-for-bit unchanged and no line that
- * was previously invisible becomes matchable. A widening here would point the
- * false-positive way on a LIVE-injecting guard; an upgrade can only preserve a
- * fire that was already happening.
+ * matched, so no line that was previously invisible becomes matchable. A
+ * widening here would point the false-positive way on a LIVE-injecting guard;
+ * an upgrade can only preserve a fire that was already happening.
+ *
+ * PRECISELY WHAT IS UNCHANGED (PR #3211 R1): {@link namesAgentAction} returns
+ * the SAME BOOLEAN on every input as before mt#4311 — its body did change, from
+ * a direct scan to a tier computation, and an earlier draft of this comment
+ * said "bit-for-bit unchanged", which is true of the behaviour and false of the
+ * source. The invariant that matters: `matchAgentActionTier` returns null under
+ * exactly the old condition (no matcher passed polarity), and the inversion
+ * check cannot change null-ness because it runs only when `sawBare` is already
+ * true. The test `inversion UPGRADES a bare clause, and admits nothing new`
+ * enforces the half that could regress.
  */
 const INVERTED_FIRST_PERSON = /\b(?:should|shall|can|could|would|will|may)\s+I\b/i;
 
