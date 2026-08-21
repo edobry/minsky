@@ -138,6 +138,18 @@ const RESOLUTION_DECLARATION_WINDOW = 200;
 export const RESOLUTION_DECLARATION_PHRASES: readonly string[] = ["no action needed"];
 
 /**
+ * Words that count as a declaration when they OPEN the text.
+ *
+ * Separate from {@link RESOLUTION_DECLARATION_PHRASES} because the two are
+ * matched differently, not because one is more important: these need the
+ * leading-position anchor to distinguish "RESOLVED — …" from "…is resolved",
+ * while the phrases above are unambiguous anywhere near the head. Both are
+ * named constants rather than inline literals so the vocabulary is testable and
+ * extendable without touching the matcher (mt#4375 SC2).
+ */
+export const RESOLUTION_DECLARATION_LEAD_WORDS: readonly string[] = ["resolved"];
+
+/**
  * True when an ask's own text declares it resolved (mt#4375).
  *
  * Two independent signals, either sufficient:
@@ -160,7 +172,10 @@ export function declaresResolution(...texts: readonly (string | undefined)[]): b
     const head = raw.slice(0, RESOLUTION_DECLARATION_WINDOW).toLowerCase();
     // Strip leading markdown emphasis/quote/heading marks and whitespace.
     const anchored = head.replace(/^[\s*_#>`~-]+/, "");
-    if (/^resolved\b/.test(anchored)) return true;
+    const opensWithLeadWord = RESOLUTION_DECLARATION_LEAD_WORDS.some(
+      (word) => anchored.startsWith(word) && !/[a-z0-9]/.test(anchored.charAt(word.length))
+    );
+    if (opensWithLeadWord) return true;
     if (RESOLUTION_DECLARATION_PHRASES.some((phrase) => head.includes(phrase))) return true;
   }
   return false;

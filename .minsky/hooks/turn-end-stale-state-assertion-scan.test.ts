@@ -18,6 +18,8 @@ import {
   classifyResolved,
   collectAssertions,
   declaresResolution,
+  RESOLUTION_DECLARATION_LEAD_WORDS,
+  RESOLUTION_DECLARATION_PHRASES,
   collectEntityRefs,
   findPendingClaims,
   PROXIMITY_CHARS,
@@ -370,5 +372,34 @@ describe("declaresResolution — the predicate", () => {
   test("a declaration far past the window does not count", () => {
     const padded = `${"context. ".repeat(60)}RESOLVED. no action needed`;
     expect(declaresResolution(padded)).toBe(false);
+  });
+});
+
+describe("mt#4375 SC2 — the vocabulary is named constants, not inline literals", () => {
+  test("both marker sets are exported and non-empty", () => {
+    expect(RESOLUTION_DECLARATION_LEAD_WORDS).toContain("resolved");
+    expect(RESOLUTION_DECLARATION_PHRASES).toContain("no action needed");
+  });
+
+  test("every declared lead word is honoured at the head", () => {
+    for (const word of RESOLUTION_DECLARATION_LEAD_WORDS) {
+      expect(declaresResolution(`${word}. nothing further`)).toBe(true);
+      expect(declaresResolution(`**${word.toUpperCase()} — done**`)).toBe(true);
+    }
+  });
+
+  test("every declared phrase is honoured near the head", () => {
+    for (const phrase of RESOLUTION_DECLARATION_PHRASES) {
+      expect(declaresResolution(`Update: ${phrase} here.`)).toBe(true);
+    }
+  });
+
+  test("a lead word is a WORD, not a prefix", () => {
+    // "resolvedly"/"resolvedness" open with the letters but are not the word.
+    expect(declaresResolution("resolvedly speaking, we should fold it in")).toBe(false);
+  });
+
+  test("a bare lead word with nothing after it still declares", () => {
+    expect(declaresResolution("resolved")).toBe(true);
   });
 });
