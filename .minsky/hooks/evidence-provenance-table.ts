@@ -80,6 +80,94 @@ export function sessionRanASearch(toolNames: readonly string[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Discharge: a claimed REMAINING-WORK assertion about another task (mt#4299)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tools whose invocation reads a task's CURRENT state.
+ *
+ * GENEROUS on purpose, per this module's header: a status read missed here
+ * fires the guard at an author who looked the task up. All four are ordinary
+ * ways to answer "what state is that task in?", and refusing any of them would
+ * flag correct process.
+ *
+ * `refs_status` sits in BOTH this set and {@link SEARCH_TOOL_NAMES}, and that is
+ * not a conflict. It is already there because a duplicate-check record may
+ * legitimately say it cross-referenced specific candidate ids; it is equally a
+ * BULK status read, which is what makes it the most efficient correct form when
+ * a claim names several tasks. Omitting it here would fire hardest at the author
+ * who used one call instead of four.
+ *
+ * `tasks_list` is deliberately ABSENT. It returns many tasks and would discharge
+ * any claim about any of them from a call the author may never have read for
+ * that purpose — presence-only discharge, which is the weakness mt#4190 measured
+ * on the ownership half (25 claims, 25 discharged, subject-blind).
+ *
+ * The CLI spelling (`minsky tasks status get …` through `Bash`/`session_exec`) is
+ * also absent, and unlike `tasks_list` that is a recall gap rather than a design
+ * choice. It is left out because it is UNMEASURED here: the PR-read fallback in
+ * `prNumbersFromCommandFileListRead` was added only after mt#4190's replay
+ * produced verbatim misses to point at. Add this one the same way — on measured
+ * fires, not on anticipation.
+ */
+export const STATUS_READ_TOOL_NAMES: readonly string[] = [
+  "tasks_status_get",
+  "tasks_get",
+  "tasks_spec_get",
+  "refs_status",
+];
+
+/**
+ * One canonical spelling for a task id, so the join is not defeated by
+ * punctuation.
+ *
+ * `mt#4299`, `mt4299` and `MT#4299` are one id — the substrate itself stores the
+ * unpunctuated form (`presence_claims.subject_id` is `mt4299`), so both spellings
+ * are in live circulation and a literal comparison would miss across them.
+ */
+export function normalizeTaskId(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Task ids whose CURRENT state was actually read in this session.
+ *
+ * Returning the SET rather than a boolean is what makes this join specific, and
+ * the specificity is the whole point of the class it serves: a remaining-work
+ * claim is about ONE task, and reading a DIFFERENT task's status is not evidence
+ * about it. That is strictly stronger than {@link sessionRanASearch}, which is
+ * presence-only — mt#4190 measured what presence-only discharge costs, and the
+ * answer was a half that discharged 25 of 25 and therefore never fired.
+ *
+ * `refs_status` takes an ARRAY, so the match looks INSIDE it rather than at a
+ * scalar field. Its refs may also be PR numbers or `mem#N` / `ask#N` short ids;
+ * those normalize to strings that no task id can equal, so they are inert here
+ * rather than needing to be filtered out.
+ */
+export function taskIdsWithStatusRead(calls: readonly ToolCallWithResult[]): Set<string> {
+  const out = new Set<string>();
+  const add = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const id = normalizeTaskId(value);
+    if (id !== "") out.add(id);
+  };
+  for (const call of calls) {
+    const name = normalizeToolName(call.toolName);
+    if (!STATUS_READ_TOOL_NAMES.includes(name)) continue;
+    if (name === "refs_status") {
+      const refs = call.input["refs"];
+      for (const ref of Array.isArray(refs) ? refs : [refs]) add(ref);
+      continue;
+    }
+    add(call.input["taskId"]);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // Discharge: a claimed FILE-LEVEL COLLISION (mt#4168, re-homed from mt#3806)
 // ---------------------------------------------------------------------------
 
