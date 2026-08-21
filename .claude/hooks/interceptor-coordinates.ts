@@ -939,6 +939,15 @@ export const INTERCEPTOR_COORDINATES: ReadonlyMap<string, InterceptorCoordinates
       note: "The classifier is EXTERNAL: the step shells out to gitleaks, whose detection is pattern/entropy matching over staged content, and fails closed when gitleaks is not installed. `lexical` describes gitleaks' mechanism — this is the one entity in the corpus whose classifier does not live in this repo.",
     },
   ],
+  [
+    "sql-capability-message-check",
+    {
+      interventions: [deny],
+      mechanism: "lexical",
+      role: "judge",
+      note: "Same coordinates as `variable-naming-check` and for the same reasons: it denies, it matches phrases in staged source, and the verdict is its own. mt#4398 — the check it runs (`scripts/check-sql-capability-messages.ts`, mt#3661) had no caller at all until then, so it had no coordinates either.",
+    },
+  ],
   ["type-check", structuralGate],
   ["variable-naming-check", { interventions: [deny], mechanism: "lexical", role: "judge" }],
 

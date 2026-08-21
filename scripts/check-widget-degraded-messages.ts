@@ -24,6 +24,20 @@
  *
  *   bun scripts/check-widget-degraded-messages.ts
  *
+ * WHERE THIS RUNS (mt#4398): **nowhere — this script has NO caller.** Not CI,
+ * not a package script, not a git hook; a full-tree reference search finds it
+ * mentioned only by itself. It currently PASSES, which is why nothing has gone
+ * wrong yet, and is also why the state is easy to miss: a passing check and an
+ * unrun check are indistinguishable from outside.
+ *
+ * Recorded here rather than only in a task spec, because leaving it in a spec
+ * reproduces the exact defect mt#4398 was filed for one file over — its sibling
+ * `check-sql-capability-messages.ts` sat exiting 1 with no caller and no
+ * pointer, and nobody could tell. Wiring this one is tracked by **mt#4400**,
+ * which measured the class: five of nine `scripts/check-*.ts` have no
+ * invocation path. If you wire it, replace this paragraph with the invocation
+ * point the way the sibling's header now names its own.
+ *
  * Exit 0 = every remaining `reason:` template-literal interpolation is
  * either a comment or explicitly marked.
  * Exit 1 = at least one unmarked site — the list is printed.

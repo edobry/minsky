@@ -347,6 +347,32 @@ export class PreCommitHook {
         return variableResult;
       }
 
+      // Step 3-sql: SQL-capability message check (mt#4398, ~1s).
+      //
+      // `scripts/check-sql-capability-messages.ts` (mt#3661) has existed since
+      // its own task shipped and was invoked by NOTHING — not CI, not a package
+      // script, not this hook. It was exiting 1 on `main` with three real
+      // cause-free sites, and nobody could have known: a check with no caller
+      // produces no signal, which is `CLAUDE.md §Invocation path required for
+      // event/poll mechanisms` ("the feature exists, its tests pass, it produces
+      // nothing"). The three sites are fixed in this same change.
+      //
+      // WHY HERE rather than CI: `check-variable-naming` — the only other
+      // static source check of this shape — runs from this hook, so this
+      // follows the existing convention rather than inventing a second one.
+      // mt#3134 is separately deciding whether checks of this class belong in
+      // CI instead; if it lands on CI, this call moves with it rather than
+      // being duplicated. mt#4400 tracks the four SIBLING check scripts that
+      // are also unwired, and should append here rather than adding a method
+      // each — this file already carries one bespoke method per check, which
+      // is the growth mt#3645 is about.
+      const sqlCapabilityResult = await this.instrumented("sql-capability-message-check", () =>
+        this.runSqlCapabilityMessageCheck()
+      );
+      if (!sqlCapabilityResult.success) {
+        return sqlCapabilityResult;
+      }
+
       // Step 3a: Node shim detection — ban node shebangs, npm run, npx in source files (~0s)
       const nodeShimResult = await this.instrumented("node-shim-check", () =>
         this.runNodeShimCheck()
@@ -881,6 +907,51 @@ export class PreCommitHook {
       log.cli("❌ Variable naming issues found! Please fix them before committing.");
       log.cli("💡 You can run 'bun run scripts/fix-variable-naming.ts' to auto-fix many issues.");
       return { success: false, message: "Variable naming issues found", exitCode: 1 };
+    }
+  }
+
+  /**
+   * Run the SQL-capability message check (mt#4398).
+   *
+   * Mirrors {@link runVariableNamingCheck} deliberately — same shape, same
+   * shell-out, same timeout — because that is the repo's only existing
+   * convention for a static source check, and mt#4398's whole subject is a
+   * check that had no convention applied to it at all.
+   *
+   * NO OVERRIDE ENV VAR, deliberately (PR #3223 R1). The overrides in this
+   * file cluster on checks that can block a committer on something they cannot
+   * fix in the moment — NUL bytes, migration collisions, immutable migrations,
+   * deploy-domain ownership, the size budget, the related-test gate. The cheap
+   * lexical checks do not have one: `variable-naming-check` (this step's direct
+   * precedent and structural twin), `node-shim-check` and `secret-scanning` all
+   * ship without. This belongs to the second group — satisfying it is a
+   * one-line annotation or routing through an existing helper — and adding an
+   * override would mean registering a new `MINSKY_*` var in two more places
+   * for an escape hatch nothing needs yet. If a real case turns up where this
+   * blocks urgent work, add it then, with that case as the reason.
+   *
+   * The failure hint matters more than usual here: the script's own output
+   * already names each offending site AND the two ways to satisfy it, so this
+   * points at that output rather than restating it. Re-running by hand is the
+   * fix loop, which is also the one thing that always worked while nothing
+   * ran it automatically.
+   */
+  private async runSqlCapabilityMessageCheck(): Promise<HookResult> {
+    log.cli("🔍 Checking SQL-capability messages carry a cause...");
+
+    try {
+      await execAsync("bun run scripts/check-sql-capability-messages.ts", {
+        cwd: this.projectRoot,
+        timeout: 30000,
+      });
+      log.cli("✅ Every SQL-capability message names its cause.");
+      return { success: true, message: "SQL-capability message check passed", exitCode: 0 };
+    } catch (error) {
+      log.cli("❌ A persistence-gated error is missing its cause.");
+      log.cli(
+        "💡 Run 'bun run scripts/check-sql-capability-messages.ts' — it names each site and the two ways to satisfy it (route through describePersistenceUnavailability(), or annotate with '// sql-capability-message: <reason>')."
+      );
+      return { success: false, message: "Cause-free SQL-capability message found", exitCode: 1 };
     }
   }
 
