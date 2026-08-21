@@ -1,7 +1,8 @@
 # `claim-provenance-scan`
 
-**Trigger:** a task spec asserting a file-level COLLISION with named other work, or a NEGATIVE
-OWNERSHIP claim, written with no call in the session that could have established it.
+**Trigger:** a task spec asserting a file-level COLLISION with named other work, a NEGATIVE
+OWNERSHIP claim, or a REMAINING-WORK assertion about another task, written with no call in the
+session that could have established it.
 
 **Event:** `PreToolUse` on `mcp__minsky__tasks_create` · `tasks_spec_patch` · `tasks_edit` ·
 `tasks_spec_search_replace`.
@@ -49,11 +50,12 @@ would need one.
 
 ## What discharges what
 
-| Claim                                           | Discharged by                                                         |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| File-level collision naming `PR #N`             | `pull_request_read` with `get_files`/`get_diff` **for that N**        |
-| File-level collision with a merge (no PR named) | `git_log` with a `path` or `grep` filter                              |
-| Negative ownership                              | `tasks_search` / `tasks_similar` / `refs_status`, preceding the write |
+| Claim                                           | Discharged by                                                                      |
+| ----------------------------------------------- | ---------------------------------------------------------------------------------- |
+| File-level collision naming `PR #N`             | `pull_request_read` with `get_files`/`get_diff` **for that N**                     |
+| File-level collision with a merge (no PR named) | `git_log` with a `path` or `grep` filter                                           |
+| Negative ownership                              | `tasks_search` / `tasks_similar` / `refs_status`, preceding the write              |
+| Remaining work on a named task                  | `tasks_status_get` / `tasks_get` / `tasks_spec_get` / `refs_status` **on that id** |
 
 The PR join is **specific on purpose**. mem#892 (2026-08-05) is the positive-direction incident:
 `/implement-task` §0a halted on a claimed `SessionFilmStage.tsx` collision with mt#3792, whose PR
@@ -280,6 +282,147 @@ A guard whose no-transcript path returned a pass would report an outage as a run
 behavior. `needsTranscript: true` is declared on the registration and is LOAD-BEARING —
 `ctx.transcriptLines` is populated only for a registration that declares it, so without it the
 guard records `skipped` on every live run: present, tested, green, and inert.
+
+## The third class: a remaining-work assertion (mt#4299)
+
+**The claim:** a spec says some task still has work outstanding — "whoever takes this task should
+X", "mt#N still needs Y", "the remaining work is Z" — when nothing in the session read that task's
+state.
+
+### The incident, and why it needed a write-seam guard
+
+2026-08-19 (mem#1114). A genuinely verified root-cause section was patched into **mt#2307**'s spec
+and closed with _"Whoever takes this task should confirm that trade still holds and then update the
+test plus a doc note."_ mt#2307's work had been complete for **ten weeks** — mt#2664 renamed the
+test, asserted the intended behavior, and wrote the rationale in-code with the shipping commit. All
+three of its success criteria were already satisfied. It was caught one turn later and only
+incidentally, when `/plan-task` gate (o) reproduced the stated failure and got `matched 0 tests`.
+
+**The tell is grammatical.** The verified half is past-tense and cites sources; the rider is
+future-tense and cites nothing. Two epistemic acts in one edit, and only one got evidence — the
+verified paragraph supplies the rider's felt credibility, so the rider is never evaluated as a
+proposition at all.
+
+That is why the two prior tiers both passed while the rule was in context. **mem#249** (memory tier)
+states the rule for the adjacent `tasks_deps_add` surface, which was called in the same turn.
+**mt#2534** (skill tier, DONE) shipped `/check-premise` §"Artifact-content and identity claims",
+which describes this failure verbatim — nothing invoked it. A trigger keyed on self-recognition
+("am I making a claim?") cannot fire here, because at compose time the rider does not present as a
+claim; it reads as a helpful handoff note. **A guard that reads the TEXT is immune to how confident
+the surrounding paragraph felt.** Third tier for one failure class, which is the escalation ladder
+`/retrospective` prescribes rather than a repeated tactical patch.
+
+### Resolving the subject
+
+Two forms, and the second is what makes the class reach its own originating incident:
+
+- **Explicit** — the paragraph names `mt#N`. Those are the subjects. (`md#N` is a documented task-id
+  form and is deliberately NOT one — see "Subject id form narrowed at review" below for the
+  measurement.)
+- **Deictic** — the paragraph says "this task" and names no id. The referent is the `taskId`
+  argument of the write itself, which is on the call.
+
+Shipping only the explicit form would have produced a class that **cannot catch the incident it was
+designed against**: the mt#2307 rider names no id. Present, tested, green, and inert (mem#704).
+
+`mem#N` / `ask#N` / `ws#N` are deliberately not subjects — a memory has no status to read, so
+treating one as a subject would demand a call that cannot exist. A paragraph with no resolvable
+subject is **not adjudicable** and does not fire: a claim the author could not discharge by any
+action is the shape that teaches a reader to discount the guard (mem#719).
+
+### The join is ID-scoped, unlike the ownership half
+
+`sessionRanASearch` is presence-only — any search anywhere discharges any ownership claim — and
+mt#4190 measured the cost: **25 ownership claims, 25 discharged, zero fires.** This class cannot
+work that way, so `taskIdsWithStatusRead` returns the SET of ids actually read and every subject a
+paragraph names must be in it. `refs_status` takes an array, so the match looks inside it.
+
+The discharge set is deliberately **generous** (all four read tools) per the module's
+direction-of-error rule: a spelling missed there fires at an author who looked the task up.
+`tasks_list` is excluded as presence-only-by-another-route.
+
+### Measured before shipping (AT4)
+
+`bun scripts/replay-claim-provenance.ts --sweep <project> --limit 40 --detail`, replaying each
+spec-write against the transcript PREFIX that preceded it. The tuning session is excluded per
+mem#1022 — it writes remaining-work prose into specs and would otherwise count itself. Both numbers,
+per the script's header:
+
+|                        | all 40 | this session excluded (39) |
+| ---------------------- | ------ | -------------------------- |
+| spec-write calls       | 340    | 339                        |
+| carrying a claim       | 62     | 61                         |
+| **fired**              | **18** | **17**                     |
+| — file-level collision | 9      | 9                          |
+| — remaining work       | 9      | **8**                      |
+| fire rate over claims  | 29.0%  | 27.9%                      |
+
+**All 8 hand-classified. One true positive, one defensible, six false:**
+
+1. **TRUE** — `be47b60b:1497`, the originating mt#2307 rider verbatim. The class catches the
+   incident it was built for, on real recorded data rather than a fixture.
+2. **Defensible** — mt#4078's spec asserting mt#4313 is an unmet precondition, with no status read
+   on it.
+3. **Subject mis-resolution — 3 of 8.** The dominant false class. An explicit id in the paragraph is
+   taken as the subject when the claim is actually deictic about the task being written: mt#4012's
+   _"the remaining work is to make the call SUCCEED"_ is about mt#4012, while the paragraph also
+   names mt#2782. Explicit-wins is the wrong precedence when a deictic self-reference is present —
+   and note it mis-resolved the TRUE positive too (picking mt#2161/mt#1785/mt#1994 over mt#2307),
+   which fired correctly for a partly wrong reason.
+4. **Self-referential — 2 of 8.** mt#4299's own spec, once discussing the class as a term of art and
+   once quoting `"whoever takes this task should…"` as an example of the shape. The second is a
+   Rung-1 quotation-elision miss; RFC 383937f0 §Threats names the self-referential case outright.
+5. **A discharge the join cannot see — 1 of 8.** The author enumerated five neighbours WITH their
+   statuses ("— TODO.") and had plainly looked them up; the reads went through `tasks_search`, whose
+   results carry a `status` per task but which is not in the status-read set. This is the dangerous
+   direction — firing at an author who did the work.
+
+**Subject id form narrowed at review (PR #3173 R1).** `TASK_ID_RE` matched `md#N` as well as `mt#N`,
+since `md#` is a documented task-id form. Measured wrong: `md#N` in this corpus is overwhelmingly
+placeholder text — 64 distinct tokens repo-wide, led by `md#123` (110 occurrences), `md#999` (66) and
+`md#456` (16), which are the tool description's own examples and test fixtures — and `refs_status`
+reports `md#1` / `md#100` / `md#456` all `absent`. Matching it manufactures subjects no status read
+can discharge, which is the one failure this class must not have. **Re-running the sweep after the
+narrowing left the class at 8 fires**, so this removed no measured fire; it is a forward-looking
+correctness fix, not a precision gain, and is recorded as such.
+
+**Not tuned in this diff, by scope.** mt#4299 `## Scope` puts false-positive tuning of the guard out
+of scope explicitly, and the guard is record-only so the cost is a calibration record rather than a
+denial. This is the same posture mt#4168 shipped the collision class at (1 true in 16) with mt#4190
+as its tune sibling. Findings 3 and 5 are the actionable ones and are filed as **mt#4341**.
+
+### A discharge set that deliberately disagrees with a sibling's
+
+mt#3775 (TODO) will cover **citation-provenance** claims — what a named artifact SAYS — and its SC1
+states the opposite rule about the same tools: a read must return the ref's own content
+(`tasks_spec_get`, `memory_get`), and _"not a status read (`tasks_status_get`, `refs_status`), which
+returns no prose and therefore cannot support a claim about what the artifact SAYS."_
+
+That is not a contradiction to reconcile. The two classes ask different questions, so different
+evidence suffices: "what does mt#N say" needs prose, "does mt#N still have work" is answered by its
+state. A reader comparing the two tables should expect the divergence rather than treat one as a bug.
+
+**The honest limitation, stated rather than glossed:** mem#1114's own corollary is _"a task being
+TODO is not evidence its work is undone — check the criteria, not the status field"_, and mt#2307 sat
+TODO for ten weeks after being fully resolved. So a `tasks_status_get` discharges this guard while
+being weak evidence for the underlying claim. That is deliberate and matches how the family draws
+the line: this is a PROVENANCE check — did you look — and correctness is the reviewer's
+spec-verification, exactly as mt#4301's scope puts it ("this checks presence… the reviewer's
+spec-verification owns correctness"). A guard that tried to judge whether the author looked at the
+RIGHT field would need the paraphrase axis ADR-024 exists to keep it off.
+
+### Posture
+
+**Unchanged — RECORD-ONLY.** This task does not change the guard's posture, and per ADR-032 no
+precision number it produces could license a flip: "the labeled response signal that tuning would
+run on does not exist."
+
+### The inherited blind spot (mt#4295)
+
+Per mt#4295, a spec written through `tasks_edit --spec-file` carries no inline text on the call, so
+`extractAuthoredSpecText` returns null and the guard records `skipped` — **for every class, this one
+included.** A remaining-work claim written that way is invisible until mt#4295 lands. Named here
+rather than solved: fixing it would be solving mt#4295's problem in mt#4299's diff.
 
 ## Cross-references
 
