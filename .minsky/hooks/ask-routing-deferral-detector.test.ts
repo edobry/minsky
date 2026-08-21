@@ -759,6 +759,99 @@ describe("offer-shape trigger (mt#3801)", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// mt#4311 — a grammatical disjunction is not an offer
+// ---------------------------------------------------------------------------
+
+describe("mt#4311 — a bare first-person clause needs a leg that offers on its own", () => {
+  /**
+   * VERBATIM from the live calibration log, not from the task spec's excerpts.
+   *
+   * That distinction is the point. The spec quoted these contexts truncated at
+   * the sentence, and seven of its ten quotes do not fire when replayed as
+   * lines — so a fixture built from the quote would assert "produces no fire"
+   * against text that never fired, passing before any change and proving
+   * nothing (mem#704). Each line below is asserted to have fired under the
+   * PRE-mt#4311 relation first, which is what makes the silence meaningful.
+   */
+  const REAL_FALSE_POSITIVES: ReadonlyArray<readonly [string, string]> = [
+    [
+      "caveat naming what was NOT done",
+      "Caveat I'll state plainly, given what I just got wrong: this is one web search of secondary sources. I haven't read their docs or run the license checks.",
+    ],
+    [
+      "a capability report with an unrelated disjunction",
+      "The judge takes its completion service by constructor injection, so I can test the real prompt path with a stub rather than a test-only export or a spy.",
+    ],
+    [
+      "an intent statement whose disjunction is the thing being diagnosed",
+      "two strikes on the same tool, so I'll stop rather than retry a third time and check whether it's the tool or the server.",
+    ],
+  ];
+
+  test.each(REAL_FALSE_POSITIVES)("fired before, silent after: %s", (_label, line) => {
+    // The pre-mt#4311 relation, expressed in the two exported halves it was
+    // built from. Asserting it FIRST is the negative control for this fixture.
+    expect(namesAgentAction(line) && hasMenuShape(line)).toBe(true);
+    expect(findOfferShape(line)).toBeNull();
+  });
+
+  test("a GOVERNED clause still fires on a grammatical leg — the floor", () => {
+    // `want me to` / `rather I` carry the reader's preference inside the
+    // clause, so the disjunction or question mark is free to be the reporter.
+    for (const line of [
+      "Want me to take it?",
+      "Want me to file those, or a subset?",
+      "Recommended next: mt#4190, unless you'd rather I clear the ceiling first",
+      "If you'd rather I just execute the answer here, say so",
+    ]) {
+      expect(findOfferShape(line)).not.toBeNull();
+    }
+  });
+
+  test("mt#3801's own cases are untouched", () => {
+    // A bare clause plus an EXPLICIT-OFFER leg is still an offer — this is the
+    // shape mt#3801 shipped the trigger for, and narrowing must not reach it.
+    expect(findOfferShape("I'll stop here unless you want more")).not.toBeNull();
+    expect(findOfferShape("Next step is X unless you'd rather I do Y")).not.toBeNull();
+  });
+
+  test("subject-auxiliary inversion UPGRADES a bare clause, and admits nothing new", () => {
+    // English inverts only to ask, and asking about one's own action offers it.
+    const inverted =
+      "So, in plain terms: should I stop letting my own writing count as evidence, or not? I can hold either way.";
+    expect(findOfferShape(inverted)).not.toBeNull();
+
+    // The upgrade runs only after a base pattern matched, so a line with an
+    // inversion and NO agent-action clause stays invisible — `namesAgentAction`
+    // is unchanged by this task.
+    const noClause = "Should I be worried?";
+    expect(namesAgentAction(noClause)).toBe(false);
+    expect(findOfferShape(noClause)).toBeNull();
+  });
+
+  test("the leg LABELS are unchanged, so quoting specs and the sweep still resolve", () => {
+    // mt#3959's stale-signal sweep fires when an operator-facing label stops
+    // being emitted, and `offer-shape:or` is quoted in active specs. The `or`
+    // leg still REPORTS; it just needs a governed clause to reach it.
+    expect(findOfferShape("Want me to file those, or a subset?")?.label).toBe(
+      "offer-shape:question"
+    );
+    expect(findOfferShape("unless you'd rather I clear it")?.label).toBe("offer-shape:unless");
+    expect(findOfferShape("Do you want me to take mt#1 or mt#2 first")?.label).toBe(
+      "offer-shape:or"
+    );
+  });
+
+  test("hasMenuShape is deliberately NOT narrowed — it gates a different surface", () => {
+    // It is also the pause/stop suppression gate, where a narrower menu shape
+    // suppresses LESS and therefore fires MORE. Changing it here would move a
+    // surface this task did not measure.
+    expect(hasMenuShape("I can test this or that")).toBe(true);
+    expect(hasMenuShape("Anything else?")).toBe(true);
+  });
+});
+
 describe("rendered evidence is bounded by the phrase cap (mt#4234)", () => {
   // The defect: `buildReminder` interpolated `m.matchedPhrase`, which is `m[0]`
   // — the regex's whole matched span. Two patterns in this file bound their span

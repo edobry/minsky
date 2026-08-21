@@ -126,6 +126,55 @@ Every agent-action form is **non-past by construction**, which is what separates
 an offer from a report: _"I fixed it unless a row was locked"_ names a
 first-person action and offers nothing.
 
+### The conjunction was necessary and not sufficient (mt#4311)
+
+The two constituents above are both required, and for two years that was read as
+enough. Measured across three calibration windows it is not: co-locating them on
+one line is satisfied constantly by ordinary prose, because BOTH halves have a
+weak form.
+
+- Two of the four menu legs supply only **grammar**. `offer-shape:or` is
+  `/\b\w+\s+or\s+\w+/i` and `offer-shape:question` is `/\?/` — English uses a
+  disjunction and a question mark for caveats, negations and technical
+  description all the time. The other two, `unless` and `if you'd rather`, NAME
+  the reader's alternative and cannot occur without offering one.
+- Two of the four agent-action legs supply only a **bare first-person modal**
+  (`I'll`, `I can`). That is the shape of an offer AND the shape of a capability
+  or intent report, and nothing inside the clause separates them. The other two
+  are governed by the reader's preference (`you'd rather I go`, `want me to file
+it`) and therefore ARE offers.
+
+So the trigger now requires the relation, not merely the co-occurrence: **a bare
+clause needs an explicit-offer leg; a governed clause may use any leg.**
+
+    Caveat I'll state plainly … I haven't read their docs or run the checks.   → silent (bare + grammatical)
+    I can test the real prompt path with a stub rather than a spy.             → silent (bare + grammatical)
+    I'll stop here unless you want more                                        → FIRES (bare + explicit-offer)
+    Want me to file those, or a subset?                                        → FIRES (governed + any)
+
+**Subject-auxiliary inversion upgrades a bare clause.** English inverts only to
+ask, and asking about one's own action offers it — _"should I stop doing X?"_ is
+a decision handed over. The upgrade runs only after a base pattern has already
+matched, so it can preserve a fire but never create one; `namesAgentAction` is
+bit-for-bit unchanged by mt#4311.
+
+**`hasMenuShape` itself is deliberately NOT narrowed.** It is also the
+suppression gate for the pause/stop patterns, where a narrower menu shape
+suppresses less and therefore fires MORE — the opposite direction of error. The
+strength distinction is consumed only by `findOfferShape`.
+
+**Measured on the live log** (`bun scripts/replay-offer-shape.ts`), over the 28
+of 38 offer-shape records whose captured 240-char window reproduces a fire at
+all: `offer-shape:or` 15 → 0, `offer-shape:question` 7 → 5, `unless` 2 → 2,
+`if-you-rather` 4 → 4. Both silenced `question` records are the vantage-point
+case that `principal-context.mdc §What Eugene can see` prescribes and mt#4311
+classified false. No record classified as a true positive was silenced.
+
+The remaining 10 records reproduce no fire under EITHER matcher because the
+captured context is truncated; they are reported separately rather than credited
+to the change. Reading the record's existence as its before-state is the
+measurement error the replay script's own docblock records.
+
 ### Polarity is checked, not assumed
 
 Tense is not the only axis on which the shape lies. A first-person action clause
