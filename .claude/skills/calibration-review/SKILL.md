@@ -593,6 +593,30 @@ reviewing — loses the most.
   token), so the watermark was left where it was rather than moved backwards.
 - **`unreceiptedPaths`** — review-due logs your token does not cover, so they were
   NOT advanced. Re-run read-only and ack again with the fresh token.
+- **`newlyDuePaths`** (mt#4391) — logs that crossed a threshold DURING your pass,
+  so they were review-due at ack time and were never in the set you classified
+  against. NOT advanced. This is expected rather than an error — they are in the
+  next sweep, in full — but report the names, because the whole class was
+  invisible before this field existed.
+- **`claimHeldPaths`** (mt#4391) — logs that WERE due when your token was issued
+  but were held by another pass's claim, so Step 1 told you to stand down on
+  them. Also NOT advanced. Same disposition as `newlyDuePaths`, different reason:
+  these did not cross a threshold, they were simply someone else's to review.
+
+**Why the ack can decline to advance a log that is review-due at ack time.** The
+token now records BOTH what each log counted at sweep time and WHICH logs the
+sweep presented to you. `computeReviewDueLogs` runs again at ack time against
+live state, so its set is not the set you read — a log can enter it after you
+started. The count bounds how far a path advances; the set bounds which paths
+advance at all. Measured before the fix: `wall-of-text` sat one injected fire
+below the bar at sweep time, one record arrived mid-pass, and the ack advanced
+its watermark 359 → 373, marking 14 records reviewed by nobody.
+
+**A token minted before mt#4391 is REFUSED**, with a message naming the missing
+`reviewDue` field. There is no safe reading of its absence — permissive would
+restore the defect silently, on the path you believe is guarded. The remedy is
+the one Step 5 already prescribes for a lost token: re-run the command read-only
+and ack with the fresh one.
 
 **`reviewDue` in that same payload is the PRE-ack set — it is not a post-ack
 status field (mt#4334).** It names the logs the ack ACTED ON, not what is still
