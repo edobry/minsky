@@ -147,10 +147,103 @@ describe("zero-backend read guard (mt#3636)", () => {
 
       expect(error.message).toContain("postgres");
       expect(error.message).toContain(BOOT_FAILURE);
-      expect(error.message).toContain("failed to initialize at boot");
+      expect(error.message).toContain("failed to initialize AT BOOT");
       // Must not be mistakable for a legitimately empty database.
-      expect(error.message).toContain("NOT an empty database");
+      expect(error.message).toContain("not the same as an empty database");
       expect(error.name).toBe(UNAVAILABLE_ERROR);
+    });
+
+    // ---- mt#4379: the message must not report a boot fact in the present tense ----
+
+    test("the error does NOT assert the database is currently unreachable", async () => {
+      // The regression this guards is expensive and was paid twice. The old
+      // wording said "The database is unreachable" and "`minsky persistence
+      // check` reports the same failure" — both true AT BOOT, both false by the
+      // time anyone read them. In the originating incident persistence had
+      // recovered and `persistence check` returned "All checks passed" seconds
+      // before this error rendered, and two separate agent sessions each spent
+      // their first diagnostic minutes on a healthy database.
+      const error = await build()
+        .listTasks()
+        .then(expectedRejection, (e: unknown) => e as Error);
+
+      expect(error.message).not.toContain("The database is unreachable");
+      expect(error.message).not.toContain("reports the same failure");
+    });
+
+    test("with no retry recorded, the error says so rather than implying a live outage", async () => {
+      const error = await build()
+        .listTasks()
+        .then(expectedRejection, (e: unknown) => e as Error);
+
+      expect(error.message).toContain("NOT been re-attempted since boot");
+    });
+
+    test("once a retry is recorded, the error carries its timestamp and cause", async () => {
+      // ADR-035 rule 4: without `lastAttemptAt`, "stuck since boot" and "still
+      // retrying against a real outage" are the same reading to an operator.
+      const service = build() as unknown as {
+        noteRetryAttempt(at: Date, error: string): void;
+        listTasks(): Promise<unknown>;
+      };
+      service.noteRetryAttempt(new Date("2026-08-21T19:30:00.000Z"), "connect ECONNREFUSED");
+
+      const error = await service.listTasks().then(expectedRejection, (e: unknown) => e as Error);
+
+      expect(error.message).toContain("2026-08-21T19:30:00.000Z");
+      expect(error.message).toContain("connect ECONNREFUSED");
+      expect(error.message).not.toContain("NOT been re-attempted since boot");
+    });
+
+    // ---- mt#4379: the derived value must be enrollable for its own retry ----
+
+    test("a configured-but-failed zero-backend service marks itself degradedSubstitute", async () => {
+      // This is the whole fix for the derived-value gap. The container's
+      // `asDegradedSubstitute()` is a STRUCTURAL check — `degradedSubstitute
+      // === true` plus a callable `noteRetryAttempt` — so a service that does
+      // not expose both is indistinguishable from a healthy resolution and gets
+      // memoized as `useValue`, never retried. That is what left `session_start`
+      // serving a zero-backend task service for 20+ hours.
+      const service = build() as unknown as {
+        degradedSubstitute: boolean;
+        noteRetryAttempt: unknown;
+      };
+
+      expect(service.degradedSubstitute).toBe(true);
+      expect(typeof service.noteRetryAttempt).toBe("function");
+    });
+
+    test("an UNCONFIGURED zero-backend service is NOT marked degraded", async () => {
+      // ADR-035 rule 3, applied to the derived value: "configured but failing"
+      // and "not configured" are different states with different correct
+      // responses. A laptop with no Postgres at all is the expected local/dev
+      // path — marking it degraded would spin the container's retry loop
+      // forever on a machine where there is nothing to recover.
+      const service = createTaskService({ workspacePath: WORKSPACE });
+      service.setBackendUnavailable({
+        reason: "no Postgres connection configured",
+        configured: false,
+      });
+
+      expect((service as unknown as { degradedSubstitute: boolean }).degradedSubstitute).toBe(
+        false
+      );
+    });
+
+    test("a service with a registered backend is NOT marked degraded", async () => {
+      // The healthy path must stay out of the retry loop entirely, even if a
+      // stale unavailability was recorded before the backend came up.
+      const service = createTaskService({ workspacePath: WORKSPACE });
+      service.setBackendUnavailable({
+        reason: BOOT_FAILURE,
+        configured: true,
+        backend: "postgres",
+      });
+      service.registerBackend(fakeBackend([]));
+
+      expect((service as unknown as { degradedSubstitute: boolean }).degradedSubstitute).toBe(
+        false
+      );
     });
 
     test("getTasks([]) still returns empty — an empty request needs no backend", async () => {
