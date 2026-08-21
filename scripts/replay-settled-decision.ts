@@ -40,8 +40,12 @@ interface Case {
 const AT1: Case[] = [
   {
     id: "AT1.1",
+    // PASSIVE marker ("are both recorded in"), so `hasVerb: false` — the
+    // discriminator requires a first-person subject (PR #3224 R1). A first cut
+    // reached this one with a subject-less `recorded in` pattern; that pattern
+    // also matched neutral third-party narration and was dropped.
     date: "2026-08-13",
-    hasVerb: true,
+    hasVerb: false,
     text: "The opposite posture would refuse every conversation ingested before 2026-07-18 in the cockpit. Say the word if you want it the other way; the reasoning and the alternative are both recorded in mt#3268.",
   },
   {

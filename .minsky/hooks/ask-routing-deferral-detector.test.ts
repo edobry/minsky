@@ -1178,12 +1178,8 @@ describe("PR #3205 R1 — run() wires the suppression, not just the helper", () 
 // being FOLLOWED, so the fire lands on the compliant behaviour.
 // ---------------------------------------------------------------------------
 
-/** The four AT1 contexts a verb-keyed discriminator can reach, verbatim. */
+/** The AT1 contexts a first-person discriminator can reach, verbatim. */
 const AT1_REACHABLE: Array<[string, string]> = [
-  [
-    "AT1.1 — decision recorded, alternative offered",
-    "The opposite posture would refuse every conversation ingested before 2026-07-18 in the cockpit. Say the word if you want it the other way; the reasoning and the alternative are both recorded in mt#3268.",
-  ],
   [
     "AT1.2 — picked and proceeded in one sentence",
     "All four follow-ons are TODO and unclaimed. My last report put mt#4125 first, so I'm taking that — say the word if you'd rather I start with one of the detector tunes.",
@@ -1233,11 +1229,22 @@ describe("mt#4175 AT1 — a revisability offer is suppressed", () => {
   });
 });
 
-describe("mt#4175 AT1 residual — the two contexts a verb list cannot reach", () => {
+describe("mt#4175 AT1 residual — the three contexts a first-person list cannot reach", () => {
   // MEASURED, not aspirational. SC1' requires the residual be recorded rather
   // than left implicit, and pinning it here is what makes a later change that
   // reaches these VISIBLE instead of silent. If one of these starts passing,
   // that is a result to record on mt#4175 — not a test to delete.
+
+  test("AT1.1 — a PASSIVE decision marker does not suppress (PR #3224 R1)", () => {
+    // Was reachable in the first cut, via `/\b(both\s+)?recorded\s+in\b/i`.
+    // That pattern was dropped: it has no first-person subject, so it also
+    // matched neutral third-party narration — see the negative test below for
+    // the failure it bought. AT1.1 is residual now, and that is the correct
+    // trade rather than a regression.
+    const text =
+      "The opposite posture would refuse every conversation ingested before 2026-07-18 in the cockpit. Say the word if you want it the other way; the reasoning and the alternative are both recorded in mt#3268.";
+    expect(menuSurvives(text)).toBe(true);
+  });
 
   test("AT1.5 — an additive offer with no decision verb still fires", () => {
     expect(menuSurvives("Say the word if you want a handoff doc for picking this up later.")).toBe(
@@ -1258,6 +1265,31 @@ describe("mt#4175 AT2 — the regression floor holds", () => {
       expect(menuSurvives(text)).toBe(true);
     });
   }
+});
+
+describe("mt#4175 — every pattern needs a first-person subject (PR #3224 R1)", () => {
+  // The reviewer's concrete failure mode, pinned: a neutral status line in the
+  // LEAD sentence must not silence a genuine deferral in the next one. This is
+  // the behavioural form of the contract — a future pattern that forgets the
+  // `I` fails here rather than merely disagreeing with a comment.
+
+  test("a passive 'recorded in' lead sentence does NOT suppress a real deferral", () => {
+    const text = "Meeting notes recorded in mt#3268. Next. Say the word and I'll plan it.";
+    expect(menuSurvives(text)).toBe(true);
+  });
+
+  test("third-person narration of someone else's decision does NOT suppress", () => {
+    const text =
+      "The other session filed mt#4243 already. Say the word and I'll plan any of the three.";
+    expect(menuSurvives(text)).toBe(true);
+  });
+
+  test("the SAME sentence in the first person DOES suppress — the contract discriminates", () => {
+    // Same claim, same window, only the subject differs. Without this pair the
+    // two tests above would also pass on a filter that suppresses nothing.
+    const text = "I filed mt#4243 already. Say the word and I'll plan any of the three.";
+    expect(menuSurvives(text)).toBe(false);
+  });
 });
 
 describe("mt#4175 — the filter is scoped to deferral-menu, not principal-reserved", () => {

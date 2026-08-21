@@ -263,6 +263,24 @@ export const DEFERRAL_MENU_PATTERNS: RegExp[] = [
  * `context` is also the window a calibration reviewer classifies from, so the
  * suppression is tested at the same scope the class was MEASURED at rather than
  * at a scope chosen after the fact.
+ *
+ * **EVERY pattern requires a first-person subject, and that is a contract this
+ * array must keep (PR #3224 R1).** A first cut carried
+ * `/\b(both\s+)?recorded\s+in\b/i` to reach the one AT1 context whose marker is
+ * PASSIVE — *"the reasoning and the alternative are both recorded in mt#3268."*
+ * That contradicted this docblock, and the failure it bought is concrete: a
+ * neutral status line in the lead sentence (*"Meeting notes recorded in
+ * mt#3268."*) would silence a genuine deferral following it (*"Next. Say the
+ * word and I'll plan it."*) — an AT2-floor shape suppressed by a token that
+ * says nothing about who decided anything.
+ *
+ * It was DROPPED rather than tightened: `I recorded` is already in the
+ * alternation, so nothing first-person was lost, and what WAS lost is that one
+ * context, which moves into the measured residual. Reaching one more case by
+ * suppressing on a subject-less token is not a trade SC1' asks for — it permits
+ * a partial result, not a wrong one. A test pins the contract behaviourally
+ * (passive and third-person narration must not suppress), so a future addition
+ * that forgets the `I` fails rather than merely disagreeing with this comment.
  */
 export const SETTLED_DECISION_PATTERNS: RegExp[] = [
   // Shared with the sibling's array by content, not by import — see above.
@@ -270,7 +288,6 @@ export const SETTLED_DECISION_PATTERNS: RegExp[] = [
   // Measured shapes this corpus actually produced.
   /\bI[''’]?m\s+taking\b/i,
   /\bI\s+(filed|implemented|shipped|recorded|wrote)\b/i,
-  /\b(both\s+)?recorded\s+in\b/i,
   /\bI\s+haven[''’]?t,?\s+since\b/i,
 ];
 

@@ -411,18 +411,23 @@ context`, `this turn has run long`), so a lift would be a merge rather than a mo
 
 ### The residual is measured, not implicit
 
-The fix reaches **4 of the 6** recorded contexts. The two it does not reach carry no first-person
-decision verb at all:
+The fix reaches **3 of the 6** recorded contexts. The three it does not reach carry no first-person
+SUBJECT at all:
 
+- _"…the reasoning and the alternative are both recorded in mt#3268."_ — a PASSIVE marker. A first
+  cut reached this one with a subject-less `recorded in` pattern; PR #3224 R1 caught that it
+  contradicts the first-person contract and named the failure it buys — a neutral status line
+  (_"Meeting notes recorded in mt#3268."_) would silence a genuine deferral following it. Dropped
+  rather than tightened: `I recorded` was already covered, so nothing first-person was lost.
 - _"Say the word if you want a handoff doc for picking this up later."_ — an additive offer nobody
   is waiting on.
 - _"…that's a different kind of work; say the word if you'd rather do that instead."_ — where the
   decision-taken marker is the ABSENCE of a change in course.
 
-What those two share with the four is that **nothing is blocked pending the answer**; whether that
-property is mechanically detectable is open. Both are pinned by tests that assert they STILL FIRE,
-so a later change that reaches them is visible rather than silent — if one starts passing, that is a
-result to record, not a test to delete.
+What those three share with the other three is that **nothing is blocked pending the answer**;
+whether that property is mechanically detectable is open. All three are pinned by tests that assert
+they STILL FIRE, so a later change that reaches them is visible rather than silent — if one starts
+passing, that is a result to record, not a test to delete.
 
 Per ADR-024 sign-off (b), the sufficiency bar is _"0 known-FP AND ≤5% new false-negative"_, so this
 is a measured Rung-1 result with a named residual rather than a claim of sufficiency. Per the ladder,
