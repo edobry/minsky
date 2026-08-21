@@ -85,7 +85,24 @@ const MAX_TOKENS = 12000;
  */
 const TRANSCRIPT_MESSAGE_CAP = 60;
 
-/** Cap per-message body size. */
+/**
+ * Cap per-message body size.
+ *
+ * ## This lever is INVISIBLE to `TranscriptSampling` (mt#4370)
+ *
+ * `TRANSCRIPT_MESSAGE_CAP` above and this constant read like two settings of one "shrink the
+ * prompt" lever, and they are two different operations: the cap changes WHICH messages are
+ * selected, this changes how much of an ALREADY-SELECTED message is rendered. Truncation
+ * happens only in `summarizeMessage`, which runs after selection — so `selectAnalysisWindow`
+ * and `describeSampling` never read this value, and every field of `TranscriptSampling`
+ * (`emptyTextRatio`, `nonTextRatio`, `analyzedMessages`) is invariant under it by
+ * construction. Scoring a change to this constant with mt#4235's coverage figures would
+ * therefore report "coverage unchanged" no matter what the change did.
+ *
+ * What it does spend is per-message DEPTH, which needs its own measure: mt#4370 uses
+ * delivered characters as a fraction of production ("dosage"), whose floor — scaffolding,
+ * role labels, and messages already shorter than the cap — is ~36% of the production prompt.
+ */
 const MESSAGE_TRUNCATE_CHARS = 400;
 
 // ---------------------------------------------------------------------------
@@ -376,8 +393,18 @@ If the session has NO unasked directions, return an empty findings array.`;
  * It used to coincide with the window position because the window was the head; since
  * mt#4235 the window is sampled, and the label must keep naming the real row so a
  * finding's `evidenceMessages` stay resolvable against the transcript.
+ *
+ * `truncateChars` defaults to `MESSAGE_TRUNCATE_CHARS`, so the production call is
+ * byte-identical to what it was before the parameter existed. It is a parameter at all
+ * because mt#4370 measures a window-size TRADE, and the harness that measures it has to
+ * render the same transcript at several truncation values within one run — a module `const`
+ * cannot vary per arm. Nothing in production passes it.
  */
-function summarizeMessage(msg: TranscriptMessage, index: number): string {
+function summarizeMessage(
+  msg: TranscriptMessage,
+  index: number,
+  truncateChars: number = MESSAGE_TRUNCATE_CHARS
+): string {
   // mt#4289: `Human` means the OPERATOR, not any `user`-role line. This detector
   // asks a model whether the agent took a direction nobody asked for, so a
   // harness-written line rendered as `Human:` is the exact input that
@@ -392,9 +419,7 @@ function summarizeMessage(msg: TranscriptMessage, index: number): string {
   const { text } = resolveMessageText(msg);
 
   const truncated =
-    text.length > MESSAGE_TRUNCATE_CHARS
-      ? `${safeTruncate(text, MESSAGE_TRUNCATE_CHARS, "head")}…`
-      : text;
+    text.length > truncateChars ? `${safeTruncate(text, truncateChars, "head")}…` : text;
   return `[${index + 1}] ${role}: ${truncated}`;
 }
 
@@ -437,10 +462,11 @@ function describeSelection(sampling: TranscriptSampling): string {
 function buildUserPromptFromSelection(
   selected: readonly SelectedMessage[],
   sampling: TranscriptSampling,
-  context: AnalyzerContext
+  context: AnalyzerContext,
+  truncateChars: number = MESSAGE_TRUNCATE_CHARS
 ): string {
   const transcriptText = selected
-    .map(({ message, index }) => summarizeMessage(message, index))
+    .map(({ message, index }) => summarizeMessage(message, index, truncateChars))
     .join("\n");
 
   const taskContext = context.taskId
@@ -461,9 +487,18 @@ Identify any preference-bound decisions the agent made that the spec did not dic
 }
 
 /** Build the user prompt body from a transcript, selecting the window first. */
-function buildUserPrompt(messages: TranscriptMessage[], context: AnalyzerContext): string {
+function buildUserPrompt(
+  messages: TranscriptMessage[],
+  context: AnalyzerContext,
+  truncateChars: number = MESSAGE_TRUNCATE_CHARS
+): string {
   const selected = selectAnalysisWindow(messages);
-  return buildUserPromptFromSelection(selected, describeSampling(messages, selected), context);
+  return buildUserPromptFromSelection(
+    selected,
+    describeSampling(messages, selected),
+    context,
+    truncateChars
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -558,3 +558,72 @@ describe("analyzerOutputSchema, as the provider actually receives it (mt#4317)",
     expect(emitted.additionalProperties).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The truncation parameter (mt#4370)
+// ---------------------------------------------------------------------------
+
+/**
+ * `MESSAGE_TRUNCATE_CHARS` became a DEFAULT rather than a fixed constant so mt#4370's harness
+ * can render one transcript at several truncations inside a single run. Two properties have to
+ * hold for that to be a measurement rather than a change: production must be unaffected, and
+ * the parameter must actually move the thing being dosed.
+ *
+ * The first is the one worth a test. A default parameter that silently changed the shipped
+ * prompt would make every figure the experiment produces a measurement of the wrong baseline —
+ * and nothing else in this file would fail, because every other test passes no argument.
+ */
+describe("per-message truncation is a parameter with production's value as its default (mt#4370)", () => {
+  const long = "y".repeat(1_000);
+
+  it("renders identically to the no-argument call when passed production's own value", () => {
+    const withDefault = __TEST_ONLY.summarizeMessage(makeMessage("user", long), 0);
+    const explicit = __TEST_ONLY.summarizeMessage(
+      makeMessage("user", long),
+      0,
+      __TEST_ONLY.MESSAGE_TRUNCATE_CHARS
+    );
+    expect(explicit).toBe(withDefault);
+  });
+
+  it("shortens the rendered message when passed a smaller value", () => {
+    const at400 = __TEST_ONLY.summarizeMessage(makeMessage("user", long), 0, 400);
+    const at150 = __TEST_ONLY.summarizeMessage(makeMessage("user", long), 0, 150);
+    expect(at150.length).toBeLessThan(at400.length);
+    // The dose is the point: roughly the difference between the two caps, not an arbitrary cut.
+    expect(at400.length - at150.length).toBe(250);
+  });
+
+  it("leaves a message already shorter than the cap untouched — the dosage floor", () => {
+    const short = makeMessage("user", "short enough");
+    expect(__TEST_ONLY.summarizeMessage(short, 0, 50)).toBe(
+      __TEST_ONLY.summarizeMessage(short, 0, 400)
+    );
+  });
+
+  it("threads the value through buildUserPrompt, so the whole prompt is dosed", () => {
+    const messages = [makeMessage("user", long), makeMessage("assistant", long)];
+    const full = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" });
+    const dosed = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" }, 150);
+    expect(dosed.length).toBeLessThan(full.length);
+    // Two messages, each cut by 250 chars.
+    expect(full.length - dosed.length).toBe(500);
+  });
+
+  it("leaves the SELECTION invariant — the sampling figures cannot score this lever", () => {
+    // The finding that reshaped mt#4370's criteria: truncation runs after selection, so
+    // `describeSampling`'s fields are invariant under it by construction. A future edit that
+    // moved truncation before selection would silently make mt#4235's coverage figures start
+    // responding to this lever, and the two tasks' measurements would stop meaning what they say.
+    const messages = Array.from({ length: 20 }, (_, i) =>
+      makeMessage(i % 2 === 0 ? "user" : "assistant", long)
+    );
+    const selected = selectAnalysisWindow(messages);
+    const sampling = describeSampling(messages, selected);
+    for (const truncate of [400, 200, 150, 50]) {
+      const prompt = __TEST_ONLY.buildUserPrompt(messages, { sessionId: "s1" }, truncate);
+      const rendered = prompt.split("\n").filter((line) => /^\[\d+] (Human|Agent):/.test(line));
+      expect(rendered).toHaveLength(sampling.analyzedMessages);
+    }
+  });
+});
