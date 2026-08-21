@@ -208,7 +208,23 @@ export const drivenSessionConversationsTable = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
 
-    /** FK to {@link drivenSessionsTable}. Entity threads inherit it via their shared localId. */
+    /**
+     * The driven session this adoption belongs to — the same `local_id`
+     * {@link drivenSessionsTable} is keyed by. Entity threads inherit it via
+     * the shared localId they already use.
+     *
+     * **Deliberately NOT a foreign key**, though mt#4323's criterion 1
+     * originally called for one. Both writes are detached fire-and-forget
+     * promises with no ordering guarantee between them: the adoption fires on
+     * the harness `init` frame, the parent row is upserted by
+     * `createDrivenSessionPersistObserver` on state change, and
+     * `upsertDrivenSessionRecord` SWALLOWS its own failures by design. An FK
+     * would therefore make the adoption fail whenever the parent write lost
+     * the race or errored — silently dropping recovery state in exactly the
+     * conditions that make it worth having, which is the failure class this
+     * table exists to close. A dangling `local_id` is the strictly better
+     * outcome: it still names the session whose span it records.
+     */
     localId: text("local_id").notNull(),
 
     /** The adopted conversation. NOT NULL — an adoption without one is not an adoption. */
