@@ -392,3 +392,57 @@ describe("review receipts — the review-due set (mt#4391)", () => {
     expect(parseReviewToken(a).reviewDue).toEqual([CAUSAL_ENTRY.path, other].sort());
   });
 });
+
+describe("ackedByAnotherPass vs claimHeldPaths — disjoint, and enforced locally (PR #3227 R1)", () => {
+  test("a path the token presented as due, advanced by another writer, is a LOSS", () => {
+    const readCount = FIRES_THRESHOLD;
+    const token = buildReviewToken([causalResultAt(readCount)], ISSUED_AT, [CAUSAL_ENTRY.path]);
+    // Not ackable at ack time (another pass advanced it) and its watermark now
+    // covers everything this token saw.
+    const reconciliation = reconcileReviewReceipt(
+      parseReviewToken(token),
+      [causalResultAt(readCount)],
+      new Set(),
+      { [CAUSAL_ENTRY.path]: { lastReviewedCount: readCount, lastReviewedAt: ACKED_AT } }
+    );
+
+    expect(reconciliation.ackedByAnotherPass).toEqual([CAUSAL_ENTRY.path]);
+    expect(reconciliation.claimHeldPaths).toEqual([]);
+  });
+
+  test("a claim-held path is NEVER reported as a loss, even if it also appears in reviewDue", () => {
+    // The pathological input the reviewer raised: the two sets are disjoint at
+    // mint by construction (calibration.ts passes the claim-FILTERED set as
+    // reviewDuePaths, and buildReviewToken stores both verbatim without a
+    // union), so this token cannot be produced by the current caller. Built by
+    // hand precisely to pin the local guard, so a future caller that DID mint
+    // reviewDue from the unfiltered set cannot turn a stand-down into a
+    // reported loss.
+    const readCount = FIRES_THRESHOLD;
+    const token = buildReviewToken(
+      [causalResultAt(readCount)],
+      ISSUED_AT,
+      [CAUSAL_ENTRY.path],
+      [CAUSAL_ENTRY.path]
+    );
+    const reconciliation = reconcileReviewReceipt(
+      parseReviewToken(token),
+      [causalResultAt(readCount)],
+      new Set(),
+      { [CAUSAL_ENTRY.path]: { lastReviewedCount: readCount, lastReviewedAt: ACKED_AT } }
+    );
+
+    // Stood down on it, so it is not a loss this pass suffered.
+    expect(reconciliation.ackedByAnotherPass).toEqual([]);
+    expect(reconciliation.claimHeldPaths).toEqual([CAUSAL_ENTRY.path]);
+    // And it is reported exactly once, not by both loops.
+    expect(reconciliation.claimHeldPaths.length).toBe(1);
+  });
+
+  test("the mint-time contract itself: the two lists are stored without a union", () => {
+    const token = buildReviewToken([causalResultAt(1)], ISSUED_AT, ["a.jsonl"], ["b.jsonl"]);
+    const receipt = parseReviewToken(token);
+    expect(receipt.reviewDue).toEqual(["a.jsonl"]);
+    expect(receipt.claimHeldAtMint).toEqual(["b.jsonl"]);
+  });
+});
