@@ -1214,6 +1214,29 @@ export function startStaleAskCloseSweeper(intervalMs?: number): () => void {
 const SERVICE_WINDOW_SWEEP_INTERVAL_MS = 60 * 1000;
 
 /**
+ * RETIRED — deliberately has no caller (mt#4410, 2026-08-21).
+ *
+ * The principal retired the attention-window concept: *"Forget about the
+ * windows. I don't think it's an important concept anymore."* The daemon no
+ * longer starts this; `src/commands/cockpit/start-command.ts` carries the
+ * matching note where the call used to be.
+ *
+ * **This being uncalled is intentional, not the bug it looks like.** That
+ * distinction is load-bearing here, because an exported-but-uncalled entry
+ * point in exactly this subsystem is what mt#4313 existed to fix: mt#1490
+ * shipped a reaper nothing constructed and mt#1489 shipped a cron firer
+ * nothing called, both for months. Do not "restore" this wiring on the
+ * strength of that resemblance — revive mt#1411 (the service-window design,
+ * CLOSED) first, and confirm the concept is wanted again.
+ *
+ * Worth knowing if it is ever revived: the cron half fired correctly on
+ * 2026-08-21 at 20:00:09Z (`service window: opened on schedule`) and the 25
+ * asks bound to `ask-hours` were still `suspended` afterward. The wake path
+ * was never verified end-to-end, so this code is retired UNPROVEN rather than
+ * working-but-unwanted.
+ *
+ * ---
+ *
  * Drive the service-window runtime: open windows on their cron schedule, close
  * them when their duration elapses, and run the reaper that awakens the asks
  * suspended against them.
