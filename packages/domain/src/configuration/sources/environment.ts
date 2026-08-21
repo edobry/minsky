@@ -297,6 +297,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_PREPUSH_FULL_SUITE: "tunable", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
   MINSKY_SKIP_NUL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
   MINSKY_SKIP_CONFLICT_MARKER_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#4307) — conflict-marker check override
+  MINSKY_SKIP_NO_DEPLOY_IMPACT_CHECK: "operator-override", // src/hooks/commit-msg.ts (mt#4397) — skip verifying a [no-deploy-impact] claim against the deploy-surface predicate
   MINSKY_SKIP_MIGRATION_JOURNAL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   MINSKY_SKIP_DEPLOY_DOMAIN_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
   MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
