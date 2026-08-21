@@ -41,6 +41,9 @@ import {
   describePersistenceUnavailability,
   PersistenceUnavailableError,
 } from "@minsky/domain/persistence/unconfigured-provider";
+// Canonical unknown→string coercion (PR #3220 R1). Static like its neighbours:
+// this is a pure function with no runtime weight to defer.
+import { getErrorMessage } from "@minsky/domain/schemas/error";
 import type { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type { ChecksResult } from "@minsky/domain/repository/github-pr-checks";
 import type { TokenProvider } from "@minsky/domain/auth";
@@ -171,9 +174,38 @@ export function classifyDriverConnectionError(err: unknown): string | undefined 
  * configured-but-failed case, because it describes the SAME state — the two
  * differ only in whether the bootstrap handed back a placeholder or threw.
  */
+/**
+ * Coerce a rejection into something an operator can read (PR #3220 R1).
+ *
+ * The old fallback was a bare `String(err)`, which renders `[object Object]`
+ * for a plain-object rejection — and this whole function exists to surface a
+ * cause, so losing it here defeats the point. Not hypothetical on this path:
+ * `getSharedPersistenceService` races a timeout and PROPAGATES whatever the
+ * init rejected with, which is not guaranteed to be an `Error` subclass.
+ *
+ * `getErrorMessage` is the repo's canonical coercion and handles `Error` and
+ * `{ message }` shapes, but its own last resort is `String(error)` — so the
+ * object case still needs catching after it.
+ */
+function describeRejection(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+
+  const viaMessage = getErrorMessage(err);
+  if (viaMessage !== "[object Object]") return viaMessage;
+
+  try {
+    return JSON.stringify(err) ?? String(err);
+  } catch {
+    // intentional-swallow: a circular or non-serializable rejection has no
+    // better rendering available, and a diagnosis step must never replace the
+    // failure it was called to describe (this module's stated contract).
+    return String(err);
+  }
+}
+
 export function describeFailedPersistenceInit(err: unknown): string {
-  const reason =
-    classifyDriverConnectionError(err) ?? (err instanceof Error ? err.message : String(err));
+  const reason = classifyDriverConnectionError(err) ?? describeRejection(err);
   // mt#4383: kept in lockstep with `describePersistenceUnavailability`, per the
   // mt#3661 test that asserts the two share wording — an operator must not get
   // different advice from the cockpit than from the MCP adapters. mt#4379

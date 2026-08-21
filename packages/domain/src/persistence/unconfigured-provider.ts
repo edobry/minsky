@@ -226,9 +226,14 @@ export function describePersistenceUnavailability(provider: unknown): string {
     // requires a degraded substitute to carry them, and their ABSENCE is the
     // load-bearing case: it distinguishes "stuck since boot" from "still
     // retrying against a real outage".
+    // Flattened rather than nested (PR #3220 R1): the parenthetical is computed
+    // first so the sentence below is a single interpolation instead of a
+    // template inside a template. Same output, one less place for an escaping
+    // slip to hide. (mt#4379's sibling renderer still carries the nested form;
+    // out of scope here, and noted rather than silently changed.)
+    const retryDetail = provider.lastAttemptError ? ` (${provider.lastAttemptError})` : "";
     const retryClause = provider.lastAttemptAt
-      ? `Last re-initialization attempt ${provider.lastAttemptAt} also failed` +
-        `${provider.lastAttemptError ? ` (${provider.lastAttemptError})` : ""}.`
+      ? `Last re-initialization attempt ${provider.lastAttemptAt} also failed${retryDetail}.`
       : "This provider has NOT been re-initialized since boot, so the underlying " +
         "dependency may well have recovered in the meantime.";
     return (

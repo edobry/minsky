@@ -243,6 +243,25 @@ minsky config list           # answers normally
 additionally logged at error level at startup, but note that it goes to **stderr**, so an MCP client
 sees only the tool result; that is precisely why the read path had to carry the cause itself.
 
+**The wording above is not specific to task reads (mt#4383).** Three separate renderers describe this
+one state, and mt#4379 corrected only the first:
+
+| Renderer                                         | Reaches                                                                                                               |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `MultiBackendTaskService.describeUnavailability` | task reads (the message quoted above)                                                                                 |
+| `describePersistenceUnavailability`              | the canonical helper — `session` / `memory` commands, task routing, cockpit widgets, schema readiness, the toil-miner |
+| `describeFailedPersistenceInit`                  | the cockpit, where a failed init is PROPAGATED rather than substituted                                                |
+
+All three now agree on the two things that matter: no claim that the database is currently
+unreachable, and no instruction to restart. `minsky persistence check` PASSING while one of these
+fails is expected, not contradictory — it probes the live connection, they report a failed
+initialization.
+
+The cockpit renderer keeps the present tense on purpose, and it is the one exception worth knowing:
+its error is a live throw from the attempt just made, so "failed to initialize" is accurate at the
+moment you read it. The other two replay a record stored at boot, which is why they say **AT BOOT**
+and carry a retry clause.
+
 ## Advanced Features
 
 ### Collision Detection

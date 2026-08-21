@@ -18,6 +18,13 @@ import { UnconfiguredPersistenceProvider } from "@minsky/domain/persistence/unco
 /** The originating incident's boot failure (mt#3635/mt#3636, 2026-08-03). */
 const ENOTFOUND = "getaddrinfo ENOTFOUND";
 
+/**
+ * The clause that distinguishes configured-but-failing from missing config
+ * (ADR-035 rule 3). Named because both renderers must carry it and several
+ * tests assert on it — a literal repeated per assertion is how the two drift.
+ */
+const CONFIGURED_NOT_MISSING = "Postgres IS configured";
+
 describe("describeFailedPersistenceInit (mt#3661)", () => {
   test("names the underlying boot error", () => {
     const described = describeFailedPersistenceInit(new Error(ENOTFOUND));
@@ -25,7 +32,7 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
     expect(described).toContain(ENOTFOUND);
     // The distinction ADR-035 rule 3 requires: configured-but-failing, NOT
     // missing configuration.
-    expect(described).toContain("Postgres IS configured");
+    expect(described).toContain(CONFIGURED_NOT_MISSING);
     expect(described).toContain("not a missing");
   });
 
@@ -45,6 +52,36 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
     );
   });
 
+  test("an object rejection renders its content, not [object Object]", () => {
+    // PR #3220 R1. The old fallback was a bare `String(err)`, so a plain-object
+    // rejection erased the very cause this function exists to surface. The
+    // driver rejects with exactly this shape when the socket is refused.
+    const described = describeFailedPersistenceInit({ code: "ECONNREFUSED", errno: -61 });
+
+    expect(described).not.toContain("[object Object]");
+    expect(described).toContain("ECONNREFUSED");
+  });
+
+  test("an object carrying a message uses it verbatim", () => {
+    // The `{ message }` shape `getErrorMessage` already handles — pinned so the
+    // JSON fallback above cannot start swallowing it into a serialized blob.
+    const described = describeFailedPersistenceInit({ message: "pool exhausted" });
+
+    expect(described).toContain("pool exhausted");
+    expect(described).not.toContain("{");
+  });
+
+  test("a circular rejection degrades to a string rather than throwing", () => {
+    // The diagnosis step must never replace the failure it was called to
+    // describe — this module's stated contract — so JSON.stringify's throw on a
+    // cycle has to be absorbed.
+    const circular: Record<string, unknown> = { code: "EHOSTUNREACH" };
+    circular.self = circular;
+
+    expect(() => describeFailedPersistenceInit(circular)).not.toThrow();
+    expect(describeFailedPersistenceInit(circular)).toContain(CONFIGURED_NOT_MISSING);
+  });
+
   test("agrees with the domain helper's configured-but-failed wording", () => {
     // Both describe the SAME state and differ only in how the bootstrap reported
     // it, so their guidance must not diverge — an operator should not get
@@ -55,7 +92,7 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
     const fromThrow = describeFailedPersistenceInit(new Error(ENOTFOUND));
 
     for (const shared of [
-      "Postgres IS configured",
+      CONFIGURED_NOT_MISSING,
       "not a missing configuration",
       "minsky persistence check",
     ]) {
