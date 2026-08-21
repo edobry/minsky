@@ -141,14 +141,16 @@ command is what makes that instruction executable — without it the successor's
 **Characterizations need the ARTIFACT to read, not a command to run.** A sentence asserting what a
 state MEANS — "that ask is a real unanswered question, not debris"; "this task is still blocking X" —
 is an agent-authored judgment (`claim-confidence.mdc §The corpus is agent-authored`), and **no status
-command can falsify a judgment.** The tell is a judgment word: _real, genuine, still, merely, debris,
-blocking, actually, worth_. Record **where the judgment came from** — the ask's body, the PR's diff,
+command can falsify a judgment.** The tell is a judgment word — _real, genuine, still, merely,
+debris, blocking, actually, worth_ are the common ones, not the whole set, so match on the SHAPE (a
+verdict about the state rather than a reading of it) rather than on this list. Record **where the judgment came from** — the ask's body, the PR's diff,
 the spec section — so the successor can re-form it instead of inheriting it.
 
 **Originating incident — the characterization half** (2026-08-20, mem#1166): a handoff called ask#9278 _"a real unanswered question,
 not debris"_; the next session re-derived the ask's STATE correctly with `refs_status`, reported
 "Still yours," and the principal answered _"looks like it was resolved...?"_ They were right — the
-ask's own title opened **"RESOLVED. No action needed from you."** The state check passed and the
+ask's own title began _"RESOLVED — reviewer restored…"_ and its question opened **"RESOLVED. No
+action needed from you."** The state check passed and the
 wrong claim rode straight through it, because the inherited sentence was never a claim about the
 state column at all.
 
@@ -329,8 +331,9 @@ uuid-keyed records` below) to fetch the full structured payload written in step 
      the command that settles it, per step 5 of `## Process`. **Run that command.** If none was
      recorded, the claim is `unknown` per `claim-confidence.mdc` — say so rather than repeating it,
      and do not upgrade it by re-deriving something adjacent.
-   - **A characterization** — what a state MEANS, marked by a judgment word (_real, genuine, still,
-     merely, debris, blocking, actually, worth_) — is settled by **opening the artifact**, never by
+   - **A characterization** — what a state MEANS, marked by a judgment word (e.g. _real, genuine,
+     still, merely, debris, blocking_; the list in step 5 is illustrative, so match on the shape) —
+     is settled by **opening the artifact**, never by
      a status call. Read the ask's body, the PR's diff, the spec section. A status call returning
      exactly what the handoff predicted is not corroboration here: it is silent on the question.
 
