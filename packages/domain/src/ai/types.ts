@@ -106,6 +106,21 @@ export interface AIObjectGenerationRequest {
   provider?: string;
   prompt?: string;
   maxTokens?: number;
+  /**
+   * Structured-output strategy the AI SDK uses to obtain the object (mt#4317).
+   *
+   * `"json"` asks the model to emit a JSON document matching the schema; `"tool"` exposes the
+   * schema as a TOOL the model calls, so the provider enforces the argument shape rather than
+   * the model remembering to. `"auto"` is the SDK default when this is unset, and is what every
+   * Minsky caller currently gets — NO production caller sets this field.
+   *
+   * Exposed as a request field rather than hardcoded because the right strategy is a property
+   * of the SCHEMA being asked for, not of the service. mt#4317 added it to measure one consumer
+   * whose schema the model kept under-filling, found tool mode not separable from variance
+   * (11/40 vs 15/40 at n=40 per arm), and therefore did NOT adopt it. It stays because the
+   * measurement harness sets it per-arm and a larger run may yet settle the question.
+   */
+  mode?: "auto" | "json" | "tool";
 }
 
 /**

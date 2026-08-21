@@ -296,6 +296,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_PREPUSH_TESTS: "operator-override", // .husky/pre-push (mt#2716) — skip the local suite entirely
   MINSKY_PREPUSH_FULL_SUITE: "tunable", // scripts/run-tests-gated.ts (mt#3562) — force the unscoped full suite
   MINSKY_SKIP_NUL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
+  MINSKY_SKIP_CONFLICT_MARKER_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#4307) — conflict-marker check override
   MINSKY_SKIP_MIGRATION_JOURNAL_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   MINSKY_SKIP_DEPLOY_DOMAIN_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
   MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK: "operator-override", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
@@ -384,6 +385,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_RUNG2_NOMINATION_ENFORCE: "tunable", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3408) — opt-in to letting Rung-2 nominations contribute to the injected reminder; default is log-only (measured 3/3 FP, see the constant's docblock)
   MINSKY_KA_RUNG2_NOMINATION: "tunable", // .claude/hooks/knowledge-acquisition-detector.ts (mt#3772) — opt-in to Rung-2 embedding nomination for the skill-relevance gate; default is the lexical gate, because the 0.455 threshold was derived from a different exemplar band and is unmeasured here
   MINSKY_CMA_RUNG2_NOMINATION: "tunable", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#4155) — opt-in to Rung-2 embedding nomination for the identity/equivalence claim class ("X is the single reader"), which carries no behavior verb any PREDICATE_PATTERNS entry matches; default is the lexical path, because the 0.455 threshold was derived from the retrospective-trigger exemplar band and is unmeasured on this corpus
+  MINSKY_SKIP_SYMBOL_FREE_CLAIMS: "operator-override", // .claude/hooks/code-mechanism-assertion-detector.ts (mt#3726) — turn the symbol-FREE Rung-2 cohort (invocation-path both signs, subsystem-property, external-system-mechanism, log-attribution) back off while leaving mt#4155's identity family running, so a calibration review that finds this cohort noisy can quiet it without reverting a family whose records are clean; the cohort ships with NO suppression (its claims carry no symbol to look up), which is its known over-fire source
   MINSKY_DISABLE_RUNG3_CONFIRM: "operator-override", // .claude/hooks/retrospective-trigger-scanner.ts (mt#3652) — kill switch for the ADR-024 Rung-3 Haiku confirm stage; Rungs 1-2 keep running (nominations revert to log-only)
   MINSKY_ACK_PRE_NARRATION: "operator-override", // .claude/hooks/pre-narration-detector.ts (mt#2197) — override for pre-narrated/fabricated-outcome warning injection
   MINSKY_SKIP_SESSION_PATH_CHECK: "operator-override", // .claude/hooks/check-guessed-session-path.ts (mt#2195) — override for guessed/nonexistent session-path guard
@@ -442,6 +444,7 @@ export const HOOK_ONLY_ENV_VAR_CATEGORIES: Readonly<Record<string, HookOnlyEnvVa
   MINSKY_SKIP_CLAIM_PROVENANCE: "operator-override", // .claude/hooks/claim-provenance-scan.ts (mt#4168) — a file-collision or negative-ownership claim written with no discharging call
   MINSKY_SKIP_ENUMERATION_SCOPE: "operator-override", // .claude/hooks/enumeration-scope-check.ts (mt#4171) — a PR changing a serialized contract whose gate-(h) consumer sweep never reached docs/
   MINSKY_SKIP_EVIDENCE_PROVENANCE: "operator-override", // .claude/hooks/evidence-record-provenance.ts (mt#4044) — Negative control / Execution evidence record claiming a run that never happened
+  MINSKY_SKIP_GATE_WALK_PROVENANCE: "operator-override", // .claude/hooks/gate-walk-provenance.ts (mt#1880) — merge-seam record of whether the bound task was ever gated (a task.status_changed → READY row)
   MINSKY_ACK_TASK_HIJACK: "operator-override", // packages/domain/src/session/task-correspondence.ts (mt#2514) — override for the pre-merge PR-task-correspondence (cross-bind) guard
   // mt#2414 — project identity resolver override. Read by
   // packages/domain/src/project/identity.ts at identity-resolution time (not

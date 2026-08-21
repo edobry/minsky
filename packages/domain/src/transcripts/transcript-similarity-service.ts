@@ -10,9 +10,68 @@
  * - Each result includes parent-session metadata (started_at, model, message count,
  *   related_task_ids, related_pr_numbers, parent_agent_session_id for subagent links).
  *
+ * ## Why these queries use `<->` (L2) and not `<=>` (cosine) — mt#4344
+ *
+ * pgvector can only use an index whose operator class matches the query's
+ * operator. `idx_agent_transcript_turns_embedding` is built
+ * `USING hnsw (embedding vector_l2_ops)` — the same opclass every other vector
+ * namespace in this database uses, and the same one the shared
+ * `postgres-vector-storage.ts` hardcodes (`<->`, `:209`/`:212`). This file
+ * originally hand-wrote `<=>`, so the planner ignored the index entirely: a
+ * 1,044 MB HNSW index served ZERO queries across the table's whole lifetime
+ * (`pg_stat_user_indexes.idx_scan = 0`, lifetime counters) while every semantic
+ * search sequentially scanned ~135k rows.
+ *
+ * The swap is safe because the stored vectors are **unit-normalized**, for
+ * which `‖a−b‖² = 2 − 2·cos(a,b)`, i.e. L2 distance is a strictly increasing
+ * function of cosine distance — the two induce the SAME neighbour ordering.
+ * Measured twice, independently: mt#450 (2026-08-04) over all 3,556 task
+ * vectors, where ranking by `<->` and by `<=>` gave an identical top-10; and
+ * mt#4344 (2026-08-19) over 500 sampled transcript embeddings, whose squared
+ * norms ran 0.9987–1.0013 (avg 1.000058). mt#450 also records that a
+ * whole-corpus rank comparison shows far-tail near-tie reordering — thousands
+ * of differing ranks that never touch the top-k. That is noise, not a defect;
+ * do not re-derive it.
+ *
+ * **Two consequences to carry.** (1) The score VALUE changed even though the
+ * ORDER did not: under unit normalization `L2 = sqrt(2 · cosine_distance)`, so
+ * the numbers this service returns are ~1.41x their old scale near 1.0. There
+ * is no threshold or display consumer of that score today (audited mt#4344),
+ * which is why no conversion shipped with the operator change — but any future
+ * threshold must be expressed in L2, not cosine. (2) The normalization is an
+ * observed property of the current embedding provider, not a schema invariant.
+ * If a provider ever emits unnormalized vectors, L2 and cosine diverge for
+ * real and this comment stops being true.
+ *
+ * The operator↔opclass correspondence is now checked mechanically for every
+ * vector namespace by `storage/vector/operator-class-alignment.ts`.
+ *
+ * ## Why this file does not route through `postgres-vector-storage.ts`
+ *
+ * Every other vector namespace does, which is why every other one stayed
+ * aligned — so the bypass is the root cause and is worth justifying rather
+ * than merely noting. That layer's `search` is single-table, single-id and
+ * equality-filter-only: it selects `${idColumn} AS id` plus a score, builds
+ * `WHERE key = $n` against ONE table, and returns `{id, score}`. Transcript
+ * search needs four things it cannot express — a JOIN to `agent_transcripts`
+ * for `projectId` scoping and parent-session metadata (mt#2417); a composite
+ * `(agent_session_id, turn_index)` identity rather than one id column;
+ * `IS NOT NULL` role predicates rather than equality; and a date window bound
+ * to the TURN's `started_at`, not the parent session's (mt#2319).
+ *
+ * Adopting it therefore means EXTENDING it (join support, composite ids,
+ * richer predicates), not switching a call site. That work is owned by
+ * **mt#2331**, which already owns transcripts adopting the canonical
+ * persistence pattern; mt#4344 deliberately did not attempt it. Until then the
+ * alignment check above is what keeps this hand-written SQL from diverging
+ * again — it is the substitute for the shared layer's structural guarantee,
+ * not an argument that the bypass is fine.
+ *
  * @see mt#1352 — PerTurnEmbeddingPipeline (per-turn embeddings populated)
  * @see mt#1353 — SummaryPipeline (session-level summary_embedding populated)
  * @see mt#1354 — this file
+ * @see mt#4344 — operator/opclass mismatch that made the index unusable
+ * @see mt#450 — the corroborating measurement on the tasks corpus
  */
 
 import { injectable } from "tsyringe";
@@ -55,11 +114,34 @@ export interface TranscriptTurnResult {
   agentSessionId: string;
   turnIndex: number;
   userText: string | null;
+  /**
+   * Who authored `userText` (mt#4289) — `"human"` for operator speech, a
+   * harness kind (`compact_summary`, `harness_meta`, `task_notification`, …)
+   * for a `user`-role line Claude Code generated. Null when the turn carries no
+   * `userText`.
+   *
+   * Read this before treating a `role: "user"` hit as something the operator
+   * said: measured against prod 2026-08-19, 43.5% of turns carrying `userText`
+   * are harness-written. `originKind` on the search options filters on it
+   * server-side.
+   */
+  userOrigin: string | null;
   assistantText: string | null;
   startedAt: Date | null;
   endedAt: Date | null;
   isSpawnBoundary: boolean | null;
-  /** Cosine-distance score from pgvector (<=> operator). Lower = more similar. */
+  /**
+   * L2 (Euclidean) distance score from pgvector, via the `<->` operator that
+   * matches the table's `vector_l2_ops` HNSW index (mt#4344). Lower = more
+   * similar. On unit-normalized vectors this equals `sqrt(2 · cosine_distance)`
+   * and ranks identically to cosine — see this module's header.
+   *
+   * **Producer-dependent.** `TranscriptFtsService` reuses this same result type
+   * and fills this field with Postgres `ts_rank` instead, where HIGHER is more
+   * relevant (it says so at its own module header). The two scales are not
+   * comparable and never were; do not write a threshold against this field
+   * without knowing which service produced the row.
+   */
   score: number;
   sessionMetadata: TranscriptSessionMetadata;
   /**
@@ -140,7 +222,12 @@ export interface TranscriptSessionResult {
   summary: string | null;
   relatedTaskIds: string[] | null;
   relatedPrNumbers: string[] | null;
-  /** Cosine-distance score from pgvector (<=> operator). Lower = more similar. */
+  /**
+   * L2 (Euclidean) distance score from pgvector, via the `<->` operator that
+   * matches the table's `vector_l2_ops` HNSW index (mt#4344). Lower = more
+   * similar. On unit-normalized vectors this equals `sqrt(2 · cosine_distance)`
+   * and ranks identically to cosine — see this module's header.
+   */
   score: number;
   parentAgentSessionId: string | null;
 }
@@ -153,6 +240,16 @@ export interface TranscriptSearchOptions {
   limit?: number;
   /** Filter by turn role: 'user' turns have non-null userText; 'assistant' turns have non-null assistantText. */
   role?: "user" | "assistant";
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — e.g. `"human"` for
+   * operator speech only. Mirrors `TranscriptFtsSearchOptions.originKind`, so
+   * the two search surfaces answer the same question the same way.
+   *
+   * A separate axis from `role`: `role: "user"` tests `user_text IS NOT NULL`,
+   * which 8,245 harness-written rows also satisfy (43.5% of that population,
+   * measured against prod 2026-08-19).
+   */
+  originKind?: string;
   /** Filter turns by the turn's own start time range (agent_transcript_turns.started_at). */
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
@@ -174,6 +271,14 @@ export interface FindSimilarTurnOptions {
   limit?: number;
   /** Project scoping (mt#2417, Phase 1.4) — see TranscriptSearchOptions.projectId. */
   projectId?: string;
+  /**
+   * Filter by who authored the turn's `userText` (mt#4289) — see
+   * `TranscriptSearchOptions.originKind`. Applies to the NEIGHBOURS returned,
+   * not to the seed: the seed is addressed by id, so its own provenance is the
+   * caller's to inspect on the result, while "find me operator turns like this
+   * one" is the question this filter answers.
+   */
+  originKind?: string;
 }
 
 /**
@@ -196,7 +301,8 @@ export class TranscriptSimilarityService {
   ) {}
 
   /**
-   * Embed the query text and return the nearest-neighbor turns by cosine distance.
+   * Embed the query text and return the nearest-neighbor turns by L2 distance
+   * (`<->`, matching the table's vector_l2_ops index — see module header).
    *
    * Applies optional WHERE filters:
    *   - role: 'user' → user_text IS NOT NULL; 'assistant' → assistant_text IS NOT NULL
@@ -219,9 +325,11 @@ export class TranscriptSimilarityService {
       );
     }
 
-    // Build the pgvector cosine-distance expression.
+    // Build the pgvector L2-distance expression. `<->` (not `<=>`) so the
+    // planner can use idx_agent_transcript_turns_embedding, which is
+    // vector_l2_ops — see this module's header (mt#4344).
     const embeddingLiteral = `'[${queryEmbedding.join(",")}]'`;
-    const distanceExpr = sql`${agentTranscriptTurnsTable.embedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
+    const distanceExpr = sql`${agentTranscriptTurnsTable.embedding} <-> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Build WHERE conditions.
     const conditions: SQL[] = [];
@@ -233,6 +341,13 @@ export class TranscriptSimilarityService {
       conditions.push(sql`${agentTranscriptTurnsTable.userText} IS NOT NULL`);
     } else if (opts.role === "assistant") {
       conditions.push(sql`${agentTranscriptTurnsTable.assistantText} IS NOT NULL`);
+    }
+
+    // mt#4289: a separate axis from `role` — see TranscriptSearchOptions.
+    // Mirrors TranscriptFtsService so a caller does not get operator-only
+    // results from one search surface and the unfiltered mix from the other.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
     }
 
     if (opts.sessionId) {
@@ -250,13 +365,14 @@ export class TranscriptSimilarityService {
     // buildTurnDateRangeConditions / mt#2319.
     conditions.push(...buildTurnDateRangeConditions(opts.dateRange));
 
-    // Query: JOIN agent_transcript_turns to agent_transcripts, ORDER BY cosine distance.
+    // Query: JOIN agent_transcript_turns to agent_transcripts, ORDER BY L2 distance.
     try {
       const rows = await this.db
         .select({
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -285,6 +401,7 @@ export class TranscriptSimilarityService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
@@ -366,8 +483,9 @@ export class TranscriptSimilarityService {
       );
     }
 
+    // `<->` matches the vector_l2_ops index — see this module's header (mt#4344).
     const embeddingLiteral = `'[${(seedRow.embedding as number[]).join(",")}]'`;
-    const distanceExpr = sql`${agentTranscriptTurnsTable.embedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
+    const distanceExpr = sql`${agentTranscriptTurnsTable.embedding} <-> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Exclude the seed turn itself.
     const conditions: SQL[] = [
@@ -378,6 +496,10 @@ export class TranscriptSimilarityService {
     if (opts.projectId) {
       conditions.push(eq(agentTranscriptsTable.projectId, opts.projectId));
     }
+    // mt#4289 — see search()'s equivalent filter and FindSimilarTurnOptions.
+    if (opts.originKind) {
+      conditions.push(eq(agentTranscriptTurnsTable.userOrigin, opts.originKind));
+    }
 
     try {
       const rows = await this.db
@@ -385,6 +507,7 @@ export class TranscriptSimilarityService {
           agentSessionId: agentTranscriptTurnsTable.agentSessionId,
           turnIndex: agentTranscriptTurnsTable.turnIndex,
           userText: agentTranscriptTurnsTable.userText,
+          userOrigin: agentTranscriptTurnsTable.userOrigin,
           assistantText: agentTranscriptTurnsTable.assistantText,
           startedAt: agentTranscriptTurnsTable.startedAt,
           endedAt: agentTranscriptTurnsTable.endedAt,
@@ -412,6 +535,7 @@ export class TranscriptSimilarityService {
         agentSessionId: row.agentSessionId,
         turnIndex: row.turnIndex,
         userText: row.userText,
+        userOrigin: row.userOrigin,
         assistantText: row.assistantText,
         startedAt: row.startedAt,
         endedAt: row.endedAt,
@@ -474,8 +598,12 @@ export class TranscriptSimilarityService {
       );
     }
 
+    // `agent_transcripts.summary_embedding` has NO hnsw index at all, so this
+    // query is a sequential scan either way (mt#4344 §Out of scope — noted, not
+    // fixed here). `<->` regardless, so the whole file speaks one metric and
+    // the alignment check has a single expectation per file.
     const embeddingLiteral = `'[${(seedRow.summaryEmbedding as number[]).join(",")}]'`;
-    const distanceExpr = sql`${agentTranscriptsTable.summaryEmbedding} <=> ${sql.raw(embeddingLiteral)}::vector`;
+    const distanceExpr = sql`${agentTranscriptsTable.summaryEmbedding} <-> ${sql.raw(embeddingLiteral)}::vector`;
 
     // Project scoping (mt#2417, Phase 1.4) — see search()'s equivalent filter.
     const scopeConditions: SQL[] = [

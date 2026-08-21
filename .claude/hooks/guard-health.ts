@@ -10,9 +10,11 @@
 // src/mcp/subagent-dispatch-tracker.ts (mt#1735-1738) — same shape:
 // append-only log + aggregate surface + threshold escalation.
 //
-// Dependency-free (per .minsky/hooks/SPEC.md's invariant): no `src/`
-// imports. This lets every guard keep working even when the main codebase
-// has type errors.
+// Dependency-free: no `src/` imports. (This cited `.minsky/hooks/SPEC.md`'s
+// invariant and the reason "so every guard keeps working even when the main
+// codebase has type errors" — mt#4373 retired the invariant and disproved the
+// reason: Bun strips types at import and never type-checks. This module still
+// has no reason to reach outside the tree, so nothing about it changes.)
 //
 // Two capture paths (per mt#2812 spec item 1):
 //   (a) dispatcher-migrated guards — dispatcher.ts's guard loop calls
@@ -36,7 +38,8 @@
 // debug.systemInfo) duplicates this read+aggregate logic rather than
 // importing it: the root tsconfig.json's "include" is `["src", "types",
 // "tests", ...]` — `.minsky/` is not part of that program — and this
-// hooks tree is intentionally self-contained per SPEC.md. Precedent for the
+// hooks tree kept a self-containment convention (retired by mt#4373 — the
+// tsconfig-program reason above still stands on its own). Precedent for the
 // duplication-over-cross-import choice: mcp-daemon-staleness-detector.ts
 // inlines its own daemon-state reader rather than importing
 // src/mcp/daemon-state.ts, for the same reason in the opposite direction.
@@ -378,7 +381,10 @@ export type GuardLiveness = "failing" | "recovered" | "dormant";
  * `computeGuardHealthSummary` a pure function over two plain inputs, and it is
  * what lets the hand-synced `src/mcp/guard-health-tracker.ts` copy feed the same
  * computation from its own reader without importing anything from this tree
- * (SPEC.md's self-containment invariant runs in both directions).
+ * (this cited SPEC.md's self-containment invariant "running in both
+ * directions"; mt#4373 retired that invariant, and the outward direction it
+ * described — `src/` not importing the hooks tree — was always the tsconfig
+ * program boundary rather than the invariant anyway).
  *
  * Only records carrying `guardOutcome: "decided"` belong here. A `"crashed"`
  * record, an overridden-guard record, and a legacy record with no marker at all

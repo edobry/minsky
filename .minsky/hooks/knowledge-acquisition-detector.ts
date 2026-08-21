@@ -84,9 +84,13 @@
 // rather than just the last turn) mirrors build-claim-injection-detector.ts's
 // `findDeploySurfaceEditPaths` widening of substrate-bypass-detector.ts's
 // turn-scoped `extractSkillToolInvocations` — this file duplicates and widens
-// that same helper (this repo's hooks-tree convention: duplicate small helpers
-// across detector files rather than cross-import between sibling detectors,
-// per build-claim-injection-detector.ts's own `collectStrings` comment).
+// that same helper (the sibling-detector duplication practice: duplicate small
+// helpers across detector files rather than cross-import between sibling
+// detectors, per build-claim-injection-detector.ts's own `collectStrings`
+// comment). That practice is about DETECTOR-TO-DETECTOR imports and is
+// unaffected by mt#4373, which retired the separate hooks-tree convention
+// against importing `packages/domain`. Naming both "the hooks-tree convention"
+// is what made them easy to confuse; they were always two different rules.
 //
 // Tool-result lines carry role "user" (memory a3e60471) — this detector's
 // whole signal is tool calls interleaved with text, so it is maximally exposed
@@ -279,7 +283,8 @@ export const TRAILING_WINDOW_TURNS = 5;
 export const SESSION_VERDICT_DEDUPE_KEY = "session-verdict";
 
 // ---------------------------------------------------------------------------
-// Small duplicated helpers (this repo's hooks-tree convention — see header)
+// Small duplicated helpers (the sibling-detector duplication practice — see
+// header; NOT the packages/domain self-containment convention, retired mt#4373)
 // ---------------------------------------------------------------------------
 
 /** Recursively collect every string value reachable from `value` into `out`. */
@@ -302,9 +307,14 @@ function escapeRegex(s: string): string {
  * session widening of `substrate-bypass-detector.ts`'s turn-scoped
  * `extractSkillToolInvocations` (that file's own, non-exported, turn-scoped
  * helper), mirroring `build-claim-injection-detector.ts`'s
- * `findDeploySurfaceEditPaths` widening. Duplicated rather than imported per
- * this repo's hooks-tree convention (self-contained, independently-readable
- * detector modules).
+ * `findDeploySurfaceEditPaths` widening. Duplicated rather than imported.
+ *
+ * mt#4373: the convention this cited — a self-contained hooks tree — is retired,
+ * and this module already imports `packages/domain` elsewhere, so the stated
+ * reason did not describe the file even before that. The duplication is now an
+ * ordinary judgment call, and a candidate to collapse: a copy that drifts from
+ * its origin is the mt#4330 hazard, and this one tracks a domain function that
+ * is already reachable from here.
  */
 function extractSkillInvocationsWholeSession(lines: TranscriptLine[]): string[] {
   const skillNames: string[] = [];

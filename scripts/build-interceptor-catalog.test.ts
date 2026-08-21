@@ -54,7 +54,7 @@ describe("buildCatalog — population is the UNION of both declarations", () => 
   test("a name in only the oracle is still rendered, marked undescribed", () => {
     const catalog = buildCatalog(sources({ oracleNames: new Set(["orphan-guard"]) }));
 
-    expect(catalog.population).toBe(1);
+    expect(catalog.entries.length).toBe(1);
     expect(catalog.entries[0]?.guardName).toBe("orphan-guard");
     // The load-bearing assertion: it is PRESENT with an explicit marker, not
     // dropped. Dropping it is the absence-vs-declaration conflation.
@@ -66,7 +66,7 @@ describe("buildCatalog — population is the UNION of both declarations", () => 
   test("a described name absent from the oracle is reported in the other direction", () => {
     const catalog = buildCatalog(sources({ describedNames: new Set(["parallel-work-guard"]) }));
 
-    expect(catalog.population).toBe(1);
+    expect(catalog.entries.length).toBe(1);
     expect(catalog.divergence.describedButNotDeclared).toEqual(["parallel-work-guard"]);
     expect(catalog.divergence.declaredButNotDescribed).toEqual([]);
   });
@@ -164,7 +164,7 @@ describe("the real corpus", () => {
     // Was `population === INTERCEPTOR_DESCRIPTIONS.size`, an equality that held
     // only because the oracle excluded everything undescribed — it measured the
     // descriptions against themselves.
-    expect(real.population).toBeGreaterThanOrEqual(INTERCEPTOR_DESCRIPTIONS.size);
+    expect(real.entries.length).toBeGreaterThanOrEqual(INTERCEPTOR_DESCRIPTIONS.size);
     const names = new Set(real.entries.map((e) => e.guardName));
     for (const registered of readSettingsHookNames() ?? []) {
       expect(names.has(registered), `${registered} is registered but not in the catalog`).toBe(
@@ -173,7 +173,7 @@ describe("the real corpus", () => {
     }
     // A floor rather than an exact figure: the corpus grows with every guard
     // added. 130 was the measured population when mt#4129 widened it (102 before).
-    expect(real.population).toBeGreaterThanOrEqual(102);
+    expect(real.entries.length).toBeGreaterThanOrEqual(102);
   });
 
   test("every pre-commit step the hook actually runs is in the population (mt#4071)", () => {
@@ -259,7 +259,7 @@ describe("the real corpus", () => {
     // to add up, and it is what the page renders as a sum.
     const byState = (s: string): number => real.entries.filter((e) => e.familyState === s).length;
     expect(byState("classified") + byState("out-of-model") + byState("unclassified")).toBe(
-      real.population
+      real.entries.length
     );
   });
 

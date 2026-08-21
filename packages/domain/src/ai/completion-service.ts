@@ -308,6 +308,11 @@ export class DefaultAICompletionService implements AICompletionService {
         // is this file's record of an unset field forwarded as `undefined` being read
         // downstream as a value. Omitting the key when unset cannot reproduce that class.
         ...(request.maxTokens !== undefined ? { maxTokens: request.maxTokens } : {}),
+        // mt#4317: the structured-output strategy. Conditional for the same reason as the two
+        // fields above — omitted means the SDK's own default ("auto"), which is what every
+        // caller got before this existed, so adding the field changes nothing for a caller
+        // that does not set it.
+        ...(request.mode !== undefined ? { mode: request.mode } : {}),
       });
 
       // Post-parse validation: the AI may return a shape the JSON Schema

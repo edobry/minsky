@@ -60,8 +60,15 @@ export async function getSessionImpl(
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {
+      // The original message is APPENDED, not replaced (mt#4307). The guidance is
+      // the right thing to lead with — this `try` is narrow enough that a
+      // ValidationError here really is session resolution — but discarding the
+      // specific reason is how a precise diagnosis becomes a generic one, and the
+      // sibling site in `commands/pr-command.ts` showed what that costs when the
+      // scope is wider.
       throw new ResourceNotFoundError(
-        "No session detected. Please provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
+        "No session detected. Please provide a session ID (--sessionId), task ID (--task), " +
+          `or run this command from within a session workspace. (${getErrorMessage(error)})`
       );
     }
     throw error;

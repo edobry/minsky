@@ -261,9 +261,18 @@ at hand.
 
 ## Terminal caveats
 
-tmux needs `set -g allow-passthrough on` for OSC-8. Ghostty has a Cmd+click bug
-([ghostty#11907](https://github.com/ghostty-org/ghostty/issues/11907)) — right-click → Open Link
-works instead. Non-OSC-8 terminals (older emulators, pipes, CI logs) show the plain label.
+tmux needs `set -g allow-passthrough on` for OSC-8. Non-OSC-8 terminals (older emulators, pipes,
+CI logs) show the plain label.
+
+**Ghostty ≤ 1.3.1 renders a `minsky://` deeplink and silently does nothing on click (mt#4333)** —
+a dead control rather than a degraded label, and `https://` in the same message opens fine. Cause:
+Ghostty had no custom-scheme dispatch until `macos/Sources/Helpers/UntrustedURL.swift` (whose
+`default:` branch returns `.confirm` for any non-http/https/mailto/file scheme) landed in commit
+`77537c806` on 2026-08-05 — after `v1.3.1`, still the newest release, so it ships only on
+unreleased `main`/`tip`. **Emit deeplinks normally regardless**; nothing about what you write
+changes. The one-command re-check that retires this caveat, the withdrawn alternatives, and the
+corrected history of an earlier wrong workaround:
+`docs/rules-rationale/cockpit-deeplinks.md §Ghostty ≤ 1.3.1 does not dispatch custom schemes`.
 
 ## Cross-references
 
@@ -601,7 +610,14 @@ permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 - **Execution-evidence** — new tests/scripts w/o evid (BLOCKS). `[unverified-tests]`. Four log-only calibration surfaces ride along, each with its own override: per-AT `MINSKY_SKIP_AT_COVERAGE`, per-criterion `MINSKY_SKIP_SC_COVERAGE`, test-first `MINSKY_SKIP_TEST_FIRST_EVIDENCE` (mt#3244 — a bugfix-shaped PR MODIFYING an existing test must record a negative control: the test observed FAILING pre-fix), and render-path `MINSKY_SKIP_RENDER_PATH_EVIDENCE` (mt#2421 — a PR touching a user-facing render path should carry a URL or image the principal can open; trigger is test-INDEPENDENT, because mt#3810 shipped an unlooked-at render WITH passing happy-dom tests). The blocking floor covers `.test.tsx`/`.spec.tsx` as of mt#3868 — until then `isTestFile` matched `.ts` only, so none of the 92 cockpit-web test files could reach it. Measured before widening over 699 merged PRs in the prior 60 days: 23 newly in scope, of which **2** would newly have been denied (PRs #2339 and #2253, both lacking the evidence block). 21 of 23 already carried it, which is why this shipped straight to blocking rather than calibration-first.
 - **Deploy-verification** — deploy-surface w/o commit; tray usability-claim. `[no-deploy-impact]`; `MINSKY_SKIP_DEPLOY_VERIFY`/`_USABILITY_CLAIM_CHECK`.
 - **Growth-justification** — CLAUDE.md aggregate growth w/o justif; also denies a PR pushing a rule past the 15K per-rule ceiling (mt#3676; pre-commit now bills only a commit that STAGES that rule). `MINSKY_SKIP_SIZE_JUSTIFICATION`.
-- **Pre-commit steps** — NUL/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+- **Pre-commit steps** — NUL/conflict-marker/workspace-COPY/deploy-domain/immutable+collision/fast-tests/migration-guard/duplicate-generated-content/adr-numbering-collision. `MINSKY_SKIP_*`.
+  Conflict-marker (mt#4307) blocks a staged file carrying git's `<{7}`/`={7}`/`>{7}` line-anchored
+  markers, and unlike several siblings does NOT skip `src/generated/**` — that is where the
+  originating corruption hid. An open/close marker fires alone (measured: zero repo-wide); a bare
+  separator needs a corroborating marker, because a 7-char Markdown setext underline is otherwise
+  indistinguishable. In Markdown-family files an isolated marker inside a fenced block is exempt so
+  docs can quote one, but a COMPLETE block fires even fenced.
+  `MINSKY_SKIP_CONFLICT_MARKER_CHECK`.
 - **Guessed-session-path** — nonexistent session paths. `MINSKY_SKIP_SESSION_PATH_CHECK`.
 - **Secret-file-read** (mt#3282) — printing a known-secret-bearing file (`config.yaml`, `.env*`,
   `*.pem`, `.mcp.json`, …) via an emitting reader. Reader+path together deny; naming the path alone
@@ -690,12 +706,12 @@ Detail: `guard-dispatcher-framework.md`.
 - **Retrospective-completeness** — whether a retro that FIRED is complete: the sections its declared triage level requires, and in-turn status reads for cited fix-tasks (mt#3601). Log-only. `MINSKY_SKIP_RETRO_COMPLETENESS`.
 - **Turn-end-untaken-action** — Stop scan (mt#3179): final message names a next action without taking it. Phrase-keyed to MATCH; its two suppressions are not. `MINSKY_ACK_UNTAKEN_ACTION`. Detail: `turn-end-untaken-action-scan.md`.
 - **Turn-end-unwalked-task** — Stop scan (mt#3536): the turn minted a task id and ended with no status-set/session-start/dispatch/ask naming it. Tool-call-state-keyed, so it sees the SILENT stop. `MINSKY_ACK_UNWALKED_TASK`.
-- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). `MINSKY_ACK_CODE_MECHANISM_ASSERTION`.
+- **Code-mechanism-assertion** — unread code-symbol claims. LIVE 2026-07-21. Relayed claims SURFACE rather than suppress (mt#3152). Three surfaces: chat (live), added comments (log-only, mt#3571), durable artifacts — PR bodies, specs, memories, asks (log-only, mt#3642). Two Rung-2 cohorts behind `MINSKY_CMA_RUNG2_NOMINATION` (ships disabled): symbol-BEARING identity claims (mt#4155) and symbol-FREE claims (mt#3726) — the latter recorded only, never injected, with no suppression yet, per-class off-switch `MINSKY_SKIP_SYMBOL_FREE_CLAIMS`. `MINSKY_ACK_CODE_MECHANISM_ASSERTION`. Detail: `code-mechanism-assertion-detector.md`.
 - **Negative-existence-claim** (mt#3918) — a claim of ABSENCE written into a durable artifact, justified by a same-turn search returning <=1 hit, citing a DONE task. Calibration-first. `MINSKY_ACK_NEGATIVE_EXISTENCE_CLAIM`. Detail: `negative-existence-claim-detector.md`.
 - **Turn-end-bare-ref-scan** — Stop scan (mt#3286): the closing message carries an entity ref the reader cannot click. Per finding class: `bare-short-id`, `malformed-target`, `raw-uuid-label` LIVE, the rest RECORD-ONLY. `MINSKY_ACK_BARE_ENTITY_REF`. Detail: `turn-end-bare-ref-scan.md`.
 - **Turn-end-unescalated-incident** — Stop scan (mt#3593): final message reports an incident and names the remediation as the principal's, with no `asks_create` carrying `severity: "incident"`. LIVE. `MINSKY_ACK_UNESCALATED_INCIDENT`.
 - **Stop-at-decision** — Stop scan (mt#3653): the turn's mutations are evidence-writes and it ends minting nothing and saying nothing — the silent stop at a ripe decision. Log-only. `MINSKY_SKIP_STOP_AT_DECISION`.
-- **Turn-end-stale-state-assertion** (mt#4199) — Stop scan: the closing message asserts an ask or task is awaiting the principal, and the substrate says it is terminal. Calibration-first. `MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN`. Detail: `turn-end-stale-state-assertion-scan.md`.
+- **Turn-end-stale-state-assertion** (mt#4199) — Stop scan: closing message says an ask/task awaits the principal; substrate disagrees. Two classes (mt#4375): terminal state, or an ask's text declaring it resolved. Calibration-first. `MINSKY_SKIP_STALE_STATE_ASSERTION_SCAN`. Detail: `turn-end-stale-state-assertion-scan.md`.
 - **Ask-routing deferral** — chat-prose deferral bypassing Asks. LIVE mt#2694 (not log-only). `MINSKY_ACK_ASK_ROUTING_DEFERRAL`.
 - **Operator deferral** — an ACTION deferred to the principal without a same-turn capability probe; sibling of ask-routing-deferral, which covers a DECISION. Six surfaces. Calibration-first (mt#2459). `MINSKY_SKIP_OPERATOR_DEFERRAL`. Detail: `operator-deferral-detector.md`.
 - **Wall-of-text** — turn-end report shape violation (over-budget/label-lead). LIVE mt#3112. `MINSKY_SKIP_WALL_OF_TEXT`.
@@ -704,20 +720,24 @@ Detail: `guard-dispatcher-framework.md`.
 - **Chained-verification-commands** (mt#3910) — a `Bash`/`session_exec` string chaining TWO OR MORE verification commands with `;`/`&&`/`||`, making a non-zero exit unattributable. Deliberately narrow; binary list in the page. Calibration-first. `MINSKY_SKIP_CHAINED_VERIFICATION_SCAN`. Detail: `chained-verification-commands-detector.md`.
 - **Nonexistent-search-path** (mt#4215) — a nonexistent `grep`/`rg`/`find` path; empty output is not absence. Calibration-first. `MINSKY_SKIP_NONEXISTENT_SEARCH_PATH`. Detail: `nonexistent-search-path-detector.md`.
 - **Truncated-outcome-read** (mt#4096) — an outcome-bearing command piped into `tail`/`head`, discarding `pushed`/`pushUnconfirmed` by position. Second arm (mt#4176): a truncated `--help`. Calibration-first. `MINSKY_SKIP_TRUNCATED_OUTCOME_READ`. Detail: `truncated-outcome-read-detector.md`.
-- **CLI-substitutes-MCP** (mt#4144) — a `Bash`/`session_exec` invoking the Minsky CLI for a command that HAS an `mcp__minsky__*` equivalent, in a session where no MCP call has succeeded. Calibration-first. `MINSKY_ALLOW_CLI_SUBSTITUTION`. Detail: `cli-mcp-substitution-detector.md`.
+- **CLI-substitutes-MCP** (mt#4144) — a `Bash`/`session_exec` invoking the Minsky CLI for a command that HAS an `mcp__minsky__*` equivalent, when MCP has not succeeded — or, since mt#4353, once an MCP call has ERRORED since the last success, or from the SECOND such call after it. INJECTS (never denied; "calibration-first" here was wrong for its whole life, mt#4290). `MINSKY_ALLOW_CLI_SUBSTITUTION`. Detail: `cli-mcp-substitution-detector.md`.
 - **Constructed-identifier batch** — TWO passes: mint-and-consume in one parallel batch (categorical), and consume-before-mint across a turn (exact, mt#3340). Calibration-first. `MINSKY_ACK_CONSTRUCTED_IDENTIFIER_BATCH`. Detail: `constructed-identifier-batch-detector.md`.
 - **Bare-prohibition dispatch** — a dispatch prompt telling a subagent NOT to do something without stating its basis (mem#702). Narrowed mt#3167. Calibration-first (mt#3162). `MINSKY_ACK_BARE_PROHIBITION`. Detail: `bare-prohibition-dispatch-detector.md`.
 - **Duplicate-check search provenance** (mt#4004) — a duplicate-check record CLAIMING a past-tense search, in a session with no `tasks_search`/`tasks_similar`/`refs_status` call. Third of four tiers on that record (present / true / searched / read). Calibration-first. `MINSKY_SKIP_SEARCH_PROVENANCE`.
 - **Duplicate-check candidate read** (mt#4167) — the fourth tier: the record distinguishes candidates whose specs were never opened this session. NAMED candidates only. Calibration-first. `MINSKY_SKIP_CANDIDATE_READ_PROVENANCE`. Detail: `duplicate-check-candidate-read.md`.
 - **Claim provenance** (mt#4168) — THREE classes at the spec-WRITE seam, each with no discharging call: a file-level COLLISION, a NEGATIVE OWNERSHIP claim, and (mt#4299) a REMAINING-WORK assertion about a task, discharged by a status read on that id. RECORD-ONLY. `MINSKY_SKIP_CLAIM_PROVENANCE`. Detail: `claim-provenance-scan.md`.
-- **Evidence-record provenance** (mt#4044) — a `Negative control:` / `Execution evidence:` record claiming a run, written into a commit message or PR body with no matching run in the session. RECORD-ONLY (tune: mt#4067). `MINSKY_SKIP_EVIDENCE_PROVENANCE`. Detail: `evidence-record-provenance.md`.
+- **Evidence-record provenance** (mt#4044) — a `Negative control:` / `Execution evidence:` record claiming a run, written into a commit message or PR body with no matching run in the session. Per-CLAIM since mt#4236: an evidence block asserting a typecheck/lint/format result is judged against a run of THAT kind, and a run predating a later write to a file it reads records `stale-evidence`. RECORD-ONLY (tune: mt#4067). `MINSKY_SKIP_EVIDENCE_PROVENANCE`. Detail: `evidence-record-provenance.md`.
 - **Duplicate-signature scan** (mt#3722) — `tasks_create` whose spec carries signature tokens already in an active task's spec that its duplicate-check record does not concede. Exact substring, no similarity metric (mem#819). Calibration-first. `MINSKY_SKIP_DUPLICATE_SIGNATURE_SCAN`. Detail: `duplicate-signature-scan.md`.
 - **Stale-signal sweep** (mt#3959) — `session_pr_create` on a branch that STOPPED emitting an operator-facing `<label>=` while active specs, memories or ADRs still quote it. Calibration-first. `MINSKY_SKIP_STALE_SIGNAL_SWEEP`. Detail: `stale-signal-sweep.md`.
 - **Unrendered-result-field scan** (mt#3913) — `session_pr_create` on a branch adding a counter/flag to a `*Result` type that no output site renders. **A log call is not a render site.** Calibration-first. `MINSKY_SKIP_UNRENDERED_RESULT_FIELD_SCAN`. Detail: `unrendered-result-field-scan.md`.
 - **Enumeration-scope check** (mt#4171) — `session_pr_create` changing a serialized contract with
   no `docs/` sweep; a SUBTREE is not its directory. At `pr`, not ADR-042's READY seam (mt#4293).
   Calibration-first. `MINSKY_SKIP_ENUMERATION_SCOPE`. Detail: `enumeration-scope-check.md`.
-- **New-surface design pass** (mt#4124) — `session_pr_create` on a branch that ADDS a render-path file with no design skill invoked in the authoring conversation. The judgment half of mt#2421. Calibration-first. `MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS`. Detail: `new-surface-design-pass.md`.
+- **Gate-walk provenance** (mt#1880) — `session_pr_merge` on a task with no `task.status_changed`
+  → READY row: was it gated at ALL? The existence half of the pair above, at the only seam
+  mem#416's four bypass paths share. `skipped` (pre-horizon, unreadable) is kept strictly apart
+  from `ungated`. Record-only. `MINSKY_SKIP_GATE_WALK_PROVENANCE`. Detail: `gate-walk-provenance.md`.
+- **New-surface design pass** (mt#4124) — `session_pr_create` on a branch that ADDS a render-path file, or (mt#4356) MODIFIES one when the bound spec declares the change visually judged, with no design skill invoked in the authoring conversation. The judgment half of mt#2421. The second trigger exists because file-add proxied for "this is a design decision" and missed the largest class of design work — changing how an existing surface looks; the whole cockpit redesign sequence is modify-only and was invisible to it. Calibration-first. `MINSKY_SKIP_NEW_SURFACE_DESIGN_PASS`. Detail: `new-surface-design-pass.md`.
 - **Flakiness-control detector** (mt#3658) — `tasks_create` whose spec claims a failure MODE with no isolation control recorded. Fires on the ATTRIBUTION and equally on the DENIAL (mt#4166). Calibration-first. `MINSKY_SKIP_FLAKINESS_CONTROL`. Detail: `flakiness-control-detector.md`.
 - **Unowned-finding scan** (mt#4246) — a `tasks_status_set` → DONE whose spec's findings section holds an item declaring neither `[owner: mt#N]` nor `[no-owner: reason]`. Calibration-first. `MINSKY_SKIP_UNOWNED_FINDING_SCAN`. Detail: `unowned-finding-scan.md`.
 - **Spec-criterion-claim** (mt#4153) — a `## Success Criteria` / `## Acceptance Tests` bullet asserting unverified corpus state (Class A) or imposing a precondition absent from the authorizing ask (Class B, edit surfaces only). Calibration-first. `MINSKY_SKIP_SPEC_CRITERION_CLAIM`. Detail: `spec-criterion-claim-detector.md`.

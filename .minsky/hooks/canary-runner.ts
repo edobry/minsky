@@ -153,10 +153,16 @@ export interface CanaryResult {
  * resolves a concrete array, empty or not, before invoking any guard), so
  * typing this parameter as that non-optional field type — while every call
  * site actually passes a possibly-`undefined` value — was a type hole the
- * root tsconfig's typecheck can't catch (`.minsky/hooks/` is outside its
- * `include` set, per SPEC.md's dependency-free-tree invariant); only a
- * runtime crash on an unguarded `.length`/`.map` access downstream would have
- * surfaced it. The `?? []` fallback below was already runtime-safe; the fix
+ * ROOT tsconfig's typecheck can't catch (`.minsky/hooks/` is outside its
+ * `include` set); only a runtime crash on an unguarded `.length`/`.map` access
+ * downstream would have surfaced it.
+ *
+ * Two corrections, mt#4373: this attributed the exclusion to SPEC.md's
+ * "dependency-free-tree invariant", which is retired and was never the reason
+ * for a tsconfig `include` set anyway. And the implication no longer holds —
+ * `tsconfig.hooks.json` covers `.minsky/hooks/**` (mt#2900), and a default
+ * `validate_typecheck` runs it, so this tree IS typechecked today. Only the
+ * root project skips it. The `?? []` fallback below was already runtime-safe; the fix
  * is making the signature honest about what it actually accepts.
  */
 function buildCanaryContext(

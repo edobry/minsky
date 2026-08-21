@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
+import { z } from "zod";
 import {
   UnaskedDirectionAnalyzer,
   findingToDetectionSignal,
@@ -518,5 +519,42 @@ describe("describeSampling (mt#4235 SC4)", () => {
 
     expect(headEmptyRatio).toBe(1);
     expect(sampling.emptyTextRatio).toBe(0);
+  });
+});
+
+describe("analyzerOutputSchema, as the provider actually receives it (mt#4317)", () => {
+  /**
+   * Pins the emitted JSON Schema, not the Zod object — the emitted document is what the
+   * provider is sent, and the two can diverge on a Zod upgrade.
+   *
+   * This is control #3 of mt#4317's investigation into why the model returns objects
+   * missing a required field. That whole line of work rests on the model BEING TOLD both
+   * fields are mandatory; if this conversion ever stopped emitting `required`, the
+   * symptom would be indistinguishable from the model ignoring an instruction it was
+   * given, and every conclusion drawn from that point on would be wrong. There is no
+   * other assertion anywhere that the conversion carries `required` at all.
+   *
+   * Field ORDER is deliberately not asserted. It was measured to matter greatly on one
+   * corpus (15/40 vs 5/40, p = 0.0063) and then not at all on the next (5/40 vs 6/40,
+   * p = 1.0), so pinning it would freeze a property the evidence does not currently
+   * support.
+   */
+  const emitted = z.toJSONSchema(__TEST_ONLY.analyzerOutputSchema, { target: "draft-07" }) as {
+    properties: Record<string, unknown>;
+    required: string[];
+    additionalProperties: boolean;
+  };
+
+  it("marks both top-level fields required", () => {
+    expect(emitted.required).toEqual(expect.arrayContaining(["findings", "summary"]));
+    expect(emitted.required).toHaveLength(2);
+  });
+
+  it("emits both top-level properties", () => {
+    expect(Object.keys(emitted.properties).sort()).toEqual(["findings", "summary"]);
+  });
+
+  it("closes the object, so an extra field is a schema violation rather than ignored", () => {
+    expect(emitted.additionalProperties).toBe(false);
   });
 });

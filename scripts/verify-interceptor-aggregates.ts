@@ -3,7 +3,7 @@
  * Live verification for the interceptor-aggregates query surface (mt#4009,
  * §7a structural-change artifact).
  *
- * Four checks against the REAL database and the REAL on-disk fire-log:
+ * Five checks against the REAL database and the REAL on-disk fire-log:
  *
  *  1. CATALOG ROLLUP — runs the four fire-log fetchers the off-request
  *     refresh runs, timed (the AT3 refresh-side figure).
@@ -23,6 +23,13 @@
  *     have a handful of measured ones, and a total computed over the wrong
  *     subset would still look entirely plausible.
  *
+ *  5. ROLLUP DRIFT (mt#4294) — the maintained `guard_event_fire_log_rollup`
+ *     against a DIRECT `GROUP BY` recompute from `guard_events`. Every other
+ *     check reads the rollup through `fetchFireLogLifetime`, so all of them
+ *     would agree with a drifted rollup; this is the only one that can
+ *     disagree. Runs the expensive full aggregate ONCE, on purpose — it is the
+ *     thing being verified against.
+ *
  * Exit 0 = all checks pass (or SKIP: no DB configured / no fire-log file).
  * Exit 1 = a check failed (mismatch or query error), with detail on stdout.
  *
@@ -35,6 +42,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { createInterface } from "node:readline";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import {
   fetchFireLogDecisionCounts,
@@ -44,6 +52,7 @@ import {
   CATALOG_WINDOW_DAYS,
 } from "@minsky/domain/guard-events/aggregates";
 import { extractPromotedFields } from "@minsky/domain/guard-events/parsing";
+import { guardEventsTable } from "@minsky/domain/storage/schemas/guard-events-schema";
 
 /** Mirrors scripts/backfill-guard-events.ts's bootstrapDb precedent. */
 async function bootstrapDb(): Promise<PostgresJsDatabase | null> {
@@ -267,8 +276,66 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  // 5. ROLLUP DRIFT (mt#4294) — the maintained lifetime rollup vs a DIRECT
+  //    recompute from `guard_events`.
+  //
+  //    This is the check that keeps the rollup honest. Every other check above
+  //    reads it through `fetchFireLogLifetime`, so they would agree with a
+  //    drifted rollup just as readily as with a correct one — a rollup that
+  //    silently under-counts produces no error anywhere, only smaller numbers.
+  //    Recomputing from the corpus is the only thing here that can disagree.
+  //
+  //    Deliberately the ONE place the expensive full `GROUP BY` still runs on
+  //    purpose: it is the thing being verified against, and it runs once per
+  //    invocation of a script an operator ran, not on a five-minute timer.
+  const driftStart = Date.now();
+  const recomputedRows = await db
+    .select({
+      guardName: guardEventsTable.guardName,
+      totalFires: sql<number>`count(*)::int`,
+    })
+    .from(guardEventsTable)
+    .where(and(eq(guardEventsTable.stream, "fire-log"), isNotNull(guardEventsTable.guardName)))
+    .groupBy(guardEventsTable.guardName);
+  const driftMs = Date.now() - driftStart;
+
+  const truth = new Map(recomputedRows.map((r) => [r.guardName as string, r.totalFires]));
+  const stored = new Map(lifetime.map((r) => [r.guardName, r.totalFires]));
+
+  const driftEntries: string[] = [];
+  for (const [guardName, expected] of truth) {
+    const actual = stored.get(guardName);
+    if (actual === undefined) {
+      driftEntries.push(`${guardName}: missing from rollup (corpus has ${expected})`);
+    } else if (actual !== expected) {
+      driftEntries.push(`${guardName}: rollup ${actual} vs corpus ${expected}`);
+    }
+  }
+  for (const guardName of stored.keys()) {
+    if (!truth.has(guardName)) {
+      driftEntries.push(`${guardName}: in rollup but absent from the corpus`);
+    }
+  }
+
   console.log(
-    "PASS: rollup + detail + AT2 count equality + AT4 cost equality verified against the live corpus."
+    JSON.stringify({
+      check: "rollup-drift",
+      driftMs,
+      corpusGuards: truth.size,
+      rollupGuards: stored.size,
+      match: driftEntries.length === 0,
+    })
+  );
+  if (driftEntries.length > 0) {
+    const more = driftEntries.length > 10 ? ` (+${driftEntries.length - 10} more)` : "";
+    console.log(
+      `FAIL: lifetime rollup has drifted from the corpus: ${driftEntries.slice(0, 10).join("; ")}${more}`
+    );
+    return 1;
+  }
+
+  console.log(
+    "PASS: rollup + detail + AT2 count equality + AT4 cost equality + rollup-drift verified against the live corpus."
   );
   return 0;
 }

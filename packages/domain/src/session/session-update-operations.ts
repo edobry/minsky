@@ -262,8 +262,12 @@ export async function updateSessionImpl(
   } catch (error) {
     log.debug("Failed to resolve session", { error, sessionId: sessionIdParam, task: params.task });
     if (error instanceof ValidationError) {
+      // Original message appended rather than discarded (mt#4307) — same reason
+      // as the two sibling sites. It was already being logged at debug just
+      // above, which reaches nobody the error reaches.
       throw new ValidationError(
-        "Session ID is required. Either provide a session ID (--sessionId), task ID (--task), or run this command from within a session workspace."
+        "Session ID is required. Either provide a session ID (--sessionId), task ID (--task), " +
+          `or run this command from within a session workspace. (${getErrorMessage(error)})`
       );
     }
     throw error;
@@ -415,12 +419,32 @@ export async function updateSessionImpl(
         stashRestore = await restoreSessionStash(workdir, deps.gitService, stashSha);
         if (!stashRestore.restored) {
           const parked = (stashRestore.parkedFiles ?? []).map((f) => `     - ${f}`).join("\n");
-          log.cli(
-            `⚠️  Session '${sessionId}' was updated, but your uncommitted changes could NOT be ` +
-              `restored and remain parked in ${stashRestore.stashRef}.${
-                parked ? `\n   Parked files:\n${parked}` : ""
-              }\n   ${stashRestore.recovery ?? ""}`
-          );
+          // Name the CONFLICT when that is what happened, rather than folding it
+          // into the generic "could not be restored" (mt#4307). The two need
+          // different next moves from the operator, and the conflicted one also
+          // has to say what became of the markers — otherwise the next failing
+          // gate is the first news of them.
+          const conflicted = stashRestore.conflictedFiles ?? [];
+          if (conflicted.length > 0) {
+            const conflictList = conflicted.map((f) => `     - ${f}`).join("\n");
+            log.cli(
+              `⚠️  Session '${sessionId}' was updated, but restoring your uncommitted changes ` +
+                `CONFLICTED on ${conflicted.length} file(s):\n${conflictList}\n${
+                  stashRestore.rolledBack
+                    ? `   The conflicted pop was ROLLED BACK — the working tree is clean and ` +
+                      `carries no conflict markers.`
+                    : `   The pop could NOT be rolled back — conflict markers ARE present in the ` +
+                      `working tree and must be resolved before anything is committed.`
+                }${parked ? `\n   Parked files:\n${parked}` : ""}\n   ${stashRestore.recovery ?? ""}`
+            );
+          } else {
+            log.cli(
+              `⚠️  Session '${sessionId}' was updated, but your uncommitted changes could NOT be ` +
+                `restored and remain parked in ${stashRestore.stashRef}.${
+                  parked ? `\n   Parked files:\n${parked}` : ""
+                }\n   ${stashRestore.recovery ?? ""}`
+            );
+          }
         } else if (stashRestore.autoRestoredFiles && stashRestore.autoRestoredFiles.length > 0) {
           log.cli(
             `   (Discarded ${stashRestore.autoRestoredFiles.length} regenerated file(s) to ` +
