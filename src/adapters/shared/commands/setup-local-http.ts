@@ -183,9 +183,17 @@ async function runRevert(
 /**
  * Migrate (or preview migrating) every discovered Minsky MCP entry.
  *
- * The daemon is ensured AFTER the rewrite rather than before, so a failure to
- * start is reported against a config that is already pointing at it — and the
- * error names `--revert`, which is the operator's way out.
+ * The daemon is ensured BEFORE the rewrite, so a daemon that is refused or
+ * never comes up leaves the config untouched and the operator needs no way
+ * out. See the ordering comment on the execute path below.
+ *
+ * mt#4337: this docblock used to say the opposite — "ensured AFTER the rewrite
+ * rather than before ... and the error names `--revert`, which is the
+ * operator's way out" — which described the defect as a deliberate design
+ * choice. It was not one. The refusal mt#4297 added fired below the write, so
+ * it refused a migration that had already happened while reporting "Nothing
+ * has been written." A rationale attached to a defect is how it survives
+ * review; the ordering, the messages and this comment now agree.
  */
 export async function runSetupLocalHttp(
   options: SetupLocalHttpOptions = {},
@@ -271,6 +279,33 @@ export async function runSetupLocalHttp(
     };
   }
 
+  // mt#4337: the daemon check runs BEFORE the write, not after it. mt#4297
+  // added the not-ready refusal precisely so a DB-less daemon could not be
+  // silently adopted — but it fired from below `applyPlan`, so the guard
+  // refused while the adoption it guards against had already happened, and its
+  // "Nothing has been written." was false in two ways (the entry was rewritten
+  // AND a backup file was left behind).
+  //
+  // Ordering is what makes those messages true, so the write stays LAST: every
+  // throw out of the daemon step precedes any mutation of the config. Do not
+  // reintroduce a write above this line.
+  const daemon =
+    deps.skipDaemon === true
+      ? undefined
+      : await ensureDaemonRunning(spawnArgv, {
+          healthUrl,
+          ...(deps.daemon === undefined ? {} : { deps: deps.daemon }),
+        });
+
+  if (daemon !== undefined) {
+    emit("");
+    emit(
+      daemon.spawned
+        ? `Started the local MCP daemon (${daemon.status.detail})`
+        : `Daemon: ${daemon.status.detail}`
+    );
+  }
+
   const applied = applyPlan(plan, {
     deps: fs,
     ...(deps.now === undefined ? {} : { now: deps.now }),
@@ -280,7 +315,7 @@ export async function runSetupLocalHttp(
     emit(`Wrote ${backup.file} (backup: ${backup.backup})`);
   }
 
-  if (deps.skipDaemon === true) {
+  if (daemon === undefined) {
     return {
       success: true,
       message: `Migrated ${applied.entriesRewritten} entr${
@@ -291,15 +326,6 @@ export async function runSetupLocalHttp(
     };
   }
 
-  const daemon = await ensureDaemonRunning(spawnArgv, {
-    healthUrl,
-    ...(deps.daemon === undefined ? {} : { deps: deps.daemon }),
-  });
-  emit(
-    daemon.spawned
-      ? `Started the local MCP daemon (${daemon.status.detail})`
-      : `Daemon: ${daemon.status.detail}`
-  );
   emit("");
   emit("Restart any running Claude Code conversation to pick up the new entry.");
 
