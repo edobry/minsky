@@ -57,6 +57,34 @@ Two things worth reading off that table rather than the image:
   miscount; it is why mt#4238's first success criterion was narrowed at planning to the
   classifier's verdict rather than to "a tool call that mutates state."
 
+## The opacity tokens resolve — measured, not inferred (PR #3228 R1)
+
+The reviewer raised as BLOCKING that opacity-suffixed semantic tokens
+(`text-muted-foreground/70`) might not be valid in this Tailwind config — in which case the
+brightness half of the step would be inert and the whole effect would be carried by `font-weight`
+alone. Checked twice, at two levels:
+
+1. **Config (primary source).** `tailwind.config.ts` defines
+   `muted.foreground: "oklch(var(--muted-foreground) / <alpha-value>)"`. The `<alpha-value>`
+   placeholder is present, on this token and on 35 others.
+2. **The live runtime**, which is what actually settles it — `getComputedStyle` over the rendered
+   rows:
+
+| Element       | write (`minsky · tasks_spec_patch`) | read (`Bash`)            |
+| ------------- | ----------------------------------- | ------------------------ |
+| name colour   | `oklch(0.717 0 0)`                  | `oklch(0.717 0 0 / 0.7)` |
+| name weight   | `600`                               | `400`                    |
+| icon colour   | `oklch(0.717 0 0)`                  | `oklch(0.717 0 0 / 0.5)` |
+| digest colour | `oklch(0.717 0 0 / 0.7)`            | `oklch(0.717 0 0 / 0.6)` |
+
+Every suffix produced its own alpha (0.5 / 0.6 / 0.7), so the browser resolves them as intended and
+all three channels differ between the two effects. A config read alone would have been `inferred`;
+this is the rendered result.
+
+No guard was added for the config's `<alpha-value>` integrity. That failure mode is repo-wide
+rather than specific to this change — dropping the placeholders would flatten every opacity token
+in the cockpit at once, which is loud rather than silent.
+
 ## What is NOT shown
 
 - A destructive tier. `ToolEffect` has no `delete` state, so `memory_delete` and `memory_create`

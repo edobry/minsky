@@ -116,6 +116,20 @@ function nameClassesFor(name: string): string {
   return nameSpan(toolRow(container, "call-x")).className;
 }
 
+/** The tool ICON — the second element carrying the step. */
+function iconEl(row: HTMLElement): SVGElement {
+  const el = row.querySelector<SVGElement>("svg");
+  if (!el) throw new Error("no tool icon in row");
+  return el;
+}
+
+/** The arg/outcome DIGEST — the third. */
+function digestEl(row: HTMLElement): HTMLElement {
+  const el = row.querySelector<HTMLElement>("span.truncate");
+  if (!el) throw new Error("no digest span in row");
+  return el;
+}
+
 /**
  * Does this class list read as the MUTATION step?
  *
@@ -148,6 +162,31 @@ describe("ConversationView — read-vs-write weight (mt#4238)", () => {
     expect(writeClasses).not.toBe(readClasses);
     expect(readsAsMutation(writeClasses)).toBe(true);
     expect(readsAsMutation(readClasses)).toBe(false);
+  });
+
+  test("all THREE elements step together — icon and digest, not just the name", () => {
+    // The step is carried by three elements so it survives being read at a
+    // glance. Asserting only the name would let two thirds of it regress
+    // silently — a partial step is the failure mode this pins, not a missing
+    // one (PR #3228 R1).
+    const { container } = renderCV(
+      snapshotWithBlocks([
+        callBlock(0, "call-read", "mcp__minsky__tasks_get", { taskId: "mt#1" }),
+        resultBlock(1, "call-read", "ok"),
+        callBlock(2, "call-write", "mcp__minsky__tasks_spec_patch", { taskId: "mt#1" }),
+        resultBlock(3, "call-write", "patched"),
+      ])
+    );
+
+    const read = toolRow(container, "call-read");
+    const write = toolRow(container, "call-write");
+
+    // Compared to each other rather than to literal token values: the exact
+    // brightness is a visual judgment the principal owns and is expected to be
+    // retuned, but the two steps must never collapse into one.
+    expect(iconEl(write).getAttribute("class")).not.toBe(iconEl(read).getAttribute("class"));
+    expect(digestEl(write).className).not.toBe(digestEl(read).className);
+    expect(nameSpan(write).className).not.toBe(nameSpan(read).className);
   });
 
   test("the weight follows the registry verdict, not the tool name's spelling", () => {
