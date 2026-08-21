@@ -6,9 +6,11 @@
 // src/mcp/subagent-dispatch-tracker.ts (mt#1735-1738) — same shape:
 // append-only log + aggregate surface + threshold escalation.
 //
-// Dependency-free (per .minsky/hooks/SPEC.md's invariant): no `src/`
-// imports. This lets every guard keep working even when the main codebase
-// has type errors.
+// Dependency-free: no `src/` imports. (This cited `.minsky/hooks/SPEC.md`'s
+// invariant and the reason "so every guard keeps working even when the main
+// codebase has type errors" — mt#4373 retired the invariant and disproved the
+// reason: Bun strips types at import and never type-checks. This module still
+// has no reason to reach outside the tree, so nothing about it changes.)
 //
 // Two capture paths (per mt#2812 spec item 1):
 //   (a) dispatcher-migrated guards — dispatcher.ts's guard loop calls

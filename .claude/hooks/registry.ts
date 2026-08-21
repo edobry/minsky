@@ -12,7 +12,8 @@
 //
 // This module (and its sibling `dispatcher.ts`) is dependency-free — only
 // imports from `./types` and `./transcript`, matching the sibling shared-hook
-// module shape (`pr-context.ts`'s "no cross-imports from src/" convention).
+// module shape (`pr-context.ts`'s "no cross-imports from src/" SHAPE — since
+// mt#4373 that is a description of these modules, not a convention binding them).
 // It lives inside the hooks tree because that is where its only consumers are,
 // not because a rule requires it. (It formerly cited `.minsky/hooks/SPEC.md`'s
 // self-containment invariant — "hooks keep working even when the main codebase

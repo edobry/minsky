@@ -18,7 +18,12 @@
 // `./registry` (all sibling files in this same hooks tree). The dispatcher does
 // not need `packages/domain`, so it does not import it — a fact about this file,
 // not a rule: mt#4373 retired the SPEC.md invariant that forbade it. Individual
-// guards the dispatcher loads may import domain freely.
+// guards the dispatcher loads may import domain freely — EXCEPT the tier-2
+// observability baseline (`record-conversation-run-state.ts`,
+// `transcript-ingest-on-session-end.ts`, `types.ts`), which must stay
+// node-stdlib-only per SPEC.md because it runs from an arbitrary install path.
+// That carve-out survives the reversal and is enforced by
+// `self-containment.test.ts`.
 //
 // @see docs/architecture/adr-028-guard-hook-dispatcher-consolidation.md
 // @see mt#2650 — this framework's tracking task (ADR-028 Phase 1)

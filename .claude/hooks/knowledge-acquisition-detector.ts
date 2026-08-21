@@ -87,9 +87,13 @@
 // rather than just the last turn) mirrors build-claim-injection-detector.ts's
 // `findDeploySurfaceEditPaths` widening of substrate-bypass-detector.ts's
 // turn-scoped `extractSkillToolInvocations` — this file duplicates and widens
-// that same helper (this repo's hooks-tree convention: duplicate small helpers
-// across detector files rather than cross-import between sibling detectors,
-// per build-claim-injection-detector.ts's own `collectStrings` comment).
+// that same helper (the sibling-detector duplication practice: duplicate small
+// helpers across detector files rather than cross-import between sibling
+// detectors, per build-claim-injection-detector.ts's own `collectStrings`
+// comment). That practice is about DETECTOR-TO-DETECTOR imports and is
+// unaffected by mt#4373, which retired the separate hooks-tree convention
+// against importing `packages/domain`. Naming both "the hooks-tree convention"
+// is what made them easy to confuse; they were always two different rules.
 //
 // Tool-result lines carry role "user" (memory a3e60471) — this detector's
 // whole signal is tool calls interleaved with text, so it is maximally exposed
@@ -282,7 +286,8 @@ export const TRAILING_WINDOW_TURNS = 5;
 export const SESSION_VERDICT_DEDUPE_KEY = "session-verdict";
 
 // ---------------------------------------------------------------------------
-// Small duplicated helpers (this repo's hooks-tree convention — see header)
+// Small duplicated helpers (the sibling-detector duplication practice — see
+// header; NOT the packages/domain self-containment convention, retired mt#4373)
 // ---------------------------------------------------------------------------
 
 /** Recursively collect every string value reachable from `value` into `out`. */

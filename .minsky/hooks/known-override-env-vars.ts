@@ -14,12 +14,15 @@
 // the moment it does not. Adding a guard override? Categorize it there; the
 // test tells you to add it here.
 //
-// This module CANNOT import that file directly: `.minsky/hooks/` is
-// dependency-free per `SPEC.md` (no `packages/domain` imports) so the hooks
-// tree keeps working even when the main codebase has type errors — the same
-// reason `guard-health.ts` and `mcp-daemon-staleness-detector.ts` each
-// duplicate a src-side reader rather than importing it (see those files'
-// header comments). A TEST file is under no such constraint, which is what
+// This module does not import that file directly. The reason recorded here was
+// that `.minsky/hooks/` is dependency-free per `SPEC.md` (no `packages/domain`
+// imports) "so the hooks tree keeps working even when the main codebase has type
+// errors" — mt#4373 retired that convention and disproved that reason (Bun
+// strips types at import and never type-checks). So the import is no longer
+// FORBIDDEN, and whether to collapse this duplication is now an ordinary
+// judgment call — the same status as `guard-health.ts` and
+// `mcp-daemon-staleness-detector.ts`, which duplicate a src-side reader for what
+// was the same retired reason (see those files' header comments). A TEST file is under no such constraint, which is what
 // makes the duplication checkable rather than merely documented.
 //
 // WHY THE MECHANISM CHANGED (mt#3882). This header used to say "a drift is
