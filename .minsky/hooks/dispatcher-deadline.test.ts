@@ -18,7 +18,13 @@ import {
 } from "./dispatcher";
 import type { GuardRegistration, GuardEffectDeclaration } from "./registry";
 import type { HookOutput } from "./types";
-import { DISPATCH_HOOK_FILENAME, baseInput, stubContext } from "./test-support/dispatcher-harness";
+import { readFireLogEntries } from "./fire-log";
+import {
+  DISPATCH_HOOK_FILENAME,
+  baseInput,
+  stubContext,
+  useIsolatedStateDir,
+} from "./test-support/dispatcher-harness";
 
 /** See `dispatcher.test.ts` — mechanics fixtures, not posture semantics. */
 const FIXTURE_EFFECTS: [GuardEffectDeclaration, ...GuardEffectDeclaration[]] = [
@@ -92,19 +98,20 @@ describe("runWithDeadline (mt#3757)", () => {
   });
 });
 
-describe("the dispatcher loop enforces per-guard deadlines (mt#3757)", () => {
-  function reg(name: string, timeoutMs: number, run: () => unknown): GuardRegistration {
-    return {
-      name,
-      event: "PreToolUse",
-      matcher: "Bash",
-      module: () => Promise.resolve({ run: run as never }),
-      timeoutMs,
-      denyCapable: false,
-      effects: FIXTURE_EFFECTS,
-    };
-  }
+/** A synthetic registration. Module-scoped so the PR #3213 R1 blocks reach it too. */
+function reg(name: string, timeoutMs: number, run: () => unknown): GuardRegistration {
+  return {
+    name,
+    event: "PreToolUse",
+    matcher: "Bash",
+    module: () => Promise.resolve({ run: run as never }),
+    timeoutMs,
+    denyCapable: false,
+    effects: FIXTURE_EFFECTS,
+  };
+}
 
+describe("the dispatcher loop enforces per-guard deadlines (mt#3757)", () => {
   test("AT1 — an async never-settling guard is skipped; the guards behind it are still delivered", async () => {
     // Pre-mt#3757 this test does not FAIL, it HANGS: the bare `await mod.run()`
     // never returns, so runDispatcher never resolves and the case is reached by
@@ -248,5 +255,96 @@ describe("the dispatcher loop enforces per-guard deadlines (mt#3757)", () => {
     expect(merged?.indexOf(MISSING_NOTICE)).toBeLessThan(
       merged?.indexOf("an ordinary reminder") ?? -1
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PR #3213 R1 — the host-budget bound, and the timestamp the reviewer asked
+// for evidence of
+// ---------------------------------------------------------------------------
+
+describe("the deadline is bounded by the event's remaining host budget (PR #3213 R1)", () => {
+  test("the host budget CAPS declared + slack", () => {
+    // Slack says what the guards left; it says nothing about what the host will
+    // still wait for. The smaller of the two wins.
+    expect(computeHardDeadlineMs(10_000, 195_000, 5_000)).toBe(5_000);
+    // ...and when there is budget to spare, the cap is inert.
+    expect(computeHardDeadlineMs(10_000, 195_000, 900_000)).toBe(205_000);
+  });
+
+  test("an exhausted budget yields a zero deadline, deliberately", () => {
+    // Terminal behaviour, not an edge case to soften: a guard skipped WITH a
+    // notice beats a process SIGKILLed without one.
+    expect(computeHardDeadlineMs(10_000, 195_000, 0)).toBe(0);
+    expect(computeHardDeadlineMs(10_000, 0, -50)).toBe(0);
+  });
+
+  test("omitting the bound leaves the pre-R1 behaviour, so the cap only ever SHORTENS", () => {
+    expect(computeHardDeadlineMs(10_000, 5_000)).toBe(15_000);
+  });
+
+  test("a guard is cut at the host budget even when slack would allow more", async () => {
+    const written: HookOutput[] = [];
+    const stderr: string[] = [];
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations: [
+        // Declares 30s and would inherit slack besides — but the event budget
+        // below is 40ms, so it is cut there and skipped.
+        reg("greedy", 30_000, () => new Promise(() => {})),
+        reg("after", 1_000, () => ({ additionalContext: "ran anyway" })),
+      ],
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: (o) => written.push(o),
+      stderrWrite: (s) => stderr.push(s),
+      resolveDispatchContextFn: () => ({
+        ...stubContext(),
+        budgets: { overallBudgetMs: 40, fetchTimeoutMs: 20, gitTimeoutMs: 10 },
+      }),
+      recordFireLogFn: () => {},
+      recordGuardErrorFn: () => {},
+    });
+
+    // Without the R1 bound this test does not fail, it HANGS: a 30s declared
+    // budget against a 40ms event budget is exactly the case the cap exists for.
+    expect(stderr.join("")).toContain("was SKIPPED");
+    expect(written[0]?.hookSpecificOutput?.additionalContext ?? "").toContain("ran anyway");
+  });
+});
+
+describe("the fire-log record carries a timestamp (PR #3213 R1 evidence)", () => {
+  // The R1 review flagged the new recordFireLog calls for omitting `timestamp`,
+  // noting it could not tell whether recordFireLogEntry injects one. It does —
+  // `RecordFireLogInput` has no `timestamp` field at all, so a caller CANNOT
+  // pass one, and every pre-existing call site omits it identically. Rather
+  // than answer that in prose, this exercises the REAL default writer end to
+  // end and reads the emitted line back off disk.
+  const getStateDir = useIsolatedStateDir("mt3757-firelog-");
+
+  test("a deadline-skipped record written by the real writer has an ISO timestamp", async () => {
+    await runDispatcher("PreToolUse", {
+      hookFilename: DISPATCH_HOOK_FILENAME,
+      registrations: [reg("hangs", 20, () => new Promise(() => {}))],
+      readInputFn: () => Promise.resolve(baseInput()),
+      writeOutputFn: () => {},
+      stderrWrite: () => {},
+      resolveDispatchContextFn: () => stubContext(),
+      // NOTE: recordFireLogFn is deliberately NOT injected — this is the real
+      // recordFireLogEntry default, which is the thing under question.
+      recordGuardErrorFn: () => {},
+    });
+
+    const entries = readFireLogEntries().filter((e) => e.guardName === "hangs");
+    expect(entries.length).toBe(1);
+    const entry = entries[0];
+    expect(entry?.guardOutcome).toBe("deadline-skipped");
+    expect(typeof entry?.timestamp).toBe("string");
+    // ISO-8601, per docs/architecture/evaluation-loop-fire-log.md's schema.
+    expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
+    expect(entry?.budgetExceededMs).toBe(20);
+    // And the record parsed at all — readFireLogEntries drops lines failing its
+    // validator, so a returned entry proves the widened union accepts the new
+    // value rather than silently discarding the record.
+    expect(getStateDir()).toContain("mt3757-firelog-");
   });
 });

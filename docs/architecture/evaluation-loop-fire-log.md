@@ -57,7 +57,14 @@ interface FireLogEntry {
   guardName: string; // e.g. "check-guessed-session-path", "nul-byte-check"
   event: string; // lifecycle event or pipeline stage ("PreToolUse", "PreCommit", ...)
   decision: "allow" | "warn" | "deny";
+  // mt#3892 / mt#3757 — what KIND of record this is. OPTIONAL, and absence is
+  // deliberately NOT read as "decided": records written before the field
+  // existed carry no evidence either way. See §guardOutcome below.
+  guardOutcome?: "decided" | "crashed" | "deadline-skipped";
   durationMs: number; // per-fire cost, not cumulative
+  // mt#3757 — set only when the guard crossed its DECLARED timeoutMs and
+  // finished anyway. Carries the budget it crossed; `durationMs` is the cost.
+  budgetExceededMs?: number;
   overrideEnvVar?: string; // the env-var name that produced the override, if any
   overrideClassification?: "authorized_exception" | "unclassified" | "contested";
   overrideSource?: "env" | "grant"; // which checkOverride() channel decided (dispatcher only; R1 fix)
@@ -164,6 +171,37 @@ the append operation itself (JSON.stringify + directory-exists check +
 guards record includes the GUARD's real work (which for e.g. `eslint-validation`
 or `unit-tests` is legitimately multi-second; that's the guard's own cost, not the
 fire-log's instrumentation overhead).
+
+## `guardOutcome`, and why an overrun is not one of its values (mt#3892, mt#3757)
+
+`guardOutcome` says what KIND of record a line is. Its consumer that must not ignore
+it is guard-health's recovery join, which counts `"decided"` records **only** —
+otherwise a continuously crashing guard reads as recovered, because each crash
+writes its own `allow` microseconds after its own failure event.
+
+| Value                | Meaning                                                                          | Counts as a clean run? |
+| -------------------- | -------------------------------------------------------------------------------- | ---------------------- |
+| `"decided"`          | the guard returned a verdict                                                     | **yes**                |
+| `"crashed"`          | the guard threw; the dispatcher failed open (mt#2597)                            | no                     |
+| `"deadline-skipped"` | the guard passed its hard deadline and was skipped — no verdict exists (mt#3757) | no                     |
+| absent               | written before the field existed — no evidence either way                        | no (dormant)           |
+
+**An overrun is deliberately NOT a fourth value.** A guard that crossed its declared
+`timeoutMs` and still returned a verdict _decided_; it was merely slow. Recording
+that as a distinct `guardOutcome` would drop it out of the join above, so a guard
+that worked correctly would read as never having produced a clean run — the same
+false-health signal mt#3892 exists to prevent. It is therefore an additive
+`budgetExceededMs` field alongside `guardOutcome: "decided"`: a fact about **cost**,
+not a different outcome.
+
+`"deadline-skipped"` is the opposite case and _is_ a new value, because that guard
+produced nothing to count.
+
+**Operator reading.** A rising `budgetExceededMs` population for one guard means its
+declared budget no longer matches reality — re-budget it, or investigate why it slowed.
+A `"deadline-skipped"` record means a verdict was genuinely LOST for that turn; the
+merged context block carries a matching named notice, so the agent that ran the turn was
+told rather than left to read the silence as an all-clear.
 
 ## Fail-open verification
 

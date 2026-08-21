@@ -980,9 +980,26 @@ export async function runWithDeadline<T>(
  * injection on 1-2% of turns in the quiet regime and 10-35% on its worst days.
  * The slack is real, large, and is what lets a legitimately slow guard finish
  * today without starving anyone — so it is what the deadline is built on.
+ *
+ * BOUNDED BY THE EVENT'S REMAINING HOST BUDGET (PR #3213 R1). Slack alone is a
+ * claim about what the guards LEFT; it says nothing about what the HOST will
+ * still wait for. Without the cap a late guard could be handed
+ * `declared + slack` with only a fraction of that left before Claude Code
+ * SIGKILLs the process — reintroducing, at the tail of the event, exactly the
+ * silent total loss this task exists to end. Capping converts that into a
+ * NAMED skip: the guards that already answered are still delivered, and the one
+ * that could not fit says so.
+ *
+ * The cap can drive the deadline to zero when the budget is spent, and that is
+ * the intended terminal behaviour rather than an edge case to soften — a guard
+ * skipped with a notice is strictly better than a process killed without one.
  */
-export function computeHardDeadlineMs(declaredMs: number, slackMs: number): number {
-  return declaredMs + Math.max(0, slackMs);
+export function computeHardDeadlineMs(
+  declaredMs: number,
+  slackMs: number,
+  remainingHostBudgetMs: number = Number.POSITIVE_INFINITY
+): number {
+  return Math.max(0, Math.min(declaredMs + Math.max(0, slackMs), remainingHostBudgetMs));
 }
 
 /**
@@ -1036,6 +1053,14 @@ export async function runDispatcher(
   // Guards run SERIALLY, so an earlier guard finishing under its declaration
   // genuinely frees that time for a later one — see computeHardDeadlineMs.
   let slackMs = 0;
+  // mt#3757 / PR #3213 R1: the wall-clock the EVENT has consumed, against the
+  // budget derived from the host cap. `ctx.budgets.overallBudgetMs` is
+  // deriveBudgets()'s share of `hostCapSec` — the same figure every standalone
+  // hook already sizes itself against. A context without it (a test stub that
+  // omits `budgets`) leaves the deadline unbounded by the host, which is the
+  // pre-R1 behaviour and is safe: the cap only ever SHORTENS a deadline.
+  const dispatchStartMs = nowMs();
+  const hostBudgetMs = ctx.budgets?.overallBudgetMs ?? Number.POSITIVE_INFINITY;
   for (const reg of matched) {
     const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
@@ -1078,7 +1103,8 @@ export async function runDispatcher(
     }
 
     const declaredMs = reg.timeoutMs;
-    const hardDeadlineMs = computeHardDeadlineMs(declaredMs, slackMs);
+    const remainingHostBudgetMs = Math.max(0, hostBudgetMs - (nowMs() - dispatchStartMs));
+    const hardDeadlineMs = computeHardDeadlineMs(declaredMs, slackMs, remainingHostBudgetMs);
     // Set on the success path when the guard crossed its SOFT budget; threaded
     // to the fire-log record below so a slow-but-correct guard is visible
     // without being reclassified away from `decided`.

@@ -351,11 +351,23 @@ interface GuardRegistration {
   event: LifecycleEvent; // "PreToolUse" | "PostToolUse" | ... (which dispatcher loads it)
   matcher: string; // tool-name regex, e.g. "Bash|mcp__minsky__session_exec"
   module: () => Promise<GuardModule>; // dynamic import of the pure-function guard
-  timeoutMs: number; // per-guard budget within the dispatcher's overall budget
+  timeoutMs: number; // per-guard budget within the dispatcher's overall budget (see the 2026-08-21 note below)
   calibrationLog?: string; // logical name for D4's shared calibration service
   denyCapable: boolean; // participates in first-deny-wins short-circuit (D1)
 }
 ```
+
+**Note added 2026-08-21 (mt#3757) — `timeoutMs` is now ENFORCED, and not as a flat cut.**
+This ADR declared the field as a per-guard budget; until mt#3757 the dispatcher loop read
+it nowhere and a single hung guard rode to the host cap, losing every already-computed
+verdict silently. The enforced deadline is **slack-aware and host-bounded**:
+`min(declared + unspent budget from earlier guards on this event, the event's remaining
+host budget)`. A flat cut at the declared value was measured against 730,951 fire-log
+records and rejected — ten of 56 registered guards already exceed their declaration in
+production, so it would have silently killed working guards (worst case `memory-search`,
+262 overruns across 25 of 35 active days). The declared value survives as a SOFT budget
+recorded on the fire log; only the hard deadline skips, and a skip is NAMED in the merged
+context block. See `docs/architecture/evaluation-loop-fire-log.md §guardOutcome`.
 
 The registry is the **single source of truth** that today's copy-pasted `settings.json`
 matcher strings approximate by hand (e.g., the literal string `"Edit|Write|NotebookEdit"`
