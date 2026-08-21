@@ -183,9 +183,17 @@ async function runRevert(
 /**
  * Migrate (or preview migrating) every discovered Minsky MCP entry.
  *
- * The daemon is ensured AFTER the rewrite rather than before, so a failure to
- * start is reported against a config that is already pointing at it — and the
- * error names `--revert`, which is the operator's way out.
+ * The daemon is ensured BEFORE the rewrite, so a daemon that is refused or
+ * never comes up leaves the config untouched and the operator needs no way
+ * out. See the ordering comment on the execute path below.
+ *
+ * mt#4337: this docblock used to say the opposite — "ensured AFTER the rewrite
+ * rather than before ... and the error names `--revert`, which is the
+ * operator's way out" — which described the defect as a deliberate design
+ * choice. It was not one. The refusal mt#4297 added fired below the write, so
+ * it refused a migration that had already happened while reporting "Nothing
+ * has been written." A rationale attached to a defect is how it survives
+ * review; the ordering, the messages and this comment now agree.
  */
 export async function runSetupLocalHttp(
   options: SetupLocalHttpOptions = {},
