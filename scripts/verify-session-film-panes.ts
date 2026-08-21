@@ -243,20 +243,50 @@ const READ_SPLIT = `(() => {
  * The gutter (`offsetWidth - clientWidth`) is REPORTED rather than asserted to
  * an exact width: whether a styled scrollbar reserves layout space depends on
  * the host's "show scroll bars" setting, and pinning a number here would make
- * the check pass or fail on a macOS preference. What IS asserted is
- * token-resolution and the opt-out, neither of which depends on that setting.
+ * the check pass or fail on a macOS preference. What IS asserted does not
+ * depend on that setting.
+ *
+ * THREE probes since mt#4355, because the treatment became opt-IN. Until then
+ * this measured `probe("")` — a BARE element — and asserted the token color
+ * resolved on it, which is now the opposite of the contract:
+ *
+ *   - `scrollbar-readout` → the token-built treatment applies.
+ *   - bare               → it does NOT. This is the assertion that keeps the
+ *                          `*`-selector reach from creeping back; without it
+ *                          nothing distinguishes "opt-in" from "global".
+ *   - `scrollbar-none`   → still fully suppressed (the TabBar depends on it).
+ *
+ * The probes stay `position: fixed`, NOT `absolute` (PR #3188 R1). Nesting is
+ * what makes inheritance observable, and inheritance is DOM-based — measured:
+ * a fixed child of an element carrying
+ * `scrollbar-color: rgb(255, 0, 0) rgb(0, 128, 0)` computes that same pair,
+ * identically to an absolute or static child. So `fixed` costs nothing, and
+ * `absolute` would have cost something real: one of the two containers these
+ * probes are parented into is `<main>`, an `overflow: auto` scroller, and an
+ * absolutely-positioned child at `top: -9999px` participates in its ancestor's
+ * scrollable overflow — the probe would perturb the very box it measures.
+ * `fixed` is out of flow entirely, and immune to an ancestor `overflow: hidden`
+ * clipping it or a `transform` re-anchoring it.
+ *
+ * `colorScheme` rides along and is the more important of the two mechanisms:
+ * it is what makes the PLATFORM's own bar dark on engines that ignore the
+ * token treatment — WebKit, i.e. the tray. Note the limit this script cannot
+ * cross: it drives Chromium, so a passing `colorScheme` here is evidence the
+ * declaration SHIPPED, not that the tray renders correctly. That check is the
+ * principal's window.
  */
 const PROBE_ID = "mt3701-scrollbar-probe";
 const MEASURE_SCROLLBAR = `(() => {
-  function probe(className) {
+  function probe(className, parent) {
     const host = document.createElement("div");
     host.className = className;
+    // position:fixed, never absolute — see the docblock above (PR #3188 R1).
     host.style.cssText = "position:fixed;top:-9999px;left:0;width:120px;height:80px;overflow-y:scroll";
     const filler = document.createElement("div");
     filler.style.height = "800px";
     host.appendChild(filler);
-    host.id = ${JSON.stringify(PROBE_ID)} + "-" + (className || "styled");
-    document.body.appendChild(host);
+    host.id = ${JSON.stringify(PROBE_ID)} + "-" + (className || "bare");
+    (parent || document.body).appendChild(host);
     const cs = getComputedStyle(host);
     const out = {
       gutter: host.offsetWidth - host.clientWidth,
@@ -266,7 +296,21 @@ const MEASURE_SCROLLBAR = `(() => {
     host.remove();
     return out;
   }
-  return JSON.stringify({ styled: probe(""), optedOut: probe("scrollbar-none") });
+  // The NESTED probes are the load-bearing ones. \`scrollbar-color\` inherits,
+  // so a probe parented to <body> sits outside every opted-in container and
+  // reports "auto" whether or not the treatment leaks downward — it cannot
+  // fail on the regression it is meant to catch. Parent inside the opted-in
+  // scroller instead, which is where a real code block or table wrapper lives.
+  const readoutHost = document.querySelector(".scrollbar-readout");
+  return JSON.stringify({
+    colorScheme: getComputedStyle(document.documentElement).colorScheme,
+    readout: probe("scrollbar-readout"),
+    bare: probe(""),
+    optedOut: probe("scrollbar-none"),
+    foundReadoutHost: Boolean(readoutHost),
+    bareNested: readoutHost ? probe("", readoutHost) : null,
+    readoutNested: readoutHost ? probe("scrollbar-readout", readoutHost) : null,
+  });
 })()`;
 
 type ScrollbarProbe = { gutter: number; scrollbarWidth: string; scrollbarColor: string };
@@ -503,34 +547,94 @@ try {
 
   // --- 4. Scrollbar chrome ------------------------------------------------
   const scrollbars = JSON.parse(await evaluate(ws, MEASURE_SCROLLBAR)) as {
-    styled: ScrollbarProbe;
+    colorScheme: string;
+    readout: ScrollbarProbe;
+    bare: ScrollbarProbe;
     optedOut: ScrollbarProbe;
+    foundReadoutHost: boolean;
+    bareNested: ScrollbarProbe | null;
+    readoutNested: ScrollbarProbe | null;
   };
+  console.log(`document color-scheme: ${scrollbars.colorScheme}`);
   console.log(
-    `scrollbar (default): gutter=${scrollbars.styled.gutter}px width=${scrollbars.styled.scrollbarWidth} ` +
-      `color=${scrollbars.styled.scrollbarColor}`
+    `scrollbar (.scrollbar-readout): gutter=${scrollbars.readout.gutter}px width=${scrollbars.readout.scrollbarWidth} ` +
+      `color=${scrollbars.readout.scrollbarColor}`
+  );
+  console.log(
+    `scrollbar (bare): gutter=${scrollbars.bare.gutter}px width=${scrollbars.bare.scrollbarWidth} ` +
+      `color=${scrollbars.bare.scrollbarColor}`
   );
   console.log(
     `scrollbar (.scrollbar-none): gutter=${scrollbars.optedOut.gutter}px ` +
       `width=${scrollbars.optedOut.scrollbarWidth}`
   );
-  if (scrollbars.styled.scrollbarColor === "auto" || scrollbars.styled.scrollbarColor === "") {
+  if (scrollbars.colorScheme !== "dark") {
     failures.push(
-      `a scroll container computes scrollbar-color "${scrollbars.styled.scrollbarColor}" — ` +
+      `the document computes color-scheme "${scrollbars.colorScheme}", expected "dark" — ` +
+        `without it the platform paints its own chrome light-appearance, which is what the ` +
+        `tray's WebKit window rendered before mt#4355`
+    );
+  }
+  if (scrollbars.readout.scrollbarColor === "auto" || scrollbars.readout.scrollbarColor === "") {
+    failures.push(
+      `.scrollbar-readout computes scrollbar-color "${scrollbars.readout.scrollbarColor}" — ` +
         `the token-derived declaration did not apply, so the scrollbar is still OS chrome`
     );
   }
-  if (scrollbars.styled.scrollbarWidth !== "thin") {
+  if (scrollbars.readout.scrollbarWidth !== "thin") {
     failures.push(
-      `a scroll container computes scrollbar-width "${scrollbars.styled.scrollbarWidth}", expected "thin"`
+      `.scrollbar-readout computes scrollbar-width "${scrollbars.readout.scrollbarWidth}", expected "thin"`
+    );
+  }
+  if (scrollbars.bare.scrollbarColor !== "auto" || scrollbars.bare.scrollbarWidth !== "auto") {
+    failures.push(
+      `a BARE scroll container computes scrollbar-color "${scrollbars.bare.scrollbarColor}" / ` +
+        `scrollbar-width "${scrollbars.bare.scrollbarWidth}", expected "auto" for both — the ` +
+        `treatment is opt-in per mt#4355 and has leaked back to a global selector`
     );
   }
   if (scrollbars.optedOut.scrollbarWidth !== "none" || scrollbars.optedOut.gutter !== 0) {
     failures.push(
       `.scrollbar-none no longer suppresses scrollbar chrome ` +
         `(width="${scrollbars.optedOut.scrollbarWidth}", gutter=${scrollbars.optedOut.gutter}px) — ` +
-        `the new default out-specifies the opt-out the TabBar depends on`
+        `something out-specifies the opt-out the TabBar depends on`
     );
+  }
+  // The inheritance pair. Both probes live INSIDE an opted-in scroller, which
+  // is the only place the `scrollbar-color` leak is observable.
+  if (!scrollbars.foundReadoutHost) {
+    failures.push(
+      `no .scrollbar-readout element in the document — the nested-inheritance ` +
+        `assertions could not run, so this check proved nothing about them`
+    );
+  } else {
+    const nestedBare = scrollbars.bareNested as ScrollbarProbe;
+    const nestedReadout = scrollbars.readoutNested as ScrollbarProbe;
+    console.log(
+      `scrollbar (bare, nested in .scrollbar-readout): width=${nestedBare.scrollbarWidth} ` +
+        `color=${nestedBare.scrollbarColor}`
+    );
+    console.log(
+      `scrollbar (.scrollbar-readout, nested): width=${nestedReadout.scrollbarWidth} ` +
+        `color=${nestedReadout.scrollbarColor}`
+    );
+    if (nestedBare.scrollbarColor !== "auto") {
+      failures.push(
+        `a bare scroll container NESTED inside .scrollbar-readout computes ` +
+          `scrollbar-color "${nestedBare.scrollbarColor}", expected "auto" — ` +
+          `\`scrollbar-color\` is an INHERITED property, so the treatment is leaking ` +
+          `into every nested scroller (code blocks, table wrappers) and the ` +
+          `:where(.scrollbar-readout *) reset is missing or out-specified (mt#4355)`
+      );
+    }
+    if (nestedReadout.scrollbarColor === "auto" || nestedReadout.scrollbarWidth !== "thin") {
+      failures.push(
+        `a .scrollbar-readout NESTED inside another one computes ` +
+          `width="${nestedReadout.scrollbarWidth}" color="${nestedReadout.scrollbarColor}" — ` +
+          `the descendant reset is out-specifying an explicit opt-in, which would ` +
+          `strip the film ribbon's readout (it renders inside <main>)`
+      );
+    }
   }
 } catch (err) {
   failures.push(`measurement error: ${err instanceof Error ? err.message : String(err)}`);
