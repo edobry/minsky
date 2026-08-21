@@ -8,8 +8,10 @@ tags:
 ---
 # Hook Files
 
-PreToolUse/merge/pre-commit gate index + guard-dispatcher. Observers:
-`hook-observers`. Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
+PreToolUse/merge/pre-commit gate index + guard-dispatcher. **Observers (non-blocking
+detectors/injectors/trackers) are NOT in this file and are no longer always-loaded (mt#4332):
+`hook-observers` auto-attaches when you edit a hook, or read it with `rules_get hook-observers`.**
+Source `.minsky/hooks/`; `.claude/hooks/*` GENERATED — pre-commit auto-regens+restages when hooks sources staged (mt#2977). Execute
 permission required. Override: `MINSKY_HOOK_OVERRIDE=<guard>[,...]|all`.
 **On denial: `docs/architecture/hooks/<name>.md` or `rules_get hook-files`.**
 
