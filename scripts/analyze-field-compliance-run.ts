@@ -518,9 +518,22 @@ function pairedAnalysis(rows: Row[], callErrorCount: number, arms: string[]): vo
  */
 function doseResponseAnalysis(rows: Row[], callErrorCount: number): void {
   // Descending, so the control (the largest, least-truncated dose) reads first everywhere.
-  const doses = [...new Set(rows.map((r) => r.truncateChars ?? CONTROL_TRUNCATE_CHARS))].sort(
-    (a, b) => b - a
-  );
+  // Rows WITHOUT the key are dropped, not defaulted (PR #3225 R2). `?? CONTROL_TRUNCATE_CHARS`
+  // manufactures a dose for a row that records none, and a fabricated control row is worse
+  // than a missing one: it lands in the control arm's denominator and shifts the very ratio
+  // this analysis exists to report, with nothing to notice. This is the projection hazard
+  // `claim-confidence.mdc` names — an accessor over a missing key is a CONSTRUCTOR, not a
+  // filter — and the routing in `main` already tested PRESENCE (`"truncateChars" in r`) for
+  // exactly this reason. The two disagreed; they now agree.
+  const dosed = rows.filter((r) => typeof r.truncateChars === "number");
+  const undosed = rows.length - dosed.length;
+  if (undosed > 0) {
+    console.log(
+      `NOTE: ${undosed} of ${rows.length} rows carry no truncateChars and are EXCLUDED — ` +
+        `a mixed dataset predating the field cannot be scored on a dose it never recorded.`
+    );
+  }
+  const doses = [...new Set(dosed.map((r) => r.truncateChars as number))].sort((a, b) => b - a);
   if (!doses.includes(CONTROL_TRUNCATE_CHARS)) {
     console.error(
       `Dose-response analysis requires the pre-registered control dose ` +
@@ -532,8 +545,8 @@ function doseResponseAnalysis(rows: Row[], callErrorCount: number): void {
   }
 
   const byConversation = new Map<string, Map<number, Row>>();
-  for (const r of rows) {
-    const dose = r.truncateChars ?? CONTROL_TRUNCATE_CHARS;
+  for (const r of dosed) {
+    const dose = r.truncateChars as number;
     if (!byConversation.has(r.conversationId)) byConversation.set(r.conversationId, new Map());
     byConversation.get(r.conversationId)?.set(dose, r);
   }

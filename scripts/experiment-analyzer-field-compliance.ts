@@ -577,7 +577,16 @@ async function main(): Promise<void> {
       ? `unavailable — no arm ran at production's ${MESSAGE_TRUNCATE_CHARS}, so there is no reference dose`
       : Object.fromEntries(
           ARMS.map((arm) => {
-            const armRows = rows.filter((r) => r.arm === arm.name);
+            // BOTH sides restricted to the transcripts the arm and the reference share
+            // (PR #3225 R1). Restricting only the denominator was the original shape, and it
+            // is a ratio between two different populations the moment the two sets diverge —
+            // which they do the instant any transcript fails to produce a row for one arm.
+            // Today every arm answers every usable transcript so the sets coincide and the
+            // number is right; a ratio that is only right when nothing goes wrong is the
+            // thing worth fixing, since a divergence here would move the dose silently and
+            // the dose is what the whole trade is denominated in.
+            const refIds = new Set(referenceRows.map((r) => r.conversationId));
+            const armRows = rows.filter((r) => r.arm === arm.name && refIds.has(r.conversationId));
             // Per-transcript, not per-row: arms can differ in how many rows they produced.
             const ids = new Set(armRows.map((r) => r.conversationId));
             const refShared = referenceRows.filter((r) => ids.has(r.conversationId));
@@ -585,10 +594,18 @@ async function main(): Promise<void> {
               rs.reduce((acc, r) => acc + f(r), 0);
             const refTranscript = sum(refShared, (r) => r.transcriptChars);
             const refPrompt = sum(refShared, (r) => r.promptChars);
+            // Surfaced rather than absorbed: a dose computed over fewer transcripts than the
+            // arm actually ran is still a valid ratio, but the reader must be able to see
+            // that it was.
+            const armRowCount = rows.filter((r) => r.arm === arm.name).length;
             return [
               arm.name,
               {
                 truncateChars: arm.truncateChars ?? MESSAGE_TRUNCATE_CHARS,
+                pairedTranscripts: armRows.length,
+                ...(armRows.length === armRowCount
+                  ? {}
+                  : { droppedUnpairedRows: armRowCount - armRows.length }),
                 transcriptDosage:
                   refTranscript === 0
                     ? null
