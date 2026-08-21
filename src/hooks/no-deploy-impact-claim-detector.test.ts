@@ -192,7 +192,13 @@ describe("[no-deploy-impact] claim verification (mt#4397)", () => {
         "utf8"
       );
 
-      expect(source).toContain('from "@minsky/domain/deployment/deploy-surface"');
+      // Matched by SYMBOL + module suffix, not by the exact specifier string
+      // (PR #3221 R3). The invariant is "imports the predicate from the
+      // deploy-surface module"; the alias prefix is incidental, and pinning it
+      // would fail on a benign `paths` change while the invariant still held.
+      expect(source).toMatch(
+        /import\s*\{[^}]*\bisDeploySurfaceFile\b[^}]*\}\s*from\s*["'][^"']*deploy-surface["']/
+      );
       expect(source).not.toContain("DEPLOY_SURFACE_PATTERNS");
       expect(source).not.toMatch(/services\/\*\/Dockerfile|infra\/\*\*/);
     });
