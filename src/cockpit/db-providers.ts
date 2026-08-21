@@ -174,11 +174,36 @@ export function classifyDriverConnectionError(err: unknown): string | undefined 
 export function describeFailedPersistenceInit(err: unknown): string {
   const reason =
     classifyDriverConnectionError(err) ?? (err instanceof Error ? err.message : String(err));
+  // mt#4383: kept in lockstep with `describePersistenceUnavailability`, per the
+  // mt#3661 test that asserts the two share wording — an operator must not get
+  // different advice from the cockpit than from the MCP adapters. mt#4379
+  // corrected a THIRD renderer of this same state (the task-backend message)
+  // and did not reach either of these two; aligning all three is the point of
+  // mt#4383.
+  //
+  // Two clauses are gone and neither depended on tense:
+  //
+  //  - "`minsky persistence check` reports the same failure" asserted a parity
+  //    nothing verified. It is not merely unverified but backwards: that
+  //    command probes the LIVE connection while this reports one failed
+  //    attempt, so they are EXPECTED to disagree once the outage clears —
+  //    which is precisely how two agent sessions lost their first diagnostic
+  //    minutes to a database that was already healthy.
+  //  - "restart once the database is reachable" is no longer the remedy;
+  //    mt#4379 made the container re-register dependents on recovery.
+  //
+  // This path DOES keep the present tense its sibling drops, and the asymmetry
+  // is deliberate rather than an oversight: `getSharedPersistenceService`
+  // PROPAGATES a failed init instead of substituting a provider, so the error
+  // arrives here as a live throw from the attempt just made (see
+  // `describeServerPersistenceUnavailability` above). There is no stored
+  // boot-time record being replayed, which is the thing that made the sibling's
+  // present tense a lie.
   return (
     `Postgres IS configured, but persistence failed to initialize: ${reason}. ` +
-    "The database is unreachable — this is a degraded provider, not a missing " +
-    "configuration. Check the boot logs and restart once the database is " +
-    "reachable; `minsky persistence check` reports the same failure."
+    "This is a degraded provider, not a missing configuration. Note `minsky " +
+    "persistence check` may well PASS while this fails: it probes the live " +
+    "connection, whereas this reports the initialization attempt that just failed."
   );
 }
 

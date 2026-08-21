@@ -56,11 +56,61 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
 
     for (const shared of [
       "Postgres IS configured",
-      "The database is unreachable",
+      "not a missing configuration",
       "minsky persistence check",
     ]) {
       expect(fromProvider).toContain(shared);
       expect(fromThrow).toContain(shared);
     }
+  });
+
+  // ---- mt#4383: the two clauses mt#4379 retired on the sibling renderer ----
+
+  test("neither renderer claims a CURRENT outage or a parity that does not hold", () => {
+    // mt#4379 corrected a third renderer of this same state (the task-backend
+    // message) and its regression test forbids exactly these two strings —
+    // but only there. These two kept them, which is the whole of mt#4383:
+    // `describePersistenceUnavailability` is the CANONICAL renderer that
+    // `scripts/check-sql-capability-messages.ts` routes call sites into, so it
+    // reached more surfaces than the one that got fixed.
+    //
+    // Why each is wrong, independent of tense:
+    //  - "reports the same failure" asserts a parity nothing derives. It is
+    //    backwards: `persistence check` probes the LIVE connection, so once the
+    //    outage clears the two are EXPECTED to disagree. Two agent sessions
+    //    spent their first diagnostic minutes on an already-healthy database
+    //    following it.
+    //  - "restart once the database is reachable" stopped being the remedy when
+    //    mt#4379 made the container re-register dependents on recovery.
+    for (const rendered of [
+      describePersistenceUnavailability(new UnconfiguredPersistenceProvider(ENOTFOUND, true)),
+      describeFailedPersistenceInit(new Error(ENOTFOUND)),
+    ]) {
+      expect(rendered).not.toContain("reports the same failure");
+      expect(rendered).not.toContain("restart once the database is reachable");
+    }
+
+    // Positive half: they must still say something actionable about the
+    // relationship, not merely drop the mention.
+    for (const rendered of [
+      describePersistenceUnavailability(new UnconfiguredPersistenceProvider(ENOTFOUND, true)),
+      describeFailedPersistenceInit(new Error(ENOTFOUND)),
+    ]) {
+      expect(rendered).toContain("may well PASS while this fails");
+    }
+  });
+
+  test("the throw path keeps its present tense, and the provider path does not", () => {
+    // The asymmetry is deliberate and is the one judgment call in mt#4383.
+    // `getSharedPersistenceService` PROPAGATES a failed init, so the cockpit's
+    // error is a live throw from the attempt just made and "failed to
+    // initialize" is accurate NOW. The provider path replays a record stored at
+    // boot, which is the thing that made a present-tense claim a lie there.
+    expect(describeFailedPersistenceInit(new Error(ENOTFOUND))).toContain(
+      "the initialization attempt that just failed"
+    );
+    expect(
+      describePersistenceUnavailability(new UnconfiguredPersistenceProvider(ENOTFOUND, true))
+    ).toContain("AT BOOT");
   });
 });

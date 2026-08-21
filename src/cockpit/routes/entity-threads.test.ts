@@ -532,9 +532,22 @@ describe("DB-unavailable status classification on the routes", () => {
     // Accepted — names the STORE and the DATABASE cause, claims nothing about
     // the thread. This is the message the routes now emit, and the string the
     // original /fail/i proxy rejected.
+    //
+    // Kept in sync with `describeFailedPersistenceInit` (mt#4383 dropped the
+    // "The database is unreachable" / "restart" / "reports the same failure"
+    // clauses). The sample matters because this test's whole point is that the
+    // narrowed guard still fires on real claims while accepting the real
+    // message — a sample that has drifted from what the routes emit tests the
+    // guard against a message nobody sends. Note the current wording carries
+    // MORE failure vocabulary than the old one ("may well PASS while this
+    // fails", "the initialization attempt that just failed"), so it is a
+    // stricter exercise of a regex anchored on `thread\s+failed`.
     expect(
       "entity-thread store unavailable — Postgres IS configured, but persistence " +
-        "failed to initialize: getaddrinfo ENOTFOUND. The database is unreachable."
+        "failed to initialize: getaddrinfo ENOTFOUND. This is a degraded provider, " +
+        "not a missing configuration. Note `minsky persistence check` may well PASS " +
+        "while this fails: it probes the live connection, whereas this reports the " +
+        "initialization attempt that just failed."
     ).not.toMatch(CLAIMS_THREAD_FAILED);
   });
 

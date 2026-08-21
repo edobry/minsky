@@ -200,11 +200,43 @@ export function describePersistenceUnavailability(provider: unknown): string {
     return "The active persistence provider is not SQL-capable.";
   }
   if (provider.configuredButUnavailable) {
+    // mt#4383: this carries the correction mt#4379 made to the sibling
+    // task-backend message, which was applied there and not here. The old
+    // wording asserted "The database is unreachable" and "`minsky persistence
+    // check` reports the same failure" in the PRESENT tense; both describe the
+    // moment initialization failed, and both go false the instant the database
+    // recovers. In the originating incident `persistence check` returned "All
+    // checks passed" while this text claimed unreachability, and two separate
+    // agent sessions each spent their first diagnostic minutes on a healthy
+    // database.
+    //
+    // The parity claim was never derived from anything — it is a string
+    // literal asserting that another command reports the same thing, which
+    // nothing verifies. It is worse than unverified: `persistence check`
+    // probes the LIVE connection while this describes the state one
+    // initialization attempt left behind, so the two are EXPECTED to disagree
+    // once the outage clears. Saying so is more useful than claiming parity.
+    //
+    // "Restart once the database is reachable" is also retired: since mt#4379
+    // the container re-registers dependents on recovery, so a restart is no
+    // longer the remedy it was when this sentence was written.
+    //
+    // The retry clause needs no new plumbing — `lastAttemptAt` /
+    // `lastAttemptError` are already on this provider because ADR-035 rule 4
+    // requires a degraded substitute to carry them, and their ABSENCE is the
+    // load-bearing case: it distinguishes "stuck since boot" from "still
+    // retrying against a real outage".
+    const retryClause = provider.lastAttemptAt
+      ? `Last re-initialization attempt ${provider.lastAttemptAt} also failed` +
+        `${provider.lastAttemptError ? ` (${provider.lastAttemptError})` : ""}.`
+      : "This provider has NOT been re-initialized since boot, so the underlying " +
+        "dependency may well have recovered in the meantime.";
     return (
-      `Postgres IS configured, but initialization failed at boot: ${provider.reason}. ` +
-      "The database is unreachable — this is a degraded provider, not a missing " +
-      "configuration. Check the boot logs and restart once the database is reachable; " +
-      "`minsky persistence check` reports the same failure."
+      `Postgres IS configured, but initialization failed AT BOOT: ${provider.reason}. ` +
+      `${retryClause} This is a degraded provider, not a missing configuration, and not ` +
+      "necessarily a current outage. Note `minsky persistence check` may well PASS while " +
+      "this fails: it probes the live connection, whereas this reports the state this " +
+      "provider was left in when initialization failed."
     );
   }
   return (
