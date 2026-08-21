@@ -114,6 +114,26 @@ export const SUPPRESSION_STOP_GUARD_ALREADY_INJECTED = "deduped-by-untaken-actio
  */
 export const SUPPRESSION_CITES_FILED_ASK = "cites-filed-ask";
 
+/**
+ * Reason string for the mt#4175 suppression: the offer FOLLOWS a decision this
+ * agent already took, so it is a revisability offer rather than a deferral.
+ *
+ * Same inversion as {@link SUPPRESSION_CITES_FILED_ASK} one class over. The
+ * matched phrase here is produced by `humility.mdc §Stakes filter` being
+ * FOLLOWED — *"if the wrong answer costs a 30-second edit, decide it, take a
+ * reasonable default, and say what you picked"* — so an agent doing exactly what
+ * the always-loaded corpus requires gets warned for it. That is worse than
+ * ordinary noise: it pushes toward silent decisions (drop the revisability
+ * offer) or genuine deferral (ask first), both worse than the behaviour being
+ * penalised.
+ *
+ * Measured across four independent windows before this shipped: 3 of 11 injected
+ * (2026-08-16), 2 of 10 (2026-08-20), 3 of 14 (2026-08-18), and the one
+ * offer-shape fire left standing on the sibling surface after mt#4311
+ * (2026-08-21).
+ */
+export const SUPPRESSION_SETTLED_DECISION = "settled-decision";
+
 /** Short sha1, matching the Stop guard's key derivation. */
 function sha1Short(input: string): string {
   return createHash("sha1").update(input).digest("hex").slice(0, 16);
@@ -206,6 +226,69 @@ export const DEFERRAL_MENU_PATTERNS: RegExp[] = [
   /\b(want\s+me\s+to|should\s+I)\b[^.?]*\bor\b[^.?]*\?/i,
   /\bnothing\s+is\s+dropped\s+if\s+we\s+do\s+nothing\b/i,
   /\blet\s+me\s+know\s+(which|how)\s+(you[''’]?d\s+like|to\s+proceed)\b/i,
+];
+
+/**
+ * The agent has ALREADY TAKEN the decision the offer would reverse (mt#4175).
+ *
+ * The discriminator is a completed or in-progress FIRST-PERSON action of the
+ * agent's own, in the same window as the offer. The sibling
+ * `operator-deferral-detector`'s `SETTLED_DECISION_PATTERNS` records the line
+ * both detectors agree on: *"a completed or firmly-stated decision of the
+ * agent's own is not a decision being handed over; a proposed next step is."*
+ * mt#3801 owns the second half there; this array is the first half here.
+ *
+ * **Deliberately NOT shared with that array, and the planning note that said to
+ * lift it was wrong.** Two reasons, both found by reading it: its content is
+ * tuned to the SIBLING's corpus (resourcing reasons — `with fresh context`,
+ * `this turn has run long`) which this corpus does not contain, so a lift would
+ * have to be a merge; and mt#4175's `## Scope` puts "any other detector" out of
+ * scope, so editing that file to extract the array is out of bounds for this
+ * task. If the two converge later, mt#4070 is the task that argues for hoisting
+ * decoration-tolerant matchers into one primitive — that is where the merge
+ * belongs, with both corpora in hand.
+ *
+ * Matched against {@link DeferralMatch.context} — the matched sentence plus ONE
+ * lead sentence — not against {@link DeferralMatch.sentence}. That scope is the
+ * whole discrimination and it has a cost in both directions:
+ *
+ * - Too NARROW (the sentence alone) misses the measured shape where the
+ *   decision sits in the preceding sentence: *"I filed mt#4243 as tracking
+ *   rather than walking it to implementation … Say the word if you want it
+ *   built now."*
+ * - Too WIDE (the whole turn) suppresses a genuine deferral that merely shares a
+ *   turn with an unrelated decision — and a long turn almost always contains
+ *   one, so the wide scope silences the class this detector exists for.
+ *
+ * `context` is also the window a calibration reviewer classifies from, so the
+ * suppression is tested at the same scope the class was MEASURED at rather than
+ * at a scope chosen after the fact.
+ *
+ * **EVERY pattern requires a first-person subject, and that is a contract this
+ * array must keep (PR #3224 R1).** A first cut carried
+ * `/\b(both\s+)?recorded\s+in\b/i` to reach the one AT1 context whose marker is
+ * PASSIVE — *"the reasoning and the alternative are both recorded in mt#3268."*
+ * That contradicted this docblock, and the failure it bought is concrete: a
+ * neutral status line in the lead sentence (*"Meeting notes recorded in
+ * mt#3268."*) would silence a genuine deferral following it (*"Next. Say the
+ * word and I'll plan it."*) — an AT2-floor shape suppressed by a token that
+ * says nothing about who decided anything.
+ *
+ * It was DROPPED rather than tightened: `I recorded` is already in the
+ * alternation, so nothing first-person was lost, and what WAS lost is that one
+ * context, which moves into the measured residual. Reaching one more case by
+ * suppressing on a subject-less token is not a trade SC1' asks for — it permits
+ * a partial result, not a wrong one. A test pins the contract behaviourally
+ * (passive and third-person narration must not suppress), so a future addition
+ * that forgets the `I` fails rather than merely disagreeing with this comment.
+ */
+export const SETTLED_DECISION_PATTERNS: RegExp[] = [
+  // Shared with the sibling's array by content, not by import — see above.
+  /\bI\s+(picked|chose|selected|went\s+with)\b/i,
+  // Measured shapes this corpus actually produced.
+  /\bI[''’]?m\s+taking\b/i,
+  /\bI\s+(filed|implemented|shipped|recorded|wrote)\b/i,
+  /\bI\s+haven[''’]?t,?\s+since\b/i,
 ];
 
 const CLASS_PATTERNS: Array<{ cls: DeferralClass; patterns: RegExp[] }> = [
@@ -846,6 +929,47 @@ export function resolveAskCitation(matches: DeferralMatch[]): {
   return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
 }
 
+/**
+ * Does this window show the agent having ALREADY taken the decision (mt#4175)?
+ *
+ * Takes {@link DeferralMatch.context} rather than `.sentence` — see
+ * {@link SETTLED_DECISION_PATTERNS} for why that scope, and what it costs in
+ * each direction.
+ *
+ * Scoped to `deferral-menu` at the call site below, NOT here: the
+ * `principal-reserved` class is a different question, and a settled decision
+ * does not make "rotating that token is your call" any less the principal's.
+ * mt#4201 owns that class's suppression and this must not reach into it —
+ * mt#4175's `## Scope` cedes it explicitly.
+ */
+export function settlesDecision(context: string): boolean {
+  return SETTLED_DECISION_PATTERNS.some((p) => p.test(context));
+}
+
+/**
+ * Drop `deferral-menu` matches whose window shows a decision already taken
+ * (mt#4175).
+ *
+ * Mirrors {@link resolveAskCitation} and {@link resolveStopOverlap} — same
+ * per-match filter, same `suppressedAll` signal — so the three suppressions
+ * compose without any needing to know about the others.
+ *
+ * The `cls` guard is the load-bearing half. Without it this would silence the
+ * `principal-reserved` class too, and that class's regression floor includes
+ * *"Rotating that token is your call … Say the word and I'll do it."* — a
+ * correctly-identified principal decision that still belongs in an ask rather
+ * than in chat prose. The detector's subject is CHANNEL, not judgment.
+ */
+export function resolveSettledDecision(matches: DeferralMatch[]): {
+  remaining: DeferralMatch[];
+  suppressedAll: boolean;
+} {
+  const remaining = matches.filter(
+    (m) => !(m.cls === "deferral-menu" && settlesDecision(m.context))
+  );
+  return { remaining, suppressedAll: matches.length > 0 && remaining.length === 0 };
+}
+
 /** `storeDir` is a test seam; the dispatcher never passes it. */
 export function run(
   input: ClaudeHookInput,
@@ -917,7 +1041,15 @@ export function run(
   // convention immediately below: a reason string gates injection entirely, so
   // pushing one on a PARTIAL suppression would silence the genuine deferrals that
   // survived alongside the reported ask.
-  const askCited = resolveAskCitation(matches);
+  // mt#4175: runs FIRST, so a revisability offer never reaches the later
+  // filters. Chained by `remaining` like its two siblings; only an
+  // all-suppressed turn records a reason, per the convention above.
+  const settled = resolveSettledDecision(matches);
+  if (settled.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_SETTLED_DECISION);
+  }
+
+  const askCited = resolveAskCitation(settled.remaining);
   if (askCited.suppressedAll) {
     suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
   }
@@ -1029,7 +1161,15 @@ export async function main(): Promise<void> {
   // the injection.
   // mt#4201, mirroring `run()` above — this file's two write paths must not
   // disagree about what suppresses (the mt#3607 declared-once discipline).
-  const askCited = resolveAskCitation(matches);
+  // mt#4175: runs FIRST, so a revisability offer never reaches the later
+  // filters. Chained by `remaining` like its two siblings; only an
+  // all-suppressed turn records a reason, per the convention above.
+  const settled = resolveSettledDecision(matches);
+  if (settled.suppressedAll) {
+    suppressionReasons.push(SUPPRESSION_SETTLED_DECISION);
+  }
+
+  const askCited = resolveAskCitation(settled.remaining);
   if (askCited.suppressedAll) {
     suppressionReasons.push(SUPPRESSION_CITES_FILED_ASK);
   }

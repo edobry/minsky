@@ -18,6 +18,9 @@ import {
   citesFiledAsk,
   resolveAskCitation,
   SUPPRESSION_CITES_FILED_ASK,
+  settlesDecision,
+  resolveSettledDecision,
+  SUPPRESSION_SETTLED_DECISION,
   ASKS_CREATE_TOOL,
   INJECTION_ENABLED,
   OVERRIDE_ENV_VAR,
@@ -1165,6 +1168,187 @@ describe("PR #3205 R1 — run() wires the suppression, not just the helper", () 
 
     const cal = outcome?.calibration as { suppressionReasons: string[] };
     expect(cal.suppressionReasons).not.toContain(SUPPRESSION_CITES_FILED_ASK);
+    expect(outcome?.additionalContext).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4175 — the revisability offer: a decision already taken, then an offer to
+// reverse it. The matched phrase is produced by `humility.mdc §Stakes filter`
+// being FOLLOWED, so the fire lands on the compliant behaviour.
+// ---------------------------------------------------------------------------
+
+/** The AT1 contexts a first-person discriminator can reach, verbatim. */
+const AT1_REACHABLE: Array<[string, string]> = [
+  [
+    "AT1.2 — picked and proceeded in one sentence",
+    "All four follow-ons are TODO and unclaimed. My last report put mt#4125 first, so I'm taking that — say the word if you'd rather I start with one of the detector tunes.",
+  ],
+  [
+    "AT1.3 — answering the principal's own question",
+    "That's the spot where a second opinion would actually bite. Say the word and I'll dispatch one against the draft; I haven't, since you asked whether it was worthwhile rather than for it.",
+  ],
+  [
+    "AT1.4 — the skill-chain rule's own exemption, quoted back",
+    "I filed mt#4243 as tracking rather than walking it to implementation — nothing is currently failing, so it's a latent risk, not an incident. Say the word if you want it built now.",
+  ],
+];
+
+/** The AT2 regression floor — genuine deferrals that MUST keep firing. */
+const AT2_FLOOR: Array<[string, string]> = [
+  ["AT2.1", "**Next.** Say the word and I'll plan any of the three."],
+  ["AT2.2", "**Next.** mt#4131 is the substantive one ... Say the word and I'll plan it."],
+  ["AT2.3", "Want me to take mt#4123, or would you rather I close out mt#4124 first?"],
+  ["AT2.4", "**Rotating that token is your call** ... Say the word and I'll do it."],
+];
+
+/** True when a `deferral-menu` match survives the settled-decision filter. */
+function menuSurvives(text: string): boolean {
+  const { remaining } = resolveSettledDecision(detectDeferralPhrases(text));
+  return remaining.some((m) => m.cls === DEFERRAL_MENU);
+}
+
+describe("mt#4175 AT1 — a revisability offer is suppressed", () => {
+  for (const [label, text] of AT1_REACHABLE) {
+    test(`silenced: ${label}`, () => {
+      // Detection still runs — mt#3207's detect-first discipline means the
+      // calibration record keeps the fire even when injection is withheld.
+      expect(detectDeferralPhrases(text).some((m) => m.cls === DEFERRAL_MENU)).toBe(true);
+      expect(menuSurvives(text)).toBe(false);
+    });
+  }
+
+  test("mt#3801's structural-trigger example is covered too", () => {
+    // The spec's own worked example for the widened surface: this carries no
+    // literal deferral phrase, so it reaches the family through mt#3801's
+    // trigger. Covering it is why the discriminator is applied to the FAMILY
+    // rather than to the literal patterns.
+    const text = "I went with the second option unless you'd rather I switch.";
+    expect(detectDeferralPhrases(text).length).toBeGreaterThan(0);
+    expect(menuSurvives(text)).toBe(false);
+  });
+});
+
+describe("mt#4175 AT1 residual — the three contexts a first-person list cannot reach", () => {
+  // MEASURED, not aspirational. SC1' requires the residual be recorded rather
+  // than left implicit, and pinning it here is what makes a later change that
+  // reaches these VISIBLE instead of silent. If one of these starts passing,
+  // that is a result to record on mt#4175 — not a test to delete.
+
+  test("AT1.1 — a PASSIVE decision marker does not suppress (PR #3224 R1)", () => {
+    // Was reachable in the first cut, via `/\b(both\s+)?recorded\s+in\b/i`.
+    // That pattern was dropped: it has no first-person subject, so it also
+    // matched neutral third-party narration — see the negative test below for
+    // the failure it bought. AT1.1 is residual now, and that is the correct
+    // trade rather than a regression.
+    const text =
+      "The opposite posture would refuse every conversation ingested before 2026-07-18 in the cockpit. Say the word if you want it the other way; the reasoning and the alternative are both recorded in mt#3268.";
+    expect(menuSurvives(text)).toBe(true);
+  });
+
+  test("AT1.5 — an additive offer with no decision verb still fires", () => {
+    expect(menuSurvives("Say the word if you want a handoff doc for picking this up later.")).toBe(
+      true
+    );
+  });
+
+  test("AT1.6 — an alternative named without a course change still fires", () => {
+    const text =
+      "The alternative worth naming — the detector is past threshold (909 fires, 33 distinct). That's real but it's a different kind of work; say the word if you'd rather do that instead.";
+    expect(menuSurvives(text)).toBe(true);
+  });
+});
+
+describe("mt#4175 AT2 — the regression floor holds", () => {
+  for (const [label, text] of AT2_FLOOR) {
+    test(`still fires: ${label}`, () => {
+      expect(menuSurvives(text)).toBe(true);
+    });
+  }
+});
+
+describe("mt#4175 — every pattern needs a first-person subject (PR #3224 R1)", () => {
+  // The reviewer's concrete failure mode, pinned: a neutral status line in the
+  // LEAD sentence must not silence a genuine deferral in the next one. This is
+  // the behavioural form of the contract — a future pattern that forgets the
+  // `I` fails here rather than merely disagreeing with a comment.
+
+  test("a passive 'recorded in' lead sentence does NOT suppress a real deferral", () => {
+    const text = "Meeting notes recorded in mt#3268. Next. Say the word and I'll plan it.";
+    expect(menuSurvives(text)).toBe(true);
+  });
+
+  test("third-person narration of someone else's decision does NOT suppress", () => {
+    const text =
+      "The other session filed mt#4243 already. Say the word and I'll plan any of the three.";
+    expect(menuSurvives(text)).toBe(true);
+  });
+
+  test("the SAME sentence in the first person DOES suppress — the contract discriminates", () => {
+    // Same claim, same window, only the subject differs. Without this pair the
+    // two tests above would also pass on a filter that suppresses nothing.
+    const text = "I filed mt#4243 already. Say the word and I'll plan any of the three.";
+    expect(menuSurvives(text)).toBe(false);
+  });
+});
+
+describe("mt#4175 — the filter is scoped to deferral-menu, not principal-reserved", () => {
+  test("a settled decision does NOT silence a principal-reserved match", () => {
+    // The detector's subject is CHANNEL, not judgment: a correctly-identified
+    // principal decision belongs in an ask even when the agent has settled
+    // everything else in the turn. mt#4201 owns that class's suppression.
+    const text = "I filed mt#4243 already. Rotating that token needs your call.";
+    const matches = detectDeferralPhrases(text);
+    const reserved = matches.filter((m) => m.cls === PRINCIPAL_RESERVED);
+    expect(reserved.length).toBeGreaterThan(0);
+
+    const { remaining } = resolveSettledDecision(matches);
+    expect(remaining.filter((m) => m.cls === PRINCIPAL_RESERVED).length).toBe(reserved.length);
+  });
+});
+
+describe("mt#4175 — scope: the window is the sentence PLUS one lead", () => {
+  test("a decision in the LEAD sentence suppresses the offer in the next one", () => {
+    // AT1.4's shape, isolated. Testing `.sentence` alone would miss it.
+    expect(
+      settlesDecision("I filed mt#4243 as tracking. Say the word if you want it built now.")
+    ).toBe(true);
+  });
+
+  test("a bare offer with no decision anywhere in the window does not suppress", () => {
+    expect(settlesDecision("Say the word and I'll plan any of the three.")).toBe(false);
+  });
+});
+
+describe("mt#4175 — run() wires the suppression, not just the helper", () => {
+  // The caller direction of the mt#2508 production-wiring check, mirroring
+  // PR #3205 R1's test for the sibling filter: unit-testing the helper proves
+  // the helper, not that the entrypoint calls it.
+
+  const SETTLED_TURN =
+    "I filed mt#4243 as tracking rather than walking it to implementation. Say the word if you want it built now.";
+  const UNSETTLED_TURN = "**Next.** Say the word and I'll plan any of the three.";
+
+  test("a settled-decision turn records the detection and injects NOTHING", () => {
+    const outcome = run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(SETTLED_TURN), makeRunUserLine()])
+    );
+
+    const cal = outcome?.calibration as { matches: unknown[]; suppressionReasons: string[] };
+    expect(cal.matches.length).toBeGreaterThan(0);
+    expect(cal.suppressionReasons).toContain(SUPPRESSION_SETTLED_DECISION);
+    expect(outcome?.additionalContext).toBeUndefined();
+  });
+
+  test("the same phrase WITHOUT a settled decision still injects — the wiring discriminates", () => {
+    const outcome = run(
+      RUN_HOOK_INPUT,
+      makeCtx([makeRunUserLine(), makeRunAssistantLine(UNSETTLED_TURN), makeRunUserLine()])
+    );
+
+    const cal = outcome?.calibration as { suppressionReasons: string[] };
+    expect(cal.suppressionReasons).not.toContain(SUPPRESSION_SETTLED_DECISION);
     expect(outcome?.additionalContext).toBeDefined();
   });
 });
