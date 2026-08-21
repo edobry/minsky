@@ -15,14 +15,21 @@ pointer below is relative to. Read that page before changing, citing, or reasoni
 observer's behavior; an entry here is deliberately too terse to answer "why does it work this
 way?"
 
-**Your entry does not fit? Write the page — the override is not the fix (mt#4032).** This rule
-has a 15,000-char per-rule ceiling (mt#3676), enforced on the COMPILED contribution: measure with
-`bun run src/cli.ts compile --check --target claude.md`, never `wc -c` on the source. When your
-observer breaches it, move the narration into `docs/architecture/hooks/<name>.md` and compress the
-entry to trigger + status + override + pointer. Two audited escape hatches sit on that path —
-`MINSKY_SKIP_SIZE_BUDGET` at commit (pre-commit) and `MINSKY_SKIP_SIZE_JUSTIFICATION` at merge —
-and neither is the fix, by the same argument `guard-feedback-authoring.mdc` makes about trimming
-text rather than raising an `attentionCost` annotation.
+**Write the page anyway — but the ceiling no longer binds this rule (mt#4332).** The 15,000-char
+per-rule ceiling (mt#3676) applies only to `alwaysApply: true` rules
+(`findPerRuleCeilingViolations`, `packages/domain/src/compile/size-budget.ts`, filters on exactly
+that), and this roster is now path-scoped — so `compile --check --target claude.md` no longer
+reports it at all, and a new entry cannot breach anything. **Do not read that as licence to write
+narration here.** Keep an entry to trigger + status + override + pointer and put the mechanism,
+incident history and false-positive posture in `docs/architecture/hooks/<name>.md`, for the reason
+this rule's own header gives: an index is consulted at speed, and prose in it is prose nobody
+finds. What changed is the enforcement, not the shape.
+
+Two things follow. **`MINSKY_SKIP_SIZE_BUDGET` and `MINSKY_SKIP_SIZE_JUSTIFICATION` are no longer
+reachable from this file** — if you find yourself reaching for either while editing this roster,
+something else is wrong. And **if this rule is ever promoted back to `alwaysApply: true`, the
+ceiling returns immediately** and roughly fifty entries arrive over it in one step; re-promotion is
+therefore a restructure, not a frontmatter flip.
 
 **All observers on one event share ONE injected block.** The dispatcher merges every guard's
 `additionalContext` into a single `hookSpecificOutput` — not N separate injections (mt#3394 was
