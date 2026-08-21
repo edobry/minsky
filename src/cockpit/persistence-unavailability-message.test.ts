@@ -18,6 +18,13 @@ import { UnconfiguredPersistenceProvider } from "@minsky/domain/persistence/unco
 /** The originating incident's boot failure (mt#3635/mt#3636, 2026-08-03). */
 const ENOTFOUND = "getaddrinfo ENOTFOUND";
 
+/**
+ * The clause that distinguishes configured-but-failing from missing config
+ * (ADR-035 rule 3). Named because both renderers must carry it and several
+ * tests assert on it — a literal repeated per assertion is how the two drift.
+ */
+const CONFIGURED_NOT_MISSING = "Postgres IS configured";
+
 describe("describeFailedPersistenceInit (mt#3661)", () => {
   test("names the underlying boot error", () => {
     const described = describeFailedPersistenceInit(new Error(ENOTFOUND));
@@ -25,7 +32,7 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
     expect(described).toContain(ENOTFOUND);
     // The distinction ADR-035 rule 3 requires: configured-but-failing, NOT
     // missing configuration.
-    expect(described).toContain("Postgres IS configured");
+    expect(described).toContain(CONFIGURED_NOT_MISSING);
     expect(described).toContain("not a missing");
   });
 
@@ -45,6 +52,36 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
     );
   });
 
+  test("an object rejection renders its content, not [object Object]", () => {
+    // PR #3220 R1. The old fallback was a bare `String(err)`, so a plain-object
+    // rejection erased the very cause this function exists to surface. The
+    // driver rejects with exactly this shape when the socket is refused.
+    const described = describeFailedPersistenceInit({ code: "ECONNREFUSED", errno: -61 });
+
+    expect(described).not.toContain("[object Object]");
+    expect(described).toContain("ECONNREFUSED");
+  });
+
+  test("an object carrying a message uses it verbatim", () => {
+    // The `{ message }` shape `getErrorMessage` already handles — pinned so the
+    // JSON fallback above cannot start swallowing it into a serialized blob.
+    const described = describeFailedPersistenceInit({ message: "pool exhausted" });
+
+    expect(described).toContain("pool exhausted");
+    expect(described).not.toContain("{");
+  });
+
+  test("a circular rejection degrades to a string rather than throwing", () => {
+    // The diagnosis step must never replace the failure it was called to
+    // describe — this module's stated contract — so JSON.stringify's throw on a
+    // cycle has to be absorbed.
+    const circular: Record<string, unknown> = { code: "EHOSTUNREACH" };
+    circular.self = circular;
+
+    expect(() => describeFailedPersistenceInit(circular)).not.toThrow();
+    expect(describeFailedPersistenceInit(circular)).toContain(CONFIGURED_NOT_MISSING);
+  });
+
   test("agrees with the domain helper's configured-but-failed wording", () => {
     // Both describe the SAME state and differ only in how the bootstrap reported
     // it, so their guidance must not diverge — an operator should not get
@@ -55,12 +92,62 @@ describe("describeFailedPersistenceInit (mt#3661)", () => {
     const fromThrow = describeFailedPersistenceInit(new Error(ENOTFOUND));
 
     for (const shared of [
-      "Postgres IS configured",
-      "The database is unreachable",
+      CONFIGURED_NOT_MISSING,
+      "not a missing configuration",
       "minsky persistence check",
     ]) {
       expect(fromProvider).toContain(shared);
       expect(fromThrow).toContain(shared);
     }
+  });
+
+  // ---- mt#4383: the two clauses mt#4379 retired on the sibling renderer ----
+
+  test("neither renderer claims a CURRENT outage or a parity that does not hold", () => {
+    // mt#4379 corrected a third renderer of this same state (the task-backend
+    // message) and its regression test forbids exactly these two strings —
+    // but only there. These two kept them, which is the whole of mt#4383:
+    // `describePersistenceUnavailability` is the CANONICAL renderer that
+    // `scripts/check-sql-capability-messages.ts` routes call sites into, so it
+    // reached more surfaces than the one that got fixed.
+    //
+    // Why each is wrong, independent of tense:
+    //  - "reports the same failure" asserts a parity nothing derives. It is
+    //    backwards: `persistence check` probes the LIVE connection, so once the
+    //    outage clears the two are EXPECTED to disagree. Two agent sessions
+    //    spent their first diagnostic minutes on an already-healthy database
+    //    following it.
+    //  - "restart once the database is reachable" stopped being the remedy when
+    //    mt#4379 made the container re-register dependents on recovery.
+    for (const rendered of [
+      describePersistenceUnavailability(new UnconfiguredPersistenceProvider(ENOTFOUND, true)),
+      describeFailedPersistenceInit(new Error(ENOTFOUND)),
+    ]) {
+      expect(rendered).not.toContain("reports the same failure");
+      expect(rendered).not.toContain("restart once the database is reachable");
+    }
+
+    // Positive half: they must still say something actionable about the
+    // relationship, not merely drop the mention.
+    for (const rendered of [
+      describePersistenceUnavailability(new UnconfiguredPersistenceProvider(ENOTFOUND, true)),
+      describeFailedPersistenceInit(new Error(ENOTFOUND)),
+    ]) {
+      expect(rendered).toContain("may well PASS while this fails");
+    }
+  });
+
+  test("the throw path keeps its present tense, and the provider path does not", () => {
+    // The asymmetry is deliberate and is the one judgment call in mt#4383.
+    // `getSharedPersistenceService` PROPAGATES a failed init, so the cockpit's
+    // error is a live throw from the attempt just made and "failed to
+    // initialize" is accurate NOW. The provider path replays a record stored at
+    // boot, which is the thing that made a present-tense claim a lie there.
+    expect(describeFailedPersistenceInit(new Error(ENOTFOUND))).toContain(
+      "the initialization attempt that just failed"
+    );
+    expect(
+      describePersistenceUnavailability(new UnconfiguredPersistenceProvider(ENOTFOUND, true))
+    ).toContain("AT BOOT");
   });
 });

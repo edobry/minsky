@@ -24,16 +24,65 @@ import { FakePersistenceProvider } from "./fake-persistence-provider";
 const BOOT_FAILURE = "getaddrinfo ENOTFOUND";
 
 describe("describePersistenceUnavailability (mt#3636)", () => {
-  test("configured-but-unavailable names the boot failure and says the DB is unreachable", () => {
+  test("configured-but-unavailable names the boot failure as a BOOT fact", () => {
     const described = describePersistenceUnavailability(
       new UnconfiguredPersistenceProvider(BOOT_FAILURE, true)
     );
 
     expect(described).toContain("Postgres IS configured");
     expect(described).toContain(BOOT_FAILURE);
-    expect(described).toContain("unreachable");
+    expect(described).toContain("AT BOOT");
     // Must not send the operator off to fix a config that is already correct.
     expect(described).not.toContain("Set persistence.postgres.connectionString");
+  });
+
+  // ---- mt#4383: a boot observation must not be rendered as current state ----
+  //
+  // This test previously asserted the message "says the DB is unreachable".
+  // That assertion was the defect, pinned: the claim describes the moment
+  // initialization failed and goes false the instant the database recovers.
+  // mt#4379 corrected the sibling task-backend renderer and its regression test
+  // forbids these strings there; this is the same guard for the CANONICAL
+  // renderer, which `scripts/check-sql-capability-messages.ts` routes call
+  // sites into and which therefore reaches more surfaces than the one fixed.
+  test("does not claim a CURRENT outage, nor a parity with persistence check", () => {
+    const described = describePersistenceUnavailability(
+      new UnconfiguredPersistenceProvider(BOOT_FAILURE, true)
+    );
+
+    expect(described).not.toContain("The database is unreachable");
+    expect(described).not.toContain("reports the same failure");
+    // Retired by mt#4379: the container now re-registers dependents on
+    // recovery, so a restart is no longer the remedy this sentence promised.
+    expect(described).not.toContain("restart once the database is reachable");
+    // The relationship is stated rather than dropped — `persistence check`
+    // probes the live connection, so the two are EXPECTED to disagree.
+    expect(described).toContain("may well PASS while this fails");
+  });
+
+  test("with no retry recorded, it says so rather than implying a live outage", () => {
+    // ADR-035 rule 4 makes the ABSENT case load-bearing: it is what separates
+    // "stuck since boot" from "still retrying against a real outage". A fresh
+    // provider has never been re-initialized.
+    const described = describePersistenceUnavailability(
+      new UnconfiguredPersistenceProvider(BOOT_FAILURE, true)
+    );
+
+    expect(described).toContain("has NOT been re-initialized since boot");
+    expect(described).toContain("may well have recovered");
+  });
+
+  test("with a retry recorded, it reports when and why that retry failed", () => {
+    const provider = new UnconfiguredPersistenceProvider(BOOT_FAILURE, true);
+    const at = new Date("2026-08-21T20:00:00.000Z");
+    provider.noteRetryAttempt(at, "ECONNREFUSED");
+
+    const described = describePersistenceUnavailability(provider);
+
+    expect(described).toContain(at.toISOString());
+    expect(described).toContain("ECONNREFUSED");
+    // The never-retried wording must not survive alongside a recorded attempt.
+    expect(described).not.toContain("has NOT been re-initialized since boot");
   });
 
   test("deliberately unconfigured points at the config, not at a boot failure", () => {
@@ -43,7 +92,10 @@ describe("describePersistenceUnavailability (mt#3636)", () => {
 
     expect(described).toContain("Persistence is not configured");
     expect(described).toContain("persistence.postgres.connectionString");
-    expect(described).not.toContain("failed to initialize at boot");
+    // Case-insensitive: the configured-but-failed branch renders "AT BOOT" in
+    // caps since mt#4383, and a case-sensitive assertion here would pass for
+    // the wrong reason if the branches were ever confused.
+    expect(described.toLowerCase()).not.toContain("failed to initialize at boot");
   });
 
   test("an unrelated provider gets the generic description rather than a fabricated cause", () => {
