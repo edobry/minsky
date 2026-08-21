@@ -324,6 +324,65 @@ describe("review receipts — the review-due set (mt#4391)", () => {
     expect(() => parseReviewToken(`${payload}.${checksum}`)).toThrow(/reviewDue/);
   });
 
+  test("PR #3214 R1 — a claim-held log is skipped under its OWN reason, not mislabelled newly-due", () => {
+    // Due at mint time, withheld because another pass held a claim. The skill
+    // tells the reviewer to stand down on it, so nothing was classified.
+    const token = buildReviewToken([causalResultAt(20)], ISSUED_AT, [], [CAUSAL_ENTRY.path]);
+    const reconciliation = reconcileReviewReceipt(
+      parseReviewToken(token),
+      [causalResultAt(20)],
+      new Set([CAUSAL_ENTRY.path]),
+      {}
+    );
+
+    expect(reconciliation.claimHeldPaths).toEqual([CAUSAL_ENTRY.path]);
+    // The label is the point: it did NOT cross a threshold during the pass.
+    expect(reconciliation.newlyDuePaths).toEqual([]);
+  });
+
+  test("PR #3214 R1 — a claim-held log is still NOT advanced", () => {
+    // The disposition must not change with the label. The review's first
+    // suggested fix (mint `reviewDue` from the unfiltered due set) would have
+    // advanced this path — marking reviewed a log nobody read, which is the
+    // defect mt#4391 exists to close. This test is what would catch that.
+    const token = buildReviewToken([causalResultAt(20)], ISSUED_AT, [], [CAUSAL_ENTRY.path]);
+    const ackResults = [causalResultAt(20)];
+    const ackable = new Set([CAUSAL_ENTRY.path]);
+
+    const reconciliation = reconcileReviewReceipt(parseReviewToken(token), ackResults, ackable, {});
+    expect(reconciliation.reviewedCounts).toEqual({});
+
+    const updated = advanceWatermarks(
+      {},
+      ackResults,
+      ackable,
+      ACKED_AT,
+      reconciliation.reviewedCounts
+    );
+    expect(updated[CAUSAL_ENTRY.path]).toBeUndefined();
+  });
+
+  test("PR #3214 R1 — a log that is BOTH shown and claim-held resolves as shown", () => {
+    // Cannot arise from the adapter (the two sets are disjoint by
+    // construction), but the precedence must be defined rather than incidental:
+    // being presented to the reviewer means it WAS classified.
+    const token = buildReviewToken(
+      [causalResultAt(20)],
+      ISSUED_AT,
+      [CAUSAL_ENTRY.path],
+      [CAUSAL_ENTRY.path]
+    );
+    const reconciliation = reconcileReviewReceipt(
+      parseReviewToken(token),
+      [causalResultAt(20)],
+      new Set([CAUSAL_ENTRY.path]),
+      {}
+    );
+    expect(reconciliation.reviewedCounts[CAUSAL_ENTRY.path]).toBe(20);
+    expect(reconciliation.claimHeldPaths).toEqual([]);
+    expect(reconciliation.newlyDuePaths).toEqual([]);
+  });
+
   test("the checksum does not depend on the order reviewDue was built in", () => {
     const other = ".minsky/wall-of-text-calibration.jsonl";
     const results = [causalResultAt(11)];

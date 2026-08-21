@@ -2318,6 +2318,22 @@ export interface ReviewReceipt {
    * 14 records, 9 of them injected, that no reviewer ever saw.
    */
   reviewDue: string[];
+  /**
+   * Paths that WERE due at mint time but were withheld from the reviewer
+   * because another pass held a claim on them (PR #3214 R1).
+   *
+   * These must not be advanced — this pass stood down on them, so it
+   * classified nothing — but they are not `newlyDue` either, and reporting
+   * them as such asserts a threshold crossing that never happened. Recording
+   * the two separately is what lets the ack skip both for the RIGHT stated
+   * reason.
+   *
+   * The alternative the review raised first — minting `reviewDue` from the
+   * UNFILTERED due set — was rejected: it would make the ack advance exactly
+   * the logs the skill told the reviewer to stand down on, which is this
+   * task's own defect wearing different clothes.
+   */
+  claimHeldAtMint: string[];
 }
 
 /** Thrown when a supplied review token is malformed, corrupt, or impossible. */
@@ -2342,7 +2358,8 @@ function canonicalReceiptJson(receipt: ReviewReceipt): string {
   // on the receipt's CONTENT, never on the order a caller happened to build it
   // in — otherwise a token round-trips only when the iteration order matches.
   const reviewDue = [...receipt.reviewDue].sort();
-  return JSON.stringify({ issuedAt: receipt.issuedAt, counts, reviewDue });
+  const claimHeldAtMint = [...receipt.claimHeldAtMint].sort();
+  return JSON.stringify({ issuedAt: receipt.issuedAt, counts, reviewDue, claimHeldAtMint });
 }
 
 function receiptChecksum(payloadJson: string): string {
@@ -2369,13 +2386,19 @@ function receiptChecksum(payloadJson: string): string {
 export function buildReviewToken(
   results: CalibrationLogResult[],
   issuedAt: string,
-  reviewDuePaths: readonly string[]
+  reviewDuePaths: readonly string[],
+  claimHeldPaths: readonly string[] = []
 ): string {
   const counts: Record<string, number> = {};
   for (const r of results) {
     counts[r.entry.path] = r.totalFires;
   }
-  const payloadJson = canonicalReceiptJson({ issuedAt, counts, reviewDue: [...reviewDuePaths] });
+  const payloadJson = canonicalReceiptJson({
+    issuedAt,
+    counts,
+    reviewDue: [...reviewDuePaths],
+    claimHeldAtMint: [...claimHeldPaths],
+  });
   const payload = Buffer.from(payloadJson, "utf8").toString("base64url");
   return `${payload}.${receiptChecksum(payloadJson)}`;
 }
@@ -2420,10 +2443,11 @@ export function parseReviewToken(token: string): ReviewReceipt {
   if (typeof parsed !== "object" || parsed === null) {
     throw new InvalidReviewTokenError("Review token payload is not an object.");
   }
-  const { issuedAt, counts, reviewDue } = parsed as {
+  const { issuedAt, counts, reviewDue, claimHeldAtMint } = parsed as {
     issuedAt?: unknown;
     counts?: unknown;
     reviewDue?: unknown;
+    claimHeldAtMint?: unknown;
   };
   if (typeof issuedAt !== "string" || typeof counts !== "object" || counts === null) {
     throw new InvalidReviewTokenError(
@@ -2454,7 +2478,27 @@ export function parseReviewToken(token: string): ReviewReceipt {
     }
     validated[path] = count;
   }
-  return { issuedAt, counts: validated, reviewDue: reviewDue as string[] };
+  // Absent is accepted as empty here, unlike `reviewDue` above, and the
+  // asymmetry is deliberate: both fields ship in the same change, so a token
+  // carrying a valid `reviewDue` and no `claimHeldAtMint` cannot be produced by
+  // this code — only hand-written, which the docblock already says this is not
+  // a boundary against. Empty is also the benign reading (no claims held), so
+  // there is no silent-defect branch to protect. A present-but-wrong TYPE is
+  // still rejected.
+  if (
+    claimHeldAtMint !== undefined &&
+    (!Array.isArray(claimHeldAtMint) || claimHeldAtMint.some((p) => typeof p !== "string"))
+  ) {
+    throw new InvalidReviewTokenError(
+      "Review token carries a malformed `claimHeldAtMint` list. Re-run the read-only sweep and pass the token it returns."
+    );
+  }
+  return {
+    issuedAt,
+    counts: validated,
+    reviewDue: reviewDue as string[],
+    claimHeldAtMint: (claimHeldAtMint as string[] | undefined) ?? [],
+  };
 }
 
 /** Outcome of checking a receipt against the log state at ack time. */
@@ -2475,6 +2519,16 @@ export interface ReceiptReconciliation {
    * these in the NEXT sweep's `reviewDue`.
    */
   newlyDuePaths: string[];
+  /**
+   * Paths that were due at mint time but held by ANOTHER pass's claim, so this
+   * pass stood down on them (PR #3214 R1).
+   *
+   * Same disposition as `newlyDuePaths` — not advanced — and a different
+   * REASON, which is why it is a separate field. Folding them together would
+   * tell a reviewer a threshold was crossed when the log was simply someone
+   * else's to review.
+   */
+  claimHeldPaths: string[];
 }
 
 /**
@@ -2501,6 +2555,11 @@ export interface ReceiptReconciliation {
  *     named in `newlyDuePaths`. This is the SET half of the same discipline the
  *     bullets above apply to the COUNT: the receipt says what was reviewed, and
  *     the ack honors it rather than re-deriving from live state.
+ *   - **Path in `claimHeldAtMint`** (PR #3214 R1) — due at mint time, but
+ *     another pass held a claim on it, so this reviewer was told to stand down
+ *     and classified nothing. Same disposition as the bullet above, DIFFERENT
+ *     reason, and named in `claimHeldPaths` so the report does not assert a
+ *     threshold crossing that never happened.
  */
 export function reconcileReviewReceipt(
   receipt: ReviewReceipt,
@@ -2513,7 +2572,9 @@ export function reconcileReviewReceipt(
   const clampedPaths: string[] = [];
   const unreceiptedPaths: string[] = [];
   const newlyDuePaths: string[] = [];
+  const claimHeldPaths: string[] = [];
   const receiptReviewDue = new Set(receipt.reviewDue);
+  const receiptClaimHeld = new Set(receipt.claimHeldAtMint);
 
   for (const result of results) {
     const path = result.entry.path;
@@ -2530,10 +2591,18 @@ export function reconcileReviewReceipt(
       continue;
     }
 
-    // The log WAS swept and was not due then. Note its count is present and
-    // perfectly valid — which is exactly why the count cannot answer this
-    // question, and why the set had to be recorded separately (mt#4391).
+    // The log was NOT presented to the reviewer, so nothing was classified in
+    // it either way. Both branches below skip; they differ only in the reason
+    // reported, and the reason is the whole value of naming it (PR #3214 R1).
     if (!receiptReviewDue.has(path)) {
+      // Due at mint, withheld because a concurrent pass held it.
+      if (receiptClaimHeld.has(path)) {
+        claimHeldPaths.push(path);
+        continue;
+      }
+      // Swept, not due then, due now. Its count is present and perfectly valid
+      // — which is exactly why the count cannot answer this question, and why
+      // the set had to be recorded separately (mt#4391).
       newlyDuePaths.push(path);
       continue;
     }
@@ -2559,7 +2628,14 @@ export function reconcileReviewReceipt(
     }
   }
 
-  return { reviewedCounts, midPassArrivals, clampedPaths, unreceiptedPaths, newlyDuePaths };
+  return {
+    reviewedCounts,
+    midPassArrivals,
+    clampedPaths,
+    unreceiptedPaths,
+    newlyDuePaths,
+    claimHeldPaths,
+  };
 }
 
 /**

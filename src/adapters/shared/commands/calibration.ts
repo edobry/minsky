@@ -729,7 +729,14 @@ export function registerCalibrationCommands(): void {
         const reviewToken = buildReviewToken(
           results,
           new Date().toISOString(),
-          reviewDue.map((d) => String(d.path))
+          reviewDue.map((d) => String(d.path)),
+          // Recorded separately, NOT folded into `reviewDue` (PR #3214 R1). A
+          // claim-held log must not be advanced — this pass stood down on it —
+          // but calling it "newly due" later would assert a threshold crossing
+          // that never happened. Minting `reviewDue` from the UNFILTERED set
+          // instead would fix the label by advancing logs nobody classified,
+          // which is the defect this task exists to close.
+          claimedByOthers
         );
 
         let watermarkAdvanced = false;
@@ -738,6 +745,7 @@ export function registerCalibrationCommands(): void {
         let clampedPaths: string[] = [];
         let unreceiptedPaths: string[] = [];
         let newlyDuePaths: string[] = [];
+        let claimHeldPaths: string[] = [];
         if (params.ack) {
           // Refuse rather than fall back. An ack with no receipt cannot know
           // what was classified, and re-deriving the count here is the whole
@@ -778,6 +786,7 @@ export function registerCalibrationCommands(): void {
           clampedPaths = reconciliation.clampedPaths;
           unreceiptedPaths = reconciliation.unreceiptedPaths;
           newlyDuePaths = reconciliation.newlyDuePaths;
+          claimHeldPaths = reconciliation.claimHeldPaths;
 
           // Target only the paths the receipt actually covers: an unreceipted
           // log is left alone, so it must not count toward the write set or
@@ -787,7 +796,13 @@ export function registerCalibrationCommands(): void {
             const updated = advanceWatermarks(
               watermarks,
               results,
-              selection.ackablePaths,
+              // The EXACT set we intend to write, not the broader
+              // `selection.ackablePaths` (PR #3214 R1). Behaviour is identical
+              // today — `advanceWatermarks` also skips any path missing from
+              // `reviewedCounts` — but that made the write target depend on an
+              // invariant held in another function, and left the set handed to
+              // it wider than the one `watermarkAdvanced` is computed against.
+              advancedPaths,
               new Date().toISOString(),
               reconciliation.reviewedCounts,
               params.askId
@@ -863,6 +878,9 @@ export function registerCalibrationCommands(): void {
             // issued. Not advanced, because nobody classified them — the
             // set-shaped sibling of `midPassArrivals`.
             newlyDuePaths,
+            // Also not advanced, for a DIFFERENT reason: due at mint time, but
+            // another pass held a claim so this one stood down (PR #3214 R1).
+            claimHeldPaths,
           };
         }
 
@@ -932,6 +950,11 @@ export function registerCalibrationCommands(): void {
             ? `\nNot advanced (became review-due after this token was issued, so nobody ` +
               `classified them — they are in the next sweep): ${newlyDuePaths.join(", ")}`
             : "";
+        const claimHeldSuffix =
+          claimHeldPaths.length > 0
+            ? `\nNot advanced (another pass held these when this token was issued, so you ` +
+              `stood down on them rather than classifying them): ${claimHeldPaths.join(", ")}`
+            : "";
         const tokenSuffix = `\nreviewToken: ${reviewToken}`;
 
         return {
@@ -948,6 +971,7 @@ export function registerCalibrationCommands(): void {
             clampedSuffix +
             unreceiptedSuffix +
             newlyDueSuffix +
+            claimHeldSuffix +
             tokenSuffix,
           watermarkAdvanced,
           clearedAskId,
@@ -958,6 +982,7 @@ export function registerCalibrationCommands(): void {
           clampedPaths,
           unreceiptedPaths,
           newlyDuePaths,
+          claimHeldPaths,
         };
       } catch (error) {
         return {
