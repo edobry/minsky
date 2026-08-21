@@ -17,6 +17,18 @@
  *
  *   bun scripts/check-sql-capability-messages.ts
  *
+ * WHERE THIS RUNS (mt#4398): `src/hooks/pre-commit.ts`, as the
+ * `sql-capability-message-check` step, immediately after the variable-naming
+ * check. Recorded here on purpose — from mt#3661 until mt#4398 this script had
+ * NO caller at all, and was exiting 1 on `main` with three real cause-free
+ * sites that nobody could see. A check nothing invokes produces no signal, so
+ * the next reader should be able to find its invocation point from this header
+ * rather than by grepping and hoping.
+ *
+ * If you move the invocation, update this line with it. mt#3134 is separately
+ * deciding whether checks of this class belong in CI rather than pre-commit;
+ * mt#4400 tracks four sibling `scripts/check-*.ts` that are still unwired.
+ *
  * Exit 0 = every remaining occurrence is either a comment or explicitly marked.
  * Exit 1 = at least one bare, unmarked message — the list is printed.
  *

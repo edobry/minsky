@@ -104,6 +104,7 @@ export const PRECOMMIT_STEP_NAMES: readonly string[] = [
   "nul-byte-check",
   "rules-compile-check",
   "secret-scanning",
+  "sql-capability-message-check",
   "type-check",
   "variable-naming-check",
 ];

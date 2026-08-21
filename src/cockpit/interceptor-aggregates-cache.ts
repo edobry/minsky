@@ -54,6 +54,9 @@ import {
   type WatermarkStore,
 } from "../domain/calibration/calibration-sweep";
 import { buildSweptEntries } from "../domain/calibration/swept-entries";
+// mt#4398 — see `passkey-store.ts` for why this wrapper rather than the domain
+// helper directly.
+import { describeServerPersistenceUnavailability } from "./db-providers";
 import { GuardHealthTracker } from "../mcp/guard-health-tracker";
 import { createCachedSqlDbGetter } from "./db-providers";
 import { findRepoRoot } from "./web-dist";
@@ -324,7 +327,14 @@ export interface InterceptorDetailResult {
 
 export async function fetchGuardDetail(guardName: string): Promise<InterceptorDetailResult> {
   const db = await getDb();
-  if (!db) throw new Error("no SQL-capable database available");
+  if (!db) {
+    // mt#4398: "no SQL-capable database available" is true and unactionable —
+    // it does not say whether Postgres is unconfigured or configured-and-failed,
+    // which need opposite responses. Same fix as the two store siblings.
+    throw new Error(
+      `no SQL-capable database available. ${await describeServerPersistenceUnavailability()}`
+    );
+  }
 
   const since = new Date(Date.now() - CATALOG_WINDOW_DAYS * 24 * 60 * 60 * 1000);
   const [decisionCounts, durations, canary] = await Promise.all([

@@ -1103,6 +1103,16 @@ export const INTERCEPTOR_DESCRIPTIONS: ReadonlyMap<string, InterceptorDescriptio
     },
   ],
   [
+    "sql-capability-message-check",
+    {
+      description:
+        "Blocks a commit whose persistence-gated error says only that the database is unavailable, without naming which of the two opposite causes it is — never configured, or configured and failed at boot (ADR-035 rule 3). The check itself predates this registration by a long way and had no caller at all until mt#4398, so it sat exiting non-zero against three real sites that nothing surfaced.",
+      failureClasses: ["broken-main"],
+      provenance: [PRECOMMIT, "scripts/check-sql-capability-messages.ts"],
+      stratum: "precommit",
+    },
+  ],
+  [
     "node-shim-check",
     {
       description:
