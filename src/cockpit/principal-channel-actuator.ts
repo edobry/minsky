@@ -92,7 +92,7 @@ import {
 } from "./driven-session-host";
 import { drivenSessionMcpServerNames } from "./driven-session-mcp-servers";
 import {
-  createDrivenInitLinkObserver,
+  createDrivenInitObserver,
   createDrivenResultObserver,
   createDrivenSessionPersistObserver,
   orchestrateDrivenSessionResume,
@@ -296,7 +296,9 @@ export function createDrivenSessionActuator(opts: DrivenSessionActuatorOptions):
       // Without these the conversation is never written down at all, so a
       // restart has nothing to resume FROM — the defect this task fixes.
       onStateChange: opts.onStateChange ?? createDrivenSessionPersistObserver(),
-      onHarnessSessionLinked: createDrivenInitLinkObserver(),
+      // mt#4323: `startDrivenSession`, so this is a fresh conversation for the
+      // channel — never a resume, which goes through its own path.
+      onHarnessSessionLinked: createDrivenInitObserver({ adoptionReason: "initial" }),
       onResultSummary: createDrivenResultObserver(),
       registry,
       ...(opts.spawnFn === undefined ? {} : { spawnFn: opts.spawnFn }),
