@@ -3,7 +3,15 @@
  *
  * The rule under test is stated once in `ConversationElementRenderers.tsx`'s
  * "Weight hierarchy" docblock: failures loudest, then prose, then everything
- * else recedes with NO border, NO tint and NO accent hue. Before mt#4220 the
+ * else recedes with NO border, NO tint and NO accent hue.
+ *
+ * **Tier 3 is no longer one uniform step (mt#4238).** A tool call the registry
+ * classifies as `mutates` now sits above a read WITHIN that tier. What this
+ * suite pins is tier 3's FLOOR — no border, no tint, no accent hue — which
+ * holds at both steps and which mt#4238 layers on top of rather than replaces.
+ * The read-vs-write split itself is pinned separately, by
+ * `ConversationView.tool-effect-weight.test.tsx`; the fixtures below are `Read`
+ * and `Bash`, both of which sit at the recessive step. Before mt#4220 the
  * ordering was inverted — every machine element was a bordered, tinted card
  * (a healthy tool row additionally sky-hued) while assistant prose rendered
  * with no wrapper and no class — so a run of collapsed calls visually

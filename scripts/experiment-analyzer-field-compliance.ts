@@ -40,11 +40,25 @@
  * through the two different channels that could carry it, kept separate so a result names
  * which channel did the work.
  *
+ * ## The window arms (mt#4370) measure a TRADE, not a fix
+ *
+ * `window-400` / `window-200` / `window-150` vary `MESSAGE_TRUNCATE_CHARS`, and unlike every
+ * arm above they change the PROMPT. Shrinking it is expected to buy compliance — prompt size
+ * predicts rejection (mt#4365: 15.5% below 10,000 chars against 44.0% at or above, Fisher
+ * p < 0.0001) — and to spend per-message depth, which is what the model reads the session
+ * with. Both sides are recorded on every row so no run can report the purchase without the
+ * price. They are opt-in (`--arms`), for the cost reason at `DEFAULT_ARMS`.
+ *
+ * **This harness does not decide anything.** mt#4370 SC5 keeps the lever itself
+ * principal-owned; what ships from here is a pair of numbers.
+ *
  * Env-gated like the replay: exits 0 with SKIP when persistence or AI providers are absent.
  *
  * Usage:
  *   bun scripts/experiment-analyzer-field-compliance.ts --limit 30
  *   bun scripts/experiment-analyzer-field-compliance.ts --limit 30 --out /tmp/run.jsonl
+ *   bun scripts/experiment-analyzer-field-compliance.ts --limit 200 \
+ *     --arms window-400,window-200,window-150 --out .tmp/mt4370-window.jsonl
  */
 
 import "reflect-metadata";
@@ -68,8 +82,13 @@ import type { DefaultAICompletionService } from "../packages/domain/src/ai/compl
 import { extractSchemaIssuePaths } from "./lib/generate-object-failure";
 import { safeTruncate } from "../src/utils/safe-truncate";
 
-const { analyzerOutputSchema, SYSTEM_PROMPT, ANALYZER_REQUEST_DEFAULTS, TRANSCRIPT_MESSAGE_CAP } =
-  __TEST_ONLY;
+const {
+  analyzerOutputSchema,
+  SYSTEM_PROMPT,
+  ANALYZER_REQUEST_DEFAULTS,
+  TRANSCRIPT_MESSAGE_CAP,
+  MESSAGE_TRUNCATE_CHARS,
+} = __TEST_ONLY;
 
 // ---------------------------------------------------------------------------
 // Schema variants
@@ -112,6 +131,15 @@ interface Arm {
   systemPrompt: string;
   /** Overrides the request's structured-output strategy; unset means production's default. */
   mode?: "auto" | "json" | "tool";
+  /**
+   * Per-message truncation for THIS arm; unset means production's `MESSAGE_TRUNCATE_CHARS`.
+   *
+   * The first arm dimension that varies the PROMPT rather than the request or the schema
+   * (mt#4370). Everything else here is answered against one rendered prompt per transcript;
+   * a window arm cannot be, so the render moved inside the arm loop and is memoized by this
+   * value — see `renderFor` in the main loop for what that does to the pairing guarantee.
+   */
+  truncateChars?: number;
 }
 
 const ALL_ARMS: readonly Arm[] = [
@@ -132,7 +160,47 @@ const ALL_ARMS: readonly Arm[] = [
   // a flag rather than a re-implementation, and so `AIObjectGenerationRequest.mode` has a
   // consumer that exercises the forwarding path.
   { name: "tool-mode", schema: analyzerOutputSchema, systemPrompt: SYSTEM_PROMPT, mode: "tool" },
+
+  // mt#4370 — the window arms. A three-point DOSE-RESPONSE, not a two-arm contrast, because
+  // mt#4365 established there is no floor: the smallest failing prompt was 1,283 chars and
+  // the below-10,000 group still failed 15.5%. The 10,000-char threshold summarizes a
+  // gradient, so a single contrast measures one point on a curve.
+  //
+  // `window-400` sets production's own value explicitly. It renders byte-identical to
+  // `baseline` — the point is that the control's dose is RECORDED rather than implied by an
+  // arm name, so the dose-response analysis reads its x-axis off the data (PR #3204 R1).
+  {
+    name: "window-400",
+    schema: analyzerOutputSchema,
+    systemPrompt: SYSTEM_PROMPT,
+    truncateChars: 400,
+  },
+  // T=200: the last value with real above-threshold mass (72.9% of transcripts below 10,000
+  // chars) at 79.3% dosage. T=150: the first value that clears every transcript, at 69.9%.
+  // Both figures re-derived on the run's own corpus rather than quoted — see the dosage lines.
+  {
+    name: "window-200",
+    schema: analyzerOutputSchema,
+    systemPrompt: SYSTEM_PROMPT,
+    truncateChars: 200,
+  },
+  {
+    name: "window-150",
+    schema: analyzerOutputSchema,
+    systemPrompt: SYSTEM_PROMPT,
+    truncateChars: 150,
+  },
 ];
+
+/**
+ * What a bare invocation runs — deliberately NOT `ALL_ARMS`.
+ *
+ * The window arms (mt#4370) are opt-in: they answer a different question from the
+ * field-compliance arms, and folding them into the default would raise the cost of every
+ * unflagged run by 60% for a measurement the caller did not ask for. `--arms` still resolves
+ * against the full registry, so an explicit name always works and a typo still throws.
+ */
+const DEFAULT_ARMS: readonly Arm[] = ALL_ARMS.filter((a) => a.truncateChars === undefined);
 
 /**
  * Which arms this invocation runs, defaulting to all of them.
@@ -145,7 +213,7 @@ const ALL_ARMS: readonly Arm[] = [
  */
 const ARMS: readonly Arm[] = (() => {
   const requested = parseStringArg("--arms", "");
-  if (requested === "") return ALL_ARMS;
+  if (requested === "") return DEFAULT_ARMS;
   const names = requested
     .split(",")
     .map((n) => n.trim())
@@ -166,7 +234,18 @@ const ARMS: readonly Arm[] = (() => {
 // ---------------------------------------------------------------------------
 
 type Outcome =
-  | { kind: "ok"; findingCount: number; summaryChars: number }
+  | {
+      kind: "ok";
+      findingCount: number;
+      summaryChars: number;
+      /**
+       * The findings' labels, so the coverage comparison can be a SET comparison and not
+       * only a count one (mt#4370 SC2). Two arms returning one finding each is compatible
+       * with them agreeing and with them disagreeing completely, and a count cannot tell
+       * those apart. Truncated because a label is free text and the row is a JSONL line.
+       */
+      findingLabels: string[];
+    }
   /** The response parsed as JSON but Zod rejected it — `paths` names the offending fields. */
   | { kind: "schema-violation"; paths: string[]; message: string }
   /** Anything else: provider error, transport failure, rate limit. NOT a compliance datum. */
@@ -259,6 +338,25 @@ interface ResultRow {
    * another, which is precisely the mislabeling this whole task exists to avoid.
    */
   mode: "auto" | "json" | "tool" | null;
+  /**
+   * The per-message truncation ACTUALLY used to render this row's prompt (mt#4370).
+   *
+   * Always the resolved number, never the arm's optional field — an arm that sets nothing
+   * still ran at production's value, and recording `undefined` there would make the control
+   * indistinguishable from a dataset predating this field. Same reason `mode` is recorded:
+   * the analysis reads the dose off the DATA, never off an arm's name.
+   */
+  truncateChars: number;
+  /**
+   * Characters of TRANSCRIPT delivered, excluding the prompt's fixed scaffolding.
+   *
+   * `promptChars` above is the whole rendered prompt, so its floor under an aggressive
+   * truncation is the scaffolding rather than zero. Recording both lets the dosage metric be
+   * stated on either basis without re-running: transcript-only is the honest numerator for
+   * "how much of the session did the model see", whole-prompt is what the size/compliance
+   * result is a function of.
+   */
+  transcriptChars: number;
   outcome: Outcome;
 }
 
@@ -313,14 +411,43 @@ async function main(): Promise<void> {
       continue;
     }
 
-    // Rendered ONCE and reused by every arm. This is the pairing: each arm answers the
-    // identical prompt, so a difference between arms cannot be a difference in input.
+    // The window is selected ONCE per transcript and shared by every arm, so no arm can
+    // differ by which messages it saw — only by how much of each one it was shown.
     const selected = selectAnalysisWindow(messages);
     const sampling = describeSampling(messages, selected);
-    const userPrompt = __TEST_ONLY.buildUserPromptFromSelection(selected, sampling, {
-      sessionId: conversationId,
-    });
     const fullWindow = sampling.analyzedMessages >= TRANSCRIPT_MESSAGE_CAP;
+
+    // Rendered once PER DISTINCT TRUNCATION and reused by every arm that shares it.
+    //
+    // This is the pairing guarantee, narrowed rather than abandoned. It used to be "one
+    // rendered prompt object per transcript, reused by all arms", which made a difference
+    // between arms impossible to attribute to the input. A window arm varies the input by
+    // definition (mt#4370), so the guarantee now holds WITHIN a truncation value and the
+    // dose is what differs ACROSS values — which is the thing being measured, recorded on
+    // every row. Arms that set no truncation still share one render with each other and
+    // with `window-400`, exactly as before.
+    const renderCache = new Map<number, { userPrompt: string; transcriptChars: number }>();
+    const renderFor = (truncateChars: number): { userPrompt: string; transcriptChars: number } => {
+      const cached = renderCache.get(truncateChars);
+      if (cached) return cached;
+      const userPrompt = __TEST_ONLY.buildUserPromptFromSelection(
+        selected,
+        sampling,
+        { sessionId: conversationId },
+        truncateChars
+      );
+      // The rendered transcript body, measured the way the prompt assembles it (one line per
+      // selected message, newline-joined) rather than by subtracting a scaffolding constant —
+      // a constant would silently go stale the next time the prompt's wording changes.
+      const bodyLines = selected.map(({ message, index }) =>
+        __TEST_ONLY.summarizeMessage(message, index, truncateChars)
+      );
+      const transcriptChars =
+        bodyLines.reduce((acc, line) => acc + line.length, 0) + Math.max(0, bodyLines.length - 1);
+      const rendered = { userPrompt, transcriptChars };
+      renderCache.set(truncateChars, rendered);
+      return rendered;
+    };
 
     // Rotate which arm goes first, so no arm systematically occupies the position most
     // exposed to a rate-limit backoff or a provider-side warm-up.
@@ -328,6 +455,8 @@ async function main(): Promise<void> {
     const armOrder = [...ARMS.slice(offset), ...ARMS.slice(0, offset)];
 
     for (const arm of armOrder) {
+      const truncateChars = arm.truncateChars ?? MESSAGE_TRUNCATE_CHARS;
+      const { userPrompt, transcriptChars } = renderFor(truncateChars);
       let outcome: Outcome;
       try {
         const result = (await completionService.generateObject({
@@ -345,6 +474,13 @@ async function main(): Promise<void> {
           kind: "ok",
           findingCount: result.findings.length,
           summaryChars: result.summary.length,
+          findingLabels: result.findings.map((f) => {
+            // Read defensively: the reply already passed the arm's schema, but `findings` is
+            // typed `unknown[]` here and a label that came back as a non-string must render
+            // as something inspectable rather than crash the run mid-corpus.
+            const label = (f as { label?: unknown } | null)?.label;
+            return safeTruncate(typeof label === "string" ? label : JSON.stringify(f), 160, "head");
+          }),
         };
       } catch (err) {
         const paths = extractSchemaIssuePaths(err);
@@ -364,6 +500,8 @@ async function main(): Promise<void> {
         promptChars: userPrompt.length,
         // Read off the arm that was actually spread into the request, not off its name.
         mode: arm.mode ?? null,
+        truncateChars,
+        transcriptChars,
         outcome,
       };
       rows.push(row);
@@ -398,10 +536,23 @@ async function main(): Promise<void> {
     }
     const full = armRows.filter((r) => r.fullWindow);
     const partial = armRows.filter((r) => !r.fullWindow);
+    const accepted = armRows.filter((r) => r.outcome.kind === "ok");
+    const findingsTotal = accepted.reduce(
+      (acc, r) => acc + (r.outcome.kind === "ok" ? r.outcome.findingCount : 0),
+      0
+    );
     return {
       arm: arm.name,
       attempted: armRows.length,
-      ok: armRows.filter((r) => r.outcome.kind === "ok").length,
+      ok: accepted.length,
+      // mt#4370's coverage side, reported in the same object as the compliance side so a
+      // paste of this summary cannot show one dimension of the trade without the other.
+      truncateChars: [...new Set(armRows.map((r) => r.truncateChars))],
+      transcriptCharsDelivered: armRows.reduce((acc, r) => acc + r.transcriptChars, 0),
+      promptCharsDelivered: armRows.reduce((acc, r) => acc + r.promptChars, 0),
+      findingsPerAcceptedRun:
+        accepted.length === 0 ? null : Number((findingsTotal / accepted.length).toFixed(4)),
+      findingBearingAcceptedRuns: `${accepted.filter((r) => r.outcome.kind === "ok" && r.outcome.findingCount > 0).length}/${accepted.length}`,
       schemaViolations: violations.length,
       // Reported separately and NEVER folded into the violation count: a provider or
       // transport failure says nothing about whether the model complied with the schema.
@@ -411,6 +562,62 @@ async function main(): Promise<void> {
       partialWindowViolations: `${partial.filter((r) => r.outcome.kind === "schema-violation").length}/${partial.length}`,
     };
   });
+
+  // Dosage: delivered characters per arm as a fraction of PRODUCTION's truncation, which is
+  // mt#4370's certain coverage metric — computed locally, guaranteed non-zero when the dose
+  // differs, and therefore not reachable by the "coverage unchanged" reading that a metric
+  // invariant by construction would have produced.
+  //
+  // The reference is the arm that ran at `MESSAGE_TRUNCATE_CHARS`. If no arm did, dosage is
+  // reported as unavailable rather than re-based on the largest arm present: a ratio against
+  // a substitute denominator is a different quantity wearing the same name.
+  const referenceRows = rows.filter((r) => r.truncateChars === MESSAGE_TRUNCATE_CHARS);
+  const dosage =
+    referenceRows.length === 0
+      ? `unavailable — no arm ran at production's ${MESSAGE_TRUNCATE_CHARS}, so there is no reference dose`
+      : Object.fromEntries(
+          ARMS.map((arm) => {
+            // BOTH sides restricted to the transcripts the arm and the reference share
+            // (PR #3225 R1). Restricting only the denominator was the original shape, and it
+            // is a ratio between two different populations the moment the two sets diverge —
+            // which they do the instant any transcript fails to produce a row for one arm.
+            // Today every arm answers every usable transcript so the sets coincide and the
+            // number is right; a ratio that is only right when nothing goes wrong is the
+            // thing worth fixing, since a divergence here would move the dose silently and
+            // the dose is what the whole trade is denominated in.
+            const refIds = new Set(referenceRows.map((r) => r.conversationId));
+            const armRows = rows.filter((r) => r.arm === arm.name && refIds.has(r.conversationId));
+            // Per-transcript, not per-row: arms can differ in how many rows they produced.
+            const ids = new Set(armRows.map((r) => r.conversationId));
+            const refShared = referenceRows.filter((r) => ids.has(r.conversationId));
+            const sum = (rs: ResultRow[], f: (r: ResultRow) => number): number =>
+              rs.reduce((acc, r) => acc + f(r), 0);
+            const refTranscript = sum(refShared, (r) => r.transcriptChars);
+            const refPrompt = sum(refShared, (r) => r.promptChars);
+            // Surfaced rather than absorbed: a dose computed over fewer transcripts than the
+            // arm actually ran is still a valid ratio, but the reader must be able to see
+            // that it was.
+            const armRowCount = rows.filter((r) => r.arm === arm.name).length;
+            return [
+              arm.name,
+              {
+                truncateChars: arm.truncateChars ?? MESSAGE_TRUNCATE_CHARS,
+                pairedTranscripts: armRows.length,
+                ...(armRows.length === armRowCount
+                  ? {}
+                  : { droppedUnpairedRows: armRowCount - armRows.length }),
+                transcriptDosage:
+                  refTranscript === 0
+                    ? null
+                    : Number((sum(armRows, (r) => r.transcriptChars) / refTranscript).toFixed(4)),
+                promptDosage:
+                  refPrompt === 0
+                    ? null
+                    : Number((sum(armRows, (r) => r.promptChars) / refPrompt).toFixed(4)),
+              },
+            ];
+          })
+        );
 
   console.log("");
   console.log(
@@ -423,6 +630,7 @@ async function main(): Promise<void> {
           // Never collapsed into one "empty" count — see `unusable` above.
           unusable,
           arms: perArm,
+          dosage,
         },
       },
       null,

@@ -22,7 +22,6 @@ import {
   startDeploySmokeSweeper,
   startFollowUpSweeper,
   startConversationPresenceSweeper,
-  startServiceWindowSweeper,
   startSweepMetaWatchdog,
 } from "../../cockpit/sweepers";
 import { installDaemonFileLogging } from "../../cockpit/daemon-file-log";
@@ -738,13 +737,12 @@ export function createStartCommand(): Command {
       // BEFORE the meta-watchdog below so the watchdog covers it like every
       // other sweep.
       const stopConversationPresenceSweeper = startConversationPresenceSweeper();
-      // Service-window runtime (mt#4313): opens attention windows on their cron
-      // schedule, closes them when their duration elapses, and runs the
-      // ServiceWindowReaper that awakens asks suspended against them. All three
-      // halves were built by mt#1489/mt#1490 and never given a caller — this is
-      // that caller. Escalation is deliberately off in v1 (no transport yet);
-      // see the sweeper's docblock.
-      const stopServiceWindowSweeper = startServiceWindowSweeper();
+      // The service-window runtime is NOT started here (mt#4410).
+      //
+      // mt#4313 wired it and mt#4364 fixed it; the principal then retired the
+      // attention-window concept on 2026-08-21. `startServiceWindowSweeper`
+      // still exists in sweepers.ts and is deliberately uncalled — see its
+      // header before wiring it back.
       // Sweep meta-watchdog (mt#2894): a "sweep of sweeps" on its OWN
       // self-rescheduling setTimeout chain (deliberately not setInterval —
       // see sweepers.ts's docblock) that force-restarts any of the
@@ -773,7 +771,6 @@ export function createStartCommand(): Command {
         stopDeploySmokeSweeper();
         stopFollowUpSweeper();
         stopConversationPresenceSweeper();
-        stopServiceWindowSweeper();
         stopStdioLogRotationSweeper();
         stopSweepMetaWatchdog();
         // Aborts the in-flight long poll rather than letting shutdown wait it

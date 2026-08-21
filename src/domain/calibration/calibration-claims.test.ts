@@ -101,6 +101,37 @@ describe("blockingClaims — the R3 case", () => {
   });
 });
 
+describe("blockingClaims — an unidentifiable pass still SEES others' claims (mt#4408)", () => {
+  test("a null actorId is blocked by another actor's fresh claim", () => {
+    const store = storeWith(LOG_A, OTHER, T0);
+    const blocking = blockingClaims(store, [LOG_A], null, T0 + 60_000);
+    expect(blocking.map((c) => c.logPath)).toEqual([LOG_A]);
+    expect(blocking[0]?.actorId).toBe(OTHER);
+  });
+
+  test("a null actorId excludes nothing — every fresh claim is someone else's", () => {
+    // The R4 shape: the losing pass could not name itself, so it holds no
+    // claims and has no self to filter out. Both logs must come back blocking.
+    const store: CalibrationClaimStore = {
+      ...storeWith(LOG_A, OTHER, T0),
+      ...storeWith(LOG_B, ME, T0),
+    };
+    expect(blockingClaims(store, [LOG_A, LOG_B], null, T0 + 60_000).map((c) => c.logPath)).toEqual([
+      LOG_A,
+      LOG_B,
+    ]);
+    // Control: a pass that CAN name itself as ME still filters its own.
+    expect(blockingClaims(store, [LOG_A, LOG_B], ME, T0 + 60_000).map((c) => c.logPath)).toEqual([
+      LOG_A,
+    ]);
+  });
+
+  test("staleness still applies to a null actorId — an expired claim blocks nobody", () => {
+    const store = storeWith(LOG_A, OTHER, T0);
+    expect(blockingClaims(store, [LOG_A], null, T0 + CLAIM_STALE_MS + 1)).toEqual([]);
+  });
+});
+
 describe("withClaims", () => {
   test("takes a claim on each requested path", () => {
     const next = withClaims({}, [LOG_A, LOG_B], ME, ISO_T0);

@@ -2,7 +2,9 @@ import { describe, it, expect } from "bun:test";
 import {
   fisherExactTwoSided,
   mcnemarExactTwoSided,
+  holmAdjust,
   newcombePairedDifferenceCI,
+  pairedBootstrapMeanDifferenceCI,
   wilson,
 } from "./analyze-field-compliance-run";
 
@@ -208,5 +210,109 @@ describe("wilson", () => {
 
   it("returns a degenerate interval for an empty sample rather than NaN", () => {
     expect(wilson(0, 0)).toEqual([0, 0]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#4370 — the window-trade statistics
+// ---------------------------------------------------------------------------
+
+/**
+ * Same standard as above: an expected value that comes from OUTSIDE the implementation.
+ *
+ * For the bootstrap that mostly means checking properties a correct percentile interval must
+ * have and an incorrect one plausibly would not — reproducibility under a fixed seed, coverage
+ * of a known mean, degeneracy on constant input — because the interval has no closed form to
+ * compare against. The Holm cases are checkable directly: the procedure is arithmetic with a
+ * published definition.
+ */
+describe("pairedBootstrapMeanDifferenceCI", () => {
+  it("is reproducible: the same differences and seed give the same interval twice", () => {
+    // The whole pre-registration claim rests on this. An interval that moved between two runs
+    // over one data file would mean the analysis was not fixed in advance after all.
+    const diffs = [0, -1, 0, 0, 2, -1, 0, 0, 1, 0];
+    expect(pairedBootstrapMeanDifferenceCI(diffs)).toEqual(pairedBootstrapMeanDifferenceCI(diffs));
+  });
+
+  it("brackets the sample mean of the differences", () => {
+    const diffs = [0, -1, 0, 0, 2, -1, 0, 0, 1, 0];
+    const mean = diffs.reduce((a, b) => a + b, 0) / diffs.length;
+    const [lo, hi] = pairedBootstrapMeanDifferenceCI(diffs);
+    expect(lo).toBeLessThanOrEqual(mean);
+    expect(hi).toBeGreaterThanOrEqual(mean);
+  });
+
+  it("collapses to a point when every difference is identical", () => {
+    // Every resample of a constant vector has the same mean, so a correct percentile interval
+    // has zero width. A CI that widened here would be reading noise it invented itself.
+    const [lo, hi] = pairedBootstrapMeanDifferenceCI([-1, -1, -1, -1, -1, -1]);
+    expect(lo).toBeCloseTo(-1, 10);
+    expect(hi).toBeCloseTo(-1, 10);
+  });
+
+  it("excludes zero when every pair moves the same direction, and admits it when they do not", () => {
+    // Not a constant vector — that case is covered above, and a constant would make this
+    // pass for the wrong reason. Most pairs lose a finding, a few are unchanged.
+    const mostlyDown = Array.from({ length: 60 }, (_, i) => (i % 5 === 0 ? 0 : -1));
+    const [dLo, dHi] = pairedBootstrapMeanDifferenceCI(mostlyDown);
+    expect(dHi).toBeLessThan(0);
+    expect(dLo).toBeLessThan(dHi);
+
+    const mixed = Array.from({ length: 60 }, (_, i) => (i % 2 === 0 ? 1 : -1));
+    const [mLo, mHi] = pairedBootstrapMeanDifferenceCI(mixed);
+    expect(mLo).toBeLessThan(0);
+    expect(mHi).toBeGreaterThan(0);
+  });
+
+  it("narrows as n grows, on differences drawn from the same fixed pattern", () => {
+    // Width ~ 1/sqrt(n). This is the property that decides whether a null reads as BOUNDED or
+    // as UNDERPOWERED, so it is the one that must not be accidentally inverted.
+    const pattern = (n: number): number[] =>
+      Array.from({ length: n }, (_, i) => (i % 4 === 0 ? 1 : 0));
+    const [sLo, sHi] = pairedBootstrapMeanDifferenceCI(pattern(20));
+    const [lLo, lHi] = pairedBootstrapMeanDifferenceCI(pattern(200));
+    expect(lHi - lLo).toBeLessThan(sHi - sLo);
+  });
+
+  it("returns a degenerate interval for an empty sample rather than NaN", () => {
+    expect(pairedBootstrapMeanDifferenceCI([])).toEqual([0, 0]);
+  });
+});
+
+describe("holmAdjust", () => {
+  it("matches the worked Holm example: multipliers step down 3, 2, 1", () => {
+    // Sorted the input is 0.01, 0.03, 0.04, so the step-down multipliers give 0.03, 0.06, 0.04.
+    // The last is SMALLER than the one before it, and Holm pulls it up to the running maximum —
+    // the enforcement plain Bonferroni has no need of, and the step this implementation could
+    // most plausibly have omitted. Back in input order: 0.01→0.03, 0.04→0.06, 0.03→0.06.
+    expect(holmAdjust([0.01, 0.04, 0.03])).toEqual([0.03, 0.06, 0.06]);
+  });
+
+  it("returns adjusted values in the INPUT's order, not sorted order", () => {
+    // The caller indexes these against its comparison list. A silently sorted return would
+    // attach each p-value to the wrong dose, which no downstream check could catch.
+    const [first, second] = holmAdjust([0.5, 0.001]);
+    expect(second).toBeLessThan(first as number);
+  });
+
+  it("is monotone non-decreasing in the sorted order", () => {
+    const adjusted = holmAdjust([0.001, 0.002, 0.003, 0.9])
+      .slice()
+      .sort((a, b) => a - b);
+    for (let i = 1; i < adjusted.length; i++) {
+      expect(adjusted[i] as number).toBeGreaterThanOrEqual(adjusted[i - 1] as number);
+    }
+  });
+
+  it("caps at 1 rather than reporting a probability above 1", () => {
+    expect(holmAdjust([0.6, 0.7]).every((p) => p <= 1)).toBe(true);
+  });
+
+  it("leaves a single p-value untouched", () => {
+    expect(holmAdjust([0.042])).toEqual([0.042]);
+  });
+
+  it("is exactly Bonferroni for the SMALLEST p-value, which is where the correction binds", () => {
+    expect(holmAdjust([0.01, 0.9])[0]).toBeCloseTo(0.02, 12);
   });
 });
