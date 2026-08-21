@@ -160,7 +160,11 @@ describe("the dispatcher loop enforces per-guard deadlines (mt#3757)", () => {
 
     expect(fireLog.length).toBe(1);
     expect(fireLog[0]?.guardOutcome).toBe("deadline-skipped");
-    expect(fireLog[0]?.budgetExceededMs).toBe(20);
+    // ABSENT, and this pins the semantics rather than the implementation
+    // (PR #3213 R3): `budgetExceededMs` means "crossed the budget and FINISHED
+    // ANYWAY". A skipped guard did not finish, so a present value here would
+    // make the field mean two different things to every reader.
+    expect(fireLog[0]?.budgetExceededMs).toBeUndefined();
     // A skipped guard is a FAILURE for streak purposes — it produced no verdict.
     expect(health.length).toBe(1);
     expect(health[0]?.guardName).toBe("hangs");
@@ -341,7 +345,7 @@ describe("the fire-log record carries a timestamp (PR #3213 R1 evidence)", () =>
     expect(typeof entry?.timestamp).toBe("string");
     // ISO-8601, per docs/architecture/evaluation-loop-fire-log.md's schema.
     expect(Number.isNaN(Date.parse(entry?.timestamp ?? ""))).toBe(false);
-    expect(entry?.budgetExceededMs).toBe(20);
+    expect(entry?.budgetExceededMs).toBeUndefined();
     // And the record parsed at all — readFireLogEntries drops lines failing its
     // validator, so a returned entry proves the widened union accepts the new
     // value rather than silently discarding the record.

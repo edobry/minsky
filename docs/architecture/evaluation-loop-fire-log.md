@@ -62,8 +62,10 @@ interface FireLogEntry {
   // existed carry no evidence either way. See §guardOutcome below.
   guardOutcome?: "decided" | "crashed" | "deadline-skipped";
   durationMs: number; // per-fire cost, not cumulative
-  // mt#3757 — set only when the guard crossed its DECLARED timeoutMs and
-  // finished anyway. Carries the budget it crossed; `durationMs` is the cost.
+  // mt#3757 — set ONLY when the guard crossed its DECLARED timeoutMs and
+  // FINISHED ANYWAY. Carries the budget it crossed; `durationMs` is the cost.
+  // Deliberately ABSENT on a "deadline-skipped" record: that guard did not
+  // finish, so a value there would make the field mean two different things.
   budgetExceededMs?: number;
   overrideEnvVar?: string; // the env-var name that produced the override, if any
   overrideClassification?: "authorized_exception" | "unclassified" | "contested";
@@ -196,6 +198,12 @@ not a different outcome.
 
 `"deadline-skipped"` is the opposite case and _is_ a new value, because that guard
 produced nothing to count.
+
+**The two are mutually exclusive, and that is the contract** (PR #3213 R3):
+`budgetExceededMs` is present ⟺ the guard overran and STILL RETURNED. It is absent on a
+`"deadline-skipped"` record, because that guard did not return. Setting it on both would
+collapse "slow but fine" and "cut off" into one signal at every reader — which is exactly
+what a reader consults this field to tell apart.
 
 **Operator reading.** A rising `budgetExceededMs` population for one guard means its
 declared budget no longer matches reality — re-budget it, or investigate why it slowed.

@@ -1145,7 +1145,13 @@ export async function runDispatcher(
           decision: "allow",
           guardOutcome: "deadline-skipped",
           durationMs,
-          budgetExceededMs: declaredMs,
+          // budgetExceededMs is deliberately ABSENT here (PR #3213 R3). Its
+          // documented meaning is "crossed the declared budget and FINISHED
+          // ANYWAY" — the soft signal. A skipped guard did not finish, so
+          // setting it here contradicted the schema this PR itself wrote, and
+          // made the field ambiguous at every reader: present would have meant
+          // either "slow but fine" or "cut off". `guardOutcome` already carries
+          // the skip, and `durationMs` already carries what it cost.
           toolName: input.tool_name,
           sessionId: input.session_id,
         });
