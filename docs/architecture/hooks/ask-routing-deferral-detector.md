@@ -364,3 +364,70 @@ discipline.
   ADR-028 guard dispatcher (Phase 2a); detection logic and the
   `INJECTION_ENABLED` calibration-first gate are unchanged — see
   "Guard-Dispatcher Framework (ADR-028 Phase 1–2a)" above.
+
+## A revisability offer following a settled decision is suppressed (mt#4175)
+
+The `deferral-menu` family matched "say the word" / "want me to" wherever they appeared and could
+not tell a **deferral** ("I have not decided; you choose") from a **revisability offer** ("I
+decided, I acted, and you can reverse it"). The second is not a deferral at all — it is the
+behaviour `humility.mdc §Stakes filter` prescribes, in those words: _"if the wrong answer costs a
+30-second edit, decide it, take a reasonable default, and say what you picked."_ Saying what you
+picked is what produces the matched phrase.
+
+That inversion is the same one mt#4201 closed for the `principal-reserved` class one class over,
+and it is worse than ordinary noise: it pushes toward silent decisions (drop the revisability
+offer) or genuine deferral (ask first), both worse than the behaviour being penalised. Per mem#719,
+a detector whose correct output sits beside this kind of fire loses credibility for the fires that
+are real.
+
+**Measured across four independent windows** before the fix: 3 of 11 injected (2026-08-16), 3 of 14
+(2026-08-18), 2 of 10 (2026-08-20), and the single `offer-shape` fire left standing on the sibling
+`operator-deferral` surface once mt#4311 silenced the English-conjunction class (2026-08-21).
+
+### The discriminator, and the scope it runs at
+
+`SETTLED_DECISION_PATTERNS` matches a completed or in-progress FIRST-PERSON action of the agent's
+own, tested against `DeferralMatch.context` — the matched sentence **plus one lead sentence** — and
+scoped to the `deferral-menu` class at the call site.
+
+Three choices carry their own cost, so each is stated rather than assumed:
+
+- **Why `context`, not `sentence`.** Too narrow misses the measured shape where the decision sits in
+  the preceding sentence (_"I filed mt#4243 as tracking … Say the word if you want it built now."_).
+  Too wide — the whole turn — suppresses a genuine deferral that merely shares a turn with an
+  unrelated decision, and a long turn almost always contains one. `context` is also the window a
+  calibration reviewer classifies from, so the suppression is tested at the scope the class was
+  MEASURED at rather than one chosen afterwards.
+- **Why `deferral-menu` only.** A settled decision does not make _"rotating that token is your
+  call"_ any less the principal's. The detector's subject is CHANNEL, not judgment, and that
+  sentence is in the regression floor as a fire that must survive.
+- **Why not shared with the sibling's array of the same name.** `operator-deferral-detector`'s
+  `SETTLED_DECISION_PATTERNS` is tuned to a different corpus (resourcing reasons — `with fresh
+context`, `this turn has run long`), so a lift would be a merge rather than a move; and mt#4175's
+  scope puts other detectors explicitly out of bounds. mt#4070 is where the merge belongs, with both
+  corpora in hand. The two arrays agree on the LINE, recorded in the sibling's docblock: _a
+  completed or firmly-stated decision of the agent's own is not a decision being handed over; a
+  proposed next step is._ mt#3801 owns the second half; this owns the first.
+
+### The residual is measured, not implicit
+
+The fix reaches **4 of the 6** recorded contexts. The two it does not reach carry no first-person
+decision verb at all:
+
+- _"Say the word if you want a handoff doc for picking this up later."_ — an additive offer nobody
+  is waiting on.
+- _"…that's a different kind of work; say the word if you'd rather do that instead."_ — where the
+  decision-taken marker is the ABSENCE of a change in course.
+
+What those two share with the four is that **nothing is blocked pending the answer**; whether that
+property is mechanically detectable is open. Both are pinned by tests that assert they STILL FIRE,
+so a later change that reaches them is visible rather than silent — if one starts passing, that is a
+result to record, not a test to delete.
+
+Per ADR-024 sign-off (b), the sufficiency bar is _"0 known-FP AND ≤5% new false-negative"_, so this
+is a measured Rung-1 result with a named residual rather than a claim of sufficiency. Per the ladder,
+that residual is the evidence gate for any later climb — and Rung-3 cost is a principal decision
+gated behind measured insufficiency, which this task produces rather than spends.
+
+`scripts/replay-settled-decision.ts` is the measurement, and it exits non-zero if the regression
+floor breaks.
