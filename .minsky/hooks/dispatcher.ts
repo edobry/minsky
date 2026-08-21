@@ -897,6 +897,103 @@ function renderMergedBlock(
  *      early-continue, so a "matched but produced nothing" silent-allow is
  *      captured too, per the RFC's fire-log schema.
  */
+// ---------------------------------------------------------------------------
+// Per-guard deadlines (mt#3757)
+// ---------------------------------------------------------------------------
+
+/**
+ * Priority for the notice a hard-deadline skip contributes to the merged block.
+ *
+ * Above {@link DEFAULT_CONTEXT_PRIORITY} deliberately. Every other fragment
+ * says something a guard DECIDED; this one says a guard's verdict is MISSING,
+ * and a reader who does not learn that will read the turn's silence as an
+ * all-clear. If the budget forces a drop, dropping the notice that explains a
+ * gap in favour of the reminders that survived inverts the point.
+ */
+export const DEADLINE_NOTICE_PRIORITY = 100;
+
+/** Injectable timer seam, so a test need not wait real wall-clock time. */
+export interface DeadlineTimers {
+  setTimeout: (fn: () => void, ms: number) => unknown;
+  clearTimeout: (handle: unknown) => void;
+}
+
+const REAL_TIMERS: DeadlineTimers = {
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+export type DeadlineResult<T> = { timedOut: false; value: T } | { timedOut: true };
+
+/**
+ * Await `work`, giving up after `deadlineMs`.
+ *
+ * WHAT THIS DOES NOT DO, because the difference decides which failures it can
+ * bound at all: it does not CANCEL. `Promise.race` has no such power — the
+ * losing promise keeps running in this process until it settles or the process
+ * exits. The dispatcher stops WAITING on a guard; it does not stop the guard.
+ *
+ * And it cannot bound a SYNCHRONOUS hang. A guard that spins without yielding
+ * blocks the event loop, so the timer below never gets to fire and the host cap
+ * kills the whole process exactly as it does today. What it does bound is an
+ * ASYNC hang — an awaited DB connect, fetch, or subprocess that never settles —
+ * which is the case this task was filed for. Both limits are enumerated in
+ * mt#3757's `### Does NOT cover`; bounding the synchronous case needs subprocess
+ * isolation and is explicitly out of scope.
+ *
+ * The timer is ALWAYS cleared, including on the fast path. A pending
+ * `setTimeout` keeps the runtime alive, so leaking one here would delay the exit
+ * of every hook process by up to its slowest guard's deadline.
+ */
+export async function runWithDeadline<T>(
+  work: Promise<T>,
+  deadlineMs: number,
+  timers: DeadlineTimers = REAL_TIMERS
+): Promise<DeadlineResult<T>> {
+  let handle: unknown;
+  try {
+    return await Promise.race<DeadlineResult<T>>([
+      work.then((value) => ({ timedOut: false as const, value })),
+      new Promise<DeadlineResult<T>>((resolve) => {
+        handle = timers.setTimeout(() => resolve({ timedOut: true }), deadlineMs);
+      }),
+    ]);
+  } finally {
+    if (handle !== undefined) timers.clearTimeout(handle);
+  }
+}
+
+/**
+ * The deadline a guard is actually cut off at: its own declared budget plus
+ * whatever earlier guards on this event left unspent.
+ *
+ * Why slack rather than a flat per-guard cut, measured (mt#3757): the 25
+ * `UserPromptSubmit` guards declare 210s in total — which IS settings.json's
+ * derived 215s cap — while nearly all of them return in under 2s. Ten of 56
+ * registered guards have ALREADY exceeded their declared budget in production,
+ * `memory-search` on 25 of 35 active days with a 132s maximum against a 10s
+ * declaration. A flat cut at the declared value would newly kill memory
+ * injection on 1-2% of turns in the quiet regime and 10-35% on its worst days.
+ * The slack is real, large, and is what lets a legitimately slow guard finish
+ * today without starving anyone — so it is what the deadline is built on.
+ */
+export function computeHardDeadlineMs(declaredMs: number, slackMs: number): number {
+  return declaredMs + Math.max(0, slackMs);
+}
+
+/**
+ * Slack after a guard has run: unspent budget accrues, overrun draws it down.
+ *
+ * Clamped at zero. It cannot go negative while the caller respects the deadline
+ * — a guard admitted at `declared + slack` can overdraw by at most `slack` —
+ * but the clamp keeps that an invariant of THIS function rather than of its
+ * caller, so a future call site cannot silently create negative slack and hand
+ * a later guard a deadline shorter than its own declared budget.
+ */
+export function nextSlackMs(slackMs: number, declaredMs: number, durationMs: number): number {
+  return Math.max(0, slackMs + (declaredMs - durationMs));
+}
+
 export async function runDispatcher(
   event: LifecycleEvent,
   options: RunDispatcherOptions
@@ -931,6 +1028,10 @@ export async function runDispatcher(
   // WHICH guard won so a later guard's discarded rewrite can name it.
   let updatedInput: Record<string, unknown> | undefined;
   let updatedInputKeptBy: string | undefined;
+  // mt#3757: budget left unspent by the guards that already ran on this event.
+  // Guards run SERIALLY, so an earlier guard finishing under its declaration
+  // genuinely frees that time for a later one — see computeHardDeadlineMs.
+  let slackMs = 0;
   for (const reg of matched) {
     const evalStartMs = nowMs();
     const override = checkOverride(reg.name, process.env, { knownGuardNames, stderrWrite });
@@ -966,14 +1067,88 @@ export async function runDispatcher(
         toolName: input.tool_name,
         sessionId: input.session_id,
       });
+      // mt#3757: an overridden guard did not run, so its whole declared budget
+      // is unspent and accrues to the guards behind it.
+      slackMs = nextSlackMs(slackMs, reg.timeoutMs, nowMs() - evalStartMs);
       continue;
     }
 
+    const declaredMs = reg.timeoutMs;
+    const hardDeadlineMs = computeHardDeadlineMs(declaredMs, slackMs);
+    // Set on the success path when the guard crossed its SOFT budget; threaded
+    // to the fire-log record below so a slow-but-correct guard is visible
+    // without being reclassified away from `decided`.
+    let budgetExceededMs: number | undefined;
+
     let outcome: GuardRunResult;
     try {
-      const mod = await reg.module();
-      outcome = await mod.run(input, ctx);
+      // The module LOAD is inside the deadline too, not just `run()`. A guard
+      // whose dynamic import hangs costs the turn exactly as much as one whose
+      // body hangs, and bounding only the half after the import would leave the
+      // cold path — the one that actually touches the filesystem — unbounded.
+      const raced = await runWithDeadline(
+        (async () => {
+          const mod = await reg.module();
+          return await mod.run(input, ctx);
+        })(),
+        hardDeadlineMs
+      );
+
+      if (raced.timedOut) {
+        const durationMs = nowMs() - evalStartMs;
+        stderrWrite(
+          `[dispatcher:${event}] guard=${reg.name} exceeded its ${hardDeadlineMs}ms deadline ` +
+            `(declared ${declaredMs}ms + ${slackMs}ms slack) and was SKIPPED\n`
+        );
+        // Guard-health's FAILURE half, same call the crash branch below makes.
+        // A guard that never answers is unhealthy in the sense that tracker
+        // measures — the streak is the point — so it is recorded, not merely
+        // logged. `recordError` never throws (mt#2812).
+        recordError({
+          guardName: reg.name,
+          event,
+          error: new Error(
+            `guard exceeded its ${hardDeadlineMs}ms hard deadline and was skipped (mt#3757)`
+          ),
+          toolName: input.tool_name,
+          sessionId: input.session_id,
+        });
+        recordFireLog({
+          guardName: reg.name,
+          event,
+          decision: "allow",
+          guardOutcome: "deadline-skipped",
+          durationMs,
+          budgetExceededMs: declaredMs,
+          toolName: input.tool_name,
+          sessionId: input.session_id,
+        });
+        // NAMED, never silent — the same contract renderMergedBlock's omission
+        // notice keeps. A skipped guard's silence is otherwise indistinguishable
+        // from a guard that ran and had nothing to say.
+        contextFragments.push({
+          guardName: reg.name,
+          priority: DEADLINE_NOTICE_PRIORITY,
+          text:
+            `[dispatcher] guard \`${reg.name}\` exceeded its ${hardDeadlineMs}ms deadline and was ` +
+            `skipped. Its verdict is MISSING from this turn — absent because it never answered, ` +
+            `not because it had nothing to say.`,
+        });
+        // It consumed the whole pool, so nothing is left for the guards behind
+        // it. Not merely `nextSlackMs(...)`: that would clamp to 0 anyway here,
+        // but stating it makes the intent legible rather than incidental.
+        slackMs = 0;
+        continue;
+      }
+
+      outcome = raced.value;
+      const durationMs = nowMs() - evalStartMs;
+      if (durationMs > declaredMs) budgetExceededMs = declaredMs;
+      slackMs = nextSlackMs(slackMs, declaredMs, durationMs);
     } catch (err) {
+      // mt#3757: a crashed guard still consumed real time; account for it so a
+      // guard that throws slowly does not hand its unspent budget onward.
+      slackMs = nextSlackMs(slackMs, declaredMs, nowMs() - evalStartMs);
       stderrWrite(
         `[dispatcher:${event}] guard=${reg.name} threw: ${err instanceof Error ? err.message : String(err)}\n`
       );
@@ -1026,6 +1201,11 @@ export async function runDispatcher(
       // guard ran cleanly — the only kind guard-health's recovery join counts.
       guardOutcome: "decided",
       durationMs: nowMs() - evalStartMs,
+      // mt#3757: present ONLY when the guard crossed its declared budget and
+      // finished anyway. It stays `decided` on purpose — see
+      // {@link FireLogEntry.budgetExceededMs} for why an overrun is a fact
+      // about cost rather than a different outcome.
+      ...(budgetExceededMs !== undefined ? { budgetExceededMs } : {}),
       toolName: input.tool_name,
       sessionId: input.session_id,
     });
