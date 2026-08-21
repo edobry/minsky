@@ -1441,6 +1441,10 @@ export interface ServiceWindowTickOutcome extends SweepTickResult {
 }
 
 /**
+ * RETIRED with the service-window concept (mt#4410) — reachable only from
+ * {@link startServiceWindowSweeper}, which the daemon no longer calls. Read that
+ * function's header before reviving anything here. Its tests still run.
+ *
  * The service-window tick's decisions, with its IO injected (mt#4313).
  *
  * Extracted from the sweeper above for the same reason
@@ -1536,6 +1540,10 @@ export async function runServiceWindowTick(deps: {
 }
 
 /**
+ * RETIRED with the service-window concept (mt#4410) — reachable only from
+ * {@link startServiceWindowSweeper}, which the daemon no longer calls. Nothing
+ * subscribes to the window channels now; read that function's header first.
+ *
  * Subscribe a reaper to the two window NOTIFY channels.
  *
  * Uses the provider's MEMOIZED listen-capable connection
