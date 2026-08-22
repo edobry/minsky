@@ -235,10 +235,12 @@ describe("classifyUserLineOrigin — dispatch_brief (mt#4401)", () => {
   test("either marker alone is sufficient", () => {
     const promptOnly = {
       type: "user",
+      isSidechain: true,
       message: { role: "user", content: "do the work\n<!-- minsky:prompt:v1 -->" },
     };
     const stampOnly = {
       type: "user",
+      isSidechain: true,
       message: {
         role: "user",
         content: "do the work\n<!-- minsky:dispatch:v1 parent=x tool_use=y -->",
@@ -251,6 +253,7 @@ describe("classifyUserLineOrigin — dispatch_brief (mt#4401)", () => {
   test("array-shaped content is searched too, not just a string", () => {
     const arrayContent = {
       type: "user",
+      isSidechain: true,
       message: {
         role: "user",
         content: [{ type: "text", text: "brief\n<!-- minsky:prompt:v1 -->" }],
@@ -275,10 +278,9 @@ describe("classifyUserLineOrigin — dispatch_brief (mt#4401)", () => {
 });
 
 describe("classifyUserLineOrigin — the marker is not a prefix heuristic (mt#4401)", () => {
-  test("an operator QUOTING a watermark in prose stays human", () => {
-    // mt#3405's live hazard: `check-prompt-watermark` already false-positives on
-    // analytical prose quoting one. An explicit `origin.kind: "human"` outranks
-    // the marker, which is why the dispatch check sits LAST in the precedence.
+  test("an operator QUOTING a watermark, WITH harness fields, stays human", () => {
+    // Passes at `origin.kind`, three steps before the marker check. Kept, but
+    // note what it does NOT prove — see the unstamped case below.
     const operatorQuoting = {
       type: "user",
       origin: { kind: "human" },
@@ -291,6 +293,44 @@ describe("classifyUserLineOrigin — the marker is not a prefix heuristic (mt#44
     expect(classifyUserLineOrigin(operatorQuoting)).toBe(OPERATOR_ORIGIN);
   });
 
+  test("an operator quoting a watermark on an UNSTAMPED line stays human", () => {
+    // PR #3242 R1, BLOCKING — and the test above could not have caught it. That
+    // one hands the line `origin.kind: "human"`, so it resolves at step 3 and
+    // never reaches the marker check at all: it passed whether or not the
+    // marker logic was safe, which is mem#704's can't-fail probe wearing a
+    // negative control's clothing.
+    //
+    // This is the real case. `origin`/`promptSource` are recent fields, so every
+    // pre-`origin` operator message is unstamped — and mt#3405 records this
+    // exact prose (analytical text quoting a watermark) as a live false-positive
+    // source. Before the structural corroborator, this returned dispatch_brief.
+    const unstamped = {
+      type: "user",
+      message: {
+        role: "user",
+        content: "why does <!-- minsky:prompt:v1 --> show up in the rendered turn?",
+      },
+    };
+    expect(classifyUserLineOrigin(unstamped)).toBe(OPERATOR_ORIGIN);
+  });
+
+  test("the marker needs corroboration, and corroboration needs the marker", () => {
+    // Pins that NEITHER conjunct classifies on its own — the property the fix
+    // rests on, in one place, so a later edit cannot quietly drop one side.
+    const markerOnly = {
+      type: "user",
+      message: { role: "user", content: "brief\n<!-- minsky:prompt:v1 -->" },
+    };
+    const sidechainOnly = {
+      type: "user",
+      isSidechain: true,
+      agentId: "a335fb8b",
+      message: { role: "user", content: "ordinary text with no marker" },
+    };
+    expect(classifyUserLineOrigin(markerOnly)).toBe(OPERATOR_ORIGIN);
+    expect(classifyUserLineOrigin(sidechainOnly)).toBe(OPERATOR_ORIGIN);
+  });
+
   test("TASK_PROMPT_WATERMARK is NOT a dispatch marker", () => {
     // `<!-- minsky:task-prompt:v1 -->` marks prompts `tasks decompose|estimate|
     // analyze` generate FOR A HUMAN TO PASTE. A turn carrying it is the operator
@@ -298,6 +338,7 @@ describe("classifyUserLineOrigin — the marker is not a prefix heuristic (mt#44
     // This is the test that stops "it's a Minsky marker" becoming the rule.
     const pastedTaskPrompt = {
       type: "user",
+      isSidechain: true, // even WITH corroboration, this marker must not classify
       message: {
         role: "user",
         content: "Decompose mt#123 into subtasks.\n\n<!-- minsky:task-prompt:v1 -->",
@@ -310,6 +351,7 @@ describe("classifyUserLineOrigin — the marker is not a prefix heuristic (mt#44
     const metaWithWatermark = {
       type: "user",
       isMeta: true,
+      isSidechain: true,
       message: { role: "user", content: "skill body\n<!-- minsky:prompt:v1 -->" },
     };
     expect(classifyUserLineOrigin(metaWithWatermark)).toBe(HARNESS_META_ORIGIN);
@@ -326,6 +368,7 @@ describe("the duplicated dispatch-stamp token stays in sync (mt#4401)", () => {
     );
     const stampOnly = {
       type: "user",
+      isSidechain: true,
       message: {
         role: "user",
         content: `brief\n<!-- ${DISPATCH_STAMP_VERSION} parent=x tool_use=y -->`,

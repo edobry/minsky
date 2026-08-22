@@ -39,7 +39,7 @@
  */
 
 import { readdirSync, readFileSync, existsSync, statSync } from "fs";
-import { join } from "path";
+import { join, sep } from "path";
 import { homedir } from "os";
 
 import {
@@ -134,7 +134,12 @@ function collectTranscripts(dir: string, wantSubagents = false): string[] {
         // A subagent transcript's user lines are dispatch briefs and tool
         // results, not operator speech. Averaging the two populations together
         // makes the operator share meaningless, so each scan takes exactly one.
-        if (path.includes("/subagents/") === wantSubagents) found.push(path);
+        // Segment-wise, not a substring on "/subagents/": that is POSIX-only
+        // and silently inverts the population on a `\`-separator platform
+        // (PR #3242 R1). Splitting on `sep` asks the question the path
+        // structure actually answers.
+        const inSubagents = path.split(sep).includes("subagents");
+        if (inSubagents === wantSubagents) found.push(path);
       } else if (entry.isDirectory()) {
         walk(path, depth + 1);
       }

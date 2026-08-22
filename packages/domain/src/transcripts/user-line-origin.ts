@@ -133,6 +133,29 @@ function carriesDispatchMarker(text: string): boolean {
   return text.includes(PROMPT_WATERMARK) || text.includes(DISPATCH_STAMP_TOKEN);
 }
 
+/**
+ * Structural corroboration that this record IS a dispatch, not prose ABOUT one.
+ *
+ * `isSidechain` / `agentId` are both present on a real subagent transcript's
+ * opening line and absent from an ordinary conversation turn. Used ONLY as a
+ * conjunct with {@link carriesDispatchMarker} — never alone, which is the
+ * distinction that matters and the reason the sibling test asserting
+ * "isSidechain is NOT the discriminator" still holds. Alone it labels by
+ * LOCATION rather than authorship, so an operator message inside a sidechain
+ * would be mislabeled; paired with a marker it answers a different and
+ * answerable question — is this the record a dispatch produced?
+ *
+ * The cost, stated: a watermark-bearing turn in a ROOT conversation is no
+ * longer classified `dispatch_brief`. Measured at 1 such turn against the
+ * misclassification risk this removes, and the fail-open-to-operator policy
+ * says to err this way.
+ */
+function isSubagentRecord(line: unknown): boolean {
+  if (readField(line, "isSidechain") === true) return true;
+  const agentId = readField(line, "agentId");
+  return typeof agentId === "string" && agentId.trim().length > 0;
+}
+
 /** The text a user-role line carries, whether `content` is a string or blocks. */
 function userLineText(line: unknown): string | null {
   const message = readField(line, "message");
@@ -209,9 +232,11 @@ const OPERATOR_PROMPT_SOURCES: ReadonlySet<string> = new Set(["typed", "queued"]
  *    conclusive and returns operator EVEN IF `promptSource` says otherwise —
  *    the writer is a stronger statement than the delivery channel.
  * 4. `promptSource` last, as a fallback for lines carrying no `origin`.
- * 5. A Minsky dispatch marker in the TEXT — the only signal a dispatch prompt
- *    carries, since it is ours rather than the harness's. Last, so any explicit
- *    harness verdict above outranks it.
+ * 5. A Minsky dispatch marker in the TEXT **and** structural corroboration that
+ *    the record is a subagent transcript's. The marker is the only signal a
+ *    dispatch prompt carries, since it is ours rather than the harness's; the
+ *    corroborator is what stops an operator QUOTING one from matching. Last, so
+ *    any explicit harness verdict above outranks both.
  * 6. Otherwise operator, per the fail-open rationale in this module's header.
  *
  * Takes `unknown` rather than `RawTurnLine` deliberately. Three different types
@@ -242,8 +267,21 @@ export function classifyUserLineOrigin(line: unknown): UserTextOrigin {
   // always wins. In particular `origin.kind: "human"` beats a watermark, which
   // is what keeps an operator PASTING a generated prompt classified as the
   // operator (mt#3405's hazard).
+  // mt#4401 — LAST before the fail-open, and deliberately so. A Minsky dispatch
+  // prompt carries none of the four harness fields above, so this is the only
+  // check that can catch it; putting it last means an explicit harness verdict
+  // always wins.
+  //
+  // BOTH conjuncts are required (PR #3242 R1, BLOCKING). The marker alone
+  // misclassifies an operator who QUOTES a watermark in a message the harness
+  // never stamped — pre-`origin` history, or any unstamped line. That is not
+  // hypothetical: mt#3405 records `check-prompt-watermark` false-positiving on
+  // exactly this prose. The corroborator is what separates "this text mentions
+  // a watermark" from "this record IS a dispatch".
   const text = userLineText(line);
-  if (text !== null && carriesDispatchMarker(text)) return DISPATCH_BRIEF_ORIGIN;
+  if (text !== null && carriesDispatchMarker(text) && isSubagentRecord(line)) {
+    return DISPATCH_BRIEF_ORIGIN;
+  }
 
   return OPERATOR_ORIGIN;
 }
