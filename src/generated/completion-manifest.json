@@ -5635,7 +5635,7 @@
               "options": [
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Max seconds to wait (default 600; clamped to [1, 1800])",
+                  "description": "Max seconds to wait (default 600; clamped to [1, 1800]). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
@@ -6042,7 +6042,7 @@
                 },
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes).",
+                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes). NOTE (mt#4455): over MCP this command emits no progress, so the transport's idle timeout (~225s measured) can end the call before this budget elapses.",
                   "takesValue": true
                 },
                 {
